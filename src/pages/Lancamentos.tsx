@@ -8,7 +8,8 @@ import type { Lancamento } from '@/types/financial';
 
 export default function Lancamentos() {
   const { state, dispatch } = useFinancial();
-  const [filtroMes, setFiltroMes] = useState('2026-02');
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [filtroMes, setFiltroMes] = useState(currentMonth);
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<'' | 'receita' | 'despesa'>('');
   const [busca, setBusca] = useState('');
@@ -32,6 +33,21 @@ export default function Lancamentos() {
 
   const getCategoriaLabel = (val: string) =>
     CATEGORIAS_GASTO.find(c => c.value === val)?.label || val.charAt(0).toUpperCase() + val.slice(1);
+
+  const mesesDisponiveis = useMemo(() => {
+    const mesesSet = new Set<string>();
+    state.lancamentos.forEach(l => {
+      const ym = l.data.slice(0, 7);
+      if (ym) mesesSet.add(ym);
+    });
+    // Always include current month
+    mesesSet.add(currentMonth);
+    return Array.from(mesesSet).sort().reverse().map(ym => {
+      const [y, m] = ym.split('-').map(Number);
+      const label = new Date(y, m - 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
+      return { value: ym, label: label.charAt(0).toUpperCase() + label.slice(1) };
+    });
+  }, [state.lancamentos, currentMonth]);
 
   const totalReceitas = registros.filter(r => r.tipo === 'receita').reduce((s, r) => s + r.valor, 0);
   const totalGastos = registros.filter(r => r.tipo === 'despesa').reduce((s, r) => s + r.valor, 0);
@@ -78,10 +94,11 @@ export default function Lancamentos() {
             className="w-full h-9 pl-8 pr-3 rounded-xl bg-secondary text-xs text-foreground placeholder:text-muted-foreground outline-none" />
         </div>
         <div className="flex gap-2 flex-wrap">
-          <select value={filtroMes} onChange={e => setFiltroMes(e.target.value)}
+         <select value={filtroMes} onChange={e => setFiltroMes(e.target.value)}
             className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">
-            <option value="2026-02">Fev 2026</option>
-            <option value="2026-01">Jan 2026</option>
+            {mesesDisponiveis.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
             <option value="">Todos</option>
           </select>
           <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}
@@ -117,7 +134,7 @@ export default function Lancamentos() {
               </div>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-[10px] text-muted-foreground">
-                  {new Date(r.data).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                  {(() => { const [y, m, d] = r.data.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }); })()}
                 </span>
                 <span className="text-[10px] text-muted-foreground">·</span>
                 <span className="text-[10px] text-muted-foreground">{getCategoriaLabel(r.categoria)}</span>
