@@ -1,34 +1,32 @@
 import { useState, useMemo } from 'react';
-import { calcularGastoTotal, calcularRendaTotal, mockContasFixas, mockGastos, mockMetas } from '@/data/mockData';
+import { useFinancial, useIndicadores } from '@/context/FinancialContext';
+import { simular } from '@/lib/engine';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 export default function Planejamento() {
-  const renda = calcularRendaTotal();
-  const gastoFixoTotal = mockContasFixas.reduce((s, c) => s + c.valor, 0);
-  const gastoVariavelTotal = mockGastos.reduce((s, g) => s + g.valor, 0);
-  const gastoTotal = gastoFixoTotal + gastoVariavelTotal;
-  const saldoAtual = renda - gastoTotal;
+  const { state } = useFinancial();
+  const ind = useIndicadores('2026-02');
 
   const [reducaoFixo, setReducaoFixo] = useState(0);
   const [reducaoVariavel, setReducaoVariavel] = useState(0);
+  const [aumentoRenda, setAumentoRenda] = useState(0);
   const [aumentoAporte, setAumentoAporte] = useState(0);
 
-  const novoGastoFixo = gastoFixoTotal * (1 - reducaoFixo / 100);
-  const novoGastoVariavel = gastoVariavelTotal * (1 - reducaoVariavel / 100);
-  const novoSaldo = renda - novoGastoFixo - novoGastoVariavel + aumentoAporte;
+  const resultado = useMemo(() => simular(state, { reducaoFixo, reducaoVariavel, aumentoRenda, aumentoAporte }), [state, reducaoFixo, reducaoVariavel, aumentoRenda, aumentoAporte]);
 
-  const metaPrincipal = mockMetas.find((m) => m.prioridade === 'alta');
+  const saldoAtual = ind.saldoMes;
+  const metaPrincipal = state.metas.find(m => m.prioridade === 'alta' && m.status === 'ativa');
   const restanteMeta = metaPrincipal ? metaPrincipal.valor_objetivo - metaPrincipal.valor_atual : 0;
   const mesesAtual = saldoAtual > 0 && restanteMeta > 0 ? Math.ceil(restanteMeta / saldoAtual) : null;
-  const mesesSimulado = novoSaldo > 0 && restanteMeta > 0 ? Math.ceil(restanteMeta / novoSaldo) : null;
 
   const chartData = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => ({
+    const projecaoAtual = Array.from({ length: 12 }, (_, i) => Math.round(ind.patrimonioLiquido + saldoAtual * (i + 1)));
+    return resultado.projecao12.map((v, i) => ({
       mes: `Mês ${i + 1}`,
-      atual: Math.round(saldoAtual * (i + 1)),
-      simulado: Math.round(novoSaldo * (i + 1)),
+      atual: projecaoAtual[i],
+      simulado: v,
     }));
-  }, [saldoAtual, novoSaldo]);
+  }, [ind.patrimonioLiquido, saldoAtual, resultado.projecao12]);
 
   return (
     <div className="space-y-5 pt-2">
@@ -39,11 +37,11 @@ export default function Planejamento() {
         <h3 className="text-xs text-muted-foreground font-medium mb-3">Resumo do mês atual</h3>
         <div className="space-y-2">
           {[
-            { label: 'Renda', value: renda },
-            { label: 'Gastos fixos', value: gastoFixoTotal },
-            { label: 'Gastos variáveis', value: gastoVariavelTotal },
+            { label: 'Renda', value: ind.rendaTotal },
+            { label: 'Gastos fixos', value: ind.gastosFixos },
+            { label: 'Gastos variáveis', value: ind.gastosVariaveis },
             { label: 'Saldo mensal', value: saldoAtual, highlight: true },
-          ].map((item) => (
+          ].map(item => (
             <div key={item.label} className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">{item.label}</span>
               <span className={`text-sm font-semibold ${item.highlight ? (saldoAtual > 0 ? 'text-success' : 'text-destructive') : 'text-foreground'}`}>
@@ -57,42 +55,26 @@ export default function Planejamento() {
       {/* Campos editáveis */}
       <div className="ios-card p-4 space-y-4">
         <h3 className="text-xs text-muted-foreground font-medium">Cenário simulado</h3>
-
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-foreground">Redução gastos fixos</span>
-            <span className="text-xs font-semibold text-foreground">{reducaoFixo}%</span>
+        {[
+          { label: 'Redução gastos fixos', value: reducaoFixo, set: setReducaoFixo, max: 50, suffix: '%' },
+          { label: 'Redução gastos variáveis', value: reducaoVariavel, set: setReducaoVariavel, max: 50, suffix: '%' },
+          { label: 'Aumento de renda', value: aumentoRenda, set: setAumentoRenda, max: 5000, suffix: '', step: 100 },
+          { label: 'Aumento de aporte', value: aumentoAporte, set: setAumentoAporte, max: 3000, suffix: '', step: 100 },
+        ].map(item => (
+          <div key={item.label} className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-foreground">{item.label}</span>
+              <span className="text-xs font-semibold text-foreground">
+                {item.suffix === '%' ? `${item.value}%` : `R$ ${item.value}`}
+              </span>
+            </div>
+            <input
+              type="range" min={0} max={item.max} step={item.step || 1} value={item.value}
+              onChange={e => item.set(+e.target.value)}
+              className="w-full h-1 rounded-full appearance-none bg-secondary accent-foreground"
+            />
           </div>
-          <input
-            type="range" min={0} max={50} value={reducaoFixo}
-            onChange={(e) => setReducaoFixo(+e.target.value)}
-            className="w-full h-1 rounded-full appearance-none bg-secondary accent-foreground"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-foreground">Redução gastos variáveis</span>
-            <span className="text-xs font-semibold text-foreground">{reducaoVariavel}%</span>
-          </div>
-          <input
-            type="range" min={0} max={50} value={reducaoVariavel}
-            onChange={(e) => setReducaoVariavel(+e.target.value)}
-            className="w-full h-1 rounded-full appearance-none bg-secondary accent-foreground"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-foreground">Aumento de aporte mensal</span>
-            <span className="text-xs font-semibold text-foreground">R$ {aumentoAporte}</span>
-          </div>
-          <input
-            type="range" min={0} max={3000} step={100} value={aumentoAporte}
-            onChange={(e) => setAumentoAporte(+e.target.value)}
-            className="w-full h-1 rounded-full appearance-none bg-secondary accent-foreground"
-          />
-        </div>
+        ))}
       </div>
 
       {/* Comparação */}
@@ -105,8 +87,18 @@ export default function Planejamento() {
           </div>
           <div>
             <p className="text-[10px] text-muted-foreground uppercase">Saldo simulado</p>
-            <p className={`text-sm font-bold ${novoSaldo > saldoAtual ? 'text-success' : 'text-foreground'}`}>
-              R$ {Math.round(novoSaldo).toLocaleString('pt-BR')}
+            <p className={`text-sm font-bold ${resultado.saldoSimulado > saldoAtual ? 'text-success' : 'text-foreground'}`}>
+              R$ {resultado.saldoSimulado.toLocaleString('pt-BR')}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase">Renda comprometida atual</p>
+            <p className="text-sm font-bold text-foreground">{ind.rendaComprometida}%</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase">Renda comprometida simulada</p>
+            <p className={`text-sm font-bold ${resultado.rendaComprometida < ind.rendaComprometida ? 'text-success' : 'text-foreground'}`}>
+              {resultado.rendaComprometida}%
             </p>
           </div>
           {metaPrincipal && (
@@ -117,8 +109,8 @@ export default function Planejamento() {
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase">Com simulação</p>
-                <p className={`text-sm font-bold ${mesesSimulado && mesesAtual && mesesSimulado < mesesAtual ? 'text-success' : 'text-foreground'}`}>
-                  {mesesSimulado ? `${mesesSimulado} meses` : '—'}
+                <p className={`text-sm font-bold ${resultado.tempoMeta && mesesAtual && resultado.tempoMeta < mesesAtual ? 'text-success' : 'text-foreground'}`}>
+                  {resultado.tempoMeta ? `${resultado.tempoMeta} meses` : '—'}
                 </p>
               </div>
             </>
@@ -134,13 +126,7 @@ export default function Planejamento() {
             <XAxis dataKey="mes" tick={{ fontSize: 9, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} interval={1} />
             <YAxis hide />
             <Tooltip
-              contentStyle={{
-                background: 'hsl(0,0%,100%)',
-                border: 'none',
-                borderRadius: '10px',
-                fontSize: '10px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-              }}
+              contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
               formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
             />
             <Line type="monotone" dataKey="atual" stroke="hsl(0,0%,80%)" strokeWidth={1.5} dot={false} name="Atual" />
