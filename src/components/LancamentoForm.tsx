@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useFinancial } from '@/context/FinancialContext';
@@ -11,12 +11,11 @@ interface Props {
   lancamento?: Lancamento | null;
 }
 
-export function LancamentoForm({ open, onOpenChange, lancamento }: Props) {
-  const { dispatch } = useFinancial();
-  const isEdit = !!lancamento;
-
-  const [form, setForm] = useState<Omit<Lancamento, 'id'>>({
-    data: lancamento?.data || new Date().toISOString().slice(0, 10),
+function getDefaultForm(lancamento?: Lancamento | null): Omit<Lancamento, 'id'> {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  return {
+    data: lancamento?.data || todayStr,
     tipo: lancamento?.tipo || 'despesa',
     categoria: lancamento?.categoria || 'alimentacao',
     subcategoria: lancamento?.subcategoria || '',
@@ -27,7 +26,21 @@ export function LancamentoForm({ open, onOpenChange, lancamento }: Props) {
     impulsivo: lancamento?.impulsivo || false,
     emocao: lancamento?.emocao || '',
     forma_pagamento: lancamento?.forma_pagamento || 'pix',
-  });
+  };
+}
+
+export function LancamentoForm({ open, onOpenChange, lancamento }: Props) {
+  const { dispatch } = useFinancial();
+  const isEdit = !!lancamento;
+
+  const [form, setForm] = useState<Omit<Lancamento, 'id'>>(getDefaultForm(lancamento));
+
+  // Re-initialize form when lancamento changes (edit vs new)
+  useEffect(() => {
+    if (open) {
+      setForm(getDefaultForm(lancamento));
+    }
+  }, [lancamento, open]);
 
   const handleSubmit = () => {
     if (!form.descricao || form.valor <= 0) return;
