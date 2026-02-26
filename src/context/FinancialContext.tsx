@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, useMemo, type ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { Lancamento, Meta, Aporte, Divida, ContaFixa, Investimento, EmocaoDiaria, ConfiguracaoPerfil, Alerta } from '@/types/financial';
 import { type FinancialState, gerarAlertas, calcularPatrimonioLiquido, calcularSaldoMes, calcularRendaComprometida, calcularTotalInvestido, calcularTotalDividas, calcularScoreFinanceiro, calcularScoreEmocional, calcularRendaTotal, calcularGastoTotal, calcularGastosFixos, calcularGastosVariaveis, calcularProjecao, calcularTaxaPoupanca, calcularIndiceImpulsividade } from '@/lib/engine';
 
