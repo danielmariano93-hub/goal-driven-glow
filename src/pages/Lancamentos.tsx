@@ -31,8 +31,17 @@ export default function Lancamentos() {
     return all;
   }, [state.lancamentos, filtroMes, filtroCategoria, filtroTipo, busca, ordenacao]);
 
-  const getCategoriaLabel = (val: string) =>
-    CATEGORIAS_GASTO.find(c => c.value === val)?.label || val.charAt(0).toUpperCase() + val.slice(1);
+  const getCategoriaLabel = (val: string) => {
+    const custom = (state.categoriasCustom as string[] || []);
+    const customMatch = custom.find(c => c.toLowerCase().replace(/\s+/g, '_') === val);
+    if (customMatch) return customMatch;
+    return CATEGORIAS_GASTO.find(c => c.value === val)?.label || val.charAt(0).toUpperCase() + val.slice(1);
+  };
+
+  const todasCategorias = [
+    ...CATEGORIAS_GASTO,
+    ...(((state as any).categoriasCustom || []) as string[]).map((c: string) => ({ value: c.toLowerCase().replace(/\s+/g, '_'), label: c })),
+  ];
 
   const mesesDisponiveis = useMemo(() => {
     const mesesSet = new Set<string>();
@@ -104,7 +113,7 @@ export default function Lancamentos() {
           <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}
             className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">
             <option value="">Todas categorias</option>
-            {CATEGORIAS_GASTO.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            {todasCategorias.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
           <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value as any)}
             className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">

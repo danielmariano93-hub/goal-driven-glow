@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Heart, BarChart3, User, ChevronRight } from 'lucide-react';
+import { CreditCard, Heart, BarChart3, User, ChevronRight, PiggyBank } from 'lucide-react';
 
 const items = [
+  { path: '/investimentos', label: 'Investimentos', desc: 'Carteira e rendimentos', icon: PiggyBank, bg: 'bg-primary/10', iconColor: 'text-primary' },
   { path: '/dividas', label: 'Dívidas', desc: 'Gestão de passivos', icon: CreditCard, bg: 'bg-destructive/10', iconColor: 'text-destructive' },
   { path: '/emocoes', label: 'Emocional', desc: 'Comportamento financeiro', icon: Heart, bg: 'bg-pink-500/10', iconColor: 'text-pink-500' },
   { path: '/relatorios', label: 'Relatórios', desc: 'Análises e insights', icon: BarChart3, bg: 'bg-primary/10', iconColor: 'text-primary' },

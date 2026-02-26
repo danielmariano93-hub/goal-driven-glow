@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, List, Calculator, Target, CreditCard, Heart, BarChart3, User, Wallet } from 'lucide-react';
+import { LayoutDashboard, List, Calculator, Target, CreditCard, Heart, BarChart3, User, Wallet, PiggyBank } from 'lucide-react';
 
 const navGroups = [
   {
@@ -14,6 +14,7 @@ const navGroups = [
   {
     label: 'Gestão',
     items: [
+      { path: '/investimentos', label: 'Investimentos', icon: PiggyBank },
       { path: '/dividas', label: 'Dívidas', icon: CreditCard },
       { path: '/emocoes', label: 'Emocional', icon: Heart },
       { path: '/relatorios', label: 'Relatórios', icon: BarChart3 },
