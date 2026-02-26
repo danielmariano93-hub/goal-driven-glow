@@ -174,6 +174,122 @@ export function simular(state: FinancialState, cenario: CenarioSimulacao) {
   };
 }
 
+// --- Simulador de Decisão de Gasto ---
+
+export interface GastoSimulado {
+  valor: number;
+  categoria: string;
+  parcelado: boolean;
+  parcelas: number;
+  emocao?: string;
+}
+
+export interface ResultadoSimulacao {
+  saldoAtual: number;
+  saldoComGasto: number;
+  diferencaSaldo: number;
+  taxaPoupancaAtual: number;
+  taxaPoupancaComGasto: number;
+  patrimonioAtual12m: number;
+  patrimonioComGasto12m: number;
+  projecaoSem: number[];
+  projecaoCom: number[];
+  scoreAtual: number;
+  scoreComGasto: number;
+  metas: { nome: string; tempoAtual: number | null; tempoComGasto: number | null; atraso: number }[];
+  feedback: string;
+}
+
+export function simularGasto(state: FinancialState, gasto: GastoSimulado): ResultadoSimulacao {
+  const renda = calcularRendaTotal(state) || state.config.renda_mensal;
+  const saldoAtual = calcularSaldoMes(state);
+  const impactoMensal = gasto.parcelado && gasto.parcelas > 1 ? gasto.valor / gasto.parcelas : gasto.valor;
+  const saldoComGasto = saldoAtual - impactoMensal;
+  const diferencaSaldo = -impactoMensal;
+
+  const taxaPoupancaAtual = renda > 0 ? Math.round(Math.max(0, (saldoAtual / renda) * 100)) : 0;
+  const taxaPoupancaComGasto = renda > 0 ? Math.round(Math.max(0, (saldoComGasto / renda) * 100)) : 0;
+
+  const patrimonioAtual = calcularPatrimonioLiquido(state);
+  const mesesParcelado = gasto.parcelado && gasto.parcelas > 1 ? gasto.parcelas : 1;
+
+  const projecaoSem: number[] = [];
+  const projecaoCom: number[] = [];
+  for (let i = 1; i <= 12; i++) {
+    projecaoSem.push(Math.round(patrimonioAtual + saldoAtual * i));
+    const deducao = i <= mesesParcelado ? impactoMensal * i : impactoMensal * mesesParcelado;
+    projecaoCom.push(Math.round(patrimonioAtual + saldoAtual * i - deducao));
+  }
+
+  const patrimonioAtual12m = projecaoSem[11];
+  const patrimonioComGasto12m = projecaoCom[11];
+
+  const scoreAtual = calcularScoreFinanceiro(state);
+  // Estimate score with reduced savings
+  const pctGasto = renda > 0 ? (impactoMensal / renda) : 0;
+  const scoreComGasto = Math.max(0, Math.round(scoreAtual - pctGasto * 30));
+
+  // Impacto nas metas
+  const metasAtivas = state.metas.filter(m => m.status === 'ativa');
+  const metas = metasAtivas.map(m => {
+    const restante = m.valor_objetivo - m.valor_atual;
+    const tempoAtual = saldoAtual > 0 && restante > 0 ? Math.ceil(restante / saldoAtual) : null;
+    const tempoComGasto = saldoComGasto > 0 && restante > 0 ? Math.ceil(restante / saldoComGasto) : null;
+    const atraso = tempoAtual !== null && tempoComGasto !== null ? tempoComGasto - tempoAtual : 0;
+    return { nome: m.nome, tempoAtual, tempoComGasto, atraso };
+  });
+
+  // Feedback comportamental
+  const feedback = gerarFeedbackComportamental(gasto, renda, saldoAtual, impactoMensal);
+
+  return {
+    saldoAtual, saldoComGasto, diferencaSaldo,
+    taxaPoupancaAtual, taxaPoupancaComGasto,
+    patrimonioAtual12m, patrimonioComGasto12m,
+    projecaoSem, projecaoCom,
+    scoreAtual, scoreComGasto,
+    metas, feedback,
+  };
+}
+
+function gerarFeedbackComportamental(gasto: GastoSimulado, renda: number, saldoAtual: number, impactoMensal: number): string {
+  const msgs: string[] = [];
+  const emocoesImpulsivas = ['ansioso', 'triste', 'frustrado', 'estressado', 'entediado'];
+
+  if (gasto.emocao && emocoesImpulsivas.includes(gasto.emocao)) {
+    msgs.push('⚠️ Compra associada a emoção negativa. Considere esperar 24h antes de decidir.');
+  }
+
+  if (renda > 0) {
+    const pct = Math.round((gasto.valor / renda) * 100);
+    if (pct >= 30) {
+      msgs.push(`🚨 Este gasto representa ${pct}% da sua renda mensal — muito elevado.`);
+    } else if (pct >= 15) {
+      msgs.push(`⚠️ Este gasto compromete ${pct}% da sua renda mensal.`);
+    }
+  }
+
+  if (saldoAtual > 0 && impactoMensal > saldoAtual) {
+    msgs.push('🔴 Este gasto ultrapassa seu saldo disponível no mês. Você ficará no negativo.');
+  } else if (saldoAtual > 0 && impactoMensal > saldoAtual * 0.5) {
+    msgs.push('🟡 Este gasto consome mais da metade do seu saldo mensal.');
+  }
+
+  if (gasto.parcelado && gasto.parcelas > 6) {
+    msgs.push(`📌 Parcelamento longo (${gasto.parcelas}x) compromete seu orçamento por muitos meses.`);
+  }
+
+  if (gasto.categoria === 'lazer' && renda > 0 && (gasto.valor / renda) > 0.1) {
+    msgs.push('💡 Gastos com lazer acima de 10% da renda podem impactar suas metas.');
+  }
+
+  if (msgs.length === 0) {
+    msgs.push('✅ Este gasto parece controlado dentro do seu orçamento atual.');
+  }
+
+  return msgs.join('\n');
+}
+
 // --- Alertas ---
 
 export function gerarAlertas(state: FinancialState): Alerta[] {
