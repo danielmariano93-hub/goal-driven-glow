@@ -1,12 +1,6 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { MetricCard } from '@/components/MetricCard';
 import { CircularScore } from '@/components/CircularScore';
-import { GoalCard } from '@/components/GoalCard';
-import { DebtCard } from '@/components/DebtCard';
 import { InsightCard } from '@/components/InsightCard';
-import { SpendingBarChart, SpendingPieChart } from '@/components/SpendingCharts';
-import { QuickExpenseButton, QuickExpenseModal } from '@/components/QuickExpenseModal';
 import {
   calcularPatrimonioLiquido,
   calcularPercentualComprometido,
@@ -19,11 +13,8 @@ import {
   mockMetas,
   mockDividas,
 } from '@/data/mockData';
-import { toast } from 'sonner';
 
 const Index = () => {
-  const [showExpenseModal, setShowExpenseModal] = useState(false);
-
   const patrimonio = calcularPatrimonioLiquido();
   const comprometido = calcularPercentualComprometido();
   const impulsivo = calcularGastoImpulsivo();
@@ -34,114 +25,67 @@ const Index = () => {
   const saldoMes = renda - gastoTotal;
   const insights = gerarInsights();
 
-  const handleExpenseSubmit = (data: any) => {
-    toast.success('Gasto registrado!', {
-      description: `R$ ${data.valor} em ${data.categoria}`,
-    });
-  };
+  const totalDividas = mockDividas.reduce((s, d) => s + d.valor_atual, 0);
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="container max-w-2xl mx-auto px-4 py-4">
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
-            <h1 className="text-xl font-bold text-foreground tracking-tight">Consciência Financeira</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Fevereiro 2026</p>
-          </motion.div>
+    <div className="max-w-4xl mx-auto space-y-8">
+      <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
+
+      {/* Key Metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard title="Patrimônio Líquido" value={`R$ ${patrimonio.toLocaleString('pt-BR')}`} trend="up" trendValue="+2.3% mês" icon="💰" />
+        <MetricCard title="Saldo do Mês" value={`R$ ${saldoMes.toLocaleString('pt-BR')}`} subtitle={`de R$ ${renda.toLocaleString('pt-BR')}`} variant={saldoMes > 0 ? 'success' : 'risk'} icon="📊" />
+        <MetricCard title="Renda Comprometida" value={`${comprometido}%`} variant={comprometido > 70 ? 'risk' : comprometido > 50 ? 'warning' : 'success'} icon="📉" />
+        <MetricCard title="Gasto Impulsivo" value={`${impulsivo}%`} variant={impulsivo > 30 ? 'risk' : impulsivo > 15 ? 'warning' : 'success'} icon="⚡" />
+      </div>
+
+      {/* Scores */}
+      <div className="apple-card">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">Índices</h3>
+        <div className="flex justify-around">
+          <CircularScore value={disciplina} label="Disciplina" variant="primary" />
+          <CircularScore value={100 - risco} label="Saúde Financeira" variant="primary" />
+          <CircularScore value={72} label="Estabilidade Emocional" variant="primary" />
         </div>
-      </header>
+      </div>
 
-      <main className="container max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {/* Key Metrics */}
-        <section className="grid grid-cols-2 gap-3">
-          <MetricCard
-            title="Patrimônio Líquido"
-            value={`R$ ${patrimonio.toLocaleString('pt-BR')}`}
-            trend="up"
-            trendValue="+2.3% mês"
-            icon="💰"
-          />
-          <MetricCard
-            title="Saldo do Mês"
-            value={`R$ ${saldoMes.toLocaleString('pt-BR')}`}
-            subtitle={`de R$ ${renda.toLocaleString('pt-BR')}`}
-            variant={saldoMes > 0 ? 'success' : 'risk'}
-            icon="📊"
-          />
-          <MetricCard
-            title="Renda Comprometida"
-            value={`${comprometido}%`}
-            variant={comprometido > 70 ? 'risk' : comprometido > 50 ? 'warning' : 'success'}
-            icon="📉"
-          />
-          <MetricCard
-            title="Gasto Impulsivo"
-            value={`${impulsivo}%`}
-            variant={impulsivo > 30 ? 'risk' : impulsivo > 15 ? 'warning' : 'success'}
-            icon="⚡"
-          />
-        </section>
+      {/* Insights */}
+      <InsightCard insights={insights} />
 
-        {/* Scores */}
-        <motion.section
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="apple-card"
-        >
-          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">
-            Índices
-          </h3>
-          <div className="flex justify-around">
-            <CircularScore value={disciplina} label="Disciplina" variant="primary" />
-            <CircularScore value={100 - risco} label="Saúde Financeira" variant="primary" />
-            <CircularScore value={72} label="Estabilidade Emocional" variant="primary" />
-          </div>
-        </motion.section>
-
-        {/* Insights */}
-        <InsightCard insights={insights} />
-
-        {/* Charts */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <SpendingBarChart />
-          <SpendingPieChart />
-        </section>
-
-        {/* Goals */}
-        <section>
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
-            Metas
-          </h2>
+      {/* Quick Summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="apple-card">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Metas em Andamento</h3>
           <div className="space-y-3">
-            {mockMetas.map((meta) => (
-              <GoalCard key={meta.id} meta={meta} />
+            {mockMetas.map((meta) => {
+              const prog = Math.round((meta.valor_atual / meta.valor_objetivo) * 100);
+              return (
+                <div key={meta.id}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-foreground font-medium">{meta.nome}</span>
+                    <span className="text-muted-foreground">{prog}%</span>
+                  </div>
+                  <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-success rounded-full" style={{ width: `${prog}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="apple-card">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Dívidas Ativas</h3>
+          <p className="text-2xl font-bold text-foreground">R$ {totalDividas.toLocaleString('pt-BR')}</p>
+          <div className="mt-3 space-y-2">
+            {mockDividas.map((d) => (
+              <div key={d.id} className="flex justify-between text-xs">
+                <span className="text-muted-foreground">{d.tipo}</span>
+                <span className="text-foreground font-medium">R$ {d.valor_atual.toLocaleString('pt-BR')}</span>
+              </div>
             ))}
           </div>
-        </section>
-
-        {/* Debts */}
-        <section>
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
-            Dívidas Ativas
-          </h2>
-          <div className="space-y-3">
-            {mockDividas.map((divida) => (
-              <DebtCard key={divida.id} divida={divida} />
-            ))}
-          </div>
-        </section>
-      </main>
-
-      {/* Quick Expense FAB */}
-      <QuickExpenseButton onClick={() => setShowExpenseModal(true)} />
-      {showExpenseModal && (
-        <QuickExpenseModal
-          onClose={() => setShowExpenseModal(false)}
-          onSubmit={handleExpenseSubmit}
-        />
-      )}
+        </div>
+      </div>
     </div>
   );
 };
