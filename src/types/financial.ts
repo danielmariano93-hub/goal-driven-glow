@@ -1,22 +1,48 @@
-export interface Receita {
+export interface Lancamento {
   id: string;
   data: string;
-  valor: number;
+  tipo: 'receita' | 'despesa';
   categoria: string;
+  subcategoria?: string;
+  descricao: string;
+  valor: number;
+  fixo: boolean;
   recorrente: boolean;
+  impulsivo: boolean;
+  emocao?: string;
+  forma_pagamento?: string;
 }
 
-export interface Gasto {
+export interface Meta {
   id: string;
+  nome: string;
+  tipo: 'reserva_emergencia' | 'investimento' | 'compra' | 'independencia';
+  valor_objetivo: number;
+  valor_atual: number;
+  prazo: string;
+  prioridade: 'alta' | 'media' | 'baixa';
+  status: 'ativa' | 'pausada' | 'concluida';
+  motivacao_emocional: string;
+  aporte_mensal_planejado: number;
+}
+
+export interface Aporte {
+  id: string;
+  meta_id: string;
   data: string;
   valor: number;
-  categoria: string;
-  tipo: 'fixo' | 'variavel';
-  impulsivo: boolean;
-  forma_pagamento: string;
-  descricao: string;
-  emocao?: string;
-  contexto_emocional?: string;
+}
+
+export interface Divida {
+  id: string;
+  nome: string;
+  valor_original: number;
+  valor_atual: number;
+  taxa_juros: number;
+  parcelas_totais: number;
+  parcelas_restantes: number;
+  valor_parcela: number;
+  prioridade: 'alta' | 'media' | 'baixa';
 }
 
 export interface ContaFixa {
@@ -36,66 +62,58 @@ export interface Investimento {
   liquidez: 'imediata' | 'curto_prazo' | 'longo_prazo';
 }
 
-export interface Divida {
-  id: string;
-  tipo: string;
-  valor_original: number;
-  valor_atual: number;
-  taxa_juros: number;
-  parcelas_totais: number;
-  parcelas_restantes: number;
-  valor_parcela: number;
-  prioridade: 'alta' | 'media' | 'baixa';
-}
-
-export interface Meta {
-  id: string;
-  nome: string;
-  tipo: 'curto' | 'medio' | 'longo';
-  valor_objetivo: number;
-  valor_atual: number;
-  prazo: string;
-  prioridade: 'alta' | 'media' | 'baixa';
-  motivacao_emocional: string;
-  aporte_mensal_planejado: number;
-}
-
 export interface EmocaoDiaria {
   id: string;
   data: string;
-  nivel: number; // 1-5
+  nivel: number;
   emocao_principal: string;
   observacao?: string;
 }
 
-export type CategoriaGasto = 
-  | 'alimentacao' | 'transporte' | 'moradia' | 'saude' 
+export interface ConfiguracaoPerfil {
+  renda_mensal: number;
+  frequencia_recebimento: 'mensal' | 'quinzenal' | 'semanal';
+  perfil_risco: 'conservador' | 'moderado' | 'arrojado';
+  objetivo_macro: string;
+  horizonte_tempo: number;
+}
+
+export interface Alerta {
+  id: string;
+  tipo: 'renda_comprometida' | 'meta_atrasada' | 'juros_alto' | 'impulsividade' | 'patrimonio_queda';
+  titulo: string;
+  descricao: string;
+  severidade: 'alta' | 'media' | 'baixa';
+}
+
+export type CategoriaGasto =
+  | 'alimentacao' | 'transporte' | 'moradia' | 'saude'
   | 'educacao' | 'lazer' | 'vestuario' | 'outros';
 
-export type Emocao = 
-  | 'calmo' | 'ansioso' | 'feliz' | 'triste' 
+export type Emocao =
+  | 'calmo' | 'ansioso' | 'feliz' | 'triste'
   | 'frustrado' | 'empolgado' | 'entediado' | 'estressado';
 
-export const CATEGORIAS_GASTO: { value: CategoriaGasto; label: string; icon: string }[] = [
-  { value: 'alimentacao', label: 'Alimentação', icon: '🍽️' },
-  { value: 'transporte', label: 'Transporte', icon: '🚗' },
-  { value: 'moradia', label: 'Moradia', icon: '🏠' },
-  { value: 'saude', label: 'Saúde', icon: '💊' },
-  { value: 'educacao', label: 'Educação', icon: '📚' },
-  { value: 'lazer', label: 'Lazer', icon: '🎮' },
-  { value: 'vestuario', label: 'Vestuário', icon: '👕' },
-  { value: 'outros', label: 'Outros', icon: '📦' },
+export const CATEGORIAS_GASTO: { value: CategoriaGasto; label: string }[] = [
+  { value: 'alimentacao', label: 'Alimentação' },
+  { value: 'transporte', label: 'Transporte' },
+  { value: 'moradia', label: 'Moradia' },
+  { value: 'saude', label: 'Saúde' },
+  { value: 'educacao', label: 'Educação' },
+  { value: 'lazer', label: 'Lazer' },
+  { value: 'vestuario', label: 'Vestuário' },
+  { value: 'outros', label: 'Outros' },
 ];
 
-export const EMOCOES: { value: Emocao; label: string; icon: string }[] = [
-  { value: 'calmo', label: 'Calmo', icon: '😌' },
-  { value: 'ansioso', label: 'Ansioso', icon: '😰' },
-  { value: 'feliz', label: 'Feliz', icon: '😊' },
-  { value: 'triste', label: 'Triste', icon: '😢' },
-  { value: 'frustrado', label: 'Frustrado', icon: '😤' },
-  { value: 'empolgado', label: 'Empolgado', icon: '🤩' },
-  { value: 'entediado', label: 'Entediado', icon: '😑' },
-  { value: 'estressado', label: 'Estressado', icon: '😫' },
+export const EMOCOES: { value: Emocao; label: string }[] = [
+  { value: 'calmo', label: 'Calmo' },
+  { value: 'ansioso', label: 'Ansioso' },
+  { value: 'feliz', label: 'Feliz' },
+  { value: 'triste', label: 'Triste' },
+  { value: 'frustrado', label: 'Frustrado' },
+  { value: 'empolgado', label: 'Empolgado' },
+  { value: 'entediado', label: 'Entediado' },
+  { value: 'estressado', label: 'Estressado' },
 ];
 
 export const FORMAS_PAGAMENTO = [
@@ -104,4 +122,11 @@ export const FORMAS_PAGAMENTO = [
   { value: 'debito', label: 'Cartão de Débito' },
   { value: 'dinheiro', label: 'Dinheiro' },
   { value: 'boleto', label: 'Boleto' },
+];
+
+export const TIPOS_META: { value: Meta['tipo']; label: string }[] = [
+  { value: 'reserva_emergencia', label: 'Reserva de Emergência' },
+  { value: 'investimento', label: 'Investimento' },
+  { value: 'compra', label: 'Compra' },
+  { value: 'independencia', label: 'Independência Financeira' },
 ];
