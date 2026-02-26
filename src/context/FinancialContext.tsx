@@ -2,65 +2,21 @@ import React, { createContext, useContext, useReducer, useEffect, useMemo, type 
 import type { Lancamento, Meta, Aporte, Divida, ContaFixa, Investimento, EmocaoDiaria, ConfiguracaoPerfil, Alerta } from '@/types/financial';
 import { type FinancialState, gerarAlertas, calcularPatrimonioLiquido, calcularSaldoMes, calcularRendaComprometida, calcularTotalInvestido, calcularTotalDividas, calcularScoreFinanceiro, calcularScoreEmocional, calcularRendaTotal, calcularGastoTotal, calcularGastosFixos, calcularGastosVariaveis, calcularProjecao, calcularTaxaPoupanca, calcularIndiceImpulsividade } from '@/lib/engine';
 
-// --- Seed Data ---
-const SEED_LANCAMENTOS: Lancamento[] = [
-  { id: 'l1', data: '2026-02-01', tipo: 'receita', categoria: 'salario', descricao: 'Salário', valor: 8500, fixo: true, recorrente: true, impulsivo: false },
-  { id: 'l2', data: '2026-02-15', tipo: 'receita', categoria: 'freelance', descricao: 'Freelance', valor: 1200, fixo: false, recorrente: false, impulsivo: false },
-  { id: 'l3', data: '2026-02-03', tipo: 'despesa', categoria: 'alimentacao', descricao: 'Supermercado', valor: 45, fixo: false, recorrente: false, impulsivo: false, emocao: 'calmo', forma_pagamento: 'pix' },
-  { id: 'l4', data: '2026-02-05', tipo: 'despesa', categoria: 'vestuario', descricao: 'Roupa nova', valor: 189, fixo: false, recorrente: false, impulsivo: true, emocao: 'ansioso', forma_pagamento: 'credito' },
-  { id: 'l5', data: '2026-02-07', tipo: 'despesa', categoria: 'alimentacao', descricao: 'Almoço', valor: 32, fixo: false, recorrente: false, impulsivo: false, emocao: 'calmo', forma_pagamento: 'debito' },
-  { id: 'l6', data: '2026-02-10', tipo: 'despesa', categoria: 'lazer', descricao: 'Jogo novo', valor: 250, fixo: false, recorrente: false, impulsivo: true, emocao: 'entediado', forma_pagamento: 'credito' },
-  { id: 'l7', data: '2026-02-12', tipo: 'despesa', categoria: 'transporte', descricao: 'Uber', valor: 60, fixo: false, recorrente: false, impulsivo: false, emocao: 'estressado', forma_pagamento: 'pix' },
-  { id: 'l8', data: '2026-02-14', tipo: 'despesa', categoria: 'alimentacao', descricao: 'Jantar especial', valor: 120, fixo: false, recorrente: false, impulsivo: false, emocao: 'feliz', forma_pagamento: 'credito' },
-  { id: 'l9', data: '2026-02-18', tipo: 'despesa', categoria: 'saude', descricao: 'Farmácia', valor: 85, fixo: false, recorrente: false, impulsivo: false, emocao: 'calmo', forma_pagamento: 'pix' },
-  { id: 'l10', data: '2026-02-20', tipo: 'despesa', categoria: 'lazer', descricao: 'Eletrônico', valor: 350, fixo: false, recorrente: false, impulsivo: true, emocao: 'empolgado', forma_pagamento: 'credito' },
-  { id: 'l11', data: '2026-01-01', tipo: 'receita', categoria: 'salario', descricao: 'Salário', valor: 8500, fixo: true, recorrente: true, impulsivo: false },
-  { id: 'l12', data: '2026-01-05', tipo: 'despesa', categoria: 'alimentacao', descricao: 'Supermercado', valor: 520, fixo: false, recorrente: false, impulsivo: false, emocao: 'calmo', forma_pagamento: 'debito' },
-  { id: 'l13', data: '2026-01-10', tipo: 'despesa', categoria: 'transporte', descricao: 'Combustível', valor: 200, fixo: false, recorrente: false, impulsivo: false, forma_pagamento: 'debito' },
-];
-
-const SEED_METAS: Meta[] = [
-  { id: 'm1', nome: 'Reserva de Emergência', tipo: 'reserva_emergencia', valor_objetivo: 30000, valor_atual: 18500, prazo: '2026-12-31', prioridade: 'alta', status: 'ativa', motivacao_emocional: 'Segurança e tranquilidade', aporte_mensal_planejado: 1500 },
-  { id: 'm2', nome: 'Viagem Europa', tipo: 'compra', valor_objetivo: 25000, valor_atual: 8200, prazo: '2027-06-30', prioridade: 'media', status: 'ativa', motivacao_emocional: 'Experiência e liberdade', aporte_mensal_planejado: 1000 },
-  { id: 'm3', nome: 'Entrada Apartamento', tipo: 'compra', valor_objetivo: 100000, valor_atual: 32000, prazo: '2028-12-31', prioridade: 'alta', status: 'ativa', motivacao_emocional: 'Estabilidade e conquista', aporte_mensal_planejado: 2000 },
-];
-
-const SEED_APORTES: Aporte[] = [
-  { id: 'a1', meta_id: 'm1', data: '2026-01-15', valor: 1500 },
-  { id: 'a2', meta_id: 'm2', data: '2026-01-15', valor: 1000 },
-  { id: 'a3', meta_id: 'm3', data: '2026-01-15', valor: 2000 },
-];
-
-const SEED_DIVIDAS: Divida[] = [
-  { id: 'd1', nome: 'Financiamento Carro', valor_original: 45000, valor_atual: 28000, taxa_juros: 1.2, parcelas_totais: 48, parcelas_restantes: 28, valor_parcela: 1150, prioridade: 'alta' },
-  { id: 'd2', nome: 'Cartão de Crédito', valor_original: 3500, valor_atual: 2100, taxa_juros: 12.5, parcelas_totais: 6, parcelas_restantes: 3, valor_parcela: 780, prioridade: 'alta' },
-];
-
-const SEED_CONTAS: ContaFixa[] = [
-  { id: 'cf1', nome: 'Aluguel', valor: 2200, vencimento: 5, recorrencia_mensal: true },
-  { id: 'cf2', nome: 'Internet', valor: 120, vencimento: 10, recorrencia_mensal: true },
-  { id: 'cf3', nome: 'Energia', valor: 180, vencimento: 15, recorrencia_mensal: true },
-  { id: 'cf4', nome: 'Academia', valor: 150, vencimento: 1, recorrencia_mensal: true },
-];
-
-const SEED_INVESTIMENTOS: Investimento[] = [
-  { id: 'i1', tipo: 'Tesouro Selic', valor_aplicado: 15000, valor_atual: 16200, rendimento_estimado: 13.25, liquidez: 'imediata' },
-  { id: 'i2', tipo: 'CDB', valor_aplicado: 10000, valor_atual: 10800, rendimento_estimado: 12.5, liquidez: 'curto_prazo' },
-  { id: 'i3', tipo: 'Ações', valor_aplicado: 8000, valor_atual: 9100, rendimento_estimado: 15, liquidez: 'imediata' },
-];
-
-const SEED_EMOCOES: EmocaoDiaria[] = [
-  { id: 'e1', data: '2026-02-20', nivel: 3, emocao_principal: 'calmo', observacao: 'Dia tranquilo' },
-  { id: 'e2', data: '2026-02-19', nivel: 2, emocao_principal: 'ansioso', observacao: 'Preocupado com contas' },
-  { id: 'e3', data: '2026-02-18', nivel: 4, emocao_principal: 'feliz', observacao: 'Recebi o pagamento do freelance' },
-];
+// --- Seed Data (vazio - usuario comeca do zero) ---
+const SEED_LANCAMENTOS: Lancamento[] = [];
+const SEED_METAS: Meta[] = [];
+const SEED_APORTES: Aporte[] = [];
+const SEED_DIVIDAS: Divida[] = [];
+const SEED_CONTAS: ContaFixa[] = [];
+const SEED_INVESTIMENTOS: Investimento[] = [];
+const SEED_EMOCOES: EmocaoDiaria[] = [];
 
 const DEFAULT_CONFIG: ConfiguracaoPerfil = {
-  renda_mensal: 8500,
+  renda_mensal: 0,
   frequencia_recebimento: 'mensal',
   perfil_risco: 'moderado',
-  objetivo_macro: 'Independência financeira',
-  horizonte_tempo: 10,
+  objetivo_macro: '',
+  horizonte_tempo: 5,
 };
 
 // --- State ---
@@ -68,7 +24,7 @@ interface State extends FinancialState {
   alertas: Alerta[];
 }
 
-const STORAGE_KEY = 'financial_ecosystem_v1';
+const STORAGE_KEY = 'financial_ecosystem_v2';
 
 function loadState(): State {
   try {

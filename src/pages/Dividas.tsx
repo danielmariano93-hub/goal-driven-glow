@@ -23,7 +23,7 @@ export default function Dividas() {
     <div className="space-y-4 pt-2">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Dívidas</h1>
-        <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center">
+        <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
           <Plus size={16} strokeWidth={2.5} />
         </button>
       </div>
@@ -72,7 +72,7 @@ export default function Dividas() {
               </div>
             </div>
             <div className="h-1 w-full rounded-full bg-secondary overflow-hidden">
-              <div className="h-full rounded-full bg-foreground/40" style={{ width: `${Math.round(((d.parcelas_totais - d.parcelas_restantes) / d.parcelas_totais) * 100)}%` }} />
+              <div className="h-full rounded-full bg-destructive/60" style={{ width: `${Math.round(((d.parcelas_totais - d.parcelas_restantes) / d.parcelas_totais) * 100)}%` }} />
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-[10px] text-muted-foreground">Custo total: R$ {calcularCustoDivida(d).toLocaleString('pt-BR')}</span>
