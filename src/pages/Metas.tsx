@@ -33,7 +33,7 @@ export default function Metas() {
     <div className="space-y-4 pt-2">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Metas</h1>
-        <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center">
+        <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
           <Plus size={16} strokeWidth={2.5} />
         </button>
       </div>
@@ -65,7 +65,7 @@ export default function Metas() {
                 </div>
               </div>
               <div className="h-1 w-full rounded-full bg-secondary overflow-hidden">
-                <div className="h-full rounded-full bg-foreground/60 transition-all duration-500" style={{ width: `${Math.min(pct, 100)}%` }} />
+                <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${Math.min(pct, 100)}%` }} />
               </div>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-[10px] text-muted-foreground">{pct}% concluído</span>
@@ -120,7 +120,7 @@ export default function Metas() {
                         <span className="text-foreground font-medium">R$ {projetado.toLocaleString('pt-BR')} ({pct}%)</span>
                       </div>
                       <div className="h-1 w-full rounded-full bg-secondary overflow-hidden">
-                        <div className="h-full rounded-full bg-foreground/50" style={{ width: `${pct}%` }} />
+                        <div className="h-full rounded-full bg-primary/60" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );

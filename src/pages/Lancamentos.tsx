@@ -52,7 +52,7 @@ export default function Lancamentos() {
           <button onClick={() => exportarCSV(registros)} className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
             <Download size={14} className="text-muted-foreground" />
           </button>
-          <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center">
+          <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
             <Plus size={16} strokeWidth={2.5} />
           </button>
         </div>

@@ -35,9 +35,9 @@ export function BottomTabBar() {
               <Icon
                 size={20}
                 strokeWidth={active ? 2.2 : 1.5}
-                className={active ? 'text-foreground' : 'text-muted-foreground'}
+                className={active ? 'text-primary' : 'text-muted-foreground'}
               />
-              <span className={`text-[10px] font-medium ${active ? 'text-foreground' : 'text-muted-foreground'}`}>
+              <span className={`text-[10px] font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>
                 {tab.label}
               </span>
             </button>
