@@ -13,6 +13,7 @@ import Planejamento from "./pages/Planejamento";
 import Relatorios from "./pages/Relatorios";
 import Emocoes from "./pages/Emocoes";
 import Perfil from "./pages/Perfil";
+import Investimentos from "./pages/Investimentos";
 import MaisMenu from "./pages/MaisMenu";
 import NotFound from "./pages/NotFound";
 
@@ -34,6 +35,7 @@ const App = () => (
               <Route path="/planejamento" element={<Planejamento />} />
               <Route path="/relatorios" element={<Relatorios />} />
               <Route path="/emocoes" element={<Emocoes />} />
+              <Route path="/investimentos" element={<Investimentos />} />
               <Route path="/perfil" element={<Perfil />} />
               <Route path="/mais" element={<MaisMenu />} />
             </Route>

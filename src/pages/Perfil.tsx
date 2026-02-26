@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useFinancial } from '@/context/FinancialContext';
-import { User, Plus, Trash2, ChevronRight } from 'lucide-react';
+import { User, Plus, Trash2, ChevronRight, X } from 'lucide-react';
+import { CATEGORIAS_GASTO } from '@/types/financial';
 import { Button } from '@/components/ui/button';
 
 export default function Perfil() {
@@ -106,6 +107,9 @@ export default function Perfil() {
         <Button onClick={salvar} className="w-full h-9 rounded-xl text-xs">Salvar configurações</Button>
       </div>
 
+      {/* Categorias customizadas */}
+      <CategoriaManager />
+
       {/* Investimentos */}
       <div className="ios-card overflow-hidden">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
@@ -182,6 +186,59 @@ export default function Perfil() {
         <button onClick={importarDados} className="w-full flex items-center justify-between px-4 py-3 text-left active:bg-secondary/50 transition-colors">
           <span className="text-xs font-medium text-foreground">Importar dados</span>
           <ChevronRight size={14} className="text-muted-foreground" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CategoriaManager() {
+  const { state, dispatch } = useFinancial();
+  const [nova, setNova] = useState('');
+  const categoriasCustom = state.categoriasCustom || [];
+
+  const adicionar = () => {
+    const nome = nova.trim();
+    if (!nome || categoriasCustom.includes(nome)) return;
+    dispatch({ type: 'ADD_CATEGORIA', payload: nome });
+    setNova('');
+  };
+
+  return (
+    <div className="ios-card p-4 space-y-3">
+      <h3 className="text-xs text-muted-foreground font-medium">Categorias de lançamento</h3>
+      
+      <div className="space-y-1">
+        <p className="text-[10px] text-muted-foreground">Categorias padrão</p>
+        <div className="flex flex-wrap gap-1.5">
+          {CATEGORIAS_GASTO.map(c => (
+            <span key={c.value} className="text-[10px] px-2 py-1 rounded-lg bg-secondary text-muted-foreground">{c.label}</span>
+          ))}
+        </div>
+      </div>
+
+      {categoriasCustom.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-muted-foreground">Suas categorias</p>
+          <div className="flex flex-wrap gap-1.5">
+            {categoriasCustom.map(c => (
+              <span key={c} className="text-[10px] px-2 py-1 rounded-lg bg-primary/10 text-primary font-medium flex items-center gap-1">
+                {c}
+                <button onClick={() => dispatch({ type: 'DELETE_CATEGORIA', payload: c })} className="hover:text-destructive">
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input type="text" placeholder="Nome da nova categoria" value={nova} onChange={e => setNova(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && adicionar()}
+          className="flex-1 h-9 px-3 rounded-xl bg-secondary text-xs text-foreground placeholder:text-muted-foreground outline-none" />
+        <button onClick={adicionar} className="h-9 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-medium">
+          Adicionar
         </button>
       </div>
     </div>

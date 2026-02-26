@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useFinancial } from '@/context/FinancialContext';
@@ -30,8 +30,13 @@ function getDefaultForm(lancamento?: Lancamento | null): Omit<Lancamento, 'id'> 
 }
 
 export function LancamentoForm({ open, onOpenChange, lancamento }: Props) {
-  const { dispatch } = useFinancial();
+  const { state, dispatch } = useFinancial();
   const isEdit = !!lancamento;
+
+  const todasCategorias = useMemo(() => {
+    const custom = (state.categoriasCustom || []).map(c => ({ value: c.toLowerCase().replace(/\s+/g, '_'), label: c }));
+    return [...CATEGORIAS_GASTO, ...custom];
+  }, [state.categoriasCustom]);
 
   const [form, setForm] = useState<Omit<Lancamento, 'id'>>(getDefaultForm(lancamento));
 
@@ -86,7 +91,7 @@ export function LancamentoForm({ open, onOpenChange, lancamento }: Props) {
             className="w-full h-9 px-3 rounded-xl bg-secondary text-xs text-foreground outline-none appearance-none">
             <option value="salario">Salário</option>
             <option value="freelance">Freelance</option>
-            {CATEGORIAS_GASTO.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            {todasCategorias.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
 
           <select value={form.forma_pagamento} onChange={e => set('forma_pagamento', e.target.value)}

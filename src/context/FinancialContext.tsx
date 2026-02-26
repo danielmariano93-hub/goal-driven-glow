@@ -19,9 +19,12 @@ const DEFAULT_CONFIG: ConfiguracaoPerfil = {
   horizonte_tempo: 5,
 };
 
+const DEFAULT_CATEGORIAS_CUSTOM: string[] = [];
+
 // --- State ---
 interface State extends FinancialState {
   alertas: Alerta[];
+  categoriasCustom: string[];
 }
 
 const STORAGE_KEY = 'financial_ecosystem_v2';
@@ -46,6 +49,7 @@ function loadState(): State {
     emocoes: SEED_EMOCOES,
     config: DEFAULT_CONFIG,
     alertas: [],
+    categoriasCustom: DEFAULT_CATEGORIAS_CUSTOM,
   };
   seed.alertas = gerarAlertas(seed);
   return seed;
@@ -71,7 +75,9 @@ type Action =
   | { type: 'DELETE_INVESTIMENTO'; payload: string }
   | { type: 'ADD_EMOCAO'; payload: EmocaoDiaria }
   | { type: 'UPDATE_CONFIG'; payload: Partial<ConfiguracaoPerfil> }
-  | { type: 'IMPORT_DATA'; payload: Partial<State> };
+  | { type: 'IMPORT_DATA'; payload: Partial<State> }
+  | { type: 'ADD_CATEGORIA'; payload: string }
+  | { type: 'DELETE_CATEGORIA'; payload: string };
 
 function reducer(state: State, action: Action): State {
   let next: State;
@@ -122,6 +128,10 @@ function reducer(state: State, action: Action): State {
       next = { ...state, config: { ...state.config, ...action.payload } }; break;
     case 'IMPORT_DATA':
       next = { ...state, ...action.payload }; break;
+    case 'ADD_CATEGORIA':
+      next = { ...state, categoriasCustom: [...(state.categoriasCustom || []), action.payload] }; break;
+    case 'DELETE_CATEGORIA':
+      next = { ...state, categoriasCustom: (state.categoriasCustom || []).filter(c => c !== action.payload) }; break;
     default:
       return state;
   }
@@ -142,7 +152,8 @@ export function FinancialProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { alertas, ...rest } = state;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
+    // Ensure categoriasCustom is persisted
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...rest, categoriasCustom: state.categoriasCustom || [] }));
   }, [state]);
 
   return (
