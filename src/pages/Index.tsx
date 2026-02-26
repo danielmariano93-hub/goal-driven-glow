@@ -1,93 +1,128 @@
-import { MetricCard } from '@/components/MetricCard';
-import { CircularScore } from '@/components/CircularScore';
-import { InsightCard } from '@/components/InsightCard';
 import {
   calcularPatrimonioLiquido,
   calcularPercentualComprometido,
-  calcularGastoImpulsivo,
-  calcularIndiceDisciplina,
-  calcularIndiceRisco,
   calcularRendaTotal,
   calcularGastoTotal,
-  gerarInsights,
+  calcularIndiceDisciplina,
   mockMetas,
-  mockDividas,
 } from '@/data/mockData';
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
-const Index = () => {
+const patrimonioHistorico = [
+  { mes: 'Set', valor: 2800 },
+  { mes: 'Out', valor: 3200 },
+  { mes: 'Nov', valor: 4100 },
+  { mes: 'Dez', valor: 3800 },
+  { mes: 'Jan', valor: 5200 },
+  { mes: 'Fev', valor: 6100 },
+];
+
+function MicroBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const pct = Math.min(100, Math.round((value / max) * 100));
+  return (
+    <div className="h-1 w-full rounded-full bg-secondary overflow-hidden">
+      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
+    </div>
+  );
+}
+
+export default function Index() {
   const patrimonio = calcularPatrimonioLiquido();
-  const comprometido = calcularPercentualComprometido();
-  const impulsivo = calcularGastoImpulsivo();
-  const disciplina = calcularIndiceDisciplina();
-  const risco = calcularIndiceRisco();
   const renda = calcularRendaTotal();
   const gastoTotal = calcularGastoTotal();
   const saldoMes = renda - gastoTotal;
-  const insights = gerarInsights();
+  const comprometido = calcularPercentualComprometido();
+  const disciplina = calcularIndiceDisciplina();
 
-  const totalDividas = mockDividas.reduce((s, d) => s + d.valor_atual, 0);
+  const indicators = [
+    { label: 'Patrimônio líquido', value: `R$ ${patrimonio.toLocaleString('pt-BR')}`, bar: null },
+    { label: 'Saldo do mês', value: `R$ ${saldoMes.toLocaleString('pt-BR')}`, bar: null, positive: saldoMes > 0 },
+    { label: 'Renda comprometida', value: `${comprometido}%`, bar: { value: comprometido, max: 100, color: comprometido > 70 ? 'hsl(0,72%,51%)' : comprometido > 50 ? 'hsl(38,92%,50%)' : 'hsl(152,55%,41%)' } },
+    { label: 'Score comportamental', value: `${disciplina}/100`, bar: { value: disciplina, max: 100, color: disciplina > 70 ? 'hsl(152,55%,41%)' : disciplina > 40 ? 'hsl(38,92%,50%)' : 'hsl(0,72%,51%)' } },
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MetricCard title="Patrimônio Líquido" value={`R$ ${patrimonio.toLocaleString('pt-BR')}`} trend="up" trendValue="+2.3% mês" icon="💰" />
-        <MetricCard title="Saldo do Mês" value={`R$ ${saldoMes.toLocaleString('pt-BR')}`} subtitle={`de R$ ${renda.toLocaleString('pt-BR')}`} variant={saldoMes > 0 ? 'success' : 'risk'} icon="📊" />
-        <MetricCard title="Renda Comprometida" value={`${comprometido}%`} variant={comprometido > 70 ? 'risk' : comprometido > 50 ? 'warning' : 'success'} icon="📉" />
-        <MetricCard title="Gasto Impulsivo" value={`${impulsivo}%`} variant={impulsivo > 30 ? 'risk' : impulsivo > 15 ? 'warning' : 'success'} icon="⚡" />
-      </div>
-
-      {/* Scores */}
-      <div className="apple-card">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-4">Índices</h3>
-        <div className="flex justify-around">
-          <CircularScore value={disciplina} label="Disciplina" variant="primary" />
-          <CircularScore value={100 - risco} label="Saúde Financeira" variant="primary" />
-          <CircularScore value={72} label="Estabilidade Emocional" variant="primary" />
+    <div className="space-y-5 pt-2">
+      {/* Header */}
+      <div>
+        <p className="text-xs text-muted-foreground font-medium">Fevereiro 2026</p>
+        <h1 className="text-2xl font-bold text-foreground tracking-tight mt-0.5">
+          R$ {patrimonio.toLocaleString('pt-BR')}
+        </h1>
+        <div className="flex items-center gap-1 mt-1">
+          <TrendingUp size={12} className="text-success" />
+          <span className="text-xs text-success font-medium">+2.3% este mês</span>
         </div>
       </div>
 
-      {/* Insights */}
-      <InsightCard insights={insights} />
+      {/* Indicators */}
+      <div className="ios-card p-4 space-y-4">
+        {indicators.map((ind) => (
+          <div key={ind.label} className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{ind.label}</span>
+              <span className={`text-sm font-semibold ${ind.positive === false ? 'text-destructive' : 'text-foreground'}`}>
+                {ind.value}
+              </span>
+            </div>
+            {ind.bar && <MicroBar {...ind.bar} />}
+          </div>
+        ))}
+      </div>
 
-      {/* Quick Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="apple-card">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Metas em Andamento</h3>
-          <div className="space-y-3">
-            {mockMetas.map((meta) => {
-              const prog = Math.round((meta.valor_atual / meta.valor_objetivo) * 100);
-              return (
-                <div key={meta.id}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-foreground font-medium">{meta.nome}</span>
-                    <span className="text-muted-foreground">{prog}%</span>
-                  </div>
-                  <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                    <div className="h-full bg-success rounded-full" style={{ width: `${prog}%` }} />
-                  </div>
+      {/* Evolução */}
+      <div className="ios-card p-4">
+        <h3 className="text-xs text-muted-foreground font-medium mb-3">Evolução do patrimônio</h3>
+        <ResponsiveContainer width="100%" height={140}>
+          <LineChart data={patrimonioHistorico}>
+            <XAxis dataKey="mes" tick={{ fontSize: 10, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} />
+            <YAxis hide />
+            <Tooltip
+              contentStyle={{
+                background: 'hsl(0,0%,100%)',
+                border: 'none',
+                borderRadius: '10px',
+                fontSize: '11px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              }}
+              formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
+            />
+            <Line
+              type="monotone"
+              dataKey="valor"
+              stroke="hsl(220,14%,20%)"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4, fill: 'hsl(220,14%,20%)' }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Metas resumo */}
+      <div className="ios-card p-4">
+        <h3 className="text-xs text-muted-foreground font-medium mb-3">Metas em andamento</h3>
+        <div className="space-y-3">
+          {mockMetas.map((meta) => {
+            const pct = Math.round((meta.valor_atual / meta.valor_objetivo) * 100);
+            return (
+              <div key={meta.id} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-foreground">{meta.nome}</span>
+                  <span className="text-[10px] text-muted-foreground">{pct}%</span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="apple-card">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Dívidas Ativas</h3>
-          <p className="text-2xl font-bold text-foreground">R$ {totalDividas.toLocaleString('pt-BR')}</p>
-          <div className="mt-3 space-y-2">
-            {mockDividas.map((d) => (
-              <div key={d.id} className="flex justify-between text-xs">
-                <span className="text-muted-foreground">{d.tipo}</span>
-                <span className="text-foreground font-medium">R$ {d.valor_atual.toLocaleString('pt-BR')}</span>
+                <div className="h-1 w-full rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-foreground/70 transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
     </div>
   );
-};
-
-export default Index;
+}

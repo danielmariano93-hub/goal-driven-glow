@@ -7,12 +7,8 @@ import { AppLayout } from "@/components/AppLayout";
 import Index from "./pages/Index";
 import Lancamentos from "./pages/Lancamentos";
 import Metas from "./pages/Metas";
-import Dividas from "./pages/Dividas";
-import ContasFixas from "./pages/ContasFixas";
-import Investimentos from "./pages/Investimentos";
-import Emocoes from "./pages/Emocoes";
-import Simulador from "./pages/Simulador";
-import Configuracoes from "./pages/Configuracoes";
+import Planejamento from "./pages/Planejamento";
+import Perfil from "./pages/Perfil";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,12 +24,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/lancamentos" element={<Lancamentos />} />
             <Route path="/metas" element={<Metas />} />
-            <Route path="/dividas" element={<Dividas />} />
-            <Route path="/contas-fixas" element={<ContasFixas />} />
-            <Route path="/investimentos" element={<Investimentos />} />
-            <Route path="/emocoes" element={<Emocoes />} />
-            <Route path="/simulador" element={<Simulador />} />
-            <Route path="/configuracoes" element={<Configuracoes />} />
+            <Route path="/planejamento" element={<Planejamento />} />
+            <Route path="/perfil" element={<Perfil />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
