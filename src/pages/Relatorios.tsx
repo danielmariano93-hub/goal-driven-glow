@@ -39,67 +39,69 @@ export default function Relatorios() {
         </div>
       </div>
 
-      {/* Gastos por categoria */}
-      <div className="ios-card p-4">
-        <h3 className="text-xs text-muted-foreground font-medium mb-3">Gastos por categoria</h3>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={categoriasFormatadas} layout="vertical">
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} width={80} />
-            <Tooltip
-              contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-              formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
-            />
-            <Bar dataKey="value" fill="hsl(220,14%,20%)" radius={[0, 4, 4, 0]} barSize={14} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Gastos por emoção */}
-      {porEmocao.length > 0 && (
+      {/* Charts side by side on desktop */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="ios-card p-4">
-          <h3 className="text-xs text-muted-foreground font-medium mb-3">Gastos por emoção</h3>
-          <ResponsiveContainer width="100%" height={140}>
-            <BarChart data={porEmocao} layout="vertical">
+          <h3 className="text-xs text-muted-foreground font-medium mb-3">Gastos por categoria</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={categoriasFormatadas} layout="vertical">
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} width={80} />
               <Tooltip
                 contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
                 formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
               />
-              <Bar dataKey="value" fill="hsl(38,92%,50%)" radius={[0, 4, 4, 0]} barSize={14} />
+              <Bar dataKey="value" fill="hsl(220,14%,20%)" radius={[0, 4, 4, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-      )}
 
-      {/* Projeção patrimonial */}
-      <div className="ios-card p-4">
-        <h3 className="text-xs text-muted-foreground font-medium mb-3">Projeção patrimonial (12 meses)</h3>
-        <ResponsiveContainer width="100%" height={140}>
-          <LineChart data={ind.projecao12.map((v, i) => ({ mes: `M${i + 1}`, valor: v }))}>
-            <XAxis dataKey="mes" tick={{ fontSize: 9, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} interval={1} />
-            <YAxis hide />
-            <Tooltip
-              contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-              formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
-            />
-            <Line type="monotone" dataKey="valor" stroke="hsl(220,14%,20%)" strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
+        {porEmocao.length > 0 && (
+          <div className="ios-card p-4">
+            <h3 className="text-xs text-muted-foreground font-medium mb-3">Gastos por emoção</h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={porEmocao} layout="vertical">
+                <XAxis type="number" hide />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} width={80} />
+                <Tooltip
+                  contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+                  formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
+                />
+                <Bar dataKey="value" fill="hsl(38,92%,50%)" radius={[0, 4, 4, 0]} barSize={14} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
-      {/* Insights */}
-      {insights.length > 0 && (
+      {/* Projeção e Insights side by side on desktop */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="ios-card p-4">
-          <h3 className="text-xs text-muted-foreground font-medium mb-3">Insights automáticos</h3>
-          <div className="space-y-2">
-            {insights.map((ins, i) => (
-              <p key={i} className="text-xs text-foreground leading-relaxed">{ins}</p>
-            ))}
-          </div>
+          <h3 className="text-xs text-muted-foreground font-medium mb-3">Projeção patrimonial (12 meses)</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={ind.projecao12.map((v, i) => ({ mes: `M${i + 1}`, valor: v }))}>
+              <XAxis dataKey="mes" tick={{ fontSize: 9, fill: 'hsl(0,0%,46%)' }} axisLine={false} tickLine={false} interval={1} />
+              <YAxis hide />
+              <Tooltip
+                contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+                formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
+              />
+              <Line type="monotone" dataKey="valor" stroke="hsl(220,14%,20%)" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
-      )}
+
+        {insights.length > 0 && (
+          <div className="ios-card p-4">
+            <h3 className="text-xs text-muted-foreground font-medium mb-3">Insights automáticos</h3>
+            <div className="space-y-2">
+              {insights.map((ins, i) => (
+                <p key={i} className="text-xs text-foreground leading-relaxed">{ins}</p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

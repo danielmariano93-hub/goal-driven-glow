@@ -78,8 +78,8 @@ export default function Metas() {
 
       {/* Detail Sheet */}
       {selected && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
-          <div className="w-full max-w-lg bg-card rounded-t-3xl p-5 pb-10 space-y-4 animate-in slide-in-from-bottom">
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end md:items-center justify-center">
+          <div className="w-full max-w-lg bg-card rounded-t-3xl md:rounded-3xl p-5 pb-10 md:pb-5 space-y-4 animate-in slide-in-from-bottom md:slide-in-from-bottom-0">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-foreground">{selected.nome}</h2>
               <div className="flex gap-2">

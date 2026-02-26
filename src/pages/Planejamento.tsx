@@ -86,7 +86,7 @@ export default function Planejamento() {
 
   if (resultado) {
     return (
-      <div className="space-y-4 pt-2 pb-4">
+      <div className="space-y-4 pt-2 pb-4 max-w-2xl">
         <h1 className="text-xl font-bold text-foreground">Resultado da Simulação</h1>
 
         {/* Bloco 1: Impacto Imediato */}
@@ -229,7 +229,7 @@ export default function Planejamento() {
 
   // Formulário
   return (
-    <div className="space-y-5 pt-2">
+    <div className="space-y-5 pt-2 max-w-2xl">
       <h1 className="text-xl font-bold text-foreground">Simulador de Decisão</h1>
       <p className="text-xs text-muted-foreground -mt-3">Simule uma compra e veja o impacto antes de decidir.</p>
 

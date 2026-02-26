@@ -78,7 +78,7 @@ export default function Index() {
 
       <div className="px-4 space-y-4">
         {/* Cards de resumo */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="ios-card p-3.5">
             <div className="flex items-center gap-2 mb-1.5">
               <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -136,7 +136,7 @@ export default function Index() {
         {hasData && (
           <div className="ios-card p-4">
             <h3 className="text-xs text-muted-foreground font-medium mb-3">Evolução do patrimônio</h3>
-            <ResponsiveContainer width="100%" height={140}>
+            <ResponsiveContainer width="100%" height={180}>
               <LineChart data={patrimonioHistorico}>
                 <XAxis dataKey="mes" tick={{ fontSize: 10, fill: 'hsl(220,9%,46%)' }} axisLine={false} tickLine={false} />
                 <YAxis hide />
