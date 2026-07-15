@@ -14,16 +14,112 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          created_at: string
+          currency: string
+          display_name: string | null
+          id: string
+          onboarding_completed_at: string | null
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          display_name?: string | null
+          id: string
+          onboarding_completed_at?: string | null
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          display_name?: string | null
+          id?: string
+          onboarding_completed_at?: string | null
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      user_financial_settings: {
+        Row: {
+          approximate_monthly_income: number | null
+          created_at: string
+          currency: string
+          income_day: number | null
+          income_frequency:
+            | Database["public"]["Enums"]["income_frequency"]
+            | null
+          timezone: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approximate_monthly_income?: number | null
+          created_at?: string
+          currency?: string
+          income_day?: number | null
+          income_frequency?:
+            | Database["public"]["Enums"]["income_frequency"]
+            | null
+          timezone?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approximate_monthly_income?: number | null
+          created_at?: string
+          currency?: string
+          income_day?: number | null
+          income_frequency?:
+            | Database["public"]["Enums"]["income_frequency"]
+            | null
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
+      income_frequency: "mensal" | "quinzenal" | "semanal" | "variavel"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +246,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+      income_frequency: ["mensal", "quinzenal", "semanal", "variavel"],
+    },
   },
 } as const
