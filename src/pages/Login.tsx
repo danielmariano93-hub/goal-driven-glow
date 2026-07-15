@@ -1,15 +1,42 @@
-import { Link } from "react-router-dom";
-import { ArrowLeft, Wallet, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Wallet, Sparkles, Loader2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { loginSchema } from "@/lib/validation/auth";
 
-/**
- * F0: placeholder visual apenas. Sem autenticação real —
- * F1 conecta Lovable Cloud e transforma este formulário em auth verdadeiro.
- */
 export default function Login() {
+  const { signIn } = useAuth();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = params.get("next") || "/app";
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const parsed = loginSchema.safeParse({ email, password });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
+      return;
+    }
+    setLoading(true);
+    const { error } = await signIn(parsed.data.email, parsed.data.password);
+    setLoading(false);
+    if (error) {
+      setError(error);
+      return;
+    }
+    navigate(next.startsWith("/") ? next : "/app", { replace: true });
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 md:px-8">
-        <Link to="/" className="flex items-center gap-2.5" aria-label="Voltar à página inicial">
+        <Link to="/" className="flex items-center gap-2.5">
           <span className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-brand text-white shadow-brand">
             <Wallet size={18} />
           </span>
@@ -19,7 +46,7 @@ export default function Login() {
         </Link>
         <Link
           to="/"
-          className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft size={12} /> Voltar
         </Link>
@@ -41,51 +68,52 @@ export default function Login() {
         <div className="mx-auto w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-card md:p-8">
           <h2 className="font-display text-2xl font-bold tracking-tight">Entrar</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Autenticação disponível em breve.
+            Use seu e-mail e senha.
           </p>
 
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              // F1 conecta com Supabase Auth
-            }}
-            noValidate
-          >
+          <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
             <div>
-              <label htmlFor="email" className="mb-1.5 block text-xs font-medium text-foreground">
+              <label htmlFor="email" className="mb-1.5 block text-xs font-medium">
                 E-mail
               </label>
               <input
                 id="email"
                 type="email"
                 autoComplete="email"
-                disabled
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="voce@email.com"
-                className="w-full rounded-xl border border-border bg-secondary/60 px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm"
               />
             </div>
             <div>
-              <label htmlFor="senha" className="mb-1.5 block text-xs font-medium text-foreground">
-                Senha
-              </label>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label htmlFor="senha" className="block text-xs font-medium">
+                  Senha
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Esqueci minha senha
+                </Link>
+              </div>
               <input
                 id="senha"
                 type="password"
                 autoComplete="current-password"
-                disabled
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full rounded-xl border border-border bg-secondary/60 px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm"
               />
             </div>
 
-            <button type="submit" disabled className="btn-brand w-full !opacity-70 cursor-not-allowed">
-              Em breve
-            </button>
+            {error && <p className="text-xs text-destructive">{error}</p>}
 
-            <p className="text-center text-xs text-muted-foreground">
-              O login com senha e Google chega junto com a conta em nuvem, na próxima fase.
-            </p>
+            <button type="submit" disabled={loading} className="btn-brand w-full">
+              {loading ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : "Entrar"}
+            </button>
           </form>
 
           <div className="mt-6 border-t border-border pt-4 text-center text-xs text-muted-foreground">
