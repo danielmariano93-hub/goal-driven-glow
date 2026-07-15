@@ -41,6 +41,7 @@ const navGroups = [
 export function DesktopSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { signOut, isAdmin } = useAuth();
 
   const isActive = (path: string, exact?: boolean) =>
     exact ? location.pathname === path : location.pathname === path || location.pathname.startsWith(path + '/');
