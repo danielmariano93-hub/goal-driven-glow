@@ -1,6 +1,6 @@
 import { useFinancial, useIndicadores } from '@/context/FinancialContext';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, TrendingDown, Plus, Target, CreditCard, BarChart3, Wallet, PiggyBank, Receipt, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Plus, Target, CreditCard, BarChart3, Wallet, PiggyBank, Receipt, MessageCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { ScoreRing } from '@/components/ScoreRing';
 import { AlertCard } from '@/components/AlertCard';
@@ -10,9 +10,10 @@ const mesAtual = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const mesLabel = () => {
-  return new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-};
+const mesLabel = () => new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+const formatBRL = (v: number) =>
+  v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function Index() {
   const { state } = useFinancial();
@@ -23,13 +24,13 @@ export default function Index() {
   const hasData = state.lancamentos.length > 0 || state.metas.length > 0 || state.dividas.length > 0;
 
   const acoes = [
-    { label: 'Lançamento', icon: Plus, color: 'bg-primary', path: '/lancamentos' },
-    { label: 'Metas', icon: Target, color: 'bg-success', path: '/metas' },
-    { label: 'Dívidas', icon: CreditCard, color: 'bg-destructive', path: '/dividas' },
-    { label: 'Relatórios', icon: BarChart3, color: 'bg-warning', path: '/relatorios' },
+    { label: 'Lançamento', icon: Plus, path: '/app/lancamentos' },
+    { label: 'Metas', icon: Target, path: '/app/metas' },
+    { label: 'Antes de gastar', icon: BarChart3, path: '/app/planejamento' },
+    { label: 'Dívidas', icon: CreditCard, path: '/app/dividas' },
   ];
 
-  // Projecao patrimonial simples (6 meses para tras baseado no saldo)
+  // Projeção patrimonial simples (F3 vai substituir por simulação real mês a mês)
   const patrimonioHistorico = Array.from({ length: 6 }, (_, i) => {
     const m = 5 - i;
     const d = new Date();
@@ -41,34 +42,46 @@ export default function Index() {
   });
 
   return (
-    <div className="space-y-5 -mx-4 -mt-2">
-      {/* Header colorido estilo banco */}
-      <div className="bg-primary px-5 pt-6 pb-10 rounded-b-3xl">
-        <p className="text-primary-foreground/70 text-xs font-medium capitalize">{mesLabel()}</p>
-        <h1 className="text-2xl font-bold text-primary-foreground tracking-tight mt-1">
-          R$ {ind.patrimonioLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-        </h1>
-        <p className="text-primary-foreground/60 text-[10px] mt-0.5">Patrimônio líquido</p>
-        <div className="flex items-center gap-1 mt-2">
-          {trend ? <TrendingUp size={12} className="text-green-300" /> : <TrendingDown size={12} className="text-red-300" />}
-          <span className={`text-xs font-medium ${trend ? 'text-green-300' : 'text-red-300'}`}>
-            {trend ? '+' : ''}R$ {ind.saldoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} este mês
-          </span>
+    <div className="space-y-6 -mx-4 md:mx-0 -mt-2 md:mt-0">
+      {/* Header com gradiente da marca */}
+      <div className="relative overflow-hidden md:rounded-3xl md:border md:border-border">
+        <div className="absolute inset-0 bg-gradient-brand-dark" aria-hidden />
+        <div className="absolute inset-0 grid-pattern opacity-10" aria-hidden />
+        <div className="relative px-5 pt-7 pb-14 md:pt-9 md:pb-12">
+          <p className="text-white/70 text-xs font-medium capitalize">{mesLabel()}</p>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
+            <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight text-white font-numeric">
+              R$ {formatBRL(ind.patrimonioLiquido)}
+            </h1>
+          </div>
+          <p className="text-white/60 text-[11px] mt-1">Patrimônio líquido estimado</p>
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-2.5 py-1 backdrop-blur">
+            {trend ? <TrendingUp size={12} className="text-brand-coral" /> : <TrendingDown size={12} className="text-brand-coral" />}
+            <span className="text-xs font-medium text-white font-numeric">
+              {trend ? '+' : ''}R$ {formatBRL(ind.saldoMes)} este mês
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Ações rápidas */}
-      <div className="px-4 -mt-6">
-        <div className="ios-card p-4">
+      <div className="px-4 md:px-0 -mt-10 md:mt-0">
+        <div className="surface-card p-4 md:p-5">
           <div className="grid grid-cols-4 gap-3">
             {acoes.map(a => {
               const Icon = a.icon;
               return (
-                <button key={a.label} onClick={() => navigate(a.path)} className="flex flex-col items-center gap-1.5">
-                  <div className={`w-12 h-12 rounded-2xl ${a.color} flex items-center justify-center`}>
-                    <Icon size={20} className="text-white" />
+                <button
+                  key={a.label}
+                  onClick={() => navigate(a.path)}
+                  className="group flex flex-col items-center gap-1.5"
+                >
+                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-gradient-brand-soft border border-border/60 grid place-items-center transition-transform group-hover:-translate-y-0.5 group-active:scale-95">
+                    <Icon size={20} className="text-accent" />
                   </div>
-                  <span className="text-[10px] font-medium text-foreground">{a.label}</span>
+                  <span className="text-[10px] md:text-xs font-medium text-foreground text-center leading-tight">
+                    {a.label}
+                  </span>
                 </button>
               );
             })}
@@ -76,56 +89,46 @@ export default function Index() {
         </div>
       </div>
 
-      <div className="px-4 space-y-4">
-        {/* Cards de resumo */}
+      <div className="px-4 md:px-0 space-y-4">
+        {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="ios-card p-3.5">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Wallet size={14} className="text-primary" />
-              </div>
-              <span className="text-[10px] text-muted-foreground">Saldo do mês</span>
-            </div>
-            <p className={`text-sm font-bold ${ind.saldoMes >= 0 ? 'text-success' : 'text-destructive'}`}>
-              R$ {ind.saldoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
-          <div className="ios-card p-3.5">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-7 h-7 rounded-lg bg-warning/10 flex items-center justify-center">
-                <Receipt size={14} className="text-warning" />
-              </div>
-              <span className="text-[10px] text-muted-foreground">Comprometida</span>
-            </div>
-            <p className="text-sm font-bold text-foreground">{ind.rendaComprometida}%</p>
-          </div>
-          <div className="ios-card p-3.5">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-7 h-7 rounded-lg bg-success/10 flex items-center justify-center">
-                <PiggyBank size={14} className="text-success" />
-              </div>
-              <span className="text-[10px] text-muted-foreground">Investido</span>
-            </div>
-            <p className="text-sm font-bold text-foreground">
-              R$ {ind.totalInvestido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
-          <div className="ios-card p-3.5">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-7 h-7 rounded-lg bg-destructive/10 flex items-center justify-center">
-                <CreditCard size={14} className="text-destructive" />
-              </div>
-              <span className="text-[10px] text-muted-foreground">Dívidas</span>
-            </div>
-            <p className="text-sm font-bold text-foreground">
-              R$ {ind.totalDividas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </p>
-          </div>
+          <KpiCard
+            icon={Wallet}
+            iconColor="text-accent"
+            iconBg="bg-accent/10"
+            label="Saldo do mês"
+            value={`R$ ${formatBRL(ind.saldoMes)}`}
+            tone={ind.saldoMes >= 0 ? 'positive' : 'negative'}
+          />
+          <KpiCard
+            icon={Receipt}
+            iconColor="text-warning"
+            iconBg="bg-warning/10"
+            label="Renda comprometida"
+            value={`${ind.rendaComprometida}%`}
+          />
+          <KpiCard
+            icon={PiggyBank}
+            iconColor="text-success"
+            iconBg="bg-success/10"
+            label="Investido"
+            value={`R$ ${formatBRL(ind.totalInvestido)}`}
+          />
+          <KpiCard
+            icon={CreditCard}
+            iconColor="text-destructive"
+            iconBg="bg-destructive/10"
+            label="Dívidas"
+            value={`R$ ${formatBRL(ind.totalDividas)}`}
+          />
         </div>
 
-        {/* Scores */}
-        <div className="ios-card p-4">
-          <h3 className="text-xs text-muted-foreground font-medium mb-4">Scores</h3>
+        {/* Scores (F3 vai substituir por indicadores factuais) */}
+        <div className="surface-card p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Indicadores</h3>
+            <span className="text-[10px] text-muted-foreground">estimativas</span>
+          </div>
           <div className="flex justify-around">
             <ScoreRing value={ind.scoreFinanceiro} label="Financeiro" />
             <ScoreRing value={ind.scoreEmocional} label="Emocional" />
@@ -134,17 +137,37 @@ export default function Index() {
 
         {/* Evolução */}
         {hasData && (
-          <div className="ios-card p-4">
-            <h3 className="text-xs text-muted-foreground font-medium mb-3">Evolução do patrimônio</h3>
+          <div className="surface-card p-4">
+            <h3 className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-3">
+              Evolução do patrimônio
+            </h3>
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={patrimonioHistorico}>
-                <XAxis dataKey="mes" tick={{ fontSize: 10, fill: 'hsl(220,9%,46%)' }} axisLine={false} tickLine={false} />
+                <XAxis
+                  dataKey="mes"
+                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <YAxis hide />
                 <Tooltip
-                  contentStyle={{ background: 'hsl(0,0%,100%)', border: 'none', borderRadius: '10px', fontSize: '11px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-                  formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']}
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    boxShadow: 'var(--shadow-lg)',
+                  }}
+                  formatter={(v: number) => [`R$ ${formatBRL(v)}`, '']}
                 />
-                <Line type="monotone" dataKey="valor" stroke="hsl(221,83%,53%)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: 'hsl(221,83%,53%)' }} />
+                <Line
+                  type="monotone"
+                  dataKey="valor"
+                  stroke="hsl(var(--accent))"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: 'hsl(var(--accent))' }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -153,26 +176,31 @@ export default function Index() {
         {/* Alertas */}
         {state.alertas.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-xs text-muted-foreground font-medium">Alertas</h3>
+            <h3 className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Alertas</h3>
             {state.alertas.map(a => <AlertCard key={a.id} alerta={a} />)}
           </div>
         )}
 
         {/* Metas resumo */}
         {state.metas.filter(m => m.status === 'ativa').length > 0 && (
-          <div className="ios-card p-4">
-            <h3 className="text-xs text-muted-foreground font-medium mb-3">Metas em andamento</h3>
-            <div className="space-y-3">
+          <div className="surface-card p-4">
+            <h3 className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-3">
+              Metas em andamento
+            </h3>
+            <div className="space-y-3.5">
               {state.metas.filter(m => m.status === 'ativa').slice(0, 3).map((meta) => {
                 const pct = meta.valor_objetivo > 0 ? Math.round((meta.valor_atual / meta.valor_objetivo) * 100) : 0;
                 return (
                   <div key={meta.id} className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-foreground">{meta.nome}</span>
-                      <span className="text-[10px] text-muted-foreground">{pct}%</span>
+                      <span className="text-sm font-medium text-foreground">{meta.nome}</span>
+                      <span className="text-[11px] text-muted-foreground font-numeric">{pct}%</span>
                     </div>
                     <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
-                      <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                      <div
+                        className="h-full rounded-full bg-gradient-brand transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
                   </div>
                 );
@@ -181,22 +209,59 @@ export default function Index() {
           </div>
         )}
 
-        {/* Empty state boas-vindas */}
+        {/* Empty state */}
         {!hasData && (
-          <div className="ios-card p-6 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
-              <Wallet size={24} className="text-primary" />
+          <div className="surface-card-lg p-6 md:p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-brand text-white shadow-brand grid place-items-center mx-auto mb-4">
+              <MessageCircle size={22} />
             </div>
-            <h3 className="text-sm font-semibold text-foreground mb-1">Bem-vindo ao seu ecossistema financeiro!</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Comece adicionando seus lançamentos, metas e dívidas para ver seus indicadores em tempo real.
+            <h3 className="font-display text-lg font-semibold text-foreground mb-1.5">
+              Comece com uma conversa
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
+              Adicione seu primeiro lançamento, sua primeira meta ou uma dívida para ver os indicadores
+              se atualizarem em tempo real.
             </p>
-            <button onClick={() => navigate('/lancamentos')} className="mt-4 h-9 px-5 rounded-xl bg-primary text-primary-foreground text-xs font-medium">
+            <button
+              onClick={() => navigate('/app/lancamentos')}
+              className="btn-brand mt-5"
+            >
               Adicionar primeiro lançamento
+              <Plus size={16} />
             </button>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function KpiCard({
+  icon: Icon,
+  iconColor,
+  iconBg,
+  label,
+  value,
+  tone,
+}: {
+  icon: typeof Wallet;
+  iconColor: string;
+  iconBg: string;
+  label: string;
+  value: string;
+  tone?: 'positive' | 'negative';
+}) {
+  const valueClass =
+    tone === 'positive' ? 'text-success' : tone === 'negative' ? 'text-destructive' : 'text-foreground';
+  return (
+    <div className="surface-card p-3.5">
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className={`w-7 h-7 rounded-lg ${iconBg} flex items-center justify-center`}>
+          <Icon size={14} className={iconColor} />
+        </div>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
+      </div>
+      <p className={`text-sm font-bold font-numeric ${valueClass}`}>{value}</p>
     </div>
   );
 }
