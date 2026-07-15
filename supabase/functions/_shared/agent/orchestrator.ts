@@ -6,7 +6,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { interpret, type ParsedIntent, todaySaoPaulo } from "./parser.ts";
+import { interpret, type ParsedIntent, todaySaoPaulo } from "../../../../src/lib/agent/parser.ts";
 
 export type OrchestratorInput = {
   user_id: string;
