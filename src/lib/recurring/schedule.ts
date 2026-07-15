@@ -1,4 +1,4 @@
-/** Cálculo determinístico das próximas ocorrências de uma regra recorrente. Timezone America/Sao_Paulo. */
+/** Cálculo determinístico das próximas ocorrências de uma regra recorrente. */
 
 export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -10,56 +10,71 @@ export interface RecurringRule {
   weekday?: number | null; // 0..6 (0=domingo)
 }
 
-function lastDayOfMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
+function lastDayOfMonth(year: number, monthIdx: number): number {
+  // monthIdx é 0-based (JS)
+  return new Date(year, monthIdx + 1, 0).getDate();
 }
 
-function iso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function iso(y: number, m: number, d: number): string {
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function parseIso(s: string): { y: number; m: number; d: number } {
+  const [y, m, d] = s.split("-").map(Number);
+  return { y, m: m - 1, d };
 }
 
 /** Retorna as próximas N ocorrências a partir de `from` (inclusive). */
 export function nextOccurrences(rule: RecurringRule, from: string, count: number): string[] {
   const out: string[] = [];
-  const start = new Date(rule.start_date + "T12:00:00");
-  const end = rule.end_date ? new Date(rule.end_date + "T12:00:00") : null;
-  const fromD = new Date(from + "T12:00:00");
-  let cur = new Date(start);
-  // Fast-forward para from
-  if (cur < fromD) {
-    if (rule.frequency === "daily") cur = new Date(fromD);
-    else if (rule.frequency === "weekly") {
-      while (cur < fromD) cur.setDate(cur.getDate() + 7);
+  const start = parseIso(rule.start_date);
+  const end = rule.end_date ? parseIso(rule.end_date) : null;
+  const fromP = parseIso(from);
+  const fromKey = iso(fromP.y, fromP.m, fromP.d);
+
+  let cursorY = start.y;
+  let cursorM = start.m;
+  let cursorD = start.d;
+
+  const step = () => {
+    if (rule.frequency === "daily") {
+      const nd = new Date(cursorY, cursorM, cursorD + 1);
+      cursorY = nd.getFullYear(); cursorM = nd.getMonth(); cursorD = nd.getDate();
+    } else if (rule.frequency === "weekly") {
+      const nd = new Date(cursorY, cursorM, cursorD + 7);
+      cursorY = nd.getFullYear(); cursorM = nd.getMonth(); cursorD = nd.getDate();
     } else if (rule.frequency === "monthly") {
-      while (cur < fromD) cur.setMonth(cur.getMonth() + 1);
+      cursorM += 1;
+      if (cursorM > 11) { cursorY += 1; cursorM = 0; }
     } else {
-      while (cur < fromD) cur.setFullYear(cur.getFullYear() + 1);
+      cursorY += 1;
     }
-  }
-  while (out.length < count) {
-    let occ: Date;
+  };
+
+  const compute = (): { y: number; m: number; d: number } => {
     if (rule.frequency === "monthly" && rule.day_of_month) {
-      const y = cur.getFullYear();
-      const m = cur.getMonth();
-      const dim = lastDayOfMonth(y, m + 1);
-      occ = new Date(y, m, Math.min(rule.day_of_month, dim), 12);
-    } else if (rule.frequency === "weekly" && rule.weekday != null) {
-      const diff = (rule.weekday - cur.getDay() + 7) % 7;
-      occ = new Date(cur);
-      occ.setDate(cur.getDate() + diff);
-    } else {
-      occ = new Date(cur);
+      const ld = lastDayOfMonth(cursorY, cursorM);
+      return { y: cursorY, m: cursorM, d: Math.min(rule.day_of_month, ld) };
     }
-    if (end && occ > end) break;
-    if (occ >= fromD) out.push(iso(occ));
-    // avança
-    if (rule.frequency === "daily") cur.setDate(cur.getDate() + 1);
-    else if (rule.frequency === "weekly") cur.setDate(cur.getDate() + 7);
-    else if (rule.frequency === "monthly") cur.setMonth(cur.getMonth() + 1);
-    else cur.setFullYear(cur.getFullYear() + 1);
+    if (rule.frequency === "weekly" && rule.weekday != null) {
+      const base = new Date(cursorY, cursorM, cursorD);
+      const diff = (rule.weekday - base.getDay() + 7) % 7;
+      const nd = new Date(cursorY, cursorM, cursorD + diff);
+      return { y: nd.getFullYear(), m: nd.getMonth(), d: nd.getDate() };
+    }
+    return { y: cursorY, m: cursorM, d: cursorD };
+  };
+
+  const guard = 500;
+  for (let i = 0; i < guard && out.length < count; i++) {
+    const occ = compute();
+    const key = iso(occ.y, occ.m, occ.d);
+    if (end) {
+      const ek = iso(end.y, end.m, end.d);
+      if (key > ek) break;
+    }
+    if (key >= fromKey) out.push(key);
+    step();
   }
   return out;
 }
