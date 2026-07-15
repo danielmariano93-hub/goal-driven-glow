@@ -26,7 +26,8 @@ const TIPO_MAP: Record<string, "income" | "expense" | "transfer"> = {
 function toNumber(v: unknown): number | null {
   if (v == null || v === "") return null;
   if (typeof v === "number") return v;
-  const s = String(v).replace(/[^\d,.-]/g, "").replace(",", ".");
+  let s = String(v).replace(/[^\d,.-]/g, "");
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
