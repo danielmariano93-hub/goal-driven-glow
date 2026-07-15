@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Loader2, Copy, ShieldCheck, MessageCircle, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, Copy, ShieldCheck, MessageCircle, RefreshCw, Trash2, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 // The single official WhatsApp number of the platform. This is a placeholder until the WAHA
 // credentials are provisioned; the UI shows "número oficial em configuração" when unset.
