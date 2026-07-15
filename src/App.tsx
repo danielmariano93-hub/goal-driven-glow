@@ -4,10 +4,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { FinancialProvider } from "@/context/FinancialContext";
+import { AuthProvider } from "@/context/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
+import Onboarding from "./pages/Onboarding";
 import Index from "./pages/Index";
 import Lancamentos from "./pages/Lancamentos";
 import Metas from "./pages/Metas";
@@ -25,34 +30,55 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <FinancialProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            {/* Rotas públicas */}
-            <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
+      <BrowserRouter>
+        <AuthProvider>
+          <FinancialProvider>
+            <Toaster />
+            <Sonner />
+            <Routes>
+              {/* Rotas públicas */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
 
-            {/* Área autenticada (F1 vai adicionar guard de auth). Todas as rotas de app vivem sob /app */}
-            <Route path="/app" element={<AppLayout />}>
-              <Route index element={<Index />} />
-              <Route path="lancamentos" element={<Lancamentos />} />
-              <Route path="metas" element={<Metas />} />
-              <Route path="dividas" element={<Dividas />} />
-              <Route path="planejamento" element={<Planejamento />} />
-              <Route path="relatorios" element={<Relatorios />} />
-              <Route path="emocoes" element={<Emocoes />} />
-              <Route path="investimentos" element={<Investimentos />} />
-              <Route path="perfil" element={<Perfil />} />
-              <Route path="mais" element={<MaisMenu />} />
-            </Route>
+              {/* Onboarding requer login mas fica fora do AppLayout */}
+              <Route
+                path="/onboarding"
+                element={
+                  <ProtectedRoute>
+                    <Onboarding />
+                  </ProtectedRoute>
+                }
+              />
 
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </FinancialProvider>
+              {/* Área autenticada */}
+              <Route
+                path="/app"
+                element={
+                  <ProtectedRoute>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Index />} />
+                <Route path="lancamentos" element={<Lancamentos />} />
+                <Route path="metas" element={<Metas />} />
+                <Route path="dividas" element={<Dividas />} />
+                <Route path="planejamento" element={<Planejamento />} />
+                <Route path="relatorios" element={<Relatorios />} />
+                <Route path="emocoes" element={<Emocoes />} />
+                <Route path="investimentos" element={<Investimentos />} />
+                <Route path="perfil" element={<Perfil />} />
+                <Route path="mais" element={<MaisMenu />} />
+              </Route>
+
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </FinancialProvider>
+        </AuthProvider>
+      </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );
