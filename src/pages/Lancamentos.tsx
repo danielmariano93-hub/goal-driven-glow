@@ -1,172 +1,439 @@
-import { useState, useMemo } from 'react';
-import { useFinancial } from '@/context/FinancialContext';
-import { CATEGORIAS_GASTO } from '@/types/financial';
-import { Plus, Search, Download, Copy, Trash2 } from 'lucide-react';
-import { LancamentoForm } from '@/components/LancamentoForm';
-import { exportarCSV } from '@/lib/csv';
-import type { Lancamento } from '@/types/financial';
+import { useMemo, useState } from "react";
+import { Plus, Trash2, Loader2, ArrowLeftRight } from "lucide-react";
+import { toast } from "sonner";
+import {
+  useAccounts,
+  useCategories,
+  useTransactions,
+  useSaveTransaction,
+  useDeleteTransaction,
+  useCreateTransfer,
+  type TransactionRow,
+  type TxFilters,
+} from "@/lib/db/finance";
+import { transactionSchema, transferSchema } from "@/lib/validation/finance";
+import { formatBRL, todayISO } from "@/lib/engine/facts";
 
 export default function Lancamentos() {
-  const { state, dispatch } = useFinancial();
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const [filtroMes, setFiltroMes] = useState(currentMonth);
-  const [filtroCategoria, setFiltroCategoria] = useState('');
-  const [filtroTipo, setFiltroTipo] = useState<'' | 'receita' | 'despesa'>('');
-  const [busca, setBusca] = useState('');
-  const [ordenacao, setOrdenacao] = useState<'data' | 'valor'>('data');
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Lancamento | null>(null);
+  const { data: accounts } = useAccounts();
+  const { data: categories } = useCategories();
+  const [filters, setFilters] = useState<TxFilters>({ type: "all" });
+  const { data: txs, isLoading } = useTransactions(filters);
+  const save = useSaveTransaction();
+  const transfer = useCreateTransfer();
+  const del = useDeleteTransaction();
+  const [openTx, setOpenTx] = useState(false);
+  const [openTransfer, setOpenTransfer] = useState(false);
+  const [editing, setEditing] = useState<TransactionRow | null>(null);
 
-  const registros = useMemo(() => {
-    let all = [...state.lancamentos];
-    if (filtroMes) all = all.filter(r => r.data.startsWith(filtroMes));
-    if (filtroCategoria) all = all.filter(r => r.categoria === filtroCategoria);
-    if (filtroTipo) all = all.filter(r => r.tipo === filtroTipo);
-    if (busca) {
-      const q = busca.toLowerCase();
-      all = all.filter(r => r.descricao.toLowerCase().includes(q) || r.categoria.toLowerCase().includes(q));
-    }
-    if (ordenacao === 'data') all.sort((a, b) => b.data.localeCompare(a.data));
-    else all.sort((a, b) => b.valor - a.valor);
-    return all;
-  }, [state.lancamentos, filtroMes, filtroCategoria, filtroTipo, busca, ordenacao]);
+  const catName = (id: string | null) =>
+    id ? categories?.find((c) => c.id === id)?.name ?? "—" : "—";
+  const accName = (id: string) => accounts?.find((a) => a.id === id)?.name ?? "—";
 
-  const getCategoriaLabel = (val: string) => {
-    const custom = (state.categoriasCustom as string[] || []);
-    const customMatch = custom.find(c => c.toLowerCase().replace(/\s+/g, '_') === val);
-    if (customMatch) return customMatch;
-    return CATEGORIAS_GASTO.find(c => c.value === val)?.label || val.charAt(0).toUpperCase() + val.slice(1);
-  };
+  const grouped = useMemo(() => {
+    const g: Record<string, TransactionRow[]> = {};
+    for (const t of txs ?? []) (g[t.occurred_at] ||= []).push(t);
+    return Object.entries(g).sort(([a], [b]) => b.localeCompare(a));
+  }, [txs]);
 
-  const todasCategorias = [
-    ...CATEGORIAS_GASTO,
-    ...(((state as any).categoriasCustom || []) as string[]).map((c: string) => ({ value: c.toLowerCase().replace(/\s+/g, '_'), label: c })),
-  ];
-
-  const mesesDisponiveis = useMemo(() => {
-    const mesesSet = new Set<string>();
-    state.lancamentos.forEach(l => {
-      const ym = l.data.slice(0, 7);
-      if (ym) mesesSet.add(ym);
-    });
-    // Always include current month
-    mesesSet.add(currentMonth);
-    return Array.from(mesesSet).sort().reverse().map(ym => {
-      const [y, m] = ym.split('-').map(Number);
-      const label = new Date(y, m - 1).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
-      return { value: ym, label: label.charAt(0).toUpperCase() + label.slice(1) };
-    });
-  }, [state.lancamentos, currentMonth]);
-
-  const totalReceitas = registros.filter(r => r.tipo === 'receita').reduce((s, r) => s + r.valor, 0);
-  const totalGastos = registros.filter(r => r.tipo === 'despesa').reduce((s, r) => s + r.valor, 0);
-
-  const duplicar = (l: Lancamento) => {
-    dispatch({ type: 'ADD_LANCAMENTO', payload: { ...l, id: crypto.randomUUID() } });
-  };
-
-  const deletar = (id: string) => {
-    dispatch({ type: 'DELETE_LANCAMENTO', payload: id });
-  };
+  const hasAccounts = (accounts?.length ?? 0) > 0;
 
   return (
-    <div className="space-y-4 pt-2">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Lançamentos</h1>
+    <div>
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Lançamentos</h1>
+          <p className="text-sm text-muted-foreground">Receitas, despesas e transferências.</p>
+        </div>
         <div className="flex gap-2">
-          <button onClick={() => exportarCSV(registros)} className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-            <Download size={14} className="text-muted-foreground" />
+          <button
+            onClick={() => setOpenTransfer(true)}
+            disabled={!hasAccounts || (accounts?.length ?? 0) < 2}
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            <ArrowLeftRight size={14} /> Transferência
           </button>
-          <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-            <Plus size={16} strokeWidth={2.5} />
+          <button
+            onClick={() => {
+              setEditing(null);
+              setOpenTx(true);
+            }}
+            disabled={!hasAccounts}
+            className="btn-brand inline-flex items-center gap-2 disabled:opacity-50"
+          >
+            <Plus size={14} /> Novo
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Summary */}
-      <div className="flex gap-3">
-        <div className="ios-card flex-1 p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Receitas</p>
-          <p className="text-sm font-semibold text-success mt-0.5">R$ {totalReceitas.toLocaleString('pt-BR')}</p>
-        </div>
-        <div className="ios-card flex-1 p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Despesas</p>
-          <p className="text-sm font-semibold text-destructive mt-0.5">R$ {totalGastos.toLocaleString('pt-BR')}</p>
-        </div>
-      </div>
+      {!hasAccounts ? (
+        <EmptyMessage title="Cadastre uma conta antes" description="Você precisa de pelo menos uma conta para registrar lançamentos." />
+      ) : (
+        <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <select
+              value={filters.type ?? "all"}
+              onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value as TxFilters["type"] }))}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs"
+            >
+              <option value="all">Todos os tipos</option>
+              <option value="income">Receitas</option>
+              <option value="expense">Despesas</option>
+              <option value="transfer">Transferências</option>
+            </select>
+            <select
+              value={filters.accountId ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, accountId: e.target.value || undefined }))}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs"
+            >
+              <option value="">Todas as contas</option>
+              {accounts?.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filters.categoryId ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, categoryId: e.target.value || undefined }))}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs"
+            >
+              <option value="">Todas as categorias</option>
+              {categories?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={filters.from ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value || undefined }))}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs"
+            />
+            <input
+              type="date"
+              value={filters.to ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value || undefined }))}
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs"
+            />
+          </div>
 
-      {/* Filters */}
-      <div className="space-y-2">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input type="text" placeholder="Buscar lançamento..." value={busca} onChange={e => setBusca(e.target.value)}
-            className="w-full h-9 pl-8 pr-3 rounded-xl bg-secondary text-xs text-foreground placeholder:text-muted-foreground outline-none" />
-        </div>
-        <div className="flex gap-2 flex-wrap">
-         <select value={filtroMes} onChange={e => setFiltroMes(e.target.value)}
-            className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">
-            {mesesDisponiveis.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-            <option value="">Todos</option>
-          </select>
-          <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}
-            className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">
-            <option value="">Todas categorias</option>
-            {todasCategorias.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value as any)}
-            className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">
-            <option value="">Todos tipos</option>
-            <option value="receita">Receita</option>
-            <option value="despesa">Despesa</option>
-          </select>
-          <select value={ordenacao} onChange={e => setOrdenacao(e.target.value as 'data' | 'valor')}
-            className="h-8 px-3 rounded-lg bg-secondary text-xs text-foreground outline-none appearance-none">
-            <option value="data">Data</option>
-            <option value="valor">Valor</option>
-          </select>
-        </div>
-      </div>
+          {isLoading ? (
+            <div className="grid place-items-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !txs || txs.length === 0 ? (
+            <EmptyMessage title="Nenhum lançamento encontrado" description="Ajuste os filtros ou registre um novo." />
+          ) : (
+            <div className="space-y-4">
+              {grouped.map(([date, items]) => (
+                <div key={date}>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {new Date(date + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
+                  </p>
+                  <ul className="space-y-2">
+                    {items.map((t) => (
+                      <li key={t.id} className="flex items-center justify-between rounded-2xl border border-border bg-card p-3 shadow-card">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{t.description || (t.type === "transfer" ? "Transferência" : catName(t.category_id))}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {accName(t.account_id)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
+                            {t.status === "planned" ? " · Planejado" : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`font-semibold tabular-nums ${
+                              t.type === "income" ? "text-success" : t.type === "expense" ? "text-destructive" : "text-foreground"
+                            }`}
+                          >
+                            {t.type === "expense" ? "−" : t.type === "income" ? "+" : ""}
+                            {formatBRL(Number(t.amount))}
+                          </span>
+                          <button
+                            onClick={() => {
+                              if (confirm(t.type === "transfer" ? "Excluir esta transferência (ambas as pernas)?" : "Excluir este lançamento?")) {
+                                del.mutate(t, {
+                                  onSuccess: () => toast.success("Excluído"),
+                                  onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+                                });
+                              }
+                            }}
+                            className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
+                            aria-label="Excluir"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
-      {/* List */}
-      <div className="ios-card divide-y divide-border overflow-hidden">
-        {registros.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-8">Nenhum lançamento encontrado</p>
-        )}
-        {registros.map(r => (
-          <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-            <button onClick={() => { setEditing(r); setFormOpen(true); }} className="flex-1 min-w-0 text-left">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-foreground truncate">{r.descricao}</span>
-                {r.impulsivo && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">impulsivo</span>}
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] text-muted-foreground">
-                  {(() => { const [y, m, d] = r.data.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }); })()}
-                </span>
-                <span className="text-[10px] text-muted-foreground">·</span>
-                <span className="text-[10px] text-muted-foreground">{getCategoriaLabel(r.categoria)}</span>
-                {r.emocao && <><span className="text-[10px] text-muted-foreground">·</span><span className="text-[10px] text-muted-foreground">{r.emocao}</span></>}
-                {r.forma_pagamento && <><span className="text-[10px] text-muted-foreground">·</span><span className="text-[10px] text-muted-foreground">{r.forma_pagamento}</span></>}
-              </div>
+      {openTx && (
+        <TxModal
+          initial={editing}
+          accounts={accounts ?? []}
+          categories={categories ?? []}
+          saving={save.isPending}
+          onClose={() => setOpenTx(false)}
+          onSubmit={(v) =>
+            save.mutate(
+              { ...v, id: editing?.id },
+              {
+                onSuccess: () => {
+                  toast.success(editing ? "Atualizado" : "Registrado");
+                  setOpenTx(false);
+                },
+                onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+              }
+            )
+          }
+        />
+      )}
+
+      {openTransfer && (
+        <TransferModal
+          accounts={accounts ?? []}
+          saving={transfer.isPending}
+          onClose={() => setOpenTransfer(false)}
+          onSubmit={(v) =>
+            transfer.mutate(v, {
+              onSuccess: () => {
+                toast.success("Transferência registrada");
+                setOpenTransfer(false);
+              },
+              onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+            })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function EmptyMessage({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+      <p className="text-sm font-medium">{title}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function TxModal({
+  initial,
+  accounts,
+  categories,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  initial: TransactionRow | null;
+  accounts: { id: string; name: string }[];
+  categories: { id: string; name: string; type: "income" | "expense" }[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (v: ReturnType<typeof transactionSchema.parse>) => void;
+}) {
+  const [type, setType] = useState<"income" | "expense">((initial?.type as "income" | "expense") ?? "expense");
+  const [accountId, setAccountId] = useState(initial?.account_id ?? accounts[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState<string | "">(initial?.category_id ?? "");
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
+  const [occurredAt, setOccurredAt] = useState(initial?.occurred_at ?? todayISO());
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [status, setStatus] = useState<"confirmed" | "planned">(initial?.status ?? "confirmed");
+  const [error, setError] = useState<string | null>(null);
+
+  const filteredCats = categories.filter((c) => c.type === type);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = transactionSchema.safeParse({
+      account_id: accountId,
+      category_id: categoryId || null,
+      type,
+      status,
+      amount: Number(amount.replace(",", ".")),
+      occurred_at: occurredAt,
+      description,
+    });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
+      return;
+    }
+    onSubmit(parsed.data);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">{initial ? "Editar lançamento" : "Novo lançamento"}</h2>
+        <div className="mt-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setType("expense")}
+              className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "expense" ? "border-destructive bg-destructive/10 text-destructive" : "border-border bg-background text-muted-foreground"}`}
+            >
+              Despesa
             </button>
-            <span className={`text-sm font-semibold tabular-nums shrink-0 ${r.tipo === 'receita' ? 'text-success' : 'text-foreground'}`}>
-              {r.tipo === 'receita' ? '+' : '-'}R$ {r.valor.toLocaleString('pt-BR')}
-            </span>
-            <div className="flex gap-1 shrink-0">
-              <button onClick={() => duplicar(r)} className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
-                <Copy size={12} className="text-muted-foreground" />
-              </button>
-              <button onClick={() => deletar(r.id)} className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
-                <Trash2 size={12} className="text-destructive" />
-              </button>
+            <button
+              type="button"
+              onClick={() => setType("income")}
+              className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "income" ? "border-success bg-success/10 text-success" : "border-border bg-background text-muted-foreground"}`}
+            >
+              Receita
+            </button>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Valor (R$)</label>
+            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base" placeholder="0,00" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Conta</label>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input-base">
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Categoria</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-base">
+              <option value="">Sem categoria</option>
+              {filteredCats.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Data</label>
+              <input type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} className="input-base" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Status</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value as "confirmed" | "planned")} className="input-base">
+                <option value="confirmed">Confirmado</option>
+                <option value="planned">Planejado</option>
+              </select>
             </div>
           </div>
-        ))}
-      </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Descrição (opcional)</label>
+            <input value={description ?? ""} onChange={(e) => setDescription(e.target.value)} className="input-base" />
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
-      <LancamentoForm open={formOpen} onOpenChange={setFormOpen} lancamento={editing} />
+function TransferModal({
+  accounts,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  accounts: { id: string; name: string }[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (v: ReturnType<typeof transferSchema.parse>) => void;
+}) {
+  const [from, setFrom] = useState(accounts[0]?.id ?? "");
+  const [to, setTo] = useState(accounts[1]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = transferSchema.safeParse({
+      from_account_id: from,
+      to_account_id: to,
+      amount: Number(amount.replace(",", ".")),
+      occurred_at: date,
+      description,
+    });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
+      return;
+    }
+    onSubmit(parsed.data);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Transferência entre contas</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Não conta como receita nem despesa.</p>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium">De</label>
+            <select value={from} onChange={(e) => setFrom(e.target.value)} className="input-base">
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Para</label>
+            <select value={to} onChange={(e) => setTo(e.target.value)} className="input-base">
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Valor</label>
+              <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Data</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input-base" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Descrição (opcional)</label>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} className="input-base" />
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Transferir"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

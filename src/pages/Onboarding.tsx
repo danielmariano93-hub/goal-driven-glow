@@ -18,7 +18,7 @@ const FREQUENCY_LABEL: Record<IncomeFrequency, string> = {
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { user, profile, refreshProfile, loading } = useAuth();
+  const { user, profile, refreshProfile, status } = useAuth();
 
   const [step, setStep] = useState(1);
   const [displayName, setDisplayName] = useState("");
@@ -33,10 +33,10 @@ export default function Onboarding() {
   }, [profile]);
 
   useEffect(() => {
-    if (!loading && profile?.onboarding_completed_at) {
+    if (status === "ready" && profile?.onboarding_completed_at) {
       navigate("/app", { replace: true });
     }
-  }, [loading, profile, navigate]);
+  }, [status, profile, navigate]);
 
   async function finish() {
     if (!user) return;
@@ -49,53 +49,26 @@ export default function Onboarding() {
       return;
     }
 
-    setSaving(true);
-
     const incomeNum = income.trim() === "" ? null : Number(income.replace(",", "."));
     if (incomeNum !== null && (isNaN(incomeNum) || incomeNum < 0)) {
       setError("Renda inválida");
-      setSaving(false);
       setStep(2);
       return;
     }
-    const dayNum = incomeDay.trim() === "" ? null : Number(incomeDay);
+    const dayNum = incomeDay.trim() === "" || frequency === "variavel" ? null : Number(incomeDay);
 
-    const { error: pErr } = await supabase
-      .from("profiles")
-      .update({
-        display_name: nameParsed.data,
-        onboarding_completed_at: new Date().toISOString(),
-        timezone: "America/Sao_Paulo",
-        currency: "BRL",
-      })
-      .eq("id", user.id);
-
-    if (pErr) {
-      setError("Não foi possível salvar seu perfil. Tente novamente.");
+    setSaving(true);
+    const { error: rpcErr } = await supabase.rpc("complete_onboarding", {
+      p_display_name: nameParsed.data,
+      p_income: incomeNum,
+      p_frequency: frequency,
+      p_income_day: dayNum,
+    });
+    if (rpcErr) {
+      setError("Não foi possível salvar. Tente novamente.");
       setSaving(false);
       return;
     }
-
-    const { error: sErr } = await supabase
-      .from("user_financial_settings")
-      .upsert(
-        {
-          user_id: user.id,
-          approximate_monthly_income: incomeNum,
-          income_frequency: frequency,
-          income_day: dayNum,
-          timezone: "America/Sao_Paulo",
-          currency: "BRL",
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (sErr) {
-      setError("Não foi possível salvar suas configurações. Tente novamente.");
-      setSaving(false);
-      return;
-    }
-
     await refreshProfile();
     setSaving(false);
     navigate("/app", { replace: true });
@@ -161,13 +134,10 @@ export default function Onboarding() {
 
           {step === 2 && (
             <>
-              <h1 className="font-display text-2xl font-bold tracking-tight">
-                Como é sua renda?
-              </h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight">Como é sua renda?</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Uma estimativa já ajuda o assistente. Você pode ajustar depois.
+                Uma estimativa já ajuda. Você pode ajustar depois.
               </p>
-
               <div className="mt-6 space-y-4">
                 <div>
                   <label htmlFor="income" className="mb-1.5 block text-xs font-medium">
@@ -183,11 +153,8 @@ export default function Onboarding() {
                     className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm"
                   />
                 </div>
-
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium">
-                    Frequência de recebimento
-                  </label>
+                  <label className="mb-1.5 block text-xs font-medium">Frequência de recebimento</label>
                   <div className="grid grid-cols-2 gap-2">
                     {incomeFrequencyValues.map((f) => (
                       <button
@@ -205,7 +172,6 @@ export default function Onboarding() {
                     ))}
                   </div>
                 </div>
-
                 {frequency !== "variavel" && (
                   <div>
                     <label htmlFor="day" className="mb-1.5 block text-xs font-medium">
@@ -223,7 +189,6 @@ export default function Onboarding() {
                   </div>
                 )}
               </div>
-
               {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
               <div className="mt-6 flex justify-between">
                 <button
@@ -233,11 +198,7 @@ export default function Onboarding() {
                 >
                   <ArrowLeft size={14} /> Voltar
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setStep(3)}
-                  className="btn-brand inline-flex items-center gap-2"
-                >
+                <button type="button" onClick={() => setStep(3)} className="btn-brand inline-flex items-center gap-2">
                   Continuar <ArrowRight size={14} />
                 </button>
               </div>
@@ -246,9 +207,7 @@ export default function Onboarding() {
 
           {step === 3 && (
             <>
-              <h1 className="font-display text-2xl font-bold tracking-tight">
-                Últimos detalhes
-              </h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight">Últimos detalhes</h1>
               <p className="mt-1 text-sm text-muted-foreground">
                 Confirme seu fuso horário e moeda. Você pode alterar depois em Perfil.
               </p>
