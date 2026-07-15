@@ -1,157 +1,125 @@
-## NoControle.ia — Rodada Consolidada (Núcleo Financeiro Real)
+## Fase 3 — WhatsApp/WAHA + Agente Financeiro (NoControle.ia)
 
-Objetivo: substituir o protótipo localStorage por núcleo multiusuário real no Supabase, corrigir pendências da F1 e entregar CRUDs ponta a ponta com dashboard factual. Sem WhatsApp, IA, Divisão do Rolê ou Open Finance.
+Orçamento: 31 créditos. Escopo é grande demais para caber inteiro; o plano abaixo prioriza a fundação segura ponta a ponta + fluxo de vínculo real, e deixa a orquestração do agente com LLM/tool-calls num segundo bloco explicitamente identificado. Nada de deploy/publicação. Nenhum secret hardcoded.
 
----
-
-### 1. Correções da F1 (fundação)
-
-- `AuthContext`: separar estados `loading | authenticated | needs-onboarding | error | no-profile`; nunca ficar preso em spinner; recuperação via retry e signOut seguro.
-- `has_role(_role app_role)`: usar `auth.uid()` internamente (drop assinatura antiga e recriar). Atualizar RPCs e políticas.
-- `complete_onboarding`: transacional; valida display_name, income>=0, income_day 1–31, frequência enum; grava profile + user_financial_settings atomicamente; idempotente.
-- `/admin`: montar rota real dentro de `AdminRoute` (dashboard mínimo).
-- Reset de senha: escutar `PASSWORD_RECOVERY` em `AuthContext`; página trata token ausente/expirado com mensagem clara.
-- Renomear metadados remanescentes ("Mindful Money", "lovable template") para NoControle.ia em `index.html`, `package.json` name, README curto.
-- `localStorage` `financial_ecosystem_v2`: **nunca apagar automaticamente**; permanece intacto até import confirmado.
+### Estado atual auditado
+- 16 tabelas financeiras + auth prontas; RLS OK; testes/build/typecheck verdes.
+- Nenhuma edge function existente; `supabase/functions/` ausente.
+- Secrets externos WAHA_* ausentes. `LOVABLE_API_KEY` presente (AI Gateway).
+- `has_role(_user_id, _role)` é a única assinatura — precisa overload que usa `auth.uid()` e revogação do velho de anon/public.
+- `/app/importar` inexistente; nenhum código referencia `financial_ecosystem_v2`.
 
 ---
 
-### 2. Banco de dados (migrations em ordem)
+### Bloco A — Correções + Fundação (cabe no orçamento)
 
-**M1 — enums e utilitários**
-`account_type`, `transaction_type` (income/expense/transfer), `transaction_status` (confirmed/planned), `category_kind` (income/expense), `frequency` (diaria/semanal/quinzenal/mensal/anual), `debt_status`, `mood_level`.
+**A1. Migration `f3_agent_core.sql`** (uma migration única)
 
-**M2 — tabelas do ledger**
-- `accounts` (name, type, institution?, opening_balance numeric(14,2), active, user_id).
-- `categories` (name, kind, color, icon, is_global bool, user_id nullable p/ globais).
-- `transactions` (account_id, category_id?, type, status, amount numeric(14,2) CHECK>0, occurred_at date, description, notes?, emotional_trigger?, transfer_group_id?, user_id). Trigger `validate_transaction` (já existe — revisar).
-- `goals` + `goal_contributions` (amount>0, contributed_at, transaction_id? nullable).
-- `investments` (invested_amount>=0, current_value>=0, reference_date, goal_id?).
-- `debts` (original_amount>0, outstanding_balance>=0, installment_amount?, due_day 1–31?, interest_rate? numeric, rate_kind text 'mensal'|'anual'|null, status).
-- `recurring_entries` (type income/expense, amount>0, frequency, next_due_date, account_id, category_id?, active).
-- `emotional_checkins` (date, mood, trigger?, notes?).
-- `challenges` (global readonly) + `user_challenges`.
-- `import_batches` + `import_rows` (schema apenas, sem UI de importação genérica).
+Enums novos: `messaging_provider` (waha, meta_cloud), `msg_direction` (inbound, outbound), `msg_status` (queued, sent, delivered, read, failed), `link_status` (pending, active, revoked), `run_status` (running, done, error, cancelled), `confirmation_status` (pending, confirmed, cancelled, expired), `prompt_status` (draft, active, archived).
 
-Cada tabela: `id uuid`, `user_id uuid not null`, `created_at`, `updated_at` + trigger, índices por `user_id` e por colunas de filtro (occurred_at, status).
+Tabelas (todas `user_id uuid`, RLS estrita `user_id = auth.uid()`, GRANT authenticated/service_role; tabelas operacionais internas ficam sem policy de authenticated — só service_role):
 
-**M3 — GRANTs + RLS**
-Para cada tabela `public.*`:
+- `whatsapp_links` (user_id UNIQUE-active parcial, phone_e164 UNIQUE-active parcial, phone_hash, status, consent_at, last_verified_at, revoked_at). Policy: user lê próprio, admin lê tudo via `is_current_user_admin`.
+- `phone_link_codes` (user_id, code_hash, expires_at, attempts, cooldown_until, used_at). Sem SELECT para user; escrita via RPC.
+- `inbound_messages` (provider, provider_message_id UNIQUE, from_phone, to_phone, body, received_at, raw_hash, processed_at, ignored_reason). Só service_role.
+- `outbound_messages` (user_id?, to_phone, body, provider, provider_message_id?, status, attempts, next_attempt_at, error, kind: system|agent|confirmation). Só service_role, mas RPC `list_my_recent_conversation()` devolve sanitizado.
+- `message_delivery_events` (outbound_id, status, occurred_at, payload_hash). Só service_role.
+- `conversations` (user_id, phone_e164, last_message_at). RLS user_id.
+- `conversation_messages` (conversation_id, user_id, direction, body_masked, created_at). RLS user_id, `body_masked` = texto truncado sem PII cruzada.
+- `agent_runs` (user_id, conversation_id, status, model, prompt_version_id, steps, tokens_in, tokens_out, cost_cents, started_at, ended_at, error_masked). RLS user_id (SELECT).
+- `agent_steps` (run_id, idx, kind: message|tool_call|tool_result|final, name?, args_hash, result_hash, tokens?). Só service_role.
+- `pending_confirmations` (user_id, conversation_id, kind, payload jsonb, summary_text, status, expires_at, executed_at, result_ref). RLS user_id.
+- `idempotency_keys` (scope, key, user_id?, first_seen_at, result_hash). Só service_role.
+- `agent_prompt_versions` (version, status, system_prompt, model, temperature, max_steps, created_by, notes). SELECT admin.
+- `agent_settings` (id=1 row, model, temperature, max_steps, timeout_ms, proactive_enabled default false, updated_by). SELECT admin.
+- `provider_health_events` (provider, ok, latency_ms, error_masked, occurred_at). SELECT admin.
+
+RPCs SECURITY DEFINER `search_path=public`, `REVOKE ALL FROM public,anon`, `GRANT EXECUTE TO authenticated`:
+- `has_role(_role app_role)` overload → `has_role(auth.uid(), _role)`; manter a versão antiga mas `REVOKE EXECUTE FROM anon, public, authenticated` (só service_role/policies com search_path=public a chamam).
+- `create_phone_link_code()` → gera código 6 dígitos, guarda hash, TTL 10min, limita 5 tentativas em 30min, cooldown; retorna código plano UMA vez.
+- `revoke_whatsapp_link()` → marca revoked.
+- `list_my_whatsapp_link()` → devolve status + phone mascarado `+55 (11) *****‑1234`.
+
+**A2. `has_role` cleanup**
+Revogar execução da assinatura antiga de `anon`/`public`/`authenticated`; criar overload novo; verificar policies existentes seguem funcionando (elas chamam `has_role(auth.uid(), 'admin')` que continua acessível a `authenticated`? Não — revogar de authenticated também exigiria substituir chamadas. Solução: manter antigo com EXECUTE só a `authenticated` sob o argumento `auth.uid()` sendo obrigatório documentado, adicionar overload sem argumento). Confirmação final via `pg_proc`.
+
+**A3. `/app/importar`**
+Arquivo `src/pages/Importar.tsx`. Lê `localStorage.getItem('financial_ecosystem_v2')` no cliente, mostra contagens por tipo, mapeia contas/categorias/transações/metas/aportes suportadas, chama RPC `import_legacy_batch(payload jsonb)` que gera `import_batches` + `import_rows` e insere idempotentemente pelo `external_id` gerado do payload. Marca `imported_at` em localStorage — nunca apaga. Se só parte for mapeável, mostra lista clara.
+
+**A4. Lazy-load das rotas**
+`React.lazy` + `Suspense` no `App.tsx` para todas as páginas de `/app/*` e `/admin`. Reduz bundle inicial (hoje 741 kB).
+
+**A5. Contrato `MessagingProvider`**
+`src/lib/messaging/types.ts` no cliente (só types) e `supabase/functions/_shared/messaging/types.ts` no server:
+```ts
+interface MessagingProvider {
+  normalizeAddress(raw: string): string | null;
+  sendText(to: string, body: string): Promise<{provider_message_id: string}>;
+  getHealth(): Promise<{ok: boolean; latency_ms: number; error?: string}>;
+  getSessionStatus(): Promise<{status: string}>;
+  startSession?(): Promise<void>;
+  stopSession?(): Promise<void>;
+  verifyWebhookSecret(headers: Headers): boolean;
+  mapInboundEvent(payload: unknown): NormalizedInbound | null;
+}
 ```
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.<t> TO authenticated;
-GRANT ALL ON public.<t> TO service_role;
-ALTER TABLE ... ENABLE RLS;
-```
-Políticas estritas: `user_id = auth.uid()` para tabelas pessoais. `categories`: SELECT permite `is_global = true OR user_id = auth.uid()`; INSERT/UPDATE/DELETE apenas `user_id = auth.uid() AND is_global = false`. `challenges` global: SELECT para authenticated, sem mutação.
+Implementação `WahaProvider` em `supabase/functions/_shared/messaging/waha.ts` (URL/API_KEY/SESSION/SECRET via `Deno.env.get`). Stub `MetaCloudProvider` (só assinatura). Factory `getProvider()` retorna WAHA quando secrets presentes, senão modo "não configurado".
 
-**M4 — RPCs SECURITY DEFINER** (search_path=public; revogar de anon/public; grant execute apenas a authenticated/admin):
-- `create_transfer(from, to, amount, occurred_at, description)` — já existe, reforçar.
-- `record_goal_contribution(goal_id, amount, contributed_at, from_account_id?)` — cria contribution + opcionalmente transaction de saída.
-- `admin_dashboard_stats()` — já existe, revalidar `is_current_user_admin`.
-- Seed de categorias BR (Alimentação, Moradia, Transporte, Saúde, Educação, Lazer, Salário, Freelance, Investimento, Outros) como `is_global=true`.
+**A6. Edge Functions**
+- `whatsapp-webhook` (verify_jwt=false): valida secret → dedup por `provider_message_id` → grava `inbound_messages` → E.164 → se corpo `^VINCULAR (\d{4,8})$` chama RPC `redeem_phone_link_code(phone,code)`; senão enfileira em `agent_runs` via `agent-runner` (stub que responde texto padrão "recebido — em breve consigo processar" enquanto o Bloco B não estiver ligado).
+- `whatsapp-send` (JWT verificado, só admin ou service): consome `outbound_messages` queued, chama provider, atualiza status, guarda `provider_message_id`.
+- `whatsapp-ack-watchdog` (verify_jwt=false, chamado só por cron ou admin): reenfileira `outbound_messages` sem ACK há > N minutos, respeitando `attempts` e backoff exponencial; marca dead-letter.
+- `whatsapp-session` (JWT admin): expõe `getHealth/getSessionStatus/startSession/stopSession` — só configurado/não configurado se secret ausente.
 
-**M5 — reforço**
-- `has_role(app_role)` versão sem `_user_id`.
-- Constraints: `debts.rate_kind CHECK`, `transactions.transfer_group_id` obrigatório se type=transfer (já no trigger).
-- View `account_balances` (security_invoker=on): saldo derivado de `opening_balance + Σ transactions confirmadas` por conta.
+Todas: CORS, Zod para body, resposta rápida (≤300ms) no webhook, logs sanitizados (hash-only PII), `idempotency_keys` para dedup.
 
----
+**A7. UI `/app/whatsapp`**
+`src/pages/WhatsApp.tsx`: estados `not-linked → code-generated (mostra código plano + TTL + botão copiar + link wa.me/NUMERO_OFICIAL?text=VINCULAR%20xxxxxx) → linked (mostra número mascarado + saúde + revogar)`. Sem revelar existência de outro usuário. Consentimento LGPD checkbox obrigatório antes de gerar código. Adicionar link no `MaisMenu`.
 
-### 3. Front-end
+**A8. Admin `/admin/agente`**
+`src/pages/admin/Agente.tsx`: cards read-only "WAHA configurado: sim/não", saúde última hora (via `provider_health_events`), volumes (contagens agregadas), lista de outbox pendente/dead-letter (mascarada), vínculos totais/ativos/revogados (sem telefones completos), tabela `agent_prompt_versions` com botões rascunho/validar/publicar/rollback (RPC `set_active_prompt_version(id)`), `agent_settings` editável (model, temperature, max_steps, timeout_ms; proactive_enabled fica desligado e travado). Se WAHA não configurado, banner "Configuração pendente" — nenhum valor fictício.
 
-**Data layer**
-- `src/lib/api/*.ts` por domínio: `accounts.ts`, `categories.ts`, `transactions.ts`, `goals.ts`, `investments.ts`, `debts.ts`, `emotional.ts`, `admin.ts`. Cada um expõe hooks TanStack Query (`useAccounts`, `useCreateTransaction`, …) com invalidação encadeada.
-- `QueryClientProvider` já existe — configurar staleTime/retry.
-- Schemas Zod pt-BR em `src/lib/validation/*`.
-- Utilitário `formatDate`/`parseDate` sem drift de timezone (armazenar `YYYY-MM-DD` e converter em local).
+**A9. Landing**
+Uma pequena seção "Um número, seu contexto privado" reutilizando componentes existentes; sem retrabalho de design.
 
-**Contexts**
-- Manter `FinancialContext` apenas como fachada de leitura durante migração; a fonte primária passa a ser Supabase. Remover mutações locais; qualquer escrita direciona ao Supabase.
-- `localStorage` legado exposto por hook `useLegacyLocalData()` (somente leitura) para a tela de importação.
+**A10. Testes (Vitest)**
+- E.164 Brasil (normalização de `+55 11 9…`, `011 9…`, `(11) 9…`).
+- Hash de código + TTL + limite de tentativas (unitário sobre RPC via psql opcional; unitário puro sobre função de hash).
+- Webhook: secret inválido → 401; duplicado (mesmo provider_message_id) → ignorado; corpo de bot com marca de origem → ignorado; VINCULAR separado do chat.
+- `pending_confirmation`: draft → confirmar → executa uma vez; segunda confirmação → idempotente; outro telefone → negado; expirado → negado.
+- Provider trocável: `getProvider()` sem secret devolve stub "não configurado" e todas as funções degradam com 503 controlado.
+- SQL reproduzível de RLS em `supabase/tests/rls.sql` (comentado como manual — sem harness de dois usuários).
 
-**Telas (reaproveitar UI premium existente)**
-- Contas: CRUD com saldo derivado da view.
-- Categorias: listar globais + pessoais; CRUD apenas pessoais.
-- Lançamentos: form de receita/despesa/transferência; filtros por mês/conta/categoria/tipo; editar/excluir com AlertDialog.
-- Metas + aportes; múltiplas metas.
-- Investimentos e dívidas: CRUD + vínculo opcional com meta.
-- Antes de Gastar: função `simulateSpending` recebe `{amount, accountId?, categoryId?}` e devolve `{saldoDisponivel, confirmadosMes, planejadosMes, recorrenciasProximas, dividasVencendo, metasImpactadas, premissas[]}`. Sem score/aprovação.
-- Check-in emocional: modal + histórico simples.
-- Dashboard: cards com saldo consolidado (via view), receitas/despesas do mês, top categorias, próximos compromissos (recurring + planned), patrimônio (contas + investimentos − dívidas), progresso das metas, lista de dívidas. Empty state: "Ainda não há dados suficientes".
-- Página `/app/importar`: prévia dos dados legados, botão "Importar", marca `imported_at` em localStorage. Sem exclusão automática.
-
-**Admin `/admin`**
-- Cards com resultado de `admin_dashboard_stats`. Sem PII.
-
-**Remoções**
-- Scores financeiro/emocional arbitrários.
-- Projeção linear.
-- Placeholders "em breve" que fingiam persistência.
+**A11. Verificações finais**
+`bunx tsgo --noEmit`, `bunx vitest run`, `bunx vite build`. Sem erros. Relatório de créditos consumidos e de dependências externas ausentes (WAHA_BASE_URL, WAHA_API_KEY, WAHA_SESSION, WAHA_WEBHOOK_SECRET).
 
 ---
 
-### 4. Testes (Vitest)
+### Bloco B — Agente com LLM real (segundo passo, se restarem créditos)
 
-- `engine.simulateSpending` — casos com/sem conta, com dívidas próximas.
-- Transferência não conta como receita/despesa nos agregados.
-- Progresso de meta = Σ contribuições.
-- Patrimônio = contas + investimentos − dívidas.
-- Timezone: transação de 01/mês não migra para mês anterior.
-- Zod: valores negativos/zero rejeitados; dinheiro decimal.
+Só executar se ainda houver ≥ 12 créditos após A. Caso contrário, `whatsapp-webhook` responde texto neutro e o Bloco B fica pendente com plano de continuação registrado.
 
-`npm run test` e `npm run build` devem passar.
-
----
-
-### 5. Arquivos previstos
-
-**Criar**
-- `supabase/migrations/*` (M1–M5)
-- `src/lib/api/{accounts,categories,transactions,goals,investments,debts,emotional,admin}.ts`
-- `src/lib/validation/{account,category,transaction,goal,investment,debt}.ts`
-- `src/lib/date.ts`, `src/lib/money.ts`
-- `src/lib/engine/simulateSpending.ts` (+ testes)
-- `src/pages/app/{Contas,Categorias,Lancamentos,Metas,Investimentos,Dividas,AntesDeGastar,CheckIn,Importar}.tsx`
-- `src/pages/admin/AdminDashboard.tsx`
-- `src/components/forms/*` (form fields reutilizáveis com RHF+Zod)
-- Testes em `src/**/__tests__/`.
-
-**Alterar**
-- `src/context/AuthContext.tsx` (estados + PASSWORD_RECOVERY)
-- `src/context/FinancialContext.tsx` (fachada leitura)
-- `src/App.tsx` (rotas novas + /admin)
-- `src/pages/Onboarding.tsx` (usar `complete_onboarding` RPC)
-- `src/pages/Index.tsx` (dashboard factual)
-- `index.html`, `package.json` (nome NoControle.ia)
+- Edge Function `agent-runner`: AI SDK + Lovable AI Gateway (`google/gemini-2.5-flash` para custo), `streamText` com tools; `stopWhen: stepCountIs(8)`.
+- Tools server-side (Zod): `list_accounts`, `list_categories`, `get_financial_summary`, `create_transaction_draft`, `create_transfer_draft`, `create_goal_draft`, `add_goal_contribution_draft`, `create_debt_draft`, `run_before_spending`, `list_recent_transactions`, `cancel_pending_action`. `user_id` sempre do `whatsapp_links` pelo telefone verificado — nunca do modelo.
+- Drafts → `pending_confirmations`; responder ao usuário resumo + "responda CONFIRMAR ou CANCELAR (expira em 15 min)".
+- Comandos texto `CONFIRMAR` / `CANCELAR` (case-insensitive) tratados antes do LLM.
+- Prompt versionado carregado de `agent_prompt_versions` onde `status='active'`; guardrails anti-injection embutidos.
+- Testes: prompt injection ("ignore instruções…") → agente ignora; `create_transaction_draft` não executa direto; texto financeiro → draft.
 
 ---
 
-### 6. Riscos
+### Riscos e mitigações
+- **Orçamento**: A é o mínimo viável. B fica declarado como pendência se não couber.
+- **WAHA offline**: tudo degrada para "não configurado" — nenhum retry infinito, nenhuma UI enganosa.
+- **Dedup**: `provider_message_id` UNIQUE + `idempotency_keys` para VINCULAR e confirmações.
+- **Sem harness de dois usuários**: RLS validada por SQL reproduzível declarado.
+- **Regressões**: nenhuma migration antiga tocada; nenhuma tabela financeira alterada.
 
-- Volume grande em uma rodada → priorizar ordem A→B→C→D; se necessário, D fica com stub honesto ("sem dados ainda").
-- Migração de dados legados: só via tela de importação manual.
-- RLS mal configurada: mitigar com testes manuais entre dois usuários no fim.
-- Timezone BRL: centralizar em `src/lib/date.ts`.
+### Ordem exata
+A1 → A2 (mesma migration) → A5 tipos → A6 edge functions → A3 importar → A4 lazy → A7 UI whatsapp → A8 admin agente → A9 landing → A10 testes → A11 build/typecheck. Relatório.
 
----
+### Créditos estimados
+- Bloco A: **médio-alto** (perto do teto de 31).
+- Bloco B: **alto**; provavelmente não cabe nesta rodada.
 
-### 7. Ordem de execução
-
-1. Migrations M1 → M5 (uma migration única consolidada, para economizar aprovações).
-2. Regen tipos Supabase.
-3. `src/lib/{date,money}.ts` + validações Zod.
-4. Camada `src/lib/api/*` + hooks Query.
-5. AuthContext + Onboarding RPC + rota /admin.
-6. Telas A (contas, categorias, lançamentos, transferência).
-7. Dashboard factual + view de saldos.
-8. Telas C (metas, investimentos, dívidas).
-9. Antes de Gastar + check-in emocional.
-10. Tela de importação do legado.
-11. Testes + `npm run build`.
-12. Rebrand final de metadados.
-
----
-
-### 8. Créditos: **alto**. Escopo comprime várias fases; mitigar não repetindo migrations e evitando refactors visuais.
-
-Ao fim entrego: lista de migrations aplicadas, telas concluídas, testes executados com resultado, e pendências reais restantes.
+Ao fim: relato objetivo do que foi entregue, migrations aplicadas, edge functions criadas, arquivos, testes executados com resultado, e o que ficou pendente (secrets, Bloco B).
