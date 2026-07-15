@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 const LEGACY_KEY = "financial_ecosystem_v2";
 const IMPORTED_FLAG = "financial_ecosystem_v2_imported_at";
+const KNOWN = ["accounts", "categoriasCustom", "categories", "lancamentos", "metas", "aportes", "dividas", "investimentos", "emocoes", "contasFixas", "config"];
 
-type Preview = { accounts: unknown[]; categories: unknown[]; other: string[] };
+type Preview = Record<string, number> & { other: string[] };
 
-function readLegacy(): unknown | null {
+function readLegacy(): any | null {
   try {
     const raw = localStorage.getItem(LEGACY_KEY);
     if (!raw) return null;
@@ -16,40 +17,39 @@ function readLegacy(): unknown | null {
   } catch { return null; }
 }
 
-function summarize(data: unknown): Preview {
+function summarize(data: any): Preview {
   const obj = (data as Record<string, unknown>) ?? {};
-  const supported = new Set(["accounts", "categories"]);
-  const other: string[] = [];
-  for (const k of Object.keys(obj)) if (!supported.has(k) && Array.isArray(obj[k])) other.push(k);
-  return {
-    accounts: Array.isArray(obj.accounts) ? (obj.accounts as unknown[]) : [],
-    categories: Array.isArray(obj.categories) ? (obj.categories as unknown[]) : [],
-    other,
-  };
+  const result: Preview = { other: [] } as any;
+  for (const k of KNOWN) {
+    if (Array.isArray(obj[k])) result[k] = (obj[k] as unknown[]).length;
+  }
+  for (const k of Object.keys(obj)) {
+    if (!KNOWN.includes(k) && Array.isArray(obj[k])) result.other.push(k);
+  }
+  return result;
 }
 
 export default function Importar() {
   const data = useMemo(() => readLegacy(), []);
-  const imported = typeof window !== "undefined" ? localStorage.getItem(IMPORTED_FLAG) : null;
+  const [imported, setImported] = useState<string | null>(null);
+  useEffect(() => { setImported(localStorage.getItem(IMPORTED_FLAG)); }, []);
   const preview = data ? summarize(data) : null;
   const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [result, setResult] = useState<{ imported: Record<string, number> } | null>(null);
 
   const doImport = async () => {
     if (!data) return;
     setImporting(true);
-    const { data: res, error } = await supabase.rpc("import_legacy_batch", {
-      p_payload: {
-        accounts: preview?.accounts ?? [],
-        categories: preview?.categories ?? [],
-      } as never,
-    });
+    const payload: Record<string, unknown> = {};
+    for (const k of KNOWN) if (Array.isArray(data[k])) payload[k] = data[k];
+    const { data: res, error } = await supabase.rpc("import_legacy_batch", { p_payload: payload as never });
     setImporting(false);
     if (error) { toast.error("Falha na importação: " + error.message); return; }
-    const r = res as { imported: number; skipped: number };
+    const r = res as { imported: Record<string, number> };
     setResult(r);
     localStorage.setItem(IMPORTED_FLAG, new Date().toISOString());
-    toast.success(`Importado: ${r.imported}, ignorado: ${r.skipped}. Seus dados no navegador continuam intactos.`);
+    setImported(new Date().toISOString());
+    toast.success("Importação concluída. Seus dados locais continuam intactos.");
   };
 
   return (
@@ -57,7 +57,7 @@ export default function Importar() {
       <header className="mb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight">Importar dados antigos</h1>
         <p className="text-sm text-muted-foreground">
-          Se você usou uma versão anterior do NoControle.ia no seu navegador, podemos migrar contas e categorias para a versão nova. Nada é apagado do seu navegador.
+          Se você usou uma versão anterior do NoControle.ia neste navegador, podemos migrar seus dados para a versão nova. Nada é apagado do seu navegador.
         </p>
       </header>
 
@@ -71,14 +71,15 @@ export default function Importar() {
           {imported && (
             <div className="rounded-md bg-green-50 p-3 text-xs text-green-800 flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4" />
-              Importação já foi executada em {new Date(imported).toLocaleString("pt-BR")}. Você pode rodar novamente — itens já importados serão ignorados.
+              Última importação: {new Date(imported).toLocaleString("pt-BR")}. Você pode reimportar — itens já importados são ignorados.
             </div>
           )}
           <div>
-            <p className="font-semibold text-sm">Prévia</p>
-            <ul className="mt-2 text-sm text-muted-foreground list-disc pl-5">
-              <li>{preview?.accounts.length ?? 0} contas</li>
-              <li>{preview?.categories.length ?? 0} categorias pessoais</li>
+            <p className="font-semibold text-sm">Prévia por entidade</p>
+            <ul className="mt-2 text-sm text-muted-foreground grid grid-cols-2 gap-1">
+              {KNOWN.filter(k => (preview as any)?.[k] > 0).map(k => (
+                <li key={k}>{k}: <strong className="text-foreground">{(preview as any)[k]}</strong></li>
+              ))}
             </ul>
           </div>
 
@@ -86,7 +87,7 @@ export default function Importar() {
             <div className="rounded-md bg-yellow-50 p-3 text-xs text-yellow-800 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 mt-0.5" />
               <div>
-                <p>Outros dados encontrados que não serão importados nesta rodada: {preview.other.join(", ")}.</p>
+                <p>Outros dados encontrados que não serão importados: {preview.other.join(", ")}.</p>
                 <p className="mt-1">Eles continuam no seu navegador. Vamos adicionar suporte progressivamente.</p>
               </div>
             </div>
@@ -102,9 +103,12 @@ export default function Importar() {
           </button>
 
           {result && (
-            <p className="text-xs text-muted-foreground">
-              Última execução: {result.imported} novos, {result.skipped} já existiam.
-            </p>
+            <div className="text-xs text-muted-foreground">
+              <p>Última execução:</p>
+              <ul className="ml-3 list-disc">
+                {Object.entries(result.imported).map(([k, v]) => <li key={k}>{k}: {v as number} novos</li>)}
+              </ul>
+            </div>
           )}
         </div>
       )}
