@@ -50,6 +50,185 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_prompt_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          max_steps: number
+          model: string
+          notes: string | null
+          status: Database["public"]["Enums"]["prompt_status"]
+          system_prompt: string
+          temperature: number
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          max_steps?: number
+          model?: string
+          notes?: string | null
+          status?: Database["public"]["Enums"]["prompt_status"]
+          system_prompt: string
+          temperature?: number
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          max_steps?: number
+          model?: string
+          notes?: string | null
+          status?: Database["public"]["Enums"]["prompt_status"]
+          system_prompt?: string
+          temperature?: number
+          version?: number
+        }
+        Relationships: []
+      }
+      agent_runs: {
+        Row: {
+          conversation_id: string | null
+          cost_cents: number
+          ended_at: string | null
+          error_masked: string | null
+          id: string
+          model: string | null
+          prompt_version_id: string | null
+          started_at: string
+          status: Database["public"]["Enums"]["run_status"]
+          steps: number
+          tokens_in: number
+          tokens_out: number
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          cost_cents?: number
+          ended_at?: string | null
+          error_masked?: string | null
+          id?: string
+          model?: string | null
+          prompt_version_id?: string | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["run_status"]
+          steps?: number
+          tokens_in?: number
+          tokens_out?: number
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          cost_cents?: number
+          ended_at?: string | null
+          error_masked?: string | null
+          id?: string
+          model?: string | null
+          prompt_version_id?: string | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["run_status"]
+          steps?: number
+          tokens_in?: number
+          tokens_out?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_prompt_version_id_fkey"
+            columns: ["prompt_version_id"]
+            isOneToOne: false
+            referencedRelation: "agent_prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_settings: {
+        Row: {
+          id: number
+          max_steps: number
+          model: string
+          proactive_enabled: boolean
+          temperature: number
+          timeout_ms: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: number
+          max_steps?: number
+          model?: string
+          proactive_enabled?: boolean
+          temperature?: number
+          timeout_ms?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: number
+          max_steps?: number
+          model?: string
+          proactive_enabled?: boolean
+          temperature?: number
+          timeout_ms?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      agent_steps: {
+        Row: {
+          args_hash: string | null
+          created_at: string
+          id: string
+          idx: number
+          kind: string
+          name: string | null
+          result_hash: string | null
+          run_id: string
+          tokens: number | null
+        }
+        Insert: {
+          args_hash?: string | null
+          created_at?: string
+          id?: string
+          idx: number
+          kind: string
+          name?: string | null
+          result_hash?: string | null
+          run_id: string
+          tokens?: number | null
+        }
+        Update: {
+          args_hash?: string | null
+          created_at?: string
+          id?: string
+          idx?: number
+          kind?: string
+          name?: string | null
+          result_hash?: string | null
+          run_id?: string
+          tokens?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categories: {
         Row: {
           color: string | null
@@ -110,6 +289,65 @@ export type Database = {
           id?: string
           slug?: string
           title?: string
+        }
+        Relationships: []
+      }
+      conversation_messages: {
+        Row: {
+          body_masked: string
+          conversation_id: string
+          created_at: string
+          direction: Database["public"]["Enums"]["msg_direction"]
+          id: string
+          user_id: string
+        }
+        Insert: {
+          body_masked: string
+          conversation_id: string
+          created_at?: string
+          direction: Database["public"]["Enums"]["msg_direction"]
+          id?: string
+          user_id: string
+        }
+        Update: {
+          body_masked?: string
+          conversation_id?: string
+          created_at?: string
+          direction?: Database["public"]["Enums"]["msg_direction"]
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          last_message_at: string
+          phone_e164: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          phone_e164: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          phone_e164?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -289,6 +527,30 @@ export type Database = {
         }
         Relationships: []
       }
+      idempotency_keys: {
+        Row: {
+          first_seen_at: string
+          key: string
+          result_ref: string | null
+          scope: string
+          user_id: string | null
+        }
+        Insert: {
+          first_seen_at?: string
+          key: string
+          result_ref?: string | null
+          scope: string
+          user_id?: string | null
+        }
+        Update: {
+          first_seen_at?: string
+          key?: string
+          result_ref?: string | null
+          scope?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       import_batches: {
         Row: {
           completed_at: string | null
@@ -296,7 +558,9 @@ export type Database = {
           error: string | null
           failed_rows: number
           id: string
+          imported_count: number
           imported_rows: number
+          skipped_count: number
           source: string
           status: Database["public"]["Enums"]["import_batch_status"]
           total_rows: number
@@ -308,7 +572,9 @@ export type Database = {
           error?: string | null
           failed_rows?: number
           id?: string
+          imported_count?: number
           imported_rows?: number
+          skipped_count?: number
           source: string
           status?: Database["public"]["Enums"]["import_batch_status"]
           total_rows?: number
@@ -320,7 +586,9 @@ export type Database = {
           error?: string | null
           failed_rows?: number
           id?: string
+          imported_count?: number
           imported_rows?: number
+          skipped_count?: number
           source?: string
           status?: Database["public"]["Enums"]["import_batch_status"]
           total_rows?: number
@@ -330,31 +598,43 @@ export type Database = {
       }
       import_rows: {
         Row: {
+          action: string | null
           batch_id: string
           created_at: string
+          entity: string | null
           error: string | null
+          external_id: string | null
           id: string
           imported: boolean
+          notes: string | null
           payload: Json
           row_index: number
           user_id: string
         }
         Insert: {
+          action?: string | null
           batch_id: string
           created_at?: string
+          entity?: string | null
           error?: string | null
+          external_id?: string | null
           id?: string
           imported?: boolean
+          notes?: string | null
           payload: Json
           row_index: number
           user_id: string
         }
         Update: {
+          action?: string | null
           batch_id?: string
           created_at?: string
+          entity?: string | null
           error?: string | null
+          external_id?: string | null
           id?: string
           imported?: boolean
+          notes?: string | null
           payload?: Json
           row_index?: number
           user_id?: string
@@ -368,6 +648,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      inbound_messages: {
+        Row: {
+          body: string | null
+          from_phone: string
+          id: string
+          ignored_reason: string | null
+          processed_at: string | null
+          provider: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id: string
+          raw_hash: string | null
+          received_at: string
+          to_phone: string | null
+        }
+        Insert: {
+          body?: string | null
+          from_phone: string
+          id?: string
+          ignored_reason?: string | null
+          processed_at?: string | null
+          provider: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id: string
+          raw_hash?: string | null
+          received_at?: string
+          to_phone?: string | null
+        }
+        Update: {
+          body?: string | null
+          from_phone?: string
+          id?: string
+          ignored_reason?: string | null
+          processed_at?: string | null
+          provider?: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id?: string
+          raw_hash?: string | null
+          received_at?: string
+          to_phone?: string | null
+        }
+        Relationships: []
       }
       investments: {
         Row: {
@@ -422,6 +741,172 @@ export type Database = {
           },
         ]
       }
+      message_delivery_events: {
+        Row: {
+          id: string
+          occurred_at: string
+          outbound_id: string | null
+          payload_hash: string | null
+          provider_message_id: string | null
+          status: Database["public"]["Enums"]["msg_status"]
+        }
+        Insert: {
+          id?: string
+          occurred_at?: string
+          outbound_id?: string | null
+          payload_hash?: string | null
+          provider_message_id?: string | null
+          status: Database["public"]["Enums"]["msg_status"]
+        }
+        Update: {
+          id?: string
+          occurred_at?: string
+          outbound_id?: string | null
+          payload_hash?: string | null
+          provider_message_id?: string | null
+          status?: Database["public"]["Enums"]["msg_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_delivery_events_outbound_id_fkey"
+            columns: ["outbound_id"]
+            isOneToOne: false
+            referencedRelation: "outbound_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outbound_messages: {
+        Row: {
+          attempts: number
+          body: string
+          created_at: string
+          id: string
+          kind: string
+          last_error: string | null
+          next_attempt_at: string
+          provider: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id: string | null
+          status: Database["public"]["Enums"]["msg_status"]
+          to_phone: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          body: string
+          created_at?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          provider?: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id?: string | null
+          status?: Database["public"]["Enums"]["msg_status"]
+          to_phone: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          body?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          provider?: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id?: string | null
+          status?: Database["public"]["Enums"]["msg_status"]
+          to_phone?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      pending_confirmations: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          executed_at: string | null
+          expires_at: string
+          id: string
+          kind: string
+          payload: Json
+          result_ref: string | null
+          status: Database["public"]["Enums"]["confirmation_status"]
+          summary_text: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          executed_at?: string | null
+          expires_at: string
+          id?: string
+          kind: string
+          payload: Json
+          result_ref?: string | null
+          status?: Database["public"]["Enums"]["confirmation_status"]
+          summary_text: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          result_ref?: string | null
+          status?: Database["public"]["Enums"]["confirmation_status"]
+          summary_text?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_confirmations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      phone_link_codes: {
+        Row: {
+          attempts: number
+          code_hash: string
+          cooldown_until: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          code_hash: string
+          cooldown_until?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          code_hash?: string
+          cooldown_until?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -449,6 +934,33 @@ export type Database = {
           onboarding_completed_at?: string | null
           timezone?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      provider_health_events: {
+        Row: {
+          error_masked: string | null
+          id: string
+          latency_ms: number | null
+          occurred_at: string
+          ok: boolean
+          provider: Database["public"]["Enums"]["messaging_provider"]
+        }
+        Insert: {
+          error_masked?: string | null
+          id?: string
+          latency_ms?: number | null
+          occurred_at?: string
+          ok: boolean
+          provider: Database["public"]["Enums"]["messaging_provider"]
+        }
+        Update: {
+          error_masked?: string | null
+          id?: string
+          latency_ms?: number | null
+          occurred_at?: string
+          ok?: boolean
+          provider?: Database["public"]["Enums"]["messaging_provider"]
         }
         Relationships: []
       }
@@ -676,12 +1188,55 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_links: {
+        Row: {
+          consent_at: string
+          created_at: string
+          id: string
+          last_verified_at: string | null
+          phone_e164: string
+          phone_hash: string
+          phone_masked: string
+          revoked_at: string | null
+          status: Database["public"]["Enums"]["link_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          consent_at?: string
+          created_at?: string
+          id?: string
+          last_verified_at?: string | null
+          phone_e164: string
+          phone_hash: string
+          phone_masked: string
+          revoked_at?: string | null
+          status?: Database["public"]["Enums"]["link_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          consent_at?: string
+          created_at?: string
+          id?: string
+          last_verified_at?: string | null
+          phone_e164?: string
+          phone_hash?: string
+          phone_masked?: string
+          revoked_at?: string | null
+          status?: Database["public"]["Enums"]["link_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       admin_dashboard_stats: { Args: never; Returns: Json }
+      cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
       complete_onboarding: {
         Args: {
           p_display_name: string
@@ -691,6 +1246,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      create_phone_link_code: { Args: never; Returns: string }
       create_transfer: {
         Args: {
           p_amount: number
@@ -702,24 +1258,58 @@ export type Database = {
         Returns: string
       }
       ensure_profile: { Args: never; Returns: undefined }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
+      has_role:
+        | {
+            Args: { _role: Database["public"]["Enums"]["app_role"] }
+            Returns: boolean
+          }
+        | {
+            Args: {
+              _role: Database["public"]["Enums"]["app_role"]
+              _user_id: string
+            }
+            Returns: boolean
+          }
+      import_legacy_batch: { Args: { p_payload: Json }; Returns: Json }
       is_current_user_admin: { Args: never; Returns: boolean }
+      list_my_whatsapp_link: {
+        Args: never
+        Returns: {
+          consent_at: string
+          id: string
+          last_verified_at: string
+          phone_masked: string
+          status: Database["public"]["Enums"]["link_status"]
+        }[]
+      }
+      revoke_whatsapp_link: { Args: never; Returns: undefined }
+      set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
+      update_agent_settings: {
+        Args: {
+          p_max_steps: number
+          p_model: string
+          p_temperature: number
+          p_timeout_ms: number
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       account_type: "checking" | "savings" | "cash" | "investment" | "other"
       app_role: "admin" | "user"
       category_type: "income" | "expense"
+      confirmation_status: "pending" | "confirmed" | "cancelled" | "expired"
       debt_status: "active" | "settled" | "defaulted"
       goal_status: "active" | "paused" | "completed"
       import_batch_status: "pending" | "completed" | "failed"
       income_frequency: "mensal" | "quinzenal" | "semanal" | "variavel"
+      link_status: "pending" | "active" | "revoked"
+      messaging_provider: "waha" | "meta_cloud"
+      msg_direction: "inbound" | "outbound"
+      msg_status: "queued" | "sent" | "delivered" | "read" | "failed" | "dead"
+      prompt_status: "draft" | "active" | "archived"
       recurring_frequency: "daily" | "weekly" | "monthly" | "yearly"
+      run_status: "running" | "done" | "error" | "cancelled"
       transaction_status: "confirmed" | "planned"
       transaction_type: "income" | "expense" | "transfer"
       user_challenge_status: "joined" | "completed" | "abandoned"
@@ -853,11 +1443,18 @@ export const Constants = {
       account_type: ["checking", "savings", "cash", "investment", "other"],
       app_role: ["admin", "user"],
       category_type: ["income", "expense"],
+      confirmation_status: ["pending", "confirmed", "cancelled", "expired"],
       debt_status: ["active", "settled", "defaulted"],
       goal_status: ["active", "paused", "completed"],
       import_batch_status: ["pending", "completed", "failed"],
       income_frequency: ["mensal", "quinzenal", "semanal", "variavel"],
+      link_status: ["pending", "active", "revoked"],
+      messaging_provider: ["waha", "meta_cloud"],
+      msg_direction: ["inbound", "outbound"],
+      msg_status: ["queued", "sent", "delivered", "read", "failed", "dead"],
+      prompt_status: ["draft", "active", "archived"],
       recurring_frequency: ["daily", "weekly", "monthly", "yearly"],
+      run_status: ["running", "done", "error", "cancelled"],
       transaction_status: ["confirmed", "planned"],
       transaction_type: ["income", "expense", "transfer"],
       user_challenge_status: ["joined", "completed", "abandoned"],
