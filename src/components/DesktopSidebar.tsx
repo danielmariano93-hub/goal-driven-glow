@@ -6,12 +6,14 @@ import {
   Target,
   CreditCard,
   Heart,
-  BarChart3,
   User,
   Wallet,
   PiggyBank,
+  Tag,
   LogOut,
+  ShieldCheck,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 const navGroups = [
   {
@@ -26,10 +28,11 @@ const navGroups = [
   {
     label: 'Gestão',
     items: [
+      { path: '/app/contas', label: 'Contas', icon: Wallet },
+      { path: '/app/categorias', label: 'Categorias', icon: Tag },
       { path: '/app/investimentos', label: 'Investimentos', icon: PiggyBank },
       { path: '/app/dividas', label: 'Dívidas', icon: CreditCard },
       { path: '/app/emocoes', label: 'Emocional', icon: Heart },
-      { path: '/app/relatorios', label: 'Relatórios', icon: BarChart3 },
       { path: '/app/perfil', label: 'Perfil', icon: User },
     ],
   },
