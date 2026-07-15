@@ -23,6 +23,8 @@ export default function AgenteSimulador() {
   const [transcript, setTranscript] = useState<Array<{ from: "user" | "agent"; body: string; kind?: string }>>([]);
   const [lastPending, setLastPending] = useState<any | null>(null);
   const [receipts, setReceipts] = useState<any[]>([]);
+  const [lastRun, setLastRun] = useState<any | null>(null);
+  const [lastToolCalls, setLastToolCalls] = useState<any[]>([]);
 
   useEffect(() => { void loadSandbox(); }, []);
 
@@ -42,6 +44,19 @@ export default function AgenteSimulador() {
       .select("id, kind, summary_text, executed_at, result_snapshot, status")
       .eq("user_id", uid).in("status", ["confirmed", "cancelled"]).order("created_at", { ascending: false }).limit(10);
     setReceipts((rec as any[]) ?? []);
+    const { data: runs } = await supabase.from("agent_runs")
+      .select("id, path, model, steps, tokens_in, tokens_out, latency_ms, status, error_sanitized, started_at")
+      .eq("user_id", uid).order("started_at", { ascending: false }).limit(1);
+    const run = (runs as any[] | null)?.[0] ?? null;
+    setLastRun(run);
+    if (run?.id) {
+      const { data: calls } = await supabase.from("agent_tool_calls")
+        .select("step_index, tool_name, args, result, ok, duration_ms, error")
+        .eq("run_id", run.id).order("step_index");
+      setLastToolCalls((calls as any[]) ?? []);
+    } else {
+      setLastToolCalls([]);
+    }
   };
 
   const send = async () => {
@@ -160,6 +175,36 @@ export default function AgenteSimulador() {
             <button onClick={() => quick("CONFIRMAR")} className="rounded-full bg-primary text-primary-foreground px-3 py-1 text-xs">CONFIRMAR</button>
             <button onClick={() => quick("CANCELAR")} className="rounded-full border px-3 py-1 text-xs">CANCELAR</button>
           </div>
+        </div>
+      )}
+
+      {lastRun && (
+        <div className="rounded-2xl border bg-card p-5">
+          <p className="text-sm font-semibold mb-2">Última execução do agente</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div><span className="text-muted-foreground">Caminho:</span> <span className={lastRun.path === "llm" ? "text-primary font-semibold" : "text-amber-700 font-semibold"}>{lastRun.path ?? "—"}</span></div>
+            <div><span className="text-muted-foreground">Modelo:</span> {lastRun.model ?? "—"}</div>
+            <div><span className="text-muted-foreground">Passos:</span> {lastRun.steps ?? 0}</div>
+            <div><span className="text-muted-foreground">Latência:</span> {lastRun.latency_ms ?? 0} ms</div>
+            <div><span className="text-muted-foreground">Tokens in:</span> {lastRun.tokens_in ?? 0}</div>
+            <div><span className="text-muted-foreground">Tokens out:</span> {lastRun.tokens_out ?? 0}</div>
+            <div><span className="text-muted-foreground">Status:</span> {lastRun.status}</div>
+            {lastRun.error_sanitized && <div className="col-span-2 text-red-700">Erro: {lastRun.error_sanitized}</div>}
+          </div>
+          {lastToolCalls.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold mb-1">Tools executadas</p>
+              <ul className="text-xs space-y-1">
+                {lastToolCalls.map((c, i) => (
+                  <li key={i} className="font-mono">
+                    <span className={c.ok ? "text-green-700" : "text-red-700"}>[{c.ok ? "ok" : "erro"}]</span>{" "}
+                    {c.tool_name}({JSON.stringify(c.args).slice(0, 80)}) · {c.duration_ms}ms
+                    {c.error && <span className="text-red-700"> — {c.error}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
