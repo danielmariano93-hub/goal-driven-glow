@@ -1,3 +1,4 @@
+// Watchdog: recover stuck leases and dead-letter old messages.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
@@ -9,13 +10,18 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+
+  const { data: recovered } = await supabase.rpc("recover_expired_outbound_leases");
+  const recoveredCount = Number(recovered ?? 0);
+
+  const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   const { data: stuck } = await supabase
     .from("outbound_messages")
     .select("id, attempts")
-    .eq("status", "sent")
+    .in("status", ["queued", "processing"])
     .lt("updated_at", cutoff)
     .limit(50);
+
   const results: Array<{ id: string; action: string }> = [];
   for (const m of stuck ?? []) {
     const attempts = (m.attempts as number) ?? 0;
@@ -26,9 +32,11 @@ Deno.serve(async (req) => {
       await supabase.from("outbound_messages").update({
         status: "queued",
         next_attempt_at: new Date(Date.now() + 30_000).toISOString(),
+        claimed_at: null,
+        lease_expires_at: null,
       }).eq("id", m.id);
       results.push({ id: m.id as string, action: "requeued" });
     }
   }
-  return json({ checked: (stuck ?? []).length, results });
+  return json({ recovered: recoveredCount, checked: (stuck ?? []).length, results });
 });
