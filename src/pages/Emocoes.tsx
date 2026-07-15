@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Loader2, Smile } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, Smile, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { correlateByMoodCategory, MIN_SAMPLE, type CorrelationRow } from "@/lib/emotions/correlations";
+import { formatBRL } from "@/lib/split/math";
 
 const MOODS = [
   { v: 1, label: "Péssimo", emoji: "😞" },
