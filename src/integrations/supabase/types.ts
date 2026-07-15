@@ -95,8 +95,11 @@ export type Database = {
           cost_cents: number
           ended_at: string | null
           error_masked: string | null
+          error_sanitized: string | null
           id: string
+          latency_ms: number | null
           model: string | null
+          path: string | null
           prompt_version_id: string | null
           started_at: string
           status: Database["public"]["Enums"]["run_status"]
@@ -110,8 +113,11 @@ export type Database = {
           cost_cents?: number
           ended_at?: string | null
           error_masked?: string | null
+          error_sanitized?: string | null
           id?: string
+          latency_ms?: number | null
           model?: string | null
+          path?: string | null
           prompt_version_id?: string | null
           started_at?: string
           status?: Database["public"]["Enums"]["run_status"]
@@ -125,8 +131,11 @@ export type Database = {
           cost_cents?: number
           ended_at?: string | null
           error_masked?: string | null
+          error_sanitized?: string | null
           id?: string
+          latency_ms?: number | null
           model?: string | null
+          path?: string | null
           prompt_version_id?: string | null
           started_at?: string
           status?: Database["public"]["Enums"]["run_status"]
@@ -222,6 +231,53 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "agent_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_tool_calls: {
+        Row: {
+          args: Json
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          id: string
+          ok: boolean
+          result: Json | null
+          run_id: string
+          step_index: number
+          tool_name: string
+        }
+        Insert: {
+          args?: Json
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          ok?: boolean
+          result?: Json | null
+          run_id: string
+          step_index: number
+          tool_name: string
+        }
+        Update: {
+          args?: Json
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          ok?: boolean
+          result?: Json | null
+          run_id?: string
+          step_index?: number
+          tool_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_tool_calls_run_id_fkey"
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "agent_runs"
@@ -332,6 +388,7 @@ export type Database = {
           created_at: string
           id: string
           last_message_at: string
+          pending_slots: Json | null
           phone_e164: string
           user_id: string
         }
@@ -339,6 +396,7 @@ export type Database = {
           created_at?: string
           id?: string
           last_message_at?: string
+          pending_slots?: Json | null
           phone_e164: string
           user_id: string
         }
@@ -346,6 +404,7 @@ export type Database = {
           created_at?: string
           id?: string
           last_message_at?: string
+          pending_slots?: Json | null
           phone_e164?: string
           user_id?: string
         }
@@ -781,15 +840,18 @@ export type Database = {
           attempts: number
           body: string
           channel: string
+          claimed_at: string | null
           created_at: string
           id: string
           idempotency_key: string | null
           inbound_message_id: string | null
           kind: string
           last_error: string | null
+          lease_expires_at: string | null
           next_attempt_at: string
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string | null
+          sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           to_phone: string
           updated_at: string
@@ -799,15 +861,18 @@ export type Database = {
           attempts?: number
           body: string
           channel?: string
+          claimed_at?: string | null
           created_at?: string
           id?: string
           idempotency_key?: string | null
           inbound_message_id?: string | null
           kind?: string
           last_error?: string | null
+          lease_expires_at?: string | null
           next_attempt_at?: string
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string | null
+          sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           to_phone: string
           updated_at?: string
@@ -817,15 +882,18 @@ export type Database = {
           attempts?: number
           body?: string
           channel?: string
+          claimed_at?: string | null
           created_at?: string
           id?: string
           idempotency_key?: string | null
           inbound_message_id?: string | null
           kind?: string
           last_error?: string | null
+          lease_expires_at?: string | null
           next_attempt_at?: string
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string | null
+          sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           to_phone?: string
           updated_at?: string
@@ -908,6 +976,7 @@ export type Database = {
           created_at: string
           expires_at: string
           id: string
+          lookup_key: string | null
           used_at: string | null
           user_id: string
         }
@@ -918,6 +987,7 @@ export type Database = {
           created_at?: string
           expires_at: string
           id?: string
+          lookup_key?: string | null
           used_at?: string | null
           user_id: string
         }
@@ -928,6 +998,7 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
+          lookup_key?: string | null
           used_at?: string | null
           user_id?: string
         }
@@ -1295,15 +1366,18 @@ export type Database = {
           attempts: number
           body: string
           channel: string
+          claimed_at: string | null
           created_at: string
           id: string
           idempotency_key: string | null
           inbound_message_id: string | null
           kind: string
           last_error: string | null
+          lease_expires_at: string | null
           next_attempt_at: string
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string | null
+          sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           to_phone: string
           updated_at: string
@@ -1362,6 +1436,11 @@ export type Database = {
           status: Database["public"]["Enums"]["link_status"]
         }[]
       }
+      mark_outbound_sent: {
+        Args: { p_id: string; p_provider_message_id: string }
+        Returns: undefined
+      }
+      recover_expired_outbound_leases: { Args: never; Returns: number }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
       update_agent_settings: {
@@ -1386,7 +1465,14 @@ export type Database = {
       link_status: "pending" | "active" | "revoked"
       messaging_provider: "waha" | "meta_cloud"
       msg_direction: "inbound" | "outbound"
-      msg_status: "queued" | "sent" | "delivered" | "read" | "failed" | "dead"
+      msg_status:
+        | "queued"
+        | "processing"
+        | "sent"
+        | "delivered"
+        | "read"
+        | "failed"
+        | "dead"
       prompt_status: "draft" | "active" | "archived"
       recurring_frequency: "daily" | "weekly" | "monthly" | "yearly"
       run_status: "running" | "done" | "error" | "cancelled"
@@ -1532,7 +1618,15 @@ export const Constants = {
       link_status: ["pending", "active", "revoked"],
       messaging_provider: ["waha", "meta_cloud"],
       msg_direction: ["inbound", "outbound"],
-      msg_status: ["queued", "sent", "delivered", "read", "failed", "dead"],
+      msg_status: [
+        "queued",
+        "processing",
+        "sent",
+        "delivered",
+        "read",
+        "failed",
+        "dead",
+      ],
       prompt_status: ["draft", "active", "archived"],
       recurring_frequency: ["daily", "weekly", "monthly", "yearly"],
       run_status: ["running", "done", "error", "cancelled"],
