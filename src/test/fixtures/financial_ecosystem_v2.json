@@ -1,0 +1,28 @@
+{
+  "lancamentos": [
+    { "id": "l1", "tipo": "receita", "valor": 5000, "data": "2026-01-05", "descricao": "Salário", "categoria": "Salário", "contaNome": "Conta principal" },
+    { "id": "l2", "tipo": "despesa", "valor": 89.5, "data": "05/01/2026", "descricao": "Supermercado", "categoria": "Mercado", "contaNome": "Conta principal" },
+    { "id": "l3", "tipo": "gasto", "valor": "1.234,56", "data": "10/01/2026", "descricao": "Aluguel", "categoria": "Moradia" }
+  ],
+  "metas": [
+    { "id": "m1", "nome": "Viagem", "valorAlvo": 5000, "dataAlvo": "2026-12-31", "prioridade": 2 },
+    { "id": "m2", "nome": "Reserva", "valor_objetivo": 10000, "prazo": "2027-06-30" }
+  ],
+  "aportes": [
+    { "id": "a1", "metaNome": "Viagem", "valor": 300, "data": "2026-01-15" }
+  ],
+  "dividas": [
+    { "id": "d1", "nome": "Cartão", "credor": "Banco X", "valorOriginal": 2000, "saldoDevedor": 800, "parcela": 200, "diaVencimento": 10 }
+  ],
+  "investimentos": [
+    { "id": "i1", "nome": "CDB", "valorAtual": 12000, "valorInvestido": 10000 }
+  ],
+  "emocoes": [
+    { "id": "e1", "data": "2026-01-10", "humor": "ansioso", "nota": "compra por impulso" }
+  ],
+  "contasFixas": [
+    { "id": "cf1", "nome": "Internet", "valor": 120, "dia": 15, "tipo": "despesa" }
+  ],
+  "categoriasCustom": ["Moradia", "Mercado", "Lazer", "Assinaturas"],
+  "config": { "moeda": "BRL", "timezone": "America/Sao_Paulo" }
+}
