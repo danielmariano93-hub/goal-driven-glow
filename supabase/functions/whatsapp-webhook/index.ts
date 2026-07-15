@@ -1,3 +1,14 @@
+// Inbound WhatsApp webhook.
+// Security hardening:
+//  - Body size cap (128 KB): reject anything larger.
+//  - Provider secret verification (WahaProvider.verifyWebhookSecret).
+//  - Dedupe by (provider_message_id) unique constraint on inbound_messages,
+//    plus a full-payload sha256 raw_hash.
+//  - VINCULAR uses phone_link_codes.lookup_key (sha256 of code alone) for
+//    O(1) lookup without scanning; the definitive check still verifies
+//    code_hash = sha256(code || user_id), keeping the code irreversible.
+//  - Ownership: after VINCULAR success, only phone_e164 matched to the
+//    active whatsapp_links row is allowed to orchestrate.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { getProvider } from "../_shared/messaging/waha.ts";
@@ -5,6 +16,7 @@ import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const MAX_BODY_BYTES = 128 * 1024;
 
 async function sha256Hex(text: string) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -19,8 +31,11 @@ Deno.serve(async (req) => {
   if (!provider.configured) return json({ ok: true, ignored: "not_configured" }, 200);
   if (!provider.verifyWebhookSecret(req.headers)) return json({ error: "unauthorized" }, 401);
 
+  const raw = await req.text();
+  if (raw.length > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
+
   let payload: unknown;
-  try { payload = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  try { payload = JSON.parse(raw); } catch { return json({ error: "invalid_json" }, 400); }
   const evt = provider.mapInboundEvent(payload);
   if (!evt) return json({ ok: true, ignored: "unmapped_or_bot" }, 200);
 
@@ -28,7 +43,7 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const raw_hash = await sha256Hex(JSON.stringify(payload));
+  const raw_hash = await sha256Hex(raw);
   const { data: inb, error: insErr } = await sb.from("inbound_messages").insert({
     provider: evt.provider,
     provider_message_id: evt.provider_message_id,
@@ -43,21 +58,25 @@ Deno.serve(async (req) => {
     return json({ error: "internal" }, 500);
   }
   if (insErr) return json({ ok: true, dedup: true });
-
   const inbound_message_id = inb!.id as string;
 
-  // VINCULAR command — pre-orchestrator, no LLM needed
+  // VINCULAR — deterministic O(1) lookup via lookup_key
   const m = evt.body.match(/^\s*VINCULAR\s+(\d{4,8})\s*$/i);
   if (m) {
     const code = m[1];
-    const { data: codes } = await sb.from("phone_link_codes")
-      .select("id,user_id,code_hash,expires_at,used_at")
-      .is("used_at", null).gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: false }).limit(200);
+    const lookup = await sha256Hex(code);
+    const { data: candidates } = await sb.from("phone_link_codes")
+      .select("id,user_id,code_hash,attempts")
+      .eq("lookup_key", lookup)
+      .is("used_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .limit(5);
     let matched: { id: string; user_id: string } | null = null;
-    for (const row of codes ?? []) {
+    for (const row of candidates ?? []) {
+      if ((row.attempts as number ?? 0) >= 5) continue;
       const h = await sha256Hex(code + row.user_id);
       if (h === row.code_hash) { matched = { id: row.id as string, user_id: row.user_id as string }; break; }
+      await sb.from("phone_link_codes").update({ attempts: (row.attempts as number ?? 0) + 1 }).eq("id", row.id);
     }
     const replyOk = "Pronto! Seu WhatsApp está vinculado ao NoControle.ia. 🎉";
     const replyBad = "Não consegui validar esse código. Gere um novo em /app/whatsapp.";
@@ -86,7 +105,6 @@ Deno.serve(async (req) => {
     return json({ ok: true, link: "created" });
   }
 
-  // Identify user by active link
   const phone_hash = await sha256Hex(evt.from_phone);
   const { data: link } = await sb.from("whatsapp_links")
     .select("user_id").eq("phone_hash", phone_hash).eq("status", "active").maybeSingle();
@@ -99,7 +117,6 @@ Deno.serve(async (req) => {
     return json({ ok: true, unlinked: true });
   }
 
-  // Conversation + message record
   const { data: conv } = await sb.from("conversations").upsert(
     { user_id: link.user_id, phone_e164: evt.from_phone, last_message_at: new Date().toISOString() },
     { onConflict: "user_id,phone_e164" },
@@ -110,11 +127,10 @@ Deno.serve(async (req) => {
     body_masked: evt.body.slice(0, 500),
   });
 
-  // Orchestrator
   const result = await runOrchestrator({
     user_id: link.user_id, conversation_id: conv.id as string,
     inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
   });
   await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
-  return json({ ok: true, reply_kind: result.reply_kind });
+  return json({ ok: true, reply_kind: result.reply_kind, path: result.path });
 });
