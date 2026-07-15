@@ -1,132 +1,233 @@
-import { useState, useMemo } from 'react';
-import { useFinancial } from '@/context/FinancialContext';
-import { Plus, Trash2, TrendingUp, TrendingDown, PiggyBank, Edit2 } from 'lucide-react';
-import { InvestimentoForm } from '@/components/InvestimentoForm';
-import type { Investimento } from '@/types/financial';
+import { useState } from "react";
+import { Plus, Trash2, Loader2, Pencil, TrendingUp } from "lucide-react";
+import { toast } from "sonner";
+import { useInvestments, useSaveInvestment, useDeleteInvestment, useGoals, type InvestmentRow } from "@/lib/db/finance";
+import { investmentSchema } from "@/lib/validation/finance";
+import { formatBRL, todayISO } from "@/lib/engine/facts";
+
+const CATEGORIES = ["Renda Fixa", "Tesouro Direto", "Ações", "FIIs", "ETF", "Cripto", "Fundos", "Outros"];
 
 export default function Investimentos() {
-  const { state, dispatch } = useFinancial();
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Investimento | null>(null);
+  const { data: items, isLoading } = useInvestments();
+  const { data: goals } = useGoals();
+  const save = useSaveInvestment();
+  const del = useDeleteInvestment();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<InvestmentRow | null>(null);
 
-  const totalAplicado = useMemo(() => state.investimentos.reduce((s, i) => s + i.valor_aplicado, 0), [state.investimentos]);
-  const totalAtual = useMemo(() => state.investimentos.reduce((s, i) => s + i.valor_atual, 0), [state.investimentos]);
-  const rendimentoTotal = totalAtual - totalAplicado;
-  const rendimentoPct = totalAplicado > 0 ? ((rendimentoTotal / totalAplicado) * 100) : 0;
-
-  const porTipo = useMemo(() => {
-    const map: Record<string, number> = {};
-    state.investimentos.forEach(i => { map[i.tipo] = (map[i.tipo] || 0) + i.valor_atual; });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [state.investimentos]);
+  const total = (items ?? []).reduce((a, i) => a + Number(i.current_value), 0);
+  const invested = (items ?? []).reduce((a, i) => a + Number(i.invested_amount), 0);
 
   return (
-    <div className="space-y-4 pt-2">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Investimentos</h1>
-        <button onClick={() => { setEditing(null); setFormOpen(true); }} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-          <Plus size={16} strokeWidth={2.5} />
+    <div>
+      <header className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Investimentos</h1>
+          <p className="text-sm text-muted-foreground">Portfólio informado por você.</p>
+        </div>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
+          className="btn-brand inline-flex items-center gap-2"
+        >
+          <Plus size={14} /> Novo
         </button>
-      </div>
+      </header>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="ios-card p-3.5">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-              <PiggyBank size={14} className="text-primary" />
-            </div>
-            <span className="text-[10px] text-muted-foreground">Total aplicado</span>
-          </div>
-          <p className="text-sm font-bold text-foreground">R$ {totalAplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+      {isLoading ? (
+        <div className="grid place-items-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-        <div className="ios-card p-3.5">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-7 h-7 rounded-lg bg-success/10 flex items-center justify-center">
-              <PiggyBank size={14} className="text-success" />
-            </div>
-            <span className="text-[10px] text-muted-foreground">Valor atual</span>
-          </div>
-          <p className="text-sm font-bold text-foreground">R$ {totalAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+      ) : !items || items.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+          <TrendingUp className="mx-auto h-8 w-8 text-muted-foreground" />
+          <p className="mt-3 text-sm font-medium">Ainda não há dados suficientes</p>
+          <p className="mt-1 text-xs text-muted-foreground">Registre seus investimentos para acompanhar o patrimônio.</p>
         </div>
-        <div className="ios-card p-3.5 col-span-2 md:col-span-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${rendimentoTotal >= 0 ? 'bg-success/10' : 'bg-destructive/10'}`}>
-              {rendimentoTotal >= 0 ? <TrendingUp size={14} className="text-success" /> : <TrendingDown size={14} className="text-destructive" />}
+      ) : (
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-xs text-muted-foreground">Valor atual</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums">{formatBRL(total)}</p>
             </div>
-            <span className="text-[10px] text-muted-foreground">Rendimento</span>
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <p className="text-xs text-muted-foreground">Total aportado</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums">{formatBRL(invested)}</p>
+            </div>
           </div>
-          <p className={`text-sm font-bold ${rendimentoTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
-            {rendimentoTotal >= 0 ? '+' : ''}R$ {rendimentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            <span className="text-[10px] font-medium ml-1">({rendimentoPct >= 0 ? '+' : ''}{rendimentoPct.toFixed(1)}%)</span>
-          </p>
-        </div>
-      </div>
-
-      {/* Distribuição */}
-      {porTipo.length > 0 && (
-        <div className="ios-card p-4">
-          <h3 className="text-xs text-muted-foreground font-medium mb-3">Distribuição por tipo</h3>
-          <div className="space-y-2">
-            {porTipo.map(([tipo, valor]) => {
-              const pct = totalAtual > 0 ? (valor / totalAtual) * 100 : 0;
+          <ul className="space-y-2">
+            {items.map((i) => {
+              const goal = goals?.find((g) => g.id === i.goal_id);
               return (
-                <div key={tipo} className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-foreground">{tipo}</span>
-                    <span className="text-[10px] text-muted-foreground">{pct.toFixed(0)}% · R$ {valor.toLocaleString('pt-BR')}</span>
+                <li key={i.id} className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 shadow-card">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{i.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {i.category}
+                      {i.institution ? ` · ${i.institution}` : ""}
+                      {goal ? ` · meta: ${goal.name}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs">
+                      Investido {formatBRL(Number(i.invested_amount))} · Atual{" "}
+                      <span className="font-semibold">{formatBRL(Number(i.current_value))}</span>
+                    </p>
                   </div>
-                  <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
-                    <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditing(i);
+                        setOpen(true);
+                      }}
+                      className="rounded-full border border-border p-2 text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm("Excluir este investimento?")) del.mutate(i.id, { onSuccess: () => toast.success("Excluído") });
+                      }}
+                      className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ul>
+        </>
       )}
 
-      {/* List */}
-      <div className="ios-card divide-y divide-border overflow-hidden">
-        {state.investimentos.length === 0 && (
-          <div className="text-center py-8">
-            <PiggyBank size={32} className="text-muted-foreground mx-auto mb-2" />
-            <p className="text-xs text-muted-foreground">Nenhum investimento cadastrado</p>
-            <button onClick={() => { setEditing(null); setFormOpen(true); }} className="mt-3 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium">
-              Adicionar primeiro investimento
-            </button>
-          </div>
-        )}
-        {state.investimentos.map(inv => {
-          const rend = inv.valor_atual - inv.valor_aplicado;
-          const rendPct = inv.valor_aplicado > 0 ? ((rend / inv.valor_aplicado) * 100) : 0;
-          return (
-            <div key={inv.id} className="flex items-center gap-3 px-4 py-3">
-              <button onClick={() => { setEditing(inv); setFormOpen(true); }} className="flex-1 min-w-0 text-left">
-                <span className="text-xs font-medium text-foreground">{inv.tipo}</span>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] text-muted-foreground">{inv.rendimento_estimado}% a.a.</span>
-                  <span className="text-[10px] text-muted-foreground">·</span>
-                  <span className="text-[10px] text-muted-foreground">{inv.liquidez.replace('_', ' ')}</span>
-                  <span className="text-[10px] text-muted-foreground">·</span>
-                  <span className={`text-[10px] font-medium ${rend >= 0 ? 'text-success' : 'text-destructive'}`}>
-                    {rend >= 0 ? '+' : ''}{rendPct.toFixed(1)}%
-                  </span>
-                </div>
-              </button>
-              <div className="text-right shrink-0">
-                <p className="text-sm font-semibold text-foreground tabular-nums">R$ {inv.valor_atual.toLocaleString('pt-BR')}</p>
-                <p className="text-[10px] text-muted-foreground">aplicado: R$ {inv.valor_aplicado.toLocaleString('pt-BR')}</p>
-              </div>
-              <button onClick={() => dispatch({ type: 'DELETE_INVESTIMENTO', payload: inv.id })} className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center shrink-0">
-                <Trash2 size={12} className="text-destructive" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      {open && (
+        <InvestmentModal
+          initial={editing}
+          goals={goals ?? []}
+          saving={save.isPending}
+          onClose={() => setOpen(false)}
+          onSubmit={(v) =>
+            save.mutate(
+              { ...v, id: editing?.id },
+              {
+                onSuccess: () => {
+                  toast.success("Salvo");
+                  setOpen(false);
+                },
+                onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+              }
+            )
+          }
+        />
+      )}
+    </div>
+  );
+}
 
-      <InvestimentoForm open={formOpen} onOpenChange={setFormOpen} investimento={editing} />
+function InvestmentModal({
+  initial,
+  goals,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  initial: InvestmentRow | null;
+  goals: { id: string; name: string }[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (v: ReturnType<typeof investmentSchema.parse>) => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [category, setCategory] = useState(initial?.category ?? CATEGORIES[0]);
+  const [institution, setInstitution] = useState(initial?.institution ?? "");
+  const [invested, setInvested] = useState(initial ? String(initial.invested_amount) : "");
+  const [current, setCurrent] = useState(initial ? String(initial.current_value) : "");
+  const [refDate, setRefDate] = useState(initial?.reference_date ?? todayISO());
+  const [goalId, setGoalId] = useState<string>(initial?.goal_id ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = investmentSchema.safeParse({
+      name,
+      category,
+      institution,
+      invested_amount: Number(invested.replace(",", ".")) || 0,
+      current_value: Number(current.replace(",", ".")) || 0,
+      reference_date: refDate,
+      goal_id: goalId || null,
+    });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
+      return;
+    }
+    onSubmit(parsed.data);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">{initial ? "Editar" : "Novo"} investimento</h2>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Nome</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="input-base" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Categoria</label>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="input-base">
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Instituição</label>
+              <input value={institution ?? ""} onChange={(e) => setInstitution(e.target.value)} className="input-base" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Valor aportado</label>
+              <input inputMode="decimal" value={invested} onChange={(e) => setInvested(e.target.value)} className="input-base" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Valor atual</label>
+              <input inputMode="decimal" value={current} onChange={(e) => setCurrent(e.target.value)} className="input-base" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Data de referência</label>
+              <input type="date" value={refDate} onChange={(e) => setRefDate(e.target.value)} className="input-base" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Meta ligada</label>
+              <select value={goalId} onChange={(e) => setGoalId(e.target.value)} className="input-base">
+                <option value="">—</option>
+                {goals.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

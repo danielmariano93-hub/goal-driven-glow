@@ -6,12 +6,14 @@ import {
   Target,
   CreditCard,
   Heart,
-  BarChart3,
   User,
   Wallet,
   PiggyBank,
+  Tag,
   LogOut,
+  ShieldCheck,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 const navGroups = [
   {
@@ -26,10 +28,11 @@ const navGroups = [
   {
     label: 'Gestão',
     items: [
+      { path: '/app/contas', label: 'Contas', icon: Wallet },
+      { path: '/app/categorias', label: 'Categorias', icon: Tag },
       { path: '/app/investimentos', label: 'Investimentos', icon: PiggyBank },
       { path: '/app/dividas', label: 'Dívidas', icon: CreditCard },
       { path: '/app/emocoes', label: 'Emocional', icon: Heart },
-      { path: '/app/relatorios', label: 'Relatórios', icon: BarChart3 },
       { path: '/app/perfil', label: 'Perfil', icon: User },
     ],
   },
@@ -38,6 +41,7 @@ const navGroups = [
 export function DesktopSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { signOut, isAdmin } = useAuth();
 
   const isActive = (path: string, exact?: boolean) =>
     exact ? location.pathname === path : location.pathname === path || location.pathname.startsWith(path + '/');
@@ -87,9 +91,18 @@ export function DesktopSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-border p-3">
+      <div className="border-t border-border p-3 space-y-1">
+        {isAdmin && (
+          <button
+            onClick={() => navigate('/admin')}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          >
+            <ShieldCheck size={16} strokeWidth={1.7} />
+            <span>Admin</span>
+          </button>
+        )}
         <button
-          onClick={() => navigate('/')}
+          onClick={() => signOut().then(() => navigate('/'))}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
         >
           <LogOut size={16} strokeWidth={1.7} />

@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 import { Loader2, ShieldAlert } from "lucide-react";
-import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
 export function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { loading, user } = useAuth();
+  const { status, user } = useAuth();
   const [checking, setChecking] = useState(true);
   const [allowed, setAllowed] = useState(false);
 
@@ -18,19 +17,7 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
         setAllowed(false);
         return;
       }
-      // Re-validate identity with the auth server before the role check
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) {
-        if (!cancelled) {
-          setAllowed(false);
-          setChecking(false);
-        }
-        return;
-      }
-      const { data, error } = await supabase.rpc("has_role", {
-        _user_id: userData.user.id,
-        _role: "admin",
-      });
+      const { data, error } = await supabase.rpc("is_current_user_admin");
       if (!cancelled) {
         setAllowed(!error && data === true);
         setChecking(false);
@@ -42,7 +29,7 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  if (loading || checking) {
+  if (status === "loading" || checking) {
     return (
       <div className="min-h-screen grid place-items-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

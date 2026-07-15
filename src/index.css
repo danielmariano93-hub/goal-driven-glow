@@ -178,6 +178,10 @@
     @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-foreground border border-border bg-card transition-colors hover:bg-secondary;
   }
 
+  .input-base {
+    @apply w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30;
+  }
+
   .text-gradient-brand {
     background: var(--gradient-brand);
     -webkit-background-clip: text;
