@@ -67,9 +67,12 @@ export default function AgenteAdmin() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
-      <header className="mb-8">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Agente & Mensageria</h1>
-        <p className="text-sm text-muted-foreground">Painel administrativo — apenas admins.</p>
+      <header className="mb-8 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Agente & Mensageria</h1>
+          <p className="text-sm text-muted-foreground">Painel administrativo — apenas admins.</p>
+        </div>
+        <a href="/admin/agente/simulador" className="rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground">Abrir simulador</a>
       </header>
 
       {!health?.configured && (

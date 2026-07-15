@@ -34,6 +34,7 @@ const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 const Importar = lazy(() => import("./pages/Importar"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AgenteAdmin = lazy(() => import("./pages/admin/Agente"));
+const AgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -87,6 +88,7 @@ const App = () => (
 
               <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
               <Route path="/admin/agente" element={<AdminRoute><AgenteAdmin /></AdminRoute>} />
+              <Route path="/admin/agente/simulador" element={<AdminRoute><AgenteSimulador /></AdminRoute>} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>

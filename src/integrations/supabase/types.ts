@@ -780,8 +780,11 @@ export type Database = {
         Row: {
           attempts: number
           body: string
+          channel: string
           created_at: string
           id: string
+          idempotency_key: string | null
+          inbound_message_id: string | null
           kind: string
           last_error: string | null
           next_attempt_at: string
@@ -795,8 +798,11 @@ export type Database = {
         Insert: {
           attempts?: number
           body: string
+          channel?: string
           created_at?: string
           id?: string
+          idempotency_key?: string | null
+          inbound_message_id?: string | null
           kind?: string
           last_error?: string | null
           next_attempt_at?: string
@@ -810,8 +816,11 @@ export type Database = {
         Update: {
           attempts?: number
           body?: string
+          channel?: string
           created_at?: string
           id?: string
+          idempotency_key?: string | null
+          inbound_message_id?: string | null
           kind?: string
           last_error?: string | null
           next_attempt_at?: string
@@ -822,11 +831,21 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outbound_messages_inbound_message_id_fkey"
+            columns: ["inbound_message_id"]
+            isOneToOne: false
+            referencedRelation: "inbound_messages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pending_confirmations: {
         Row: {
+          confirmed_from_message_id: string | null
           conversation_id: string | null
+          conversation_msg_ref: string | null
           created_at: string
           executed_at: string | null
           expires_at: string
@@ -834,12 +853,15 @@ export type Database = {
           kind: string
           payload: Json
           result_ref: string | null
+          result_snapshot: Json | null
           status: Database["public"]["Enums"]["confirmation_status"]
           summary_text: string
           user_id: string
         }
         Insert: {
+          confirmed_from_message_id?: string | null
           conversation_id?: string | null
+          conversation_msg_ref?: string | null
           created_at?: string
           executed_at?: string | null
           expires_at: string
@@ -847,12 +869,15 @@ export type Database = {
           kind: string
           payload: Json
           result_ref?: string | null
+          result_snapshot?: Json | null
           status?: Database["public"]["Enums"]["confirmation_status"]
           summary_text: string
           user_id: string
         }
         Update: {
+          confirmed_from_message_id?: string | null
           conversation_id?: string | null
+          conversation_msg_ref?: string | null
           created_at?: string
           executed_at?: string | null
           expires_at?: string
@@ -860,6 +885,7 @@ export type Database = {
           kind?: string
           payload?: Json
           result_ref?: string | null
+          result_snapshot?: Json | null
           status?: Database["public"]["Enums"]["confirmation_status"]
           summary_text?: string
           user_id?: string
@@ -913,6 +939,7 @@ export type Database = {
           currency: string
           display_name: string | null
           id: string
+          is_sandbox: boolean
           onboarding_completed_at: string | null
           timezone: string
           updated_at: string
@@ -922,6 +949,7 @@ export type Database = {
           currency?: string
           display_name?: string | null
           id: string
+          is_sandbox?: boolean
           onboarding_completed_at?: string | null
           timezone?: string
           updated_at?: string
@@ -931,6 +959,7 @@ export type Database = {
           currency?: string
           display_name?: string | null
           id?: string
+          is_sandbox?: boolean
           onboarding_completed_at?: string | null
           timezone?: string
           updated_at?: string
@@ -1031,6 +1060,7 @@ export type Database = {
           category_id: string | null
           created_at: string
           description: string | null
+          direction: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger: string | null
           id: string
           notes: string | null
@@ -1047,6 +1077,7 @@ export type Database = {
           category_id?: string | null
           created_at?: string
           description?: string | null
+          direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
           id?: string
           notes?: string | null
@@ -1063,6 +1094,7 @@ export type Database = {
           category_id?: string | null
           created_at?: string
           description?: string | null
+          direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
           id?: string
           notes?: string | null
@@ -1236,7 +1268,54 @@ export type Database = {
     }
     Functions: {
       admin_dashboard_stats: { Args: never; Returns: Json }
+      agent_execute_confirmation: {
+        Args: { p_confirmation_id: string; p_source_message_id?: string }
+        Returns: Json
+      }
+      agent_sim_enqueue: {
+        Args: { p_from_phone: string; p_text: string; p_user_id: string }
+        Returns: Json
+      }
+      agent_sim_reset: { Args: { p_user_id: string }; Returns: undefined }
+      agent_upsert_draft: {
+        Args: {
+          p_conversation_id: string
+          p_kind: string
+          p_payload: Json
+          p_summary: string
+          p_ttl_minutes?: number
+          p_user_id: string
+        }
+        Returns: string
+      }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
+      claim_outbound_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          body: string
+          channel: string
+          created_at: string
+          id: string
+          idempotency_key: string | null
+          inbound_message_id: string | null
+          kind: string
+          last_error: string | null
+          next_attempt_at: string
+          provider: Database["public"]["Enums"]["messaging_provider"]
+          provider_message_id: string | null
+          status: Database["public"]["Enums"]["msg_status"]
+          to_phone: string
+          updated_at: string
+          user_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "outbound_messages"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       complete_onboarding: {
         Args: {
           p_display_name: string
@@ -1246,6 +1325,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      confirm_pending_action: { Args: { p_id: string }; Returns: Json }
       create_phone_link_code: { Args: never; Returns: string }
       create_transfer: {
         Args: {
@@ -1312,6 +1392,7 @@ export type Database = {
       run_status: "running" | "done" | "error" | "cancelled"
       transaction_status: "confirmed" | "planned"
       transaction_type: "income" | "expense" | "transfer"
+      transfer_direction: "debit" | "credit"
       user_challenge_status: "joined" | "completed" | "abandoned"
     }
     CompositeTypes: {
@@ -1457,6 +1538,7 @@ export const Constants = {
       run_status: ["running", "done", "error", "cancelled"],
       transaction_status: ["confirmed", "planned"],
       transaction_type: ["income", "expense", "transfer"],
+      transfer_direction: ["debit", "credit"],
       user_challenge_status: ["joined", "completed", "abandoned"],
     },
   },
