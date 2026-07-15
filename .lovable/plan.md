@@ -1,141 +1,128 @@
 
-# Fase 3 · Bloco B — Agente Financeiro End-to-End
+# Plano — Conclusão do Beta NoControle.ia
 
-Entrega uma jornada completa: inbound → interpretação → draft → CONFIRMAR → persistência única → recibo, com simulador admin quando WAHA/LLM não estiverem configurados. Reaproveita toda a infraestrutura da Fase 3 (webhook, outbox, links, pending_confirmations, agent_prompt_versions, agent_settings, agent_runs, agent_steps).
+Escopo priorizado com ordem de execução por dependências. Preservar design, banco atual e infraestrutura WAHA. Migrations apenas incrementais. Sem publish/deploy.
 
-## 1. Auditoria e correções (migration incremental única)
+## Prioridade 1 — Agente LLM real + segurança/consistência
 
-- `REVOKE EXECUTE` de `public.has_role(uuid, app_role)` de `authenticated`; manter apenas a variante `has_role(app_role)` que usa `auth.uid()`.
-- Adicionar `direction` (`'debit' | 'credit'`) em `transactions` para transferências (nullable; obrigatório quando `type='transfer'` via trigger). Backfill: por par `transfer_group_id`, menor `id` = debit, outra = credit. Atualiza `create_transfer` RPC para gravar direção explicitamente.
-- Adicionar tabela `agent_drafts` (id, user_id, conversation_id, kind enum, payload jsonb validado, human_summary, status enum `pending|confirmed|cancelled|expired|superseded`, expires_at, result jsonb, created_at). Índice único parcial: um único draft `pending` por conversation_id.
-- `pending_confirmations`: adicionar `result_snapshot jsonb` + `confirmed_from_message_id` para tornar CONFIRMAR idempotente (retorna mesmo recibo).
-- Índice único em `outbound_messages(idempotency_key)` (nullable) para dedupe de recibos.
-- RLS: usuário lê somente próprias linhas em `agent_runs`, `agent_steps`, `agent_drafts`, `pending_confirmations`, `conversations`, `conversation_messages`. Admin usa RPCs `SECURITY DEFINER` que retornam telefones já mascarados.
-- Claim atômico na outbox: RPC `claim_outbound_batch(limit)` que faz `UPDATE ... WHERE status='queued' AND next_attempt_at<=now() RETURNING *` com `FOR UPDATE SKIP LOCKED`.
+**Migration incremental** (`agent_hardening`):
+- `agent_runs`: adicionar `path text check in ('llm','deterministic_fallback')`, `model`, `prompt_version_id`, `tokens_in/out`, `cost_cents`, `latency_ms`, `error_sanitized`.
+- `agent_tool_calls`: nova tabela (run_id, step_index, tool_name, args_jsonb, result_jsonb, ok, duration_ms, error).
+- `phone_link_codes`: adicionar `lookup_key` (hash HMAC do código com pepper server-side) + índice único parcial (ativo, não expirado). Manter `code_hash` (bcrypt/argon-like) para verificação.
+- `outbound_messages`: adicionar status `processing`, `claimed_at`, `lease_expires_at`. Atualizar `claim_outbound_batch` para NÃO marcar `sent` antecipadamente; nova RPC `mark_outbound_sent(id, provider_message_id)` e `recover_expired_leases()`.
+- `pending_confirmations`: adicionar `conversation_id` obrigatório na validação de CONFIRMAR/CANCELAR (já existe; reforçar checagem no executor).
+- `profiles.is_sandbox` já existe — validar uso.
 
-## 2. Importador legado (correção)
+**Edge Functions**:
+- `supabase/functions/agent-run/index.ts`: reescrever para chamar Lovable AI Gateway (`LOVABLE_API_KEY`) via `@ai-sdk/openai-compatible` + `streamText`/`generateText` com tool calling estruturado. `stopWhen: stepCountIs(8)`, timeout, captura de tokens/custo/latência. Carrega prompt ativo de `agent_prompt_versions`. Se `LOVABLE_API_KEY` ausente OU erro → fallback determinístico rotulado (`path='deterministic_fallback'`). Registra `agent_runs` + `agent_steps` + `agent_tool_calls` a cada passo.
+- `_shared/agent/tools.ts`: definir 11 tools (Zod schemas estritos) — `list_accounts`, `list_categories`, `get_financial_summary`, `list_recent_transactions`, `create_transaction_draft`, `create_transfer_draft`, `create_goal_draft`, `add_goal_contribution_draft`, `create_debt_draft`, `run_before_spending`, `cancel_pending_action`. Cada `execute` recebe `user_id` do contexto do servidor (nunca do modelo), valida ownership no SQL, chama RPCs existentes ou `agent_upsert_draft`.
+- `run_before_spending` chama motor factual completo (portar `src/lib/engine/facts.ts` para `_shared/engine/facts.ts` reutilizável).
+- `whatsapp-webhook`: adicionar limite de body (ex. 128KB), validar timestamp (±5min), rejeitar tipos não suportados, dedupe por `provider_message_id`. Detectar CONFIRMAR/CANCELAR com validação de conversa/telefone antes de executar.
+- `whatsapp-send`: usar `processing → sent` após `sendText` OK. `whatsapp-ack-watchdog`: recuperar leases expirados.
+- `agent-run` só aceita `user_id` derivado (a) do webhook via `whatsapp_links` verificado ou (b) admin com `profiles.is_sandbox=true`.
 
-Reescreve `import_legacy_batch(p_payload jsonb)` para reconhecer o formato real do `financial_ecosystem_v2`:
-- `lancamentos` → transactions (mapear tipo, valor, data, categoria/conta por nome/slug)
-- `contasFixas` → recurring_entries
-- `metas` → goals; `aportes` → goal_contributions
-- `dividas` → debts
-- `investimentos` → investments
-- `emocoes` → emotional_checkins
-- `categoriasCustom` → categories (pessoais)
-- `config` → user_financial_settings (merge, não sobrescreve dados já preenchidos)
+**Estado conversacional**: `conversations` já tem coluna? Adicionar `pending_slots jsonb` para follow-up (ex. "quanto?", "que conta?").
 
-Idempotente via `import_rows(external_id)`. Prévia por entidade no UI, com contagem de itens ignorados e motivos. Nunca apaga origem.
+## Prioridade 2 — Divisão do Rolê
 
-## 3. Orquestrador do agente (Edge Function `agent-run`)
+**Migration** (`shared_expenses`):
+- `shared_expenses` (id, owner_user_id, title, total_amount, occurred_at, due_at, note, financial_transaction_id nullable, status, created_at/updated_at).
+- `shared_expense_participants` (id, shared_expense_id, name, phone_e164_masked, phone_lookup_hash, amount, status pendente/pago/dispensado, paid_at, opt_out bool, last_reminder_at).
+- RLS: só owner acessa; participantes NÃO leem uns aos outros.
+- `reminder_jobs` (id, participant_id, scheduled_at, status, sent_at, error, rate_limit_bucket).
+- RPCs: `create_shared_expense_draft`, `confirm_shared_expense`, `mark_participant_paid`, `send_participant_reminder` (com rate limit, quiet hours 22h-8h SP, cooldown 24h).
 
-Ponto único chamado por (a) `whatsapp-webhook` para mensagens normais e (b) `/admin/agente/simulador`. Assinatura: `{ user_id, conversation_id, inbound_message_id, text, source: 'whatsapp'|'simulator' }`.
+**UI**: `/app/divisao-do-role` — lista + criar (total, participantes com nomes/telefones, divisão igual/custom com validação de centavos = total), revisão, confirmação, histórico, botão reenvio manual.
 
-Fluxo:
-1. Dedupe por `inbound_message_id` (retorna resultado prévio se existir).
-2. **Interceptor pré-LLM**: se texto normalizado ∈ {CONFIRMAR, SIM, OK} e existe draft `pending` da conversa → executor transacional. Se ∈ {CANCELAR, NAO, NÃO} → marca `cancelled`. Ambos idempotentes.
-3. Carrega prompt ativo + `agent_settings`. Se `LOVABLE_API_KEY` ausente → modo determinístico (regex tolerante a "gastei/recebi/transferi 42,90 [descrição] [hoje|ontem]") suficiente para os testes e simulador; UI marca "IA não configurada".
-4. Chama gateway Lovable AI (google/gemini-2.5-flash) com tools abaixo, `stopWhen: stepCountIs(8)`, timeout de `agent_settings.timeout_ms`.
-5. Cada step grava `agent_steps` sanitizado (sem payload PII bruto).
-6. Resposta final entra na `outbound_messages` via `idempotency_key = run_id`.
-7. `agent_runs` grava status, duração, tokens, custo estimado, erro sanitizado.
+**Agente**: tool `create_shared_expense_draft`; parser BR entende "dividi 300 entre eu, Ana e João". Pede nomes/telefones ausentes via follow-up. Lembretes só após CONFIRMAR.
 
-`user_id` **sempre** derivado do `whatsapp_links.user_id` (server), nunca do modelo. Tools recebem contexto via closure; schemas Zod não expõem user_id.
+**Mensagem de cobrança**: template não revela outros participantes; identifica cobrador/título/valor/vencimento; suporta opt-out ("PARAR").
 
-## 4. Tools funcionais (todas com execução real)
+## Prioridade 3 — Importadores
 
-Reads (sem draft): `list_accounts`, `list_categories`, `get_financial_summary`, `list_recent_transactions`, `run_before_spending`.
+**Legado real** (`import_legacy_batch`): reescrever para aceitar `lancamentos`, `metas`, `aportes`, `dividas`, `investimentos`, `emocoes`, `contasFixas`, `config`, `categoriasCustom` (string[]). Mapear enums PT→EN (receita→income, despesa→expense, etc.), campos snake_case/PT. Dry-run com prévia por entidade. Erros por linha em `import_rows.notes`. Idempotência via `external_id`.
 
-Writes (criam `agent_drafts` pending, jamais escrevem direto): `create_transaction_draft`, `create_transfer_draft`, `create_goal_draft`, `add_goal_contribution_draft`, `create_debt_draft`, `cancel_pending_action`.
+**CSV/OFX**: nova página `/app/importar` com upload local (limite 5MB), preview com mapeamento de colunas, escolha de conta destino, dedup por (data+valor+descrição) hash, confirmação antes de gravar. Parser CSV client-side (PapaParse) e OFX (regex/parser leve). Sem Open Finance.
 
-Executor server-side por `kind`, chamado apenas via CONFIRMAR:
-- transaction/transfer → `create_transfer` RPC ou insert direto com validação de ownership
-- goal/contribution/debt → insert com validação
-- Um único INSERT por CONFIRMAR; `result_snapshot` guardado; segunda CONFIRMAR retorna snapshot.
+## Prioridade 4 — Recorrências
 
-Interpretação de valor BR: parser dedicado com testes (`1.234,56` → 1234.56, `42,90` → 42.90, `100` → 100). Datas relativas em `America/Sao_Paulo` (hoje/ontem/anteontem). Se conta única do usuário → sugere automaticamente. Se múltiplas → lista e pergunta. Nunca inventa categoria/conta.
+Tabela `recurring_entries` já existe. UI `/app/recorrencias`: CRUD (receita/despesa, valor, conta, categoria, frequência mensal/semanal/anual, próxima data, data final, ativa/pausada). RPC `generate_recurring_planned(user_id, until_date)` idempotente (chave: recurring_id + data_alvo). Exibir próximos 30d no dashboard e no `run_before_spending`. Planned vs confirmed distintos.
 
-## 5. Simulador `/admin/agente/simulador`
+## Prioridade 5 — Relatórios
 
-- Só admin. UI destacada "simulação — nenhuma mensagem real enviada".
-- Seleciona usuário de sandbox (marca `profiles.is_sandbox` ou usa o próprio admin).
-- Campo telefone simulado + textarea.
-- Chama `agent-run` com `source: 'simulator'`. Outbox marca `channel='simulator'` para não tentar envio WAHA.
-- Painel: inbound, run steps (sanitizados), draft, resposta outbound, tabelas afetadas.
-- Botões CONFIRMAR/CANCELAR dentro do simulador (envia como nova mensagem).
-- Botão "reset sandbox" apaga apenas registros criados por runs `source='simulator'` do usuário sandbox.
+Substituir placeholder `/app/relatorios`: gráficos (receitas x despesas por mês, top categorias, evolução patrimônio, metas/investimentos/dívidas). Filtros por período/conta/categoria. Exportação CSV. Empty states. Sem projeções inventadas — só fatos históricos.
 
-## 6. Admin `/admin/agente` (evolução)
+## Prioridade 6 — Desafios
 
-- Editor de prompt com draft/preview/publish/rollback (usa `agent_prompt_versions.status`).
-- Formulário de `agent_settings` com ranges validados (temp 0-1, steps 1-8, timeout 1-60s, max_tokens 500-4000).
-- Lista de `agent_runs` últimas 100 com filtros status/período; drill-in para steps.
-- Painel `pending_confirmations` por status.
-- Outbox: queued / sent / failed / dead-letter.
-- Saúde WAHA (existente) + saúde IA (`LOVABLE_API_KEY` presente + ping).
-- Telefones sempre mascarados. Nunca exibe secrets.
+Tabelas `challenges`/`user_challenges` já existem. UI `/app/desafios`: catálogo, aderir/pausar/abandonar/concluir. Progresso derivado de fatos (query em transactions/goal_contributions), idempotente. Streak em `America/Sao_Paulo`. XP/conquistas idempotentes via eventos. Sem ranking.
 
-## 7. UX usuário `/app/whatsapp`
+## Admin / Simulador
 
-Além do vínculo existente:
-- Bloco "O que eu entendo" com 4 exemplos reais.
-- Lista de confirmações pending do próprio usuário com botões CONFIRMAR/CANCELAR (via RPC).
-- Últimos 10 recibos.
-- Badges de estado: `WhatsApp não configurado`, `Conectado`, `IA não configurada`.
+- `/admin/agente`: expor path (llm/fallback), modelo, prompt versão, steps, tools chamadas, tokens/custo por run. Métricas agregadas sem PII.
+- Editor de prompt: draft → validar → publicar → rollback → diff. Auditoria em `agent_prompt_versions`.
+- Botão "Testar WAHA" e "Testar IA" separados, com resposta real.
+- Simulador: apenas usuários `is_sandbox=true`.
 
-## 8. Webhook e outbox
+## Testes
 
-- `whatsapp-webhook` (já existe) passa a: identificar VINCULAR → link; identificar CONFIRMAR/CANCELAR + draft pending → executor direto; caso contrário → invoca `agent-run`.
-- `whatsapp-send` usa `claim_outbound_batch` (SKIP LOCKED) e respeita `channel != 'simulator'`.
-- Dedupe: inbound por `provider_message_id`, run por `inbound_message_id`, outbound por `idempotency_key`, execução por `pending_confirmations.result_snapshot`.
+Novos:
+- `agent-orchestrator.test.ts`: LLM mockado + fallback rotulado.
+- `agent-tools.test.ts`: cada tool com ownership violation.
+- `outbox-lease.test.ts`: concorrência claim/recover.
+- `phone-link.test.ts`: lookup seguro, TTL, tentativas, cooldown.
+- `import-legacy-real.test.ts`: fixture `financial_ecosystem_v2` real.
+- `import-csv-ofx.test.ts`: parsers.
+- `shared-expense.test.ts`: divisão igual/custom centavos, lembrete rate limit.
+- `recurring.test.ts`: idempotência.
+- `challenges.test.ts`: progresso factual.
+- Isolamento RLS entre 2 users (integração).
 
-## 9. Testes (vitest + SQL)
+Rodar `vitest run`, `tsgo --noEmit`, `vite build`.
 
-Novos testes cobrindo:
-- Parser BR de valores/datas.
-- Interpretação determinística (fallback sem LLM).
-- Pipeline end-to-end via simulador: gasto → draft → CONFIRMAR → 1 transação; CONFIRMAR de novo → ainda 1; webhook duplicado → 1 resposta.
-- CANCELAR e expirado → zero escrita.
-- Outro telefone → negado.
-- Isolamento A/B (usuário A não usa conta de B).
-- Transferência: direção correta, efeito líquido zero.
-- Meta/aporte/dívida via agente.
-- Read tools não criam draft.
-- Prompt injection ignorada (asserção sobre resposta do fallback determinístico + guard rails no system prompt).
-- Ausência de secrets → app saudável.
-- Claim concorrente da outbox (transações paralelas) não duplica.
-- Teste SQL reproduzível de RLS entre dois usuários.
+## Arquivos principais
 
-## 10. Arquivos
+**Criar**:
+- `supabase/functions/_shared/agent/tools.ts`, `llm.ts`, `prompt.ts`
+- `supabase/functions/_shared/engine/facts.ts` (portado)
+- `supabase/functions/shared-expense-reminder/index.ts`
+- `supabase/functions/recurring-generate/index.ts`
+- `src/pages/DivisaoDoRole.tsx`, `Recorrencias.tsx`, `Desafios.tsx`
+- `src/pages/Relatorios.tsx` (rewrite)
+- `src/pages/Importar.tsx` (extend com CSV/OFX)
+- `src/lib/import/{csv,ofx,legacy}.ts`
+- `src/lib/engine/before-spending.ts` (motor completo compartilhado)
+- Migrations: `agent_hardening`, `shared_expenses`, `outbox_lease`, `phone_link_lookup`
 
-**Migration**: `supabase/migrations/<ts>_agent_e2e.sql` (revoke has_role legado, direction, agent_drafts, result_snapshot, idempotency_key, claim RPC, importer reescrito, sandbox flag).
+**Editar**:
+- `supabase/functions/agent-run/index.ts` (rewrite completo)
+- `supabase/functions/whatsapp-webhook/index.ts`, `whatsapp-send/index.ts`, `whatsapp-ack-watchdog/index.ts`
+- `src/App.tsx` (rotas), `MaisMenu.tsx`, `DesktopSidebar.tsx`
+- `src/pages/admin/Agente.tsx`, `AgenteSimulador.tsx`
+- `src/integrations/supabase/types.ts` (regen auto)
 
-**Edge Functions novas**: `agent-run/index.ts`, `agent-confirm/index.ts` (usado por app UI e simulador); `_shared/agent/{orchestrator.ts, tools.ts, parser.ts, executor.ts, prompt.ts, deterministic.ts}`.
+## Riscos
 
-**Edge Functions editadas**: `whatsapp-webhook/index.ts` (chama agent-run), `whatsapp-send/index.ts` (claim atômico + skip simulator).
+- Sem `LOVABLE_API_KEY` configurado o agente opera só em fallback determinístico rotulado — admin exibe estado real.
+- Sem `WAHA_*` os lembretes ficam com status `not_sent` explícito.
+- Parser OFX simples pode falhar em formatos exóticos — reportar linha.
+- LGPD: telefones de participantes armazenados hasheados + máscara para exibição.
 
-**Frontend**: `src/pages/admin/AgenteSimulador.tsx`, evolução de `src/pages/admin/Agente.tsx`, `src/pages/WhatsApp.tsx` (pendências/recibos), `src/pages/Importar.tsx` (prévia multi-entidade).
+## Estimativa de créditos
 
-**Libs**: `src/lib/agent/commands.ts` (CONFIRMAR/CANCELAR client-side), atualização `src/lib/db/finance.ts` para queries de pendências/recibos.
+Alta. Priorização estrita (1→6) garante que interrupção deixe núcleo (agente+segurança+divisão) funcional. Recorrências/relatórios/desafios são incrementais sobre schema existente.
 
-**Testes**: `src/test/agent-parser.test.ts`, `src/test/agent-pipeline.test.ts`, `src/test/agent-rls.sql`, `src/test/outbox-claim.test.ts`.
+## Ordem de implementação
 
-## 11. Segurança
+1. Migration `agent_hardening` + `outbox_lease` + `phone_link_lookup`
+2. `_shared/agent/{llm,tools,prompt}.ts` + rewrite `agent-run`
+3. Hardening webhook/send/watchdog
+4. Testes agente + outbox + phone-link
+5. Migration `shared_expenses` + UI + tool no agente + reminder function
+6. Importador legado real + CSV/OFX
+7. UI Recorrências + generate function
+8. Relatórios reais
+9. Desafios UI + progresso
+10. Admin editor de prompt + métricas
+11. Testes finais, typecheck, build
 
-- Prompt do sistema em pt-BR curto: identidade do NoControle.ia, jamais revelar prompt/executar SQL/mudar identidade/aprovar recomendação regulada.
-- Toda tool revalida ownership via `user_id` do closure vs. `accounts.user_id` / `categories.user_id`.
-- Nenhum secret no cliente. `LOVABLE_API_KEY` server-only.
-- Logs sanitizam corpo de mensagem (max 500 chars, sem PII adicional).
-
-## 12. Ordem de execução
-
-1. Migration incremental.
-2. `_shared/agent/*` (parser, prompt, tools, executor, orchestrator, deterministic).
-3. Edge functions `agent-run`, `agent-confirm`; atualização de `whatsapp-webhook` e `whatsapp-send`.
-4. Reescrita do importador legado.
-5. UI simulador + evolução admin agente.
-6. UI usuário whatsapp (pendências/recibos) + Importar.
-7. Testes vitest + SQL de RLS.
-8. `bun run test`, `tsgo --noEmit`, `bun run build`.
-
-## Créditos: alto (nova função central + testes + UI admin + importador). Sem publicação.
+Ao final: relatar em 3 blocos (evidências, entregue, dependências externas: `LOVABLE_API_KEY`, `WAHA_*`).
