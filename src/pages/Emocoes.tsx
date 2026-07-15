@@ -1,95 +1,131 @@
-import { useState } from 'react';
-import { useFinancial } from '@/context/FinancialContext';
-import { Plus } from 'lucide-react';
-import { EmocaoForm } from '@/components/EmocaoForm';
-import { EMOCOES } from '@/types/financial';
-import { calcularScoreEmocional, calcularIndiceImpulsividade } from '@/lib/engine';
+import { useState } from "react";
+import { Loader2, Smile } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/context/AuthContext";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+const MOODS = [
+  { v: 1, label: "Péssimo", emoji: "😞" },
+  { v: 2, label: "Ruim", emoji: "😕" },
+  { v: 3, label: "Neutro", emoji: "😐" },
+  { v: 4, label: "Bom", emoji: "🙂" },
+  { v: 5, label: "Ótimo", emoji: "😄" },
+];
 
 export default function Emocoes() {
-  const { state } = useFinancial();
-  const [formOpen, setFormOpen] = useState(false);
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [mood, setMood] = useState<number | null>(null);
+  const [trigger, setTrigger] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const scoreEmocional = calcularScoreEmocional(state);
-  const indiceImpulsividade = calcularIndiceImpulsividade(state);
-
-  const getEmocaoLabel = (val: string) => EMOCOES.find(e => e.value === val)?.label || val;
-
-  // Correlação emoção vs categoria
-  const despesas = state.lancamentos.filter(l => l.tipo === 'despesa' && l.emocao);
-  const correlacao: Record<string, Record<string, number>> = {};
-  despesas.forEach(l => {
-    if (!correlacao[l.emocao!]) correlacao[l.emocao!] = {};
-    correlacao[l.emocao!][l.categoria] = (correlacao[l.emocao!][l.categoria] || 0) + l.valor;
+  const { data: history } = useQuery({
+    queryKey: ["emotional_checkins", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("emotional_checkins")
+        .select("*")
+        .order("occurred_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data;
+    },
   });
 
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mood || !user) return;
+    setSaving(true);
+    const { error } = await supabase.from("emotional_checkins").insert({
+      user_id: user.id,
+      mood,
+      trigger_label: trigger || null,
+      notes: notes || null,
+    });
+    setSaving(false);
+    if (error) {
+      toast.error("Erro ao salvar");
+      return;
+    }
+    setMood(null);
+    setTrigger("");
+    setNotes("");
+    qc.invalidateQueries({ queryKey: ["emotional_checkins"] });
+    toast.success("Check-in registrado");
+  }
+
   return (
-    <div className="space-y-5 pt-2">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Emocional</h1>
-        <button onClick={() => setFormOpen(true)} className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center">
-          <Plus size={16} strokeWidth={2.5} />
-        </button>
-      </div>
+    <div>
+      <header className="mb-6">
+        <h1 className="font-display text-2xl font-bold tracking-tight">Check-in emocional</h1>
+        <p className="text-sm text-muted-foreground">Registre como você se sente ao lidar com dinheiro hoje.</p>
+      </header>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="ios-card p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Score emocional</p>
-          <p className="text-lg font-bold text-foreground mt-0.5">{scoreEmocional}/100</p>
-        </div>
-        <div className="ios-card p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Impulsividade</p>
-          <p className="text-lg font-bold text-foreground mt-0.5">{indiceImpulsividade}%</p>
-        </div>
-      </div>
-
-      {/* Correlação */}
-      {Object.keys(correlacao).length > 0 && (
-        <div className="ios-card p-4">
-          <h3 className="text-xs text-muted-foreground font-medium mb-3">Emoção × Categoria</h3>
-          <div className="space-y-3">
-            {Object.entries(correlacao).map(([emocao, cats]) => (
-              <div key={emocao}>
-                <p className="text-xs font-medium text-foreground mb-1">{getEmocaoLabel(emocao)}</p>
-                <div className="space-y-1">
-                  {Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([cat, val]) => (
-                    <div key={cat} className="flex justify-between text-[10px]">
-                      <span className="text-muted-foreground">{cat}</span>
-                      <span className="text-foreground font-medium">R$ {val.toLocaleString('pt-BR')}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Timeline */}
-      <div className="ios-card p-4">
-        <h3 className="text-xs text-muted-foreground font-medium mb-3">Histórico</h3>
-        <div className="space-y-3">
-          {state.emocoes.length === 0 && <p className="text-xs text-muted-foreground">Nenhum registro ainda</p>}
-          {state.emocoes.map(e => (
-            <div key={e.id} className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
-                <span className="text-sm font-bold text-foreground">{e.nivel}</span>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-foreground">{getEmocaoLabel(e.emocao_principal)}</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {new Date(e.data).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                  </span>
-                </div>
-                {e.observacao && <p className="text-[10px] text-muted-foreground mt-0.5">{e.observacao}</p>}
-              </div>
-            </div>
+      <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+        <p className="mb-2 text-sm font-medium">Como está seu humor financeiro?</p>
+        <div className="grid grid-cols-5 gap-2">
+          {MOODS.map((m) => (
+            <button
+              key={m.v}
+              type="button"
+              onClick={() => setMood(m.v)}
+              className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium transition-colors ${
+                mood === m.v ? "border-primary bg-primary/10 text-foreground" : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span className="text-2xl">{m.emoji}</span>
+              {m.label}
+            </button>
           ))}
         </div>
-      </div>
 
-      <EmocaoForm open={formOpen} onOpenChange={setFormOpen} />
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Gatilho (opcional)</label>
+            <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="Ex: ansiedade, tédio, celebração" className="input-base" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Notas (opcional)</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="input-base min-h-20" />
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <button type="submit" disabled={!mood || saving} className="btn-brand inline-flex items-center gap-2 disabled:opacity-50">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Registrar"}
+          </button>
+        </div>
+      </form>
+
+      <section className="mt-6">
+        <h2 className="mb-3 text-sm font-semibold">Histórico recente</h2>
+        {!history || history.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center text-xs text-muted-foreground">
+            <Smile className="mx-auto mb-2 h-6 w-6" />
+            Ainda não há check-ins registrados.
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {history.map((h) => (
+              <li key={h.id} className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
+                <div className="min-w-0">
+                  <p className="text-sm">
+                    {MOODS.find((m) => m.v === h.mood)?.emoji} {MOODS.find((m) => m.v === h.mood)?.label}
+                    {h.trigger_label ? ` · ${h.trigger_label}` : ""}
+                  </p>
+                  {h.notes && <p className="mt-0.5 truncate text-xs text-muted-foreground">{h.notes}</p>}
+                </div>
+                <span className="whitespace-nowrap text-xs text-muted-foreground">
+                  {new Date(h.occurred_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
