@@ -56,6 +56,7 @@ export interface DebtRow {
   name: string;
   outstanding_balance: number;
   original_amount: number;
+  installment_amount?: number | null;
   status: string;
 }
 
