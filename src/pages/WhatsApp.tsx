@@ -153,6 +153,91 @@ export default function WhatsApp() {
           </button>
         </div>
       )}
+
+      {link && <PendingAndReceipts />}
+
+      <div className="mt-6 rounded-2xl border bg-card p-6">
+        <p className="text-sm font-semibold">O que eu entendo</p>
+        <ul className="mt-2 text-sm text-muted-foreground space-y-1">
+          <li>• “gastei 42,90 no almoço hoje no Nubank”</li>
+          <li>• “recebi 3000 salário”</li>
+          <li>• “transferir 100 de Nubank para Itaú”</li>
+          <li>• “resumo do mês” ou “posso gastar 200 hoje?”</li>
+        </ul>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Toda operação que mexe no seu dinheiro pede um CONFIRMAR antes de gravar.
+        </p>
+      </div>
     </div>
+  );
+}
+
+function PendingAndReceipts() {
+  const qc = useQueryClient();
+  const pending = useQuery({
+    queryKey: ["wl_pending"],
+    queryFn: async () => {
+      const { data } = await supabase.from("pending_confirmations")
+        .select("id, kind, summary_text, expires_at")
+        .eq("status", "pending").order("created_at", { ascending: false });
+      return (data as any[]) ?? [];
+    },
+  });
+  const receipts = useQuery({
+    queryKey: ["wl_receipts"],
+    queryFn: async () => {
+      const { data } = await supabase.from("pending_confirmations")
+        .select("id, kind, summary_text, status, executed_at")
+        .in("status", ["confirmed", "cancelled"]).order("created_at", { ascending: false }).limit(10);
+      return (data as any[]) ?? [];
+    },
+  });
+
+  const act = async (id: string, action: "confirm" | "cancel") => {
+    const fn = action === "confirm" ? "confirm_pending_action" : "cancel_pending_action";
+    const { error } = await supabase.rpc(fn, { p_id: id });
+    if (error) toast.error(error.message);
+    else {
+      toast.success(action === "confirm" ? "Confirmado." : "Cancelado.");
+      qc.invalidateQueries({ queryKey: ["wl_pending"] });
+      qc.invalidateQueries({ queryKey: ["wl_receipts"] });
+    }
+  };
+
+  return (
+    <>
+      {(pending.data ?? []).length > 0 && (
+        <div className="mt-6 rounded-2xl border bg-card p-6">
+          <p className="text-sm font-semibold mb-3">Pendências para confirmar</p>
+          <ul className="space-y-3">
+            {pending.data!.map(p => (
+              <li key={p.id} className="text-sm rounded-lg border p-3">
+                <p>{p.summary_text}</p>
+                <p className="text-xs text-muted-foreground mt-1">Expira em {new Date(p.expires_at).toLocaleString("pt-BR")}</p>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => act(p.id, "confirm")} className="rounded-full bg-primary text-primary-foreground px-3 py-1 text-xs">CONFIRMAR</button>
+                  <button onClick={() => act(p.id, "cancel")} className="rounded-full border px-3 py-1 text-xs">CANCELAR</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(receipts.data ?? []).length > 0 && (
+        <div className="mt-6 rounded-2xl border bg-card p-6">
+          <p className="text-sm font-semibold mb-2">Últimas ações do agente</p>
+          <ul className="text-sm space-y-1">
+            {receipts.data!.map(r => (
+              <li key={r.id} className="text-xs flex items-start gap-2">
+                {r.status === "confirmed"
+                  ? <CheckCircle2 className="h-3 w-3 mt-0.5 text-green-600" />
+                  : <XCircle className="h-3 w-3 mt-0.5 text-muted-foreground" />}
+                <span>{r.summary_text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
   );
 }
