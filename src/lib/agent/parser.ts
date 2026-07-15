@@ -18,16 +18,18 @@ export type ParsedIntent =
 export function parseBrAmount(raw: string): number | null {
   if (!raw) return null;
   let s = raw.trim().replace(/^r\$\s*/i, "");
-  // Strip trailing non-digit/decimals
   s = s.replace(/[^\d.,-]/g, "");
   if (!s) return null;
   const hasComma = s.includes(",");
   const hasDot = s.includes(".");
   if (hasComma && hasDot) {
-    // Assume dot = thousands, comma = decimal (BR canonical)
+    // BR canonical: dot = thousands, comma = decimal
     s = s.replace(/\./g, "").replace(",", ".");
   } else if (hasComma) {
     s = s.replace(",", ".");
+  } else if (hasDot) {
+    // Only dots: treat as thousands separator when every dot group has exactly 3 digits
+    if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   }
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
