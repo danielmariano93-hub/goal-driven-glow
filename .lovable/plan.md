@@ -1,242 +1,247 @@
-# NoControle.ia — Plano de Transformacao
 
-Rebranding integral do prototipo local em plataforma multiusuario real com landing, auth, Supabase/RLS, agente financeiro, WhatsApp WAHA (numero oficial unico) e painel admin. Preservar UI/UX de formularios e paginas onde faz sentido; substituir a fundacao (persistencia, calculos financeiros duvidosos, modelo de dados).
+# Fase 1 — Fundação de Auth, Perfis, Papéis e Onboarding
 
-## 1. Diagnostico do codigo atual
+Objetivo: substituir o protótipo local por uma base real multiusuário com Lovable Cloud (Supabase), autenticação completa, perfis, papéis e onboarding mínimo — sem tocar em dados financeiros, WAHA, agente ou admin funcional. Visual premium já criado é preservado.
 
-**Preservar (refatorar visualmente, manter estrutura):**
-- Paginas de dominio: `Lancamentos.tsx`, `Metas.tsx`, `Dividas.tsx`, `Investimentos.tsx`, `Relatorios.tsx`, `Perfil.tsx`, `Planejamento.tsx` (Antes de Gastar), `Emocoes.tsx` (como opcional).
-- Componentes de formulario: `LancamentoForm`, `MetaForm`, `DividaForm`, `InvestimentoForm`, `EmocaoForm` (adaptar campos ao novo schema).
-- `csv.ts` (util de export), padroes de graficos com recharts, `NotFound.tsx`.
-- Tipos em `types/financial.ts` como referencia para o schema Supabase.
+---
 
-**Refatorar (mudanca de fundacao, mesma superficie):**
-- `FinancialContext.tsx`: substituir useReducer+localStorage por hooks TanStack Query sobre Supabase; manter o shape `useFinancial()`/`useIndicadores()` para nao propagar refactor pelas paginas.
-- `AppLayout.tsx`, `BottomTabBar.tsx`, `DesktopSidebar.tsx`, `Index.tsx`: reaplicar design system NoControle.ia (paleta #21164F/#6D3BFF/#8B5CF6/#FF6B4A, fundo #F8F7FC, Inter/Manrope).
-- `engine.ts`: manter funcoes puras, corrigir formulas (secao 4). Recalculos passam a rodar sobre dados do Supabase e nao mais do state global.
+## 1. Arquivos a criar / alterar
 
-**Descartar:**
-- `data/mockData.ts` (ja removido) e SEED_* dentro de `FinancialContext.tsx`.
-- `alertas` inline no reducer: viram derivacao pura ou tabela `alerts` apenas se houver uso real.
-- `categoriasCustom: string[]` no state (vira tabela `categories`).
-- Campo `impulsivo` como boolean obrigatorio no lancamento: passa a ser opcional derivado de emocao/tag; nunca gatilho de score arbitrario.
-- Score "Emocional" e "Financeiro" com pesos magicos (25/20/20/20/15): remover ate haver metodologia transparente e dados suficientes; substituir por indicadores factuais (taxa poupanca, comprometimento, patrimonio) sem grade 0-100 disfarcada de rating.
+### Criar
+- `src/integrations/supabase/client.ts` — cliente Supabase (gerado ao habilitar Cloud).
+- `src/context/AuthContext.tsx` — provider com `session`, `user`, `profile`, `roles`, `loading`, e ações `signUp`, `signIn`, `signOut`, `requestPasswordReset`, `updatePassword`, `refreshProfile`.
+- `src/components/auth/ProtectedRoute.tsx` — bloqueia `/app/*` sem sessão; redireciona para `/login` preservando `next`.
+- `src/components/auth/AdminRoute.tsx` — exige sessão + `has_role(uid, 'admin')` validado via RPC no servidor; nunca via localStorage/flag no client.
+- `src/components/auth/OnboardingGuard.tsx` — força `/onboarding` quando `profiles.onboarding_completed_at` for null.
+- `src/pages/auth/ForgotPassword.tsx` — envia `resetPasswordForEmail` com `redirectTo=/reset-password`.
+- `src/pages/auth/ResetPassword.tsx` — rota pública que detecta `type=recovery` e chama `updateUser({ password })`.
+- `src/pages/auth/EmailConfirm.tsx` — feedback pós clique de confirmação.
+- `src/pages/Onboarding.tsx` — wizard curto (3 passos) com validação zod.
+- `src/lib/validation/auth.ts` — schemas zod (email, senha ≥8 c/ complexidade, nome trim ≤80).
+- `src/lib/validation/onboarding.ts` — schemas zod para os campos do onboarding.
+- `supabase/migrations/<ts>_auth_foundation.sql` — schema, RLS, grants, trigger, função.
 
-## 2. Arquitetura-alvo
+### Alterar
+- `src/pages/Login.tsx` — substituir placeholder por form real (email/senha + link "esqueci minha senha").
+- `src/pages/Signup.tsx` — substituir placeholder por form real com `emailRedirectTo=window.location.origin/app`.
+- `src/App.tsx` — envolver com `AuthProvider`, registrar rotas `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/onboarding`, `/app/*` (ProtectedRoute + OnboardingGuard), `/admin/*` (AdminRoute).
+- `src/components/AppLayout.tsx` — botão sair e exibição do nome do perfil.
+- `index.html` e quaisquer strings remanescentes de "Mindful Money" → "NoControle.ia".
+- `package.json` — se necessário, adicionar `@supabase/supabase-js` (feito ao habilitar Cloud).
 
-**Frontend (React 18 + Vite + Tailwind + shadcn):**
-- `/(publico)`: landing, precos futuros, login, signup, recuperacao.
-- `/app/*`: area autenticada com bottom nav mobile e sidebar desktop.
-- `/admin/*`: painel do founder, protegido por `has_role(uid, 'admin')`.
-- Estado servidor via TanStack Query; estado UI local via `useState`. Sem contexto global de dados.
+Nenhuma tabela ou tela financeira é tocada nesta fase.
 
-**Banco (Supabase Postgres):** RLS por `user_id`; dinheiro em `numeric(14,2)`; UUID + timestamps timezone-aware; enums para tipo/status.
+---
 
-**Edge Functions (Deno, todas com JWT verificado ou secret do WAHA):**
-- `whatsapp-webhook`: recebe eventos WAHA, normaliza via `MessagingProvider`, deduplica, resolve usuario por telefone verificado, enfileira para o agente.
-- `whatsapp-send`: envia mensagens (unico ponto de saida).
-- `whatsapp-session`: start/QR/status/logout do numero oficial (apenas admin).
-- `whatsapp-ack-watchdog`: reconciliacao de ACKs.
-- `agent-run`: executa o agente com prompt versionado, tools whitelisted, logs em `agent_runs`.
-- `link-phone-code`: gera codigo temporario para vinculacao "VINCULAR 123456".
+## 2. Schema SQL / RLS conceitual
 
-**Agente:** LLM via Lovable AI Gateway (`@ai-sdk/openai-compatible`, `LOVABLE_API_KEY` server-side). Ferramentas com Zod: `createTransaction`, `requestTransactionConfirmation`, `getFinancialSummary`, `listRecentTransactions`, `updateTransaction`, `deleteTransaction`. Nenhuma escrita fora dessas tools. `stopWhen: stepCountIs(50)`.
+Ordem obrigatória por tabela: `CREATE TABLE` → `GRANT` → `ENABLE RLS` → `POLICIES`.
 
-**MessagingProvider (interface):** `sendText`, `getSessionStatus`, `getSessionHealth`, `startSession`, `getQrCode`, `logoutSession`, `normalizeWebhookEvent`. Implementacao inicial `WahaProvider` isolada em `supabase/functions/_shared/waha/` (referencia Sniper AI para dedupe/ACK/health/QR/normalizacao apenas). Futuro `MetaCloudProvider` implementa a mesma interface.
-
-## 3. Modelo de dados e RLS
-
-**Agora (fase inicial):**
-
+### 2.1 Enum + tabela de papéis
 ```text
-profiles(id=auth.users.id, display_name, avatar_url, phone_e164, phone_verified_at, created_at)
-user_financial_settings(user_id PK, monthly_income numeric, income_frequency, timezone, currency='BRL')
-user_roles(user_id, role app_role) + has_role() SECURITY DEFINER  [padrao Lovable]
-accounts(id, user_id, name, kind, initial_balance numeric)  -- contas/carteiras
-categories(id, user_id NULL=global, name, kind income|expense, color, icon)
-transactions(id, user_id, account_id, category_id, kind income|expense, amount numeric, occurred_at date, description, payment_method, source enum(app|whatsapp|import), idempotency_key unique, confirmed_at, agent_run_id NULL, emotion NULL, notes NULL)
-recurring_transactions(id, user_id, template..., day_of_month, next_run_at) -- substitui "Contas Fixas"
-goals(id, user_id, name, target_amount, deadline, priority, status)
-goal_contributions(id, goal_id, user_id, amount, occurred_at, transaction_id NULL)
-investments(id, user_id, kind, invested_amount, current_amount, updated_at) -- agregado, nao cotacoes
-debts(id, user_id, name, principal, current_balance, interest_rate, installments_total, installments_left, monthly_payment, priority)
-phone_link_codes(code, user_id, expires_at, consumed_at)
-messaging_connections(id, provider='waha', session_name, status, health, last_ack_at)
-messaging_provider_events(id, provider_message_id unique, received_at, payload jsonb, processed_at, error)
-conversations(id, user_id, channel='whatsapp', started_at)
-messages(id, conversation_id, direction in|out, content, agent_run_id NULL, created_at)
-agent_configs(id, name, active bool, model, temperature, max_tokens, memory_window)
-agent_prompt_versions(id, agent_config_id, version, prompt, created_by, created_at)
-agent_runs(id, user_id, config_id, prompt_version_id, input, output, tools_used jsonb, tokens_in, tokens_out, cost_estimate, duration_ms, error, created_at)
+create type public.app_role as enum ('admin', 'user');
+
+create table public.user_roles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role public.app_role not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, role)
+);
+
+grant select on public.user_roles to authenticated;
+grant all on public.user_roles to service_role;
+
+alter table public.user_roles enable row level security;
+
+-- Usuário lê apenas os próprios papéis (não pode inserir/alterar)
+create policy "user_roles_select_own" on public.user_roles
+  for select to authenticated
+  using (user_id = auth.uid());
 ```
 
-**RLS:** todas as tabelas de dominio (`transactions`, `goals`, `debts`, ...) com policies `user_id = auth.uid()` para SELECT/INSERT/UPDATE/DELETE. `messaging_provider_events`, `agent_configs`, `agent_prompt_versions`, `messaging_connections`, `phone_link_codes`: SELECT/UPDATE apenas admin (`has_role(auth.uid(), 'admin')`); INSERT via service_role a partir das Edge Functions. `agent_runs`: usuario le so os proprios; admin le todos. `messages`/`conversations`: usuario le so as proprias.
-
-**Grants:** cada `CREATE TABLE` seguido de `GRANT SELECT,INSERT,UPDATE,DELETE ... TO authenticated` e `GRANT ALL ... TO service_role`. `anon` nunca recebe grants em tabelas de dominio.
-
-**Futuras (nao criar agora):** `challenges`, `gamification_events`, `imports_ofx`, `split_expenses`, `open_finance_connections`.
-
-## 4. Revisao das formulas financeiras
-
-Problemas atuais em `engine.ts`:
-- `calcularGastoTotal` sem filtro somando historia inteira e sendo usado como "gasto do mes" no dashboard.
-- `calcularSaldoMes` faz `renda - gastos - gastosFixos`, mas gastos fixos deveriam estar dentro dos lancamentos do mes (double-count).
-- `calcularPatrimonioLiquido = investimentos - dividas` ignora saldo em contas e reserva.
-- `calcularProjecao` extrapola saldo linearmente sem considerar recorrencias, aportes previstos ou juros de dividas.
-- Scores 0-100 com pesos arbitrarios apresentados como se fossem metrica objetiva.
-
-**Definicoes corrigidas (documentar em `lib/engine.ts` com comentario da formula):**
-- `patrimonio_atual = SUM(accounts.saldo_atual) + SUM(investments.current_amount) - SUM(debts.current_balance)`
-- `renda_mes(m) = SUM(transactions.amount WHERE kind='income' AND month(occurred_at)=m AND confirmed)`
-- `gasto_mes(m) = SUM(kind='expense' ...)` (fixas ja estao dentro via `recurring_transactions` materializadas)
-- `comprometimento_%(m) = gasto_mes(m) / renda_mes(m)` (0 se renda=0; exibir "sem dados")
-- `taxa_poupanca(m) = max(0, (renda_mes - gasto_mes) / renda_mes)`
-- **`livre_para_gastar`** = `saldo_atual_contas_liquidas + renda_prevista_ate_fim_do_mes - despesas_recorrentes_pendentes_do_mes - aporte_planejado_do_mes - reserva_minima_do_perfil`. Sempre rotular como **estimativa**, mostrar a formula em tooltip e nunca esconder inputs zerados.
-- Projecoes: usar simulacao mes-a-mes com recorrencias e amortizacao real de dividas; nunca linear.
-- Remover `scoreFinanceiro`/`scoreEmocional` da UI ate haver metodologia publicavel. Substituir por 3 indicadores factuais: comprometimento, taxa de poupanca, evolucao patrimonial 3m.
-
-## 5. Migracao localStorage -> Supabase
-
-Fonte unica: Supabase. Sem sincronizacao bidirecional. Estrategia:
-1. Ao habilitar Cloud e implantar auth, o app novo **nao le mais** `financial_ecosystem_v2` do localStorage.
-2. Oferecer, na primeira sessao autenticada, um banner "Importar dados do dispositivo" que abre um modal, le o JSON local, mostra preview e faz insert em massa via RPC transacional `import_local_snapshot(jsonb)` mapeando para o novo schema. Apos import bem-sucedido, remover a chave local.
-3. Import e opcional e idempotente por `idempotency_key`; se o usuario ignorar, o localStorage e limpado na 2a sessao para evitar duas fontes de verdade.
-4. Nenhum outro codigo le localStorage para dominio financeiro.
-
-## 6. Estrutura de rotas
-
+### 2.2 Função `has_role` SECURITY DEFINER
 ```text
-Publicas
-  /                       Landing NoControle.ia
-  /login  /signup  /reset-password  /reset-password (recovery)
-  /termos  /privacidade
-
-Autenticadas (/app/*)
-  /app                    Dashboard
-  /app/transacoes         Lancamentos (ex-Lancamentos)
-  /app/categorias         Gestao de categorias
-  /app/contas             Contas e formas de pagamento
-  /app/metas              Metas + aportes
-  /app/investimentos      Investimentos
-  /app/dividas            Dividas
-  /app/antes-de-gastar    Simulador (ex-Planejamento)
-  /app/emocoes            Registro emocional (opcional)
-  /app/relatorios         Relatorios
-  /app/perfil             Perfil, financas, vinculacao WhatsApp
-  /app/onboarding         Wizard inicial
-
-Admin (/admin/*, guardadas por has_role='admin')
-  /admin                  Overview
-  /admin/agente           Configs, prompt versionado, playground
-  /admin/conversas        Conversas WhatsApp e agent_runs
-  /admin/whatsapp         Saude WAHA, sessao, QR
-  /admin/usuarios         Lista, roles, suporte
-  /admin/metrics          Tokens, custo, latencia, erros
+create or replace function public.has_role(_user_id uuid, _role public.app_role)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.user_roles where user_id = _user_id and role = _role);
+$$;
 ```
 
-## 7. Rebranding e design system
+### 2.3 profiles
+```text
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text,
+  onboarding_completed_at timestamptz,
+  timezone text not null default 'America/Sao_Paulo',
+  currency text not null default 'BRL',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
-- Substituir `index.css` e `tailwind.config.ts` pelos tokens do Project Knowledge (cores, gradiente 135deg #6D3BFF->#8B5CF6->#FF6B4A com moderacao, fundo #F8F7FC, superficie branca, texto #171321).
-- Fonte Inter (padrao) com Manrope opcional para numeros grandes; carregar via `<link>` no `index.html`.
-- Componentes shadcn: variantes reescritas para consumir tokens (`--primary`, `--accent`, `--surface`). Nunca `text-white`, `bg-[#...]` hardcoded.
-- `ScoreRing` aposentado; criar `MetricStat` (numero + label + delta).
-- Bottom nav mobile 375px, sidebar 1440px; testar 768px. WCAG AA, foco visivel, `prefers-reduced-motion`.
-- Atualizar `<title>`, `<meta description>`, `og:*`, `twitter:card` no `index.html` para NoControle.ia.
-- Landing: hero com promessa "Seu controle financeiro comeca com uma conversa", secoes de valor (WhatsApp, Antes de Gastar, Metas), CTA login/signup. Sem depoimentos ou metricas inventados.
+grant select, insert, update on public.profiles to authenticated;
+grant all on public.profiles to service_role;
+alter table public.profiles enable row level security;
 
-## 8. Fluxo WhatsApp (numero oficial unico)
+create policy "profiles_select_own" on public.profiles for select to authenticated using (id = auth.uid());
+create policy "profiles_update_own" on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+-- INSERT bloqueado no client; criação só via trigger definer.
+```
 
-1. Admin inicia sessao WAHA uma vez em `/admin/whatsapp`; QR escaneado no numero da empresa. `messaging_connections` guarda estado.
-2. Usuario abre `/app/perfil` -> "Conectar WhatsApp". App chama `link-phone-code` que insere um codigo de 6 digitos com TTL 10min em `phone_link_codes`.
-3. UI mostra o numero oficial e a instrucao: enviar `VINCULAR 123456` por WhatsApp.
-4. `whatsapp-webhook` recebe, o `WahaProvider.normalizeWebhookEvent` extrai `from_phone_e164` + texto. Handler detecta o comando `VINCULAR`, consome o codigo, escreve `profiles.phone_e164` e `phone_verified_at` para o `user_id` dono do codigo.
-5. Mensagens subsequentes: resolucao **sempre** por telefone E.164 verificado inteiro; se nao houver match exato, responde instrucoes de vinculacao. Nunca casar por sufixo.
-6. Deduplicacao por `provider_message_id` em `messaging_provider_events`. ACK watchdog reconcilia entregas.
-7. Mensagens de saida so via `whatsapp-send`; nenhum componente frontend fala com WAHA direto.
+### 2.4 user_financial_settings
+```text
+create type public.income_frequency as enum ('mensal', 'quinzenal', 'semanal', 'variavel');
 
-## 9. Fluxo do agente para registrar transacao
+create table public.user_financial_settings (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  approximate_monthly_income numeric(14,2),
+  income_frequency public.income_frequency,
+  income_day smallint check (income_day between 1 and 31),
+  timezone text not null default 'America/Sao_Paulo',
+  currency text not null default 'BRL',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
-1. Webhook -> resolve usuario -> insere `messages(direction=in)` -> chama `agent-run` com contexto (mensagem, memoria resumida, config ativa, prompt version).
-2. Agente decide chamar `createTransaction` com Zod `{amount, kind, occurred_at, category_hint, description, payment_method?, account_hint?}`.
-3. Se ha ambiguidade critica (conta, categoria ambigua entre 2 candidatas, data relativa nao resolvida), chama `requestTransactionConfirmation` que retorna uma pergunta curta e o agente pergunta ao usuario **antes** de gravar.
-4. Ao gravar, a tool gera `idempotency_key = hash(user_id, provider_message_id, amount, occurred_at)`; insert em `transactions` respeita unique constraint (segunda tentativa e no-op).
-5. Confirmacao de exclusao/edicao sempre exige resposta explicita do usuario ("sim"/"confirmo") antes de `deleteTransaction`/`updateTransaction`.
-6. `agent_runs` grava input, output, tools chamadas, tokens, custo, duracao, erro. `messages(direction=out)` guarda a resposta enviada.
-7. Nunca inventar valores; se faltar dado essencial (valor), pergunta em vez de assumir.
+grant select, insert, update on public.user_financial_settings to authenticated;
+grant all on public.user_financial_settings to service_role;
+alter table public.user_financial_settings enable row level security;
 
-## 10. Painel admin
+create policy "ufs_select_own" on public.user_financial_settings for select to authenticated using (user_id = auth.uid());
+create policy "ufs_insert_own" on public.user_financial_settings for insert to authenticated with check (user_id = auth.uid());
+create policy "ufs_update_own" on public.user_financial_settings for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+```
 
-- **Agente:** listar/editar `agent_configs`, criar novas `agent_prompt_versions` (nunca editar versao publicada), toggle da versao ativa, playground que roda `agent-run` em dry-run sem gravar transacoes.
-- **Conversas:** timeline por usuario com `messages` + `agent_runs` colapsaveis (input, tools, tokens, custo, erro). Filtros por usuario, data, erro.
-- **Metricas:** graficos de mensagens/dia, custo/dia, latencia p50/p95, taxa de erro, tools mais usadas. Fonte: `agent_runs` + `messaging_provider_events`.
-- **WhatsApp:** status da sessao WAHA, health check, botao logout/restart, ultimo ACK, backlog nao processado.
-- **Usuarios:** busca, atribuir role, ver telefone verificado, ultimo acesso. Nunca listar valores financeiros.
+### 2.5 Trigger de criação automática de profile + role 'user'
+```text
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email,'@',1)))
+  on conflict (id) do nothing;
 
-## 11. Fases ordenadas
+  insert into public.user_roles (user_id, role)
+  values (new.id, 'user')
+  on conflict (user_id, role) do nothing;
 
-**F0 — Rebrand visual + landing (sem backend)** — Baixo
-- Arquivos: `index.css`, `tailwind.config.ts`, `index.html`, `AppLayout`, `BottomTabBar`, `DesktopSidebar`, `Index`, novo `pages/Landing.tsx`, novo `pages/Login.tsx` (placeholder).
-- Aceite: preview responsivo mobile/desktop com nova identidade; landing acessivel em `/`; build sem erro.
+  return new;
+end;$$;
 
-**F1 — Lovable Cloud + auth + profiles + roles** — Medio
-- Habilitar Cloud; migrations: `profiles`, `user_roles`, `has_role`, `user_financial_settings`, triggers de auto-profile. `/signup`, `/login`, `/reset-password`.
-- Aceite: usuario cria conta, faz login/logout, reset por email funciona, admin marcado manualmente ve `/admin` (stub).
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+```
 
-**F2 — Schema financeiro + RLS + refactor do contexto** — Alto
-- Migrations: `accounts`, `categories`, `transactions` (com `idempotency_key`), `recurring_transactions`, `goals`, `goal_contributions`, `investments`, `debts` + policies + grants.
-- Refactor `FinancialContext` para hooks TanStack Query. Adaptar formularios ao novo schema. Onboarding basico (renda, primeira conta).
-- Import opcional do snapshot local via RPC.
-- Aceite: CRUD real funcionando em `/app/transacoes`, `/app/metas`, `/app/dividas`, `/app/investimentos`; RLS bloqueia acesso cruzado (teste com 2 contas); dados persistem entre sessoes/dispositivos.
+Nenhuma tabela financeira é criada. Admin é atribuído manualmente via SQL pelo founder (sem endpoint no client).
 
-**F3 — Motor financeiro corrigido + dashboard + relatorios** — Medio
-- Reescrever `engine.ts` com formulas da secao 4. Dashboard novo com 3 indicadores factuais e "livre para gastar" com tooltip da formula. Relatorios sem scores 0-100.
-- Aceite: valores conferem em teste manual com dataset seed; tooltip da formula visivel; nenhum score fantasma na UI.
+---
 
-**F4 — Antes de Gastar refatorado** — Baixo
-- Adaptar `Planejamento.tsx` ao novo motor; simulacao roda contra dados reais mas nao grava. Confirmacao cria `transaction` idempotente.
+## 3. Fluxo de autenticação e onboarding
 
-**F5 — MessagingProvider + WAHA + webhook + admin/whatsapp** — Alto
-- `_shared/waha/` (referencia Sniper AI), Edge Functions `whatsapp-webhook`, `whatsapp-send`, `whatsapp-session`, `whatsapp-ack-watchdog`. Migrations `messaging_connections`, `messaging_provider_events`, `phone_link_codes`, `conversations`, `messages`. Pagina `/admin/whatsapp` e `/app/perfil` (vinculacao).
-- Aceite: admin escaneia QR uma vez; usuario envia `VINCULAR xxxxxx`; perfil recebe `phone_verified_at`; mensagem posterior gera `messages(in)` sem gravar transacao ainda.
+### 3.1 Signup
+1. Zod valida email + senha (mín 8, letras+número).
+2. `supabase.auth.signUp({ email, password, options: { emailRedirectTo: origin + '/app', data: { display_name } } })`.
+3. Trigger cria `profiles` + role `user`.
+4. UI mostra "Confirme seu e-mail" (não bloqueia caso confirmação esteja desativada no ambiente).
 
-**F6 — Agente + tools + agent_runs + admin/agente** — Alto
-- Migrations `agent_configs`, `agent_prompt_versions`, `agent_runs`. Edge Function `agent-run` com AI SDK + Lovable AI Gateway. Tools whitelisted (secao 9). Painel `/admin/agente`.
-- Aceite: mensagem "Gastei R$80 no bar ontem no Nubank" gera `transaction` correta, resposta curta pelo WhatsApp, `agent_runs` com tokens/custo; segunda mensagem identica nao duplica (idempotencia).
+### 3.2 Login
+1. `signInWithPassword`.
+2. `AuthContext` carrega `profile` e `roles` (via `.select().eq('id', uid)` e `user_roles`).
+3. Se `profile.onboarding_completed_at` null → redireciona para `/onboarding`.
+4. Caso contrário → `/app` (ou `next` da URL).
 
-**F7 — Metricas admin + polimento** — Baixo/Medio
-- `/admin/metrics`, `/admin/conversas`, `/admin/usuarios`. SEO da landing, og tags, acessibilidade.
+### 3.3 Logout
+`supabase.auth.signOut()` → limpa contexto → redireciona `/`.
 
-## 12. Riscos e dependencias
+### 3.4 Recuperação de senha
+- `/forgot-password`: `resetPasswordForEmail(email, { redirectTo: origin + '/reset-password' })`.
+- `/reset-password`: detecta `type=recovery` no hash, exibe form, chama `updateUser({ password })`, redireciona login.
 
-- **WAHA self-hosted:** dependencia externa; precisa host e credencial. Sem isso F5+ nao roda. Decisao pendente: onde hospedar o WAHA (VPS do founder).
-- **Custo LLM:** monitorar via `agent_runs.cost_estimate`; hard limit por usuario/mes configuravel em `agent_configs`.
-- **LGPD:** transacoes contem dado financeiro; logs precisam sanitizar valores em stack traces.
-- **Idempotencia via WhatsApp:** garantir que `provider_message_id` sempre entra no hash; sem ele, arriscamos duplicar.
-- **Migracao localStorage:** decidir se apagamos automaticamente apos import ou damos 30 dias de tolerancia. Recomendacao: apagar apos import; nao manter fallback.
-- **Scores 0-100:** decisao produto de nao publicar ate ter metodologia. Confirmar com stakeholder antes de F3.
-- **Numero unico WhatsApp:** custo e complience de um numero comercial (business). Founder precisa providenciar.
+### 3.5 Atualização de senha logado
+Em `/app/perfil` (form já existente será adaptado depois — fora do escopo desta fase). Nesta fase, expor apenas botão "Alterar senha" que usa o mesmo fluxo `/reset-password` via e-mail — evita gerenciar sessão sensível agora.
 
-## 13. Estimativa de creditos por fase
+### 3.6 AuthContext
+- Registra `onAuthStateChange` **antes** de `getSession()`.
+- Usa `getUser()` para verificação sensível de identidade (ex.: AdminRoute).
+- Expõe `loading` para evitar flicker de rota protegida.
 
-| Fase | Escopo | Creditos |
-|------|--------|----------|
-| F0 | Rebrand + landing | Baixo |
-| F1 | Cloud + auth + profiles | Medio |
-| F2 | Schema + refactor contexto | **Alto** |
-| F3 | Motor financeiro + dashboard | Medio |
-| F4 | Antes de Gastar | Baixo |
-| F5 | WAHA + webhook + admin whatsapp | **Alto** |
-| F6 | Agente + tools + admin agente | **Alto** |
-| F7 | Metricas + polimento | Baixo/Medio |
+### 3.7 Onboarding (3 passos)
+1. Nome de exibição.
+2. Renda mensal aproximada + frequência + dia de recebimento.
+3. Confirmação de timezone `America/Sao_Paulo` e moeda `BRL` (pré-preenchidos, editáveis futuramente).
 
-## 14. Recomendacao para a PRIMEIRA execucao
+Salvar em transação lógica: `upsert user_financial_settings` + `update profiles set onboarding_completed_at = now(), display_name = ...`. Skip permitido apenas para passo 2 (renda opcional; frequência default `variavel`).
 
-**Executar F0 isoladamente.** Motivo: rebrand nao depende de backend, nao arrisca dados, valida design system e narrativa NoControle.ia antes de investir credito Alto em schema/agente. Escopo exato da F0:
+### 3.8 ProtectedRoute
+Enquanto `loading` → spinner. Sem sessão → `<Navigate to="/login?next=...">`. Com sessão e sem onboarding → `<Navigate to="/onboarding">`.
 
-1. Aplicar tokens de cor/tipografia em `index.css` e `tailwind.config.ts`.
-2. Trocar meta tags e titulo em `index.html`.
-3. Criar `src/pages/Landing.tsx` com hero + 3 secoes de valor + CTA e monta-la em `/` (mover dashboard atual para `/app`).
-4. Ajustar `AppLayout`, `BottomTabBar`, `DesktopSidebar`, `Index` (agora `/app`) para nova paleta sem tocar em logica.
-5. Placeholder `/login` e `/signup` sem funcao ainda (so UI), redirecionando para landing.
+### 3.9 AdminRoute
+Além de sessão, chama `supabase.rpc('has_role', { _user_id: user.id, _role: 'admin' })`. Falha → 403 elegante. Nunca confia em flag do client.
 
-Ao final da F0: preview responsivo mostrando a nova marca e a landing, dashboard existente preservado em `/app` com a nova paleta. Aprovacao da F0 destrava F1.
+---
+
+## 4. Riscos de segurança e mitigações
+
+| Risco | Mitigação |
+|---|---|
+| Escalada de privilégio via profiles | Papéis em tabela separada `user_roles` com policies read-only ao próprio usuário; nenhuma policy de INSERT/UPDATE no client. |
+| RLS recursivo | `has_role` é SECURITY DEFINER com `search_path` fixo. |
+| Falta de GRANT | Grants explícitos por tabela conforme padrão. |
+| Signup sem profile | Trigger `handle_new_user` com `on conflict do nothing`. |
+| Vazamento de dados entre usuários | Todas as policies filtram por `auth.uid()`. |
+| Reset de senha auto-login sem trocar | Rota `/reset-password` obrigatória + verificação `type=recovery`. |
+| Redirect após email confirm/reset | `emailRedirectTo`/`redirectTo` explícitos; allow-list configurada no dashboard. |
+| Enumeração de e-mail | Mensagens de erro genéricas ("credenciais inválidas"). |
+| Senhas fracas | Zod client + habilitar HIBP (`password_hibp_enabled`) no Cloud Auth. |
+| Sessão expirada | `onAuthStateChange` invalida contexto; ProtectedRoute revalida. |
+| Admin forjado no client | Sempre via RPC `has_role`; roles nunca vindas do localStorage. |
+| Marca residual "Mindful Money" | Sweep textual em index.html, metadados, README, strings visíveis. |
+
+---
+
+## 5. Testes e critérios de aceite
+
+Verificação manual (Playwright headless via shell quando útil) + build limpo.
+
+Critérios:
+1. `/` continua servindo a Landing pública sem sessão.
+2. Signup cria linha em `auth.users`, `profiles` e `user_roles(role='user')`.
+3. Login sem onboarding → redireciona a `/onboarding`; com onboarding → `/app`.
+4. `/app/*` sem sessão → `/login?next=...`; após login, retorna à rota original.
+5. `/admin/*` só acessível se `has_role(uid,'admin')=true`; usuário comum recebe 403.
+6. Forgot → email enviado; `/reset-password` aceita nova senha; login funciona.
+7. Logout limpa sessão e bloqueia `/app`.
+8. Tentativa de `select * from profiles` de outro usuário retorna 0 linhas (RLS).
+9. Tentativa de `insert into user_roles` pelo client é negada.
+10. Nenhuma referência a "Mindful Money" em HTML/UI.
+11. Build sem erros TS; console sem warnings de auth.
+12. Onboarding grava `user_financial_settings` + `onboarding_completed_at`.
+
+---
+
+## 6. Ordem exata de implementação (após aprovação)
+
+1. Habilitar Lovable Cloud (`supabase--enable`).
+2. Ativar HIBP e configurar redirect URLs no Cloud Auth.
+3. Migration única `auth_foundation.sql`: enum → user_roles (+grants/RLS/policies) → has_role → profiles (+grants/RLS/policies) → income_frequency enum → user_financial_settings (+grants/RLS/policies) → handle_new_user + trigger.
+4. Criar `AuthContext` + `client.ts`.
+5. Substituir `Login.tsx` e `Signup.tsx` reais + schemas zod.
+6. Criar `ForgotPassword`, `ResetPassword`, `EmailConfirm`.
+7. Criar `ProtectedRoute`, `AdminRoute`, `OnboardingGuard`.
+8. Criar `Onboarding.tsx` (3 passos).
+9. Alterar `App.tsx` com o novo mapa de rotas.
+10. Ajustar `AppLayout` (logout + nome).
+11. Sweep de rebranding remanescente.
+12. Verificações: build + smoke test manual dos 12 critérios de aceite.
+
+---
+
+## 7. Estimativa relativa de créditos
+
+**Médio.** Uma migration, ~10 arquivos novos, ~5 alterações pontuais, sem UI complexa nova além do wizard. O maior custo está em ProtectedRoute/AdminRoute/AuthContext bem feitos e no ciclo de verificação pós-build.
+
+---
+
+Pare aqui. Aguardando aprovação explícita antes de habilitar Cloud ou tocar em qualquer arquivo.
