@@ -20,13 +20,18 @@ export type Profile = {
 
 export type AppRole = "admin" | "user";
 
+type AuthStatus = "loading" | "ready" | "error";
+
 type AuthContextValue = {
+  status: AuthStatus;
   loading: boolean;
+  authError: string | null;
   session: Session | null;
   user: User | null;
   profile: Profile | null;
   roles: AppRole[];
   isAdmin: boolean;
+  recovering: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (
     email: string,
@@ -37,6 +42,7 @@ type AuthContextValue = {
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
   refreshProfile: () => Promise<void>;
+  retryProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -53,7 +59,8 @@ async function fetchProfileAndRoles(userId: string): Promise<{
       .maybeSingle(),
     supabase.from("user_roles").select("role").eq("user_id", userId),
   ]);
-
+  if (profileRes.error) throw profileRes.error;
+  if (rolesRes.error) throw rolesRes.error;
   const profile = (profileRes.data as Profile | null) ?? null;
   const roles = ((rolesRes.data as { role: AppRole }[] | null) ?? []).map((r) => r.role);
   return { profile, roles };
@@ -71,36 +78,55 @@ function friendlyAuthError(message: string | undefined): string {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<AuthStatus>("loading");
+  const [authError, setAuthError] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
+  const [recovering, setRecovering] = useState(false);
   const lastUserIdRef = useRef<string | null>(null);
 
   const hydrateProfile = async (uid: string) => {
-    const { profile, roles } = await fetchProfileAndRoles(uid);
-    setProfile(profile);
-    setRoles(roles);
+    setAuthError(null);
+    try {
+      let { profile, roles } = await fetchProfileAndRoles(uid);
+      if (!profile) {
+        // Try to self-heal: some old accounts may lack profile row
+        await supabase.rpc("ensure_profile");
+        const again = await fetchProfileAndRoles(uid);
+        profile = again.profile;
+        roles = again.roles;
+      }
+      setProfile(profile);
+      setRoles(roles);
+      setStatus("ready");
+    } catch (e) {
+      console.error("[auth] hydrate profile failed", e);
+      setAuthError("Não conseguimos carregar seu perfil. Verifique sua conexão.");
+      setStatus("error");
+    }
   };
 
   useEffect(() => {
-    // Register listener FIRST, then get session.
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
+      if (event === "PASSWORD_RECOVERY") {
+        setRecovering(true);
+        return;
+      }
 
       const uid = newSession?.user?.id ?? null;
       if (uid && uid !== lastUserIdRef.current) {
         lastUserIdRef.current = uid;
-        // Defer to avoid deadlocks inside the callback
-        setTimeout(() => {
-          hydrateProfile(uid);
-        }, 0);
+        setStatus("loading");
+        setTimeout(() => hydrateProfile(uid), 0);
       } else if (!uid) {
         lastUserIdRef.current = null;
         setProfile(null);
         setRoles([]);
+        setStatus("ready");
       }
     });
 
@@ -110,23 +136,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session?.user) {
         lastUserIdRef.current = data.session.user.id;
         await hydrateProfile(data.session.user.id);
+      } else {
+        setStatus("ready");
       }
-      setLoading(false);
     });
 
-    return () => {
-      sub.subscription.unsubscribe();
-    };
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      loading,
+      status,
+      loading: status === "loading",
+      authError,
       session,
       user,
       profile,
       roles,
       isAdmin: roles.includes("admin"),
+      recovering,
       async signIn(email, password) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return { error: error ? friendlyAuthError(error.message) : null };
@@ -149,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         setProfile(null);
         setRoles([]);
+        setRecovering(false);
       },
       async requestPasswordReset(email) {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -158,13 +187,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async updatePassword(newPassword) {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (!error) setRecovering(false);
         return { error: error ? friendlyAuthError(error.message) : null };
       },
       async refreshProfile() {
         if (user?.id) await hydrateProfile(user.id);
       },
+      async retryProfile() {
+        if (user?.id) {
+          setStatus("loading");
+          await hydrateProfile(user.id);
+        }
+      },
     }),
-    [loading, session, user, profile, roles]
+    [status, authError, session, user, profile, roles, recovering]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
