@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
+import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/context/AuthContext';
 
 export function AppLayout() {
@@ -15,13 +16,16 @@ export function AppLayout() {
             <p className="text-xs text-muted-foreground">
               {profile?.display_name ? `Olá, ${profile.display_name}` : ""}
             </p>
-            <button
-              type="button"
-              onClick={signOut}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              <LogOut size={12} /> Sair
-            </button>
+            <div className="flex items-center gap-2">
+              <NotificationBell />
+              <button
+                type="button"
+                onClick={signOut}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                <LogOut size={12} /> Sair
+              </button>
+            </div>
           </div>
           <Outlet />
         </div>
@@ -30,3 +34,4 @@ export function AppLayout() {
     </div>
   );
 }
+
