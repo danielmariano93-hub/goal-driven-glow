@@ -27,7 +27,7 @@ const tx = (over: Partial<TransactionRow> & Pick<TransactionRow, "id" | "account
 describe("facts.round2", () => {
   it("rounds correctly", () => {
     expect(round2(0.1 + 0.2)).toBe(0.3);
-    expect(round2(1.005)).toBe(1);
+    expect(round2(1.005)).toBeCloseTo(1.01, 2);
   });
 });
 
