@@ -2080,36 +2080,21 @@ export type Database = {
         Args: { p_amount: number; p_participant_id: string }
         Returns: undefined
       }
-      split_create:
-        | {
-            Args: {
-              p_due_date: string
-              p_include_owner: boolean
-              p_occurred_at: string
-              p_participants: Json
-              p_pix_key: string
-              p_reminder_enabled: boolean
-              p_split_mode: Database["public"]["Enums"]["split_mode"]
-              p_title: string
-              p_total: number
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              p_due_date: string
-              p_include_owner: boolean
-              p_occurred_at: string
-              p_owner_amount?: number
-              p_participants: Json
-              p_pix_key: string
-              p_reminder_enabled: boolean
-              p_split_mode: Database["public"]["Enums"]["split_mode"]
-              p_title: string
-              p_total: number
-            }
-            Returns: string
-          }
+      split_create: {
+        Args: {
+          p_due_date: string
+          p_include_owner: boolean
+          p_occurred_at: string
+          p_owner_amount?: number
+          p_participants: Json
+          p_pix_key: string
+          p_reminder_enabled: boolean
+          p_split_mode: Database["public"]["Enums"]["split_mode"]
+          p_title: string
+          p_total: number
+        }
+        Returns: string
+      }
       split_reverse_payment: {
         Args: { p_participant_id: string }
         Returns: undefined
