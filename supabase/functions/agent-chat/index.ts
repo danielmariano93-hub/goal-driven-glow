@@ -300,3 +300,107 @@ async function findPending(sb: SupabaseClient, conversation_id: string, user_id:
     expires_at: data.expires_at as string,
   };
 }
+
+// ---------------- Fast-path helpers ----------------
+
+const CARD_KEYWORDS = /\b(cart[aã]o|itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa)\b/i;
+const EXPENSE_KEYWORDS = /\b(gast(ei|o|ando)|paguei|comprei|registr(e|a|ar|ei)|inclu(a|ir|i)|lan[cç]ament|d[eé]bito|cobr(ei|ou|ar|ança))\b/i;
+const SINGLE_CARD_HINT = /\b(único|unico|so\s+tenho|so\s+um|apenas\s+um|o\s+único|é\s+o\s+único)\b/i;
+
+function normalizeQ(s: string): string {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9? ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+async function tryFastPathCardExpense(
+  sb: SupabaseClient,
+  ctx: { user_id: string; conversation_id: string },
+  currentText: string,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+): Promise<null | { args: any; result: any; duration_ms: number; reply: string }> {
+  const t0 = Date.now();
+  const now = currentText;
+  const nowAmountMatch = now.match(/(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
+  const nowAmount = nowAmountMatch ? parseBrAmount(nowAmountMatch[1]) : null;
+  const nowHasCard = CARD_KEYWORDS.test(now);
+  const nowHasExpense = EXPENSE_KEYWORDS.test(now) || /\bde\s+\d/.test(now);
+
+  let amount: number | null = null;
+  let cardHint: string | null = null;
+  let description: string | undefined;
+
+  // Case A: single message w/ amount + expense + card keyword.
+  if (nowAmount && (nowHasExpense || nowHasCard) && nowHasCard) {
+    amount = nowAmount;
+    cardHint = extractCardHint(now);
+    description = extractDescription(now);
+  } else if (nowHasCard || SINGLE_CARD_HINT.test(now)) {
+    // Case B: follow-up completing a previous unresolved expense.
+    const lastUser = [...history].reverse().find(h => h.role === "user")?.content ?? "";
+    const lastAmountMatch = lastUser.match(/(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
+    const lastAmount = lastAmountMatch ? parseBrAmount(lastAmountMatch[1]) : null;
+    if (lastAmount && (EXPENSE_KEYWORDS.test(lastUser) || /\bde\s+\d/.test(lastUser))) {
+      amount = lastAmount;
+      cardHint = SINGLE_CARD_HINT.test(now) ? "" : extractCardHint(now);
+      description = extractDescription(lastUser);
+    }
+  }
+
+  if (amount === null) return null;
+
+  // Resolve card up-front to produce structured error messaging.
+  const resolved = await resolveCreditCardFull({ sb, user_id: ctx.user_id, conversation_id: ctx.conversation_id }, cardHint ?? undefined);
+  if (resolved.kind === "none" && resolved.available.length === 0) {
+    return {
+      args: { type: "expense", amount, credit_card: cardHint, description },
+      result: { ok: false, error: "card_not_found", available: [] },
+      duration_ms: Date.now() - t0,
+      reply: "Você ainda não tem cartão cadastrado. Cadastre um em /app/cartoes e eu registro o gasto em seguida.",
+    };
+  }
+  if (resolved.kind === "multiple") {
+    const names = resolved.choices.map(c => `• ${c.name}`).join("\n");
+    return {
+      args: { type: "expense", amount, credit_card: cardHint, description },
+      result: { ok: false, error: "card_ambiguous", choices: resolved.choices },
+      duration_ms: Date.now() - t0,
+      reply: `Você tem mais de um cartão. Qual deles?\n${names}`,
+    };
+  }
+
+  const args = { type: "expense" as const, amount, credit_card: cardHint || resolved.name, description };
+  const result = await create_transaction_draft({ sb, user_id: ctx.user_id, conversation_id: ctx.conversation_id }, args);
+  if (!result.ok) {
+    return {
+      args, result, duration_ms: Date.now() - t0,
+      reply: "Não consegui preparar esse lançamento. Pode confirmar valor e cartão?",
+    };
+  }
+  const summary = (result as any).result.summary as string;
+  return {
+    args, result, duration_ms: Date.now() - t0,
+    reply: `${summary}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.`,
+  };
+}
+
+function extractCardHint(text: string): string | null {
+  const m = text.match(/cart[aã]o(?:\s+de\s+cr[eé]dito)?\s+([A-Za-zÀ-ÿ0-9]{2,30})/i);
+  if (m) return `cartão ${m[1]}`;
+  const bank = text.match(CARD_KEYWORDS);
+  return bank ? bank[0] : null;
+}
+
+function extractDescription(text: string): string | undefined {
+  const m = text.match(/\bde\s+([A-Za-zÀ-ÿ0-9]{2,40})\b/i);
+  return m ? m[1].trim() : undefined;
+}
+
+async function antiLoopFallback(sb: SupabaseClient, user_id: string, _text: string): Promise<string | null> {
+  const { data } = await sb.from("credit_cards").select("name")
+    .eq("user_id", user_id).eq("active", true).order("name");
+  const names = (data ?? []).map((c: any) => c.name);
+  if (names.length === 0) return "Você ainda não tem cartão cadastrado. Cadastre em /app/cartoes.";
+  if (names.length === 1) return `Vou usar seu único cartão cadastrado: ${names[0]}. Me diga o valor e o que foi.`;
+  return `Seus cartões: ${names.join(", ")}. Qual deles?`;
+}
+
