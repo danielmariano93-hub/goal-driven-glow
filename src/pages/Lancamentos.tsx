@@ -12,6 +12,9 @@ import {
   type TransactionRow,
   type TxFilters,
 } from "@/lib/db/finance";
+import { useCreditCards } from "@/lib/db/creditCards";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { transactionSchema, transferSchema } from "@/lib/validation/finance";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import {
