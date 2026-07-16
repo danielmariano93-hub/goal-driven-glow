@@ -124,6 +124,12 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
   }, [open, code, link]);
 
   useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", handler);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
       window.removeEventListener("keydown", handler);
       document.body.style.overflow = prevOverflow;
     };
