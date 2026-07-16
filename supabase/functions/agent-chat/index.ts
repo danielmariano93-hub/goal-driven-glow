@@ -378,13 +378,9 @@ async function tryFastPathCardExpense(
   };
 }
 
+// Legacy helpers replaced by extractSpans; kept as no-ops for stray references.
 function extractCardHint(_text: string): string | null { return null; }
 function extractDescription(_text: string): string | undefined { return undefined; }
-
-function extractDescription(text: string): string | undefined {
-  const m = text.match(/\bde\s+([A-Za-zÀ-ÿ0-9]{2,40})\b/i);
-  return m ? m[1].trim() : undefined;
-}
 
 async function antiLoopFallback(sb: SupabaseClient, user_id: string, _text: string): Promise<string | null> {
   const { data } = await sb.from("credit_cards").select("name")
