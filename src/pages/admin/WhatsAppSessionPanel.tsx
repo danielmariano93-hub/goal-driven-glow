@@ -17,7 +17,8 @@ type ConfigStatus = {
   has_webhook_secret: boolean;
   session_name: string;
   updated_at: string | null;
-  role?: string | null;
+  admin_role?: string | null;
+  can_manage_config?: boolean;
 };
 
 type SessionSnap = {
