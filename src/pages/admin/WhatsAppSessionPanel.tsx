@@ -167,26 +167,19 @@ export function WhatsAppSessionPanel() {
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={onCreate} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "create" ? <Loader2 className="h-3 w-3 animate-spin" /> : <QrCode className="h-3 w-3" />} Criar/atualizar sessão
-          </button>
-          <button onClick={onStart} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "start" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />} Iniciar
-          </button>
-          <button onClick={onRestart} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "restart" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />} Reiniciar
-          </button>
-          <button onClick={onSyncWebhook} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "sync_webhook" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Sincronizar webhook
-          </button>
+          <SharedSessionConfirm label="Criar/atualizar sessão" icon={<QrCode className="h-3 w-3" />}
+            onConfirm={onCreate} disabled={!!busy || !snap?.configured} busy={busy === "create"} />
+          <SharedSessionConfirm label="Iniciar" icon={<Play className="h-3 w-3" />}
+            onConfirm={onStart} disabled={!!busy || !snap?.configured} busy={busy === "start"} />
+          <SharedSessionConfirm label="Reiniciar" icon={<RotateCw className="h-3 w-3" />}
+            onConfirm={onRestart} disabled={!!busy || !snap?.configured} busy={busy === "restart"} />
+          <SharedSessionConfirm label="Sincronizar webhook" icon={<RefreshCw className="h-3 w-3" />}
+            onConfirm={onSyncWebhook} disabled={!!busy || !snap?.configured} busy={busy === "sync_webhook"} />
           <button onClick={onTestHealth} disabled={!!busy || !snap?.configured}
             className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
             {busy === "test_health" ? <Loader2 className="h-3 w-3 animate-spin" /> : <HeartPulse className="h-3 w-3" />} Testar saúde
           </button>
+
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -305,5 +298,32 @@ function OperationChecklist({ secrets }: { secrets?: Record<string, boolean> }) 
         ))}
       </ul>
     </div>
+  );
+}
+
+function SharedSessionConfirm({
+  label, icon, onConfirm, disabled, busy,
+}: { label: string; icon: React.ReactNode; onConfirm: () => void; disabled: boolean; busy: boolean }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <button disabled={disabled}
+          className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : icon} {label}
+        </button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Continuar com "{label}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta instância WAHA pode estar em uso por outro projeto (ex.: Sniper AI). Esta ação altera a sessão compartilhada e pode desconectar o outro projeto. Prossiga apenas com autorização explícita.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Confirmar e prosseguir</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

@@ -5,7 +5,7 @@ import { normalizeBrPhone } from "./types.ts";
 const WAHA_API_URL =
   Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL") ?? "";
 const WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
-const WAHA_SESSION = Deno.env.get("WAHA_SESSION") ?? "default";
+const WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? "default";
 const WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
 
 function headers() {
