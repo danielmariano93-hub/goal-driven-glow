@@ -24,6 +24,7 @@ const highlight: Item[] = [
 
 const organize: Item[] = [
   { path: "/app/contas", label: "Contas", desc: "Suas carteiras", icon: Wallet },
+  { path: "/app/cartoes", label: "Cartões", desc: "Faturas, limites e parcelas", icon: CreditCard },
   { path: "/app/recorrencias", label: copy.recurring.title, desc: "Fixos que se repetem", icon: Repeat },
   { path: "/app/categorias", label: "Categorias", desc: "Padrões e pessoais", icon: Tag },
   { path: "/app/investimentos", label: "Investimentos", desc: "Carteira agregada", icon: PiggyBank },

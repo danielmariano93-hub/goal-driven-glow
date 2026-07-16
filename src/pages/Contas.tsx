@@ -128,17 +128,34 @@ function AccountFormModal({
   const [name, setName] = useState(initial?.name ?? "");
   const [type, setType] = useState<string>(initial?.type ?? "checking");
   const [institution, setInstitution] = useState(initial?.institution ?? "");
-  const [opening, setOpening] = useState(String(initial?.opening_balance ?? "0"));
+  const [opening, setOpening] = useState(
+    initial ? String(Number(initial.opening_balance ?? 0)).replace(".", ",") : "0"
+  );
   const [active, setActive] = useState(initial?.active ?? true);
   const [error, setError] = useState<string | null>(null);
 
+  function parseOpening(raw: string): number | null {
+    const trimmed = raw.trim();
+    if (trimmed === "") return null;
+    // aceita vírgula ou ponto; separadores de milhar sem vírgula/ponto raros
+    const normalized = trimmed.replace(/\s/g, "").replace(",", ".");
+    const n = Number(normalized);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    const openingNum = parseOpening(opening);
+    if (openingNum === null) {
+      setError("Informe o saldo inicial (use 0 se não houver).");
+      return;
+    }
     const parsed = accountSchema.safeParse({
       name,
       type,
       institution,
-      opening_balance: Number(opening.replace(",", ".")) || 0,
+      opening_balance: openingNum,
       active,
     });
     if (!parsed.success) {
