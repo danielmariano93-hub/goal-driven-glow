@@ -401,6 +401,23 @@ function ConnectDeviceCard({
         </div>
       </div>
 
+      {needsReset && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex flex-wrap items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-700" />
+          <p className="text-xs text-amber-800 flex-1 min-w-[180px]">
+            A sessão está fora do ar. Redefina para gerar um novo QR ou código.
+          </p>
+          <button
+            onClick={resetSession}
+            disabled={resetting}
+            className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          >
+            {resetting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Redefinir sessão
+          </button>
+        </div>
+      )}
+
       <div role="tablist" aria-label="Método de conexão" className="inline-flex rounded-full border border-border p-1 text-xs">
         <button
           role="tab" aria-selected={method === "qr"}
@@ -411,12 +428,19 @@ function ConnectDeviceCard({
         </button>
         <button
           role="tab" aria-selected={method === "code"}
-          onClick={() => setMethod("code")}
+          onClick={() => {
+            setMethod("code");
+            if (!preparedRef.current) {
+              preparedRef.current = true;
+              void call("prepare_pairing").catch(() => { /* best effort */ });
+            }
+          }}
           className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 ${method === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
         >
           <Smartphone className="h-3 w-3" /> Código pelo telefone
         </button>
       </div>
+
 
       {method === "qr" && (
         <div className="rounded-xl border border-border bg-white p-4 space-y-3">
