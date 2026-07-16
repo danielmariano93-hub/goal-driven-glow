@@ -66,14 +66,18 @@ async function chatCompletion(body: unknown, signal?: AbortSignal) {
 export async function runAgentTurn(
   toolCtx: ToolContext,
   userText: string,
-  opts: LLMOptions,
+  opts: LLMOptions & { history?: Array<{ role: "user" | "assistant"; content: string }> },
 ): Promise<LLMTurn> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25_000);
   const tools = openAIToolDefinitions();
 
+  const history = (opts.history ?? []).slice(-20).map((m) => ({
+    role: m.role, content: String(m.content ?? "").slice(0, 2000),
+  }));
   const messages: ChatMessage[] = [
     { role: "system", content: opts.systemPrompt },
+    ...history,
     { role: "user", content: userText },
   ];
 
