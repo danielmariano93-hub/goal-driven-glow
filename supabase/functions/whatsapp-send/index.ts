@@ -4,7 +4,7 @@
 // with exponential backoff. Expired leases are recovered by the watchdog.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { getProvider } from "../_shared/messaging/waha.ts";
+import { getProvider, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -31,12 +31,12 @@ Deno.serve(async (req) => {
     const gate = await requireAdmin(req);
     if (!gate.ok) return json({ error: "forbidden" }, gate.status);
   }
-  const provider = getProvider();
-  if (!provider.configured) return json({ ok: false, error: "not_configured" }, 503);
-
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  await loadWahaConfig(sb);
+  const provider = getProvider();
+  if (!provider.configured) return json({ ok: false, error: "not_configured" }, 503);
 
   // Best-effort lease recovery on every tick
   await sb.rpc("recover_expired_outbound_leases");

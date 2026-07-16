@@ -11,7 +11,7 @@
 //    active whatsapp_links row is allowed to orchestrate.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { getProvider } from "../_shared/messaging/waha.ts";
+import { getProvider, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -27,6 +27,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
+  const sbBoot = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  await loadWahaConfig(sbBoot);
   const provider = getProvider();
   if (!provider.configured) return json({ ok: true, ignored: "not_configured" }, 200);
   if (!provider.verifyWebhookSecret(req.headers)) return json({ error: "unauthorized" }, 401);

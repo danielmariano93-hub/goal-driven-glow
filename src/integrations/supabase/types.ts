@@ -89,6 +89,27 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_action_rate: {
+        Row: {
+          action: string
+          actor_id: string
+          count: number
+          window_start: string
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          count?: number
+          window_start?: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          count?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       admin_grants_audit: {
         Row: {
           granted_at: string
@@ -121,9 +142,15 @@ export type Database = {
           max_steps: number
           model: string
           notes: string | null
+          parent_version_id: string | null
+          published_at: string | null
+          published_by: string | null
+          restored_from_id: string | null
           status: Database["public"]["Enums"]["prompt_status"]
+          structured_config: Json
           system_prompt: string
           temperature: number
+          updated_at: string
           version: number
         }
         Insert: {
@@ -133,9 +160,15 @@ export type Database = {
           max_steps?: number
           model?: string
           notes?: string | null
+          parent_version_id?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          restored_from_id?: string | null
           status?: Database["public"]["Enums"]["prompt_status"]
+          structured_config?: Json
           system_prompt: string
           temperature?: number
+          updated_at?: string
           version: number
         }
         Update: {
@@ -145,12 +178,33 @@ export type Database = {
           max_steps?: number
           model?: string
           notes?: string | null
+          parent_version_id?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          restored_from_id?: string | null
           status?: Database["public"]["Enums"]["prompt_status"]
+          structured_config?: Json
           system_prompt?: string
           temperature?: number
+          updated_at?: string
           version?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agent_prompt_versions_parent_version_id_fkey"
+            columns: ["parent_version_id"]
+            isOneToOne: false
+            referencedRelation: "agent_prompt_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_prompt_versions_restored_from_id_fkey"
+            columns: ["restored_from_id"]
+            isOneToOne: false
+            referencedRelation: "agent_prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       agent_runs: {
         Row: {
@@ -2319,6 +2373,10 @@ export type Database = {
     }
     Functions: {
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
+      _vault_upsert: {
+        Args: { p_description: string; p_name: string; p_value: string }
+        Returns: string
+      }
       admin_agent_stats: { Args: never; Returns: Json }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
@@ -2352,6 +2410,10 @@ export type Database = {
         Args: { p_id: string }
         Returns: string
       }
+      admin_rate_check: {
+        Args: { p_action: string; p_limit?: number }
+        Returns: boolean
+      }
       admin_reject_deletion_request: {
         Args: { p_id: string; p_notes: string }
         Returns: undefined
@@ -2371,8 +2433,58 @@ export type Database = {
           whatsapp_linked: boolean
         }[]
       }
+      admin_waha_config_status: { Args: never; Returns: Json }
+      admin_waha_resolve_config: { Args: never; Returns: Json }
+      admin_waha_save_config: {
+        Args: {
+          p_api_key: string
+          p_session_name?: string
+          p_url: string
+          p_webhook_secret?: string
+        }
+        Returns: Json
+      }
+      agent_compile_prompt: { Args: { p_cfg: Json }; Returns: string }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
+        Returns: Json
+      }
+      agent_prompt_create_draft: {
+        Args: { p_from_id?: string }
+        Returns: string
+      }
+      agent_prompt_list: {
+        Args: never
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          max_steps: number
+          model: string
+          notes: string
+          parent_version_id: string
+          published_at: string
+          published_by: string
+          restored_from_id: string
+          status: Database["public"]["Enums"]["prompt_status"]
+          structured_config: Json
+          temperature: number
+          updated_at: string
+          version: number
+        }[]
+      }
+      agent_prompt_publish: {
+        Args: { p_expected_updated_at: string; p_id: string }
+        Returns: string
+      }
+      agent_prompt_restore: { Args: { p_id: string }; Returns: string }
+      agent_prompt_update_draft: {
+        Args: {
+          p_cfg: Json
+          p_expected_updated_at: string
+          p_id: string
+          p_notes: string
+        }
         Returns: Json
       }
       agent_sim_enqueue: {
