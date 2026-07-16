@@ -58,17 +58,26 @@ export function normalizeAmountBR(raw: string | number): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
 
-export function normalizeDateBR(raw: string, fallback: string): string {
+export function normalizeDateBR(raw: string, fallback: string, confidence = 0): string {
   if (!raw) return fallback;
+  let candidate: string | null = null;
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) candidate = `${iso[1]}-${iso[2]}-${iso[3]}`;
   const br = raw.match(/(\d{2})\/(\d{2})\/(\d{2,4})/);
-  if (br) {
+  if (!candidate && br) {
     let y = br[3];
     if (y.length === 2) y = (Number(y) >= 70 ? "19" : "20") + y;
-    return `${y}-${br[2]}-${br[1]}`;
+    candidate = `${y}-${br[2]}-${br[1]}`;
   }
-  return fallback;
+  if (!candidate) return fallback;
+  const parsed = new Date(`${candidate}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate) return fallback;
+  const reference = new Date(`${fallback}T12:00:00Z`);
+  const distanceDays = Math.abs(parsed.getTime() - reference.getTime()) / 86_400_000;
+  // A distant date is accepted only when the model is exceptionally certain.
+  // This prevents UI years and statement references from becoming transaction dates.
+  if (distanceDays > 370 && confidence < 0.9) return fallback;
+  return candidate;
 }
 
 // Palavras-chave que NUNCA viram lançamento
@@ -102,10 +111,11 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
     const type = it.type === "income" ? "income" : "expense";
-    const occurred_at = normalizeDateBR(String(it.occurred_at ?? ""), fallbackDate);
+    const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
+    const dateConfidence = Number(conf.occurred_at ?? 0);
+    const occurred_at = normalizeDateBR(String(it.occurred_at ?? ""), fallbackDate, dateConfidence);
     const paymentRaw = it.payment_method;
     const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
-    const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
     items.push({
       type,
       description: description.slice(0, 200),

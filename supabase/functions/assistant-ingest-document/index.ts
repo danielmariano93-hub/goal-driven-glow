@@ -54,13 +54,16 @@ Analise a imagem enviada (recibo, fatura, extrato, print de compra ou lista) e d
 REGRAS ESTRITAS:
 - Valores em real brasileiro: aceite formatos 1.234,56 e 1234.56.
 - Datas em português brasileiro dd/mm/aaaa OU ISO YYYY-MM-DD.
+- A data atual é informada na mensagem do usuário. Se a linha não tiver data completa, use a data atual.
+- Nunca invente ano. Data parcial (apenas hora, dia/mês ou dia da semana) usa o ano da data atual.
+- Elementos da interface do celular e datas de referência do extrato não são, por si só, a data da compra.
 - Nunca invente texto ilegível — melhor devolver items=[] e document_kind=illegible.
 - Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva document_kind=non_financial e items=[].
 - EXCLUA linhas de: saldo disponível, saldo total, limite disponível, limite total, subtotal, total da fatura, pagamento de fatura.
 - Estorno/reembolso é income.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
-async function callMultimodal(publicBase64Url: string, signal: AbortSignal): Promise<{ result: ExtractionResult; tokens_in: number; tokens_out: number; ms: number; error?: string }> {
+async function callMultimodal(publicBase64Url: string, guidance: string, signal: AbortSignal): Promise<{ result: ExtractionResult; tokens_in: number; tokens_out: number; ms: number; error?: string }> {
   const start = Date.now();
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -76,7 +79,7 @@ async function callMultimodal(publicBase64Url: string, signal: AbortSignal): Pro
           {
             role: "user",
             content: [
-              { type: "text", text: "Extraia lançamentos desta imagem em JSON estrito." },
+              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}. Extraia lançamentos desta imagem em JSON estrito.` },
               { type: "image_url", image_url: { url: publicBase64Url } },
             ],
           },
@@ -234,8 +237,13 @@ Deno.serve(async (req) => {
       const ac = new AbortController();
       const t = setTimeout(() => ac.abort(), 45_000);
       try {
-        const out = await callMultimodal(dataUrl, ac.signal);
+        const guidance = String(body.guidance ?? "").slice(0, 500);
+        const out = await callMultimodal(dataUrl, guidance, ac.signal);
         extraction = out.result;
+        if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance)) {
+          const today = new Date().toISOString().slice(0, 10);
+          extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
+        }
         tokens_in = out.tokens_in;
         tokens_out = out.tokens_out;
         ms = out.ms;

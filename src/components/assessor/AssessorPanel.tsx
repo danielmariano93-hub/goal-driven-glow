@@ -4,7 +4,7 @@ import { X, Send, Loader2, Check, Ban, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { AssessorAttachButton } from "./AssessorAttachButton";
+import { AssessorAttachButton, ingestDocument, type PreparedAttachment } from "./AssessorAttachButton";
 import { ReviewSheet } from "./ReviewSheet";
 
 type Pending = {
@@ -40,6 +40,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState<PreparedAttachment | null>(null);
   const [reviewDocId, setReviewDocId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
@@ -86,14 +87,25 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
 
   async function send(text: string) {
     const clean = text.trim();
-    if (!clean || sending) return;
-    setMessages((m) => [...m, { role: "user", content: clean }]);
+    if ((!clean && !attachment) || sending) return;
+    const currentAttachment = attachment;
+    const userContent = currentAttachment
+      ? `${clean || "Analise estes lançamentos."}\n📎 ${currentAttachment.name}`
+      : clean;
+    setMessages((m) => [...m, { role: "user", content: userContent }]);
     setInput("");
     setSending(true);
     try {
-      const res = await callAgent({ text: clean });
-      setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null }]);
-      if (res?.executed) refetchAll();
+      if (currentAttachment) {
+        const result = await ingestDocument(currentAttachment.file, convId, clean);
+        onExtracted(result);
+        URL.revokeObjectURL(currentAttachment.url);
+        setAttachment(null);
+      } else {
+        const res = await callAgent({ text: clean });
+        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null }]);
+        if (res?.executed) refetchAll();
+      }
     } catch (e) {
       const msg = (e as Error).message || "Falha ao consultar seu assessor";
       toast.error("Erro no assessor", { description: msg });
@@ -200,6 +212,26 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           <div ref={endRef} />
         </div>
 
+        {attachment && (
+          <div className="mx-3 mb-2 flex min-w-0 items-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-2">
+            <img src={attachment.url} alt="Imagem anexada" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium">{attachment.name}</p>
+              <p className="text-[11px] text-muted-foreground">Adicione uma orientação e toque em enviar.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                URL.revokeObjectURL(attachment.url);
+                setAttachment(null);
+              }}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full hover:bg-secondary"
+              aria-label="Remover imagem"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -207,7 +239,13 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           }}
           className="flex items-center gap-2 border-t border-border p-3"
         >
-          <AssessorAttachButton conversationId={convId} onExtracted={onExtracted} disabled={sending} />
+          <AssessorAttachButton
+            onSelected={(next) => {
+              if (attachment) URL.revokeObjectURL(attachment.url);
+              setAttachment(next);
+            }}
+            disabled={sending}
+          />
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -217,7 +255,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           />
           <button
             type="submit"
-            disabled={sending || !input.trim()}
+            disabled={sending || (!input.trim() && !attachment)}
             className="btn-brand inline-flex items-center gap-1.5 disabled:opacity-50"
             aria-label="Enviar"
           >

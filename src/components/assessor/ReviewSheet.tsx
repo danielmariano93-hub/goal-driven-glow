@@ -33,6 +33,17 @@ type Item = {
   transaction_id: string | null;
 };
 
+function parseBRLInput(raw: string): number | null {
+  const clean = raw.trim().replace(/R\$|\s/g, "");
+  const comma = clean.lastIndexOf(",");
+  const dot = clean.lastIndexOf(".");
+  const normalized = comma > dot
+    ? clean.replace(/\./g, "").replace(",", ".")
+    : clean.replace(/,/g, "");
+  const value = Number(normalized);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 export function ReviewSheet({
   documentId,
   onClose,
@@ -255,10 +266,10 @@ export function ReviewSheet({
                             <label className="text-[10px] text-muted-foreground">Valor</label>
                             <input
                               inputMode="decimal"
-                              defaultValue={String(it.amount)}
+                              defaultValue={Number(it.amount).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               onBlur={(e) => {
-                                const v = Number(String(e.target.value).replace(",", "."));
-                                if (Number.isFinite(v) && v > 0) patchItem(it.id, { amount: v });
+                                const v = parseBRLInput(e.target.value);
+                                if (v != null) patchItem(it.id, { amount: v });
                               }}
                               disabled={disabled}
                               className="input-base text-xs"
