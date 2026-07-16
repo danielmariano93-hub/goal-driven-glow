@@ -1,106 +1,101 @@
 ## Objetivo
-Corrigir dois bugs em produção sem publicar: (1) RPC `create_phone_link_code` falhando por `digest` não qualificado; (2) `WhatsAppLinkSheet` aparecendo atrás da `BottomTabBar` no mobile.
+Fazer o webhook WAHA receber mensagens reais, consumir o código de vinculação, refletir o vínculo na plataforma, enviar respostas reais pelo WhatsApp e humanizar a mensagem pré-preenchida.
 
-## Bug 1 — RPC `create_phone_link_code`
+## Diagnóstico
+- `phone_link_codes` tem 1 código ativo mas `inbound_messages=0` → o webhook nunca foi chamado.
+- Provável causa: sessão `default` no Manager WAHA não tem o webhook do NoControle configurado corretamente, ou o `customHeaders` (X-Webhook-Secret) não é propagado nesta versão (2026.5.1/NOWEB), ou o evento não bate com o mapper atual.
+- Falta dispatcher real que envie `outbound_messages` via WAHA — hoje o webhook só insere na tabela.
+- Mensagem pré-preenchida técnica (`VINCULAR 123456`) precisa virar frase humana.
 
-### Migration nova (versionada)
-Recriar `public.create_phone_link_code()` mantendo assinatura e contrato:
-- `SECURITY DEFINER`, `SET search_path = public` (mantido restrito).
-- Qualificar explicitamente todas as chamadas: `extensions.digest(...)`, `extensions.gen_random_bytes(...)` se aplicável.
-- Manter regras: `auth.uid()` obrigatório (senão `raise exception 'not_authenticated'`), rate-limit 5 tentativas/30min consultando `phone_link_codes` do usuário, gerar código numérico 6 dígitos, armazenar `code_hash` (sha256 via `extensions.digest`), `expires_at = now() + interval '10 minutes'`, `attempts = 0`, `used_at = null`.
-- `REVOKE ALL ... FROM public, anon;` e `GRANT EXECUTE ... TO authenticated;`.
-- Retornar apenas o código em texto plano (uma vez), sem detalhes internos em erro.
+## Plano de execução
 
-### Validação segura
-- Testar via `SET LOCAL ROLE authenticated` + `SET LOCAL request.jwt.claims` em transação com `ROLLBACK` para não deixar linha real.
-- Ao final, `SELECT count(*) FROM phone_link_codes` para confirmar zero vínculo artificial.
+### 1. Sincronizar webhook da sessão default (sem derrubar conexão)
+- Nova rota admin em `whatsapp-session/index.ts`: `action=sync_webhook` que faz `PUT /api/sessions/default` preservando `config.metadata` e credenciais atuais, aplicando:
+  - `config.webhooks[0].url` = `${SUPABASE_URL}/functions/v1/whatsapp-webhook`
+  - `events`: `["message", "message.any"]` (compatível com NOWEB 2026.5.1)
+  - Autenticação: como `customHeaders` não é confiável entre versões, adotar **HMAC nativo** (`hmac: <secret>`) quando suportado + **token opaco no path** como fallback (`/functions/v1/whatsapp-webhook?t=<opaque>`).
+  - Segredos: `WAHA_WEBHOOK_HMAC` e `WAHA_WEBHOOK_TOKEN` (gerar via `generate_secret`).
+- Botão "Sincronizar webhook" no `WhatsAppSessionPanel`, com feedback do último `status`/erro sanitizado.
 
-### Frontend
-Em `WhatsAppLinkSheet.tsx` e `pages/WhatsApp.tsx`:
-- No `catch` da RPC, gerar `correlationId = crypto.randomUUID()`, `console.error` sanitizado com `{ correlationId, code: error.code }`.
-- Substituir `toast.error(...)` genérico por **estado de erro inline dentro do sheet**, preservando consentimento e mostrando:
-  - título curto acionável (ex.: "Não consegui gerar o código agora"),
-  - mensagem específica quando `error.message` inclui "too many" (rate-limit),
-  - botão **"Tentar novamente"** que rechama `generateAndOpen`,
-  - `correlationId` em caption discreta.
-- Se o código já foi gerado antes do erro em `openWaMe`, preservar (fluxo popup-blocked continua igual).
+### 2. Endurecer verificação no `whatsapp-webhook`
+- Aceitar duas formas de verificação, em ordem:
+  1. HMAC: header `X-Webhook-Hmac` = `HMAC_SHA512(body, WAHA_WEBHOOK_HMAC)` (formato WAHA).
+  2. Token opaco: query `?t=` == `WAHA_WEBHOOK_TOKEN`.
+  3. Compat: header `X-Webhook-Secret` (fluxo atual) mantido.
+- Rejeitar 401 quando nenhuma bate. Nunca aceitar sem verificação.
 
-## Bug 2 — Modal atrás da BottomTabBar
+### 3. Corrigir event mapping WAHA 2026.5.1
+Em `_shared/messaging/waha.ts` `mapInboundEvent`:
+- Aceitar `event ∈ {"message", "message.any"}`.
+- Extrair `from` de `payload.from` **ou** `payload.key.remoteJid` (strip `@c.us`/`@s.whatsapp.net`).
+- Extrair `id` de `payload.id` (string) ou `payload.key.id` (objeto → string).
+- Extrair `body` de `payload.body` ou `payload.message.conversation` ou `payload.message.extendedTextMessage.text`.
+- Ignorar `fromMe=true` e `payload.key.fromMe=true`.
+- Adicionar fixture real sanitizada em teste.
 
-### Portal + z-index
-Em `WhatsAppLinkSheet.tsx`:
-- Envolver o retorno com `createPortal(..., document.body)`.
-- Overlay: `fixed inset-0 z-[200]` (novo tier acima de tab bar e header).
-- Painel: filho do overlay, sem alterar stacking.
+### 4. Parser amigável + humanização
+- Regex no webhook aceita:
+  - novo: `/c[oó]digo de verifica[cç][aã]o[:\s]+(\d{6})/i` **apenas** se contiver "NoControle" ou frase-âncora de verificação.
+  - legado: `/^\s*VINCULAR\s+(\d{4,8})\s*$/i`.
+- Número solto em conversa comum **não** vincula.
+- Mensagem pré-preenchida em `WhatsAppLinkSheet.tsx` e `pages/WhatsApp.tsx`:
+  `"Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: 123456"`
+- Resposta de sucesso usa primeiro nome do `profiles.display_name` quando existir:
+  `"Tudo certo, {nome}! Seu WhatsApp foi conectado à sua conta. 🎉 A partir de agora, pode me mandar seus gastos, metas e dúvidas por aqui."`
+- Resposta de erro humana: `"Não consegui validar seu código. Ele pode ter expirado. Gere um novo código no app e me envie novamente. 💛"` (sem rota técnica).
 
-### Layout mobile premium
-- Painel mobile: `fixed bottom-0 left-0 right-0` (via container flex já existente com `items-end`), `max-h-[min(90dvh,640px)]`, `overflow-y-auto`, `pb-[calc(1.5rem+env(safe-area-inset-bottom))]`.
-- Desktop: mantém centralizado (`md:items-center`, `md:max-w-md`, `md:rounded-3xl`).
+### 5. Dispatcher real de outbound
+- Fazer o webhook chamar `whatsapp-send` (invoke via service-role) diretamente após inserir `outbound_messages`, com idempotency por `outbound_messages.id`. Envio síncrono para respostas de vínculo e resposta do agente.
+- Marcar `status='sent'` / `error_code` no registro.
+- Dedupe: se `provider_message_id` de `inbound_messages` já processado, retornar sem re-enviar.
+- Ativar `whatsapp-ack-watchdog` cron (se já existe) sem alterar.
 
-### Scroll lock e a11y
-- `useEffect` quando `open`: setar `document.body.style.overflow = 'hidden'` e restaurar no cleanup.
-- Focar primeiro controle interativo ao abrir; Escape e clique no backdrop já existem.
-- `aria-modal="true"` e `role="dialog"` mantidos.
+### 6. Health/diagnóstico no admin
+- Card em `WhatsAppSessionPanel`: "Recebendo mensagens" (verde) se houve `inbound_messages` nas últimas 24h; "Precisa de atenção" caso contrário. Mostra timestamp da última recebida. Nada de URL/secret/stack.
+- Nova RPC `admin_whatsapp_inbound_health()` retornando `{last_inbound_at, count_24h}`.
 
-### Ajustes de z-index globais
-- `BottomTabBar`: reduzir para `z-40` (se estiver `z-50`) para eliminar disputa; verificar que nenhum outro modal shadcn dependia dessa ordem (Dialog usa portal Radix próprio, isolado).
-- Sonner Toaster: configurar `toastOptions`/`className` com `z-[210]` **ou** — preferido — usar erro inline no sheet e deixar toasts globais como estão.
+### 7. Reflexo na plataforma
+- Após envio da mensagem no `WhatsAppLinkSheet`, iniciar polling curto (5s × 24) em `list_my_whatsapp_link`; ao detectar `active`, invalidar queries e trocar sheet para "WhatsApp conectado" com telefone mascarado.
+- `list_my_whatsapp_link` já retorna active — só falta o refetch reativo.
 
-## Testes
+### 8. Preservar correções anteriores
+- Migration `extensions.digest`, portal `z-[200]`, `BottomTabBar z-40`, safe-area, scroll lock, erro inline, número oficial server-side: tudo mantido.
 
-Novos/atualizados em `src/test/`:
-- `whatsapp-link-code.test.ts` (unit): mock supabase RPC; sucesso, erro genérico exibe retry inline preservando código quando aplicável, erro "too many" mostra mensagem específica.
-- `whatsapp-official-number.test.tsx`: adicionar caso de portal montado em `document.body` (query via `document.body.querySelector('[role=dialog]')`).
-- Regressão RPC via SQL: descrever passos no PR; execução real com rollback confirmando ausência de linha.
+### 9. Testes
+- `whatsapp-webhook`:
+  - HMAC válido aceita; inválido 401.
+  - Token opaco fallback funciona.
+  - Formato novo amigável → código extraído e vínculo criado.
+  - Legado VINCULAR continua.
+  - Número solto em conversa comum → nada vincula.
+  - Código expirado → resposta amigável, sem vínculo.
+  - Vínculo cria `whatsapp_links active` + `used_at`.
+  - `fromMe=true` ignorado.
+  - Dedupe: mesmo `provider_message_id` → uma resposta.
+  - Fixture WAHA 2026.5.1 real (payload.key.remoteJid).
+- UI: portal/z-index/polling.
+- Rodar suite completa + typecheck + build.
 
-Rodar: `bunx vitest run`, `tsgo`, build.
+### 10. Validação final
+- Deploy `whatsapp-webhook`, `whatsapp-session`, `whatsapp-send`.
+- Chamar `action=sync_webhook` no ambiente real da sessão default preservando conexão.
+- Teste sintético: enviar payload assinado por HMAC → checar `inbound_messages` incrementa → **remover** o registro sintético e o inbound gerado por ele para não deixar lixo. Não criar `whatsapp_links` sintético.
+- Consultar contadores e relatar objetivamente. **Não publicar produção.**
 
-## Entregáveis
-- Migration nova em `supabase/migrations/` (não editar existentes).
-- `src/components/whatsapp/WhatsAppLinkSheet.tsx` refatorado (portal, scroll lock, erro inline, safe-area).
-- `src/components/BottomTabBar.tsx` z-index ajustado.
-- Testes atualizados.
-- Sem deploy de Edge Function (nenhuma alterada). Sem publicação. Nenhum toque em WAHA/Vault/secret.
+## Arquivos a alterar
+- `supabase/functions/whatsapp-webhook/index.ts` (verificação HMAC+token, parser amigável, chamada de dispatcher, resposta humanizada com primeiro nome).
+- `supabase/functions/_shared/messaging/waha.ts` (mapInboundEvent 2026.5.1, HMAC helper, sync_webhook payload).
+- `supabase/functions/whatsapp-session/index.ts` (action `sync_webhook`).
+- `supabase/functions/whatsapp-send/index.ts` (idempotency por outbound id, chamada interna).
+- `src/pages/admin/WhatsAppSessionPanel.tsx` (botão sync + card health).
+- `src/components/whatsapp/WhatsAppLinkSheet.tsx` (mensagem humana, polling reativo).
+- `src/pages/WhatsApp.tsx` (mesma mensagem humana).
+- `src/hooks/useAdminPlatformStatus.ts` ou hook novo para inbound health.
+- Migration: RPC `admin_whatsapp_inbound_health`.
+- Testes: `whatsapp-webhook.test.ts` novo com fixtures WAHA 2026.5.1; atualizar `whatsapp-wizard.test.tsx`.
+- Secrets: `WAHA_WEBHOOK_HMAC`, `WAHA_WEBHOOK_TOKEN` (generate_secret).
 
-## Detalhes técnicos
-
-```text
-Camadas z-index após ajuste
-  toasts (sonner)      z-[210]  (se necessário)
-  WhatsAppLinkSheet    z-[200]  ← portal em body
-  Dialog shadcn        z-50     (Radix portal — isolado)
-  Header/FAB           z-40
-  BottomTabBar         z-40     (reduzido de z-50)
-  conteúdo             z-auto
-```
-
-```sql
--- Esboço da nova função (executada via migration)
-CREATE OR REPLACE FUNCTION public.create_phone_link_code()
-RETURNS text
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_uid uuid := auth.uid();
-  v_recent int;
-  v_code text;
-  v_hash bytea;
-BEGIN
-  IF v_uid IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
-  SELECT count(*) INTO v_recent FROM phone_link_codes
-    WHERE user_id = v_uid AND created_at > now() - interval '30 minutes';
-  IF v_recent >= 5 THEN RAISE EXCEPTION 'too many attempts'; END IF;
-  v_code := lpad((floor(random()*1000000))::int::text, 6, '0');
-  v_hash := extensions.digest(v_code, 'sha256');
-  INSERT INTO phone_link_codes(user_id, code_hash, expires_at)
-    VALUES (v_uid, v_hash, now() + interval '10 minutes');
-  RETURN v_code;
-END; $$;
-
-REVOKE ALL ON FUNCTION public.create_phone_link_code() FROM public, anon;
-GRANT EXECUTE ON FUNCTION public.create_phone_link_code() TO authenticated;
-```
-
-Ajustar campos ao schema real após leitura de `phone_link_codes` (colunas obrigatórias serão inspecionadas antes de escrever a migration final).
+## Riscos e mitigação
+- **Derrubar sessão conectada ao dar PUT**: enviar payload que preserva `config.metadata` e não toca em credenciais/engine.
+- **HMAC não suportado nesta versão**: token opaco no path serve de fallback imediato e mantém segurança.
+- **Loop de resposta**: dedupe por `provider_message_id` + ignorar `fromMe`.
