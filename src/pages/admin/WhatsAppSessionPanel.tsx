@@ -380,11 +380,11 @@ export function WhatsAppSessionPanel() {
             </p>
           </div>
         </div>
-        <button onClick={() => { setWizardMode("initial"); setWizard(true); }} disabled={!isOwner}
+        <button onClick={() => { setWizardMode("initial"); setWizard(true); }} disabled={!canManageConfig}
           className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50">
           Configurar conexão
         </button>
-        {!isOwner && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode fazer essa configuração.</p>}
+        {!canManageConfig && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode fazer essa configuração.</p>}
       </div>
     );
   }
@@ -464,7 +464,7 @@ export function WhatsAppSessionPanel() {
           )}
         </div>
 
-        {isOwner && (
+        {canManageConfig && (
           <div className="pt-3 border-t border-border/60">
             <AlertDialog open={replacing} onOpenChange={setReplacing}>
               <AlertDialogTrigger asChild>
