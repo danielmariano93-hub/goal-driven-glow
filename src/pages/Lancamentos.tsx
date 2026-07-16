@@ -153,28 +153,49 @@ export default function Lancamentos() {
                   <ul className="space-y-2">
                     {items.map((t) => {
                       const isTransfer = t.type === "transfer";
+                      const isCard = t.payment_method === "credit_card";
+                      const isInstallment = (t.installments_total ?? 1) > 1;
+                      const canDuplicate = !isTransfer && !isInstallment;
                       const openDetail = () => nav(`/app/lancamentos/${t.id}`);
                       const openEdit = () => nav(`/app/lancamentos/${t.id}?edit=1`);
-                      const doDuplicate = () => {
-                        if (isTransfer) {
-                          toast.message("Transferências não podem ser duplicadas.");
-                          return;
-                        }
-                        save.mutate(
-                          {
-                            account_id: t.account_id,
-                            category_id: t.category_id ?? null,
-                            type: t.type as "income" | "expense",
-                            status: (t.status ?? "confirmed") as "confirmed" | "planned",
+                      const doDuplicate = async () => {
+                        if (!canDuplicate) return;
+                        try {
+                          const base: Record<string, unknown> = {
+                            user_id: t.user_id,
+                            type: t.type,
+                            status: "confirmed",
                             amount: Number(t.amount),
                             occurred_at: todayISO(),
-                            description: t.description ?? "",
-                          },
-                          {
-                            onSuccess: () => toast.success("Lançamento duplicado"),
-                            onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
-                          },
-                        );
+                            description: t.description ?? null,
+                            category_id: t.category_id ?? null,
+                            payment_method: t.payment_method ?? "account",
+                            origin: "manual",
+                          };
+                          if (isCard) {
+                            if (!t.credit_card_id) {
+                              toast.error("Não é possível duplicar: cartão ausente.");
+                              return;
+                            }
+                            base.credit_card_id = t.credit_card_id;
+                            base.account_id = null;
+                            base.purchase_date = todayISO();
+                            base.competence_date = t.competence_date ?? todayISO();
+                          } else {
+                            if (!t.account_id) {
+                              toast.error("Não é possível duplicar: conta ausente.");
+                              return;
+                            }
+                            base.account_id = t.account_id;
+                            base.credit_card_id = null;
+                          }
+                          const { error } = await supabase.from("transactions").insert(base as never);
+                          if (error) throw error;
+                          toast.success("Lançamento duplicado");
+                          qc.invalidateQueries({ queryKey: ["transactions"] });
+                        } catch (e) {
+                          toast.error("Erro ao duplicar", { description: String((e as Error).message) });
+                        }
                       };
                       const doDelete = () => {
                         if (!confirm(isTransfer ? "Excluir esta transferência (ambas as pernas)?" : "Excluir este lançamento?")) return;
