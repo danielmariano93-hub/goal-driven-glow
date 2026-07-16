@@ -34,9 +34,16 @@ export default function Lancamentos() {
   const [openTransfer, setOpenTransfer] = useState(false);
   const [editing, setEditing] = useState<TransactionRow | null>(null);
 
+  const { data: cards } = useCreditCards();
   const catName = (id: string | null) =>
     id ? categories?.find((c) => c.id === id)?.name ?? "—" : "—";
-  const accName = (id: string) => accounts?.find((a) => a.id === id)?.name ?? "—";
+  const accName = (t: TransactionRow) => {
+    if (t.payment_method === "credit_card" && t.credit_card_id) {
+      return cards?.find((c) => c.id === t.credit_card_id)?.name ?? "Cartão";
+    }
+    if (t.account_id) return accounts?.find((a) => a.id === t.account_id)?.name ?? "—";
+    return "—";
+  };
 
   const grouped = useMemo(() => {
     const g: Record<string, TransactionRow[]> = {};
