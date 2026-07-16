@@ -22,11 +22,13 @@ export default function DivisaoDoRoleNova() {
   const [dueDate, setDueDate] = useState("");
   const [mode, setMode] = useState<"equal" | "custom">("equal");
   const [includeOwner, setIncludeOwner] = useState(true);
+  const [ownerAmount, setOwnerAmount] = useState<string>("");
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [pixKey, setPixKey] = useState("");
   const [participants, setParticipants] = useState<Participant[]>([{ name: "", phone_e164: "" }]);
 
   const totalNum = Number(total.replace(",", "."));
+  const ownerNum = Number(String(ownerAmount).replace(",", "."));
   const preview = mode === "equal" && totalNum > 0
     ? splitEqual(totalNum, [
         ...(includeOwner ? [{ name: "Você", is_owner: true }] : []),
@@ -36,7 +38,7 @@ export default function DivisaoDoRoleNova() {
 
   const customSum = mode === "custom"
     ? validateCustomSplit(totalNum, [
-        ...(includeOwner ? [Number(participants[0]?.amount_due ?? 0)] : []),
+        ...(includeOwner ? [ownerNum || 0] : []),
         ...participants.map(p => Number(p.amount_due ?? 0)),
       ])
     : { ok: true, sum: 0 };
