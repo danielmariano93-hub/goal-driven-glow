@@ -93,8 +93,8 @@ export default function Recorrencias() {
     <div className="space-y-5 pt-2">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight">Recorrências</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Receitas e despesas que se repetem</p>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Contas que se repetem</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Fixos que entram e saem todo mês, no automático</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => { generate().then(load); toast.success("Gerando ocorrências…"); }} className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs">
