@@ -106,6 +106,8 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   body {
@@ -114,7 +116,15 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: 'cv11', 'ss01', 'ss03';
+    max-width: 100%;
+    overflow-x: hidden;
   }
+
+  /* Global safety: prevent images/media from causing horizontal overflow */
+  img, video, canvas, svg, iframe {
+    max-width: 100%;
+  }
+
 
   h1, h2, h3, h4 {
     font-family: 'Manrope', 'Inter', -apple-system, sans-serif;
