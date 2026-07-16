@@ -172,6 +172,11 @@ Deno.serve(async (req) => {
           return json({ ok: false, error_code: "provider_error" }, 502);
         }
       }
+      case "validate": {
+        // Sanitized credential validation. Never returns URLs, tokens, or raw errors.
+        const report = await validateWahaCredentials(webhookUrl());
+        return json({ ok: true, report });
+      }
       default:
         return json({ ok: false, error_code: "unknown_action" }, 400);
     }

@@ -61,3 +61,34 @@ export function humanizeRelative(iso: string | null | undefined): string {
   const d = Math.floor(h / 24);
   return `há ${d} d`;
 }
+
+// -----------------------------------------------------------------------------
+// WAHA credential validation (sanitized). All labels/hints are user-facing;
+// they never reference URLs, tokens, env-var names, or provider brand names.
+// -----------------------------------------------------------------------------
+
+export type WahaValidateCode =
+  | "ok"
+  | "unreachable"
+  | "unauthorized"
+  | "session_missing"
+  | "webhook_missing"
+  | "webhook_mismatch"
+  | "not_configured"
+  | "status_error";
+
+const VALIDATE_LABELS: Record<WahaValidateCode, StatusView> = {
+  ok:               { label: "Tudo certo",             tone: "success" },
+  unreachable:      { label: "Servidor sem resposta",  tone: "warn",   impact: "Não consegui falar com o servidor agora." },
+  unauthorized:     { label: "Credenciais recusadas",  tone: "danger", impact: "As credenciais foram recusadas." },
+  session_missing:  { label: "Sessão ainda não existe", tone: "warn",  impact: "Clique em Conectar para criar a sessão." },
+  webhook_missing:  { label: "Webhook não configurado", tone: "warn",  impact: "Clique em Sincronizar webhook." },
+  webhook_mismatch: { label: "Webhook divergente",      tone: "warn",  impact: "O webhook aponta para outro endereço." },
+  not_configured:   { label: "Não configurado",         tone: "neutral", impact: "As credenciais ainda não foram cadastradas." },
+  status_error:     { label: "Não foi possível verificar", tone: "warn", impact: "Tente novamente em instantes." },
+};
+
+export function mapWahaValidate(code: WahaValidateCode | string | null | undefined): StatusView {
+  if (!code) return FALLBACK;
+  return VALIDATE_LABELS[code as WahaValidateCode] ?? FALLBACK;
+}
