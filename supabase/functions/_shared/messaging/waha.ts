@@ -379,16 +379,24 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
     try {
       const r = await safeFetch(`${WAHA_API_URL}/api/${WAHA_SESSION}/auth/qr?format=image`, { headers: headers() });
       if (!r.ok) return { ok: false, error: `status_${r.status}` };
-      const ct = r.headers.get("content-type") ?? "image/png";
+      const ct = (r.headers.get("content-type") ?? "image/png").toLowerCase();
+      // Binary path: any image/* content-type is treated as raw PNG/JPEG bytes.
+      if (ct.startsWith("image/")) {
+        const buf = new Uint8Array(await r.arrayBuffer());
+        let bin = "";
+        for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+        return { ok: true, mimeType: ct, base64: btoa(bin) };
+      }
+      // JSON path (legacy): { mimetype, data }.
       if (ct.startsWith("application/json")) {
         const d = (await r.json()) as { mimetype?: string; data?: string };
         return { ok: true, mimeType: d.mimetype ?? "image/png", base64: d.data };
       }
+      // Unknown content-type: fall back to binary decoding without JSON parse.
       const buf = new Uint8Array(await r.arrayBuffer());
-      // Never log QR contents.
       let bin = "";
       for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
-      return { ok: true, mimeType: ct, base64: btoa(bin) };
+      return { ok: true, mimeType: "image/png", base64: btoa(bin) };
     } catch { return { ok: false, error: "unreachable" }; }
   },
   async getMe() {

@@ -310,24 +310,30 @@ export function WhatsAppSessionPanel() {
 
   const refresh = useCallback(() => loadConfig({ silent: true }), [loadConfig]);
 
-  // Poll status + QR while connecting or awaiting scan.
+  // Poll status + QR while connecting or awaiting scan. Fires an immediate
+  // QR fetch on entry so the owner never sees a blank frame on a fresh load
+  // when the session is already in SCAN_QR_CODE.
   useEffect(() => {
     const st = snap?.status;
     const shouldPoll = connectMode || st === "awaiting_qr" || st === "connecting";
     if (!shouldPoll) return;
     let cancelled = false;
     const start = Date.now();
+    const fetchQrIfNeeded = async (status: string) => {
+      if (status !== "awaiting_qr") return;
+      const r = await call<{ ok: boolean; mimeType?: string; base64?: string }>("qr");
+      if (cancelled) return;
+      if (r.ok && r.base64) setQr({ mimeType: r.mimeType ?? "image/png", base64: r.base64 });
+    };
+    // Immediate fetch when landing on awaiting_qr — don't wait 3s.
+    if (st === "awaiting_qr") { fetchQrIfNeeded("awaiting_qr").catch(() => {}); }
     const iv = setInterval(async () => {
       try {
         const s = await call<SessionSnap>("status");
         if (cancelled) return;
         setSnap(s);
         if (s.status === "connected") { setQr(null); setConnectMode(false); clearInterval(iv); return; }
-        if (s.status === "awaiting_qr") {
-          const r = await call<{ ok: boolean; mimeType?: string; base64?: string }>("qr");
-          if (cancelled) return;
-          if (r.ok && r.base64) setQr({ mimeType: r.mimeType ?? "image/png", base64: r.base64 });
-        }
+        await fetchQrIfNeeded(s.status);
       } catch { /* silent */ }
       if (Date.now() - start > 5 * 60_000) clearInterval(iv);
     }, 3000);
@@ -444,7 +450,7 @@ export function WhatsAppSessionPanel() {
 
         {(snap?.status === "awaiting_qr" || (connectMode && snap?.status !== "connected")) && (
           <div className="rounded-xl border border-border bg-white p-4 space-y-2">
-            <p className="text-xs text-muted-foreground">Escaneie o código no WhatsApp do número oficial.</p>
+            <p className="text-xs text-muted-foreground">Escaneie este QR Code</p>
             {qr ? (
               <div className="grid place-items-center">
                 <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
