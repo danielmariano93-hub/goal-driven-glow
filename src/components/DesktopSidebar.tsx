@@ -91,15 +91,6 @@ export function DesktopSidebar() {
 
       {/* Footer */}
       <div className="border-t border-border p-3 space-y-1">
-        {isAdmin && (
-          <button
-            onClick={() => navigate('/admin')}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-          >
-            <ShieldCheck size={16} strokeWidth={1.7} />
-            <span>Admin</span>
-          </button>
-        )}
         <button
           onClick={() => signOut().then(() => navigate('/'))}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
