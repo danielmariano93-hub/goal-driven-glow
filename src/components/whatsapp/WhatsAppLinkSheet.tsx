@@ -185,7 +185,7 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
   const copyMessage = async () => {
     if (!code) return;
     try {
-      await navigator.clipboard.writeText("VINCULAR " + code);
+      await navigator.clipboard.writeText(friendlyLinkMessage(code));
       toast.success("Mensagem copiada!");
     } catch {
       toast.error("Não consegui copiar. Copie manualmente o texto acima.");
