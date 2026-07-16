@@ -220,6 +220,8 @@ export interface WahaExtras {
   syncWebhook(webhookUrl: string): Promise<{ ok: boolean; error?: string }>;
   getQr(): Promise<{ ok: boolean; mimeType?: string; base64?: string; error?: string }>;
   getMe(): Promise<{ ok: boolean; phone?: string; error?: string }>;
+  preparePairing(webhookUrl: string): Promise<{ ok: boolean; status: string; error?: string }>;
+  requestPairingCode(phoneDigits: string): Promise<{ ok: boolean; code?: string; expires_at?: string; status?: string; error_code?: string }>;
 }
 
 const webhookEvents = ["message", "message.any", "message.ack", "session.status"] as const;
