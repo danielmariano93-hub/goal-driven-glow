@@ -3,11 +3,16 @@ import { normalizeBrPhone } from "./types.ts";
 
 // Runtime WAHA config. Initialized from env vars (retrocompat) and can be
 // hydrated at request time from the Supabase Vault via `loadWahaConfig`.
+// Canonical session name for the NoControle channel. The Manager may host
+// other unrelated sessions (e.g. `default`, `sniper`); we never touch them.
+export const NOCONTROLE_SESSION = "nocontrole";
 let WAHA_API_URL =
   Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL") ?? "";
 let WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
-let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? "default";
+let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? NOCONTROLE_SESSION;
 let WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
+
+export function getSessionName(): string { return WAHA_SESSION; }
 
 export type WahaConfig = { api_url: string; api_key: string; webhook_secret: string; session_name: string };
 
@@ -292,8 +297,11 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
   mapInboundEvent(payload: unknown): NormalizedInbound | null {
     const p = payload as {
       event?: string;
+      session?: string;
       payload?: { id?: string; from?: string; to?: string; body?: string; fromMe?: boolean; timestamp?: number };
     };
+    // Reject payloads from foreign sessions (e.g. `default`, `sniper`).
+    if (p?.session && p.session !== WAHA_SESSION) return null;
     if (!p?.payload?.from || p.payload.fromMe) return null;
     const from = normalizeBrPhone(p.payload.from.replace(/@c\.us$/, ""));
     if (!from) return null;
