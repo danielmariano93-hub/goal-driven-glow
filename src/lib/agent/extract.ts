@@ -137,11 +137,10 @@ export function extractSpans(raw: string): ExtractedSpans {
 
   // 6) descrição = restante, tirando conectores iniciais e finais.
   let desc = remaining;
-  // Remove conectores no início
-  while (CONNECTORS_START.test(desc)) desc = desc.replace(CONNECTORS_START, "");
-  // Remove "de " isolados no início/fim
+  // Remove conectores no início (com ou sem espaço trailing)
+  const CONNECTORS_BARE = /^(gastei|paguei|comprei|registrei|registra|registrar|registre|inclua|incluir|incluí|foi|de|no|na|em|com)(\s+|$)/i;
+  while (CONNECTORS_BARE.test(desc)) desc = desc.replace(CONNECTORS_BARE, "");
   desc = desc.replace(/^\s*de\s+/i, "").replace(/\s+de\s*$/i, "").trim();
-  // Colapsar
   desc = desc.replace(/\s+/g, " ").trim();
   out.description = desc;
 
