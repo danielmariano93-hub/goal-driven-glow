@@ -76,10 +76,47 @@ export default function AdminDashboard() {
                 <Stat label="Dívidas" value={data.total_debts} />
               </div>
             </section>
+
+            <BetaMetrics />
           </>
         ) : null}
       </main>
     </div>
+  );
+}
+
+function BetaMetrics() {
+  const [m, setM] = useState<any>(null);
+  useEffect(() => {
+    (async () => {
+      const [
+        { count: splits },
+        { count: recRules },
+        { count: chal },
+        { count: reminderQueued },
+        { count: reminderFailed },
+      ] = await Promise.all([
+        supabase.from("shared_expenses" as any).select("id", { count: "exact", head: true }),
+        supabase.from("recurring_rules" as any).select("id", { count: "exact", head: true }),
+        supabase.from("user_challenges" as any).select("id", { count: "exact", head: true }),
+        supabase.from("reminder_jobs" as any).select("id", { count: "exact", head: true }).eq("status", "queued"),
+        supabase.from("reminder_jobs" as any).select("id", { count: "exact", head: true }).eq("status", "failed"),
+      ]);
+      setM({ splits, recRules, chal, reminderQueued, reminderFailed });
+    })();
+  }, []);
+  if (!m) return null;
+  return (
+    <section className="mt-6">
+      <h2 className="mb-3 text-sm font-semibold">Beta — funcionalidades</h2>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <Stat label="Divisões do Rolê" value={m.splits ?? 0} />
+        <Stat label="Regras recorrentes" value={m.recRules ?? 0} />
+        <Stat label="Adesões a desafios" value={m.chal ?? 0} />
+        <Stat label="Lembretes em fila" value={m.reminderQueued ?? 0} />
+        <Stat label="Lembretes falhos" value={m.reminderFailed ?? 0} />
+      </div>
+    </section>
   );
 }
 
