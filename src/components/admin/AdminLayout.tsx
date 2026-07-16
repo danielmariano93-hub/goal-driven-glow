@@ -10,7 +10,7 @@ import { can, roleLabel, type PlatformAction } from "@/lib/admin/permissions";
 type Item = {
   to: string;
   label: string;
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  icon: any;
   action?: PlatformAction;
   end?: boolean;
 };
