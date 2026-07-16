@@ -96,6 +96,21 @@ export default function LancamentoDetalhe() {
 
   async function save() {
     if (!tx) return;
+    if (!isTransfer) {
+      // Validate coherence before roundtrip
+      if (paymentMethod === "account" && !accountId) {
+        return toast.error("Escolha uma conta para este lançamento.");
+      }
+      if (paymentMethod === "credit_card" && !cardId) {
+        return toast.error("Escolha um cartão para este lançamento.");
+      }
+      // Method-only descriptions are not allowed
+      const norm = description.trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+      const forbidden = new Set(["credito","debito","pix","dinheiro","cartao","boleto","transferencia","ted","doc","fatura"]);
+      if (description.trim() && forbidden.has(norm)) {
+        return toast.error("Descreva em quê foi o lançamento (ex.: mercado, gasolina, salário).");
+      }
+    }
     setSaving(true);
     const patch: Record<string, unknown> = {};
     if ((tx.description ?? "") !== description) patch.description = description || null;
@@ -104,6 +119,25 @@ export default function LancamentoDetalhe() {
     if (Number.isFinite(parsedAmount) && parsedAmount > 0 && parsedAmount !== Number(tx.amount)) patch.amount = parsedAmount;
     if (occurredAt && occurredAt !== tx.occurred_at) patch.occurred_at = occurredAt;
     if ((tx.notes ?? "") !== notes) patch.notes = notes || null;
+
+    if (!isTransfer) {
+      const originalMethod = (tx.payment_method as "account" | "credit_card") ?? "account";
+      if (paymentMethod !== originalMethod) {
+        patch.payment_method = paymentMethod;
+        if (paymentMethod === "account") {
+          patch.account_id = accountId;
+          patch.credit_card_id = null;
+        } else {
+          patch.credit_card_id = cardId;
+          patch.account_id = null;
+        }
+      } else if (paymentMethod === "account" && accountId !== (tx.account_id ?? "")) {
+        patch.account_id = accountId;
+      } else if (paymentMethod === "credit_card" && cardId !== (tx.credit_card_id ?? "")) {
+        patch.credit_card_id = cardId;
+      }
+    }
+
     if (Object.keys(patch).length === 0) { setSaving(false); toast.message("Nada mudou."); return; }
 
     const { data, error } = await supabase.rpc("transaction_update_direct" as any, {
@@ -121,6 +155,7 @@ export default function LancamentoDetalhe() {
       if (r?.error === "not_owned") return toast.error("Lançamento não encontrado.");
       if (r?.error === "credit_card_required") return toast.error("Escolha um cartão para este lançamento.");
       if (r?.error === "account_required") return toast.error("Escolha uma conta para este lançamento.");
+      if (r?.error === "invalid_payment_method") return toast.error("Método de pagamento inválido.");
       return toast.error("Não consegui salvar agora. Tente novamente em instantes.");
     }
     toast.success("Lançamento atualizado ✅");
