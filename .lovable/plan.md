@@ -1,65 +1,25 @@
-## Diagnóstico
-- `public.admin_waha_config_status()` hoje retorna apenas `configured/has_url/has_api_key/has_webhook_secret/session_name/updated_at`. NÃO retorna `role` nem capability.
-- A edge function tenta remendar com `{ ...data, role: gate.role }`, mas isso não é contrato tipado e some silenciosamente em qualquer caminho de erro/timeout.
-- Frontend usa `config?.role === "platform_owner"` para habilitar "Configurar/Substituir". Se o campo faltar (undefined), o botão desabilita com "Apenas o dono…" — bloqueando o próprio owner (Daniel), que está corretamente cadastrado em `platform_admins` como `platform_owner active=true`.
-- **Causa raiz exata: divergência entre contrato do backend (sem capability) e tipo do frontend (assume `role`).**
+## Objetivo
+Aplicar as credenciais do WAHA fornecidas pelo owner diretamente no Vault via edge function server-side (nunca em código/migration/log) e deixar o canal operacional até QR/WORKING. A correção de `can_manage_config` já foi aplicada na rodada anterior; nada mais a fazer no schema.
 
-## Correção
+## Passos de execução (não gravam segredo em código)
 
-### 1. Migration — capability explícita e tipada
-Recriar `public.admin_waha_config_status()`:
-```json
-{
-  configured, has_url, has_api_key, has_webhook_secret,
-  session_name, updated_at,
-  admin_role,            // 'platform_owner' | 'platform_admin' | null (para display)
-  can_manage_config      // bool = admin_role='platform_owner'
-}
-```
-- Continua com `is_platform_admin()` gate + SECURITY DEFINER.
-- Sem valores sensíveis (nenhum secret decifrado exposto além do já existente `session_name`).
-- `admin_waha_save_config` mantém seu gate `current_platform_admin_role() <> 'platform_owner' RAISE 'not_authorized'`. Autorização segue 100% server-side.
+1. **`supabase--curl_edge_functions`** → `whatsapp-session` `action=save_config` com `{ url, api_key, session_name: "default" }`. Roda com o JWT do owner logado no preview; a RPC `admin_waha_save_config` grava no Vault e gera `webhook_secret` server-side quando ausente. Não repetir os valores na resposta.
+2. **`config_status`** → confirmar apenas `configured=true`, `has_url/has_api_key/has_webhook_secret=true`, `can_manage_config=true`. Sem valores.
+3. **`test_config`** com os mesmos `url`/`api_key` para validar acesso real ao Manager (SSRF + `GET /api/version`). Se falhar por header/endpoint, comparar com o cliente WAHA existente em `_shared/messaging/waha.ts` e ajustar (headers `X-Api-Key`, path `/api/sessions/{name}`, etc.). Nada de pedir credenciais de novo.
+4. **`setup_session`** — idempotente: cria/atualiza `default`, sincroniza webhook para `SUPABASE_URL/functions/v1/whatsapp-webhook` com o secret do Vault e eventos `message`, `message.ack`, `session.status`. Inicia sessão se `STOPPED`.
+5. **`status`** — ler `status/capabilities/phone_masked`. Se `awaiting_qr`, chamar `qr` para confirmar geração; se `connected`, informar telefone mascarado.
+6. **`validate`** — health check completo (host_ok, auth_ok, session_ok, webhook_ok).
+7. **`bun run test` + build.** Não publicar.
 
-### 2. Edge function `whatsapp-session`
-- `config_status` retorna o payload da RPC diretamente. Remover o remendo `role: gate.role` para não mascarar o contrato.
-- `save_config` continua exigindo `gate.role === "platform_owner"` como defesa em profundidade.
+## Ajustes possíveis durante execução
+- Se `test_config` retornar `unreachable`/`unauthorized`: inspecionar `buildWahaTester`/`safeFetch` em `supabase/functions/_shared/messaging/waha.ts`, comparar com Sniper AI (mesma stack), corrigir path/headers no cliente e re-executar. Nada de patch em segredo — só no client HTTP.
+- Se `setup_session` gerar 404 → criar; 409 → atualizar; ambos já cobertos por `createOrUpdateSession`, verificar payload.
+- Se QR não aparecer, garantir que polling do wizard/`WhatsAppSessionPanel` esteja consumindo `qr` corretamente.
 
-### 3. Frontend `WhatsAppSessionPanel.tsx`
-- `ConfigStatus`: substituir `role?` por `admin_role?: string | null` e `can_manage_config?: boolean`.
-- `const canManageConfig = config?.can_manage_config === true;`
-- Regras:
-  - `configLoading` → skeleton, sem hint de permissão.
-  - `configError` → card "Tentar novamente".
-  - Payload sem `can_manage_config` definido → tratar como contrato inválido: setar `configError = "invalid_contract"`.
-  - `notConfigured && canManageConfig` → botão "Configurar conexão" habilitado.
-  - `notConfigured && !canManageConfig` (config carregada com sucesso) → botão desabilitado + hint negativo.
-  - Botão "Substituir credenciais" só renderiza quando `canManageConfig`.
-- `loadConfig()` refetch em `visibilitychange` para evitar cache stale entre trocas de conta/aba.
-
-### 4. Auditoria
-- `rg "config\?\.role|platform_owner"` no `src/` — hoje só `WhatsAppSessionPanel.tsx` lê `role` do payload de config_status. Nenhuma outra tela afetada.
-
-### 5. Testes
-- Novo `src/test/whatsapp-permissions.test.tsx` (RTL + mock `functions.invoke`):
-  1. Owner (`can_manage_config=true`, `configured=false`) → botão habilitado, sem hint.
-  2. Não-owner (`can_manage_config=false`) → botão desabilitado + hint visível.
-  3. Payload sem `can_manage_config` → estado de erro com "Tentar novamente".
-  4. Loading (config_status pendente) → nenhum hint negativo.
-  5. Owner clica "Substituir credenciais" → wizard abre em `mode=replace`.
-- Atualizar `whatsapp-wizard.test.tsx` para novo shape (`can_manage_config: true`).
-- Validação server-side de owner permanece coberta pelo gate SQL.
-
-### 6. Ordem
-1. `supabase--migration` — nova `admin_waha_config_status`.
-2. Aguardar aprovação; types regenerados.
-3. Editar `supabase/functions/whatsapp-session/index.ts` (limpar remendo de role).
-4. Editar `src/pages/admin/WhatsAppSessionPanel.tsx` (novo type + `canManageConfig` + estado de contrato inválido + refetch em visibilitychange).
-5. Atualizar/adicionar testes.
-6. `bunx vitest run`.
+## Sigilo
+- Nenhum valor de URL/key/secret escrito em migration, código, tabela pública ou log.
+- Payload das chamadas curl fica só na conversa administrativa; o eco de resposta é filtrado (`ok` e `error_code`).
+- Auditoria em `platform_admin_audit` já grava apenas metadados, sem valores.
 
 ## Aceite
-- Daniel (owner ativo) vê "Configurar conexão" habilitado logo após o load.
-- Admin não-owner vê hint negativa somente após load com sucesso.
-- Payload malformado gera erro com retry, nunca falso bloqueio silencioso.
-- `save_config`/`admin_waha_save_config` recusam não-owner mesmo com cliente adulterado.
-- Suíte de testes verde; build ok.
+Relatório final com os 7 itens solicitados (credenciais armazenadas, conexão validada, sessão criada/reutilizada, status real, webhook sincronizado, QR no admin, bloqueio restante) — sem expor a chave.
