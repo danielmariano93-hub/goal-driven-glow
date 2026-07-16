@@ -61,6 +61,21 @@ const brl = (n: number) =>
 export function pickFallback(f: InsightFacts): InsightPayload {
   const total = f.total_tx_ever ?? 0;
 
+  // Prioridade máxima: lançamento sem categoria — deep-link direto.
+  if (f.uncategorized_tx) {
+    const t = f.uncategorized_tx;
+    const label = t.description ? `“${t.description}” · ${brl(t.amount)}` : `${brl(t.amount)} em ${t.occurred_at}`;
+    return {
+      type: "categorize_transaction",
+      title: "Categorize este lançamento",
+      body: `Faltou categoria em ${label}. Escolher agora deixa seu relatório mais claro.`,
+      cta_label: "Categorizar",
+      cta_route: `/app/lancamentos/${t.id}?edit=1&focus=category`,
+      model: "fallback",
+    };
+  }
+
+
   if (total === 0) {
     return {
       type: "onboarding",
