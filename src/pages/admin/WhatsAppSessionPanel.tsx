@@ -167,26 +167,19 @@ export function WhatsAppSessionPanel() {
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={onCreate} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "create" ? <Loader2 className="h-3 w-3 animate-spin" /> : <QrCode className="h-3 w-3" />} Criar/atualizar sessão
-          </button>
-          <button onClick={onStart} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "start" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />} Iniciar
-          </button>
-          <button onClick={onRestart} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "restart" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />} Reiniciar
-          </button>
-          <button onClick={onSyncWebhook} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "sync_webhook" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Sincronizar webhook
-          </button>
+          <SharedSessionConfirm label="Criar/atualizar sessão" icon={<QrCode className="h-3 w-3" />}
+            onConfirm={onCreate} disabled={!!busy || !snap?.configured} busy={busy === "create"} />
+          <SharedSessionConfirm label="Iniciar" icon={<Play className="h-3 w-3" />}
+            onConfirm={onStart} disabled={!!busy || !snap?.configured} busy={busy === "start"} />
+          <SharedSessionConfirm label="Reiniciar" icon={<RotateCw className="h-3 w-3" />}
+            onConfirm={onRestart} disabled={!!busy || !snap?.configured} busy={busy === "restart"} />
+          <SharedSessionConfirm label="Sincronizar webhook" icon={<RefreshCw className="h-3 w-3" />}
+            onConfirm={onSyncWebhook} disabled={!!busy || !snap?.configured} busy={busy === "sync_webhook"} />
           <button onClick={onTestHealth} disabled={!!busy || !snap?.configured}
             className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
             {busy === "test_health" ? <Loader2 className="h-3 w-3 animate-spin" /> : <HeartPulse className="h-3 w-3" />} Testar saúde
           </button>
+
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
