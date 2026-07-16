@@ -35,6 +35,12 @@ const Importar = lazy(() => import("./pages/Importar"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AgenteAdmin = lazy(() => import("./pages/admin/Agente"));
 const AgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
+const DivisaoDoRole = lazy(() => import("./pages/DivisaoDoRole"));
+const DivisaoDoRoleNova = lazy(() => import("./pages/DivisaoDoRoleNova"));
+const DivisaoDoRoleDetalhe = lazy(() => import("./pages/DivisaoDoRoleDetalhe"));
+const Recorrencias = lazy(() => import("./pages/Recorrencias"));
+const Desafios = lazy(() => import("./pages/Desafios"));
+const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
