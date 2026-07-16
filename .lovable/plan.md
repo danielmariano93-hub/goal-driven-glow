@@ -1,342 +1,168 @@
+# Rodada consolidada: correções críticas + hardening + WhatsApp mídia
 
-# NoControle.ia — Ingestão por imagem/print + Edição acessível de lançamentos
+## 1. Bug bloqueador: "operator does not exist: text = text[]"
 
-Plano único, executável em uma rodada. **Não altera** WAHA/webhook/sessão em runtime nesta rodada (apenas prepara o parser de mídia dentro do webhook existente, sem tocar infraestrutura Docker/VPS). **Não publica** frontend. Complementa o `.lovable/plan.md` de edição de lançamentos já implementado (RPCs `transaction_update_direct` / `transaction_delete_direct`, `version`, `purchase_group_id`, rota `/app/lancamentos/:id`).
-
----
-
-## 1. Diagnóstico do estado atual
-
-- `src/pages/Lancamentos.tsx`: lista renderiza apenas botão **Excluir** por linha. Existe `TxModal` com estado `editing`, mas nenhum caminho de UI aciona `setEditing(item)` a partir da lista → **edição não está exposta no mobile nem no desktop**. Toque na linha não faz nada. Modal antigo tampouco cobre cartão, parcelas e conta corretamente.
-- Rota `/app/lancamentos/:id` já existe (`LancamentoDetalhe.tsx`) com edição segura, versão otimista, escopo one/future/all e transferência read-only. Deep-link `?edit=1&focus=category` funcional.
-- Agente/WhatsApp: hoje só texto. `agent-chat` recebe `{ messages }` de texto; `whatsapp-webhook` ignora mídia. Não há bucket, tabelas de importação nem pipeline multimodal.
-- Extração canônica por spans já existe (`src/lib/agent/extract.ts` + shared em `supabase/functions/_shared/agent/extract.ts`).
-- `payment_method` schema real = `"credit_card" | "account"`. Vamos manter.
-
-## 2. Integração com o plano anterior (sem conflito)
-
-- Reutilizar `transactions.version`, `purchase_group_id`, `transaction_update_direct`, `transaction_delete_direct`, `agent_execute_confirmation`, `pending_confirmations`.
-- Reutilizar `LancamentoDetalhe.tsx` como destino do deep-link a partir da lista, do assessor e das cards do lote confirmado.
-- Não recriar migrations existentes. As novas migrations desta rodada adicionam apenas: `document_imports`, `extracted_items`, bucket privado, políticas RLS e função `confirm_document_import`.
-
----
-
-## 3. Arquitetura de ingestão única (app + WhatsApp)
-
-```text
-                       ┌────────────────────────────────────────────┐
- App (chat/anexo) ───▶ │ Edge: assistant-ingest-document            │
- WA webhook (media)─▶  │  1. baixa/valida mídia                     │
-                       │  2. upload bucket privado (documents/)     │
-                       │  3. cria document_imports (status=processing)
-                       │  4. chama LLM multimodal (visão)           │
-                       │  5. persiste extracted_items (needs_review)│
-                       │  6. dedupe + confidence                    │
-                       └────────────────────┬───────────────────────┘
-                                            │
-     ┌─────────── Assessor UI (chat) ◀──────┤  emite card resumo com CTA
-     │                                       │  "Revisar N lançamentos"
-     ▼                                       ▼
- ReviewSheet (mobile) / ReviewPanel (desktop)
-  ├─ editar item (valor, data, conta/cartão, parcela, categoria)
-  ├─ marcar/ignorar duplicatas
-  ├─ confirmar seleção → RPC confirm_document_import(items[])
-  └─ resultado: transactions criadas com import_source + purchase_group_id
-```
-
-Uma única pipeline canônica para app e WhatsApp. Após ingestão, a imagem **não** volta ao modelo em turnos seguintes; a referência estruturada (draft) é anexada à `conversation` do assessor.
-
----
-
-## 4. Schema/migration mínima
-
-Uma migration única:
+**Causa real (confirmada no banco):** RPC `public.transaction_update_direct` (migração `20260716205948_...sql`) tem, no bloco de dismiss de insights:
 
 ```sql
--- 4.1 document_imports
-create table public.document_imports (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  source text not null check (source in ('app','whatsapp')),
-  storage_path text not null,             -- bucket 'documents' (privado)
-  mime_type text not null,
-  size_bytes int not null,
-  sha256 text not null,                    -- hash do arquivo (dedupe global por user)
-  document_kind text,                      -- 'receipt'|'invoice'|'statement'|'list'|'unknown'
-  status text not null default 'uploaded'
-    check (status in ('uploaded','processing','needs_review','confirmed',
-                      'partially_confirmed','failed','expired')),
-  model text, tokens_in int, tokens_out int, cost_usd_micros bigint,
-  raw_text text,                           -- OCR/visão bruto (opcional, retenção curta)
-  error text,
-  conversation_id uuid,
-  message_id uuid,
-  expires_at timestamptz default (now() + interval '30 days'),
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  unique(user_id, sha256)
-);
-grant select, insert, update, delete on public.document_imports to authenticated;
-grant all on public.document_imports to service_role;
-alter table public.document_imports enable row level security;
-create policy "own docs" on public.document_imports for all
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
--- 4.2 extracted_items
-create table public.extracted_items (
-  id uuid primary key default gen_random_uuid(),
-  document_id uuid not null references public.document_imports(id) on delete cascade,
-  user_id uuid not null,
-  idx int not null,                        -- ordem no documento
-  status text not null default 'needs_review'
-    check (status in ('needs_review','ignored','confirmed','duplicate_suspect','rejected')),
-  type text not null check (type in ('income','expense')),
-  amount numeric(14,2) not null,
-  occurred_at date not null,
-  description text,
-  payment_method text check (payment_method in ('account','credit_card')),
-  account_hint text, card_hint text,
-  account_id uuid, credit_card_id uuid,
-  category_id uuid, category_hint text,
-  installments_total int, installment_number int,
-  purchase_date date, competence_date date,
-  confidence jsonb not null default '{}'::jsonb,   -- por campo
-  duplicate_of uuid references public.transactions(id),
-  transaction_id uuid references public.transactions(id),
-  source_span jsonb,                                -- bbox/linha
-  raw jsonb,                                        -- item bruto do modelo
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  unique(document_id, idx)
-);
-grant select, insert, update, delete on public.extracted_items to authenticated;
-grant all on public.extracted_items to service_role;
-alter table public.extracted_items enable row level security;
-create policy "own items" on public.extracted_items for all
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
--- 4.3 storage bucket privado 'documents' (criado via storage_create_bucket, public=false)
--- policies em storage.objects: user só lê/escreve prefixo <user_id>/*
-
--- 4.4 RPC confirm_document_import(p_document_id uuid, p_item_ids uuid[])
--- SECURITY DEFINER, valida auth.uid() == document.user_id, escreve transactions
--- em uma transação, aplica purchase_group_id para parcelamentos, retorna
--- { ok, created:[{item_id, transaction_id}], skipped, errors }.
--- Idempotente: se item.transaction_id já existe, ignora.
-
--- 4.5 trigger para expirar/limpar raw_text após 7 dias (retenção curta).
+(evidence->>'transaction_id')::text = any(
+   (select array_agg(x::text) from unnest(affected_ids) x)
+)
 ```
 
-Sem alteração em `transactions`.
+Quando `= ANY(subquery)` recebe uma subquery *escalar* que devolve `text[]`, o Postgres interpreta como `text = text[]` (operador de conjunto em vez de operador de array). Só dispara quando `category_id` está no patch — exatamente o cenário do print.
 
----
+**Correção (migration nova, idempotente `CREATE OR REPLACE FUNCTION`)** — trocar por:
 
-## 5. Storage, retenção e privacidade
-
-- Bucket `documents` **privado**, path `{user_id}/{document_id}.{ext}`.
-- Signed URL curta (5 min) apenas para o próprio usuário no ReviewSheet quando quiser rever a imagem.
-- Remover EXIF antes do upload. Limitar tamanho (10 MB), dimensões (máx 6000px lado maior), MIME real por magic bytes.
-- `raw_text` e imagem apagados por cron 7 dias após `status ∈ (confirmed, partially_confirmed, failed)`; `document_imports` metadados retidos 30 dias.
-- LGPD: aviso "vamos ler apenas dados financeiros deste documento; imagem apagada em até 7 dias". Nenhum treinamento com dados.
-
----
-
-## 6. Edge Functions e tools
-
-Novas Edge Functions:
-
-- `assistant-ingest-document` (chamada do app; body `{ storage_path | base64, mime, conversation_id }`): valida, cria `document_imports`, extrai com modelo multimodal (`google/gemini-3.1-flash` inicial; fallback `google/gemini-2.5-flash`), popula `extracted_items`, roda dedupe.
-- `assistant-review-actions` (get/update/delete/cancel/confirm): endpoint único para o assessor via tools.
-- `whatsapp-webhook` (**edit mínima, sem deploy nesta rodada**): planejar adição de branch `if (event.hasMedia)` que:
-  1. baixa `media.url` server-side com `WAHA_API_KEY` (do Vault), timeout curto;
-  2. copia para bucket `documents/`; 
-  3. chama `assistant-ingest-document`;
-  4. responde ao usuário "Recebi sua imagem, estou lendo…";
-  5. dedupe por `message_id` + `sha256`.
-  Nenhum deploy no WAHA/Docker; apenas código Deno.
-
-Novas tools do agente (`_shared/agent/tools.ts`):
-
-- `ingest_financial_document(storage_ref)` — normalmente disparada pelo cliente após upload; agente confirma recebimento.
-- `get_document_status(document_id)`
-- `review_extracted_items(document_id)` — devolve lista compacta.
-- `update_extracted_item(item_id, patch)`
-- `confirm_document_import(document_id, item_ids[])`
-- `cancel_document_import(document_id)`
-
-`user_id` sempre do JWT no servidor; nunca do payload/modelo. Prompt do assessor recebe **apenas draft estruturado** (não a imagem) em turnos posteriores.
-
----
-
-## 7. UI — Edição acessível
-
-`src/pages/Lancamentos.tsx`:
-
-- Linha inteira vira `<button role="link">` com hit target ≥ 48px, navegando para `/app/lancamentos/:id`.
-- Adicionar menu "⋯" (Radix `DropdownMenu`) por linha com **Editar**, **Duplicar**, **Excluir**. Excluir deixa de ser a única ação visível.
-- Ícone lápis com `aria-label="Editar"` visível em ≥ md.
-- Swipe (opcional, `framer-motion`) revela ações; nunca substitui o menu.
-- Empty state e loading permanecem.
-- Selecionar múltiplos (checkbox) — desativado nesta rodada (fora de escopo mínimo).
-
-`src/pages/LancamentoDetalhe.tsx` (já existe): 
-
-- Adicionar botão "Editar" persistente no topo do detalhe quando `?edit=1` ausente.
-- Layout: mobile → tela cheia com safe-area (`env(safe-area-inset-bottom)`), teclado com `interactive-widget=resizes-content` no `index.html`.
-- Desktop → modal centralizado (max-w-2xl) sobre a lista.
-- Preservar automaticamente **conta vs cartão**: renderiza um bloco ou outro; troca de método exige confirmação explícita e chama `transaction_update_direct` com o patch coerente (`payment_method`, `account_id`, `credit_card_id`, `purchase_date`, `competence_date`).
-- Parcelamento: bloco de escopo `one|future|all` já implementado — habilitado só quando `purchase_group_id` existe.
-- Transferência: read-only + botão "Excluir par completo".
-- Deep-link `?edit=1&focus=<field>` foca campo específico.
-- Após salvar/excluir: invalida `transactions`, `assistant-tip`, `home-summary`, `cards-summary`, `insights`, `reports`.
-
-## 8. UI — Ingestão e revisão em lote
-
-Novo componente `AssessorAttachButton` no chat do app:
-
-- Botão clip; opções **Câmera**, **Galeria**, **Arquivo**. Preview miniatura, remover, reenviar.
-- Client faz: strip EXIF (canvas), compressão, upload direto para bucket `documents/` com signed upload URL emitida por `assistant-ingest-document` (mode=write). Sem service key no cliente.
-- Após upload, chama `assistant-ingest-document` → status card no chat.
-
-Novo `ReviewSheet` (mobile bottom sheet / desktop modal):
-
-- Cabeçalho com resumo (N itens, R$ total, tipo de documento).
-- Lista virtualizada de `extracted_items`:
-  - Checkbox de seleção; "selecionar todos/nenhum".
-  - Campos inline: descrição, valor, data, categoria, conta/cartão, parcelas.
-  - Badge de confidence e aviso "possível duplicata de …".
-  - Editar abre bottom sheet secundária com o mesmo formulário de `LancamentoDetalhe` reaproveitado.
-- Rodapé fixo: "Confirmar N lançamentos" (idempotente) + "Cancelar importação".
-- Resultado: toast + card no chat "Registrei N lançamentos. Ver lançamentos →".
-
-Sem transação criada antes da confirmação.
-
----
-
-## 9. Extração e modelo canônico
-
-Prompt de visão (nova versão filha da ativa) exige JSON:
-
-```json
-{
-  "document_kind": "receipt|invoice|statement|list|non_financial|illegible",
-  "items": [{
-    "type":"expense|income",
-    "description":"literal",
-    "amount":123.45,
-    "occurred_at":"YYYY-MM-DD",
-    "payment_method":"account|credit_card|null",
-    "account_hint":"...", "card_hint":"...",
-    "installments_total":null, "installment_number":null,
-    "category_hint":"...",
-    "confidence":{"amount":0.9,"occurred_at":0.7,...},
-    "source_span":{"page":1,"bbox":[...]}
-  }],
-  "notes":"por que descartei linhas de saldo/limite"
-}
+```sql
+and (evidence->>'transaction_id') in (
+  select x::text from unnest(affected_ids) x
+)
 ```
 
-Regras:
-- valores BR (`1.234,56`), datas BR;
-- nunca inventar texto ilegível;
-- excluir saldo, limite disponível, subtotais e pagamento de fatura de lista de compras;
-- reconhecer estorno como `income`;
-- se `document_kind` ∈ `non_financial|illegible`, responder pedindo outra imagem e não criar itens.
+Mantém tudo o resto do RPC. Nenhum dado é alterado.
 
----
+**Frontend (`LancamentoDetalhe.tsx`)**: mapear `error.message` do RPC para toasts amigáveis (`conflict → "Este lançamento foi atualizado em outro dispositivo, recarregue"`, `not_owned → "Lançamento não encontrado"`, demais → "Não consegui salvar agora. Tente novamente."). Detalhe técnico apenas no `console.error`.
 
-## 10. Duplicidade e reconciliação
+**Extensão do RPC**: adicionar suporte a `account_id`, `credit_card_id`, `payment_method` no `p_patch` (hoje só aceita description/category/amount/occurred_at/notes/purchase_date/competence_date). Aplicar regra: se muda `payment_method` para `credit_card` exigir `credit_card_id`; caso contrário exigir `account_id`. Trigger `validate_transaction` já cobre o resto.
 
-Após extração, para cada item:
+**LancamentoDetalhe**: adicionar selects de Conta/Cartão e método de pagamento (radio account/credit_card), preservando semântica atual. Bloquear edição de transferências (já é bloqueada em Lancamentos, replicar no detalhe).
 
-1. Buscar `transactions` do mesmo `user_id`, mesmo `amount`, mesma `occurred_at` ±2 dias, descrição normalizada Levenshtein ≤ 3, mesma conta/cartão inferida, mesmo `installment_number`.
-2. Se match forte → `status='duplicate_suspect'`, `duplicate_of=<tx.id>`.
-3. Fatura de cartão: se item for "pagamento fatura Nubank" e existir `transfer` com mesmo valor/data, marcar duplicata; nunca criar automaticamente.
-4. Hash `sha256` do documento + `idx` compõem `import_key` para idempotência; reprocessar mesmo doc não recria itens.
-5. UI oferece "já registrei", "importar mesmo assim", "ignorar".
+**Testes**: teste vitest chamando o RPC via mock que valida shape do patch; teste de UI para toast amigável no erro; migração aplicada + smoke real (curl RPC autenticado via psql/edge function).
 
-`transaction_update_direct`/`_delete_direct` continuam sendo o único caminho para alterar registros existentes.
+## 2. Semântica do assistente (descrição ≠ método)
 
----
+**Problema:** o agente gravou `description = "crédito"`. Isso vem do `prompt` + `tools.createTransaction` que hoje aceita descrição livre sem separar do método.
 
-## 11. Agente/conversa
+**Correções:**
 
-- Draft da importação persistido em `conversations.metadata` (jsonb) com `document_id` — não guardar imagem no histórico textual.
-- Assessor entende: "registre esses gastos", "o primeiro foi no Itaú", "não inclua o Uber", "categorize todos de mercado como Alimentação", "confirme só os três primeiros". Traduz para chamadas `update_extracted_item` + `confirm_document_import(item_ids)`.
-- Loop guard 6–8 passos; após confirmação, agente não reabre draft.
-- Mesma pipeline para WA: usuário manda foto, recebe card resumo por texto ("Encontrei 4 gastos. Toque para revisar: <link app>") — confirmação sempre no app (não expor toda a lista por WA neste release para evitar UX confusa; ampliar depois).
+- **`supabase/functions/_shared/agent/prompt.ts`**: nova versão `v5` (persistir em `agent_prompt_versions`, ativar) explicitando: "descrição = o que foi comprado/pago/recebido, nunca o meio de pagamento. 'crédito', 'débito', 'pix', 'dinheiro', 'cartão', 'boleto' NÃO podem ser descrição — são payment_method/origin. Se o usuário só disser o meio, pergunte 'o que foi essa compra?' antes de confirmar."
+- **`supabase/functions/_shared/agent/tools.ts`** (`createTransaction`, `requestTransactionConfirmation`): validar server-side — se `description` normalizada (lowercase, sem acento) ∈ {crédito, credito, débito, debito, pix, dinheiro, cartão, cartao, boleto, transferência, ted, doc}, rejeitar com `needs_description`, forçando o modelo a perguntar.
+- Adicionar tool `updateTransactionById(id, patch)` e `findRecentTransactions(query)` para o agente conseguir corrigir lançamentos existentes quando o usuário disser "era Y" / "foi referente a Z" / "muda a categoria pra X".
+- **Estado da conversa**: `conversations` já persiste; garantir que ao receber correção o agente busque o último `transaction_id` executado no thread (novo campo em `conversation_messages.metadata.executed_ids`) para saber qual editar.
+- **Testes conversacionais** (`src/test/agent-semantics.test.ts`): 6 cenários — "gastei 50 no crédito" (deve perguntar descrição), "gastei 50 no bar no crédito" (description=bar, method=credit_card), "era referente ao mercado" (edita última tx), "muda pra alimentação" (edita category), "foi 60 e não 50" (edita amount), "apaga esse último" (delete com confirmação).
 
----
+## 3. Responsividade global
 
-## 12. Admin — métricas sanitizadas
+**Diagnóstico do print:** `LancamentoDetalhe.tsx` tem grid `grid-cols-2` para Valor/Data — no iPhone SE (375px) o campo de data ("16 de jul. de 2026") não cabe. Toast sobreposto ao safe-area inferior (falta `pb-[env(safe-area-inset-bottom)]` no toaster ou padding no layout).
 
-Nova aba `/admin/documentos` (fora do painel FinOps): documentos recebidos por origem, processados/falhos/ilegíveis, itens extraídos vs confirmados, duplicatas detectadas, tempo médio, custo médio, taxa de correção manual, erros por etapa. Sem visualização de imagens nem valores brutos.
+**Escopo de auditoria**: todas as rotas em `src/pages/**` + `src/pages/admin/**` (~35 páginas). Ferramenta: Playwright headless nos 6 viewports (320/360/375/390/414/430), scroll horizontal detectado via `document.documentElement.scrollWidth > innerWidth`.
 
----
+**Correções globais em `src/index.css`**:
+- `.input-base` ganha `min-w-0`, `max-w-full`;
+- container principal `.app-content` já é `max-w-4xl`, garantir `px-4 md:px-6` e `pb-24 md:pb-8` (safe area do bottom tab bar).
 
-## 13. Testes bloqueadores (Vitest + fixtures)
+**Correções pontuais**:
+- `LancamentoDetalhe`: Valor/Data viram `grid-cols-1 sm:grid-cols-2`; data como `<input type="date">` (mais compacto e nativo mobile). Botões Salvar/Excluir: `flex-wrap gap-2`.
+- Tabelas admin (`Usuarios.tsx`, `Financeiro.tsx`, `Operacao.tsx`, etc.): envolver em `<div className="overflow-x-auto -mx-4 px-4">` OU converter para cards abaixo de `md`.
+- FAB do assessor: `bottom-24 md:bottom-6` para não colidir com bottom tab.
+- Toaster (`sonner`): `position="top-center"` no mobile para não brigar com nav inferior.
 
-Unit/integração:
-- extractor multimodal com 5 fixtures (3 compras, fatura, recibo, ilegível, não-financeiro, valores BR, datas BR);
-- dedupe: hit, near-miss, pagamento fatura vs compra;
-- RPC `confirm_document_import`: idempotência, escopo, RLS A/B, `purchase_group_id` gerado para parcelas;
-- tools do agente: `update_extracted_item` valida ownership; `confirm_document_import` respeita item_ids;
-- UI Lançamentos: linha clicável, menu "⋯" com Editar/Duplicar/Excluir, botão Editar visível no detalhe;
-- Deep-link `/app/lancamentos/:id?edit=1&focus=category` foca campo;
-- Edição preserva `credit_card_id`/`account_id` conforme método; troca de método exige confirmação;
-- Transferência: fluxo read-only; exclusão apaga par;
-- WA webhook (unit, mock): dedupe por `message_id`+`sha256`; media.url ausente → mensagem "não consegui baixar";
-- Acessibilidade: hit targets ≥44, `aria-label`, foco visível.
+**Teste automatizado** (`src/test/responsive.test.ts`): playwright puppeteer script que abre cada rota autenticada nos 6 viewports e falha se houver overflow horizontal.
 
-Também: typecheck, build, suíte completa verde.
+## 4. Hardening da importação de imagens
 
----
+**Bucket**: nova migração `alter storage bucket documents set file_size_limit=10485760, allowed_mime_types='{image/jpeg,image/png,image/webp}'` (via `supabase--storage_update_bucket` ou UPDATE em `storage.buckets` se permitido — verificar; caso contrário, manter validação server-side que já existe).
 
-## 14. Sequência única de implementação
+**FKs e validações** (migration):
+- `extracted_items.user_id` — adicionar CHECK ou trigger `BEFORE INSERT/UPDATE` que `NEW.user_id = (select user_id from document_imports where id = NEW.document_id)`;
+- FKs: `extracted_items.account_id → accounts(id)`, `credit_card_id → credit_cards(id)`, `category_id → categories(id)`, `duplicate_of → transactions(id)`, todos `ON DELETE SET NULL`;
+- Trigger `validate_extracted_item` que confere ownership de account/card/category = user_id do item.
 
-1. Migration (`document_imports`, `extracted_items`, bucket + policies, RPC `confirm_document_import`, trigger de retenção).
-2. Edge Functions: `assistant-ingest-document`, `assistant-review-actions`.
-3. Prompt filho v4 (visão multimodal) — criado inativo, ativado após testes.
-4. Tools agente + orquestrador (fast-path para intents de revisão).
-5. UI: `AssessorAttachButton`, `ReviewSheet`, ajustes em `AssessorPanel`.
-6. UI: `Lancamentos.tsx` (linha clicável, menu "⋯", swipe opcional).
-7. UI: `LancamentoDetalhe.tsx` (botão Editar persistente, layout mobile sheet).
-8. Webhook WA — adicionar branch de mídia **em código** (sem deploy Docker), com feature flag `WA_MEDIA_ENABLED=false` inicial. Deploy só após aprovação.
-9. Testes + suite + typecheck + build.
-10. Deploy das Edge Functions **exceto** `whatsapp-webhook` (mantido inalterado em runtime).
+**`assistant-review-actions`**: remover `status` de `ALLOWED_PATCH_KEYS` (usuário só muda via `ignore`/`confirm`/`cancel`). Adicionar validação: se `patch.payment_method='credit_card'` exigir `credit_card_id`, senão exigir `account_id`. Validar ownership dos IDs antes do update.
 
----
+**RPC `confirm_document_import`**: envolver em transação explícita com savepoint por item; se algum item falhar, retornar `{ok:true, inserted:[...], failed:[{item_id, reason}]}` para UI mostrar parcial recuperável. Idempotência: já usa `import_source_id`; reforçar com unique constraint parcial em `transactions(user_id, import_source_id) where import_source_id is not null`.
 
-## 15. Critérios de aceite
+**Purchase group**: hoje agrupa por (user_id, occurred_at, credit_card_id, installments_total). Corrigir para incluir `description` normalizada + `amount_per_installment` — ou melhor, gerar `purchase_group_id` = `gen_random_uuid()` uma vez por linha extraída com parcelamento (no lado do ingest, não no RPC), garantindo unicidade.
 
-- Mobile: toque em uma linha da lista abre `/app/lancamentos/:id`; menu "⋯" oferece Editar/Duplicar/Excluir; Excluir não é a única ação aparente.
-- Detalhe mostra botão "Editar" persistente; formulário respeita conta vs cartão; parcelas com escopo; transferência read-only.
-- Chat do app aceita imagem, exibe preview, mostra card "Encontrei N lançamentos"; ReviewSheet permite editar/ignorar/confirmar; após confirmar, `transactions` criadas em lote com `import_source=document:<id>`.
-- Nenhum lançamento é criado antes de confirmação explícita.
-- Duplicatas sinalizadas; usuário decide.
-- Reprocessar mesmo documento não duplica itens.
-- Home, Lançamentos, Cartões, Insights e Relatórios refletem novos registros.
-- WA: código presente e testado, feature flag desligada (nenhum deploy WAHA nesta rodada).
-- Nenhuma exposição de service key, signed URL longa, EXIF ou PII em logs.
-- Suite completa, typecheck e build verdes.
+**`documents-cleanup`**: adicionar verificação de header `x-internal-secret` == `Deno.env.get("INTERNAL_CRON_SECRET")`. Trocar `pg_cron` para chamar via `net.http_post` passando o header. Migração remove credenciais literais.
 
----
+**Base64 grande**: `assistant-ingest-document` hoje faz `String.fromCharCode(...bytes)` (spread → stack overflow em >100KB). Trocar por loop em chunks de 8KB + `btoa` incremental, ou usar `encodeBase64` do `std/encoding/base64.ts` do Deno.
 
-## 16. Impacto estimado em tokens/custo
+**Deduplicação concorrente**: adicionar `unique(user_id, sha256_hash)` em `document_imports` (já existe? verificar migration). Se colisão → retornar document_id existente.
 
-- 1 documento com 3–10 itens ≈ 3–8k tokens (Gemini 3.1 Flash multimodal) ≈ US$ 0,002–0,006 por documento.
-- Após ingestão, turnos seguintes usam draft textual (~500 tokens) sem imagem.
-- Fast-path para `review_extracted_items`/`confirm_document_import` sem LLM.
+**Recuperação de falha**: `document_imports.status` ganha `retry_count`, cron reprocessa `failed` com retry_count<3.
 
----
+**Testes reais**: script Playwright autenticado que sobe uma imagem fixture (recibo), aguarda extração, edita 1 item, confirma, checa transação criada, checa isolamento com segundo usuário.
 
-## 17. Riscos e gaps
+**Métricas**: nova tabela `document_processing_metrics(document_id, tokens_input, tokens_output, latency_ms, model, status)` populada pelo `assistant-ingest-document`, agregada no admin `/admin/financeiro` (sem exibir para o usuário).
 
-- **Modelo multimodal**: variação em faturas mal fotografadas. Mitigação: confidence por campo + revisão obrigatória.
-- **WAHA `media.url`**: pode expirar; download server-side imediato; se falhar, pedir reenvio.
-- **Bucket público inadvertido**: garantir `public=false` e teste que confirma retorno 403 sem signed URL.
-- **Colisão de dedupe**: janela ±2 dias pode ser agressiva; tornar configurável, default 1 dia.
-- **UX WA em lote**: revisão real fica no app; WA envia apenas link/resumo.
-- **Retenção**: cron de expiração precisa de `pg_cron`/edge scheduled; se indisponível, executar via `agent-run`.
-- **Fora de escopo**: PDF multi-página, extratos > 50 linhas, exportação, alteração real de WAHA/Docker/VPS, publicação do frontend.
+## 5. WhatsApp: imagens ponta a ponta
 
+**`whatsapp-webhook/index.ts`** (autorizado alterar nesta rodada):
+- Branch `if (event.hasMedia && ALLOWED_MIME.includes(event.mediaMimeType))`:
+  1. Resolver user via `whatsapp_links` pelo `from_phone` normalizado; se não vinculado → responder "Vincule seu WhatsApp em app.nocontrole.ia primeiro" e ignorar;
+  2. Dedup por `external_message_id` (texto do WAHA) em `inbound_messages` — se já existe, sair;
+  3. Baixar mídia via `messaging/waha.ts:downloadMedia(event.mediaUrl)` com `WAHA_API_KEY`, timeout 15s, tamanho máx 10MB;
+  4. Chamar `assistant-ingest-document` internamente (service-role) com o buffer;
+  5. Ao retornar `needs_review`, gravar `document_id` em `pending_confirmations(kind='document_review', payload={document_id, item_ids})`;
+  6. Responder: "Achei N lançamentos nessa imagem: 1) X R$Y  2) Z R$W ... Responda: CONFIRMAR TODOS, CONFIRMAR 1,3, IGNORAR 2, ou CANCELAR."
+- Parser de comandos em texto no mesmo webhook: se última `pending_confirmations` do user for `document_review` e texto casar regex `/^(confirmar|ignorar|cancelar)/i`, executar via `assistant-review-actions`.
+
+**Feature flag** `WA_MEDIA_ENABLED` (env var); se `false` → responder "Envio de imagens está sendo liberado". Default `true` após smoke test real; se smoke falhar, deploy com `false` e reportar como gap único.
+
+**Tratamento de erros amigáveis**: ilegível → "não consegui ler, envia mais nítida?"; não financeiro → "não parece recibo/fatura"; grande → "manda uma imagem menor que 10MB"; timeout → "tenta de novo em instantes".
+
+**Teste WAHA E2E**: enviar imagem real pelo simulador WAHA para número de teste; validar toda a cadeia + confirmação por texto.
+
+## 6. Qualidade e entrega
+
+**Migrations** (todas idempotentes, sem DROP de dado):
+1. `fix_transaction_update_direct_text_array` — RPC corrigida + patch estendido.
+2. `harden_extracted_items` — FKs, trigger de ownership, unique de dedup.
+3. `document_metrics` — tabela + GRANTs + RLS admin.
+4. `documents_cleanup_secret` — cron atualizado.
+
+**Ordem de execução**:
+1. Migrations (aprovação do usuário — supabase--migration surge após aprovação do plano).
+2. Edits de código (RPC extension, tools, prompt v5, UI Detalhe/responsivo, ingest hardening, webhook mídia).
+3. Deploy edge functions: `agent-chat`, `agent-run`, `assistant-ingest-document`, `assistant-review-actions`, `documents-cleanup`, `whatsapp-webhook`, `whatsapp-send` (só as tocadas).
+4. Prompt v5 ativado via INSERT em `agent_prompt_versions` + UPDATE em `agent_settings.active_version`.
+5. Testes: vitest full, typecheck, build, Playwright autenticado 2-user e responsivo.
+6. Preview atualizado (sem publish).
+
+## Critérios de aceite
+
+- [ ] Editar categoria no mobile grava sem erro.
+- [ ] Toast de erro é amigável; stack fica no console.
+- [ ] Agente não grava "crédito"/"pix" como descrição; pergunta o quê foi.
+- [ ] Agente edita tx existente por comando textual.
+- [ ] 6 cenários conversacionais passam.
+- [ ] Nenhuma rota tem overflow horizontal em 320-430px.
+- [ ] Bucket documents com limites; unauthorized POST no cleanup retorna 401.
+- [ ] Upload → review → confirm cria transaction correta com payment_method preservado.
+- [ ] Isolamento entre 2 users validado.
+- [ ] WhatsApp: imagem real vira review; CONFIRMAR TODOS cria transações; mensagens de erro amigáveis.
+- [ ] `pnpm typecheck && pnpm build && pnpm test` verdes.
+- [ ] Métricas de tokens/latência aparecem no admin.
+
+## Gaps conhecidos que serão declarados
+
+- Se WAHA smoke real falhar em produção (ex.: API key sem permissão de download), entrega com `WA_MEDIA_ENABLED=false` e reporta como único bloqueio.
+- Ajuste de `storage.buckets.file_size_limit` pode exigir `supabase--storage_update_bucket`; se rejeitado, mantém validação server-side (10MB já enforced).
+
+## Arquivos tocados
+
+**Migrations (novas)**: 4 arquivos em `supabase/migrations/`.
+
+**Backend**:
+- `supabase/functions/_shared/agent/prompt.ts` (v5)
+- `supabase/functions/_shared/agent/tools.ts` (validação descrição, updateTransactionById, findRecentTransactions)
+- `supabase/functions/_shared/agent/orchestrator.ts` (persistir executed_ids)
+- `supabase/functions/assistant-ingest-document/index.ts` (base64 chunked, dedup, métricas)
+- `supabase/functions/assistant-review-actions/index.ts` (remover status, validar ownership, parcial)
+- `supabase/functions/documents-cleanup/index.ts` (secret header)
+- `supabase/functions/whatsapp-webhook/index.ts` (branch mídia + comandos textuais)
+- `supabase/functions/_shared/messaging/waha.ts` (downloadMedia)
+
+**Frontend**:
+- `src/pages/LancamentoDetalhe.tsx` (conta/cartão/método, grid responsivo, erros amigáveis)
+- `src/pages/Lancamentos.tsx` (ajustes finos)
+- `src/index.css` (safe-areas, min-w-0 default)
+- `src/components/AppLayout.tsx` / `BottomTabBar.tsx` (padding safe-area)
+- `src/pages/admin/*.tsx` (tabelas responsivas — auditoria completa)
+- `src/components/assessor/AssessorFab.tsx` (bottom offset)
+
+**Tests**: `src/test/agent-semantics.test.ts`, `src/test/responsive.test.ts`, `src/test/transaction-update-rpc.test.ts`, atualização de fixtures.
+
+**Secrets**: `INTERNAL_CRON_SECRET` (novo) e verificar `WAHA_API_KEY`.
