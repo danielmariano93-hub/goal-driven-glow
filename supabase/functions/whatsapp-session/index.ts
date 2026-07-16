@@ -86,6 +86,10 @@ async function rateOk(sb: ReturnType<typeof createClient>, action: string): Prom
   return data === true;
 }
 
+function canPair(role: string | null): boolean {
+  return role === "platform_owner" || role === "platform_admin";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const correlationId = crypto.randomUUID();
@@ -120,7 +124,13 @@ Deno.serve(async (req) => {
       case "config_status": {
         const { data, error } = await gate.sb.rpc("admin_waha_config_status");
         if (error) return json({ ok: false, error_code: "config_status_failed" }, 500, extraHeaders);
-        return json({ ok: true, ...(data as Record<string, unknown>) }, 200, extraHeaders);
+        const payload = (data as Record<string, unknown>) ?? {};
+        return json({
+          ok: true,
+          ...payload,
+          admin_role: payload.admin_role ?? gate.role,
+          can_manage_config: gate.role === "platform_owner",
+        }, 200, extraHeaders);
       }
 
       case "test_config": {
@@ -163,6 +173,7 @@ Deno.serve(async (req) => {
       }
 
       case "setup_session": {
+        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
         if (!(await rateOk(gate.sb, "waha_setup"))) {
           return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
@@ -185,24 +196,27 @@ Deno.serve(async (req) => {
 
       case "status": return json(await buildPublicStatus(), 200, extraHeaders);
       case "create": {
+        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         const r = await provider.createOrUpdateSession(webhookUrl());
         return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders);
       }
       case "sync_webhook": {
+        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         const r = await provider.syncWebhook(webhookUrl());
         return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders);
       }
-      case "start":   { const r = await provider.startSession();   return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
-      case "restart": { const r = await provider.restartSession(); return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
-      case "stop":    { const r = await provider.stopSession();    return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
+      case "start":   { if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders); const r = await provider.startSession();   return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
+      case "restart": { if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders); const r = await provider.restartSession(); return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
+      case "stop":    { if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders); const r = await provider.stopSession();    return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
       case "logout":  {
-        if (gate.role !== "platform_owner" && gate.role !== "platform_admin") {
+        if (!canPair(gate.role)) {
           return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         }
         const r = await provider.logoutSession();
         return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders);
       }
       case "qr": {
+        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         const r = await provider.getQr();
         return json(r, r.ok ? 200 : 502, extraHeaders);
       }
@@ -218,6 +232,7 @@ Deno.serve(async (req) => {
         }
       }
       case "prepare_pairing": {
+        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
         if (!(await rateOk(gate.sb, "waha_prepare"))) {
           return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
@@ -227,6 +242,7 @@ Deno.serve(async (req) => {
         return json({ ok: p.ok, ...snap, correlation_id: correlationId }, 200, extraHeaders);
       }
       case "begin_qr": {
+        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
         if (!(await rateOk(gate.sb, "waha_qr"))) {
           return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
@@ -250,7 +266,7 @@ Deno.serve(async (req) => {
       }
       case "request_pairing_code": {
         if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
-        if (gate.role !== "platform_owner" && gate.role !== "platform_admin") {
+        if (!canPair(gate.role)) {
           return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         }
         if (!(await rateOk(gate.sb, "waha_pairing_code"))) {

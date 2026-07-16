@@ -31,7 +31,15 @@ function reply(action: string, body: Body): unknown {
 
 let pending: Array<() => void> = [];
 
-function installMock(options: { failStatus?: boolean; hangStatus?: boolean; configured?: boolean; sessionStatus?: string; codeError?: string } = {}) {
+function installMock(options: {
+  failStatus?: boolean;
+  hangStatus?: boolean;
+  configured?: boolean;
+  sessionStatus?: string;
+  codeError?: string;
+  omitCanManage?: boolean;
+  beginQrError?: string;
+} = {}) {
   invokeMock.mockImplementation(async (_fn: string, opts: { body: { action: string } & Record<string, unknown> }) => {
     const action = opts.body.action;
     if (action === "config_status" && options.hangStatus) {
@@ -41,7 +49,9 @@ function installMock(options: { failStatus?: boolean; hangStatus?: boolean; conf
       return { data: null, error: { message: "boom" } };
     }
     if (action === "config_status" && options.configured) {
-      return { data: { configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString(), admin_role: "platform_owner", can_manage_config: true }, error: null };
+      const payload: Record<string, unknown> = { configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString(), admin_role: "platform_owner", can_manage_config: true };
+      if (options.omitCanManage) delete payload.can_manage_config;
+      return { data: payload, error: null };
     }
     if (action === "status" && options.configured) {
       const st = options.sessionStatus ?? "needs_attention";
@@ -49,6 +59,9 @@ function installMock(options: { failStatus?: boolean; hangStatus?: boolean; conf
     }
     if (action === "request_pairing_code" && options.codeError) {
       return { data: { ok: false, error_code: options.codeError }, error: null };
+    }
+    if (action === "begin_qr" && options.beginQrError) {
+      return { data: { ok: false, error_code: options.beginQrError }, error: null };
     }
     return { data: reply(action, opts.body as Body), error: null };
   });
@@ -137,18 +150,28 @@ describe("WhatsAppSetupWizard — fluxo e segurança", () => {
 });
 
 describe("WhatsAppSessionPanel — Conectar aparelho (QR + código)", () => {
-  it("com status FAILED (needs_attention) mostra card 'Conectar aparelho' com abas", async () => {
-    installMock({ configured: true, sessionStatus: "needs_attention" });
+  it("owner com can_manage_config ausente ainda vê as duas abas", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention", omitCanManage: true });
     render(<WhatsAppSessionPanel />);
     await screen.findByText(/Conectar aparelho/i);
     expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
   });
 
-  it("aba QR auto-carrega e renderiza imagem base64", async () => {
+  it.each(["FAILED", "STOPPED", "needs_attention", "awaiting_qr"])("status %s mostra card de pareamento", async (status) => {
+    installMock({ configured: true, sessionStatus: status });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
+  });
+
+  it("QR manual gera imagem base64", async () => {
     installMock({ configured: true, sessionStatus: "awaiting_qr" });
     render(<WhatsAppSessionPanel />);
     await screen.findByText(/Conectar aparelho/i);
+    expect(screen.getByRole("button", { name: /Gerar QR Code/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Gerar QR Code/i }));
     const img = await screen.findByAltText(/QR de conexão/i) as HTMLImageElement;
     expect(img.src).toContain("data:image/png;base64,AAA");
   });
@@ -158,10 +181,11 @@ describe("WhatsAppSessionPanel — Conectar aparelho (QR + código)", () => {
     render(<WhatsAppSessionPanel />);
     await screen.findByText(/Conectar aparelho/i);
     fireEvent.click(screen.getByRole("tab", { name: /Código pelo telefone/i }));
-    const phone = screen.getByPlaceholderText("+55 11 99999-9999") as HTMLInputElement;
+    const phone = screen.getByPlaceholderText("(11) 99999-9999") as HTMLInputElement;
     fireEvent.change(phone, { target: { value: "+5511912345678" } });
     fireEvent.click(screen.getByRole("button", { name: /Gerar código/i }));
     await waitFor(() => expect(screen.getByText(/ABCD-1234/)).toBeInTheDocument());
+    expect(invokeMock).toHaveBeenCalledWith("whatsapp-session", expect.objectContaining({ body: expect.objectContaining({ action: "request_pairing_code" }) }));
   });
 
   it("erro method_unsupported no código mostra fallback QR sem quebrar", async () => {
@@ -169,11 +193,22 @@ describe("WhatsAppSessionPanel — Conectar aparelho (QR + código)", () => {
     render(<WhatsAppSessionPanel />);
     await screen.findByText(/Conectar aparelho/i);
     fireEvent.click(screen.getByRole("tab", { name: /Código pelo telefone/i }));
-    const phone = screen.getByPlaceholderText("+55 11 99999-9999") as HTMLInputElement;
+    const phone = screen.getByPlaceholderText("(11) 99999-9999") as HTMLInputElement;
     fireEvent.change(phone, { target: { value: "+5511912345678" } });
     fireEvent.click(screen.getByRole("button", { name: /Gerar código/i }));
     await waitFor(() => expect(screen.getByText(/não suporta o código por telefone/i)).toBeInTheDocument());
     // aba QR continua acessível
     expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+  });
+
+  it("erro ao gerar QR mantém controles visíveis", async () => {
+    installMock({ configured: true, sessionStatus: "FAILED", beginQrError: "provider_error" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    fireEvent.click(screen.getByRole("button", { name: /Gerar QR Code/i }));
+    await screen.findByText(/Não consegui gerar o QR Code agora/i);
+    expect(screen.getByRole("button", { name: /Tentar novamente/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
   });
 });
