@@ -142,9 +142,15 @@ export type Database = {
           max_steps: number
           model: string
           notes: string | null
+          parent_version_id: string | null
+          published_at: string | null
+          published_by: string | null
+          restored_from_id: string | null
           status: Database["public"]["Enums"]["prompt_status"]
+          structured_config: Json
           system_prompt: string
           temperature: number
+          updated_at: string
           version: number
         }
         Insert: {
@@ -154,9 +160,15 @@ export type Database = {
           max_steps?: number
           model?: string
           notes?: string | null
+          parent_version_id?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          restored_from_id?: string | null
           status?: Database["public"]["Enums"]["prompt_status"]
+          structured_config?: Json
           system_prompt: string
           temperature?: number
+          updated_at?: string
           version: number
         }
         Update: {
@@ -166,12 +178,33 @@ export type Database = {
           max_steps?: number
           model?: string
           notes?: string | null
+          parent_version_id?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          restored_from_id?: string | null
           status?: Database["public"]["Enums"]["prompt_status"]
+          structured_config?: Json
           system_prompt?: string
           temperature?: number
+          updated_at?: string
           version?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agent_prompt_versions_parent_version_id_fkey"
+            columns: ["parent_version_id"]
+            isOneToOne: false
+            referencedRelation: "agent_prompt_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_prompt_versions_restored_from_id_fkey"
+            columns: ["restored_from_id"]
+            isOneToOne: false
+            referencedRelation: "agent_prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       agent_runs: {
         Row: {
@@ -2411,8 +2444,47 @@ export type Database = {
         }
         Returns: Json
       }
+      agent_compile_prompt: { Args: { p_cfg: Json }; Returns: string }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
+        Returns: Json
+      }
+      agent_prompt_create_draft: {
+        Args: { p_from_id?: string }
+        Returns: string
+      }
+      agent_prompt_list: {
+        Args: never
+        Returns: {
+          created_at: string
+          created_by: string
+          id: string
+          max_steps: number
+          model: string
+          notes: string
+          parent_version_id: string
+          published_at: string
+          published_by: string
+          restored_from_id: string
+          status: Database["public"]["Enums"]["prompt_status"]
+          structured_config: Json
+          temperature: number
+          updated_at: string
+          version: number
+        }[]
+      }
+      agent_prompt_publish: {
+        Args: { p_expected_updated_at: string; p_id: string }
+        Returns: string
+      }
+      agent_prompt_restore: { Args: { p_id: string }; Returns: string }
+      agent_prompt_update_draft: {
+        Args: {
+          p_cfg: Json
+          p_expected_updated_at: string
+          p_id: string
+          p_notes: string
+        }
         Returns: Json
       }
       agent_sim_enqueue: {
