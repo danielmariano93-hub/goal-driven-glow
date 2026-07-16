@@ -537,11 +537,16 @@ function ConnectDeviceCard({
                 <p>Muitas tentativas. Aguarde alguns instantes.</p>
               ) : codeError === "invalid_phone" ? (
                 <p>Número inválido. Confira DDI e DDD.</p>
+              ) : codeError === "session_not_ready" ? (
+                <p>A sessão ainda está subindo. Aguarde alguns segundos ou clique em <button className="underline" onClick={resetSession}>Redefinir sessão</button>.</p>
+              ) : codeError === "already_connected" ? (
+                <p>Este número já está conectado. Atualize o painel.</p>
               ) : (
-                <p>Não consegui gerar o código agora. Você pode usar o <button className="underline" onClick={() => setMethod("qr")}>QR Code</button>.</p>
+                <p>Não consegui gerar o código agora. Você pode usar o <button className="underline" onClick={() => setMethod("qr")}>QR Code</button> ou <button className="underline" onClick={resetSession}>redefinir a sessão</button>.</p>
               )}
             </div>
           )}
+
         </div>
       )}
     </div>
