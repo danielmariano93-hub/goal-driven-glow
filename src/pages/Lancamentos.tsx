@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, Loader2, ArrowLeftRight } from "lucide-react";
+import { Plus, Loader2, ArrowLeftRight, MoreHorizontal, Pencil, Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 import {
   useAccounts,
   useCategories,
@@ -13,6 +14,12 @@ import {
 } from "@/lib/db/finance";
 import { transactionSchema, transferSchema } from "@/lib/validation/finance";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function Lancamentos() {
   const { data: accounts } = useAccounts();
