@@ -349,13 +349,18 @@ export async function get_transaction(ctx: ToolContext, args: { transaction_id: 
 
 export async function draft_transaction_update(ctx: ToolContext, args: {
   transaction_id: string;
-  patch: { description?: string | null; category?: string | null; amount?: number; occurred_at?: string; notes?: string | null };
+  patch: {
+    description?: string | null; category?: string | null;
+    amount?: number; occurred_at?: string; notes?: string | null;
+    payment_method?: "account" | "credit_card";
+    account?: string | null; credit_card?: string | null;
+  };
   scope?: "one" | "future" | "all";
 }): Promise<ToolResult> {
   const id = String(args?.transaction_id ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "invalid_id" };
   const { data: tx, error } = await ctx.sb.from("transactions")
-    .select("id,user_id,version,type,amount,description,category_id,occurred_at,purchase_group_id,installment_number")
+    .select("id,user_id,version,type,amount,description,category_id,occurred_at,purchase_group_id,installment_number,payment_method,account_id,credit_card_id")
     .eq("id", id).eq("user_id", ctx.user_id).maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!tx) return { ok: false, error: "not_owned" };
@@ -365,21 +370,58 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
     ? (tx as any).purchase_group_id ? args.scope : "one"
     : "one";
 
-  // Resolver categoria se veio como texto
   const patch: Record<string, unknown> = {};
   const p = args.patch ?? {};
-  if (typeof p.description === "string" || p.description === null) patch.description = p.description ?? null;
+  if (typeof p.description === "string" || p.description === null) {
+    const desc = (p.description ?? "") as string;
+    if (desc && METHOD_ONLY_TERMS.has(normalizeDesc(desc))) {
+      return { ok: false, error: "needs_description" } as any;
+    }
+    patch.description = p.description ?? null;
+  }
   if (typeof p.amount === "number" && p.amount > 0) patch.amount = p.amount;
   if (typeof p.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_at)) patch.occurred_at = p.occurred_at;
   if (typeof p.notes === "string" || p.notes === null) patch.notes = p.notes ?? null;
   if (p.category !== undefined) {
-    if (p.category === null || p.category === "" ) patch.category_id = null;
+    if (p.category === null || p.category === "") patch.category_id = null;
     else {
       const catId = await resolveCategoryId(ctx, String(p.category), (tx as any).type as "income" | "expense");
       if (!catId) return { ok: false, error: "category_not_found" };
       patch.category_id = catId;
     }
   }
+
+  // Payment method / account / credit card handling
+  const wantsPM = p.payment_method === "account" || p.payment_method === "credit_card";
+  const wantsAccount = p.account !== undefined && p.account !== null && String(p.account).trim() !== "";
+  const wantsCard = p.credit_card !== undefined && p.credit_card !== null && String(p.credit_card).trim() !== "";
+
+  if (wantsPM || wantsAccount || wantsCard) {
+    const targetMethod: "account" | "credit_card" =
+      p.payment_method ?? (wantsCard ? "credit_card" : wantsAccount ? "account" : ((tx as any).payment_method ?? "account"));
+    if (targetMethod === "credit_card") {
+      const cardHint = wantsCard ? String(p.credit_card) : "";
+      const resolved = cardHint ? await resolveCreditCardFull(ctx, cardHint) : null;
+      if (resolved && resolved.kind === "multiple") {
+        return { ok: false, error: "card_ambiguous", choices: resolved.choices } as any;
+      }
+      const cardId = resolved && resolved.kind === "single" ? resolved.id
+        : ((tx as any).credit_card_id as string | null);
+      if (!cardId) return { ok: false, error: "credit_card_required" };
+      patch.payment_method = "credit_card";
+      patch.credit_card_id = cardId;
+      patch.account_id = null;
+    } else {
+      const accHint = wantsAccount ? String(p.account) : "";
+      const acc = accHint ? await resolveAccountId(ctx, accHint) : null;
+      const accId = acc ? acc.id : ((tx as any).account_id as string | null);
+      if (!accId) return { ok: false, error: "account_required" };
+      patch.payment_method = "account";
+      patch.account_id = accId;
+      patch.credit_card_id = null;
+    }
+  }
+
   if (Object.keys(patch).length === 0) return { ok: false, error: "empty_patch" };
 
   const summary =
@@ -390,7 +432,15 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
     transaction_id: id,
     expected_version: (tx as any).version ?? 1,
     scope, patch,
-    before: { description: (tx as any).description, category_id: (tx as any).category_id, amount: Number((tx as any).amount), occurred_at: (tx as any).occurred_at },
+    before: {
+      description: (tx as any).description,
+      category_id: (tx as any).category_id,
+      amount: Number((tx as any).amount),
+      occurred_at: (tx as any).occurred_at,
+      payment_method: (tx as any).payment_method,
+      account_id: (tx as any).account_id,
+      credit_card_id: (tx as any).credit_card_id,
+    },
   };
   const draftId = await upsertDraft(ctx, "transaction_update", payload, summary);
   if (!draftId) return { ok: false, error: "draft_failed" };
