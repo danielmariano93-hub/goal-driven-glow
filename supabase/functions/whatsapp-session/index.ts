@@ -88,13 +88,14 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // GET: legacy snapshot expected by existing admin page.
+  // GET: capability-based snapshot for admin UI. Never returns raw secret map.
   if (req.method === "GET") {
-    const snap = await deepStatus();
-    if (snap.configured && snap.health) {
+    const snap = await buildPublicStatus();
+    // Best-effort heartbeat for provider health (silent).
+    if (snap.status !== "not_configured") {
       await svc.from("provider_health_events").insert({
-        provider: "waha", ok: snap.health.ok, latency_ms: snap.health.latency_ms,
-        error_masked: snap.health.error ?? null,
+        provider: "waha", ok: snap.error_code === null, latency_ms: snap.latency_ms ?? 0,
+        error_masked: snap.error_code ?? null,
       }).then(() => {}, () => {});
     }
     return json(snap);
@@ -106,14 +107,15 @@ Deno.serve(async (req) => {
   const action = body.action ?? "status";
 
   if (!provider.configured && action !== "status") {
-    return json({ ok: false, error: "not_configured", secrets: secretsStatus() }, 400);
+    return json({ ok: false, status: "not_configured" }, 400);
   }
 
   try {
     switch (action) {
       case "status": {
-        return json({ ok: true, ...(await deepStatus()) });
+        return json(await buildPublicStatus());
       }
+
       case "create": {
         const r = await provider.createOrUpdateSession(webhookUrl());
         return json(r, r.ok ? 200 : 502);
