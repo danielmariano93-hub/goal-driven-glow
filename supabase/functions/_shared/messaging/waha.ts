@@ -341,6 +341,9 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
           videoMessage?: { caption?: string };
         };
         pushName?: string;
+        hasMedia?: boolean;
+        mimetype?: string;
+        media?: { url?: string; mimetype?: string; filename?: string };
         _data?: { id?: { _serialized?: string } };
       };
     };
@@ -392,6 +395,11 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
       body,
       from_bot: false,
       received_at: new Date((pl.timestamp ?? Date.now() / 1000) * 1000).toISOString(),
+      media: pl.media?.url ? {
+        url: pl.media.url,
+        mime_type: pl.media.mimetype ?? pl.mimetype ?? "application/octet-stream",
+        filename: pl.media.filename,
+      } : undefined,
     };
   },
   // --- WahaExtras (portal admin) ---

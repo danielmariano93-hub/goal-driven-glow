@@ -14,7 +14,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ALLOWED_PATCH_KEYS = new Set([
   "description", "amount", "occurred_at", "category_id", "account_id",
   "credit_card_id", "payment_method", "installments_total", "installment_number",
-  "purchase_date", "competence_date", "status",
+  "purchase_date", "competence_date",
 ]);
 
 async function getUser(req: Request) {

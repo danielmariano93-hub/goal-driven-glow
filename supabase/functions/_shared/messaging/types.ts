@@ -9,6 +9,11 @@ export type NormalizedInbound = {
   body: string;
   from_bot: boolean;
   received_at: string; // ISO
+  media?: {
+    url: string;
+    mime_type: string;
+    filename?: string;
+  };
 };
 
 export interface MessagingProvider {

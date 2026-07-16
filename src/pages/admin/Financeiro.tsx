@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus } from "lucide-react";
+import { FileScan, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -10,6 +10,17 @@ type CompanyTx = {
   amount: number;
   occurred_at: string;
   description: string | null;
+};
+
+type DocumentMetrics = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  pending: number;
+  success_rate: number;
+  tokens_in: number;
+  tokens_out: number;
+  avg_latency_ms: number;
 };
 
 const brl = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
@@ -25,6 +36,15 @@ export default function Financeiro() {
       const { data, error } = await supabase.from("company_transactions" as any).select("*").order("occurred_at", { ascending: false }).limit(200);
       if (error) throw error;
       return (data as unknown as CompanyTx[]) ?? [];
+    },
+  });
+
+  const documents = useQuery({
+    queryKey: ["admin_document_metrics", 30],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_document_metrics" as never, { p_days: 30 } as never);
+      if (error) throw error;
+      return ((data as unknown as DocumentMetrics[] | null)?.[0] ?? null);
     },
   });
 
@@ -64,11 +84,36 @@ export default function Financeiro() {
         </p>
       </header>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Kpi label="Receitas" value={brl(totals.income)} tone="success" />
         <Kpi label="Despesas" value={brl(totals.expense)} tone="destructive" />
         <Kpi label="Saldo" value={brl(totals.income - totals.expense)} tone="primary" />
       </div>
+
+      <section className="surface-card p-5">
+        <div className="mb-4 flex min-w-0 items-center gap-2">
+          <FileScan size={16} className="shrink-0 text-primary" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">Leitura de documentos por IA</h2>
+            <p className="text-xs text-muted-foreground">Últimos 30 dias, sem expor dados financeiros dos usuários.</p>
+          </div>
+        </div>
+        {documents.isLoading ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : documents.isError ? (
+          <p className="text-sm text-muted-foreground">Não foi possível carregar estes indicadores agora.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Kpi label="Documentos" value={String(documents.data?.total ?? 0)} tone="primary" />
+            <Kpi label="Sucesso" value={`${documents.data?.success_rate ?? 0}%`} tone="success" />
+            <Kpi label="Falhas" value={String(documents.data?.failed ?? 0)} tone="destructive" />
+            <Kpi label="Latência média" value={`${documents.data?.avg_latency_ms ?? 0} ms`} tone="primary" />
+            <div className="col-span-2 rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground lg:col-span-4">
+              Tokens processados: {Number(documents.data?.tokens_in ?? 0).toLocaleString("pt-BR")} entrada · {Number(documents.data?.tokens_out ?? 0).toLocaleString("pt-BR")} saída · {documents.data?.pending ?? 0} pendente(s)
+            </div>
+          </div>
+        )}
+      </section>
 
       <div className="surface-card p-5 space-y-4">
         <h2 className="text-sm font-semibold flex items-center gap-2"><Plus size={14} /> Novo lançamento</h2>
