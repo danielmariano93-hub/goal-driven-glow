@@ -214,8 +214,14 @@ Deno.serve(async (req) => {
 
     await sb.from("document_imports").update({ status: "processing", sha256: sha }).eq("id", document_id);
 
-    // Call multimodal model with base64 data URL (bucket is private)
-    const b64 = btoa(String.fromCharCode(...bytes));
+    // Call multimodal model with base64 data URL (bucket is private).
+    // Chunked base64 to avoid Maximum call stack size exceeded on 5-10MB images.
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)) as unknown as number[]);
+    }
+    const b64 = btoa(bin);
     const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
     let extraction: ExtractionResult = { document_kind: "unknown", items: [], notes: null };

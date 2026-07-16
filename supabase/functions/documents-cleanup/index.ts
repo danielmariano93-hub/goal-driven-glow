@@ -9,8 +9,18 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET = "documents";
 
+const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Require either a service-role Authorization or an internal secret header.
+  const auth = req.headers.get("Authorization") ?? "";
+  const providedSecret = req.headers.get("x-internal-secret") ?? "";
+  const authorized =
+    auth === `Bearer ${SERVICE_ROLE}` ||
+    (INTERNAL_SECRET.length > 0 && providedSecret === INTERNAL_SECRET);
+  if (!authorized) return json({ error: "unauthorized" }, 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   let processed = 0, failed = 0;

@@ -172,6 +172,15 @@ export async function list_credit_cards(ctx: ToolContext): Promise<ToolResult> {
   return { ok: true, result: data ?? [] };
 }
 
+const METHOD_ONLY_TERMS = new Set([
+  "credito","crédito","debito","débito","pix","dinheiro","cartao","cartão",
+  "boleto","transferencia","transferência","ted","doc","fatura","credit_card","account",
+]);
+
+function normalizeDesc(s?: string | null): string {
+  return String(s ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
+}
+
 export async function create_transaction_draft(ctx: ToolContext, args: {
   type: "income"|"expense"; amount: number; account?: string;
   credit_card?: string; installments_total?: number;
@@ -180,6 +189,11 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   const amount = Number(args?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
   if (args.type !== "income" && args.type !== "expense") return { ok: false, error: "invalid_type" };
+  const rawDesc = (args.description ?? "").trim();
+  const normDesc = normalizeDesc(rawDesc);
+  if (rawDesc && METHOD_ONLY_TERMS.has(normDesc)) {
+    return { ok: false, error: "needs_description", hint: "A descrição não pode ser apenas o meio de pagamento (crédito, débito, pix, cartão…). Pergunte ao usuário 'em quê foi essa compra?' antes de criar o rascunho." } as any;
+  }
   const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
   const cat = await resolveCategoryId(ctx, args.category, args.type);
 
