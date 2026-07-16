@@ -207,10 +207,11 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           }}
           className="flex items-center gap-2 border-t border-border p-3"
         >
+          <AssessorAttachButton conversationId={convId} onExtracted={onExtracted} disabled={sending} />
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Escreva uma mensagem…"
+            placeholder="Escreva uma mensagem ou envie uma foto…"
             className="input-base flex-1"
             disabled={sending}
           />
@@ -224,6 +225,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </form>
       </div>
+      {reviewDocId && <ReviewSheet documentId={reviewDocId} onClose={() => setReviewDocId(null)} />}
     </div>
   );
 
