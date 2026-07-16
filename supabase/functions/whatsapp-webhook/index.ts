@@ -11,7 +11,7 @@
 //    active whatsapp_links row is allowed to orchestrate.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { getProvider, loadWahaConfig } from "../_shared/messaging/waha.ts";
+import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -40,6 +40,13 @@ Deno.serve(async (req) => {
 
   let payload: unknown;
   try { payload = JSON.parse(raw); } catch { return json({ error: "invalid_json" }, 400); }
+  // Reject events from foreign sessions sharing the Manager (e.g. default/sniper).
+  const evtSession = (payload as { session?: string } | null)?.session;
+  const expected = getSessionName();
+  if (evtSession && evtSession !== expected) {
+    console.log(`[webhook] ignored foreign session=${evtSession}`);
+    return json({ ok: true, ignored: "foreign_session" }, 200);
+  }
   const evt = provider.mapInboundEvent(payload);
   if (!evt) return json({ ok: true, ignored: "unmapped_or_bot" }, 200);
 
