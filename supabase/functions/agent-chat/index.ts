@@ -1,14 +1,30 @@
-// In-app assessor chat. Runs on user JWT, reuses agent LLM primitives and tools.
-// Persists conversation with source='app' — no WhatsApp outbound involved.
+// In-app assessor chat. Delegates to the same tool-calling agent core used by
+// WhatsApp (agent-run/orchestrator): loads recent conversation history, calls
+// runAgentTurn with the same tools + active prompt, intercepts CONFIRMAR /
+// CANCELAR deterministically against pending_confirmations, and returns any
+// pending draft so the app can render a confirmation card.
+//
+// Source is always 'app'; JWT of the user is verified; nothing is written to
+// WhatsApp outbound_messages.
 // deno-lint-ignore-file no-explicit-any
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { runAgentTurn, isLLMConfigured, sanitizeError } from "../_shared/agent/llm.ts";
+import { loadActivePrompt } from "../_shared/agent/prompt.ts";
+import { interpret } from "../_shared/agent/parser.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-
 const MAX_MSG_LEN = 2000;
+const HISTORY_TURNS = 20;
+
+type Pending = {
+  id: string;
+  kind: string;
+  summary_text: string;
+  payload: any;
+  expires_at: string;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -17,41 +33,40 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
-  // User client (verify JWT)
   const userClient = createClient(
     SUPABASE_URL,
     Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
-    { global: { headers: { Authorization: auth } } }
+    { global: { headers: { Authorization: auth } } },
   );
   const { data: userRes, error: userErr } = await userClient.auth.getUser();
   if (userErr || !userRes.user) return json({ error: "unauthorized" }, 401);
   const user_id = userRes.user.id;
 
   const body = await req.json().catch(() => ({}));
-  const text = String(body?.text ?? "").trim().slice(0, MAX_MSG_LEN);
+  const rawText = String(body?.text ?? "").trim();
+  const action = String(body?.action ?? "").trim(); // "confirm" | "cancel" | ""
+  const pendingId = typeof body?.pending_id === "string" ? body.pending_id : null;
   const requested_conv = typeof body?.conversation_id === "string" ? body.conversation_id : null;
-  if (!text) return json({ error: "missing_text" }, 400);
+  const text = rawText.slice(0, MAX_MSG_LEN);
+  if (!text && !action) return json({ error: "missing_text" }, 400);
 
   const svc = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  // Rate limit simples: 30 msgs/min por user
+  // Simple rate limit: 40 msgs/min per user for app source
   const { count } = await svc
     .from("conversation_messages")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user_id)
     .gte("created_at", new Date(Date.now() - 60_000).toISOString());
-  if ((count ?? 0) > 30) return json({ error: "rate_limited" }, 429);
+  if ((count ?? 0) > 40) return json({ error: "rate_limited" }, 429);
 
-  // Get or create conversation (source='app')
+  // Get or create app conversation
   let conversation_id = requested_conv;
   if (conversation_id) {
     const { data: conv } = await svc.from("conversations")
       .select("id, user_id, source")
-      .eq("id", conversation_id)
-      .maybeSingle();
-    if (!conv || conv.user_id !== user_id || conv.source !== "app") {
-      conversation_id = null;
-    }
+      .eq("id", conversation_id).maybeSingle();
+    if (!conv || conv.user_id !== user_id || conv.source !== "app") conversation_id = null;
   }
   if (!conversation_id) {
     const { data: newConv, error: convErr } = await svc.from("conversations")
@@ -61,125 +76,192 @@ Deno.serve(async (req) => {
     conversation_id = newConv!.id as string;
   }
 
-  // Save inbound
+  // ---- Deterministic short-circuit: explicit confirm/cancel actions from UI ----
+  if (action === "confirm" || action === "cancel") {
+    // Persist the click as an inbound message for auditability
+    await svc.from("conversation_messages").insert({
+      conversation_id, user_id, direction: "inbound",
+      body_masked: action === "confirm" ? "[Confirmar]" : "[Cancelar]",
+    } as any);
+
+    const pending = await findPending(svc, conversation_id, user_id, pendingId);
+    let reply = "";
+    let executed: any = null;
+    let pendingOut: Pending | null = null;
+
+    if (!pending) {
+      reply = "Não encontrei nada pendente. Me conte o que você quer registrar.";
+    } else if (action === "cancel") {
+      await svc.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", pending.id);
+      reply = "Combinado, cancelei este pedido.";
+    } else {
+      const { data: exec, error: execErr } = await svc.rpc("agent_execute_confirmation", {
+        p_confirmation_id: pending.id, p_source_message_id: null,
+      });
+      const okExec = exec as { ok: boolean; result?: any; error?: string; idempotent?: boolean } | null;
+      if (execErr || !okExec?.ok) {
+        reply = okExec?.error === "expired"
+          ? "Este pedido expirou. Envie de novo, por favor."
+          : okExec?.error === "card_not_owned"
+          ? "Não consegui encontrar esse cartão. Confira e tente de novo."
+          : "Não consegui concluir a operação. NÃO foi registrada. Quer tentar novamente?";
+      } else {
+        executed = okExec.result;
+        reply = okExec.idempotent
+          ? "Essa operação já havia sido confirmada. ✅"
+          : buildReceipt(pending.kind, okExec.result);
+      }
+    }
+
+    await svc.from("conversation_messages").insert({
+      conversation_id, user_id, direction: "outbound", body_masked: reply,
+    } as any);
+    await svc.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", conversation_id);
+    return json({ ok: true, conversation_id, reply, pending: pendingOut, executed });
+  }
+
+  // ---- Free-form text turn ----
   await svc.from("conversation_messages").insert({
     conversation_id, user_id, direction: "inbound", body_masked: text,
   } as any);
-  await svc.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", conversation_id);
 
-  // Reply
-  let reply = "";
-  try {
-    reply = await generateReply({ svc, user_id, text });
-  } catch (e) {
-    console.error("[agent-chat] llm_error", String((e as Error).message).slice(0, 200));
-    reply = "Não consegui processar agora. Tente reformular em poucas palavras (ex: 'como está meu mês?').";
+  // Deterministic intercept for CONFIRMAR / CANCELAR typed as free text
+  const parsed = interpret(text);
+  if (parsed.kind === "confirm" || parsed.kind === "cancel") {
+    const pending = await findPending(svc, conversation_id, user_id, null);
+    let reply = "";
+    let executed: any = null;
+    if (!pending) {
+      reply = parsed.kind === "confirm"
+        ? "Não encontrei nada pendente para confirmar. Me conte a operação primeiro."
+        : "Nada pendente para cancelar por aqui.";
+    } else if (parsed.kind === "cancel") {
+      await svc.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", pending.id);
+      reply = "Combinado, cancelei este pedido.";
+    } else {
+      const { data: exec } = await svc.rpc("agent_execute_confirmation", {
+        p_confirmation_id: pending.id, p_source_message_id: null,
+      });
+      const okExec = exec as { ok: boolean; result?: any; error?: string; idempotent?: boolean } | null;
+      if (!okExec?.ok) {
+        reply = okExec?.error === "expired"
+          ? "Este pedido expirou. Envie de novo, por favor."
+          : "Não consegui concluir. NÃO foi registrada.";
+      } else {
+        executed = okExec.result;
+        reply = okExec.idempotent
+          ? "Já havia sido confirmada. ✅"
+          : buildReceipt(pending.kind, okExec.result);
+      }
+    }
+    await svc.from("conversation_messages").insert({
+      conversation_id, user_id, direction: "outbound", body_masked: reply,
+    } as any);
+    await svc.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", conversation_id);
+    return json({ ok: true, conversation_id, reply, pending: null, executed });
   }
-  if (!reply) reply = "Certo. Me diga em uma frase o que você quer fazer.";
+
+  // Load recent history (exclude the just-inserted inbound message)
+  const { data: histRows } = await svc.from("conversation_messages")
+    .select("direction, body_masked, created_at")
+    .eq("conversation_id", conversation_id).eq("user_id", user_id)
+    .order("created_at", { ascending: false }).limit(HISTORY_TURNS + 1);
+  const history = (histRows ?? [])
+    .slice(1) // drop the current inbound
+    .reverse()
+    .map((r: any) => ({
+      role: r.direction === "inbound" ? "user" as const : "assistant" as const,
+      content: String(r.body_masked ?? ""),
+    }));
+
+  // Run the LLM turn with tools
+  let reply = "";
+  let errorSanitized: string | null = null;
+  const prompt = await loadActivePrompt(svc);
+  const startedAt = Date.now();
+  const { data: run } = await svc.from("agent_runs").insert({
+    user_id, conversation_id, prompt_version_id: prompt.id,
+    model: prompt.model, status: "running", started_at: new Date().toISOString(),
+  } as any).select("id").maybeSingle();
+  const run_id = run?.id as string | undefined;
+  const toolCallLog: any[] = [];
+  let steps = 0, tokensIn = 0, tokensOut = 0;
+
+  if (isLLMConfigured()) {
+    try {
+      const turn = await runAgentTurn(
+        { sb: svc, user_id, conversation_id },
+        text,
+        { model: prompt.model, maxSteps: prompt.max_steps, temperature: prompt.temperature, systemPrompt: prompt.system_prompt, timeoutMs: 25_000, history },
+      );
+      reply = turn.reply;
+      steps = turn.steps; tokensIn = turn.tokensIn; tokensOut = turn.tokensOut;
+      toolCallLog.push(...turn.toolCalls);
+    } catch (e) {
+      errorSanitized = sanitizeError(e);
+    }
+  } else {
+    reply = "Assessor indisponível no momento. Tente novamente em instantes.";
+  }
+  if (!reply) reply = "Certo. Pode me dizer em uma frase o que você quer fazer?";
+
+  // Look for the pending draft created during this turn (single per conversation)
+  const pendingOut = await findPending(svc, conversation_id, user_id, null);
+
+  const latency = Date.now() - startedAt;
+  if (run_id) {
+    await svc.from("agent_runs").update({
+      status: errorSanitized ? "error" : "done",
+      ended_at: new Date().toISOString(),
+      path: "llm", steps,
+      tokens_in: tokensIn || null, tokens_out: tokensOut || null,
+      latency_ms: latency,
+      error_sanitized: errorSanitized, error_masked: errorSanitized,
+    } as any).eq("id", run_id);
+    if (toolCallLog.length > 0) {
+      await svc.from("agent_tool_calls").insert(
+        toolCallLog.map((c) => ({
+          run_id, step_index: c.step_index, tool_name: c.tool_name,
+          args: c.args ?? {}, result: c.result ?? null,
+          ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
+        })),
+      );
+    }
+  }
 
   await svc.from("conversation_messages").insert({
     conversation_id, user_id, direction: "outbound", body_masked: reply,
   } as any);
+  await svc.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", conversation_id);
 
-  return json({ ok: true, conversation_id, reply });
+  return json({ ok: true, conversation_id, reply, pending: pendingOut, executed: null });
 });
 
-async function generateReply(args: { svc: any; user_id: string; text: string }): Promise<string> {
-  const { svc, user_id, text } = args;
+const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-  // Fetch a compact factual snapshot (safe fields only)
-  const [{ data: accounts }, { data: txs }, { data: goals }, { data: cards }] = await Promise.all([
-    svc.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id).eq("active", true).limit(20),
-    svc.from("transactions").select("type,amount,occurred_at,description,credit_card_id,competence_date")
-       .eq("user_id", user_id).order("occurred_at", { ascending: false }).limit(50),
-    svc.from("goals").select("name,target_amount,status").eq("user_id", user_id).limit(20),
-    svc.from("credit_cards").select("name,total_limit,closing_day,due_day").eq("user_id", user_id).eq("active", true).limit(10),
-  ]);
+function buildReceipt(kind: string, result: any): string {
+  if (kind === "transaction") {
+    const t = result?.type === "income" ? "Receita" : "Gasto";
+    const amt = BRL.format(Number(result?.amount ?? 0));
+    const via = result?.payment_method === "credit_card" ? " no cartão" : "";
+    return `${t} registrado${via}: ${amt}. ✅`;
+  }
+  if (kind === "transfer") return `Transferência registrada: ${BRL.format(Number(result?.amount ?? 0))}. ✅`;
+  if (kind === "goal") return `Meta criada: ${result?.name}. ✅`;
+  if (kind === "goal_contribution") return `Aporte registrado: ${BRL.format(Number(result?.amount ?? 0))}. ✅`;
+  if (kind === "debt") return `Dívida registrada: ${result?.name}. ✅`;
+  return "Pronto, registrei. ✅";
+}
 
-  const ym = new Date().toISOString().slice(0, 7);
-  const monthTxs = (txs ?? []).filter((t: any) => (t.occurred_at ?? "").startsWith(ym));
-  const income = monthTxs.filter((t: any) => t.type === "income").reduce((a: number, b: any) => a + Number(b.amount || 0), 0);
-  const expense = monthTxs.filter((t: any) => t.type === "expense").reduce((a: number, b: any) => a + Number(b.amount || 0), 0);
-  const cashOpening = (accounts ?? []).reduce((a: number, b: any) => a + Number(b.opening_balance || 0), 0);
-  const netFlow = (txs ?? []).reduce((a: number, t: any) => a + (t.type === "income" ? Number(t.amount) : t.type === "expense" ? -Number(t.amount) : 0), 0);
-  const cashNow = cashOpening + netFlow;
-
-  const facts = {
-    contas: (accounts ?? []).length,
-    saldo_estimado: Math.round(cashNow * 100) / 100,
-    entradas_mes: Math.round(income * 100) / 100,
-    saidas_mes: Math.round(expense * 100) / 100,
-    metas_ativas: (goals ?? []).filter((g: any) => g.status === "active").length,
-    cartoes: (cards ?? []).length,
-    fatura_atual_por_cartao: (cards ?? []).map((c: any) => {
-      const total = monthTxs
-        .filter((t: any) => (t as any).competence_date?.startsWith(ym))
-        .reduce((a: number, b: any) => a + Number(b.amount || 0), 0);
-      return { cartao: c.name, fatura_mes: Math.round(total * 100) / 100, limite: Number(c.total_limit || 0) };
-    }),
+async function findPending(sb: SupabaseClient, conversation_id: string, user_id: string, pendingId: string | null): Promise<Pending | null> {
+  const q = sb.from("pending_confirmations")
+    .select("id, kind, payload, summary_text, status, expires_at")
+    .eq("conversation_id", conversation_id).eq("user_id", user_id).eq("status", "pending");
+  const { data } = pendingId ? await q.eq("id", pendingId).maybeSingle() : await q.maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id as string, kind: data.kind as string,
+    summary_text: data.summary_text as string, payload: data.payload,
+    expires_at: data.expires_at as string,
   };
-
-  // Fallback determinístico se LLM não disponível
-  if (!LOVABLE_API_KEY) {
-    return buildDeterministicReply(text, facts);
-  }
-
-  try {
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": LOVABLE_API_KEY,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Você é o assessor financeiro do NoControle.ia dentro do app. " +
-              "Fale em português brasileiro, tom humano, direto, encorajador, sem culpa nem promessas. " +
-              "Use APENAS os fatos abaixo; nunca invente valores. Se faltar dado, peça de forma simples. " +
-              "Máx 4 linhas. Nada de linguagem técnica.\n\n" +
-              "Fatos do usuário (JSON): " + JSON.stringify(facts),
-          },
-          { role: "user", content: text },
-        ],
-        temperature: 0.4,
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) throw new Error(`gateway_${res.status}`);
-    const data = await res.json();
-    const out = String(data?.choices?.[0]?.message?.content ?? "").trim();
-    if (!out) return buildDeterministicReply(text, facts);
-    return out;
-  } catch (e) {
-    console.warn("[agent-chat] fallback", String((e as Error).message).slice(0, 100));
-    return buildDeterministicReply(text, facts);
-  }
-}
-
-function fmtBRL(n: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n || 0);
-}
-
-function buildDeterministicReply(text: string, f: any): string {
-  const t = text.toLowerCase();
-  if (t.includes("mês") || t.includes("mes")) {
-    return `Este mês: entradas ${fmtBRL(f.entradas_mes)}, saídas ${fmtBRL(f.saidas_mes)}. Saldo estimado ${fmtBRL(f.saldo_estimado)}. Quer ver por categoria?`;
-  }
-  if (t.includes("meta")) {
-    return f.metas_ativas > 0
-      ? `Você tem ${f.metas_ativas} meta(s) ativa(s). Quer registrar um aporte agora?`
-      : "Você ainda não tem metas ativas. Quer criar uma?";
-  }
-  if (t.includes("cartão") || t.includes("cartao") || t.includes("fatura")) {
-    if (!f.cartoes) return "Você ainda não cadastrou nenhum cartão. Posso te levar ao cadastro?";
-    const lines = f.fatura_atual_por_cartao
-      .map((c: any) => `• ${c.cartao}: fatura atual ${fmtBRL(c.fatura_mes)} (limite ${fmtBRL(c.limite)})`)
-      .join("\n");
-    return `Faturas em aberto:\n${lines}`;
-  }
-  return `Estou aqui. Posso te ajudar a registrar um gasto, analisar seu mês, revisar metas ou faturas. O que prefere?`;
 }
