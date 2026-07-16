@@ -5,9 +5,31 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-// The single official WhatsApp number of the platform. This is a placeholder until the WAHA
-// credentials are provisioned; the UI shows "número oficial em configuração" when unset.
-const OFFICIAL_NUMBER = (import.meta.env.VITE_WHATSAPP_OFFICIAL_NUMBER as string | undefined) ?? "";
+import { normalizeBrPhone } from "@/lib/phone";
+
+// The single official WhatsApp number of the platform. Resolved from the connected
+// WAHA session via the `whatsapp-official-number` edge function, with a persistent
+// sanitized fallback and a build-time env fallback.
+const OFFICIAL_NUMBER_ENV = (import.meta.env.VITE_WHATSAPP_OFFICIAL_NUMBER as string | undefined) ?? "";
+
+async function resolveOfficialNumber(): Promise<string | null> {
+  try {
+    const { data } = await supabase.functions.invoke<{ available: boolean; official_number: string | null }>(
+      "whatsapp-official-number", { method: "GET" as any });
+    if (data?.available && data.official_number) {
+      const n = normalizeBrPhone(data.official_number);
+      if (n) return n;
+    }
+  } catch { /* fallthrough */ }
+  try {
+    const { data } = await supabase.from("platform_public_config")
+      .select("value").eq("key", "official_whatsapp_number").maybeSingle();
+    const raw = (data as { value?: string } | null)?.value;
+    const n = raw ? normalizeBrPhone(raw) : null;
+    if (n) return n;
+  } catch { /* fallthrough */ }
+  return OFFICIAL_NUMBER_ENV ? normalizeBrPhone(OFFICIAL_NUMBER_ENV) : null;
+}
 
 type LinkRow = {
   id: string;
@@ -25,6 +47,10 @@ export default function WhatsApp() {
   const [ttl, setTtl] = useState<number>(0);
   const [consent, setConsent] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [officialNumber, setOfficialNumber] = useState<string | null>(null);
+
+  useEffect(() => { resolveOfficialNumber().then(setOfficialNumber); }, []);
+
 
   const refresh = async () => {
     setLoading(true);
@@ -67,8 +93,8 @@ export default function WhatsApp() {
     setLink(null);
   };
 
-  const waLink = code && OFFICIAL_NUMBER
-    ? `https://wa.me/${OFFICIAL_NUMBER.replace(/\D/g, "")}?text=${encodeURIComponent("VINCULAR " + code)}`
+  const waLink = code && officialNumber
+    ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent("VINCULAR " + code)}`
     : null;
 
   if (loading) {
@@ -123,9 +149,9 @@ export default function WhatsApp() {
           <p className="mt-3 text-xs text-muted-foreground">
             Código expira em {Math.floor(ttl / 60)}:{String(ttl % 60).padStart(2, "0")}. Este código aparece apenas uma vez.
           </p>
-          {!OFFICIAL_NUMBER && (
+          {!officialNumber && (
             <p className="mt-3 rounded-md bg-yellow-50 p-3 text-xs text-yellow-800">
-              O número oficial ainda está em configuração. Assim que estiver ativo o botão acima ficará disponível.
+              Não consegui localizar o número oficial agora. Tente novamente em instantes.
             </p>
           )}
         </div>
