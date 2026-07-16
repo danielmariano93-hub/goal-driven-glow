@@ -22,7 +22,11 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
 
   const bootHeader = req.headers.get("x-bootstrap-secret") ?? "";
-  if (!CRON_SECRET || bootHeader !== CRON_SECRET) {
+  const tokenHeader = req.headers.get("x-bootstrap-token") ?? "";
+  const bootToken = Deno.env.get("BOOTSTRAP_TOKEN") ?? "";
+  const okBySecret = CRON_SECRET && bootHeader === CRON_SECRET;
+  const okByToken = bootToken && tokenHeader === bootToken;
+  if (!okBySecret && !okByToken) {
     return json({ ok: false, error: "forbidden" }, 403);
   }
   if (!TARGET_PASSWORD) {
