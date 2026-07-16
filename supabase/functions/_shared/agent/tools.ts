@@ -531,6 +531,68 @@ export const AGENT_TOOLS: ToolSpec[] = [
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: cancel_pending_action,
   },
+  {
+    name: "search_transactions",
+    description: "Busca lançamentos do usuário por texto na descrição e/ou por período/tipo. Use antes de editar/excluir para achar o ID exato.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: optionalStr,
+        days: { type: "integer" },
+        type: { type: "string", enum: ["income", "expense", "transfer"] },
+        limit: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+    execute: search_transactions,
+  },
+  {
+    name: "get_transaction",
+    description: "Retorna todos os campos de um lançamento pelo ID, se pertencer ao usuário.",
+    parameters: {
+      type: "object",
+      properties: { transaction_id: requiredStr },
+      required: ["transaction_id"], additionalProperties: false,
+    },
+    execute: get_transaction,
+  },
+  {
+    name: "draft_transaction_update",
+    description: "Cria uma proposta de EDIÇÃO de um lançamento existente. Campos aceitos em patch: description, category (texto), amount, occurred_at, notes. Para parcelamentos, use scope 'one' (padrão), 'future' ou 'all'. Aguarda CONFIRMAR.",
+    parameters: {
+      type: "object",
+      properties: {
+        transaction_id: requiredStr,
+        patch: {
+          type: "object",
+          properties: {
+            description: { type: ["string", "null"] },
+            category: { type: ["string", "null"] },
+            amount: num,
+            occurred_at: optionalStr,
+            notes: { type: ["string", "null"] },
+          },
+          additionalProperties: false,
+        },
+        scope: { type: "string", enum: ["one", "future", "all"] },
+      },
+      required: ["transaction_id", "patch"], additionalProperties: false,
+    },
+    execute: draft_transaction_update,
+  },
+  {
+    name: "draft_transaction_delete",
+    description: "Cria uma proposta de EXCLUSÃO de um lançamento. Transferências sempre excluem o par. Aguarda CONFIRMAR.",
+    parameters: {
+      type: "object",
+      properties: {
+        transaction_id: requiredStr,
+        scope: { type: "string", enum: ["one", "future", "all"] },
+      },
+      required: ["transaction_id"], additionalProperties: false,
+    },
+    execute: draft_transaction_delete,
+  },
 ];
 
 export function toolByName(name: string): ToolSpec | null {
