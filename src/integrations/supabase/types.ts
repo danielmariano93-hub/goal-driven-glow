@@ -89,6 +89,27 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_action_rate: {
+        Row: {
+          action: string
+          actor_id: string
+          count: number
+          window_start: string
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          count?: number
+          window_start?: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          count?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       admin_grants_audit: {
         Row: {
           granted_at: string
@@ -2319,6 +2340,10 @@ export type Database = {
     }
     Functions: {
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
+      _vault_upsert: {
+        Args: { p_description: string; p_name: string; p_value: string }
+        Returns: string
+      }
       admin_agent_stats: { Args: never; Returns: Json }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
@@ -2352,6 +2377,10 @@ export type Database = {
         Args: { p_id: string }
         Returns: string
       }
+      admin_rate_check: {
+        Args: { p_action: string; p_limit?: number }
+        Returns: boolean
+      }
       admin_reject_deletion_request: {
         Args: { p_id: string; p_notes: string }
         Returns: undefined
@@ -2370,6 +2399,17 @@ export type Database = {
           user_id: string
           whatsapp_linked: boolean
         }[]
+      }
+      admin_waha_config_status: { Args: never; Returns: Json }
+      admin_waha_resolve_config: { Args: never; Returns: Json }
+      admin_waha_save_config: {
+        Args: {
+          p_api_key: string
+          p_session_name?: string
+          p_url: string
+          p_webhook_secret?: string
+        }
+        Returns: Json
       }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
