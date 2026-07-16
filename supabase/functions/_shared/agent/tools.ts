@@ -109,17 +109,15 @@ async function upsertDraft(ctx: ToolContext, kind: string, payload: any, summary
 }
 
 async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
-  if (!hintOrId) return null;
-  // If it looks like a UUID, verify ownership
-  if (/^[0-9a-f-]{36}$/i.test(hintOrId)) {
-    const { data } = await ctx.sb.from("accounts").select("id,name")
-      .eq("id", hintOrId).eq("user_id", ctx.user_id).maybeSingle();
-    return data ?? null;
-  }
-  const { data } = await ctx.sb.from("accounts").select("id,name")
+  if (hintOrId === undefined || hintOrId === null) return null;
+  const { data } = await ctx.sb.from("accounts").select("id,name,type")
     .eq("user_id", ctx.user_id).eq("active", true);
-  const h = hintOrId.toLowerCase();
-  return (data ?? []).find(a => (a.name as string).toLowerCase().includes(h)) ?? null;
+  const list: Candidate[] = (data ?? []).map((a: any) => ({
+    id: a.id, name: a.name, aliases: [a.type].filter(Boolean),
+  }));
+  const r = resolveEntity(hintOrId, list);
+  if (r.kind === "single") return { id: r.match.id, name: r.match.name };
+  return null;
 }
 
 async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined, type: "income"|"expense"): Promise<string | null> {
@@ -136,27 +134,22 @@ async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined,
   const { data: global } = await ctx.sb.from("categories").select("id,name,type")
     .is("user_id", null).in("type", [type, "both"] as any);
   const all = [...(personal ?? []), ...(global ?? [])];
-  const h = hintOrId.toLowerCase();
-  return all.find((c: any) => (c.name as string).toLowerCase().includes(h))?.id ?? null;
+  const list: Candidate[] = all.map((c: any) => ({ id: c.id, name: c.name }));
+  const r = resolveEntity(hintOrId, list);
+  if (r.kind === "single") return r.match.id;
+  return null;
 }
 
 async function resolveCreditCardId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
-  if (!hintOrId) return null;
-  if (/^[0-9a-f-]{36}$/i.test(hintOrId)) {
-    const { data } = await ctx.sb.from("credit_cards").select("id,name")
-      .eq("id", hintOrId).eq("user_id", ctx.user_id).eq("active", true).maybeSingle();
-    return data ?? null;
-  }
-  const { data } = await ctx.sb.from("credit_cards").select("id,name")
+  const { data } = await ctx.sb.from("credit_cards").select("id,name,brand,last_four")
     .eq("user_id", ctx.user_id).eq("active", true);
-  const h = hintOrId.toLowerCase();
-  // Best fit: substring; fallback to first when hint is generic ("cartão", "cartão de crédito")
-  const list = data ?? [];
-  const match = list.find((c) => (c.name as string).toLowerCase().includes(h));
-  if (match) return match;
-  if (/^(cart[aã]o( de cr[eé]dito)?|cr[eé]dito)$/i.test(hintOrId.trim()) && list.length === 1) {
-    return list[0];
-  }
+  const list: Candidate[] = (data ?? []).map((c: any) => ({
+    id: c.id, name: c.name,
+    aliases: [c.brand, c.last_four ? String(c.last_four) : null].filter(Boolean) as string[],
+  }));
+  // If no hint provided but exactly one card exists, resolve to it.
+  const r = resolveEntity(hintOrId ?? "", list);
+  if (r.kind === "single") return { id: r.match.id, name: r.match.name };
   return null;
 }
 
