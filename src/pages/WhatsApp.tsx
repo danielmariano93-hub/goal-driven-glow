@@ -93,8 +93,11 @@ export default function WhatsApp() {
     setLink(null);
   };
 
+  const linkMessage = code
+    ? `Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: ${code}`
+    : "";
   const waLink = code && officialNumber
-    ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent("VINCULAR " + code)}`
+    ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent(linkMessage)}`
     : null;
 
   if (loading) {
