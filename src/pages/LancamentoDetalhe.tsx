@@ -52,6 +52,9 @@ export default function LancamentoDetalhe() {
   const [amount, setAmount] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card">("account");
+  const [accountId, setAccountId] = useState<string | "">("");
+  const [cardId, setCardId] = useState<string | "">("");
 
   useEffect(() => {
     if (!id || !user) return;
@@ -68,6 +71,9 @@ export default function LancamentoDetalhe() {
       setAmount(String(t.amount));
       setOccurredAt(t.occurred_at);
       setNotes(t.notes ?? "");
+      setPaymentMethod((t.payment_method as "account" | "credit_card") ?? "account");
+      setAccountId(t.account_id ?? "");
+      setCardId(t.credit_card_id ?? "");
       setLoading(false);
     })();
     return () => { cancelled = true; };
