@@ -3,6 +3,7 @@ import { Loader2, ShieldAlert, CheckCircle2, XCircle, Play } from "lucide-react"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
+import { WhatsAppSessionPanel } from "./WhatsAppSessionPanel";
 
 type Health = {
   configured: boolean;
@@ -84,7 +85,7 @@ export default function AgenteAdmin() {
               A integração WhatsApp (WAHA) ainda não está configurada. Adicione os secrets abaixo em Project Settings → Secrets para ativar.
             </p>
             <ul className="mt-3 space-y-1">
-              {Object.entries(health?.secrets ?? { WAHA_BASE_URL: false, WAHA_API_KEY: false, WAHA_SESSION: false, WAHA_WEBHOOK_SECRET: false }).map(([k, v]) => (
+              {Object.entries(health?.secrets ?? { WAHA_API_URL: false, WAHA_API_KEY: false, WAHA_WEBHOOK_SECRET: false, CRON_SECRET: false, LOVABLE_API_KEY: false }).map(([k, v]) => (
                 <li key={k} className="flex items-center gap-2">
                   {v ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <XCircle className="h-4 w-4 text-red-500" />}
                   <code className="text-xs">{k}</code>
@@ -165,6 +166,8 @@ export default function AgenteAdmin() {
           ))}
         </div>
       </section>
+
+      <WhatsAppSessionPanel />
     </div>
   );
 }

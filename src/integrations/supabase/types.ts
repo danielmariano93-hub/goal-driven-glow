@@ -89,6 +89,30 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_grants_audit: {
+        Row: {
+          granted_at: string
+          granted_by: string
+          id: string
+          notes: string | null
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by: string
+          id?: string
+          notes?: string | null
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string
+          id?: string
+          notes?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_prompt_versions: {
         Row: {
           created_at: string
