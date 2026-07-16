@@ -146,19 +146,18 @@ Deno.serve(async (req) => {
         }
         const url = String(body.url ?? "").trim().replace(/\/+$/, "");
         const key = String(body.api_key ?? "").trim();
-        // session_name is a product-level constant, not a user-editable field.
-        const sessionName = "nocontrole";
+        // session_name is resolved server-side from Vault; frontend cannot set it.
+        // The RPC default handles first-time provisioning.
         const guard = assertPublicHttpsUrl(url);
         if (!guard.ok) return json({ ok: false, error_code: guard.code }, 400, extraHeaders);
         if (key.length < 4 || key.length > 500) return json({ ok: false, error_code: "invalid_api_key" }, 400, extraHeaders);
         const { error } = await gate.sb.rpc("admin_waha_save_config", {
           p_url: url, p_api_key: key,
           p_webhook_secret: body.webhook_secret ?? null,
-          p_session_name: sessionName,
         });
         if (error) return json({ ok: false, error_code: "save_failed" }, 500, extraHeaders);
         // Prime in-memory so follow-up actions in the same call chain see it.
-        primeWahaConfig({ api_url: url, api_key: key, session_name: sessionName });
+        primeWahaConfig({ api_url: url, api_key: key });
         const { data: statusData } = await gate.sb.rpc("admin_waha_config_status");
         return json({ ok: true, ...(statusData as Record<string, unknown>) }, 200, extraHeaders);
       }
