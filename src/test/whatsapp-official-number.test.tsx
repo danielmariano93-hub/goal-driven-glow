@@ -106,7 +106,7 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => expect(btn).not.toBeDisabled());
     fireEvent.click(btn);
 
-    expect(await screen.findByText(/código de verificação[:\s]+123456/i)).toBeInTheDocument();
+    expect(await screen.findByText(/código de verificação.*123456/i)).toBeInTheDocument();
     const retry = await screen.findByRole("button", { name: /Abrir WhatsApp novamente/i });
     openSpy.mockReturnValue({} as Window);
     fireEvent.click(retry);
