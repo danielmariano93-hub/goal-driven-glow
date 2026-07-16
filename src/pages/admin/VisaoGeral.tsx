@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Users, Activity, Bot, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { StatusChip } from "@/components/admin/StatusChip";
+import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
+import { mapWhatsAppStatus, mapAgentStatus } from "@/lib/admin/statusMapper";
 
 type Stats = {
   total_users: number;
