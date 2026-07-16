@@ -291,8 +291,31 @@ function ConnectDeviceCard({
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const preparedRef = useRef(false);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
+
+  const needsReset = status === "disconnected" || status === "needs_attention" || status === "unavailable";
+
+  const resetSession = useCallback(async () => {
+    if (resetting) return;
+    setResetting(true);
+    setQrError(null);
+    setCodeError(null);
+    setQr(null);
+    setPairingCode(null);
+    try {
+      const r = await call<{ ok: boolean; error_code?: string }>("reset_session");
+      if (!r.ok) toast.error("Não consegui redefinir a sessão.");
+      else toast.success("Sessão redefinida. Escaneie o QR ou peça o código.");
+    } catch {
+      toast.error("Falha ao redefinir a sessão.");
+    } finally {
+      if (alive.current) setResetting(false);
+    }
+  }, [resetting]);
+
 
   const generateQr = useCallback(async () => {
     setQrBusy(true);
