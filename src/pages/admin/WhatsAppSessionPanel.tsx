@@ -300,3 +300,30 @@ function OperationChecklist({ secrets }: { secrets?: Record<string, boolean> }) 
     </div>
   );
 }
+
+function SharedSessionConfirm({
+  label, icon, onConfirm, disabled, busy,
+}: { label: string; icon: React.ReactNode; onConfirm: () => void; disabled: boolean; busy: boolean }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <button disabled={disabled}
+          className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : icon} {label}
+        </button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Continuar com "{label}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta instância WAHA pode estar em uso por outro projeto (ex.: Sniper AI). Esta ação altera a sessão compartilhada e pode desconectar o outro projeto. Prossiga apenas com autorização explícita.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Confirmar e prosseguir</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
