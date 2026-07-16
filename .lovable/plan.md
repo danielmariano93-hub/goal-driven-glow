@@ -1,128 +1,158 @@
 
-# Plano — Conclusão do Beta NoControle.ia
+# Fechamento Funcional do Beta — NoControle.ia
 
-Escopo priorizado com ordem de execução por dependências. Preservar design, banco atual e infraestrutura WAHA. Migrations apenas incrementais. Sem publish/deploy.
+Plano organizado por dependências. Implementação nesta mesma rodada após aprovação/continuação automática. Sem publicação. Não reescreve agente LLM, WAHA, auth nem núcleo financeiro — apenas usa/estende.
 
-## Prioridade 1 — Agente LLM real + segurança/consistência
+## 1. Migrations (uma única migration incremental)
 
-**Migration incremental** (`agent_hardening`):
-- `agent_runs`: adicionar `path text check in ('llm','deterministic_fallback')`, `model`, `prompt_version_id`, `tokens_in/out`, `cost_cents`, `latency_ms`, `error_sanitized`.
-- `agent_tool_calls`: nova tabela (run_id, step_index, tool_name, args_jsonb, result_jsonb, ok, duration_ms, error).
-- `phone_link_codes`: adicionar `lookup_key` (hash HMAC do código com pepper server-side) + índice único parcial (ativo, não expirado). Manter `code_hash` (bcrypt/argon-like) para verificação.
-- `outbound_messages`: adicionar status `processing`, `claimed_at`, `lease_expires_at`. Atualizar `claim_outbound_batch` para NÃO marcar `sent` antecipadamente; nova RPC `mark_outbound_sent(id, provider_message_id)` e `recover_expired_leases()`.
-- `pending_confirmations`: adicionar `conversation_id` obrigatório na validação de CONFIRMAR/CANCELAR (já existe; reforçar checagem no executor).
-- `profiles.is_sandbox` já existe — validar uso.
+Novas tabelas (todas com RLS estrita por `auth.uid()`, GRANTs para authenticated/service_role, `updated_at` trigger onde aplicável):
 
-**Edge Functions**:
-- `supabase/functions/agent-run/index.ts`: reescrever para chamar Lovable AI Gateway (`LOVABLE_API_KEY`) via `@ai-sdk/openai-compatible` + `streamText`/`generateText` com tool calling estruturado. `stopWhen: stepCountIs(8)`, timeout, captura de tokens/custo/latência. Carrega prompt ativo de `agent_prompt_versions`. Se `LOVABLE_API_KEY` ausente OU erro → fallback determinístico rotulado (`path='deterministic_fallback'`). Registra `agent_runs` + `agent_steps` + `agent_tool_calls` a cada passo.
-- `_shared/agent/tools.ts`: definir 11 tools (Zod schemas estritos) — `list_accounts`, `list_categories`, `get_financial_summary`, `list_recent_transactions`, `create_transaction_draft`, `create_transfer_draft`, `create_goal_draft`, `add_goal_contribution_draft`, `create_debt_draft`, `run_before_spending`, `cancel_pending_action`. Cada `execute` recebe `user_id` do contexto do servidor (nunca do modelo), valida ownership no SQL, chama RPCs existentes ou `agent_upsert_draft`.
-- `run_before_spending` chama motor factual completo (portar `src/lib/engine/facts.ts` para `_shared/engine/facts.ts` reutilizável).
-- `whatsapp-webhook`: adicionar limite de body (ex. 128KB), validar timestamp (±5min), rejeitar tipos não suportados, dedupe por `provider_message_id`. Detectar CONFIRMAR/CANCELAR com validação de conversa/telefone antes de executar.
-- `whatsapp-send`: usar `processing → sent` após `sendText` OK. `whatsapp-ack-watchdog`: recuperar leases expirados.
-- `agent-run` só aceita `user_id` derivado (a) do webhook via `whatsapp_links` verificado ou (b) admin com `profiles.is_sandbox=true`.
+- `shared_expenses` — owner_user_id, title, description, total_amount numeric(14,2), occurred_at, due_date, split_mode (enum equal|custom), linked_transaction_id, reminder_enabled bool, status (draft|active|settled|cancelled), pix_key text (crypt-safe), timestamps.
+- `shared_expense_participants` — shared_expense_id, name, phone_e164, phone_masked (generated), amount_due, amount_paid default 0, status (pending|notified|partial|paid|waived|opted_out), last_reminded_at, reminder_count int default 0, paid_at, opt_out_at.
+- `shared_expense_events` — audit trail (created/updated/paid/reminded/settled).
+- `reminder_jobs` — shared_expense_id, participant_id, scheduled_for, status (queued|sent|failed|skipped), attempts, last_error, quiet_hours_respected. Consumido pela outbox existente.
+- `recurring_rules` — user_id, kind (income|expense), name, amount, account_id, category_id, frequency (daily|weekly|monthly|yearly), day_of_month, weekday, start_date, end_date, status (active|paused|finished), last_generated_at.
+- `recurring_occurrences` — recurring_rule_id, user_id, due_date, status (planned|confirmed|skipped), transaction_id, UNIQUE(recurring_rule_id, due_date) para idempotência.
+- `challenges_catalog` — slug, title, description, kind (spending_log|goal_contribution|emotion_checkin|pre_spend_review|custom), goal_value, duration_days, xp_reward, active bool. (Admin-gerenciada, leitura pública para authenticated.)
+- `user_challenges` — user_id, challenge_slug, status (active|paused|completed|abandoned), started_at, completed_at, current_progress, streak_count, last_progress_at.
+- `xp_events` — user_id, source_type, source_id, xp_delta, reason, occurred_at, UNIQUE(user_id, source_type, source_id) para idempotência.
+- `user_gamification` — user_id PK, total_xp, level (derivado), current_streak, longest_streak.
+- `notifications` — user_id, type (agent_confirmation|recurrence_due|goal_reached|split_reminder|import_done|achievement), title, body, action_url, read_at, dedup_key UNIQUE(user_id, dedup_key).
+- `notification_preferences` — user_id PK, por tipo (bool).
+- `data_exports` / `account_deletion_requests` — solicitações do usuário com status.
 
-**Estado conversacional**: `conversations` já tem coluna? Adicionar `pending_slots jsonb` para follow-up (ex. "quanto?", "que conta?").
+Extensões:
+- `transactions.origin` (enum manual|agent|import|recurring|split) + `import_source_id`.
+- `emotional_checkins` já existe; adicionar índice por `(user_id, occurred_at)`.
 
-## Prioridade 2 — Divisão do Rolê
+RPCs `SECURITY DEFINER`:
+- `split_create`, `split_add_payment`, `split_reverse_payment`, `split_send_reminders` (gera reminder_jobs respeitando cooldown/quiet hours).
+- `recurring_generate_due(p_user_id)` — idempotente via UNIQUE.
+- `challenge_progress_add(user_id, slug, delta, source_type, source_id)` — usa `xp_events` para dedup.
+- `notify_upsert(user_id, type, dedup_key, ...)` — idempotente.
+- `user_export_data()` retorna JSON completo do usuário; `user_request_deletion()` marca solicitação.
+- `admin_dashboard_stats_v2()` estende métricas.
 
-**Migration** (`shared_expenses`):
-- `shared_expenses` (id, owner_user_id, title, total_amount, occurred_at, due_at, note, financial_transaction_id nullable, status, created_at/updated_at).
-- `shared_expense_participants` (id, shared_expense_id, name, phone_e164_masked, phone_lookup_hash, amount, status pendente/pago/dispensado, paid_at, opt_out bool, last_reminder_at).
-- RLS: só owner acessa; participantes NÃO leem uns aos outros.
-- `reminder_jobs` (id, participant_id, scheduled_at, status, sent_at, error, rate_limit_bucket).
-- RPCs: `create_shared_expense_draft`, `confirm_shared_expense`, `mark_participant_paid`, `send_participant_reminder` (com rate limit, quiet hours 22h-8h SP, cooldown 24h).
+## 2. Arquivos a criar
 
-**UI**: `/app/divisao-do-role` — lista + criar (total, participantes com nomes/telefones, divisão igual/custom com validação de centavos = total), revisão, confirmação, histórico, botão reenvio manual.
+Frontend:
+- `src/pages/DivisaoDoRole.tsx` (listagem+filtros)
+- `src/pages/DivisaoDoRoleDetalhe.tsx` (detalhe/pagamentos/eventos)
+- `src/pages/DivisaoDoRoleNova.tsx` (wizard 3 passos)
+- `src/pages/Recorrencias.tsx` + `RecorrenciaForm.tsx`
+- `src/pages/Relatorios.tsx` (reescrito)
+- `src/pages/Desafios.tsx` + `DesafioDetalhe.tsx`
+- `src/pages/Notificacoes.tsx`
+- `src/components/NotificationBell.tsx` (header)
+- `src/pages/admin/AdminDivisao.tsx`, `AdminDesafios.tsx`, `AdminReminderJobs.tsx`
+- `src/lib/split/math.ts` (divisão com centavo residual)
+- `src/lib/import/csv.ts`, `src/lib/import/ofx.ts`, `src/lib/import/legacy.ts`
+- `src/lib/recurring/schedule.ts` (próximas ocorrências, fev/dia-31)
+- `src/lib/reports/aggregations.ts`
+- `src/lib/notifications/generate.ts`
+- `src/lib/emotions/correlations.ts` (com min-sample)
+- `src/lib/gamification/rules.ts`
 
-**Agente**: tool `create_shared_expense_draft`; parser BR entende "dividi 300 entre eu, Ana e João". Pede nomes/telefones ausentes via follow-up. Lembretes só após CONFIRMAR.
+Edge Functions:
+- `supabase/functions/split-reminders-dispatch/` — cron-friendly, consome `reminder_jobs`, respeita quiet hours BR e enfileira em `outbound_messages`.
+- `supabase/functions/recurring-generate/` — gera occurrences futuras/passadas até hoje.
+- `supabase/functions/user-data-export/` — retorna zip/json.
+- `supabase/functions/user-delete-account/` — orquestra exclusão.
 
-**Mensagem de cobrança**: template não revela outros participantes; identifica cobrador/título/valor/vencimento; suporta opt-out ("PARAR").
+Testes (`src/test/`):
+- `split-math.test.ts` (igual/custom, centavo residual, soma exata)
+- `import-legacy.test.ts` (fixture representativa financial_ecosystem_v2)
+- `import-csv.test.ts` (datas/valores BR, header mapping)
+- `import-ofx.test.ts` (FITID dedup)
+- `recurring-schedule.test.ts` (fev, dia 31, timezone SP, no-duplicate)
+- `emotions-correlations.test.ts` (amostra mínima → "insuficiente")
+- `gamification.test.ts` (idempotência XP)
+- `notifications-dedup.test.ts`
+- `reports-aggregations.test.ts`
 
-## Prioridade 3 — Importadores
+Fixture: `src/test/fixtures/financial_ecosystem_v2.json` com todas as chaves reais (lancamentos, metas, aportes, dividas, investimentos, emocoes, contasFixas, config, categoriasCustom).
 
-**Legado real** (`import_legacy_batch`): reescrever para aceitar `lancamentos`, `metas`, `aportes`, `dividas`, `investimentos`, `emocoes`, `contasFixas`, `config`, `categoriasCustom` (string[]). Mapear enums PT→EN (receita→income, despesa→expense, etc.), campos snake_case/PT. Dry-run com prévia por entidade. Erros por linha em `import_rows.notes`. Idempotência via `external_id`.
+## 3. Arquivos a alterar
 
-**CSV/OFX**: nova página `/app/importar` com upload local (limite 5MB), preview com mapeamento de colunas, escolha de conta destino, dedup por (data+valor+descrição) hash, confirmação antes de gravar. Parser CSV client-side (PapaParse) e OFX (regex/parser leve). Sem Open Finance.
+- `src/App.tsx` — novas rotas lazy.
+- `src/pages/MaisMenu.tsx` — links Divisão, Recorrências, Desafios, Relatórios, Importar.
+- `src/components/AppLayout.tsx` / `DesktopSidebar.tsx` — NotificationBell no header.
+- `src/pages/Emocoes.tsx` — cruzamento factual + amostra mínima.
+- `src/pages/Importar.tsx` — abas Legado / CSV / OFX, dry-run, preview, relatório.
+- `src/pages/Perfil.tsx` — export, exclusão, preferências de notificação, vínculo WhatsApp.
+- `src/pages/admin/Agente.tsx` — link para métricas novas.
+- `supabase/functions/_shared/agent/tools.ts` — tools `create_split_draft`, `list_split_pending` (draft-only, sem persistir).
+- `index.html` — meta tags NoControle.ia se ainda houver Mindful Money.
 
-## Prioridade 4 — Recorrências
+## 4. Fluxos e regras críticas
 
-Tabela `recurring_entries` já existe. UI `/app/recorrencias`: CRUD (receita/despesa, valor, conta, categoria, frequência mensal/semanal/anual, próxima data, data final, ativa/pausada). RPC `generate_recurring_planned(user_id, until_date)` idempotente (chave: recurring_id + data_alvo). Exibir próximos 30d no dashboard e no `run_before_spending`. Planned vs confirmed distintos.
+**Divisão do Rolê:** wizard captura → revisão → ativar. Divisão igual usa `floor(total/n)` e distribui resíduo (centavos) ao criador primeiro, depois ordem alfabética; regra visível na UI. Custom valida soma == total. Lembretes só após ação explícita do owner; cooldown 24h/participante, máx N=5, quiet hours 22:00–08:00 America/Sao_Paulo, opt-out link com token. Sem WAHA: reminder_jobs marca `skipped` motivo `provider_not_configured` e UI mostra badge "Envio indisponível". Telefones completos apenas server-side; UI mostra `phone_masked`.
 
-## Prioridade 5 — Relatórios
+**Importação legado:** parser dedicado em `lib/import/legacy.ts` que reconhece as chaves reais (`lancamentos`, `metas`, `aportes`, `dividas`, `investimentos`, `emocoes`, `contasFixas`, `config`, `categoriasCustom: string[]`) e mapeia enums pt→en (`receita`→income, `despesa`→expense). Dry-run → preview por entidade com contagem, incompatibilidades por linha, hash dedup. Só após confirmação: chama `import_legacy_batch`. Conta "Dados importados" criada apenas se necessário e após consentimento.
 
-Substituir placeholder `/app/relatorios`: gráficos (receitas x despesas por mês, top categorias, evolução patrimônio, metas/investimentos/dívidas). Filtros por período/conta/categoria. Exportação CSV. Empty states. Sem projeções inventadas — só fatos históricos.
+**CSV/OFX:** parser client-side (papaparse já disponível; OFX regex simples baseada em SGML). Limite 5MB. Preview + column mapping (CSV) / preview parsed (OFX). Dedup por hash `(account_id, occurred_at, amount, description)` + FITID quando OFX. Confirmação explícita antes de persistir via RPC `import_transactions_batch`.
 
-## Prioridade 6 — Desafios
+**Recorrências:** UI cria regra → `recurring-generate` (chamada manual "Processar agora" ou cron) cria `recurring_occurrences` com status `planned` até hoje+30d. Confirmar planned cria `transaction` origin=recurring. Timezone SP; fev/dia-31 → último dia do mês. UNIQUE(rule_id, due_date) impede duplicação.
 
-Tabelas `challenges`/`user_challenges` já existem. UI `/app/desafios`: catálogo, aderir/pausar/abandonar/concluir. Progresso derivado de fatos (query em transactions/goal_contributions), idempotente. Streak em `America/Sao_Paulo`. XP/conquistas idempotentes via eventos. Sem ranking.
+**Relatórios:** agregações em `lib/reports/aggregations.ts` com dados reais de `transactions`, `goals`, `investments`, `debts`, `recurring_occurrences`. Zero projeção fabricada; recorrências futuras rotuladas "planejado". Exportar CSV filtrado; print via `@media print`.
 
-## Admin / Simulador
+**Desafios:** seed em migration com 4 desafios iniciais. Progresso via triggers/RPC: cada `transaction`/`goal_contribution`/`emotional_checkin` chama `challenge_progress_add`. `xp_events` UNIQUE evita duplicação. Streak em SP. UI mostra progresso, XP, nível (`floor(sqrt(xp/100))`).
 
-- `/admin/agente`: expor path (llm/fallback), modelo, prompt versão, steps, tools chamadas, tokens/custo por run. Métricas agregadas sem PII.
-- Editor de prompt: draft → validar → publicar → rollback → diff. Auditoria em `agent_prompt_versions`.
-- Botão "Testar WAHA" e "Testar IA" separados, com resposta real.
-- Simulador: apenas usuários `is_sandbox=true`.
+**Emoções:** correlação = agrupamento factual (`GROUP BY mood, category`), mínimo 5 amostras para exibir; senão "amostra insuficiente". Sem linguagem causal.
 
-## Testes
+**Notificações:** geradas por gatilhos (pending_confirmations INSERT, recurring_occurrences próximas 3 dias, goal atingida, split reminder scheduled, import concluído, achievement). `dedup_key` idempotente. Bell no header com badge count.
 
-Novos:
-- `agent-orchestrator.test.ts`: LLM mockado + fallback rotulado.
-- `agent-tools.test.ts`: cada tool com ownership violation.
-- `outbox-lease.test.ts`: concorrência claim/recover.
-- `phone-link.test.ts`: lookup seguro, TTL, tentativas, cooldown.
-- `import-legacy-real.test.ts`: fixture `financial_ecosystem_v2` real.
-- `import-csv-ofx.test.ts`: parsers.
-- `shared-expense.test.ts`: divisão igual/custom centavos, lembrete rate limit.
-- `recurring.test.ts`: idempotência.
-- `challenges.test.ts`: progresso factual.
-- Isolamento RLS entre 2 users (integração).
+**Perfil:** export JSON via edge function retorna dump completo; exclusão marca `account_deletion_requests` e chama função que apaga rows do usuário (retenção mínima: logs de auditoria anonimizados).
 
-Rodar `vitest run`, `tsgo --noEmit`, `vite build`.
+## 5. Riscos de segurança
 
-## Arquivos principais
+- RLS Divisão: proprietário vê tudo; participantes NUNCA acessam o app; opt-out via token não-adivinhável (hash com constant-time compare).
+- Pix key: nunca em logs; masked na UI de terceiros.
+- Import: validação Zod antes de persistir; sem eval de conteúdo do arquivo; tamanho máximo.
+- Gamificação: XP só via RPC SECURITY DEFINER; usuário não faz UPDATE em `xp_events`/`user_gamification`.
+- Exclusão de conta: confirmação com digitação de "EXCLUIR MINHA CONTA".
+- Admin: `is_current_user_admin()` server-side; nenhuma PII de participantes de terceiros exposta.
 
-**Criar**:
-- `supabase/functions/_shared/agent/tools.ts`, `llm.ts`, `prompt.ts`
-- `supabase/functions/_shared/engine/facts.ts` (portado)
-- `supabase/functions/shared-expense-reminder/index.ts`
-- `supabase/functions/recurring-generate/index.ts`
-- `src/pages/DivisaoDoRole.tsx`, `Recorrencias.tsx`, `Desafios.tsx`
-- `src/pages/Relatorios.tsx` (rewrite)
-- `src/pages/Importar.tsx` (extend com CSV/OFX)
-- `src/lib/import/{csv,ofx,legacy}.ts`
-- `src/lib/engine/before-spending.ts` (motor completo compartilhado)
-- Migrations: `agent_hardening`, `shared_expenses`, `outbox_lease`, `phone_link_lookup`
+## 6. Testes e critérios de aceite
 
-**Editar**:
-- `supabase/functions/agent-run/index.ts` (rewrite completo)
-- `supabase/functions/whatsapp-webhook/index.ts`, `whatsapp-send/index.ts`, `whatsapp-ack-watchdog/index.ts`
-- `src/App.tsx` (rotas), `MaisMenu.tsx`, `DesktopSidebar.tsx`
-- `src/pages/admin/Agente.tsx`, `AgenteSimulador.tsx`
-- `src/integrations/supabase/types.ts` (regen auto)
+Executar `bun test` + `tsgo` + `bun run build`. Critérios:
+- Divisão igual R$100/3 → 33,34/33,33/33,33; custom soma exata; pagamento parcial atualiza saldo; desfazer volta status; lembrete sem WAHA marca skipped.
+- Import fixture legado insere todas as entidades sem duplicar em segunda execução.
+- CSV BR (`01/02/2026;R$ 1.234,56`) parseia; OFX FITID dedup.
+- Recorrência mensal dia 31 em fev gera 28/29; reprocessar não duplica.
+- Relatórios refletem transações reais; sem transações → empty state.
+- 5 emoções de mesma categoria → mostra correlação; 4 → "insuficiente".
+- XP não duplica ao reexecutar `challenge_progress_add` com mesmo source.
+- Notificação com mesmo `dedup_key` não duplica.
+- Dois usuários: SELECT cruzado retorna 0 rows.
 
-## Riscos
+## 7. Ordem de implementação
 
-- Sem `LOVABLE_API_KEY` configurado o agente opera só em fallback determinístico rotulado — admin exibe estado real.
-- Sem `WAHA_*` os lembretes ficam com status `not_sent` explícito.
-- Parser OFX simples pode falhar em formatos exóticos — reportar linha.
-- LGPD: telefones de participantes armazenados hasheados + máscara para exibição.
+1. Migration única com todas as tabelas/RPCs/seeds/GRANTs/RLS. (bloqueia tudo)
+2. Types regenerados → `src/lib/import/legacy.ts` + fixture + teste.
+3. `src/lib/split/math.ts` + testes.
+4. Páginas Divisão do Rolê (lista/nova/detalhe) + RPCs.
+5. Edge function `split-reminders-dispatch` + integração outbox.
+6. Recorrências (lib + página + edge function).
+7. Importar.tsx reescrito com 3 abas.
+8. Relatórios reescritos.
+9. Desafios + gamification lib + página + seed + triggers.
+10. Emoções: correlations + UI.
+11. Notificações: geração + bell + página + preferências.
+12. Perfil: export/exclusão/preferências.
+13. Admin: métricas + catálogo desafios + reminder_jobs viewer.
+14. Agent tools split (draft-only).
+15. Testes finais + build + typecheck.
 
-## Estimativa de créditos
+## 8. Estimativa relativa de créditos
 
-Alta. Priorização estrita (1→6) garante que interrupção deixe núcleo (agente+segurança+divisão) funcional. Recorrências/relatórios/desafios são incrementais sobre schema existente.
+Alta. Rodada grande (~30–40 arquivos novos, 1 migration extensa, 4 edge functions, ~10 arquivos de teste). Usuário autorizou consumir o necessário. Sem pausas por orçamento.
 
-## Ordem de implementação
+## Detalhes técnicos
 
-1. Migration `agent_hardening` + `outbox_lease` + `phone_link_lookup`
-2. `_shared/agent/{llm,tools,prompt}.ts` + rewrite `agent-run`
-3. Hardening webhook/send/watchdog
-4. Testes agente + outbox + phone-link
-5. Migration `shared_expenses` + UI + tool no agente + reminder function
-6. Importador legado real + CSV/OFX
-7. UI Recorrências + generate function
-8. Relatórios reais
-9. Desafios UI + progresso
-10. Admin editor de prompt + métricas
-11. Testes finais, typecheck, build
-
-Ao final: relatar em 3 blocos (evidências, entregue, dependências externas: `LOVABLE_API_KEY`, `WAHA_*`).
+- Todas as novas tabelas em `public` seguem o padrão: `CREATE TABLE` → `GRANT SELECT,INSERT,UPDATE,DELETE ... TO authenticated; GRANT ALL ... TO service_role;` → `ENABLE ROW LEVEL SECURITY` → `CREATE POLICY`.
+- Lazy-load todas as novas rotas.
+- Zod schemas em `src/lib/validation/` para cada entidade nova.
+- Toasts via `sonner`.
+- Nenhum novo pacote pesado; usar `papaparse` (já presente ou add leve) para CSV; OFX via parser próprio.
+- Design tokens existentes; sem cores hardcoded.

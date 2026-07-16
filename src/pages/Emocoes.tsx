@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Loader2, Smile } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, Smile, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { correlateByMoodCategory, MIN_SAMPLE, type CorrelationRow } from "@/lib/emotions/correlations";
+import { formatBRL } from "@/lib/split/math";
 
 const MOODS = [
   { v: 1, label: "Péssimo", emoji: "😞" },
@@ -113,7 +115,7 @@ export default function Emocoes() {
               <li key={h.id} className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
                 <div className="min-w-0">
                   <p className="text-sm">
-                    {MOODS.find((m) => m.v === h.mood)?.emoji} {MOODS.find((m) => m.v === h.mood)?.label}
+                    {MOODS.find((m) => m.v === Number(h.mood))?.emoji ?? "🙂"} {MOODS.find((m) => m.v === Number(h.mood))?.label ?? h.mood}
                     {h.trigger_label ? ` · ${h.trigger_label}` : ""}
                   </p>
                   {h.notes && <p className="mt-0.5 truncate text-xs text-muted-foreground">{h.notes}</p>}
@@ -126,6 +128,75 @@ export default function Emocoes() {
           </ul>
         )}
       </section>
+
+      <Correlations />
     </div>
+  );
+}
+
+function Correlations() {
+  const [rows, setRows] = useState<CorrelationRow[] | null>(null);
+  useEffect(() => {
+    (async () => {
+      const [{ data: txns }, { data: emo }] = await Promise.all([
+        supabase.from("transactions").select("occurred_at,amount,type,categories(name)").eq("type", "expense").order("occurred_at", { ascending: false }).limit(500),
+        supabase.from("emotional_checkins").select("occurred_at,mood").order("occurred_at", { ascending: false }).limit(500),
+      ]);
+      const byDay = new Map<string, string>();
+      (emo ?? []).forEach((e: any) => {
+        const d = String(e.occurred_at).slice(0, 10);
+        if (!byDay.has(d)) byDay.set(d, String(e.mood));
+      });
+      const pairs = (txns ?? [])
+        .map((t: any) => {
+          const d = String(t.occurred_at).slice(0, 10);
+          const mood = byDay.get(d);
+          if (!mood) return null;
+          return {
+            mood,
+            category: t.categories?.name ?? "Sem categoria",
+            weekday: new Date(t.occurred_at).getDay(),
+            amount: Number(t.amount),
+          };
+        })
+        .filter(Boolean) as any[];
+      setRows(correlateByMoodCategory(pairs));
+    })();
+  }, []);
+
+  if (rows === null) return null;
+  if (rows.length === 0) {
+    return (
+      <section className="mt-6">
+        <h2 className="mb-2 text-sm font-semibold flex items-center gap-1"><TrendingUp size={14} /> Correlações</h2>
+        <p className="text-xs text-muted-foreground surface-card p-4">
+          Sem dados suficientes ainda. Registre check-ins no mesmo dia de despesas para observar correlações.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="mt-6">
+      <h2 className="mb-2 text-sm font-semibold flex items-center gap-1"><TrendingUp size={14} /> Correlações emoção × categoria</h2>
+      <p className="text-[10px] text-muted-foreground mb-2">
+        Observação factual, não causal. Marcamos como suficiente apenas com ≥{MIN_SAMPLE} ocorrências.
+      </p>
+      <div className="surface-card divide-y divide-border overflow-hidden">
+        {rows.slice(0, 10).map((r, i) => {
+          const moodLabel = MOODS.find((m) => m.v === Number(r.mood))?.label ?? r.mood;
+          return (
+            <div key={i} className="px-3 py-2 flex items-center justify-between text-xs">
+              <div>
+                <p className="font-medium">{moodLabel} · {r.category}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {r.count}x · média {formatBRL(r.avg)} {r.sufficient ? "" : "(amostra insuficiente)"}
+                </p>
+              </div>
+              <span className={r.sufficient ? "font-semibold" : "text-muted-foreground"}>{formatBRL(r.total)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }

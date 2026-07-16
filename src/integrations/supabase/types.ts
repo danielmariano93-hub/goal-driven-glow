@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_deletion_requests: {
+        Row: {
+          id: string
+          processed_at: string | null
+          reason: string | null
+          requested_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          processed_at?: string | null
+          reason?: string | null
+          requested_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          processed_at?: string | null
+          reason?: string | null
+          requested_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       accounts: {
         Row: {
           active: boolean
@@ -345,6 +372,45 @@ export type Database = {
           id?: string
           slug?: string
           title?: string
+        }
+        Relationships: []
+      }
+      challenges_catalog: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string
+          duration_days: number
+          goal_value: number
+          kind: Database["public"]["Enums"]["challenge_kind"]
+          slug: string
+          title: string
+          updated_at: string
+          xp_reward: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description: string
+          duration_days?: number
+          goal_value?: number
+          kind: Database["public"]["Enums"]["challenge_kind"]
+          slug: string
+          title: string
+          updated_at?: string
+          xp_reward?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string
+          duration_days?: number
+          goal_value?: number
+          kind?: Database["public"]["Enums"]["challenge_kind"]
+          slug?: string
+          title?: string
+          updated_at?: string
+          xp_reward?: number
         }
         Relationships: []
       }
@@ -835,6 +901,78 @@ export type Database = {
           },
         ]
       }
+      notification_preferences: {
+        Row: {
+          achievement: boolean
+          agent_confirmation: boolean
+          goal_reached: boolean
+          import_done: boolean
+          recurrence_due: boolean
+          split_reminder: boolean
+          system: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement?: boolean
+          agent_confirmation?: boolean
+          goal_reached?: boolean
+          import_done?: boolean
+          recurrence_due?: boolean
+          split_reminder?: boolean
+          system?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          achievement?: boolean
+          agent_confirmation?: boolean
+          goal_reached?: boolean
+          import_done?: boolean
+          recurrence_due?: boolean
+          split_reminder?: boolean
+          system?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          action_url: string | null
+          body: string | null
+          created_at: string
+          dedup_key: string
+          id: string
+          read_at: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Insert: {
+          action_url?: string | null
+          body?: string | null
+          created_at?: string
+          dedup_key: string
+          id?: string
+          read_at?: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Update: {
+          action_url?: string | null
+          body?: string | null
+          created_at?: string
+          dedup_key?: string
+          id?: string
+          read_at?: string | null
+          title?: string
+          type?: Database["public"]["Enums"]["notification_type"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       outbound_messages: {
         Row: {
           attempts: number
@@ -1124,6 +1262,352 @@ export type Database = {
           },
         ]
       }
+      recurring_occurrences: {
+        Row: {
+          created_at: string
+          due_date: string
+          id: string
+          recurring_rule_id: string
+          status: Database["public"]["Enums"]["occurrence_status"]
+          transaction_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          due_date: string
+          id?: string
+          recurring_rule_id: string
+          status?: Database["public"]["Enums"]["occurrence_status"]
+          transaction_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          due_date?: string
+          id?: string
+          recurring_rule_id?: string
+          status?: Database["public"]["Enums"]["occurrence_status"]
+          transaction_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recurring_occurrences_recurring_rule_id_fkey"
+            columns: ["recurring_rule_id"]
+            isOneToOne: false
+            referencedRelation: "recurring_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_occurrences_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recurring_rules: {
+        Row: {
+          account_id: string
+          amount: number
+          category_id: string | null
+          created_at: string
+          day_of_month: number | null
+          end_date: string | null
+          frequency: Database["public"]["Enums"]["recurring_frequency"]
+          id: string
+          kind: Database["public"]["Enums"]["transaction_type"]
+          last_generated_at: string | null
+          name: string
+          start_date: string
+          status: Database["public"]["Enums"]["recurring_status"]
+          updated_at: string
+          user_id: string
+          weekday: number | null
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          category_id?: string | null
+          created_at?: string
+          day_of_month?: number | null
+          end_date?: string | null
+          frequency?: Database["public"]["Enums"]["recurring_frequency"]
+          id?: string
+          kind: Database["public"]["Enums"]["transaction_type"]
+          last_generated_at?: string | null
+          name: string
+          start_date?: string
+          status?: Database["public"]["Enums"]["recurring_status"]
+          updated_at?: string
+          user_id: string
+          weekday?: number | null
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          category_id?: string | null
+          created_at?: string
+          day_of_month?: number | null
+          end_date?: string | null
+          frequency?: Database["public"]["Enums"]["recurring_frequency"]
+          id?: string
+          kind?: Database["public"]["Enums"]["transaction_type"]
+          last_generated_at?: string | null
+          name?: string
+          start_date?: string
+          status?: Database["public"]["Enums"]["recurring_status"]
+          updated_at?: string
+          user_id?: string
+          weekday?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recurring_rules_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_rules_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reminder_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          outbound_message_id: string | null
+          owner_user_id: string
+          participant_id: string
+          scheduled_for: string
+          shared_expense_id: string
+          status: Database["public"]["Enums"]["reminder_status"]
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          outbound_message_id?: string | null
+          owner_user_id: string
+          participant_id: string
+          scheduled_for?: string
+          shared_expense_id: string
+          status?: Database["public"]["Enums"]["reminder_status"]
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          outbound_message_id?: string | null
+          owner_user_id?: string
+          participant_id?: string
+          scheduled_for?: string
+          shared_expense_id?: string
+          status?: Database["public"]["Enums"]["reminder_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_jobs_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_jobs_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shared_expense_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          owner_user_id: string
+          participant_id: string | null
+          payload: Json
+          shared_expense_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          owner_user_id: string
+          participant_id?: string | null
+          payload?: Json
+          shared_expense_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          owner_user_id?: string
+          participant_id?: string | null
+          payload?: Json
+          shared_expense_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expense_events_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expense_events_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shared_expense_participants: {
+        Row: {
+          amount_due: number
+          amount_paid: number
+          created_at: string
+          id: string
+          last_reminded_at: string | null
+          name: string
+          opt_out_at: string | null
+          opt_out_token: string | null
+          owner_user_id: string
+          paid_at: string | null
+          phone_e164: string | null
+          phone_masked: string | null
+          reminder_count: number
+          shared_expense_id: string
+          status: Database["public"]["Enums"]["participant_status"]
+          updated_at: string
+        }
+        Insert: {
+          amount_due: number
+          amount_paid?: number
+          created_at?: string
+          id?: string
+          last_reminded_at?: string | null
+          name: string
+          opt_out_at?: string | null
+          opt_out_token?: string | null
+          owner_user_id: string
+          paid_at?: string | null
+          phone_e164?: string | null
+          phone_masked?: string | null
+          reminder_count?: number
+          shared_expense_id: string
+          status?: Database["public"]["Enums"]["participant_status"]
+          updated_at?: string
+        }
+        Update: {
+          amount_due?: number
+          amount_paid?: number
+          created_at?: string
+          id?: string
+          last_reminded_at?: string | null
+          name?: string
+          opt_out_at?: string | null
+          opt_out_token?: string | null
+          owner_user_id?: string
+          paid_at?: string | null
+          phone_e164?: string | null
+          phone_masked?: string | null
+          reminder_count?: number
+          shared_expense_id?: string
+          status?: Database["public"]["Enums"]["participant_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expense_participants_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shared_expenses: {
+        Row: {
+          created_at: string
+          description: string | null
+          due_date: string | null
+          id: string
+          linked_transaction_id: string | null
+          occurred_at: string
+          owner_user_id: string
+          pix_key: string | null
+          reminder_enabled: boolean
+          split_mode: Database["public"]["Enums"]["split_mode"]
+          status: Database["public"]["Enums"]["split_status"]
+          title: string
+          total_amount: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          linked_transaction_id?: string | null
+          occurred_at?: string
+          owner_user_id: string
+          pix_key?: string | null
+          reminder_enabled?: boolean
+          split_mode?: Database["public"]["Enums"]["split_mode"]
+          status?: Database["public"]["Enums"]["split_status"]
+          title: string
+          total_amount: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          linked_transaction_id?: string | null
+          occurred_at?: string
+          owner_user_id?: string
+          pix_key?: string | null
+          reminder_enabled?: boolean
+          split_mode?: Database["public"]["Enums"]["split_mode"]
+          status?: Database["public"]["Enums"]["split_status"]
+          title?: string
+          total_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expenses_linked_transaction_id_fkey"
+            columns: ["linked_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           account_id: string
@@ -1134,8 +1618,10 @@ export type Database = {
           direction: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger: string | null
           id: string
+          import_source_id: string | null
           notes: string | null
           occurred_at: string
+          origin: Database["public"]["Enums"]["txn_origin"]
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -1151,8 +1637,10 @@ export type Database = {
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
           id?: string
+          import_source_id?: string | null
           notes?: string | null
           occurred_at: string
+          origin?: Database["public"]["Enums"]["txn_origin"]
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -1168,8 +1656,10 @@ export type Database = {
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
           id?: string
+          import_source_id?: string | null
           notes?: string | null
           occurred_at?: string
+          origin?: Database["public"]["Enums"]["txn_origin"]
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
@@ -1270,6 +1760,33 @@ export type Database = {
         }
         Relationships: []
       }
+      user_gamification: {
+        Row: {
+          current_streak: number
+          level: number
+          longest_streak: number
+          total_xp: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          current_streak?: number
+          level?: number
+          longest_streak?: number
+          total_xp?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          current_streak?: number
+          level?: number
+          longest_streak?: number
+          total_xp?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -1333,6 +1850,36 @@ export type Database = {
         }
         Relationships: []
       }
+      xp_events: {
+        Row: {
+          id: string
+          occurred_at: string
+          reason: string | null
+          source_id: string
+          source_type: string
+          user_id: string
+          xp_delta: number
+        }
+        Insert: {
+          id?: string
+          occurred_at?: string
+          reason?: string | null
+          source_id: string
+          source_type: string
+          user_id: string
+          xp_delta: number
+        }
+        Update: {
+          id?: string
+          occurred_at?: string
+          reason?: string | null
+          source_id?: string
+          source_type?: string
+          user_id?: string
+          xp_delta?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1360,6 +1907,15 @@ export type Database = {
         Returns: string
       }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
+      challenge_progress_add: {
+        Args: {
+          p_delta: number
+          p_slug: string
+          p_source_id: string
+          p_source_type: string
+        }
+        Returns: undefined
+      }
       claim_outbound_batch: {
         Args: { p_limit?: number }
         Returns: {
@@ -1425,7 +1981,12 @@ export type Database = {
             Returns: boolean
           }
       import_legacy_batch: { Args: { p_payload: Json }; Returns: Json }
+      import_transactions_batch: {
+        Args: { p_account_id: string; p_rows: Json }
+        Returns: Json
+      }
       is_current_user_admin: { Args: never; Returns: boolean }
+      join_challenge: { Args: { p_slug: string }; Returns: string }
       list_my_whatsapp_link: {
         Args: never
         Returns: {
@@ -1436,13 +1997,57 @@ export type Database = {
           status: Database["public"]["Enums"]["link_status"]
         }[]
       }
+      mark_all_notifications_read: { Args: never; Returns: number }
       mark_outbound_sent: {
         Args: { p_id: string; p_provider_message_id: string }
         Returns: undefined
       }
+      notify_upsert: {
+        Args: {
+          p_action_url: string
+          p_body: string
+          p_dedup_key: string
+          p_title: string
+          p_type: Database["public"]["Enums"]["notification_type"]
+          p_user_id: string
+        }
+        Returns: string
+      }
       recover_expired_outbound_leases: { Args: never; Returns: number }
+      recurring_confirm: { Args: { p_occurrence_id: string }; Returns: string }
+      recurring_generate_due: {
+        Args: { p_horizon_days?: number }
+        Returns: number
+      }
+      recurring_skip: { Args: { p_occurrence_id: string }; Returns: undefined }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
+      split_add_payment: {
+        Args: { p_amount: number; p_participant_id: string }
+        Returns: undefined
+      }
+      split_create: {
+        Args: {
+          p_due_date: string
+          p_include_owner: boolean
+          p_occurred_at: string
+          p_participants: Json
+          p_pix_key: string
+          p_reminder_enabled: boolean
+          p_split_mode: Database["public"]["Enums"]["split_mode"]
+          p_title: string
+          p_total: number
+        }
+        Returns: string
+      }
+      split_reverse_payment: {
+        Args: { p_participant_id: string }
+        Returns: undefined
+      }
+      split_send_reminders: {
+        Args: { p_shared_expense_id: string }
+        Returns: number
+      }
       update_agent_settings: {
         Args: {
           p_max_steps: number
@@ -1452,11 +2057,19 @@ export type Database = {
         }
         Returns: undefined
       }
+      user_export_data: { Args: never; Returns: Json }
+      user_request_deletion: { Args: { p_reason: string }; Returns: string }
     }
     Enums: {
       account_type: "checking" | "savings" | "cash" | "investment" | "other"
       app_role: "admin" | "user"
       category_type: "income" | "expense"
+      challenge_kind:
+        | "spending_log"
+        | "goal_contribution"
+        | "emotion_checkin"
+        | "pre_spend_review"
+        | "custom"
       confirmation_status: "pending" | "confirmed" | "cancelled" | "expired"
       debt_status: "active" | "settled" | "defaulted"
       goal_status: "active" | "paused" | "completed"
@@ -1473,12 +2086,33 @@ export type Database = {
         | "read"
         | "failed"
         | "dead"
+      notification_type:
+        | "agent_confirmation"
+        | "recurrence_due"
+        | "goal_reached"
+        | "split_reminder"
+        | "import_done"
+        | "achievement"
+        | "system"
+      occurrence_status: "planned" | "confirmed" | "skipped"
+      participant_status:
+        | "pending"
+        | "notified"
+        | "partial"
+        | "paid"
+        | "waived"
+        | "opted_out"
       prompt_status: "draft" | "active" | "archived"
       recurring_frequency: "daily" | "weekly" | "monthly" | "yearly"
+      recurring_status: "active" | "paused" | "finished"
+      reminder_status: "queued" | "sent" | "failed" | "skipped"
       run_status: "running" | "done" | "error" | "cancelled"
+      split_mode: "equal" | "custom"
+      split_status: "draft" | "active" | "settled" | "cancelled"
       transaction_status: "confirmed" | "planned"
       transaction_type: "income" | "expense" | "transfer"
       transfer_direction: "debit" | "credit"
+      txn_origin: "manual" | "agent" | "import" | "recurring" | "split"
       user_challenge_status: "joined" | "completed" | "abandoned"
     }
     CompositeTypes: {
@@ -1610,6 +2244,13 @@ export const Constants = {
       account_type: ["checking", "savings", "cash", "investment", "other"],
       app_role: ["admin", "user"],
       category_type: ["income", "expense"],
+      challenge_kind: [
+        "spending_log",
+        "goal_contribution",
+        "emotion_checkin",
+        "pre_spend_review",
+        "custom",
+      ],
       confirmation_status: ["pending", "confirmed", "cancelled", "expired"],
       debt_status: ["active", "settled", "defaulted"],
       goal_status: ["active", "paused", "completed"],
@@ -1627,12 +2268,35 @@ export const Constants = {
         "failed",
         "dead",
       ],
+      notification_type: [
+        "agent_confirmation",
+        "recurrence_due",
+        "goal_reached",
+        "split_reminder",
+        "import_done",
+        "achievement",
+        "system",
+      ],
+      occurrence_status: ["planned", "confirmed", "skipped"],
+      participant_status: [
+        "pending",
+        "notified",
+        "partial",
+        "paid",
+        "waived",
+        "opted_out",
+      ],
       prompt_status: ["draft", "active", "archived"],
       recurring_frequency: ["daily", "weekly", "monthly", "yearly"],
+      recurring_status: ["active", "paused", "finished"],
+      reminder_status: ["queued", "sent", "failed", "skipped"],
       run_status: ["running", "done", "error", "cancelled"],
+      split_mode: ["equal", "custom"],
+      split_status: ["draft", "active", "settled", "cancelled"],
       transaction_status: ["confirmed", "planned"],
       transaction_type: ["income", "expense", "transfer"],
       transfer_direction: ["debit", "credit"],
+      txn_origin: ["manual", "agent", "import", "recurring", "split"],
       user_challenge_status: ["joined", "completed", "abandoned"],
     },
   },
