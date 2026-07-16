@@ -1715,6 +1715,13 @@ export type Database = {
             foreignKeyName: "reminder_jobs_participant_id_fkey"
             columns: ["participant_id"]
             isOneToOne: false
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "reminder_jobs_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
             referencedRelation: "shared_expense_participants"
             referencedColumns: ["id"]
           },
@@ -1760,6 +1767,13 @@ export type Database = {
             foreignKeyName: "shared_expense_events_participant_id_fkey"
             columns: ["participant_id"]
             isOneToOne: false
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_events_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
             referencedRelation: "shared_expense_participants"
             referencedColumns: ["id"]
           },
@@ -1777,8 +1791,13 @@ export type Database = {
           amount_due: number
           amount_paid: number
           created_at: string
+          dispute_status: string
           id: string
+          invite_expires_at: string | null
+          invite_status: string
+          invite_token_hash: string | null
           last_reminded_at: string | null
+          linked_user_id: string | null
           name: string
           opt_out_at: string | null
           opt_out_token: string | null
@@ -1795,8 +1814,13 @@ export type Database = {
           amount_due: number
           amount_paid?: number
           created_at?: string
+          dispute_status?: string
           id?: string
+          invite_expires_at?: string | null
+          invite_status?: string
+          invite_token_hash?: string | null
           last_reminded_at?: string | null
+          linked_user_id?: string | null
           name: string
           opt_out_at?: string | null
           opt_out_token?: string | null
@@ -1813,8 +1837,13 @@ export type Database = {
           amount_due?: number
           amount_paid?: number
           created_at?: string
+          dispute_status?: string
           id?: string
+          invite_expires_at?: string | null
+          invite_status?: string
+          invite_token_hash?: string | null
           last_reminded_at?: string | null
+          linked_user_id?: string | null
           name?: string
           opt_out_at?: string | null
           opt_out_token?: string | null
@@ -2075,6 +2104,63 @@ export type Database = {
         }
         Relationships: []
       }
+      user_insights: {
+        Row: {
+          body: string
+          created_at: string
+          cta_label: string | null
+          cta_route: string | null
+          evidence: Json
+          expires_at: string
+          feedback: string | null
+          generated_at: string
+          id: string
+          model: string | null
+          prompt_version: string | null
+          status: string
+          title: string
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          cta_label?: string | null
+          cta_route?: string | null
+          evidence?: Json
+          expires_at?: string
+          feedback?: string | null
+          generated_at?: string
+          id?: string
+          model?: string | null
+          prompt_version?: string | null
+          status?: string
+          title: string
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          cta_label?: string | null
+          cta_route?: string | null
+          evidence?: Json
+          expires_at?: string
+          feedback?: string | null
+          generated_at?: string
+          id?: string
+          model?: string | null
+          prompt_version?: string | null
+          status?: string
+          title?: string
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -2170,9 +2256,36 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      my_shared_charges: {
+        Row: {
+          amount_due: number | null
+          amount_paid: number | null
+          created_at: string | null
+          dispute_status: string | null
+          due_date: string | null
+          occurred_at: string | null
+          owner_display_name: string | null
+          owner_user_id: string | null
+          participant_id: string | null
+          pix_key: string | null
+          reminder_enabled: boolean | null
+          shared_expense_id: string | null
+          status: Database["public"]["Enums"]["participant_status"] | null
+          title: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expense_participants_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
       admin_agent_stats: { Args: never; Returns: Json }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
@@ -2390,6 +2503,7 @@ export type Database = {
         Args: { p_amount: number; p_participant_id: string }
         Returns: undefined
       }
+      split_claim_pending: { Args: never; Returns: number }
       split_create: {
         Args: {
           p_due_date: string
@@ -2404,6 +2518,10 @@ export type Database = {
           p_total: number
         }
         Returns: string
+      }
+      split_participant_report: {
+        Args: { p_action: string; p_participant_id: string }
+        Returns: undefined
       }
       split_reverse_payment: {
         Args: { p_participant_id: string }

@@ -32,7 +32,7 @@ export default function Metas() {
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">Metas</h1>
-          <p className="text-sm text-muted-foreground">Progresso calculado a partir dos aportes.</p>
+          <p className="text-sm text-muted-foreground">Cada valor guardado te aproxima do que importa.</p>
         </div>
         <button
           onClick={() => {
@@ -52,8 +52,8 @@ export default function Metas() {
       ) : !goals || goals.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
           <Target className="mx-auto h-8 w-8 text-muted-foreground" />
-          <p className="mt-3 text-sm font-medium">Você ainda não tem metas</p>
-          <p className="mt-1 text-xs text-muted-foreground">Crie sua primeira meta e comece a aportar.</p>
+          <p className="mt-3 text-sm font-medium">Qual sonho você quer tirar do papel?</p>
+          <p className="mt-1 text-xs text-muted-foreground">Crie sua primeira meta e comece a guardar dinheiro em pequenos passos.</p>
         </div>
       ) : (
         <ul className="space-y-3">
@@ -84,13 +84,13 @@ export default function Metas() {
                     onClick={() => setContribFor(g)}
                     className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
                   >
-                    <TrendingUp size={12} /> Aportar
+                    <TrendingUp size={12} /> Guardar
                   </button>
                   <button
                     onClick={() => setExpanded(isOpen ? null : g.id)}
                     className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
                   >
-                    {isOpen ? "Ocultar aportes" : `Aportes (${goalContribs.length})`}
+                    {isOpen ? "Ocultar" : `Valores guardados (${goalContribs.length})`}
                   </button>
                   <button
                     onClick={() => {
@@ -287,7 +287,7 @@ function ContribModal({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
-        <h2 className="font-display text-lg font-bold">Aportar em "{goal.name}"</h2>
+        <h2 className="font-display text-lg font-bold">Guardar em "{goal.name}"</h2>
         <div className="mt-4 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -321,7 +321,7 @@ function ContribModal({
             Cancelar
           </button>
           <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aportar"}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar"}
           </button>
         </div>
       </form>
