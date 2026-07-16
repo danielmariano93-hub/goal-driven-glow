@@ -63,7 +63,7 @@ describe("WhatsAppSessionPanel — carregamento", () => {
   it("configured=false renderiza card estável sem inputs até clique explícito", async () => {
     installMock();
     render(<WhatsAppSessionPanel />);
-    await screen.findByText("Configurar conexão");
+    await screen.findByRole("button", { name: /Configurar conexão/i });
     expect(screen.queryByPlaceholderText("https://…")).toBeNull();
     // aguardar mais um ciclo simulando refresh externo
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
