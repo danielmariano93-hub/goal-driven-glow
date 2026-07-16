@@ -8,7 +8,8 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider } from "@/context/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { AdminRoute } from "@/components/auth/AdminRoute";
+import { PlatformAdminRoute } from "@/components/auth/PlatformAdminRoute";
+import { AdminLayout } from "@/components/admin/AdminLayout";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -16,7 +17,7 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import NotFound from "./pages/NotFound";
 
-// Lazy-load the authenticated app + admin surface to keep the initial bundle small.
+// Financial user (lazy)
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Index = lazy(() => import("./pages/Index"));
 const Lancamentos = lazy(() => import("./pages/Lancamentos"));
@@ -32,15 +33,25 @@ const Investimentos = lazy(() => import("./pages/Investimentos"));
 const MaisMenu = lazy(() => import("./pages/MaisMenu"));
 const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 const Importar = lazy(() => import("./pages/Importar"));
-const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
-const AgenteAdmin = lazy(() => import("./pages/admin/Agente"));
-const AgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
 const DivisaoDoRole = lazy(() => import("./pages/DivisaoDoRole"));
 const DivisaoDoRoleNova = lazy(() => import("./pages/DivisaoDoRoleNova"));
 const DivisaoDoRoleDetalhe = lazy(() => import("./pages/DivisaoDoRoleDetalhe"));
 const Recorrencias = lazy(() => import("./pages/Recorrencias"));
 const Desafios = lazy(() => import("./pages/Desafios"));
 const Notificacoes = lazy(() => import("./pages/Notificacoes"));
+
+// Platform admin (lazy)
+const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
+const AdminUsuarios = lazy(() => import("./pages/admin/Usuarios"));
+const AdminEngajamento = lazy(() => import("./pages/admin/Engajamento"));
+const AdminFinanceiro = lazy(() => import("./pages/admin/Financeiro"));
+const AdminAgente = lazy(() => import("./pages/admin/Agente"));
+const AdminAgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
+const AdminWhatsApp = lazy(() => import("./pages/admin/WhatsApp"));
+const AdminOperacao = lazy(() => import("./pages/admin/Operacao"));
+const AdminProduto = lazy(() => import("./pages/admin/Produto"));
+const AdminSeguranca = lazy(() => import("./pages/admin/Seguranca"));
+const AdminConfiguracoes = lazy(() => import("./pages/admin/Configuracoes"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -72,6 +83,7 @@ const App = () => (
                 element={<ProtectedRoute><Onboarding /></ProtectedRoute>}
               />
 
+              {/* Financial user app */}
               <Route
                 path="/app"
                 element={<ProtectedRoute><AppLayout /></ProtectedRoute>}
@@ -98,9 +110,23 @@ const App = () => (
                 <Route path="notificacoes" element={<Notificacoes />} />
               </Route>
 
-              <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-              <Route path="/admin/agente" element={<AdminRoute><AgenteAdmin /></AdminRoute>} />
-              <Route path="/admin/agente/simulador" element={<AdminRoute><AgenteSimulador /></AdminRoute>} />
+              {/* Platform admin — separate application */}
+              <Route
+                path="/admin"
+                element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}
+              >
+                <Route index element={<AdminVisaoGeral />} />
+                <Route path="usuarios" element={<AdminUsuarios />} />
+                <Route path="engajamento" element={<AdminEngajamento />} />
+                <Route path="financeiro" element={<AdminFinanceiro />} />
+                <Route path="agente" element={<AdminAgente />} />
+                <Route path="agente/simulador" element={<AdminAgenteSimulador />} />
+                <Route path="whatsapp" element={<AdminWhatsApp />} />
+                <Route path="operacao" element={<AdminOperacao />} />
+                <Route path="produto" element={<AdminProduto />} />
+                <Route path="seguranca" element={<AdminSeguranca />} />
+                <Route path="configuracoes" element={<AdminConfiguracoes />} />
+              </Route>
 
               <Route path="*" element={<NotFound />} />
             </Routes>
