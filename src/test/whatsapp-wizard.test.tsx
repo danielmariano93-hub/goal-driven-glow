@@ -135,3 +135,45 @@ describe("WhatsAppSetupWizard — fluxo e segurança", () => {
     expect(raw).not.toMatch(/api[_-]?key/i);
   });
 });
+
+describe("WhatsAppSessionPanel — Conectar aparelho (QR + código)", () => {
+  it("com status FAILED (needs_attention) mostra card 'Conectar aparelho' com abas", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
+  });
+
+  it("aba QR auto-carrega e renderiza imagem base64", async () => {
+    installMock({ configured: true, sessionStatus: "awaiting_qr" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    const img = await screen.findByAltText(/QR de conexão/i) as HTMLImageElement;
+    expect(img.src).toContain("data:image/png;base64,AAA");
+  });
+
+  it("aba Código pelo telefone gera pairing code e mostra bloco copiável", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    fireEvent.click(screen.getByRole("tab", { name: /Código pelo telefone/i }));
+    const phone = screen.getByPlaceholderText("+55 11 99999-9999") as HTMLInputElement;
+    fireEvent.change(phone, { target: { value: "+5511912345678" } });
+    fireEvent.click(screen.getByRole("button", { name: /Gerar código/i }));
+    await waitFor(() => expect(screen.getByText(/ABCD-1234/)).toBeInTheDocument());
+  });
+
+  it("erro method_unsupported no código mostra fallback QR sem quebrar", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention", codeError: "method_unsupported" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    fireEvent.click(screen.getByRole("tab", { name: /Código pelo telefone/i }));
+    const phone = screen.getByPlaceholderText("+55 11 99999-9999") as HTMLInputElement;
+    fireEvent.change(phone, { target: { value: "+5511912345678" } });
+    fireEvent.click(screen.getByRole("button", { name: /Gerar código/i }));
+    await waitFor(() => expect(screen.getByText(/não suporta o código por telefone/i)).toBeInTheDocument());
+    // aba QR continua acessível
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+  });
+});
