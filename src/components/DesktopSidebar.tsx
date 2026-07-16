@@ -11,7 +11,6 @@ import {
   PiggyBank,
   Tag,
   LogOut,
-  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -41,7 +40,7 @@ const navGroups = [
 export function DesktopSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, isAdmin } = useAuth();
+  const { signOut } = useAuth();
 
   const isActive = (path: string, exact?: boolean) =>
     exact ? location.pathname === path : location.pathname === path || location.pathname.startsWith(path + '/');
