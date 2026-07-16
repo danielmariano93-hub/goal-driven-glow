@@ -100,13 +100,30 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
     ]).finally(() => setLoading(false));
   }, [open]);
 
+  // Reactive polling: after a code is issued, poll list_my_whatsapp_link so
+  // the sheet reflects the vinculation as soon as the webhook confirms it,
+  // without requiring the user to close/reopen or log out.
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", handler);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
+    if (!open || !code || link) return;
+    let cancelled = false;
+    let ticks = 0;
+    const iv = setInterval(async () => {
+      ticks += 1;
+      const { data } = await supabase.rpc("list_my_whatsapp_link");
+      const row = (data?.[0] as LinkRow | undefined) ?? null;
+      if (row?.status === "active" && !cancelled) {
+        setLink(row);
+        setCode(null);
+        setPopupBlocked(false);
+        clearInterval(iv);
+        return;
+      }
+      if (ticks >= 40) clearInterval(iv); // ~3 minutes at 5s
+    }, 5_000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [open, code, link]);
+
+  useEffect(() => {
       window.removeEventListener("keydown", handler);
       document.body.style.overflow = prevOverflow;
     };
