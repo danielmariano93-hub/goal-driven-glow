@@ -162,20 +162,20 @@ Deno.serve(async (req) => {
       }
 
       case "send_test": {
-        if (!body.consent) return json({ ok: false, error: "consent_required" }, 400);
+        if (!body.consent) return json({ ok: false, error_code: "consent_required" }, 400);
         const to = normalizeBrPhone(String(body.to ?? ""));
-        if (!to) return json({ ok: false, error: "invalid_phone" }, 400);
+        if (!to) return json({ ok: false, error_code: "invalid_phone" }, 400);
         try {
           const r = await provider.sendText(to, "[TESTE NoControle.ia] Mensagem de teste enviada pelo painel administrativo.");
           return json({ ok: true, provider_message_id: r.provider_message_id });
-        } catch (e) {
-          return json({ ok: false, error: String((e as Error).message).slice(0, 120) }, 502);
+        } catch {
+          return json({ ok: false, error_code: "provider_error" }, 502);
         }
       }
       default:
-        return json({ ok: false, error: "unknown_action" }, 400);
+        return json({ ok: false, error_code: "unknown_action" }, 400);
     }
-  } catch (e) {
-    return json({ ok: false, error: String((e as Error).message).slice(0, 200) }, 500);
+  } catch {
+    return json({ ok: false, error_code: "internal_error" }, 500);
   }
 });
