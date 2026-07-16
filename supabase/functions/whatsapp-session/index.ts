@@ -120,7 +120,13 @@ Deno.serve(async (req) => {
       case "config_status": {
         const { data, error } = await gate.sb.rpc("admin_waha_config_status");
         if (error) return json({ ok: false, error_code: "config_status_failed" }, 500, extraHeaders);
-        return json({ ok: true, ...(data as Record<string, unknown>) }, 200, extraHeaders);
+        const payload = (data as Record<string, unknown>) ?? {};
+        return json({
+          ok: true,
+          ...payload,
+          admin_role: payload.admin_role ?? gate.role,
+          can_manage_config: gate.role === "platform_owner",
+        }, 200, extraHeaders);
       }
 
       case "test_config": {
