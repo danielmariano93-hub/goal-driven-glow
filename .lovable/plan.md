@@ -1,270 +1,342 @@
-# Painel de FinOps/Observabilidade da IA — plano consolidado
 
-## 1. Diagnóstico atual (constatado read-only)
+# NoControle.ia — Ingestão por imagem/print + Edição acessível de lançamentos
 
-- `agent_runs` já registra `tokens_in`, `tokens_out`, `cost_cents`, `model`, `path/source`, `latency_ms`, `steps`, `status`, `error_sanitized`, `started_at/finished_at`, `prompt_version_id`, `conversation_id`, `user_id`. **Não** há: `input_tokens_cached`, `reasoning_tokens`, `provider`, `capability/intent`, `retry_of`, `finish_reason`, `unit_price_input_snapshot`, `unit_price_output_snapshot`.
-- `cost_cents` **nunca é preenchido** hoje. Em `orchestrator.ts` e `agent-chat/index.ts` só são gravados `tokens_in/tokens_out`. O KPI "Custo USD 7d" na `VisaoGeral` é sempre 0.
-- `llm.ts` lê `usage.prompt_tokens` / `usage.completion_tokens` do gateway; ignora `usage.completion_tokens_details.reasoning_tokens`, `usage.prompt_tokens_details.cached_tokens` e headers de créditos que o Lovable Gateway retorna.
-- `agent_tool_calls` guarda step-a-step (duração, ok, args, result), sem tokens por step — suficiente para tool-call rate e loops.
-- Não há tabela de preços; nenhum snapshot de preço em `agent_runs`.
-- Não existe distinção entre **Build Credits (editor)**, **Cloud Credits (Supabase)** e **AI Gateway usage do app**. O painel só terá visão do último — o resto deve ser explicitamente rotulado como "não coberto".
-- Não existem budgets, alertas, projeções, nem fast-path metrics. Não há retry/idempotency flag em `agent_runs`.
-- Admin usa `is_current_user_admin()`; RLS de `agent_runs` já bloqueia usuário comum. Nenhuma PII financeira é exibida hoje no simulador — manter esse padrão.
+Plano único, executável em uma rodada. **Não altera** WAHA/webhook/sessão em runtime nesta rodada (apenas prepara o parser de mídia dentro do webhook existente, sem tocar infraestrutura Docker/VPS). **Não publica** frontend. Complementa o `.lovable/plan.md` de edição de lançamentos já implementado (RPCs `transaction_update_direct` / `transaction_delete_direct`, `version`, `purchase_group_id`, rota `/app/lancamentos/:id`).
 
-## 2. Arquitetura proposta
+---
+
+## 1. Diagnóstico do estado atual
+
+- `src/pages/Lancamentos.tsx`: lista renderiza apenas botão **Excluir** por linha. Existe `TxModal` com estado `editing`, mas nenhum caminho de UI aciona `setEditing(item)` a partir da lista → **edição não está exposta no mobile nem no desktop**. Toque na linha não faz nada. Modal antigo tampouco cobre cartão, parcelas e conta corretamente.
+- Rota `/app/lancamentos/:id` já existe (`LancamentoDetalhe.tsx`) com edição segura, versão otimista, escopo one/future/all e transferência read-only. Deep-link `?edit=1&focus=category` funcional.
+- Agente/WhatsApp: hoje só texto. `agent-chat` recebe `{ messages }` de texto; `whatsapp-webhook` ignora mídia. Não há bucket, tabelas de importação nem pipeline multimodal.
+- Extração canônica por spans já existe (`src/lib/agent/extract.ts` + shared em `supabase/functions/_shared/agent/extract.ts`).
+- `payment_method` schema real = `"credit_card" | "account"`. Vamos manter.
+
+## 2. Integração com o plano anterior (sem conflito)
+
+- Reutilizar `transactions.version`, `purchase_group_id`, `transaction_update_direct`, `transaction_delete_direct`, `agent_execute_confirmation`, `pending_confirmations`.
+- Reutilizar `LancamentoDetalhe.tsx` como destino do deep-link a partir da lista, do assessor e das cards do lote confirmado.
+- Não recriar migrations existentes. As novas migrations desta rodada adicionam apenas: `document_imports`, `extracted_items`, bucket privado, políticas RLS e função `confirm_document_import`.
+
+---
+
+## 3. Arquitetura de ingestão única (app + WhatsApp)
 
 ```text
-Edge Function (agent-chat / agent-run / orchestrator)
-  │  captura usage detalhado do gateway
-  ▼
-agent_runs (+ colunas novas)           ai_model_prices (tabela versionada)
-  │                                      │
-  ├─ trigger BEFORE INSERT/UPDATE ───────┤ resolve preço vigente por (provider,model,started_at)
-  │  grava snapshot de preços e         │
-  │  calcula cost_usd_micros            │
-  ▼
-Views materializadas leves + RPCs agregados (SECURITY DEFINER, admin only)
-  │
-  ▼
-Admin → /admin/ia (nova página) usa RPCs: kpis, séries diárias, top runs,
-        breakdown por modelo/source/capability, projeção, alertas.
-
-ai_budgets + ai_alerts → job diário (novo) avalia thresholds e grava alerts;
-UI mostra banner e histórico. Nenhuma ação automática de bloqueio nesta rodada.
+                       ┌────────────────────────────────────────────┐
+ App (chat/anexo) ───▶ │ Edge: assistant-ingest-document            │
+ WA webhook (media)─▶  │  1. baixa/valida mídia                     │
+                       │  2. upload bucket privado (documents/)     │
+                       │  3. cria document_imports (status=processing)
+                       │  4. chama LLM multimodal (visão)           │
+                       │  5. persiste extracted_items (needs_review)│
+                       │  6. dedupe + confidence                    │
+                       └────────────────────┬───────────────────────┘
+                                            │
+     ┌─────────── Assessor UI (chat) ◀──────┤  emite card resumo com CTA
+     │                                       │  "Revisar N lançamentos"
+     ▼                                       ▼
+ ReviewSheet (mobile) / ReviewPanel (desktop)
+  ├─ editar item (valor, data, conta/cartão, parcela, categoria)
+  ├─ marcar/ignorar duplicatas
+  ├─ confirmar seleção → RPC confirm_document_import(items[])
+  └─ resultado: transactions criadas com import_source + purchase_group_id
 ```
 
-## 3. Migration mínima (única)
+Uma única pipeline canônica para app e WhatsApp. Após ingestão, a imagem **não** volta ao modelo em turnos seguintes; a referência estruturada (draft) é anexada à `conversation` do assessor.
+
+---
+
+## 4. Schema/migration mínima
+
+Uma migration única:
 
 ```sql
--- 3.1 agent_runs: colunas novas (nullable, backfill 0/NULL)
-ALTER TABLE public.agent_runs
-  ADD COLUMN provider text,
-  ADD COLUMN capability text,
-  ADD COLUMN finish_reason text,
-  ADD COLUMN cached_input_tokens int NOT NULL DEFAULT 0,
-  ADD COLUMN reasoning_tokens int NOT NULL DEFAULT 0,
-  ADD COLUMN retry_of uuid REFERENCES public.agent_runs(id),
-  ADD COLUMN unit_price_input_micros bigint,   -- USD * 1e6 por 1M tokens
-  ADD COLUMN unit_price_output_micros bigint,
-  ADD COLUMN unit_price_cached_micros bigint,
-  ADD COLUMN unit_price_reasoning_micros bigint,
-  ADD COLUMN cost_usd_micros bigint NOT NULL DEFAULT 0,  -- fonte da verdade
-  ADD COLUMN cost_estimated boolean NOT NULL DEFAULT true;
-CREATE INDEX idx_agent_runs_started_at ON public.agent_runs(started_at);
-CREATE INDEX idx_agent_runs_model_started ON public.agent_runs(model, started_at);
-CREATE INDEX idx_agent_runs_source_started ON public.agent_runs(source, started_at);
-
--- 3.2 tabela de preços versionada
-CREATE TABLE public.ai_model_prices (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  provider text NOT NULL,
-  model text NOT NULL,
-  currency text NOT NULL DEFAULT 'USD',
-  input_micros_per_mtok bigint NOT NULL,
-  output_micros_per_mtok bigint NOT NULL,
-  cached_micros_per_mtok bigint,
-  reasoning_micros_per_mtok bigint,
-  effective_from timestamptz NOT NULL,
-  effective_to timestamptz,
-  source text NOT NULL,       -- 'lovable-docs', 'manual', etc
-  notes text,
-  created_at timestamptz NOT NULL DEFAULT now()
+-- 4.1 document_imports
+create table public.document_imports (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  source text not null check (source in ('app','whatsapp')),
+  storage_path text not null,             -- bucket 'documents' (privado)
+  mime_type text not null,
+  size_bytes int not null,
+  sha256 text not null,                    -- hash do arquivo (dedupe global por user)
+  document_kind text,                      -- 'receipt'|'invoice'|'statement'|'list'|'unknown'
+  status text not null default 'uploaded'
+    check (status in ('uploaded','processing','needs_review','confirmed',
+                      'partially_confirmed','failed','expired')),
+  model text, tokens_in int, tokens_out int, cost_usd_micros bigint,
+  raw_text text,                           -- OCR/visão bruto (opcional, retenção curta)
+  error text,
+  conversation_id uuid,
+  message_id uuid,
+  expires_at timestamptz default (now() + interval '30 days'),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(user_id, sha256)
 );
-CREATE INDEX idx_ai_prices_lookup ON public.ai_model_prices(model, effective_from DESC);
-ALTER TABLE public.ai_model_prices ENABLE ROW LEVEL SECURITY;
-GRANT SELECT ON public.ai_model_prices TO authenticated;
-GRANT ALL ON public.ai_model_prices TO service_role;
-CREATE POLICY "ai_prices admin read" ON public.ai_model_prices
-  FOR SELECT TO authenticated USING (public.is_current_user_admin());
+grant select, insert, update, delete on public.document_imports to authenticated;
+grant all on public.document_imports to service_role;
+alter table public.document_imports enable row level security;
+create policy "own docs" on public.document_imports for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- Seed inicial (valores públicos anotados como estimativa; source='manual-seed')
-INSERT INTO public.ai_model_prices(provider,model,input_micros_per_mtok,output_micros_per_mtok,cached_micros_per_mtok,reasoning_micros_per_mtok,effective_from,source) VALUES
-  ('google','google/gemini-3.5-flash',   …, …, …, …, now(), 'manual-seed'),
-  ('google','google/gemini-2.5-flash',   …, …, …, …, now(), 'manual-seed'),
-  ('google','google/gemini-2.5-pro',     …, …, …, …, now(), 'manual-seed'),
-  ('openai','openai/gpt-5.4-mini',       …, …, …, …, now(), 'manual-seed'),
-  ('openai','openai/gpt-5.5',            …, …, …, …, now(), 'manual-seed');
--- valores exatos preenchidos na rodada de execução a partir dos docs vigentes.
-
--- 3.3 função de cálculo + trigger que fixa snapshot
-CREATE OR REPLACE FUNCTION public.agent_runs_price_snapshot()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE p record;
-BEGIN
-  IF NEW.model IS NULL THEN RETURN NEW; END IF;
-  SELECT * INTO p FROM public.ai_model_prices
-    WHERE model = NEW.model
-      AND effective_from <= COALESCE(NEW.started_at, now())
-      AND (effective_to IS NULL OR effective_to > COALESCE(NEW.started_at, now()))
-    ORDER BY effective_from DESC LIMIT 1;
-  IF NOT FOUND THEN RETURN NEW; END IF;
-  NEW.unit_price_input_micros    := p.input_micros_per_mtok;
-  NEW.unit_price_output_micros   := p.output_micros_per_mtok;
-  NEW.unit_price_cached_micros   := p.cached_micros_per_mtok;
-  NEW.unit_price_reasoning_micros:= p.reasoning_micros_per_mtok;
-  NEW.cost_usd_micros := (
-      COALESCE(NEW.tokens_in,0)          * p.input_micros_per_mtok +
-      COALESCE(NEW.tokens_out,0)         * p.output_micros_per_mtok +
-      COALESCE(NEW.cached_input_tokens,0)* COALESCE(p.cached_micros_per_mtok,p.input_micros_per_mtok) +
-      COALESCE(NEW.reasoning_tokens,0)   * COALESCE(p.reasoning_micros_per_mtok,p.output_micros_per_mtok)
-    ) / 1000000;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER trg_agent_runs_price BEFORE INSERT OR UPDATE OF tokens_in,tokens_out,cached_input_tokens,reasoning_tokens,model
-  ON public.agent_runs FOR EACH ROW EXECUTE FUNCTION public.agent_runs_price_snapshot();
-
--- 3.4 budgets + alerts
-CREATE TABLE public.ai_budgets (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  scope text NOT NULL,          -- 'global' | 'model' | 'source'
-  scope_value text,
-  period text NOT NULL,         -- 'daily' | 'monthly'
-  limit_usd_micros bigint NOT NULL,
-  warn_pct int[] NOT NULL DEFAULT '{50,75,90,100}',
-  active boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now()
+-- 4.2 extracted_items
+create table public.extracted_items (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null references public.document_imports(id) on delete cascade,
+  user_id uuid not null,
+  idx int not null,                        -- ordem no documento
+  status text not null default 'needs_review'
+    check (status in ('needs_review','ignored','confirmed','duplicate_suspect','rejected')),
+  type text not null check (type in ('income','expense')),
+  amount numeric(14,2) not null,
+  occurred_at date not null,
+  description text,
+  payment_method text check (payment_method in ('account','credit_card')),
+  account_hint text, card_hint text,
+  account_id uuid, credit_card_id uuid,
+  category_id uuid, category_hint text,
+  installments_total int, installment_number int,
+  purchase_date date, competence_date date,
+  confidence jsonb not null default '{}'::jsonb,   -- por campo
+  duplicate_of uuid references public.transactions(id),
+  transaction_id uuid references public.transactions(id),
+  source_span jsonb,                                -- bbox/linha
+  raw jsonb,                                        -- item bruto do modelo
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(document_id, idx)
 );
-CREATE TABLE public.ai_alerts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  budget_id uuid REFERENCES public.ai_budgets(id) ON DELETE CASCADE,
-  kind text NOT NULL,           -- 'budget_threshold' | 'anomaly_spike' | 'loop' | 'retry_storm'
-  severity text NOT NULL,       -- 'info'|'warn'|'critical'
-  message text NOT NULL,
-  metadata jsonb NOT NULL DEFAULT '{}',
-  observed_at timestamptz NOT NULL DEFAULT now(),
-  acknowledged_at timestamptz
-);
-ALTER TABLE public.ai_budgets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_alerts  ENABLE ROW LEVEL SECURITY;
-GRANT SELECT,INSERT,UPDATE,DELETE ON public.ai_budgets TO authenticated;
-GRANT SELECT,UPDATE ON public.ai_alerts TO authenticated;
-GRANT ALL ON public.ai_budgets,public.ai_alerts TO service_role;
-CREATE POLICY "budgets admin" ON public.ai_budgets FOR ALL TO authenticated USING (public.is_current_user_admin()) WITH CHECK (public.is_current_user_admin());
-CREATE POLICY "alerts admin"  ON public.ai_alerts  FOR ALL TO authenticated USING (public.is_current_user_admin()) WITH CHECK (public.is_current_user_admin());
+grant select, insert, update, delete on public.extracted_items to authenticated;
+grant all on public.extracted_items to service_role;
+alter table public.extracted_items enable row level security;
+create policy "own items" on public.extracted_items for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- 3.5 RPCs agregadas (SECURITY DEFINER, checam is_current_user_admin)
---   admin_ai_kpis(from,to,filters jsonb) → jsonb
---   admin_ai_timeseries(from,to,granularity,filters) → jsonb
---   admin_ai_breakdown(dim,from,to,filters) → jsonb   dim ∈ model|source|capability|prompt_version|user
---   admin_ai_top_runs(from,to,limit,order_by) → jsonb  (sem conteúdo bruto)
---   admin_ai_run_detail(run_id) → jsonb  (tokens/steps/tools/erros; sem body de mensagens)
---   admin_ai_projection(from,to,horizon) → jsonb  (média móvel 7d, IC)
---   admin_ai_budgets_status() → jsonb
+-- 4.3 storage bucket privado 'documents' (criado via storage_create_bucket, public=false)
+-- policies em storage.objects: user só lê/escreve prefixo <user_id>/*
+
+-- 4.4 RPC confirm_document_import(p_document_id uuid, p_item_ids uuid[])
+-- SECURITY DEFINER, valida auth.uid() == document.user_id, escreve transactions
+-- em uma transação, aplica purchase_group_id para parcelamentos, retorna
+-- { ok, created:[{item_id, transaction_id}], skipped, errors }.
+-- Idempotente: se item.transaction_id já existe, ignora.
+
+-- 4.5 trigger para expirar/limpar raw_text após 7 dias (retenção curta).
 ```
 
-Todas RPCs `REVOKE ALL FROM public` e `GRANT EXECUTE TO authenticated`, gate por `is_current_user_admin()` no topo.
+Sem alteração em `transactions`.
 
-## 4. Captura de telemetria (Edge Functions)
+---
 
-Arquivos tocados: `supabase/functions/_shared/agent/llm.ts`, `_shared/agent/orchestrator.ts`, `agent-chat/index.ts`, `agent-run/index.ts`.
+## 5. Storage, retenção e privacidade
 
-- `llm.ts` `LLMTurn` passa a expor: `tokensIn, tokensOut, cachedInputTokens, reasoningTokens, finishReason, provider, model` — lidos de `usage.prompt_tokens`, `usage.completion_tokens`, `usage.prompt_tokens_details.cached_tokens`, `usage.completion_tokens_details.reasoning_tokens`, `choice.finish_reason`. Somar por step.
-- Marcar `cost_estimated=true` sempre; se o gateway retornar header/campo de créditos consumidos (a confirmar na execução via `websearch` nos docs Lovable AI Gateway), gravar em `metadata->>gateway_credits` e virar `cost_estimated=false` quando o custo final vier direto do gateway.
-- Orchestrator grava as novas colunas em `agent_runs` (o trigger calcula `cost_usd_micros`).
-- Adicionar `capability` derivada da intent detectada (`spending_entry`, `query`, `edit`, `delete`, `smalltalk`, `fast_path`); `provider` inferido do prefixo do model.
-- Fast-path (sem LLM): gravar run com `model=NULL`, `capability='fast_path'`, `tokens_in=tokens_out=0`, `cost_usd_micros=0` para permitir métrica de economia.
-- Retries/idempotência: quando o orquestrador refizer uma chamada por erro transitório, preencher `retry_of` com o run anterior.
+- Bucket `documents` **privado**, path `{user_id}/{document_id}.{ext}`.
+- Signed URL curta (5 min) apenas para o próprio usuário no ReviewSheet quando quiser rever a imagem.
+- Remover EXIF antes do upload. Limitar tamanho (10 MB), dimensões (máx 6000px lado maior), MIME real por magic bytes.
+- `raw_text` e imagem apagados por cron 7 dias após `status ∈ (confirmed, partially_confirmed, failed)`; `document_imports` metadados retidos 30 dias.
+- LGPD: aviso "vamos ler apenas dados financeiros deste documento; imagem apagada em até 7 dias". Nenhum treinamento com dados.
 
-Nenhuma alteração em `whatsapp-webhook`, WAHA, sessão.
+---
 
-## 5. Página admin `/admin/ia`
+## 6. Edge Functions e tools
 
-Arquivos:
-- `src/pages/admin/IA.tsx` (nova, entry-point).
-- `src/components/admin/ia/KpiGrid.tsx`, `TimeseriesChart.tsx`, `BreakdownBar.tsx`, `TopRunsTable.tsx`, `RunDetailSheet.tsx`, `ProjectionCard.tsx`, `BudgetsPanel.tsx`, `AlertsList.tsx`, `Filters.tsx`, `ExplainerTokens.tsx`.
-- `src/hooks/useAdminAiKpis.ts`, `useAdminAiTimeseries.ts`, `useAdminAiBreakdown.ts`, `useAdminAiTopRuns.ts`, `useAdminAiProjection.ts`, `useAdminAiBudgets.ts`.
-- `src/lib/admin/ai/format.ts` (formatadores BRL/USD/tokens/percentuais, taxa configurável via `platform_public_config`).
-- Registrar rota em `src/App.tsx` sob `PlatformAdminRoute`. Adicionar item no menu do admin.
+Novas Edge Functions:
 
-KPIs, filtros, visualizações e drill-down conforme requisitos §4 do pedido. Recharts (já no projeto) para gráficos. Toda ação em mobile-first, cards Itaú-like existentes.
+- `assistant-ingest-document` (chamada do app; body `{ storage_path | base64, mime, conversation_id }`): valida, cria `document_imports`, extrai com modelo multimodal (`google/gemini-3.1-flash` inicial; fallback `google/gemini-2.5-flash`), popula `extracted_items`, roda dedupe.
+- `assistant-review-actions` (get/update/delete/cancel/confirm): endpoint único para o assessor via tools.
+- `whatsapp-webhook` (**edit mínima, sem deploy nesta rodada**): planejar adição de branch `if (event.hasMedia)` que:
+  1. baixa `media.url` server-side com `WAHA_API_KEY` (do Vault), timeout curto;
+  2. copia para bucket `documents/`; 
+  3. chama `assistant-ingest-document`;
+  4. responde ao usuário "Recebi sua imagem, estou lendo…";
+  5. dedupe por `message_id` + `sha256`.
+  Nenhum deploy no WAHA/Docker; apenas código Deno.
 
-Drill-down (RunDetailSheet):
-- Mostra `run_id`, timestamps, model, provider, source, capability, prompt_version, steps, tokens (in/out/cached/reasoning), custo estimado, finish_reason, `retry_of`, `latency_ms`, lista de tool calls (name, ok, duration, redacted args/result — só chaves de alto nível), erro sanitizado.
-- Nunca renderiza `payload` de `conversation_messages`, transações do usuário, nem PII financeira.
+Novas tools do agente (`_shared/agent/tools.ts`):
 
-Explainer visível: tooltip "O que é token?" e nota fixa distinguindo:
-- **Build Credits** (uso do editor Lovable — visível apenas em lovable.dev, não aqui).
-- **Cloud Credits** (Supabase — não coberto aqui).
-- **AI Gateway usage** (métrica desta página; estimativa até o gateway expor custo final).
+- `ingest_financial_document(storage_ref)` — normalmente disparada pelo cliente após upload; agente confirma recebimento.
+- `get_document_status(document_id)`
+- `review_extracted_items(document_id)` — devolve lista compacta.
+- `update_extracted_item(item_id, patch)`
+- `confirm_document_import(document_id, item_ids[])`
+- `cancel_document_import(document_id)`
 
-## 6. Projeções
+`user_id` sempre do JWT no servidor; nunca do payload/modelo. Prompt do assessor recebe **apenas draft estruturado** (não a imagem) em turnos posteriores.
 
-`admin_ai_projection`:
-- Média móvel dos últimos N=7 dias de custo/tokens; extrapola até fim do mês.
-- Cenários "e se": 100/1k/10k usuários ativos × mensagens/dia editável no cliente (cálculo puro no front usando médias por usuário retornadas pela RPC).
-- Retorna `sample_size` e um `confidence` categórico (`low` quando `sample_size<50 runs` ou `<3 dias`).
+---
 
-## 7. Budgets & alertas
+## 7. UI — Edição acessível
 
-- Job diário novo: `supabase/functions/ai-budget-evaluator/index.ts` (cron via Supabase scheduled functions; se cron não estiver disponível no ambiente, chamar do `whatsapp-ack-watchdog` schedule já existente — a confirmar; não altera WAHA).
-- Avalia budgets ativos, agregando `cost_usd_micros` por período/scope; grava linhas em `ai_alerts` quando thresholds cruzam.
-- Detector de anomalia: z-score simples do custo diário vs 14d; loop = run com `steps >= max_steps` e sem `stop`; retry storm = >3 runs com mesmo `retry_of` chain.
-- UI: banner no topo de `/admin/ia` com alertas não-reconhecidos; botão "Reconhecer". Nenhum bloqueio de usuário nesta rodada.
+`src/pages/Lancamentos.tsx`:
 
-## 8. Otimizações de consumo (implementadas nesta rodada)
+- Linha inteira vira `<button role="link">` com hit target ≥ 48px, navegando para `/app/lancamentos/:id`.
+- Adicionar menu "⋯" (Radix `DropdownMenu`) por linha com **Editar**, **Duplicar**, **Excluir**. Excluir deixa de ser a única ação visível.
+- Ícone lápis com `aria-label="Editar"` visível em ≥ md.
+- Swipe (opcional, `framer-motion`) revela ações; nunca substitui o menu.
+- Empty state e loading permanecem.
+- Selecionar múltiplos (checkbox) — desativado nesta rodada (fora de escopo mínimo).
 
-Todas com métricas antes/depois via novas colunas:
-- Trocar janela de histórico em `llm.ts`/orchestrator de "últimas 20 mensagens" para "até X tokens" (padrão 2.500), usando estimador `chars/4` — configurável em `agent_settings`.
-- Selecionar apenas tools da intent atual (mapa capability→tools em `_shared/agent/tools.ts`).
-- `max_tokens` de saída configurável (default 512).
-- Step budget continua 6–8.
-- Loop guard: se detectar mesma tool com mesmos args duas vezes seguidas, cortar e responder pedindo confirmação.
-- Fast-path: agradecimentos, "ok", "obrigado", listagens simples → resposta determinística sem LLM; grava run como capability=`fast_path`.
-- Configurações vivem em `agent_settings` (já existe) ou em `platform_public_config`; nenhuma nova secret.
+`src/pages/LancamentoDetalhe.tsx` (já existe): 
 
-## 9. Privacidade / segurança
+- Adicionar botão "Editar" persistente no topo do detalhe quando `?edit=1` ausente.
+- Layout: mobile → tela cheia com safe-area (`env(safe-area-inset-bottom)`), teclado com `interactive-widget=resizes-content` no `index.html`.
+- Desktop → modal centralizado (max-w-2xl) sobre a lista.
+- Preservar automaticamente **conta vs cartão**: renderiza um bloco ou outro; troca de método exige confirmação explícita e chama `transaction_update_direct` com o patch coerente (`payment_method`, `account_id`, `credit_card_id`, `purchase_date`, `competence_date`).
+- Parcelamento: bloco de escopo `one|future|all` já implementado — habilitado só quando `purchase_group_id` existe.
+- Transferência: read-only + botão "Excluir par completo".
+- Deep-link `?edit=1&focus=<field>` foca campo específico.
+- Após salvar/excluir: invalida `transactions`, `assistant-tip`, `home-summary`, `cards-summary`, `insights`, `reports`.
 
-- Todas as RPCs e budgets/alerts gated por `is_current_user_admin()`.
-- Nenhuma coluna nova armazena conteúdo bruto; `agent_tool_calls.args/result` continua com a política de sanitização atual (já limitada). Adicionar checagem: RPC `admin_ai_run_detail` retorna apenas nomes de tools + `ok/duration`, nunca `args`/`result` completos.
-- Taxa USD→BRL configurável em `platform_public_config` (`fx_usd_brl`, default 5.0) — sempre rotulada como estimativa.
-- Nenhum service role no frontend. `LOVABLE_API_KEY` permanece somente em Edge Functions.
+## 8. UI — Ingestão e revisão em lote
 
-## 10. Testes bloqueadores (Vitest + supabase-js com JWT fixture admin/user)
+Novo componente `AssessorAttachButton` no chat do app:
 
-Arquivos em `src/test/`:
-- `ai-pricing.test.ts`: trigger fixa snapshot; alterar preço não muda run antigo; cálculo por modelo com cached/reasoning.
-- `ai-usage-capture.test.ts`: mock do gateway retorna usage completo → colunas preenchidas; sem usage → `cost_estimated=true` e `cost_usd_micros=0`.
-- `ai-aggregations.test.ts`: KPIs, timeseries e breakdown por período/source/model/capability em fixture pequena.
-- `ai-projection.test.ts`: amostra pequena → `confidence='low'`; média móvel bate com cálculo manual.
-- `ai-budgets.test.ts`: thresholds 50/75/90/100 disparam alerts uma vez; reconhecimento persiste.
-- `ai-anomaly.test.ts`: pico sintético dispara `anomaly_spike`; loop e retry_storm detectados.
-- `ai-fastpath.test.ts`: entrada "obrigado" não chama LLM, grava run com custo 0.
-- `ai-rls.test.ts`: usuário comum recebe erro em todas as RPCs; admin recebe dados; drill-down não contém args/result nem PII financeira.
-- `ai-format.test.ts`: BRL/USD/tokens/percentuais, timezone `America/Sao_Paulo`.
+- Botão clip; opções **Câmera**, **Galeria**, **Arquivo**. Preview miniatura, remover, reenviar.
+- Client faz: strip EXIF (canvas), compressão, upload direto para bucket `documents/` com signed upload URL emitida por `assistant-ingest-document` (mode=write). Sem service key no cliente.
+- Após upload, chama `assistant-ingest-document` → status card no chat.
 
-`bunx vitest run` bloqueia merge. `tsgo` sem erros. `bun run build` sem erros.
+Novo `ReviewSheet` (mobile bottom sheet / desktop modal):
 
-## 11. Sequência única de implementação
+- Cabeçalho com resumo (N itens, R$ total, tipo de documento).
+- Lista virtualizada de `extracted_items`:
+  - Checkbox de seleção; "selecionar todos/nenhum".
+  - Campos inline: descrição, valor, data, categoria, conta/cartão, parcelas.
+  - Badge de confidence e aviso "possível duplicata de …".
+  - Editar abre bottom sheet secundária com o mesmo formulário de `LancamentoDetalhe` reaproveitado.
+- Rodapé fixo: "Confirmar N lançamentos" (idempotente) + "Cancelar importação".
+- Resultado: toast + card no chat "Registrei N lançamentos. Ver lançamentos →".
 
-1. Migration §3 (colunas, tabelas, trigger, RPCs, grants, seed de preços com valores conferidos nos docs Lovable AI vigentes no momento da execução).
-2. `llm.ts` + orchestrator + agent-chat + agent-run: capturar usage completo, capability, retry_of, fast-path.
-3. Config de otimização (janela por tokens, seleção de tools por intent, max_tokens, loop guard).
-4. Página `/admin/ia` + componentes + hooks + rota + item de menu.
-5. Job `ai-budget-evaluator` + UI de budgets/alerts.
-6. Suíte de testes; `tsgo`; `bun run build`.
-7. Deploy apenas das Edge Functions afetadas (`agent-chat`, `agent-run`, `ai-budget-evaluator`). **Não** publicar frontend. **Não** tocar em WAHA/webhook/sessão.
+Sem transação criada antes da confirmação.
 
-## 12. Critérios de aceite
+---
 
-- Toda run nova grava input/output/cached/reasoning tokens, `provider`, `capability`, `finish_reason`, `cost_usd_micros` > 0 quando há tokens e preço; `cost_estimated=true` até o gateway expor custo final.
-- Mudar preço em `ai_model_prices` não altera custo de runs antigas.
-- `/admin/ia` exibe KPIs, séries diárias, breakdown por model/source/capability, top runs, projeção com faixa de confiança e explainer de tokens/créditos.
-- Budgets criáveis; alertas aparecem quando thresholds/anomalias/loops disparam; podem ser reconhecidos.
-- Usuário comum não acessa `/admin/ia` nem RPCs (RLS + rota protegida).
-- Drill-down nunca mostra conteúdo financeiro bruto do usuário.
-- Fast-path reduz runs LLM em ≥1 caso mensurável no teste; métrica visível no painel.
-- Suíte, `tsgo` e `bun run build` verdes.
-- Migrations aplicadas, edge functions afetadas implantadas, frontend **não** publicado.
+## 9. Extração e modelo canônico
 
-## 13. Riscos e gaps
+Prompt de visão (nova versão filha da ativa) exige JSON:
 
-- **Preços exatos** por modelo dependem dos docs Lovable AI no momento da execução; seed pode ficar desatualizado — mitigado por `ai_model_prices` versionada e badge "estimativa".
-- **Cobrança final do gateway**: se o Lovable AI Gateway não expor custo/creditos por request, permanece `cost_estimated=true` e mostramos apenas estimativa; a confirmar via `websearch` na rodada de execução.
-- **Cron de budget evaluator**: se Supabase scheduled functions não estiver habilitado, cair para execução ao carregar `/admin/ia` (recalcula on-demand com cache curto) — sem bloquear a entrega.
-- **Backfill de custo histórico**: runs antigas terão `cost_usd_micros=0`. Uma migration extra opcional pode rodar `UPDATE ... SET tokens_in=tokens_in` para disparar o trigger — incluída na rodada única, com log de linhas atualizadas.
-- **Reasoning tokens em modelos GPT-5.6** com `reasoning_effort=none` devem vir 0; teste garante isso.
-- Nenhum e-mail/WhatsApp de alerta nesta rodada (opcional, fora de escopo para preservar §"não alterar WAHA").
+```json
+{
+  "document_kind": "receipt|invoice|statement|list|non_financial|illegible",
+  "items": [{
+    "type":"expense|income",
+    "description":"literal",
+    "amount":123.45,
+    "occurred_at":"YYYY-MM-DD",
+    "payment_method":"account|credit_card|null",
+    "account_hint":"...", "card_hint":"...",
+    "installments_total":null, "installment_number":null,
+    "category_hint":"...",
+    "confidence":{"amount":0.9,"occurred_at":0.7,...},
+    "source_span":{"page":1,"bbox":[...]}
+  }],
+  "notes":"por que descartei linhas de saldo/limite"
+}
+```
 
-## 14. Fora de escopo
+Regras:
+- valores BR (`1.234,56`), datas BR;
+- nunca inventar texto ilegível;
+- excluir saldo, limite disponível, subtotais e pagamento de fatura de lista de compras;
+- reconhecer estorno como `income`;
+- se `document_kind` ∈ `non_financial|illegible`, responder pedindo outra imagem e não criar itens.
 
-WAHA, webhook, sessão, Meta Cloud, importação, split, gamificação, edição de transferências, novos módulos de relatório do usuário final, publicação do frontend, bloqueio automático de usuário por budget, integração com faturamento Lovable (Build/Cloud credits).
+---
+
+## 10. Duplicidade e reconciliação
+
+Após extração, para cada item:
+
+1. Buscar `transactions` do mesmo `user_id`, mesmo `amount`, mesma `occurred_at` ±2 dias, descrição normalizada Levenshtein ≤ 3, mesma conta/cartão inferida, mesmo `installment_number`.
+2. Se match forte → `status='duplicate_suspect'`, `duplicate_of=<tx.id>`.
+3. Fatura de cartão: se item for "pagamento fatura Nubank" e existir `transfer` com mesmo valor/data, marcar duplicata; nunca criar automaticamente.
+4. Hash `sha256` do documento + `idx` compõem `import_key` para idempotência; reprocessar mesmo doc não recria itens.
+5. UI oferece "já registrei", "importar mesmo assim", "ignorar".
+
+`transaction_update_direct`/`_delete_direct` continuam sendo o único caminho para alterar registros existentes.
+
+---
+
+## 11. Agente/conversa
+
+- Draft da importação persistido em `conversations.metadata` (jsonb) com `document_id` — não guardar imagem no histórico textual.
+- Assessor entende: "registre esses gastos", "o primeiro foi no Itaú", "não inclua o Uber", "categorize todos de mercado como Alimentação", "confirme só os três primeiros". Traduz para chamadas `update_extracted_item` + `confirm_document_import(item_ids)`.
+- Loop guard 6–8 passos; após confirmação, agente não reabre draft.
+- Mesma pipeline para WA: usuário manda foto, recebe card resumo por texto ("Encontrei 4 gastos. Toque para revisar: <link app>") — confirmação sempre no app (não expor toda a lista por WA neste release para evitar UX confusa; ampliar depois).
+
+---
+
+## 12. Admin — métricas sanitizadas
+
+Nova aba `/admin/documentos` (fora do painel FinOps): documentos recebidos por origem, processados/falhos/ilegíveis, itens extraídos vs confirmados, duplicatas detectadas, tempo médio, custo médio, taxa de correção manual, erros por etapa. Sem visualização de imagens nem valores brutos.
+
+---
+
+## 13. Testes bloqueadores (Vitest + fixtures)
+
+Unit/integração:
+- extractor multimodal com 5 fixtures (3 compras, fatura, recibo, ilegível, não-financeiro, valores BR, datas BR);
+- dedupe: hit, near-miss, pagamento fatura vs compra;
+- RPC `confirm_document_import`: idempotência, escopo, RLS A/B, `purchase_group_id` gerado para parcelas;
+- tools do agente: `update_extracted_item` valida ownership; `confirm_document_import` respeita item_ids;
+- UI Lançamentos: linha clicável, menu "⋯" com Editar/Duplicar/Excluir, botão Editar visível no detalhe;
+- Deep-link `/app/lancamentos/:id?edit=1&focus=category` foca campo;
+- Edição preserva `credit_card_id`/`account_id` conforme método; troca de método exige confirmação;
+- Transferência: fluxo read-only; exclusão apaga par;
+- WA webhook (unit, mock): dedupe por `message_id`+`sha256`; media.url ausente → mensagem "não consegui baixar";
+- Acessibilidade: hit targets ≥44, `aria-label`, foco visível.
+
+Também: typecheck, build, suíte completa verde.
+
+---
+
+## 14. Sequência única de implementação
+
+1. Migration (`document_imports`, `extracted_items`, bucket + policies, RPC `confirm_document_import`, trigger de retenção).
+2. Edge Functions: `assistant-ingest-document`, `assistant-review-actions`.
+3. Prompt filho v4 (visão multimodal) — criado inativo, ativado após testes.
+4. Tools agente + orquestrador (fast-path para intents de revisão).
+5. UI: `AssessorAttachButton`, `ReviewSheet`, ajustes em `AssessorPanel`.
+6. UI: `Lancamentos.tsx` (linha clicável, menu "⋯", swipe opcional).
+7. UI: `LancamentoDetalhe.tsx` (botão Editar persistente, layout mobile sheet).
+8. Webhook WA — adicionar branch de mídia **em código** (sem deploy Docker), com feature flag `WA_MEDIA_ENABLED=false` inicial. Deploy só após aprovação.
+9. Testes + suite + typecheck + build.
+10. Deploy das Edge Functions **exceto** `whatsapp-webhook` (mantido inalterado em runtime).
+
+---
+
+## 15. Critérios de aceite
+
+- Mobile: toque em uma linha da lista abre `/app/lancamentos/:id`; menu "⋯" oferece Editar/Duplicar/Excluir; Excluir não é a única ação aparente.
+- Detalhe mostra botão "Editar" persistente; formulário respeita conta vs cartão; parcelas com escopo; transferência read-only.
+- Chat do app aceita imagem, exibe preview, mostra card "Encontrei N lançamentos"; ReviewSheet permite editar/ignorar/confirmar; após confirmar, `transactions` criadas em lote com `import_source=document:<id>`.
+- Nenhum lançamento é criado antes de confirmação explícita.
+- Duplicatas sinalizadas; usuário decide.
+- Reprocessar mesmo documento não duplica itens.
+- Home, Lançamentos, Cartões, Insights e Relatórios refletem novos registros.
+- WA: código presente e testado, feature flag desligada (nenhum deploy WAHA nesta rodada).
+- Nenhuma exposição de service key, signed URL longa, EXIF ou PII em logs.
+- Suite completa, typecheck e build verdes.
+
+---
+
+## 16. Impacto estimado em tokens/custo
+
+- 1 documento com 3–10 itens ≈ 3–8k tokens (Gemini 3.1 Flash multimodal) ≈ US$ 0,002–0,006 por documento.
+- Após ingestão, turnos seguintes usam draft textual (~500 tokens) sem imagem.
+- Fast-path para `review_extracted_items`/`confirm_document_import` sem LLM.
+
+---
+
+## 17. Riscos e gaps
+
+- **Modelo multimodal**: variação em faturas mal fotografadas. Mitigação: confidence por campo + revisão obrigatória.
+- **WAHA `media.url`**: pode expirar; download server-side imediato; se falhar, pedir reenvio.
+- **Bucket público inadvertido**: garantir `public=false` e teste que confirma retorno 403 sem signed URL.
+- **Colisão de dedupe**: janela ±2 dias pode ser agressiva; tornar configurável, default 1 dia.
+- **UX WA em lote**: revisão real fica no app; WA envia apenas link/resumo.
+- **Retenção**: cron de expiração precisa de `pg_cron`/edge scheduled; se indisponível, executar via `agent-run`.
+- **Fora de escopo**: PDF multi-página, extratos > 50 linhas, exportação, alteração real de WAHA/Docker/VPS, publicação do frontend.
+
