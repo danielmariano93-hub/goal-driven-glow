@@ -2101,11 +2101,13 @@ export type Database = {
           origin: Database["public"]["Enums"]["txn_origin"]
           payment_method: string
           purchase_date: string | null
+          purchase_group_id: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
           updated_at: string
           user_id: string
+          version: number
         }
         Insert: {
           account_id?: string | null
@@ -2126,11 +2128,13 @@ export type Database = {
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
           purchase_date?: string | null
+          purchase_group_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
           updated_at?: string
           user_id: string
+          version?: number
         }
         Update: {
           account_id?: string | null
@@ -2151,11 +2155,13 @@ export type Database = {
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
           purchase_date?: string | null
+          purchase_group_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
           updated_at?: string
           user_id?: string
+          version?: number
         }
         Relationships: [
           {
@@ -2786,6 +2792,19 @@ export type Database = {
       split_send_reminders: {
         Args: { p_shared_expense_id: string }
         Returns: number
+      }
+      transaction_delete_direct: {
+        Args: { p_expected_version: number; p_id: string; p_scope?: string }
+        Returns: Json
+      }
+      transaction_update_direct: {
+        Args: {
+          p_expected_version: number
+          p_id: string
+          p_patch: Json
+          p_scope?: string
+        }
+        Returns: Json
       }
       update_agent_settings: {
         Args: {

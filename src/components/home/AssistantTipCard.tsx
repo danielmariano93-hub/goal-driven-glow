@@ -26,10 +26,20 @@ type Insight = {
   generated_at: string;
   expires_at: string;
   model: string | null;
+  evidence: Record<string, unknown> | null;
 };
 
 function isRenderable(i: Pick<Insight, "title" | "body"> | null | undefined): boolean {
   return !!i && typeof i.title === "string" && !!i.title.trim() && typeof i.body === "string" && !!i.body.trim();
+}
+
+function deepLinkForInsight(i: Insight): string | null {
+  const txId = (i.evidence as any)?.transaction_id;
+  if (typeof txId === "string" && /^[0-9a-f-]{36}$/i.test(txId)) {
+    const focus = i.type === "categorize_transaction" ? "&focus=category" : "";
+    return `/app/lancamentos/${txId}?edit=1${focus}`;
+  }
+  return null;
 }
 
 export function AssistantTipCard() {
@@ -119,7 +129,9 @@ export function AssistantTipCard() {
     ? localFallback.cta_label
     : (data!.cta_label && data!.cta_label.trim()) || localFallback.cta_label;
   const rawRoute = usingLocal ? localFallback.cta_route : data!.cta_route ?? localFallback.cta_route;
-  const ctaRoute = rawRoute && CTA_ROUTE_RX.test(rawRoute) ? rawRoute : "/app/lancamentos";
+  // Prioridade: deep-link para o lançamento específico via evidence.transaction_id.
+  const linkFromEvidence = !usingLocal && data ? deepLinkForInsight(data) : null;
+  const ctaRoute = linkFromEvidence ?? (rawRoute && CTA_ROUTE_RX.test(rawRoute) ? rawRoute : "/app/lancamentos");
 
   // Skeleton only on very first load (no data, still loading, no facts yet).
   if (isLoading && !data) {

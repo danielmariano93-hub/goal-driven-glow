@@ -301,6 +301,115 @@ export async function cancel_pending_action(ctx: ToolContext): Promise<ToolResul
   return { ok: true, result: { cancelled: true } };
 }
 
+// ---------- Read/edit tools (novas) ----------
+
+export async function search_transactions(ctx: ToolContext, args: {
+  query?: string; days?: number; type?: "income" | "expense" | "transfer"; limit?: number;
+}): Promise<ToolResult> {
+  const days = Math.max(1, Math.min(180, Number(args?.days ?? 60)));
+  const limit = Math.max(1, Math.min(20, Number(args?.limit ?? 10)));
+  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
+  let q = ctx.sb.from("transactions")
+    .select("id,type,amount,occurred_at,description,category_id,account_id,credit_card_id,payment_method,installment_number,installments_total,purchase_group_id,version")
+    .eq("user_id", ctx.user_id).gte("occurred_at", since)
+    .order("occurred_at", { ascending: false }).limit(limit * 2);
+  if (args?.type) q = q.eq("type", args.type);
+  const { data, error } = await q;
+  if (error) return { ok: false, error: error.message };
+  const term = (args?.query ?? "").trim().toLowerCase();
+  let rows = (data ?? []) as any[];
+  if (term) {
+    rows = rows.filter(r => String(r.description ?? "").toLowerCase().includes(term));
+  }
+  return { ok: true, result: rows.slice(0, limit) };
+}
+
+export async function get_transaction(ctx: ToolContext, args: { transaction_id: string }): Promise<ToolResult> {
+  if (!/^[0-9a-f-]{36}$/i.test(String(args?.transaction_id ?? ""))) return { ok: false, error: "invalid_id" };
+  const { data, error } = await ctx.sb.from("transactions")
+    .select("*").eq("id", args.transaction_id).eq("user_id", ctx.user_id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "not_found" };
+  return { ok: true, result: data };
+}
+
+export async function draft_transaction_update(ctx: ToolContext, args: {
+  transaction_id: string;
+  patch: { description?: string | null; category?: string | null; amount?: number; occurred_at?: string; notes?: string | null };
+  scope?: "one" | "future" | "all";
+}): Promise<ToolResult> {
+  const id = String(args?.transaction_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "invalid_id" };
+  const { data: tx, error } = await ctx.sb.from("transactions")
+    .select("id,user_id,version,type,amount,description,category_id,occurred_at,purchase_group_id,installment_number")
+    .eq("id", id).eq("user_id", ctx.user_id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!tx) return { ok: false, error: "not_owned" };
+  if ((tx as any).type === "transfer") return { ok: false, error: "transfer_not_editable" };
+
+  const scope = args.scope && ["one","future","all"].includes(args.scope)
+    ? (tx as any).purchase_group_id ? args.scope : "one"
+    : "one";
+
+  // Resolver categoria se veio como texto
+  const patch: Record<string, unknown> = {};
+  const p = args.patch ?? {};
+  if (typeof p.description === "string" || p.description === null) patch.description = p.description ?? null;
+  if (typeof p.amount === "number" && p.amount > 0) patch.amount = p.amount;
+  if (typeof p.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_at)) patch.occurred_at = p.occurred_at;
+  if (typeof p.notes === "string" || p.notes === null) patch.notes = p.notes ?? null;
+  if (p.category !== undefined) {
+    if (p.category === null || p.category === "" ) patch.category_id = null;
+    else {
+      const catId = await resolveCategoryId(ctx, String(p.category), (tx as any).type as "income" | "expense");
+      if (!catId) return { ok: false, error: "category_not_found" };
+      patch.category_id = catId;
+    }
+  }
+  if (Object.keys(patch).length === 0) return { ok: false, error: "empty_patch" };
+
+  const summary =
+    `Editar lançamento (${scope === "one" ? "esta parcela" : scope === "future" ? "esta e futuras" : "todas as parcelas"}): ` +
+    Object.entries(patch).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
+
+  const payload = {
+    transaction_id: id,
+    expected_version: (tx as any).version ?? 1,
+    scope, patch,
+    before: { description: (tx as any).description, category_id: (tx as any).category_id, amount: Number((tx as any).amount), occurred_at: (tx as any).occurred_at },
+  };
+  const draftId = await upsertDraft(ctx, "transaction_update", payload, summary);
+  if (!draftId) return { ok: false, error: "draft_failed" };
+  return { ok: true, result: { draft_id: draftId, summary, transaction_id: id, scope, patch, before: (payload as any).before } };
+}
+
+export async function draft_transaction_delete(ctx: ToolContext, args: {
+  transaction_id: string; scope?: "one" | "future" | "all";
+}): Promise<ToolResult> {
+  const id = String(args?.transaction_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "invalid_id" };
+  const { data: tx, error } = await ctx.sb.from("transactions")
+    .select("id,user_id,version,type,amount,description,occurred_at,purchase_group_id,installment_number,transfer_group_id")
+    .eq("id", id).eq("user_id", ctx.user_id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!tx) return { ok: false, error: "not_owned" };
+  const scope = args.scope && ["one","future","all"].includes(args.scope)
+    ? (tx as any).purchase_group_id ? args.scope : "one"
+    : "one";
+  const label = (tx as any).type === "transfer"
+    ? "Excluir transferência (par completo)"
+    : `Excluir lançamento (${scope === "one" ? "esta parcela" : scope === "future" ? "esta e futuras" : "todas as parcelas"})`;
+  const payload = {
+    transaction_id: id,
+    expected_version: (tx as any).version ?? 1,
+    scope,
+    before: { description: (tx as any).description, amount: Number((tx as any).amount), occurred_at: (tx as any).occurred_at },
+  };
+  const draftId = await upsertDraft(ctx, "transaction_delete", payload, label);
+  if (!draftId) return { ok: false, error: "draft_failed" };
+  return { ok: true, result: { draft_id: draftId, summary: label, transaction_id: id, scope } };
+}
+
 // ---------- Registry (name → executor + JSON Schema) ----------
 
 export type ToolSpec = {
@@ -421,6 +530,68 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Cancela o rascunho pendente na conversa atual, se houver.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: cancel_pending_action,
+  },
+  {
+    name: "search_transactions",
+    description: "Busca lançamentos do usuário por texto na descrição e/ou por período/tipo. Use antes de editar/excluir para achar o ID exato.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: optionalStr,
+        days: { type: "integer" },
+        type: { type: "string", enum: ["income", "expense", "transfer"] },
+        limit: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+    execute: search_transactions,
+  },
+  {
+    name: "get_transaction",
+    description: "Retorna todos os campos de um lançamento pelo ID, se pertencer ao usuário.",
+    parameters: {
+      type: "object",
+      properties: { transaction_id: requiredStr },
+      required: ["transaction_id"], additionalProperties: false,
+    },
+    execute: get_transaction,
+  },
+  {
+    name: "draft_transaction_update",
+    description: "Cria uma proposta de EDIÇÃO de um lançamento existente. Campos aceitos em patch: description, category (texto), amount, occurred_at, notes. Para parcelamentos, use scope 'one' (padrão), 'future' ou 'all'. Aguarda CONFIRMAR.",
+    parameters: {
+      type: "object",
+      properties: {
+        transaction_id: requiredStr,
+        patch: {
+          type: "object",
+          properties: {
+            description: { type: ["string", "null"] },
+            category: { type: ["string", "null"] },
+            amount: num,
+            occurred_at: optionalStr,
+            notes: { type: ["string", "null"] },
+          },
+          additionalProperties: false,
+        },
+        scope: { type: "string", enum: ["one", "future", "all"] },
+      },
+      required: ["transaction_id", "patch"], additionalProperties: false,
+    },
+    execute: draft_transaction_update,
+  },
+  {
+    name: "draft_transaction_delete",
+    description: "Cria uma proposta de EXCLUSÃO de um lançamento. Transferências sempre excluem o par. Aguarda CONFIRMAR.",
+    parameters: {
+      type: "object",
+      properties: {
+        transaction_id: requiredStr,
+        scope: { type: "string", enum: ["one", "future", "all"] },
+      },
+      required: ["transaction_id"], additionalProperties: false,
+    },
+    execute: draft_transaction_delete,
   },
 ];
 

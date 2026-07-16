@@ -13,6 +13,7 @@ import { runAgentTurn, isLLMConfigured, sanitizeError } from "../_shared/agent/l
 import { loadActivePrompt } from "../_shared/agent/prompt.ts";
 import { interpret, parseBrAmount } from "../_shared/agent/parser.ts";
 import { create_transaction_draft, resolveCreditCardFull } from "../_shared/agent/tools.ts";
+import { extractSpans } from "../_shared/agent/extract.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -319,36 +320,29 @@ async function tryFastPathCardExpense(
   history: Array<{ role: "user" | "assistant"; content: string }>,
 ): Promise<null | { args: any; result: any; duration_ms: number; reply: string }> {
   const t0 = Date.now();
-  const now = currentText;
-  const nowAmountMatch = now.match(/(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
-  const nowAmount = nowAmountMatch ? parseBrAmount(nowAmountMatch[1]) : null;
-  const nowHasCard = CARD_KEYWORDS.test(now);
-  const nowHasExpense = EXPENSE_KEYWORDS.test(now) || /\bde\s+\d/.test(now);
+  const nowSpans = extractSpans(currentText);
+  const nowHasCard = nowSpans.payment_method === "credit_card" || CARD_KEYWORDS.test(currentText);
 
-  let amount: number | null = null;
-  let cardHint: string | null = null;
-  let description: string | undefined;
+  let amount: number | null = nowSpans.amount;
+  let cardHint: string | null = nowSpans.card_hint;
+  let description: string | undefined = nowSpans.description || undefined;
+  let installments_total: number | undefined = nowSpans.installments_total ?? undefined;
 
-  // Case A: single message w/ amount + expense + card keyword.
-  if (nowAmount && (nowHasExpense || nowHasCard) && nowHasCard) {
-    amount = nowAmount;
-    cardHint = extractCardHint(now);
-    description = extractDescription(now);
-  } else if (nowHasCard || SINGLE_CARD_HINT.test(now)) {
-    // Case B: follow-up completing a previous unresolved expense.
+  // Caso B: follow-up completando expense anterior
+  if (amount === null && (nowHasCard || SINGLE_CARD_HINT.test(currentText))) {
     const lastUser = [...history].reverse().find(h => h.role === "user")?.content ?? "";
-    const lastAmountMatch = lastUser.match(/(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
-    const lastAmount = lastAmountMatch ? parseBrAmount(lastAmountMatch[1]) : null;
-    if (lastAmount && (EXPENSE_KEYWORDS.test(lastUser) || /\bde\s+\d/.test(lastUser))) {
-      amount = lastAmount;
-      cardHint = SINGLE_CARD_HINT.test(now) ? "" : extractCardHint(now);
-      description = extractDescription(lastUser);
+    const prev = extractSpans(lastUser);
+    if (prev.amount !== null) {
+      amount = prev.amount;
+      cardHint = SINGLE_CARD_HINT.test(currentText) ? "" : (nowSpans.card_hint ?? prev.card_hint);
+      description = prev.description || description;
+      installments_total = prev.installments_total ?? installments_total;
     }
   }
 
   if (amount === null) return null;
+  if (!nowHasCard && !SINGLE_CARD_HINT.test(currentText) && cardHint === null) return null;
 
-  // Resolve card up-front to produce structured error messaging.
   const resolved = await resolveCreditCardFull({ sb, user_id: ctx.user_id, conversation_id: ctx.conversation_id }, cardHint ?? undefined);
   if (resolved.kind === "none" && resolved.available.length === 0) {
     return {
@@ -368,7 +362,8 @@ async function tryFastPathCardExpense(
     };
   }
 
-  const args = { type: "expense" as const, amount, credit_card: cardHint || resolved.name, description };
+  const args: any = { type: "expense" as const, amount, credit_card: cardHint || resolved.name, description };
+  if (installments_total && installments_total > 1) args.installments_total = installments_total;
   const result = await create_transaction_draft({ sb, user_id: ctx.user_id, conversation_id: ctx.conversation_id }, args);
   if (!result.ok) {
     return {
@@ -383,17 +378,9 @@ async function tryFastPathCardExpense(
   };
 }
 
-function extractCardHint(text: string): string | null {
-  const m = text.match(/cart[aã]o(?:\s+de\s+cr[eé]dito)?\s+([A-Za-zÀ-ÿ0-9]{2,30})/i);
-  if (m) return `cartão ${m[1]}`;
-  const bank = text.match(CARD_KEYWORDS);
-  return bank ? bank[0] : null;
-}
-
-function extractDescription(text: string): string | undefined {
-  const m = text.match(/\bde\s+([A-Za-zÀ-ÿ0-9]{2,40})\b/i);
-  return m ? m[1].trim() : undefined;
-}
+// Legacy helpers replaced by extractSpans; kept as no-ops for stray references.
+function extractCardHint(_text: string): string | null { return null; }
+function extractDescription(_text: string): string | undefined { return undefined; }
 
 async function antiLoopFallback(sb: SupabaseClient, user_id: string, _text: string): Promise<string | null> {
   const { data } = await sb.from("credit_cards").select("name")

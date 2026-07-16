@@ -1,8 +1,8 @@
-// Deterministic fallback insights + validation.
-// Pure module: no side effects, no imports beyond Zod.
+// Client-side mirror of supabase/functions/_shared/insights/fallbacks.ts.
+// Keep in sync. Pure module.
 import { z } from "https://esm.sh/zod@3.23.8";
 
-export const INSIGHT_TYPES = ["habit", "alert", "celebration", "onboarding", "opportunity"] as const;
+export const INSIGHT_TYPES = ["habit", "alert", "celebration", "onboarding", "opportunity", "categorize_transaction"] as const;
 export type InsightType = (typeof INSIGHT_TYPES)[number];
 
 export interface InsightPayload {
@@ -25,6 +25,7 @@ export interface InsightFacts {
   has_credit_card?: boolean;
   upcoming_recurring_7d?: number;
   top_expense_category?: string | null;
+  uncategorized_tx?: { id: string; description: string | null; amount: number; occurred_at: string } | null;
 }
 
 const nonEmptyString = (min: number, max: number) =>
@@ -38,7 +39,8 @@ const nonEmptyString = (min: number, max: number) =>
     )
     .refine((s) => /[a-zA-ZÀ-ÿ0-9]/.test(s), "must contain letters or digits");
 
-export const CTA_ROUTE_RX = /^\/app\/[a-z0-9\-/]+$/i;
+// CTA route: aceita /app/... com opcional query string.
+export const CTA_ROUTE_RX = /^\/app\/[a-z0-9\-/]+(?:\?[a-z0-9=&_\-]+)?$/i;
 
 export const InsightSchema = z.object({
   type: z.enum(INSIGHT_TYPES).optional(),
@@ -58,6 +60,21 @@ const brl = (n: number) =>
 
 export function pickFallback(f: InsightFacts): InsightPayload {
   const total = f.total_tx_ever ?? 0;
+
+  // Prioridade máxima: lançamento sem categoria — deep-link direto.
+  if (f.uncategorized_tx) {
+    const t = f.uncategorized_tx;
+    const label = t.description ? `“${t.description}” · ${brl(t.amount)}` : `${brl(t.amount)} em ${t.occurred_at}`;
+    return {
+      type: "categorize_transaction",
+      title: "Categorize este lançamento",
+      body: `Faltou categoria em ${label}. Escolher agora deixa seu relatório mais claro.`,
+      cta_label: "Categorizar",
+      cta_route: `/app/lancamentos/${t.id}?edit=1&focus=category`,
+      model: "fallback",
+    };
+  }
+
 
   if (total === 0) {
     return {
