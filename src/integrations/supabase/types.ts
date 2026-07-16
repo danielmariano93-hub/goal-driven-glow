@@ -857,6 +857,81 @@ export type Database = {
         }
         Relationships: []
       }
+      document_imports: {
+        Row: {
+          conversation_id: string | null
+          cost_usd_micros: number | null
+          created_at: string
+          document_kind: string | null
+          error: string | null
+          expires_at: string | null
+          external_message_id: string | null
+          extraction_ms: number | null
+          id: string
+          message_id: string | null
+          mime_type: string
+          model: string | null
+          raw_text: string | null
+          sha256: string
+          size_bytes: number
+          source: string
+          status: string
+          storage_path: string
+          tokens_in: number | null
+          tokens_out: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          cost_usd_micros?: number | null
+          created_at?: string
+          document_kind?: string | null
+          error?: string | null
+          expires_at?: string | null
+          external_message_id?: string | null
+          extraction_ms?: number | null
+          id?: string
+          message_id?: string | null
+          mime_type: string
+          model?: string | null
+          raw_text?: string | null
+          sha256: string
+          size_bytes: number
+          source: string
+          status?: string
+          storage_path: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          cost_usd_micros?: number | null
+          created_at?: string
+          document_kind?: string | null
+          error?: string | null
+          expires_at?: string | null
+          external_message_id?: string | null
+          extraction_ms?: number | null
+          id?: string
+          message_id?: string | null
+          mime_type?: string
+          model?: string | null
+          raw_text?: string | null
+          sha256?: string
+          size_bytes?: number
+          source?: string
+          status?: string
+          storage_path?: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       emotional_checkins: {
         Row: {
           created_at: string
@@ -891,6 +966,111 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "emotional_checkins_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extracted_items: {
+        Row: {
+          account_hint: string | null
+          account_id: string | null
+          amount: number
+          card_hint: string | null
+          category_hint: string | null
+          category_id: string | null
+          competence_date: string | null
+          confidence: Json
+          created_at: string
+          credit_card_id: string | null
+          description: string | null
+          document_id: string
+          duplicate_of: string | null
+          id: string
+          idx: number
+          installment_number: number | null
+          installments_total: number | null
+          occurred_at: string
+          payment_method: string | null
+          purchase_date: string | null
+          raw: Json | null
+          source_span: Json | null
+          status: string
+          transaction_id: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_hint?: string | null
+          account_id?: string | null
+          amount: number
+          card_hint?: string | null
+          category_hint?: string | null
+          category_id?: string | null
+          competence_date?: string | null
+          confidence?: Json
+          created_at?: string
+          credit_card_id?: string | null
+          description?: string | null
+          document_id: string
+          duplicate_of?: string | null
+          id?: string
+          idx: number
+          installment_number?: number | null
+          installments_total?: number | null
+          occurred_at: string
+          payment_method?: string | null
+          purchase_date?: string | null
+          raw?: Json | null
+          source_span?: Json | null
+          status?: string
+          transaction_id?: string | null
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_hint?: string | null
+          account_id?: string | null
+          amount?: number
+          card_hint?: string | null
+          category_hint?: string | null
+          category_id?: string | null
+          competence_date?: string | null
+          confidence?: Json
+          created_at?: string
+          credit_card_id?: string | null
+          description?: string | null
+          document_id?: string
+          duplicate_of?: string | null
+          id?: string
+          idx?: number
+          installment_number?: number | null
+          installments_total?: number | null
+          occurred_at?: string
+          payment_method?: string | null
+          purchase_date?: string | null
+          raw?: Json | null
+          source_span?: Json | null
+          status?: string
+          transaction_id?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_items_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_items_transaction_id_fkey"
             columns: ["transaction_id"]
             isOneToOne: false
             referencedRelation: "transactions"
@@ -2604,6 +2784,7 @@ export type Database = {
         }
         Returns: string
       }
+      cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
       challenge_progress_add: {
         Args: {
@@ -2676,6 +2857,10 @@ export type Database = {
           p_income_day: number
         }
         Returns: undefined
+      }
+      confirm_document_import: {
+        Args: { p_document_id: string; p_item_ids: string[] }
+        Returns: Json
       }
       confirm_pending_action: { Args: { p_id: string }; Returns: Json }
       create_phone_link_code: { Args: never; Returns: string }
