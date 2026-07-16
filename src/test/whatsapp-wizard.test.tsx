@@ -17,7 +17,7 @@ vi.mock("sonner", () => ({
 type Body = { action?: string; url?: string; api_key?: string } | undefined;
 
 function reply(action: string, body: Body): unknown {
-  if (action === "config_status") return { configured: false, has_url: false, has_api_key: false, has_webhook_secret: false, session_name: "default", updated_at: null, role: "platform_owner" };
+  if (action === "config_status") return { configured: false, has_url: false, has_api_key: false, has_webhook_secret: false, session_name: "default", updated_at: null, admin_role: "platform_owner", can_manage_config: true };
   if (action === "status") return { status: "not_configured", capabilities: { can_connect: false, can_send: false, needs_session: false, temporarily_unavailable: false }, phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null };
   if (action === "test_config") return { ok: true, latency_ms: 42, code: "ok" };
   if (action === "save_config") return { ok: true, configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString() };
