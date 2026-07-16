@@ -11,7 +11,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 type StatusPayload = Record<string, unknown>;
 
-function setup(configPayload: StatusPayload | null, opts: { fail?: boolean } = {}) {
+function setup(configPayload: StatusPayload | null, opts: { fail?: boolean; sessionStatus?: string } = {}) {
   invokeMock.mockReset();
   invokeMock.mockImplementation(async (_fn: string, o: { body: { action: string } }) => {
     const action = o.body.action;
@@ -20,7 +20,8 @@ function setup(configPayload: StatusPayload | null, opts: { fail?: boolean } = {
       return { data: configPayload, error: null };
     }
     if (action === "status") {
-      return { data: { status: "not_configured", capabilities: { can_connect: false, can_send: false, needs_session: false, temporarily_unavailable: false }, phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null }, error: null };
+      const st = opts.sessionStatus ?? "not_configured";
+      return { data: { status: st, capabilities: { can_connect: true, can_send: st === "connected", needs_session: st !== "connected", temporarily_unavailable: false }, phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null }, error: null };
     }
     return { data: { ok: true }, error: null };
   });
@@ -46,12 +47,20 @@ describe("WhatsAppSessionPanel — permissões", () => {
     expect(screen.getByText(/Apenas o dono da plataforma/i)).toBeInTheDocument();
   });
 
-  it("payload sem can_manage_config gera erro com Tentar novamente", async () => {
-    setup({ configured: false, has_url: false, has_api_key: false, has_webhook_secret: false, session_name: "default", updated_at: null });
+  it("owner sem can_manage_config ainda habilita Configurar conexão pelo admin_role", async () => {
+    setup({ configured: false, has_url: false, has_api_key: false, has_webhook_secret: false, session_name: "default", updated_at: null, admin_role: "platform_owner" });
     render(<WhatsAppSessionPanel />);
-    await screen.findByText(/Não consegui carregar o status/i);
-    expect(screen.getByRole("button", { name: /Tentar novamente/i })).toBeInTheDocument();
+    const btn = await screen.findByRole("button", { name: /Configurar conexão/i });
+    expect(btn).not.toBeDisabled();
     expect(screen.queryByText(/Apenas o dono da plataforma/i)).toBeNull();
+  });
+
+  it("platform_admin configurado sem can_manage_config ainda vê pareamento", async () => {
+    setup({ configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString(), admin_role: "platform_admin" }, { sessionStatus: "needs_attention" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
   });
 
   it("owner: 'Substituir credenciais' abre wizard", async () => {
