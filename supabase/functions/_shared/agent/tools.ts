@@ -139,18 +139,67 @@ async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined,
   return all.find((c: any) => (c.name as string).toLowerCase().includes(h))?.id ?? null;
 }
 
+async function resolveCreditCardId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
+  if (!hintOrId) return null;
+  if (/^[0-9a-f-]{36}$/i.test(hintOrId)) {
+    const { data } = await ctx.sb.from("credit_cards").select("id,name")
+      .eq("id", hintOrId).eq("user_id", ctx.user_id).eq("active", true).maybeSingle();
+    return data ?? null;
+  }
+  const { data } = await ctx.sb.from("credit_cards").select("id,name")
+    .eq("user_id", ctx.user_id).eq("active", true);
+  const h = hintOrId.toLowerCase();
+  // Best fit: substring; fallback to first when hint is generic ("cartão", "cartão de crédito")
+  const list = data ?? [];
+  const match = list.find((c) => (c.name as string).toLowerCase().includes(h));
+  if (match) return match;
+  if (/^(cart[aã]o( de cr[eé]dito)?|cr[eé]dito)$/i.test(hintOrId.trim()) && list.length === 1) {
+    return list[0];
+  }
+  return null;
+}
+
+export async function list_credit_cards(ctx: ToolContext): Promise<ToolResult> {
+  const { data, error } = await ctx.sb.from("credit_cards")
+    .select("id,name,brand,closing_day,due_day,total_limit")
+    .eq("user_id", ctx.user_id).eq("active", true).order("name");
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, result: data ?? [] };
+}
+
 export async function create_transaction_draft(ctx: ToolContext, args: {
-  type: "income"|"expense"; amount: number; account: string;
+  type: "income"|"expense"; amount: number; account?: string;
+  credit_card?: string; installments_total?: number;
   category?: string; occurred_at?: string; description?: string;
 }): Promise<ToolResult> {
   const amount = Number(args?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
   if (args.type !== "income" && args.type !== "expense") return { ok: false, error: "invalid_type" };
+  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const cat = await resolveCategoryId(ctx, args.category, args.type);
+
+  if (args.credit_card && args.type === "expense") {
+    const card = await resolveCreditCardId(ctx, args.credit_card);
+    if (!card) return { ok: false, error: "card_not_found" };
+    const n = Math.max(1, Math.min(48, Number(args.installments_total ?? 1) || 1));
+    const payload = {
+      type: args.type, amount, occurred_at,
+      description: args.description ?? null,
+      category_id: cat,
+      payment_method: "credit_card",
+      credit_card_id: card.id,
+      installments_total: n,
+    };
+    const parcelStr = n > 1 ? ` em ${n}x` : "";
+    const summary = `Despesa de ${BRL.format(amount)} no cartão ${card.name}${parcelStr}${args.description ? ` — ${args.description}` : ""} em ${occurred_at}.`;
+    const id = await upsertDraft(ctx, "transaction", payload, summary);
+    if (!id) return { ok: false, error: "draft_failed" };
+    return { ok: true, result: { draft_id: id, summary, card: card.name, installments_total: n } };
+  }
+
   const acc = await resolveAccountId(ctx, args.account);
   if (!acc) return { ok: false, error: "account_not_found" };
-  const cat = await resolveCategoryId(ctx, args.category, args.type);
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
-  const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, occurred_at, description: args.description ?? null };
+  const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, occurred_at, description: args.description ?? null, payment_method: "account" };
   const summary = `${args.type === "income" ? "Receita" : "Despesa"} de ${BRL.format(amount)} em ${acc.name}${args.description ? ` — ${args.description}` : ""} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transaction", payload, summary);
   if (!id) return { ok: false, error: "draft_failed" };
