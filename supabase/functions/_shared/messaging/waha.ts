@@ -412,6 +412,82 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
       return { ok: true, phone };
     } catch { return { ok: false, error: "unreachable" }; }
   },
+  async preparePairing(webhookUrl: string) {
+    if (!this.configured) return { ok: false, status: "not_configured", error: "not_configured" };
+    // Read current status
+    const read = async (): Promise<string> => {
+      try {
+        const r = await safeFetch(`${WAHA_API_URL}/api/sessions/${WAHA_SESSION}`, { headers: headers() });
+        if (r.status === 404) return "MISSING";
+        if (!r.ok) return "UNKNOWN";
+        const d = (await r.json()) as { status?: string };
+        return (d.status ?? "UNKNOWN").toUpperCase();
+      } catch { return "UNREACHABLE"; }
+    };
+    const waitFor = async (accept: (s: string) => boolean, timeoutMs: number): Promise<string> => {
+      const start = Date.now();
+      let s = await read();
+      while (!accept(s) && Date.now() - start < timeoutMs) {
+        await new Promise((r) => setTimeout(r, 800));
+        s = await read();
+      }
+      return s;
+    };
+    try {
+      let s = await read();
+      if (s === "MISSING") {
+        const r = await this.createOrUpdateSession(webhookUrl);
+        if (!r.ok) return { ok: false, status: "error", error: r.error };
+        await this.startSession();
+        s = await waitFor((x) => x === "SCAN_QR_CODE" || x === "WORKING" || x === "STARTING", 8_000);
+      } else if (s === "FAILED") {
+        // Try restart first
+        await this.restartSession();
+        s = await waitFor((x) => x === "SCAN_QR_CODE" || x === "WORKING" || x === "STARTING", 6_000);
+        if (s === "FAILED" || s === "STOPPED" || s === "UNKNOWN") {
+          await this.logoutSession();
+          await this.createOrUpdateSession(webhookUrl); // re-apply webhook+metadata
+          await this.startSession();
+          s = await waitFor((x) => x === "SCAN_QR_CODE" || x === "WORKING" || x === "STARTING", 8_000);
+        }
+      } else if (s === "STOPPED") {
+        await this.startSession();
+        s = await waitFor((x) => x === "SCAN_QR_CODE" || x === "WORKING" || x === "STARTING", 8_000);
+      } else if (s === "STARTING") {
+        s = await waitFor((x) => x === "SCAN_QR_CODE" || x === "WORKING", 6_000);
+      }
+      return { ok: true, status: s };
+    } catch {
+      return { ok: false, status: "error", error: "unreachable" };
+    }
+  },
+  async requestPairingCode(phoneDigits: string) {
+    if (!this.configured) return { ok: false, error_code: "not_configured" };
+    try {
+      const r = await safeFetch(`${WAHA_API_URL}/api/${WAHA_SESSION}/auth/request-code`, {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ phoneNumber: phoneDigits }),
+      });
+      const bodyText = await r.text().catch(() => "");
+      if (r.status === 401 || r.status === 403) return { ok: false, error_code: "unauthorized" };
+      if (r.status === 404 || r.status === 405) return { ok: false, error_code: "method_unsupported" };
+      if (r.status === 422 || r.status === 400) {
+        const bt = bodyText.toUpperCase();
+        if (bt.includes("PASSKEY_CONFIRMATION")) return { ok: false, error_code: "passkey_confirmation_required" };
+        if (bt.includes("PASSKEY")) return { ok: false, error_code: "passkey_required" };
+        if (bt.includes("NOT_SUPPORTED") || bt.includes("UNSUPPORTED") || bt.includes("ENGINE")) return { ok: false, error_code: "method_unsupported" };
+        return { ok: false, error_code: "invalid_request" };
+      }
+      if (!r.ok) return { ok: false, error_code: "provider_error" };
+      let parsed: { code?: string; pairingCode?: string; expiresAt?: string; status?: string } = {};
+      try { parsed = bodyText ? JSON.parse(bodyText) : {}; } catch { /* ignore */ }
+      const code = (parsed.code ?? parsed.pairingCode ?? "").toString();
+      if (!code) return { ok: false, error_code: "method_unsupported" };
+      return { ok: true, code, expires_at: parsed.expiresAt, status: parsed.status };
+    } catch {
+      return { ok: false, error_code: "unreachable" };
+    }
+  },
 };
 
 export function getProvider(): MessagingProvider & WahaExtras {
