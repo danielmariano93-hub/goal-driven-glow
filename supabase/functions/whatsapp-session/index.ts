@@ -3,7 +3,7 @@
 // POST: action-based API — status, create, start, restart, stop, logout, qr, sync_webhook, test_health, send_test.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { getProvider } from "../_shared/messaging/waha.ts";
+import { getProvider, validateWahaCredentials } from "../_shared/messaging/waha.ts";
 import { maskPhone, normalizeBrPhone } from "../_shared/messaging/types.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
