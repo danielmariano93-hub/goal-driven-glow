@@ -17,7 +17,8 @@ type ConfigStatus = {
   has_webhook_secret: boolean;
   session_name: string;
   updated_at: string | null;
-  role?: string | null;
+  admin_role?: string | null;
+  can_manage_config?: boolean;
 };
 
 type SessionSnap = {
@@ -280,6 +281,10 @@ export function WhatsAppSessionPanel() {
     setConfigError(null);
     try {
       const c = await call<ConfigStatus>("config_status");
+      if (!c || typeof c.can_manage_config !== "boolean") {
+        setConfigError("invalid_contract");
+        return;
+      }
       setConfig(c);
       try {
         const s = await call<SessionSnap>("status");
@@ -294,6 +299,12 @@ export function WhatsAppSessionPanel() {
   }, []);
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") loadConfig({ silent: true }); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loadConfig]);
 
   const refresh = useCallback(() => loadConfig({ silent: true }), [loadConfig]);
 
@@ -355,7 +366,7 @@ export function WhatsAppSessionPanel() {
   const notConfigured = !config?.configured;
   const canSend = snap?.capabilities?.can_send === true;
   const needsSession = snap?.capabilities?.needs_session === true;
-  const isOwner = config?.role === "platform_owner";
+  const canManageConfig = config?.can_manage_config === true;
 
   if (notConfigured) {
     return (
@@ -369,11 +380,11 @@ export function WhatsAppSessionPanel() {
             </p>
           </div>
         </div>
-        <button onClick={() => { setWizardMode("initial"); setWizard(true); }} disabled={!isOwner}
+        <button onClick={() => { setWizardMode("initial"); setWizard(true); }} disabled={!canManageConfig}
           className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50">
           Configurar conexão
         </button>
-        {!isOwner && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode fazer essa configuração.</p>}
+        {!canManageConfig && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode fazer essa configuração.</p>}
       </div>
     );
   }
@@ -453,7 +464,7 @@ export function WhatsAppSessionPanel() {
           )}
         </div>
 
-        {isOwner && (
+        {canManageConfig && (
           <div className="pt-3 border-t border-border/60">
             <AlertDialog open={replacing} onOpenChange={setReplacing}>
               <AlertDialogTrigger asChild>
