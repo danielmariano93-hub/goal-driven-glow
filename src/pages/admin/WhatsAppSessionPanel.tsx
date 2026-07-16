@@ -52,6 +52,12 @@ const ERR_HINT: Record<string, string> = {
 
 const WIZARD_STORAGE_KEY = "nc:wa-wizard";
 
+const PAIRING_RETRY_CODES = new Set(["qr_not_ready", "prepare_failed"]);
+
+function canManageFromConfig(config: ConfigStatus | null): boolean {
+  return config?.can_manage_config === true || config?.admin_role === "platform_owner";
+}
+
 type WizardPersisted = { url?: string; step?: WizardStep; mode?: WizardMode };
 
 function readWizardPersisted(): WizardPersisted {
@@ -291,14 +297,23 @@ function ConnectDeviceCard({
   const generateQr = useCallback(async () => {
     setQrBusy(true);
     setQrError(null);
+    setQr(null);
     try {
-      const r = await call<{ ok: boolean; qr?: string; mime_type?: string; expires_at?: string; error_code?: string; connected?: boolean }>("begin_qr");
+      let r = await call<{ ok: boolean; qr?: string; mime_type?: string; expires_at?: string; error_code?: string; connected?: boolean }>("begin_qr");
+      if (r.connected) { if (alive.current) onConnected(); return; }
+
+      if ((!r.ok || !r.qr) && PAIRING_RETRY_CODES.has(r.error_code ?? "")) {
+        await call<{ ok: boolean }>("prepare_pairing").catch(() => ({ ok: false }));
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          r = await call<{ ok: boolean; qr?: string; mime_type?: string; expires_at?: string; error_code?: string; connected?: boolean }>("begin_qr");
+          if (r.connected || (r.ok && r.qr)) break;
+        }
+      }
+
       if (!alive.current) return;
       if (r.connected) { onConnected(); return; }
-      if (!r.ok || !r.qr) {
-        setQrError(r.error_code ?? "qr_unavailable");
-        return;
-      }
+      if (!r.ok || !r.qr) { setQrError("qr_unavailable"); return; }
       const expiresAt = r.expires_at ? new Date(r.expires_at).getTime() : Date.now() + 60_000;
       setQr({ mimeType: r.mime_type ?? "image/png", base64: r.qr, expiresAt });
     } catch {
@@ -307,13 +322,6 @@ function ConnectDeviceCard({
       if (alive.current) setQrBusy(false);
     }
   }, [onConnected]);
-
-  // Auto-fetch QR when user picks QR tab and none loaded.
-  useEffect(() => {
-    if (method === "qr" && !qr && !qrBusy && !qrError) {
-      void generateQr();
-    }
-  }, [method, qr, qrBusy, qrError, generateQr]);
 
   // Poll status while awaiting pairing; refresh QR when it expires.
   useEffect(() => {
@@ -398,9 +406,17 @@ function ConnectDeviceCard({
                 <Loader2 className="h-3 w-3 animate-spin" /> Gerando QR Code…
               </p>
             ) : qrError ? (
-              <p className="text-xs text-red-600">Não consegui gerar agora. Tente novamente.</p>
+              <div className="space-y-2 text-center">
+                <p className="text-xs text-red-600">Não consegui gerar o QR Code agora.</p>
+                <button
+                  onClick={() => { void generateQr(); }}
+                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent"
+                >
+                  <RefreshCw className="h-3 w-3" /> Tentar novamente
+                </button>
+              </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Prepare-se para conectar.</p>
+              <p className="text-xs text-muted-foreground">Clique em Gerar QR Code para iniciar.</p>
             )}
           </div>
           <button
@@ -424,7 +440,7 @@ function ConnectDeviceCard({
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="+55 11 99999-9999"
+              placeholder="(11) 99999-9999"
               inputMode="tel"
               className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
               autoComplete="off"
@@ -500,7 +516,7 @@ export function WhatsAppSessionPanel() {
     setConfigError(null);
     try {
       const c = await call<ConfigStatus>("config_status");
-      if (!c || typeof c.can_manage_config !== "boolean") {
+      if (!c || typeof c.configured !== "boolean") {
         setConfigError("invalid_contract");
         return;
       }
@@ -553,38 +569,43 @@ export function WhatsAppSessionPanel() {
 
   if (configLoading) {
     return (
-      <div className="surface-card p-5" aria-busy="true" aria-label="Carregando status">
-        <div className="animate-pulse space-y-3">
-          <div className="h-4 w-32 rounded bg-muted" />
-          <div className="h-3 w-64 rounded bg-muted/70" />
-          <div className="h-24 w-full rounded bg-muted/50" />
+      <section className="space-y-4">
+        <div className="surface-card p-5" aria-busy="true" aria-label="Carregando status">
+          <div className="animate-pulse space-y-2">
+            <div className="h-4 w-32 rounded bg-muted" />
+            <div className="h-3 w-56 rounded bg-muted/70" />
+          </div>
         </div>
-      </div>
+        <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
+      </section>
     );
   }
 
   if (configError) {
     return (
-      <div className="surface-card p-5 space-y-3">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold">Não consegui carregar o status</p>
-            <p className="text-xs text-muted-foreground mt-1">Verifique sua conexão e tente novamente.</p>
+      <section className="space-y-4">
+        <div className="surface-card p-5 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold">Não consegui carregar o status</p>
+              <p className="text-xs text-muted-foreground mt-1">Verifique sua conexão e tente novamente.</p>
+            </div>
           </div>
+          <button onClick={() => loadConfig()}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent">
+            <RefreshCw className="h-3 w-3" /> Tentar novamente
+          </button>
         </div>
-        <button onClick={() => loadConfig()}
-          className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent">
-          <RefreshCw className="h-3 w-3" /> Tentar novamente
-        </button>
-      </div>
+        <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
+      </section>
     );
   }
 
   const view = mapWhatsAppStatus(snap?.status);
   const notConfigured = !config?.configured;
   const canSend = snap?.capabilities?.can_send === true;
-  const canManageConfig = config?.can_manage_config === true;
+  const canManageConfig = canManageFromConfig(config);
   const isConnected = snap?.status === "connected";
 
   if (notConfigured) {
@@ -624,7 +645,7 @@ export function WhatsAppSessionPanel() {
       </div>
       <p className="text-sm text-muted-foreground">{view.impact}</p>
 
-      {!isConnected && canManageConfig && (
+      {!isConnected && (
         <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
       )}
 
