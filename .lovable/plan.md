@@ -1,184 +1,140 @@
 
-# Revisão completa da experiência — NoControle.ia (app do usuário)
+# Correção integral do painel /admin — NoControle.ia
 
-Escopo restrito ao app financeiro autenticado (`/app/*`). Painel `/admin/*` e separação platform_admin permanecem intactos.
+Escopo: apenas rotas `/admin/*` e as RPCs/functions que as alimentam. O app financeiro do usuário permanece intacto.
 
-## 1. Diagnóstico do estado atual
+## 1. Diagnóstico
 
-- **Home (`src/pages/Index.tsx`)**: 4 cards grandes + breakdown + KPIs, empilhados; sem "dica do assistente"; sem CTA WhatsApp; empty states duplicados por card.
-- **Copy**: espalhada em ~30 páginas com termos "Aportar", "Aportes", "Recorrências", "Lançamentos", "Cálculo factual do impacto. Sem aprovação ou score.", "Crie sua primeira meta e comece a aportar", etc. Não há fonte central de strings.
-- **Aba Mais (`src/pages/MaisMenu.tsx`)**: 13 itens em lista plana única, incluindo WhatsApp e Notificações; ícones multicoloridos sem sistema.
-- **WhatsApp**: existe rota `/app/whatsapp`, item na Mais, e link em `MaisMenu` — funciona como módulo, não canal.
-- **Divisão do Rolê**: `shared_expense_participants` guarda `name` + `phone_masked`, sem `linked_user_id`, sem convite, sem RLS para participante ver a própria linha. Cobrança não segue o destinatário.
-- **Dicas/insights**: inexistentes. Nenhuma tabela, nenhuma edge function.
-- **Notificações**: já há sino central (`NotificationBell`) — item duplicado no Mais.
+Auditei o código atual e as funções no banco:
 
-## 2. Fonte central de tom e microcopy
+- `admin_dashboard_stats` conta `auth.users` diretamente → hoje retorna `total_users = 1` porque existe apenas o founder (Daniel Assis), que é `platform_owner`. Nenhum consumidor real. Fonte da distorção confirmada em SQL: `auth.users=1, profiles=1, platform_admins=1, user_financial_settings=1` (o próprio founder tem `user_financial_settings` porque a migration criou default; precisa ser explicitamente excluído).
+- `admin_users_list` faz `FROM auth.users` sem filtrar platform admins → Daniel aparece na listagem "Usuários".
+- `admin_engagement_stats` conta ativações contra `transactions/goals/whatsapp_links` sem excluir admins.
+- `admin_agent_stats` inclui runs originadas por qualquer conta, inclusive testes internos.
+- `src/pages/admin/Agente.tsx` mostra: nomes de secrets (`WAHA_API_URL`, `WAHA_API_KEY`, `WAHA_WEBHOOK_SECRET`, `CRON_SECRET`, `LOVABLE_API_KEY`), texto "Adicione os secrets em Project Settings → Secrets", modelo, temperatura, tokens, timeout, e status `UNKNOWN`.
+- `src/pages/admin/WhatsApp.tsx` + `WhatsAppSessionPanel.tsx` usam título "WhatsApp / WAHA", mostram `STATUS_COLORS.UNKNOWN`, `secrets`, instruções técnicas e alertas amarelos com nomes de env vars.
+- `src/pages/admin/Operacao.tsx` lista `POST /functions/v1/<fn> · header: x-cron-secret` e instrui configurar `cron-job.org/GitHub Actions` com `CRON_SECRET` — literalmente proibido pelo brief.
+- `whatsapp-session/index.ts` devolve `secrets: Record<string, boolean>` no payload — precisa parar de vazar isso ao frontend.
+- Não existe fonte única de verdade para "consumidor", status operacional ou erros humanizados.
 
-**Novo**: `src/lib/copy/strings.ts` — objeto tipado com todas as strings do app do usuário, agrupadas por página/contexto. Não é i18n completo (single-locale pt-BR), apenas centralização + guardrails de tom.
+## 2. Arquivos e artefatos que serão criados/alterados
 
-Substituições aplicadas transversalmente:
+### Banco (nova migration)
 
-| Antes | Depois |
-|---|---|
-| Aportar em meta / Aportes | Guardar para uma meta / Dinheiro guardado |
-| Progresso calculado a partir dos aportes | Você já guardou X% |
-| Crie sua primeira meta e comece a aportar | Qual sonho você quer tirar do papel? |
-| Recorrências (label UI) | Contas que se repetem |
-| Lançamentos (CTA) | Anotar gasto / Adicionar entrada / Movimentações |
-| Cálculo factual do impacto. Sem aprovação ou score. | Veja como essa compra pode mexer com o seu mês |
-| Aportar | Guardar |
+`supabase/migrations/<ts>_admin_consumer_source_of_truth.sql`:
 
-Rota, nome de arquivo e tabelas permanecem (`/app/recorrencias`, `goal_contributions`) — só a UI muda. Tooltips discretos com termos técnicos onde necessário.
+1. **Fonte única de "consumidor"** — view `admin_consumer_users`:
+   - `user_id` de `auth.users` que **não** seja `platform_admins.active=true`
+   - **E** tenha perfil financeiro ativado: existir linha em `user_financial_settings` **com `approximate_monthly_income` não nulo** OU `profiles.onboarding_completed_at IS NOT NULL` OU existir pelo menos 1 transação/meta/conta/dívida/investimento/whatsapp_link ativo para o `user_id`.
+   - Regra: "existência apenas em auth.users/profiles não conta". `onboarding_completed_at` marca ativação explícita → conta. Dupla papel (admin + consumidor ativado) é contado uma vez.
+2. Recriar RPCs derivadas apenas dessa view:
+   - `admin_dashboard_stats()` → `total_users`, `new_users_7d`, `new_users_30d`, `onboarded_users` a partir de `admin_consumer_users`; agregados (`total_transactions/accounts/…`) filtrados por `user_id IN (SELECT user_id FROM admin_consumer_users)`.
+   - `admin_engagement_stats()` idem para DAU/WAU/MAU/ativações.
+   - `admin_agent_stats()` filtra `agent_runs.user_id` pela mesma view.
+   - `admin_users_list()` faz `JOIN admin_consumer_users` (não lista admins puros); ordenação preservada.
+3. Nova RPC `admin_platform_status()` — fonte única de status operacional consumida por Agente, WhatsApp e Operação:
+   - `whatsapp`: `connected | awaiting_qr | connecting | disconnected | needs_attention | unavailable | not_configured` (derivado no server chamando WAHA via edge function OU lendo o último `provider_health_events` + `whatsapp_links` ativos — usar heartbeat com TTL de 2 min como fallback).
+   - `agent`: `working | attention | unavailable | not_setup` (derivado de: existe `agent_prompt_versions.status='active'` + WhatsApp status + falhas 24h em `agent_runs`).
+   - `jobs`: para cada job (`whatsapp-send`, `whatsapp-ack-watchdog`, `split-reminders-dispatch`, `recurring-generate`) → `healthy | delayed | failing | idle | not_scheduled` derivado de heartbeats reais (últimas execuções em `outbound_messages`, `reminder_jobs`, `provider_health_events`, `recurring_occurrences`) e não da mera existência de código.
+4. Nova tabela `job_heartbeats(job_key text pk, last_run_at timestamptz, last_ok boolean, last_error_code text, processed int, failed int, updated_at)` + GRANT + RLS (somente `is_platform_admin()` lê; edge functions escrevem via service role). Preenchida pelas próprias edge functions em cada execução.
+5. RPC `admin_reprocess_failed(job_key)` e `admin_run_check(job_key)` — chamáveis apenas por platform admin; enfileiram/marcam sem executar diretamente aqui.
 
-Arquivos tocados: `Index.tsx`, `Metas.tsx`, `Recorrencias.tsx`, `Lancamentos.tsx`, `Planejamento.tsx`, `MaisMenu.tsx`, `Emocoes.tsx`, `Desafios.tsx`, `DivisaoDoRole*.tsx`, `Notificacoes.tsx`, `Perfil.tsx`, `Contas.tsx`, `Investimentos.tsx`, `Dividas.tsx`, `Importar.tsx`, `Categorias.tsx`, `Relatorios.tsx`, `BottomTabBar.tsx`, `DesktopSidebar.tsx`, `AppLayout.tsx`.
+Todas com `GRANT EXECUTE ... TO authenticated`, `SECURITY DEFINER`, guard `is_platform_admin()`.
 
-## 3. Home reestruturada (`src/pages/Index.tsx`)
+### Frontend — mapeadores centrais (novos)
 
-Nova ordem mobile-first:
-1. **Header saudação + patrimônio líquido** (mantém gradiente brand, compactado).
-2. **Card "Dica do seu assistente"** (novo componente `AssistantTipCard`) — texto IA, CTA contextual, botões útil/não útil discretos.
-3. **Ações rápidas** (3 pílulas): Anotar gasto, Guardar para uma meta, Antes de comprar.
-4. **CTA WhatsApp** ("Fale com seu assistente no WhatsApp") — abre `WhatsAppLinkSheet`.
-5. **"Para pagar"** (novo): resumo de cobranças recebidas via Divisão do Rolê, quando houver.
-6. **Bloco condicional**:
-   - Sem dados → **"Comece por aqui"** (máx. 3 passos personalizados: adicionar conta, anotar gasto, criar meta).
-   - Com dados → só os 2 cards mais relevantes (heurística: maior variação absoluta no mês) + link "Ver tudo" para submenu.
-7. Removido: grid 2x2 de 4 cards fixos vazios.
+- `src/lib/admin/statusMapper.ts` — traduz códigos técnicos para labels pt-BR + tone (`success | warn | danger | neutral | info`) e microcopy de impacto. Único ponto que conhece códigos internos.
+- `src/lib/admin/errorMapper.ts` — recebe `error` de RPC/edge function, devolve `{ title, hint, code }`. Nunca expõe `error.message` bruto.
+- `src/components/admin/StatusChip.tsx` — chip semântico.
+- `src/components/admin/AdminErrorBoundary.tsx` — envolve `AdminLayout` para não vazar stack.
+- `src/hooks/useAdminPlatformStatus.ts` — consome `admin_platform_status` com refetch de 30s.
 
-Componentes novos: `src/components/home/AssistantTipCard.tsx`, `src/components/home/ComecePorAqui.tsx`, `src/components/home/ParaPagarResumo.tsx`, `src/components/home/QuickActions.tsx`, `src/components/whatsapp/WhatsAppLinkSheet.tsx`.
+### Edge functions
 
-## 4. Dicas IA reais (Lovable AI Gateway)
+`supabase/functions/whatsapp-session/index.ts`:
+- Remover o campo `secrets` das respostas retornadas ao cliente (mantém internamente para logs sanitizados apenas em `service_role`).
+- Novo response shape público (capability-based):
+  ```
+  { status: 'connected'|'awaiting_qr'|'connecting'|'disconnected'|'needs_attention'|'unavailable'|'not_configured',
+    capabilities: { can_connect, can_send, needs_session, temporarily_unavailable },
+    phone_masked, last_seen_at, latency_ms, error_code }
+  ```
+- Nunca retornar `UNKNOWN`; mapear para `needs_attention` + `error_code`.
+- Nunca gravar QR em log.
 
-### Tabela `user_insights`
-```
-id, user_id, type (habit|alert|celebration|onboarding|opportunity),
-title, body, cta_label, cta_route, evidence jsonb,
-model, prompt_version, generated_at, expires_at,
-status (active|dismissed|expired), feedback (null|useful|not_useful),
-created_at
-```
-- RLS: `user_id = auth.uid()` em SELECT/UPDATE (feedback/dismiss). INSERT/DELETE apenas via service_role (edge function).
-- GRANT SELECT, UPDATE ON user_insights TO authenticated; GRANT ALL TO service_role.
-- Índice `(user_id, status, expires_at)`.
+`supabase/functions/whatsapp-send`, `whatsapp-ack-watchdog`, `split-reminders-dispatch`, `recurring-generate` (se existir; caso contrário criar stub que só grava heartbeat):
+- Ao final de cada execução, `upsert` em `job_heartbeats`.
 
-### Edge function `insights-generate`
-- Auth por JWT do usuário.
-- Rate limit: máx. 1 geração por 6h por usuário + regenera se `agent_event_since_last >= 3` (transações/aportes/débitos).
-- Recolhe agregados server-side (facts.ts server-side já existente): saldo, receita/despesa mês, top categorias, metas, dívidas — sem PII bruta.
-- Chama `google/gemini-3.5-flash` via `createLovableAiGatewayProvider` com `Output.object` (schema Zod: type, title, body, cta_label, cta_route, evidence).
-- Onboarding (poucos dados): retorna tipo `onboarding` com CTA sugerindo primeira ação; deixa explícito "ainda estou te conhecendo".
-- Falha/402/429: fallback editorial fixo em pt-BR curto ("Dica de hoje: registre um gasto para eu te conhecer melhor.") — persistido como `type=onboarding` com `model=fallback`.
-- Escreve em `user_insights` com `expires_at = now() + 24h`.
+### Frontend — reescrita das páginas admin
 
-### Cliente
-- `useAssistantTip()` (React Query): lê `user_insights` ativo mais recente; se `expires_at < now()` chama edge function.
-- Feedback: PATCH direto na row (RLS permite). Feedback alimenta `evidence` da próxima geração via prompt context, sem que o usuário reescreva prompt.
+- `src/pages/admin/VisaoGeral.tsx` — usa `admin_platform_status` no topo (banner executivo se WhatsApp/Agente não estiver ok) + `admin_dashboard_stats` já corrigido. Empty state honesto ("Nenhum usuário por aqui ainda"). Sem exibir contagem herdada.
+- `src/pages/admin/Usuarios.tsx` — usa `admin_users_list` já corrigido, sem exibir platform admins; empty state "Nenhum usuário por aqui ainda".
+- `src/pages/admin/Engajamento.tsx` — consome nova RPC.
+- `src/pages/admin/Agente.tsx` — reescrita completa como painel executivo:
+  - Cabeçalho: `StatusChip` humano + microcopy de impacto.
+  - Cards: conversas/vínculos ativos, fila de mensagens, entregues 24h, falhas 24h, última atividade.
+  - Seção "Comportamento do assistente" (accordion) com nome, tom, regras e versão publicada. Sem modelo, temperatura, timeout, tokens.
+  - Seção "Diagnóstico avançado" (accordion colapsado, visível só para `platform_owner`) com `code` de referência, latência, contagens — nunca valores de secrets.
+  - Remover completamente: `secrets`, `Object.entries(health.secrets)`, "Configuração pendente", nomes `WAHA_*`, `Modelo/Temp/Passos/Timeout`.
+- `src/pages/admin/WhatsApp.tsx` (+ substituir/refatorar `WhatsAppSessionPanel.tsx`):
+  - Título "WhatsApp" (sem "WAHA").
+  - `StatusChip` humano usando statusMapper: `Conectado`, `Aguardando leitura do QR Code`, `Conectando`, `Desconectado`, `Atenção necessária`, `Integração ainda não concluída`. Nunca `UNKNOWN`.
+  - Se `capabilities.can_connect === false && not_configured` → card "Integração ainda não concluída" + CTA "Revisar conexão" (leva ao suporte interno). Sem instruções de secrets.
+  - Se `needs_session` → botão "Conectar WhatsApp" → cria/inicia sessão → mostra QR + polling → "Conectado".
+  - Telefone mascarado, última conexão, latência humana ("responde em ~120ms").
+  - Ações destrutivas (Desconectar, Reiniciar) com `AlertDialog` de confirmação. "Parar/Logout/Sync webhook" agrupadas em menu "Ações avançadas" (owner only), com labels humanas.
+  - Envio de teste em seção secundária: só campo de telefone + toggle consentimento + botão. Resultado humano.
+  - Remover alertas amarelos técnicos e listagem de env vars.
+- `src/pages/admin/Operacao.tsx` — reescrita:
+  - 4 cards por job: envio de mensagens, lembretes, recorrências, processamento. Cada card lê `admin_platform_status.jobs[key]` e mostra: `StatusChip`, última execução (relative), próxima execução (se conhecida), pendentes/processados/falhas.
+  - Botões: "Executar verificação" (`admin_run_check`), "Reprocessar falhas" (`admin_reprocess_failed` com confirmação), "Ver eventos" (drawer com últimos `provider_health_events`/agent_runs falhos, sanitizados).
+  - Remover: array `CRON_ENDPOINTS`, texto `/functions/v1/…`, `x-cron-secret`, instrução `cron-job.org`, `CRON_SECRET`, `pg_cron`.
+  - Se `job.status === 'not_scheduled'` → "Automação ainda não ativada" + CTA interna.
 
-## 5. WhatsApp como canal
+### Testes
 
-- **Remoções**: rota `/app/whatsapp` do menu Mais; item da `BottomTabBar` (se houver); link em `DesktopSidebar`. Rota React continua registrada como deep link/fallback.
-- **Componente novo**: `WhatsAppLinkSheet` (bottom sheet Drawer/Dialog responsivo):
-  - Não vinculado: explica em 2 linhas finalidade + privacidade + consentimento checkbox; botão "Gerar código e abrir WhatsApp" → chama `whatsapp_generate_link_code` (RPC existente, hash+TTL) → `window.open("https://wa.me/<numero-oficial>?text=VINCULAR%20<code>")`.
-  - Vinculado: mostra número mascarado + botão "Abrir conversa" (`wa.me`).
-  - Gerenciamento/revogação: link para `Perfil > Conexões`.
-- **Perfil**: nova seção "Conexões" com estado de vínculo + botão revogar (usa `whatsapp_revoke_link` existente).
-- **Copy**: "assistente" em toda UI; nunca "assessor".
-- Estados: loading (spinner no botão), erro (toast pt-BR), sucesso (toast + fechamento), a11y (foco no primeiro elemento, ESC fecha).
+- `src/test/admin-consumer.test.ts`: cenários — apenas platform owner (Total 0); admin + consumidor ativado (Total 1); consumidor puro (Total 1); usuário sem `user_financial_settings` nem transações (Total 0).
+- `src/test/admin-status-mapper.test.ts`: nunca produz `UNKNOWN`; todo código técnico vira label pt-BR.
+- `src/test/admin-error-mapper.test.ts`: `error.message` bruto nunca aparece no retorno humano; sempre há `code`.
+- SQL sanity queries executadas pós-migration.
 
-## 6. Aba Mais redesenhada (`src/pages/MaisMenu.tsx`)
+## 3. Ordem de implementação
 
-Nova composição:
-- Título "Mais" + subtítulo "Tudo que pode te ajudar".
-- **Destaque topo**: grid 2 colunas com cards compactos ilustrados: Divisão do Rolê, Desafios.
-- **Seções agrupadas** (headings pequenos, cards compactos em grid 2 col mobile / 3 col desktop):
-  - *Organizar meu dinheiro*: Contas, Contas que se repetem, Categorias, Investimentos.
-  - *Entender melhor*: Relatórios, Emoções.
-  - *Minha conta*: Perfil, Importar dados.
-- **Removidos**: WhatsApp, Notificações (sino já cobre; preferências vão para Perfil).
-- Ícones em cinza/roxo tokenizado (não multicolorido); espaçamento maior; sem card branco gigante.
-- Bottom padding aumentado para não colidir com safe-area do Safari (`pb-[max(7rem,env(safe-area-inset-bottom))]`).
+1. Migration: view `admin_consumer_users` + reescrita das 4 RPCs de métricas + `admin_platform_status` + tabela `job_heartbeats` + RPCs `admin_reprocess_failed`/`admin_run_check` + GRANTs + RLS. Aprovar migration.
+2. Edge function `whatsapp-session`: remover `secrets` do payload público, normalizar status, mapear `UNKNOWN → needs_attention`. Adicionar heartbeat.
+3. Demais edge functions de job: adicionar upsert em `job_heartbeats`.
+4. Frontend: criar `statusMapper.ts`, `errorMapper.ts`, `StatusChip.tsx`, `AdminErrorBoundary.tsx`, `useAdminPlatformStatus.ts`.
+5. Reescrever páginas admin nesta ordem: `Agente.tsx`, `WhatsApp.tsx` + `WhatsAppSessionPanel.tsx`, `Operacao.tsx`, `VisaoGeral.tsx`, `Usuarios.tsx`, `Engajamento.tsx`.
+6. Envolver `AdminLayout` com `AdminErrorBoundary`.
+7. Testes + typecheck + build. Grep final por termos proibidos no bundle admin.
 
-## 7. Divisão do Rolê — Cobranças recebidas
+## 4. Decisões de UX e copy
 
-### Migração de schema (reversível)
-```
-ALTER TABLE shared_expense_participants
-  ADD COLUMN linked_user_id uuid REFERENCES auth.users(id),
-  ADD COLUMN phone_e164 text,                    -- normalizado, opcional
-  ADD COLUMN invite_token_hash text,
-  ADD COLUMN invite_expires_at timestamptz,
-  ADD COLUMN invite_status text
-    DEFAULT 'none' CHECK (invite_status IN ('none','pending','claimed','revoked')),
-  ADD COLUMN dispute_status text
-    DEFAULT 'none' CHECK (dispute_status IN ('none','reported_paid','disputed'));
+- Status labels (pt-BR): "Funcionando", "Atenção necessária", "Indisponível", "Ainda não configurado", "Conectado", "Aguardando leitura do QR Code", "Conectando", "Desconectado", "Não foi possível verificar agora".
+- Copy de impacto (exemplos): "O assistente ainda não pode responder pelo WhatsApp"; "Envios de lembretes estão atrasados"; "Nenhum usuário por aqui ainda — quando alguém entrar no NoControle.ia, você vê aqui."
+- Erros: banner `"Não foi possível carregar agora. Código de referência: XY7-42."` — nunca `error.message`.
+- Sem emojis. `StatusChip` com ícone lucide + cor semântica.
+- Ações destrutivas: `AlertDialog` com resumo do impacto no negócio, não instruções técnicas.
 
-CREATE INDEX ON shared_expense_participants (phone_e164) WHERE phone_e164 IS NOT NULL;
-CREATE INDEX ON shared_expense_participants (linked_user_id) WHERE linked_user_id IS NOT NULL;
-```
-`phone_masked` mantido para compatibilidade; novo campo `phone_e164` populado quando criador informa telefone válido.
+## 5. Riscos, migração e RLS
 
-### RLS refinada
-- Criador (dono do `shared_expense`): SELECT/UPDATE/DELETE completos na row (mantém política atual).
-- Participante vinculado (`linked_user_id = auth.uid()`): SELECT restrito via VIEW `my_shared_charges` que expõe apenas: `id, shared_expense_id, se.title, se.occurred_at, amount_due, amount_paid, status, dispute_status, criador (display_name), created_at`. Nunca telefone de outros, nunca lista de outros participantes.
-- UPDATE do participante: apenas `dispute_status` (report_paid/dispute) via RPC dedicada `split_participant_report(p_participant_id, p_action)` — SECURITY DEFINER com check `linked_user_id = auth.uid()`.
+- **Compat de tipos**: RPCs mantêm mesmo shape JSON — apenas números mudam. `admin_users_list` mantém colunas.
+- **RLS**: `job_heartbeats` protegida por `is_platform_admin()` para leitura; escrita apenas via service role dentro de edge functions. Nenhuma exposição a `anon`.
+- **Backfill**: nada a migrar (métricas são calculadas ao vivo).
+- **Fallback**: se `admin_platform_status` falhar, `AdminErrorBoundary` mostra estado degradado por seção, não tela branca.
+- **Não expor secrets**: audit final `rg -n "WAHA_|CRON_SECRET|LOVABLE_API_KEY|Project Settings|/functions/v1|x-cron-secret|pg_cron|UNKNOWN"` só pode acender fora de `src/pages/admin/**` (permitido em `.md`/docs; proibido em `src/`).
 
-### Match e convite
-- RPC `split_create` (já existe com `p_owner_amount`) estendida: aceita array com `{name, phone_e164, amount_due}`.
-  - Normaliza phone server-side (função pl/pgsql `normalize_br_phone`).
-  - Match imediato: `linked_user_id := (SELECT id FROM auth.users u JOIN whatsapp_links wl ON wl.user_id=u.id WHERE wl.phone_e164 = p_phone AND wl.verified_at IS NOT NULL LIMIT 1)`. **Apenas telefone verificado** — nunca comparar dígitos parciais, nome, email.
-  - Sem match e com phone: gera `invite_token` (32 bytes), guarda hash + `expires_at = now() + 30 dias`, `invite_status='pending'`.
-- Edge function `split-invites-dispatch` (chamada dentro de `split_create` via trigger AFTER INSERT) envia WhatsApp com deep link `nocontrole://claim/<token>` + web fallback.
-- RPC `split_claim_pending()` — chamada após verificação de telefone no onboarding/perfil: encontra participantes `invite_status='pending'` com `phone_e164 = my_verified_phone`, seta `linked_user_id = auth.uid()`, `invite_status='claimed'`, idempotente.
-- Trigger `on_whatsapp_verified` chama `split_claim_pending()` automaticamente.
+## 6. Critérios de aceite
 
-### UI
-- **Nova página** `src/pages/CobrancasRecebidas.tsx` em `/app/cobrancas`, item topo em Mais quando houver pendências (ou apenas quando não vazia).
-- Home: `ParaPagarResumo` com contagem + total pendente + CTA.
-- Ações do participante: "Já paguei" (report), "Contestar" (com motivo curto). Não pode editar valor.
-- Criador (em `DivisaoDoRoleDetalhe`): novas colunas mostram status do participante ("Informou pago", "Contestou") + botões "Confirmar recebido", "Corrigir", "Cancelar/perdoar".
-- Notificações in-app (via tabela `notifications` existente): "[Nome] incluiu você no rolê [título]. Sua parte é R$ X." — dedup key `split_new:<participant_id>`.
-- Nunca duplica em `debts` automaticamente; conversão apenas por ação explícita (botão "Adicionar como dívida").
-
-### Copy
-"Cobrança recebida" / "Você foi incluído neste rolê" — nunca "dívida obrigatória".
-
-## 8. Ordem de implementação (rodada única)
-
-1. **Migração DB** (`user_insights` + campos `shared_expense_participants` + RPCs `split_participant_report`, `split_claim_pending`, `normalize_br_phone` server, trigger claim, view `my_shared_charges`).
-2. **Regeneração de tipos** Supabase (automática após migração).
-3. **Fonte central copy** `src/lib/copy/strings.ts`.
-4. **Edge functions**: `insights-generate`, ajuste `split_create` + `split-invites-dispatch`.
-5. **Componentes home**: `AssistantTipCard`, `ComecePorAqui`, `QuickActions`, `ParaPagarResumo`, `WhatsAppLinkSheet`.
-6. **Home refatorada** consumindo componentes.
-7. **Página `CobrancasRecebidas`** + integração `DivisaoDoRoleDetalhe`.
-8. **MaisMenu** redesenhado.
-9. **Perfil** com seção Conexões (WhatsApp + revogar).
-10. **Aplicar copy central** em todas as páginas listadas.
-11. **Remover** WhatsApp da nav; manter rota como fallback.
-12. **Testes** + typecheck + build.
-
-## 9. Riscos e mitigação
-
-- **Migração `shared_expense_participants`**: colunas nullable, sem NOT NULL, backfill não necessário. Reversível via `DROP COLUMN`.
-- **RLS quebrada**: view `my_shared_charges` + policy explícita testada; teste automatizado com 2 usuários confirma isolamento.
-- **Custo IA**: cache 24h + throttle por eventos evita chamadas em render; fallback editorial em 402/429.
-- **Colisão phone**: match só com `verified_at IS NOT NULL` (whatsapp_links). Duplicidade evitada por `linked_user_id UNIQUE (shared_expense_id, linked_user_id)` parcial onde não nulo.
-- **Rota WhatsApp legada**: mantida registrada; qualquer link antigo continua funcionando.
-- **Copy**: fonte central importada onde usada; strings não migradas permanecem em pt-BR legado sem quebra.
-
-## 10. Critérios de aceite
-
-- [ ] Home mostra saudação, patrimônio, dica IA real, 3 ações rápidas, CTA WhatsApp, "Para pagar" (se houver), bloco condicional dados-ou-onboarding — sem grid de 4 cards vazios.
-- [ ] Nenhuma string listada na tabela §2 aparece na UI do app do usuário.
-- [ ] `AssistantTipCard` consome `user_insights` real; feedback grava; fallback exibido em falha.
-- [ ] `LOVABLE_API_KEY` não aparece no bundle client (`grep` no build).
-- [ ] Aba Mais sem WhatsApp e sem Notificações; 3 seções agrupadas + 2 destaques.
-- [ ] `/app/whatsapp` não é acessível pela nav; sheet abre da home; vínculo funciona; revogação em Perfil.
-- [ ] Divisão do Rolê: criar com telefone verificado gera `linked_user_id`; participante vê `/app/cobrancas` com sua linha; não vê telefone/valores dos outros; pode "informar pago"/"contestar"; criador confirma.
-- [ ] Convite pendente é reivindicado após verificação de telefone (teste automatizado).
-- [ ] Cobrança não vira `debts` automaticamente.
-- [ ] Notificações in-app dedupadas por `dedup_key`.
-- [ ] Testes RLS 2-user passam; typecheck limpo; `bun test` verde; `bun run build` sem erros.
-- [ ] Responsivo 390x844 e 430x932 sem colisão com safe-area.
-- [ ] Painel `/admin/*` inalterado; testes de permissão continuam verdes.
+- `admin_dashboard_stats().total_users = 0` no estado atual (confirmado via `supabase--read_query` após migration).
+- Daniel Assis (platform owner) não aparece em `admin_users_list()` nem é contado.
+- Se Daniel for platform admin **e** tiver `onboarding_completed_at` ou renda financeira → conta 1 vez.
+- Todas as telas admin usam a mesma definição de consumidor (única view).
+- Nenhuma ocorrência dos termos proibidos em `src/pages/admin/**` e `src/components/admin/**`: "Project Settings", "Secrets", "WAHA_API_KEY", "WAHA_API_URL", "WAHA_BASE_URL", "WAHA_WEBHOOK_SECRET", "CRON_SECRET", "LOVABLE_API_KEY", "x-cron-secret", "/functions/v1", "pg_cron", "UNKNOWN".
+- Response de `whatsapp-session` (POST/GET) não contém chave `secrets`.
+- Agente e WhatsApp exibem o mesmo status (mesma fonte `admin_platform_status`).
+- Operação deriva status de heartbeats reais, não da existência de código.
+- Empty state de Usuários = "Nenhum usuário por aqui ainda".
+- `AdminErrorBoundary` captura crashes; UI nunca mostra stack ou `error.message`.
+- Testes novos passam; typecheck e build limpos.
+- Nenhuma publicação/deploy executada.
