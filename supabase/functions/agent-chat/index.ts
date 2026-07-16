@@ -13,6 +13,7 @@ import { runAgentTurn, isLLMConfigured, sanitizeError } from "../_shared/agent/l
 import { loadActivePrompt } from "../_shared/agent/prompt.ts";
 import { interpret, parseBrAmount } from "../_shared/agent/parser.ts";
 import { create_transaction_draft, resolveCreditCardFull } from "../_shared/agent/tools.ts";
+import { extractSpans } from "../_shared/agent/extract.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
