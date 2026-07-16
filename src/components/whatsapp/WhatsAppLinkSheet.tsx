@@ -280,8 +280,8 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
             <p className="text-sm">
               Seu navegador bloqueou a abertura automática do WhatsApp. Use os botões abaixo para continuar.
             </p>
-            <div className="mt-4 rounded-xl bg-muted p-4 text-center font-mono text-lg tracking-wider">
-              VINCULAR {code}
+            <div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-relaxed">
+              {friendlyLinkMessage(code)}
             </div>
             <div className="mt-4 flex flex-col gap-2">
               <button
