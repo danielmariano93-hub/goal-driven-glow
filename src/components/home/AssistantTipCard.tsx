@@ -26,10 +26,20 @@ type Insight = {
   generated_at: string;
   expires_at: string;
   model: string | null;
+  evidence: Record<string, unknown> | null;
 };
 
 function isRenderable(i: Pick<Insight, "title" | "body"> | null | undefined): boolean {
   return !!i && typeof i.title === "string" && !!i.title.trim() && typeof i.body === "string" && !!i.body.trim();
+}
+
+function deepLinkForInsight(i: Insight): string | null {
+  const txId = (i.evidence as any)?.transaction_id;
+  if (typeof txId === "string" && /^[0-9a-f-]{36}$/i.test(txId)) {
+    const focus = i.type === "categorize_transaction" ? "&focus=category" : "";
+    return `/app/lancamentos/${txId}?edit=1${focus}`;
+  }
+  return null;
 }
 
 export function AssistantTipCard() {
