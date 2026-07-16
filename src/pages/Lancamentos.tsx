@@ -26,6 +26,7 @@ import {
 
 export default function Lancamentos() {
   const nav = useNavigate();
+  const qc = useQueryClient();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const [filters, setFilters] = useState<TxFilters>({ type: "all" });
