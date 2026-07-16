@@ -507,8 +507,15 @@ function InboundHealthCard({ onSync }: { onSync: () => void | Promise<void> }) {
   const [syncing, setSyncing] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.rpc("admin_whatsapp_inbound_health");
-    setState((data as any) ?? null);
+    try {
+      const rpc = (supabase as any)?.rpc;
+      const { data } = typeof rpc === "function"
+        ? await supabase.rpc("admin_whatsapp_inbound_health")
+        : { data: null };
+      setState((data as any) ?? null);
+    } catch {
+      setState(null);
+    }
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
