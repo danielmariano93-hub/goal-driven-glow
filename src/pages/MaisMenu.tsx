@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
 
-type Item = { path: string; label: string; desc: string; icon: React.ComponentType<{ size?: number; className?: string }> };
+type Item = { path: string; label: string; desc: string; icon: any };
 
 const highlight: Item[] = [
   { path: "/app/divisao-do-role", label: "Divisão do Rolê", desc: "Divida contas com quem foi junto", icon: Users },
