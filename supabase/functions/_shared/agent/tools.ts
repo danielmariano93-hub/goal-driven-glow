@@ -622,7 +622,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "draft_transaction_update",
-    description: "Cria uma proposta de EDIÇÃO de um lançamento existente. Campos aceitos em patch: description, category (texto), amount, occurred_at, notes. Para parcelamentos, use scope 'one' (padrão), 'future' ou 'all'. Aguarda CONFIRMAR.",
+    description: "Cria uma proposta de EDIÇÃO de um lançamento existente. Campos aceitos em patch: description, category (texto), amount, occurred_at, notes, payment_method ('account'|'credit_card'), account (texto ou id), credit_card (texto ou id). Para parcelamentos, use scope 'one' (padrão), 'future' ou 'all'. Aguarda CONFIRMAR.",
     parameters: {
       type: "object",
       properties: {
@@ -635,6 +635,9 @@ export const AGENT_TOOLS: ToolSpec[] = [
             amount: num,
             occurred_at: optionalStr,
             notes: { type: ["string", "null"] },
+            payment_method: { type: "string", enum: ["account", "credit_card"] },
+            account: { type: ["string", "null"] },
+            credit_card: { type: ["string", "null"] },
           },
           additionalProperties: false,
         },
