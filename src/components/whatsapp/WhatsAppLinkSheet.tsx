@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Copy, ExternalLink, Loader2, MessageCircle, ShieldCheck, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertCircle, Copy, ExternalLink, Loader2, MessageCircle, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { copy } from "@/lib/copy/strings";
@@ -18,8 +19,13 @@ type OfficialResolution =
   | { state: "available"; number: string }
   | { state: "unavailable" };
 
+type InlineError = {
+  title: string;
+  message: string;
+  correlationId: string;
+} | null;
+
 async function resolveOfficialNumber(): Promise<OfficialResolution> {
-  // 1) Server-side (WAHA getMe / cache)
   try {
     const { data, error } = await supabase.functions.invoke<{
       available: boolean;
@@ -32,7 +38,6 @@ async function resolveOfficialNumber(): Promise<OfficialResolution> {
   } catch {
     // fallthrough
   }
-  // 2) Sanitized public config
   try {
     const { data } = await supabase
       .from("platform_public_config")
@@ -45,7 +50,6 @@ async function resolveOfficialNumber(): Promise<OfficialResolution> {
   } catch {
     // fallthrough
   }
-  // 3) Build-time env
   const envN = OFFICIAL_NUMBER_ENV ? normalizeBrPhone(OFFICIAL_NUMBER_ENV) : null;
   if (envN) return { state: "available", number: envN };
   return { state: "unavailable" };
@@ -58,6 +62,14 @@ function waMeUrl(numberE164: string, code?: string) {
     : `https://wa.me/${digits}`;
 }
 
+function newCorrelationId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return Math.random().toString(36).slice(2, 10);
+  }
+}
+
 export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [link, setLink] = useState<LinkRow | null>(null);
@@ -66,12 +78,14 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
   const [official, setOfficial] = useState<OfficialResolution>({ state: "resolving" });
   const [code, setCode] = useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = useState(false);
+  const [inlineError, setInlineError] = useState<InlineError>(null);
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
     setCode(null);
     setPopupBlocked(false);
+    setInlineError(null);
     setOfficial({ state: "resolving" });
     Promise.all([
       supabase.rpc("list_my_whatsapp_link").then(({ data }) => {
@@ -86,7 +100,12 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
     if (!open) return;
     const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handler);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [open, onClose]);
 
   const openWaMe = (numberE164: string, codeValue: string) => {
@@ -100,22 +119,45 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
   };
 
   const generateAndOpen = async () => {
-    if (!consent) return toast.error("Confirme o consentimento primeiro.");
-    if (official.state !== "available") {
-      toast.error("Não consegui localizar o número oficial agora. Tente novamente em instantes.");
+    if (!consent) {
+      setInlineError({
+        title: "Confirme o consentimento primeiro.",
+        message: "Marque a caixa acima para continuar com a vinculação.",
+        correlationId: newCorrelationId(),
+      });
       return;
     }
+    if (official.state !== "available") {
+      setInlineError({
+        title: "Número oficial indisponível",
+        message: "Não consegui localizar o número oficial agora. Tente novamente em instantes.",
+        correlationId: newCorrelationId(),
+      });
+      return;
+    }
+    setInlineError(null);
     setGenerating(true);
     let codeValue = code;
     if (!codeValue) {
       const { data, error } = await supabase.rpc("create_phone_link_code");
       setGenerating(false);
       if (error) {
-        toast.error(
-          error.message?.includes("too many")
-            ? "Muitas tentativas. Tente novamente em alguns minutos."
-            : "Não consegui gerar o código.",
-        );
+        const correlationId = newCorrelationId();
+        // Sanitized log — no stack traces to user.
+        console.error("[whatsapp-link] create_phone_link_code failed", {
+          correlationId,
+          code: (error as any).code,
+        });
+        const tooMany = /too many/i.test(error.message ?? "");
+        setInlineError({
+          title: tooMany
+            ? "Muitas tentativas em pouco tempo"
+            : "Não consegui gerar o código agora",
+          message: tooMany
+            ? "Aguarde alguns minutos e tente novamente. Isso protege sua conta."
+            : "Verifique sua conexão e toque em Tentar novamente.",
+          correlationId,
+        });
         return;
       }
       codeValue = String(data);
@@ -156,18 +198,19 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
   };
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  const content = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={copy.whatsapp.linkSheet.title}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm md:items-center"
+      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 backdrop-blur-sm md:items-center"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-t-3xl bg-card p-6 shadow-2xl md:rounded-3xl"
+        className="w-full max-w-md rounded-t-3xl bg-card p-6 shadow-2xl md:rounded-3xl max-h-[min(90dvh,720px)] overflow-y-auto pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-6"
       >
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -245,6 +288,28 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
               />
               <span>{copy.whatsapp.linkSheet.consent}</span>
             </label>
+
+            {inlineError && (
+              <div
+                role="alert"
+                className="mt-4 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-xs"
+              >
+                <AlertCircle size={14} className="mt-0.5 text-destructive shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-destructive">{inlineError.title}</p>
+                  <p className="text-muted-foreground">{inlineError.message}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground/70">ref: {inlineError.correlationId}</p>
+                </div>
+                <button
+                  onClick={generateAndOpen}
+                  disabled={generating}
+                  className="inline-flex items-center gap-1 rounded-full border border-destructive/40 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <RefreshCw size={11} /> Tentar novamente
+                </button>
+              </div>
+            )}
+
             <button
               disabled={!consent || generating || official.state === "resolving"}
               onClick={generateAndOpen}
@@ -257,7 +322,7 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
               )}
               {copy.whatsapp.linkSheet.generate}
             </button>
-            {official.state === "unavailable" && (
+            {official.state === "unavailable" && !inlineError && (
               <p className="mt-3 rounded-lg bg-muted p-2 text-[11px] text-muted-foreground">
                 Não consegui localizar o número oficial agora. Tente novamente em instantes.
               </p>
@@ -267,4 +332,6 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
       </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 }
