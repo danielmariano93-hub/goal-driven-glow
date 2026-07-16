@@ -223,10 +223,22 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
 
   if (isLLMConfigured()) {
     try {
+      // Load recent conversation history so the agent can act on the "last
+      // transaction" referenced implicitly ("muda a categoria", "era X").
+      const { data: histRows } = await sb.from("conversation_messages")
+        .select("role, content, created_at")
+        .eq("conversation_id", input.conversation_id)
+        .order("created_at", { ascending: false })
+        .limit(12);
+      const history = ((histRows ?? []) as Array<{ role: string; content: string }>)
+        .reverse()
+        .filter(r => r.role === "user" || r.role === "assistant")
+        .map(r => ({ role: r.role as "user" | "assistant", content: String(r.content ?? "") }));
+
       const turn = await runAgentTurn(
         { sb, user_id: input.user_id, conversation_id: input.conversation_id },
         input.text,
-        { model: prompt.model, maxSteps: prompt.max_steps, temperature: prompt.temperature, systemPrompt: prompt.system_prompt, timeoutMs: 25_000 },
+        { model: prompt.model, maxSteps: prompt.max_steps, temperature: prompt.temperature, systemPrompt: prompt.system_prompt, timeoutMs: 25_000, history },
       );
       reply = turn.reply;
       path = "llm";

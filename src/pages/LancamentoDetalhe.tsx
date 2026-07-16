@@ -52,6 +52,9 @@ export default function LancamentoDetalhe() {
   const [amount, setAmount] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card">("account");
+  const [accountId, setAccountId] = useState<string | "">("");
+  const [cardId, setCardId] = useState<string | "">("");
 
   useEffect(() => {
     if (!id || !user) return;
@@ -68,6 +71,9 @@ export default function LancamentoDetalhe() {
       setAmount(String(t.amount));
       setOccurredAt(t.occurred_at);
       setNotes(t.notes ?? "");
+      setPaymentMethod((t.payment_method as "account" | "credit_card") ?? "account");
+      setAccountId(t.account_id ?? "");
+      setCardId(t.credit_card_id ?? "");
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -90,6 +96,21 @@ export default function LancamentoDetalhe() {
 
   async function save() {
     if (!tx) return;
+    if (!isTransfer) {
+      // Validate coherence before roundtrip
+      if (paymentMethod === "account" && !accountId) {
+        return toast.error("Escolha uma conta para este lançamento.");
+      }
+      if (paymentMethod === "credit_card" && !cardId) {
+        return toast.error("Escolha um cartão para este lançamento.");
+      }
+      // Method-only descriptions are not allowed
+      const norm = description.trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+      const forbidden = new Set(["credito","debito","pix","dinheiro","cartao","boleto","transferencia","ted","doc","fatura"]);
+      if (description.trim() && forbidden.has(norm)) {
+        return toast.error("Descreva em quê foi o lançamento (ex.: mercado, gasolina, salário).");
+      }
+    }
     setSaving(true);
     const patch: Record<string, unknown> = {};
     if ((tx.description ?? "") !== description) patch.description = description || null;
@@ -98,6 +119,25 @@ export default function LancamentoDetalhe() {
     if (Number.isFinite(parsedAmount) && parsedAmount > 0 && parsedAmount !== Number(tx.amount)) patch.amount = parsedAmount;
     if (occurredAt && occurredAt !== tx.occurred_at) patch.occurred_at = occurredAt;
     if ((tx.notes ?? "") !== notes) patch.notes = notes || null;
+
+    if (!isTransfer) {
+      const originalMethod = (tx.payment_method as "account" | "credit_card") ?? "account";
+      if (paymentMethod !== originalMethod) {
+        patch.payment_method = paymentMethod;
+        if (paymentMethod === "account") {
+          patch.account_id = accountId;
+          patch.credit_card_id = null;
+        } else {
+          patch.credit_card_id = cardId;
+          patch.account_id = null;
+        }
+      } else if (paymentMethod === "account" && accountId !== (tx.account_id ?? "")) {
+        patch.account_id = accountId;
+      } else if (paymentMethod === "credit_card" && cardId !== (tx.credit_card_id ?? "")) {
+        patch.credit_card_id = cardId;
+      }
+    }
+
     if (Object.keys(patch).length === 0) { setSaving(false); toast.message("Nada mudou."); return; }
 
     const { data, error } = await supabase.rpc("transaction_update_direct" as any, {
@@ -115,6 +155,7 @@ export default function LancamentoDetalhe() {
       if (r?.error === "not_owned") return toast.error("Lançamento não encontrado.");
       if (r?.error === "credit_card_required") return toast.error("Escolha um cartão para este lançamento.");
       if (r?.error === "account_required") return toast.error("Escolha uma conta para este lançamento.");
+      if (r?.error === "invalid_payment_method") return toast.error("Método de pagamento inválido.");
       return toast.error("Não consegui salvar agora. Tente novamente em instantes.");
     }
     toast.success("Lançamento atualizado ✅");
@@ -189,6 +230,58 @@ export default function LancamentoDetalhe() {
               <option value="">Sem categoria</option>
               {catsForType.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          </div>
+        )}
+
+        {!isTransfer && (
+          <div className="rounded-lg border border-border p-3 space-y-3">
+            <div>
+              <p className="text-xs font-semibold mb-2">Forma de pagamento</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {(["account","credit_card"] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMethod(m)}
+                    className={`rounded-full px-3 py-1.5 border ${paymentMethod === m ? "bg-primary text-primary-foreground border-primary" : "border-border bg-secondary"}`}
+                    aria-pressed={paymentMethod === m}
+                  >
+                    {m === "account" ? "Conta" : "Cartão de crédito"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {paymentMethod === "account" ? (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Conta</label>
+                <select
+                  className="input-base w-full"
+                  value={accountId}
+                  onChange={e => { setAccountId(e.target.value); if (e.target.value) setCardId(""); }}
+                >
+                  <option value="">Selecione uma conta</option>
+                  {accs.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Cartão</label>
+                <select
+                  className="input-base w-full"
+                  value={cardId}
+                  onChange={e => { setCardId(e.target.value); if (e.target.value) setAccountId(""); }}
+                >
+                  <option value="">Selecione um cartão</option>
+                  {cards.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {hasGroup && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Alterar cartão em compras parceladas afeta apenas os lançamentos no escopo escolhido abaixo.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
