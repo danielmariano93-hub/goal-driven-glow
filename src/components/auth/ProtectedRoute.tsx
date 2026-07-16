@@ -2,8 +2,21 @@ import { Navigate, useLocation } from "react-router-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
+/**
+ * Guard das rotas do usuário financeiro (/app/*).
+ * Platform admins sem adesão financeira explícita são redirecionados a /admin.
+ */
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { status, user, profile, authError, retryProfile, recovering } = useAuth();
+  const {
+    status,
+    user,
+    profile,
+    authError,
+    retryProfile,
+    recovering,
+    isFinancialUser,
+    isPlatformAdmin,
+  } = useAuth();
   const location = useLocation();
 
   if (recovering && location.pathname !== "/reset-password") {
@@ -41,6 +54,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!user) {
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
+  }
+
+  // Platform admin sem role financeira: enviar para o Centro de Comando.
+  if (isPlatformAdmin && !isFinancialUser) {
+    return <Navigate to="/admin" replace />;
   }
 
   if (profile && !profile.onboarding_completed_at && location.pathname !== "/onboarding") {
