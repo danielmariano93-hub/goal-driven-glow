@@ -16,27 +16,39 @@ export type Database = {
     Tables: {
       account_deletion_requests: {
         Row: {
+          admin_notes: string | null
+          cancelled_at: string | null
+          grace_period_ends_at: string | null
           id: string
           processed_at: string | null
+          processed_by: string | null
           reason: string | null
           requested_at: string
-          status: string
+          status: Database["public"]["Enums"]["deletion_status"]
           user_id: string
         }
         Insert: {
+          admin_notes?: string | null
+          cancelled_at?: string | null
+          grace_period_ends_at?: string | null
           id?: string
           processed_at?: string | null
+          processed_by?: string | null
           reason?: string | null
           requested_at?: string
-          status?: string
+          status?: Database["public"]["Enums"]["deletion_status"]
           user_id: string
         }
         Update: {
+          admin_notes?: string | null
+          cancelled_at?: string | null
+          grace_period_ends_at?: string | null
           id?: string
           processed_at?: string | null
+          processed_by?: string | null
           reason?: string | null
           requested_at?: string
-          status?: string
+          status?: Database["public"]["Enums"]["deletion_status"]
           user_id?: string
         }
         Relationships: []
@@ -1387,7 +1399,9 @@ export type Database = {
           attempts: number
           created_at: string
           id: string
+          idempotency_key: string | null
           last_error: string | null
+          lease_expires_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
           participant_id: string
@@ -1400,7 +1414,9 @@ export type Database = {
           attempts?: number
           created_at?: string
           id?: string
+          idempotency_key?: string | null
           last_error?: string | null
+          lease_expires_at?: string | null
           outbound_message_id?: string | null
           owner_user_id: string
           participant_id: string
@@ -1413,7 +1429,9 @@ export type Database = {
           attempts?: number
           created_at?: string
           id?: string
+          idempotency_key?: string | null
           last_error?: string | null
+          lease_expires_at?: string | null
           outbound_message_id?: string | null
           owner_user_id?: string
           participant_id?: string
@@ -1885,7 +1903,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_approve_deletion_request: {
+        Args: { p_grace_days?: number; p_id: string; p_notes: string }
+        Returns: undefined
+      }
       admin_dashboard_stats: { Args: never; Returns: Json }
+      admin_process_deletion_request: {
+        Args: { p_id: string }
+        Returns: string
+      }
+      admin_reject_deletion_request: {
+        Args: { p_id: string; p_notes: string }
+        Returns: undefined
+      }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
         Returns: Json
@@ -2026,20 +2056,36 @@ export type Database = {
         Args: { p_amount: number; p_participant_id: string }
         Returns: undefined
       }
-      split_create: {
-        Args: {
-          p_due_date: string
-          p_include_owner: boolean
-          p_occurred_at: string
-          p_participants: Json
-          p_pix_key: string
-          p_reminder_enabled: boolean
-          p_split_mode: Database["public"]["Enums"]["split_mode"]
-          p_title: string
-          p_total: number
-        }
-        Returns: string
-      }
+      split_create:
+        | {
+            Args: {
+              p_due_date: string
+              p_include_owner: boolean
+              p_occurred_at: string
+              p_participants: Json
+              p_pix_key: string
+              p_reminder_enabled: boolean
+              p_split_mode: Database["public"]["Enums"]["split_mode"]
+              p_title: string
+              p_total: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_due_date: string
+              p_include_owner: boolean
+              p_occurred_at: string
+              p_owner_amount?: number
+              p_participants: Json
+              p_pix_key: string
+              p_reminder_enabled: boolean
+              p_split_mode: Database["public"]["Enums"]["split_mode"]
+              p_title: string
+              p_total: number
+            }
+            Returns: string
+          }
       split_reverse_payment: {
         Args: { p_participant_id: string }
         Returns: undefined
@@ -2057,6 +2103,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      user_cancel_deletion_request: {
+        Args: { p_id: string }
+        Returns: undefined
+      }
       user_export_data: { Args: never; Returns: Json }
       user_request_deletion: { Args: { p_reason: string }; Returns: string }
     }
@@ -2072,6 +2122,13 @@ export type Database = {
         | "custom"
       confirmation_status: "pending" | "confirmed" | "cancelled" | "expired"
       debt_status: "active" | "settled" | "defaulted"
+      deletion_status:
+        | "pending"
+        | "approved"
+        | "processing"
+        | "completed"
+        | "rejected"
+        | "cancelled"
       goal_status: "active" | "paused" | "completed"
       import_batch_status: "pending" | "completed" | "failed"
       income_frequency: "mensal" | "quinzenal" | "semanal" | "variavel"
@@ -2105,7 +2162,13 @@ export type Database = {
       prompt_status: "draft" | "active" | "archived"
       recurring_frequency: "daily" | "weekly" | "monthly" | "yearly"
       recurring_status: "active" | "paused" | "finished"
-      reminder_status: "queued" | "sent" | "failed" | "skipped"
+      reminder_status:
+        | "queued"
+        | "sent"
+        | "failed"
+        | "skipped"
+        | "processing"
+        | "enqueued"
       run_status: "running" | "done" | "error" | "cancelled"
       split_mode: "equal" | "custom"
       split_status: "draft" | "active" | "settled" | "cancelled"
@@ -2253,6 +2316,14 @@ export const Constants = {
       ],
       confirmation_status: ["pending", "confirmed", "cancelled", "expired"],
       debt_status: ["active", "settled", "defaulted"],
+      deletion_status: [
+        "pending",
+        "approved",
+        "processing",
+        "completed",
+        "rejected",
+        "cancelled",
+      ],
       goal_status: ["active", "paused", "completed"],
       import_batch_status: ["pending", "completed", "failed"],
       income_frequency: ["mensal", "quinzenal", "semanal", "variavel"],
@@ -2289,7 +2360,14 @@ export const Constants = {
       prompt_status: ["draft", "active", "archived"],
       recurring_frequency: ["daily", "weekly", "monthly", "yearly"],
       recurring_status: ["active", "paused", "finished"],
-      reminder_status: ["queued", "sent", "failed", "skipped"],
+      reminder_status: [
+        "queued",
+        "sent",
+        "failed",
+        "skipped",
+        "processing",
+        "enqueued",
+      ],
       run_status: ["running", "done", "error", "cancelled"],
       split_mode: ["equal", "custom"],
       split_status: ["draft", "active", "settled", "cancelled"],
