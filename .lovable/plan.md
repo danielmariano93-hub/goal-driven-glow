@@ -1,110 +1,78 @@
-# Plano — Configuração WAHA + Bootstrap Admin
+# Plano operacional — Configurar secrets, criar admin, validar sem alterar sessão WAHA
 
-Rodada focada em: (a) alinhar naming/arquitetura WAHA com o Sniper AI, (b) portal admin capaz de criar/conectar sessão via QR, (c) crons documentados, (d) criar usuário admin `daniel.assis@nocontrole.com.br`. Sem publicar, sem expor secrets.
+Execução imediata após aprovação. Nada aparece em código, migrations, logs ou chat.
 
-## 1. Normalização de secrets (server-side apenas)
+## 1. Ajuste mínimo de código (mitiga conflito com Sniper AI)
 
-- Renomear leitura: `WAHA_API_URL` como principal, com fallback temporário para `WAHA_BASE_URL` em `_shared/messaging/waha.ts` (server only, sem alterar `.env` do cliente).
-- `WAHA_SESSION` passa a ter default fixo `"default"` (não obrigatório configurar).
-- Segredos exigidos: `WAHA_API_URL`, `WAHA_API_KEY`, `WAHA_WEBHOOK_SECRET`, `CRON_SECRET`, `LOVABLE_API_KEY`.
-- Admin UI lista somente configurado/não configurado; nunca valores.
-- Cópia entre projetos: a plataforma Lovable Cloud não permite copiar valores entre projetos sem revelar/redigitar. Portanto NÃO configuro valores automaticamente — o admin verá "não configurado" até o proprietário adicionar em Project Settings → Secrets. Sem invenção de valores.
+Antes de gravar `WAHA_SESSION=default` — que é a mesma sessão do Sniper AI — proteger contra sobrescrita acidental:
 
-## 2. Edge Function `whatsapp-session` (evolução)
+- `supabase/functions/_shared/messaging/waha.ts`: passar a ler `NOCONTROLE_WAHA_SESSION ?? WAHA_SESSION ?? "default"`, mantendo compatibilidade.
+- `src/pages/admin/WhatsAppSessionPanel.tsx`: em `Criar/atualizar sessão`, `Iniciar`, `Reiniciar`, `Sincronizar webhook` e `Logout`, exigir `AlertDialog` extra com aviso:
+  > "Esta instância WAHA pode estar em uso por outro projeto (ex.: Sniper AI). Continuar irá alterar a sessão compartilhada."
+  O botão só prossegue com confirmação explícita.
+- `test_health`, `status` e `qr` seguem sem confirmação (não alteram nada no WAHA).
 
-Estende a atual com ações via `POST { action }` (mantém `GET` legado para health check da tela atual):
+Nenhuma migração de banco. Nenhum secret em código.
 
-- `status` — GET sessão + `/me`, retorna `{status, phone_masked, last_ack_at, last_error}`.
-- `create` — `POST /api/sessions` com webhook config (events: `message`, `message.any`, `message.ack`, `session.status`; URL `${SUPABASE_URL}/functions/v1/whatsapp-webhook`; secret via header `X-Webhook-Secret`).
-- `start` / `restart` / `stop` / `logout` — endpoints WAHA correspondentes.
-- `qr` — `GET /api/{session}/auth/qr` retorna imagem base64 in-memory (nunca persistida, nunca logada).
-- `sync_webhook` — `PUT /api/sessions/{session}` reaplica config.
-- `test_health` — health profundo (sessão WORKING + `/me` ok).
+## 2. Gravar secrets via secret manager
 
-Gate: JWT + `is_current_user_admin()` server-side antes de qualquer uso do service role. Erros sanitizados (sem body do WAHA cru). Header `X-Api-Key` para autenticação com WAHA (padrão atual).
+- `set_secret`: `WAHA_API_URL=https://waha.sincrofy.com.br`, `WAHA_API_KEY=<fornecido>`, `WAHA_SESSION=default`, `BOOTSTRAP_ADMIN_PASSWORD=<fornecido pelo proprietário>`.
+- `generate_secret`: `WAHA_WEBHOOK_SECRET` (48 chars), `CRON_SECRET` (48 chars).
+- `LOVABLE_API_KEY`: verificar via `fetch_secrets`; se ausente, `ai_gateway--create`.
+- `WAHA_BASE_URL`: não gravo; provider já usa `WAHA_API_URL` com fallback legado, sem operação necessária.
+- Valores nunca voltam ao chat.
 
-## 3. Provider `waha.ts`
+## 3. Criar admin `daniel.assis@nocontrole.com.br`
 
-- Ler `WAHA_API_URL ?? WAHA_BASE_URL`.
-- Manter `verifyWebhookSecret` como está (header `x-webhook-secret`, comparação constant-time) — já compatível com o Sniper.
-- Adicionar métodos: `createSession(webhookUrl, webhookSecret)`, `startSession`, `stopSession`, `logoutSession`, `getQr`, `getMe`, `syncWebhook`.
+- `supabase--curl_edge_functions` `POST /admin-bootstrap` com header `x-bootstrap-secret: $CRON_SECRET`.
+- Função lida com idempotência (não recria se existir), grava `profiles`, `user_financial_settings`, `user_roles(admin,user)`, e audit em `admin_grants_audit`.
+- Verificar com `supabase--read_query`:
+  ```
+  select id, email, email_confirmed_at is not null as confirmed
+  from auth.users where lower(email)='daniel.assis@nocontrole.com.br';
 
-## 4. Portal admin `/admin/agente` — aba WhatsApp
+  select role from public.user_roles
+  where user_id=(select id from auth.users where lower(email)='daniel.assis@nocontrole.com.br');
+  ```
+- Nenhum hash/token consultado ou logado.
 
-Novo componente `WhatsAppSessionPanel` embutido no `Agente.tsx`:
+## 4. Higienização pós-bootstrap
 
-- Card status (badge STOPPED/STARTING/SCAN_QR_CODE/WORKING/FAILED/UNKNOWN), telefone mascarado, último ACK, última falha.
-- Botões: Criar sessão, Iniciar, Reiniciar, Parar, Logout (com `AlertDialog` de confirmação forte), Sincronizar webhook, Testar saúde.
-- Painel QR: mostra imagem quando status = `SCAN_QR_CODE`; polling a cada 3s até `WORKING`; para polling automático em WORKING ou após 3 min.
-- Painel "Enviar teste": input telefone E.164 + checkbox consentimento + confirmação — envia via `whatsapp-send` (uma mensagem marcada `[TESTE]`). Só habilita com status WORKING.
-- Sem exibir secrets. Lista de secrets ausentes já existe no card superior.
+- `secrets--delete_secret BOOTSTRAP_ADMIN_PASSWORD` imediatamente após sucesso.
+- Definir `BOOTSTRAP_DISABLED=1` via `set_secret` para desativar a função (mantém código, mas retorna 410).
 
-## 5. Webhook e ACK
+## 5. Validar WAHA sem alterar sessão
 
-- Nenhuma mudança de schema. `whatsapp-webhook` já valida secret por header e trata dedupe.
-- `create`/`sync_webhook` na Edge Function cadastra os 4 eventos aceitos. Documentar no código.
-- `provider_health_events` continua recebendo pings do `test_health`.
+- `curl_edge_functions GET /whatsapp-session` requer JWT admin. No ambiente do agente eu não tenho sessão do admin recém-criado, então **não vou chamar** para não retornar 401 nem forçar workaround inseguro.
+- Reporto ao proprietário: "faça login como Daniel, abra /admin/agente, clique em Testar saúde" — status será mostrado sanitizado no painel.
+- Nenhum `create`/`sync_webhook`/`start`/`logout` será executado.
 
-## 6. Crons — documentação + configuração segura
+## 6. Crons
 
-- Não configurar `pg_cron` com secret embutido em SQL visível (fica em `pg_cron.job` como texto).
-- Em vez disso: adicionar seção "Operação — Crons" no `/admin/agente` com URLs completas, headers necessários (`x-cron-secret`), frequência recomendada e status "não verificado automaticamente".
-- Frequências recomendadas: `whatsapp-send` 30s, `whatsapp-ack-watchdog` 2 min, `split-reminders-dispatch` 5 min, geração de recorrências diária 03:00 SP.
-- Cada função já valida `x-cron-secret` ou JWT admin; nenhuma exposição pública.
+- Com `CRON_SECRET` configurado, o painel "Operação — Crons" mostrará `configured`.
+- Não vou registrar o valor em SQL/pg_cron (evitar exposição em `pg_cron.job`).
+- Scheduler nativo do Lovable Cloud/Supabase para chamadas HTTPS agendadas não está exposto por tool disponível — reporto como ação manual (curl-driven ou pg_cron gerido pelo proprietário com secret via `vault`).
 
-## 7. Bootstrap do usuário admin
+## 7. Conflito de sessão WAHA compartilhada — atenção
 
-Edge Function **efêmera** `admin-bootstrap` (single-use, temporária):
+- A instância `https://waha.sincrofy.com.br` provavelmente está com a sessão `default` já autenticada pelo número do Sniper AI.
+- **Não** vou criar/iniciar/logout no NoControle. O painel agora exibe aviso e confirmação forte antes de qualquer ação destrutiva.
+- Se o proprietário quiser usar um número separado para o NoControle, precisará: (a) subir outra instância WAHA (Core aceita 1 sessão), ou (b) usar WAHA Plus com múltiplas sessões e definir `NOCONTROLE_WAHA_SESSION` distinta, ou (c) migrar o Sniper para outra instância. Reporto isso como decisão pendente do proprietário.
 
-- `verify_jwt = true`; requer `x-bootstrap-secret` = `CRON_SECRET` (proprietário aciona uma vez pelo `curl` do painel).
-- Fluxo:
-  1. `auth.admin.listUsers` filtrando por email; se existe → pega `id`, não recria.
-  2. Se não existe → `auth.admin.createUser({ email, password, email_confirm: true })`. Senha lida de env var `BOOTSTRAP_ADMIN_PASSWORD` (proprietário adiciona temporariamente e remove após execução) — **senha nunca em código/migration/log**.
-  3. Upsert `profiles` (display_name "Daniel Assis", onboarding_completed_at now, timezone America/Sao_Paulo, currency BRL).
-  4. Upsert `user_financial_settings` padrão.
-  5. Insert `user_roles(user_id, 'admin')` e `(user_id, 'user')` — ON CONFLICT DO NOTHING.
-  6. Insere linha em `admin_grants_audit` (nova tabela mínima: `user_id`, `granted_at`, `granted_by='bootstrap'`).
-  7. Retorna apenas `{ created: bool, user_id, roles: ['admin'] }` — nunca senha/token.
-- Após execução bem-sucedida, o proprietário remove os secrets `BOOTSTRAP_ADMIN_PASSWORD` e opcionalmente a função pode ser deletada em rodada seguinte (o próprio código verifica se a função ainda deve rodar via env `BOOTSTRAP_DISABLED`).
+## 8. Relatório final (formato)
 
-Migration incremental: cria `admin_grants_audit` (`id`, `user_id`, `granted_at`, `granted_by`, `notes`), RLS admin-only, grants para `service_role` apenas.
+Somente:
+- `admin_criado: sim|nao`, `role_admin_ativa: sim|nao`;
+- `secrets_configurados`: lista de nomes (sem valores);
+- `bootstrap_password_removido: sim`;
+- `bootstrap_disabled: sim`;
+- `health_waha`: "não verificado nesta rodada — sessão compartilhada com Sniper AI; validar via /admin/agente após login";
+- `conflito_sessao`: descrição curta;
+- `acao_manual_restante`: schedulers dos crons + confirmação humana antes de tocar na sessão.
 
-Alternativa: se o proprietário preferir, indicar no chat como executar via `curl` uma vez e depois deletar a função.
+## Critérios de aceite
 
-## 8. Testes / QA
-
-- Mocks WAHA: unit tests para `waha.ts` cobrindo `createSession`, `getQr`, `logoutSession`, `getMe`, mapping de status.
-- Teste `whatsapp-session`: 403 para user comum, 200 para admin, `not_configured` sem secrets.
-- Verificação final por SQL: `select email, email_confirmed_at from auth.users where email='daniel.assis@nocontrole.com.br'` e `select role from user_roles where user_id=...` — apenas confirmação, sem hash/token.
-- Rodar `bunx vitest run`, `tsgo`, build.
-
-## 9. Entregáveis
-
-**Arquivos novos**
-- `supabase/functions/admin-bootstrap/index.ts`
-- `supabase/migrations/<ts>_admin_grants_audit.sql`
-- `src/pages/admin/WhatsAppSessionPanel.tsx` (embutido em `Agente.tsx`)
-- `src/test/waha-provider.test.ts`
-
-**Editados**
-- `supabase/functions/_shared/messaging/waha.ts` (fallback env, novas ações)
-- `supabase/functions/whatsapp-session/index.ts` (action-based)
-- `supabase/functions/whatsapp-webhook/index.ts` (nenhuma mudança de contrato; ajustes menores se necessário)
-- `src/pages/admin/Agente.tsx` (nova aba/painel WhatsApp)
-- `supabase/config.toml` (adicionar `admin-bootstrap` com `verify_jwt=true`)
-
-## 10. Critérios de aceite
-
-- Admin comum: user comum recebe 403 em todas ações; admin logado passa.
-- Fluxo create → start → QR → WORKING funcional (com credenciais reais posteriormente); sem credenciais retorna `not_configured` claro.
-- QR nunca em log/DB.
-- Logout com confirmação dupla.
-- Secrets ausentes do bundle (grep `WAHA_API_KEY` em `dist/` → 0).
-- `daniel.assis@nocontrole.com.br` presente em `auth.users` com `email_confirmed_at` e role `admin`.
-- Testes/typecheck/build passam.
-
-## Dependências externas (aceitáveis após esta rodada)
-
-- Proprietário adiciona secrets `WAHA_API_URL`, `WAHA_API_KEY`, `WAHA_WEBHOOK_SECRET`, `CRON_SECRET`, `LOVABLE_API_KEY` em Project Settings → Secrets.
-- Proprietário adiciona `BOOTSTRAP_ADMIN_PASSWORD` temporariamente para executar o bootstrap uma vez, e depois remove.
-- Cron scheduler externo (ou pg_cron manual) aciona as URLs listadas no painel Operação.
+- daniel.assis@nocontrole.com.br presente em `auth.users` com `email_confirmed_at`, role `admin` em `user_roles`.
+- `WAHA_API_URL`, `WAHA_API_KEY`, `WAHA_SESSION`, `WAHA_WEBHOOK_SECRET`, `CRON_SECRET`, `LOVABLE_API_KEY`, `BOOTSTRAP_DISABLED` = configured; `BOOTSTRAP_ADMIN_PASSWORD` = removido.
+- Nenhum valor de secret aparece no diff, bundle, chat ou log.
+- Sessão WAHA `default` intacta (nenhuma chamada a create/start/sync/logout).
