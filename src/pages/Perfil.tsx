@@ -201,8 +201,23 @@ function NotificationPrefs() {
 }
 
 function DataZone() {
+  const { user } = useAuth();
   const [busy, setBusy] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+  const [request, setRequest] = useState<any | null>(null);
+
+  const loadRequest = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("account_deletion_requests" as any)
+      .select("id,status,requested_at,grace_period_ends_at,admin_notes,cancelled_at,processed_at")
+      .eq("user_id", user.id)
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setRequest(data ?? null);
+  };
+  useEffect(() => { loadRequest(); /* eslint-disable-next-line */ }, [user]);
 
   const doExport = async () => {
     setBusy(true);
@@ -225,35 +240,86 @@ function DataZone() {
     const { error } = await supabase.rpc("user_request_deletion" as any, { p_reason: null });
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Solicitação registrada. Nossa equipe processará em breve.");
+    toast.success("Solicitação registrada. Você poderá acompanhar o status abaixo.");
     setConfirmText("");
+    await loadRequest();
   };
+
+  const cancelDeletion = async () => {
+    if (!request?.id) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("user_cancel_deletion_request" as any, { p_id: request.id });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Solicitação cancelada");
+    await loadRequest();
+  };
+
+  const statusLabels: Record<string, string> = {
+    pending: "Pendente — aguardando análise",
+    approved: "Aprovada — em período de carência",
+    processing: "Em processamento",
+    completed: "Concluída",
+    rejected: "Recusada",
+    cancelled: "Cancelada por você",
+  };
+
+  const activeRequest = request && ["pending","approved","processing"].includes(request.status);
 
   return (
     <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
       <h2 className="text-sm font-semibold">Meus dados</h2>
-      <p className="mt-1 text-xs text-muted-foreground">Exporte tudo em JSON ou solicite exclusão.</p>
+      <p className="mt-1 text-xs text-muted-foreground">Exporte tudo em JSON ou solicite exclusão da sua conta.</p>
       <button onClick={doExport} disabled={busy} className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
         Exportar meus dados
       </button>
       <div className="mt-6 pt-4 border-t border-border">
         <p className="text-xs font-medium text-destructive">Zona de risco</p>
         <p className="text-[11px] text-muted-foreground mt-1">
-          A exclusão remove permanentemente todos os seus dados. Só mantemos logs mínimos legalmente exigidos, anonimizados.
+          A exclusão passa por análise. Após aprovação, há um período de carência antes da remoção definitiva.
         </p>
-        <input
-          value={confirmText}
-          onChange={(e) => setConfirmText(e.target.value)}
-          placeholder='Digite: EXCLUIR MINHA CONTA'
-          className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        />
-        <button
-          onClick={requestDeletion}
-          disabled={busy || confirmText !== "EXCLUIR MINHA CONTA"}
-          className="mt-2 rounded-full bg-destructive text-destructive-foreground px-4 py-2 text-sm disabled:opacity-40"
-        >
-          Solicitar exclusão da conta
-        </button>
+
+        {activeRequest && (
+          <div className="mt-3 rounded-xl border border-border bg-background p-3 text-xs space-y-1">
+            <p><span className="text-muted-foreground">Status:</span> {statusLabels[request.status] ?? request.status}</p>
+            <p><span className="text-muted-foreground">Solicitada em:</span> {new Date(request.requested_at).toLocaleString("pt-BR")}</p>
+            {request.grace_period_ends_at && (
+              <p><span className="text-muted-foreground">Fim da carência:</span> {new Date(request.grace_period_ends_at).toLocaleString("pt-BR")}</p>
+            )}
+            {request.status === "pending" && (
+              <button onClick={cancelDeletion} disabled={busy}
+                className="mt-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs disabled:opacity-40">
+                Cancelar solicitação
+              </button>
+            )}
+          </div>
+        )}
+
+        {request && !activeRequest && (
+          <div className="mt-3 text-[11px] text-muted-foreground">
+            Última solicitação: {statusLabels[request.status] ?? request.status}
+            {request.processed_at ? ` em ${new Date(request.processed_at).toLocaleDateString("pt-BR")}` : ""}
+            {request.admin_notes ? ` — ${request.admin_notes}` : ""}
+          </div>
+        )}
+
+        {!activeRequest && (
+          <>
+            <input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder='Digite: EXCLUIR MINHA CONTA'
+              className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            <button
+              onClick={requestDeletion}
+              disabled={busy || confirmText !== "EXCLUIR MINHA CONTA"}
+              className="mt-2 rounded-full bg-destructive text-destructive-foreground px-4 py-2 text-sm disabled:opacity-40"
+            >
+              Solicitar exclusão da conta
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
