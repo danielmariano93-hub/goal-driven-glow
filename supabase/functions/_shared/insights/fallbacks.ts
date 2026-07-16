@@ -1,6 +1,6 @@
 // Client-side mirror of supabase/functions/_shared/insights/fallbacks.ts.
 // Keep in sync. Pure module.
-import { z } from "zod";
+import { z } from "https://esm.sh/zod@3.23.8";
 
 export const INSIGHT_TYPES = ["habit", "alert", "celebration", "onboarding", "opportunity", "categorize_transaction"] as const;
 export type InsightType = (typeof INSIGHT_TYPES)[number];
