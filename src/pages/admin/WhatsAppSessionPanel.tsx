@@ -275,6 +275,8 @@ export function WhatsAppSessionPanel() {
   const [wizard, setWizard] = useState(false);
   const [wizardMode, setWizardMode] = useState<WizardMode>("initial");
   const [replacing, setReplacing] = useState(false);
+  const [qr, setQr] = useState<{ mimeType: string; base64: string } | null>(null);
+  const [connectMode, setConnectMode] = useState(false);
 
   const loadConfig = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setConfigLoading(true);
@@ -308,12 +310,38 @@ export function WhatsAppSessionPanel() {
 
   const refresh = useCallback(() => loadConfig({ silent: true }), [loadConfig]);
 
+  // Poll status + QR while connecting or awaiting scan.
+  useEffect(() => {
+    const st = snap?.status;
+    const shouldPoll = connectMode || st === "awaiting_qr" || st === "connecting";
+    if (!shouldPoll) return;
+    let cancelled = false;
+    const start = Date.now();
+    const iv = setInterval(async () => {
+      try {
+        const s = await call<SessionSnap>("status");
+        if (cancelled) return;
+        setSnap(s);
+        if (s.status === "connected") { setQr(null); setConnectMode(false); clearInterval(iv); return; }
+        if (s.status === "awaiting_qr") {
+          const r = await call<{ ok: boolean; mimeType?: string; base64?: string }>("qr");
+          if (cancelled) return;
+          if (r.ok && r.base64) setQr({ mimeType: r.mimeType ?? "image/png", base64: r.base64 });
+        }
+      } catch { /* silent */ }
+      if (Date.now() - start > 5 * 60_000) clearInterval(iv);
+    }, 3000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [connectMode, snap?.status]);
+
   const run = async (action: string, label: string) => {
     setBusy(action);
     try {
       const r = await call<{ ok?: boolean }>(action);
       if (r?.ok === false) throw new Error("action_failed");
       toast.success(label);
+      if (action === "setup_session") setConnectMode(true);
+      if (action === "logout") { setQr(null); setConnectMode(false); }
       await refresh();
     } catch (e) {
       const fe = mapAdminActionError(e);
@@ -413,6 +441,21 @@ export function WhatsAppSessionPanel() {
           {config?.updated_at && <span>· atualizadas {humanizeRelative(config.updated_at)}</span>}
           {snap?.last_seen_at && <span>· última verificação {humanizeRelative(snap.last_seen_at)}</span>}
         </div>
+
+        {(snap?.status === "awaiting_qr" || (connectMode && snap?.status !== "connected")) && (
+          <div className="rounded-xl border border-border bg-white p-4 space-y-2">
+            <p className="text-xs text-muted-foreground">Escaneie o código no WhatsApp do número oficial.</p>
+            {qr ? (
+              <div className="grid place-items-center">
+                <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" /> Preparando código de conexão…
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {needsSession && (
