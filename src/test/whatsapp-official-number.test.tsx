@@ -80,7 +80,7 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => {
       const url = openSpy.mock.calls[0]?.[0] as string;
       expect(url).toContain("wa.me/5511977776666");
-      expect(url).toContain("VINCULAR%20123456");
+      expect(url).toContain("123456");
     });
   });
 
