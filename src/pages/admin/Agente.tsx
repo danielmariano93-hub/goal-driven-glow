@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, MessageCircle, Users2, Activity } from "lucide-react";
+import { Bot, MessageCircle, Users2, Activity, type LucideIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { StatusChip } from "@/components/admin/StatusChip";
 import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
@@ -118,7 +118,7 @@ export default function AgenteAdmin() {
   );
 }
 
-function Card({ icon: Icon, label, value }: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: number }) {
+function Card({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
   return (
     <div className="surface-card p-4">
       <div className="flex items-center gap-2 text-muted-foreground text-[11px] uppercase tracking-wider">
