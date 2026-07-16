@@ -9,19 +9,25 @@ import { maskPhone, normalizeBrPhone } from "../_shared/messaging/types.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-function secretsStatus() {
-  return {
-    WAHA_API_URL: Boolean(Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL")),
-    WAHA_API_KEY: Boolean(Deno.env.get("WAHA_API_KEY")),
-    WAHA_WEBHOOK_SECRET: Boolean(Deno.env.get("WAHA_WEBHOOK_SECRET")),
-    WAHA_SESSION: Boolean(Deno.env.get("WAHA_SESSION") ?? "default"),
-    CRON_SECRET: Boolean(Deno.env.get("CRON_SECRET")),
-    LOVABLE_API_KEY: Boolean(Deno.env.get("LOVABLE_API_KEY")),
-  };
+function hasBaseConfig(): boolean {
+  return Boolean(Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL")) &&
+    Boolean(Deno.env.get("WAHA_API_KEY"));
 }
 
 function webhookUrl() {
   return `${SUPABASE_URL}/functions/v1/whatsapp-webhook`;
+}
+
+// Map raw WAHA session status codes to product-facing status codes.
+function mapStatus(raw: string | null | undefined, healthOk: boolean | null): string {
+  if (!raw) return healthOk === false ? "needs_attention" : "unavailable";
+  const s = raw.toUpperCase();
+  if (s === "WORKING") return "connected";
+  if (s === "SCAN_QR_CODE") return "awaiting_qr";
+  if (s === "STARTING") return "connecting";
+  if (s === "STOPPED") return "disconnected";
+  if (s === "FAILED" || s === "UNREACHABLE") return "needs_attention";
+  return "needs_attention";
 }
 
 async function requireAdmin(req: Request) {
@@ -39,24 +45,37 @@ async function requireAdmin(req: Request) {
   return { ok: true as const, userId: userRes.user.id };
 }
 
-async function deepStatus() {
+async function buildPublicStatus() {
   const provider = getProvider();
-  if (!provider.configured) {
-    return { configured: false, secrets: secretsStatus(), health: null, session: null, me: null };
+  if (!provider.configured || !hasBaseConfig()) {
+    return {
+      status: "not_configured",
+      capabilities: { can_connect: false, can_send: false, needs_session: false, temporarily_unavailable: false },
+      phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null,
+    };
   }
   const [health, session, me] = await Promise.all([
     provider.getHealth(),
     provider.getSessionStatus(),
     provider.getMe(),
   ]);
+  const mapped = mapStatus(session?.status, health?.ok ?? null);
+  const capabilities = {
+    can_connect: true,
+    can_send: mapped === "connected",
+    needs_session: ["disconnected", "awaiting_qr", "connecting"].includes(mapped),
+    temporarily_unavailable: mapped === "unavailable",
+  };
   return {
-    configured: true,
-    secrets: secretsStatus(),
-    health,
-    session,
-    me: me.phone ? { phone_masked: maskPhone(me.phone) } : null,
+    status: mapped,
+    capabilities,
+    phone_masked: me?.phone ? maskPhone(me.phone) : null,
+    last_seen_at: new Date().toISOString(),
+    latency_ms: health?.latency_ms ?? null,
+    error_code: health?.ok === false ? "provider_health_failed" : null,
   };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
