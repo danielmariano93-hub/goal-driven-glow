@@ -2,7 +2,7 @@
 // Keep in sync. Pure module.
 import { z } from "zod";
 
-export const INSIGHT_TYPES = ["habit", "alert", "celebration", "onboarding", "opportunity"] as const;
+export const INSIGHT_TYPES = ["habit", "alert", "celebration", "onboarding", "opportunity", "categorize_transaction"] as const;
 export type InsightType = (typeof INSIGHT_TYPES)[number];
 
 export interface InsightPayload {
@@ -25,6 +25,7 @@ export interface InsightFacts {
   has_credit_card?: boolean;
   upcoming_recurring_7d?: number;
   top_expense_category?: string | null;
+  uncategorized_tx?: { id: string; description: string | null; amount: number; occurred_at: string } | null;
 }
 
 const nonEmptyString = (min: number, max: number) =>
