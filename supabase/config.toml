@@ -24,5 +24,8 @@ verify_jwt = true
 [functions.whatsapp-session]
 verify_jwt = true
 
+[functions.whatsapp-official-number]
+verify_jwt = true
+
 [functions.admin-bootstrap]
 verify_jwt = false
