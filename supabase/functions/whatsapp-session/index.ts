@@ -146,7 +146,8 @@ Deno.serve(async (req) => {
         }
         const url = String(body.url ?? "").trim().replace(/\/+$/, "");
         const key = String(body.api_key ?? "").trim();
-        const sessionName = String(body.session_name ?? "default").trim();
+        // session_name is a product-level constant, not a user-editable field.
+        const sessionName = "nocontrole";
         const guard = assertPublicHttpsUrl(url);
         if (!guard.ok) return json({ ok: false, error_code: guard.code }, 400, extraHeaders);
         if (key.length < 4 || key.length > 500) return json({ ok: false, error_code: "invalid_api_key" }, 400, extraHeaders);
