@@ -55,10 +55,14 @@ async function resolveOfficialNumber(): Promise<OfficialResolution> {
   return { state: "unavailable" };
 }
 
+function friendlyLinkMessage(code: string): string {
+  return `Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: ${code}`;
+}
+
 function waMeUrl(numberE164: string, code?: string) {
   const digits = numberE164.replace(/\D/g, "");
   return code
-    ? `https://wa.me/${digits}?text=${encodeURIComponent("VINCULAR " + code)}`
+    ? `https://wa.me/${digits}?text=${encodeURIComponent(friendlyLinkMessage(code))}`
     : `https://wa.me/${digits}`;
 }
 
