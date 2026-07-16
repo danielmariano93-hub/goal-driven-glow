@@ -149,9 +149,9 @@ export default function WhatsApp() {
           <p className="mt-3 text-xs text-muted-foreground">
             Código expira em {Math.floor(ttl / 60)}:{String(ttl % 60).padStart(2, "0")}. Este código aparece apenas uma vez.
           </p>
-          {!OFFICIAL_NUMBER && (
+          {!officialNumber && (
             <p className="mt-3 rounded-md bg-yellow-50 p-3 text-xs text-yellow-800">
-              O número oficial ainda está em configuração. Assim que estiver ativo o botão acima ficará disponível.
+              Não consegui localizar o número oficial agora. Tente novamente em instantes.
             </p>
           )}
         </div>
