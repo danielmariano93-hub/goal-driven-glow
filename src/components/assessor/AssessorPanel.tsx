@@ -180,6 +180,14 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               {m.role === "assistant" && m.pending && (
                 <ConfirmationCard pending={m.pending} onConfirm={() => decide(m.pending!, "confirm", i)} onCancel={() => decide(m.pending!, "cancel", i)} disabled={sending} />
               )}
+              {m.role === "assistant" && m.doc && m.doc.status === "needs_review" && (m.doc.items_count ?? 0) > 0 && (
+                <button
+                  onClick={() => setReviewDocId(m.doc!.document_id)}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/5"
+                >
+                  <FileText size={14} /> Revisar {m.doc.items_count} lançamento(s)
+                </button>
+              )}
             </div>
           ))}
           {sending && (
