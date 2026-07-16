@@ -291,8 +291,31 @@ function ConnectDeviceCard({
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const preparedRef = useRef(false);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
+
+  const needsReset = status === "disconnected" || status === "needs_attention" || status === "unavailable";
+
+  const resetSession = useCallback(async () => {
+    if (resetting) return;
+    setResetting(true);
+    setQrError(null);
+    setCodeError(null);
+    setQr(null);
+    setPairingCode(null);
+    try {
+      const r = await call<{ ok: boolean; error_code?: string }>("reset_session");
+      if (!r.ok) toast.error("Não consegui redefinir a sessão.");
+      else toast.success("Sessão redefinida. Escaneie o QR ou peça o código.");
+    } catch {
+      toast.error("Falha ao redefinir a sessão.");
+    } finally {
+      if (alive.current) setResetting(false);
+    }
+  }, [resetting]);
+
 
   const generateQr = useCallback(async () => {
     setQrBusy(true);
@@ -378,6 +401,23 @@ function ConnectDeviceCard({
         </div>
       </div>
 
+      {needsReset && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex flex-wrap items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-700" />
+          <p className="text-xs text-amber-800 flex-1 min-w-[180px]">
+            A sessão está fora do ar. Redefina para gerar um novo QR ou código.
+          </p>
+          <button
+            onClick={resetSession}
+            disabled={resetting}
+            className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          >
+            {resetting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Redefinir sessão
+          </button>
+        </div>
+      )}
+
       <div role="tablist" aria-label="Método de conexão" className="inline-flex rounded-full border border-border p-1 text-xs">
         <button
           role="tab" aria-selected={method === "qr"}
@@ -388,12 +428,19 @@ function ConnectDeviceCard({
         </button>
         <button
           role="tab" aria-selected={method === "code"}
-          onClick={() => setMethod("code")}
+          onClick={() => {
+            setMethod("code");
+            if (!preparedRef.current) {
+              preparedRef.current = true;
+              void call("prepare_pairing").catch(() => { /* best effort */ });
+            }
+          }}
           className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 ${method === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
         >
           <Smartphone className="h-3 w-3" /> Código pelo telefone
         </button>
       </div>
+
 
       {method === "qr" && (
         <div className="rounded-xl border border-border bg-white p-4 space-y-3">
@@ -490,11 +537,16 @@ function ConnectDeviceCard({
                 <p>Muitas tentativas. Aguarde alguns instantes.</p>
               ) : codeError === "invalid_phone" ? (
                 <p>Número inválido. Confira DDI e DDD.</p>
+              ) : codeError === "session_not_ready" ? (
+                <p>A sessão ainda está subindo. Aguarde alguns segundos ou clique em <button className="underline" onClick={resetSession}>Redefinir sessão</button>.</p>
+              ) : codeError === "already_connected" ? (
+                <p>Este número já está conectado. Atualize o painel.</p>
               ) : (
-                <p>Não consegui gerar o código agora. Você pode usar o <button className="underline" onClick={() => setMethod("qr")}>QR Code</button>.</p>
+                <p>Não consegui gerar o código agora. Você pode usar o <button className="underline" onClick={() => setMethod("qr")}>QR Code</button> ou <button className="underline" onClick={resetSession}>redefinir a sessão</button>.</p>
               )}
             </div>
           )}
+
         </div>
       )}
     </div>
