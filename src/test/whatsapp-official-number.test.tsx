@@ -60,7 +60,9 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith("create_phone_link_code"));
     await waitFor(() => {
       const url = openSpy.mock.calls[0]?.[0] as string;
-      expect(url).toBe("https://wa.me/5511999998888?text=VINCULAR%20123456");
+      expect(url).toContain("wa.me/5511999998888");
+      expect(url).toContain(encodeURIComponent("código de verificação"));
+      expect(url).toContain("123456");
     });
   });
 
@@ -78,7 +80,7 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => {
       const url = openSpy.mock.calls[0]?.[0] as string;
       expect(url).toContain("wa.me/5511977776666");
-      expect(url).toContain("VINCULAR%20123456");
+      expect(url).toContain("123456");
     });
   });
 
@@ -104,7 +106,7 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => expect(btn).not.toBeDisabled());
     fireEvent.click(btn);
 
-    expect(await screen.findByText(/VINCULAR 123456/)).toBeInTheDocument();
+    expect(await screen.findByText(/código de verificação.*123456/i)).toBeInTheDocument();
     const retry = await screen.findByRole("button", { name: /Abrir WhatsApp novamente/i });
     openSpy.mockReturnValue({} as Window);
     fireEvent.click(retry);

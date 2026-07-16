@@ -55,10 +55,14 @@ async function resolveOfficialNumber(): Promise<OfficialResolution> {
   return { state: "unavailable" };
 }
 
+function friendlyLinkMessage(code: string): string {
+  return `Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: ${code}`;
+}
+
 function waMeUrl(numberE164: string, code?: string) {
   const digits = numberE164.replace(/\D/g, "");
   return code
-    ? `https://wa.me/${digits}?text=${encodeURIComponent("VINCULAR " + code)}`
+    ? `https://wa.me/${digits}?text=${encodeURIComponent(friendlyLinkMessage(code))}`
     : `https://wa.me/${digits}`;
 }
 
@@ -95,6 +99,29 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
       resolveOfficialNumber().then(setOfficial),
     ]).finally(() => setLoading(false));
   }, [open]);
+
+  // Reactive polling: after a code is issued, poll list_my_whatsapp_link so
+  // the sheet reflects the vinculation as soon as the webhook confirms it,
+  // without requiring the user to close/reopen or log out.
+  useEffect(() => {
+    if (!open || !code || link) return;
+    let cancelled = false;
+    let ticks = 0;
+    const iv = setInterval(async () => {
+      ticks += 1;
+      const { data } = await supabase.rpc("list_my_whatsapp_link");
+      const row = (data?.[0] as LinkRow | undefined) ?? null;
+      if (row?.status === "active" && !cancelled) {
+        setLink(row);
+        setCode(null);
+        setPopupBlocked(false);
+        clearInterval(iv);
+        return;
+      }
+      if (ticks >= 40) clearInterval(iv); // ~3 minutes at 5s
+    }, 5_000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [open, code, link]);
 
   useEffect(() => {
     if (!open) return;
@@ -181,7 +208,7 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
   const copyMessage = async () => {
     if (!code) return;
     try {
-      await navigator.clipboard.writeText("VINCULAR " + code);
+      await navigator.clipboard.writeText(friendlyLinkMessage(code));
       toast.success("Mensagem copiada!");
     } catch {
       toast.error("Não consegui copiar. Copie manualmente o texto acima.");
@@ -253,8 +280,8 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
             <p className="text-sm">
               Seu navegador bloqueou a abertura automática do WhatsApp. Use os botões abaixo para continuar.
             </p>
-            <div className="mt-4 rounded-xl bg-muted p-4 text-center font-mono text-lg tracking-wider">
-              VINCULAR {code}
+            <div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-relaxed">
+              {friendlyLinkMessage(code)}
             </div>
             <div className="mt-4 flex flex-col gap-2">
               <button

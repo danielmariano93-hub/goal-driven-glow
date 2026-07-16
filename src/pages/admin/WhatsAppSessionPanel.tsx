@@ -501,6 +501,49 @@ function ConnectDeviceCard({
   );
 }
 
+function InboundHealthCard({ onSync }: { onSync: () => void | Promise<void> }) {
+  const [state, setState] = useState<{ status: "healthy" | "needs_attention"; last_inbound_at: string | null; count_24h: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rpc = (supabase as any)?.rpc;
+      const { data } = typeof rpc === "function"
+        ? await supabase.rpc("admin_whatsapp_inbound_health")
+        : { data: null };
+      setState((data as any) ?? null);
+    } catch {
+      setState(null);
+    }
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const healthy = state?.status === "healthy";
+  return (
+    <div className="surface-card p-4 flex flex-wrap items-center gap-3">
+      <div className={`h-2 w-2 rounded-full ${healthy ? "bg-emerald-500" : "bg-amber-500"}`} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">
+          {loading ? "Verificando entrada de mensagens…" : healthy ? "Recebendo mensagens" : "Precisa de atenção"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {state?.last_inbound_at
+            ? `Última recebida ${humanizeRelative(state.last_inbound_at)} · ${state.count_24h} nas últimas 24h`
+            : "Nenhuma mensagem recebida nas últimas 24h."}
+        </p>
+      </div>
+      <button
+        onClick={async () => { setSyncing(true); try { await onSync(); await load(); } finally { setSyncing(false); } }}
+        disabled={syncing}
+        className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+      >
+        {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Sincronizar webhook
+      </button>
+    </div>
+  );
+}
+
 export function WhatsAppSessionPanel() {
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [snap, setSnap] = useState<SessionSnap | null>(null);
@@ -644,6 +687,14 @@ export function WhatsAppSessionPanel() {
         </button>
       </div>
       <p className="text-sm text-muted-foreground">{view.impact}</p>
+
+      <InboundHealthCard onSync={async () => {
+        try {
+          const r = await call<{ ok: boolean }>("sync_webhook");
+          if (r?.ok) toast.success("Webhook sincronizado.");
+          else toast.error("Não consegui sincronizar o webhook.");
+        } catch { toast.error("Não consegui sincronizar o webhook."); }
+      }} />
 
       {!isConnected && (
         <ConnectDeviceCard status={snap?.status} onConnected={refresh} />

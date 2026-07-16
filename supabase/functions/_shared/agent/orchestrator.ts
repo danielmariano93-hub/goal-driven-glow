@@ -10,7 +10,7 @@
 //
 // deno-lint-ignore-file no-explicit-any
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { interpret, type ParsedIntent, todaySaoPaulo } from "../../../../src/lib/agent/parser.ts";
+import { interpret, type ParsedIntent, todaySaoPaulo } from "./parser.ts";
 import { isLLMConfigured, runAgentTurn, sanitizeError } from "./llm.ts";
 import { loadActivePrompt } from "./prompt.ts";
 import {

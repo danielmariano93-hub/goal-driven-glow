@@ -226,6 +226,15 @@ export interface WahaExtras {
 
 const webhookEvents = ["message", "message.any", "message.ack", "session.status"] as const;
 
+/** Append an opaque token to the webhook URL. Some WAHA versions/engines do
+ *  not propagate customHeaders reliably; the receiver accepts either the
+ *  header or the query token. Both compare to the same secret. */
+function webhookUrlWithToken(base: string): string {
+  if (!WAHA_WEBHOOK_SECRET) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}t=${encodeURIComponent(WAHA_WEBHOOK_SECRET)}`;
+}
+
 function buildSessionConfig(webhookUrl: string) {
   return {
     name: WAHA_SESSION,
@@ -237,7 +246,7 @@ function buildSessionConfig(webhookUrl: string) {
       },
       webhooks: [
         {
-          url: webhookUrl,
+          url: webhookUrlWithToken(webhookUrl),
           events: [...webhookEvents],
           hmac: null,
           retries: { policy: "linear", delaySeconds: 2, attempts: 3 },
@@ -295,32 +304,94 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
   },
   verifyWebhookSecret(h) {
     if (!WAHA_WEBHOOK_SECRET) return false;
+    // Header path (preferred when supported by the WAHA version/engine).
     const provided = h.get("x-webhook-secret") ?? h.get("X-Webhook-Secret") ?? "";
-    if (!provided) return false;
-    if (provided.length !== WAHA_WEBHOOK_SECRET.length) return false;
-    let mismatch = 0;
-    for (let i = 0; i < provided.length; i++) mismatch |= provided.charCodeAt(i) ^ WAHA_WEBHOOK_SECRET.charCodeAt(i);
-    return mismatch === 0;
+    if (provided && provided.length === WAHA_WEBHOOK_SECRET.length) {
+      let mismatch = 0;
+      for (let i = 0; i < provided.length; i++) mismatch |= provided.charCodeAt(i) ^ WAHA_WEBHOOK_SECRET.charCodeAt(i);
+      if (mismatch === 0) return true;
+    }
+    // Query-token path (?t=<secret>) — the source-of-truth is the same secret.
+    // The webhook route reads the URL and passes the token through the header
+    // `x-webhook-token` (see whatsapp-webhook), keeping this method pure.
+    const tok = h.get("x-webhook-token") ?? "";
+    if (tok && tok.length === WAHA_WEBHOOK_SECRET.length) {
+      let mismatch = 0;
+      for (let i = 0; i < tok.length; i++) mismatch |= tok.charCodeAt(i) ^ WAHA_WEBHOOK_SECRET.charCodeAt(i);
+      if (mismatch === 0) return true;
+    }
+    return false;
   },
   mapInboundEvent(payload: unknown): NormalizedInbound | null {
     const p = payload as {
       event?: string;
       session?: string;
-      payload?: { id?: string; from?: string; to?: string; body?: string; fromMe?: boolean; timestamp?: number };
+      payload?: {
+        id?: string | { id?: string; _serialized?: string };
+        from?: string;
+        to?: string;
+        body?: string;
+        fromMe?: boolean;
+        timestamp?: number;
+        key?: { id?: string; remoteJid?: string; fromMe?: boolean };
+        message?: {
+          conversation?: string;
+          extendedTextMessage?: { text?: string };
+          imageMessage?: { caption?: string };
+          videoMessage?: { caption?: string };
+        };
+        pushName?: string;
+        _data?: { id?: { _serialized?: string } };
+      };
     };
-    // Reject payloads from foreign sessions (e.g. `default`, `sniper`).
     if (p?.session && p.session !== WAHA_SESSION) return null;
-    if (!p?.payload?.from || p.payload.fromMe) return null;
-    const from = normalizeBrPhone(p.payload.from.replace(/@c\.us$/, ""));
+    // Accept both event-name conventions from WAHA 2026.5.1.
+    if (p?.event && !["message", "message.any"].includes(p.event)) {
+      // still tolerate legacy payloads without `event`
+      // return null only for explicit non-message events
+      const ev = p.event.toLowerCase();
+      if (ev.startsWith("session.") || ev.startsWith("state.")) return null;
+    }
+    const pl = p?.payload;
+    if (!pl) return null;
+    const fromMe = Boolean(pl.fromMe ?? pl.key?.fromMe);
+    if (fromMe) return null;
+
+    // Resolve `from`: prefer explicit `from`, fall back to key.remoteJid.
+    const rawFrom = (pl.from ?? pl.key?.remoteJid ?? "").toString();
+    if (!rawFrom) return null;
+    const cleanedFrom = rawFrom
+      .replace(/@c\.us$/i, "")
+      .replace(/@s\.whatsapp\.net$/i, "")
+      .replace(/@.+$/, ""); // drop group suffixes just in case
+    const from = normalizeBrPhone(cleanedFrom);
     if (!from) return null;
+
+    // Resolve message id — WAHA sometimes returns an object.
+    let msgId: string | undefined;
+    if (typeof pl.id === "string") msgId = pl.id;
+    else if (pl.id && typeof pl.id === "object") msgId = pl.id._serialized ?? pl.id.id;
+    if (!msgId) msgId = pl.key?.id ?? pl._data?.id?._serialized;
+    if (!msgId) msgId = crypto.randomUUID();
+
+    // Resolve body — WAHA 2026.5.1 may nest text under `message.*`.
+    const body = (
+      pl.body ??
+      pl.message?.conversation ??
+      pl.message?.extendedTextMessage?.text ??
+      pl.message?.imageMessage?.caption ??
+      pl.message?.videoMessage?.caption ??
+      ""
+    ).toString().trim();
+
     return {
       provider: "waha",
-      provider_message_id: p.payload.id ?? crypto.randomUUID(),
+      provider_message_id: msgId,
       from_phone: from,
-      to_phone: p.payload.to ?? undefined,
-      body: (p.payload.body ?? "").trim(),
-      from_bot: Boolean(p.payload.fromMe),
-      received_at: new Date((p.payload.timestamp ?? Date.now() / 1000) * 1000).toISOString(),
+      to_phone: pl.to ?? undefined,
+      body,
+      from_bot: false,
+      received_at: new Date((pl.timestamp ?? Date.now() / 1000) * 1000).toISOString(),
     };
   },
   // --- WahaExtras (portal admin) ---

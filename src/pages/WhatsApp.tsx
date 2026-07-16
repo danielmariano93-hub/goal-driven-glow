@@ -93,8 +93,11 @@ export default function WhatsApp() {
     setLink(null);
   };
 
+  const linkMessage = code
+    ? `Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: ${code}`
+    : "";
   const waLink = code && officialNumber
-    ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent("VINCULAR " + code)}`
+    ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent(linkMessage)}`
     : null;
 
   if (loading) {
@@ -127,12 +130,12 @@ export default function WhatsApp() {
       ) : code ? (
         <div className="rounded-2xl border bg-card p-6">
           <p className="text-sm text-muted-foreground">Envie a seguinte mensagem ao número oficial do NoControle.ia pelo WhatsApp:</p>
-          <div className="mt-4 rounded-xl bg-muted p-4 font-mono text-lg tracking-wider text-center">
-            VINCULAR {code}
+          <div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-relaxed">
+            {linkMessage}
           </div>
           <div className="mt-4 flex gap-3">
             <button
-              onClick={() => { navigator.clipboard.writeText("VINCULAR " + code); toast.success("Copiado!"); }}
+              onClick={() => { navigator.clipboard.writeText(linkMessage); toast.success("Copiado!"); }}
               className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm hover:bg-accent"
             >
               <Copy className="h-4 w-4" /> Copiar

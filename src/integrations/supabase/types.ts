@@ -2462,6 +2462,7 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_whatsapp_inbound_health: { Args: never; Returns: Json }
       agent_compile_prompt: { Args: { p_cfg: Json }; Returns: string }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
