@@ -39,7 +39,8 @@ const nonEmptyString = (min: number, max: number) =>
     )
     .refine((s) => /[a-zA-ZÀ-ÿ0-9]/.test(s), "must contain letters or digits");
 
-export const CTA_ROUTE_RX = /^\/app\/[a-z0-9\-/]+$/i;
+// CTA route: aceita /app/... com opcional query string.
+export const CTA_ROUTE_RX = /^\/app\/[a-z0-9\-/]+(?:\?[a-z0-9=&_\-]+)?$/i;
 
 export const InsightSchema = z.object({
   type: z.enum(INSIGHT_TYPES).optional(),
