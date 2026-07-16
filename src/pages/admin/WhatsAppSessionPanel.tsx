@@ -442,6 +442,21 @@ export function WhatsAppSessionPanel() {
           {snap?.last_seen_at && <span>· última verificação {humanizeRelative(snap.last_seen_at)}</span>}
         </div>
 
+        {(snap?.status === "awaiting_qr" || (connectMode && snap?.status !== "connected")) && (
+          <div className="rounded-xl border border-border bg-white p-4 space-y-2">
+            <p className="text-xs text-muted-foreground">Escaneie o código no WhatsApp do número oficial.</p>
+            {qr ? (
+              <div className="grid place-items-center">
+                <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" /> Preparando código de conexão…
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {needsSession && (
             <button onClick={() => run("setup_session", "Conexão iniciada.")} disabled={!!busy}
