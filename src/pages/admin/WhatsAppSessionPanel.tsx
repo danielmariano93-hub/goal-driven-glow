@@ -266,6 +266,225 @@ export function WhatsAppSetupWizard({ mode = "initial", onDone, onCancel }: { mo
   );
 }
 
+type PairingMethod = "qr" | "code";
+
+type QrPayload = { mimeType: string; base64: string; expiresAt: number };
+
+function ConnectDeviceCard({
+  status,
+  onConnected,
+}: {
+  status: string | undefined;
+  onConnected: () => void;
+}) {
+  const [method, setMethod] = useState<PairingMethod>("qr");
+  const [qr, setQr] = useState<QrPayload | null>(null);
+  const [qrBusy, setQrBusy] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [phone, setPhone] = useState("");
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  const generateQr = useCallback(async () => {
+    setQrBusy(true);
+    setQrError(null);
+    try {
+      const r = await call<{ ok: boolean; qr?: string; mime_type?: string; expires_at?: string; error_code?: string; connected?: boolean }>("begin_qr");
+      if (!alive.current) return;
+      if (r.connected) { onConnected(); return; }
+      if (!r.ok || !r.qr) {
+        setQrError(r.error_code ?? "qr_unavailable");
+        return;
+      }
+      const expiresAt = r.expires_at ? new Date(r.expires_at).getTime() : Date.now() + 60_000;
+      setQr({ mimeType: r.mime_type ?? "image/png", base64: r.qr, expiresAt });
+    } catch {
+      if (alive.current) setQrError("network");
+    } finally {
+      if (alive.current) setQrBusy(false);
+    }
+  }, [onConnected]);
+
+  // Auto-fetch QR when user picks QR tab and none loaded.
+  useEffect(() => {
+    if (method === "qr" && !qr && !qrBusy && !qrError) {
+      void generateQr();
+    }
+  }, [method, qr, qrBusy, qrError, generateQr]);
+
+  // Poll status while awaiting pairing; refresh QR when it expires.
+  useEffect(() => {
+    if (status === "connected") { onConnected(); return; }
+    const iv = setInterval(async () => {
+      try {
+        const s = await call<SessionSnap>("status");
+        if (!alive.current) return;
+        if (s.status === "connected") { onConnected(); return; }
+      } catch { /* keep UI stable on transient errors */ }
+      // Refresh QR if expired (only if we still have one shown)
+      if (method === "qr" && qr && Date.now() > qr.expiresAt - 2000) {
+        void generateQr();
+      }
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [status, method, qr, generateQr, onConnected]);
+
+  const requestCode = async () => {
+    if (codeBusy) return;
+    setCodeBusy(true);
+    setCodeError(null);
+    setPairingCode(null);
+    try {
+      const r = await call<{ ok: boolean; pairing_code?: string; error_code?: string }>("request_pairing_code", { to: phone });
+      if (!alive.current) return;
+      if (!r.ok || !r.pairing_code) {
+        setCodeError(r.error_code ?? "provider_error");
+        return;
+      }
+      setPairingCode(r.pairing_code);
+    } catch {
+      if (alive.current) setCodeError("network");
+    } finally {
+      if (alive.current) setCodeBusy(false);
+    }
+  };
+
+  const copyCode = async () => {
+    if (!pairingCode) return;
+    try { await navigator.clipboard.writeText(pairingCode); toast.success("Código copiado."); }
+    catch { toast.error("Não consegui copiar."); }
+  };
+
+  return (
+    <div className="surface-card p-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <Smartphone className="h-5 w-5 text-primary mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold">Conectar aparelho</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Escolha como quer conectar o WhatsApp oficial do NoControle.
+          </p>
+        </div>
+      </div>
+
+      <div role="tablist" aria-label="Método de conexão" className="inline-flex rounded-full border border-border p-1 text-xs">
+        <button
+          role="tab" aria-selected={method === "qr"}
+          onClick={() => setMethod("qr")}
+          className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 ${method === "qr" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          <QrCode className="h-3 w-3" /> QR Code
+        </button>
+        <button
+          role="tab" aria-selected={method === "code"}
+          onClick={() => setMethod("code")}
+          className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 ${method === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          <Smartphone className="h-3 w-3" /> Código pelo telefone
+        </button>
+      </div>
+
+      {method === "qr" && (
+        <div className="rounded-xl border border-border bg-white p-4 space-y-3">
+          <p className="text-xs text-muted-foreground">Escaneie este QR Code no WhatsApp: Aparelhos conectados → Conectar um aparelho.</p>
+          <div className="grid place-items-center min-h-[240px]">
+            {qr ? (
+              <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
+            ) : qrBusy ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" /> Gerando QR Code…
+              </p>
+            ) : qrError ? (
+              <p className="text-xs text-red-600">Não consegui gerar agora. Tente novamente.</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Prepare-se para conectar.</p>
+            )}
+          </div>
+          <button
+            onClick={() => { setQr(null); setQrError(null); void generateQr(); }}
+            disabled={qrBusy}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+          >
+            {qrBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            {qr ? "Gerar outro QR Code" : "Gerar QR Code"}
+          </button>
+        </div>
+      )}
+
+      {method === "code" && (
+        <div className="rounded-xl border border-border bg-white p-4 space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Informe o número do WhatsApp. No aparelho: <strong>Aparelhos conectados → Conectar um aparelho → Conectar com número de telefone</strong>.
+          </p>
+          <label className="block">
+            <span className="text-xs font-medium">Número do WhatsApp</span>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+55 11 99999-9999"
+              inputMode="tel"
+              className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+              autoComplete="off"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={requestCode}
+              disabled={codeBusy || phone.trim().length < 10}
+              className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50"
+            >
+              {codeBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Smartphone className="h-3 w-3" />} Gerar código
+            </button>
+            <button
+              onClick={() => setMethod("qr")}
+              className="text-xs text-muted-foreground underline"
+            >
+              Tentar com QR Code
+            </button>
+          </div>
+          {pairingCode && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-2">
+              <p className="text-xs text-muted-foreground">Digite este código no WhatsApp:</p>
+              <div className="flex items-center gap-3">
+                <code className="text-2xl font-mono tracking-[0.35em] font-semibold text-primary">
+                  {pairingCode}
+                </code>
+                <button
+                  onClick={copyCode}
+                  aria-label="Copiar código"
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs hover:bg-accent"
+                >
+                  <Copy className="h-3 w-3" /> Copiar
+                </button>
+              </div>
+            </div>
+          )}
+          {codeError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
+              {codeError === "method_unsupported" ? (
+                <p>Este servidor ainda não suporta o código por telefone. Use o <button className="underline" onClick={() => setMethod("qr")}>QR Code</button>.</p>
+              ) : codeError === "passkey_required" ? (
+                <p>O WhatsApp exige uma chave de acesso neste número. Habilite pelo aparelho ou use o QR Code.</p>
+              ) : codeError === "passkey_confirmation_required" ? (
+                <p>Confirme a chave de acesso no aparelho e tente de novo.</p>
+              ) : codeError === "rate_limited" ? (
+                <p>Muitas tentativas. Aguarde alguns instantes.</p>
+              ) : codeError === "invalid_phone" ? (
+                <p>Número inválido. Confira DDI e DDD.</p>
+              ) : (
+                <p>Não consegui gerar o código agora. Você pode usar o <button className="underline" onClick={() => setMethod("qr")}>QR Code</button>.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WhatsAppSessionPanel() {
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [snap, setSnap] = useState<SessionSnap | null>(null);
@@ -275,8 +494,6 @@ export function WhatsAppSessionPanel() {
   const [wizard, setWizard] = useState(false);
   const [wizardMode, setWizardMode] = useState<WizardMode>("initial");
   const [replacing, setReplacing] = useState(false);
-  const [qr, setQr] = useState<{ mimeType: string; base64: string } | null>(null);
-  const [connectMode, setConnectMode] = useState(false);
 
   const loadConfig = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setConfigLoading(true);
@@ -310,44 +527,12 @@ export function WhatsAppSessionPanel() {
 
   const refresh = useCallback(() => loadConfig({ silent: true }), [loadConfig]);
 
-  // Poll status + QR while connecting or awaiting scan. Fires an immediate
-  // QR fetch on entry so the owner never sees a blank frame on a fresh load
-  // when the session is already in SCAN_QR_CODE.
-  useEffect(() => {
-    const st = snap?.status;
-    const shouldPoll = connectMode || st === "awaiting_qr" || st === "connecting";
-    if (!shouldPoll) return;
-    let cancelled = false;
-    const start = Date.now();
-    const fetchQrIfNeeded = async (status: string) => {
-      if (status !== "awaiting_qr") return;
-      const r = await call<{ ok: boolean; mimeType?: string; base64?: string }>("qr");
-      if (cancelled) return;
-      if (r.ok && r.base64) setQr({ mimeType: r.mimeType ?? "image/png", base64: r.base64 });
-    };
-    // Immediate fetch when landing on awaiting_qr — don't wait 3s.
-    if (st === "awaiting_qr") { fetchQrIfNeeded("awaiting_qr").catch(() => {}); }
-    const iv = setInterval(async () => {
-      try {
-        const s = await call<SessionSnap>("status");
-        if (cancelled) return;
-        setSnap(s);
-        if (s.status === "connected") { setQr(null); setConnectMode(false); clearInterval(iv); return; }
-        await fetchQrIfNeeded(s.status);
-      } catch { /* silent */ }
-      if (Date.now() - start > 5 * 60_000) clearInterval(iv);
-    }, 3000);
-    return () => { cancelled = true; clearInterval(iv); };
-  }, [connectMode, snap?.status]);
-
   const run = async (action: string, label: string) => {
     setBusy(action);
     try {
       const r = await call<{ ok?: boolean }>(action);
       if (r?.ok === false) throw new Error("action_failed");
       toast.success(label);
-      if (action === "setup_session") setConnectMode(true);
-      if (action === "logout") { setQr(null); setConnectMode(false); }
       await refresh();
     } catch (e) {
       const fe = mapAdminActionError(e);
@@ -399,8 +584,8 @@ export function WhatsAppSessionPanel() {
   const view = mapWhatsAppStatus(snap?.status);
   const notConfigured = !config?.configured;
   const canSend = snap?.capabilities?.can_send === true;
-  const needsSession = snap?.capabilities?.needs_session === true;
   const canManageConfig = config?.can_manage_config === true;
+  const isConnected = snap?.status === "connected";
 
   if (notConfigured) {
     return (
@@ -424,8 +609,8 @@ export function WhatsAppSessionPanel() {
   }
 
   return (
-    <section>
-      <div className="flex items-center justify-between mb-4">
+    <section className="space-y-4">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <StatusChip view={view} />
           <span className="text-xs text-muted-foreground">
@@ -437,7 +622,11 @@ export function WhatsAppSessionPanel() {
           <RefreshCw className="h-3 w-3" /> Atualizar
         </button>
       </div>
-      <p className="text-sm text-muted-foreground mb-4">{view.impact}</p>
+      <p className="text-sm text-muted-foreground">{view.impact}</p>
+
+      {!isConnected && canManageConfig && (
+        <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
+      )}
 
       <div className="surface-card p-5 space-y-4">
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -448,30 +637,14 @@ export function WhatsAppSessionPanel() {
           {snap?.last_seen_at && <span>· última verificação {humanizeRelative(snap.last_seen_at)}</span>}
         </div>
 
-        {(snap?.status === "awaiting_qr" || (connectMode && snap?.status !== "connected")) && (
-          <div className="rounded-xl border border-border bg-white p-4 space-y-2">
-            <p className="text-xs text-muted-foreground">Escaneie este QR Code</p>
-            {qr ? (
-              <div className="grid place-items-center">
-                <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground flex items-center gap-2">
-                <Loader2 className="h-3 w-3 animate-spin" /> Preparando código de conexão…
-              </p>
-            )}
+        {isConnected && (
+          <div className="flex items-center gap-2 text-emerald-700">
+            <CheckCircle2 className="h-4 w-4" />
+            <p className="text-sm">Canal conectado{snap?.phone_masked ? ` (${snap.phone_masked})` : ""}.</p>
           </div>
         )}
 
         <div className="flex flex-wrap gap-2">
-          {needsSession && (
-            <button onClick={() => run("setup_session", "Conexão iniciada.")} disabled={!!busy}
-              className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50">
-              {busy === "setup_session" ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              Conectar WhatsApp
-            </button>
-          )}
-
           {canSend && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
