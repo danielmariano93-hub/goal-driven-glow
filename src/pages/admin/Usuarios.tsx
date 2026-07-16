@@ -61,8 +61,12 @@ export default function Usuarios() {
         <p className="text-sm text-destructive">Não foi possível carregar. Verifique suas permissões.</p>
       ) : !q.data || q.data.length === 0 ? (
         <div className="surface-card p-8 text-center">
-          <p className="text-sm text-muted-foreground">Nenhum usuário encontrado.</p>
+          <p className="text-sm font-semibold">Nenhum usuário por aqui ainda</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece nesta lista.
+          </p>
         </div>
+
       ) : (
         <div className="surface-card overflow-hidden">
           <table className="w-full text-sm">

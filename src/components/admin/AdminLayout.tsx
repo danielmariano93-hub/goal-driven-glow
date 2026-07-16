@@ -6,6 +6,7 @@ import {
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { can, roleLabel, type PlatformAction } from "@/lib/admin/permissions";
+import { AdminErrorBoundary } from "@/components/admin/AdminErrorBoundary";
 
 type Item = {
   to: string;
@@ -125,7 +126,9 @@ export function AdminLayout() {
           <div className="w-9" />
         </header>
         <div className="mx-auto w-full max-w-6xl px-4 md:px-8 py-6 md:py-8">
-          <Outlet />
+          <AdminErrorBoundary>
+            <Outlet />
+          </AdminErrorBoundary>
         </div>
       </main>
     </div>

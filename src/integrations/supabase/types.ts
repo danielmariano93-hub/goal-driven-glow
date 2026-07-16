@@ -1094,6 +1094,39 @@ export type Database = {
           },
         ]
       }
+      job_heartbeats: {
+        Row: {
+          failed: number
+          job_key: string
+          last_error_code: string | null
+          last_ok: boolean | null
+          last_run_at: string | null
+          next_run_at: string | null
+          processed: number
+          updated_at: string
+        }
+        Insert: {
+          failed?: number
+          job_key: string
+          last_error_code?: string | null
+          last_ok?: boolean | null
+          last_run_at?: string | null
+          next_run_at?: string | null
+          processed?: number
+          updated_at?: string
+        }
+        Update: {
+          failed?: number
+          job_key?: string
+          last_error_code?: string | null
+          last_ok?: boolean | null
+          last_run_at?: string | null
+          next_run_at?: string | null
+          processed?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       message_delivery_events: {
         Row: {
           id: string
@@ -2291,6 +2324,15 @@ export type Database = {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
         Returns: undefined
       }
+      admin_consumer_users_set: {
+        Args: never
+        Returns: {
+          created_at: string
+          email: string
+          last_sign_in_at: string
+          user_id: string
+        }[]
+      }
       admin_dashboard_stats: { Args: never; Returns: Json }
       admin_engagement_stats: { Args: never; Returns: Json }
       admin_list_platform_admins: {
@@ -2305,6 +2347,7 @@ export type Database = {
         }[]
       }
       admin_ops_health: { Args: never; Returns: Json }
+      admin_platform_status: { Args: never; Returns: Json }
       admin_process_deletion_request: {
         Args: { p_id: string }
         Returns: string
@@ -2313,6 +2356,8 @@ export type Database = {
         Args: { p_id: string; p_notes: string }
         Returns: undefined
       }
+      admin_reprocess_failed: { Args: { p_job_key: string }; Returns: Json }
+      admin_run_check: { Args: { p_job_key: string }; Returns: Json }
       admin_users_list: {
         Args: { p_limit?: number; p_offset?: number; p_search?: string }
         Returns: {

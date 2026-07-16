@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Users, Activity, Bot, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { StatusChip } from "@/components/admin/StatusChip";
+import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
+import { mapWhatsAppStatus, mapAgentStatus } from "@/lib/admin/statusMapper";
 
 type Stats = {
   total_users: number;
@@ -48,6 +51,11 @@ export default function VisaoGeral() {
     },
   });
 
+  const platform = useAdminPlatformStatus();
+  const wa = platform.data?.whatsapp;
+  const ag = platform.data?.agent;
+  const total = base.data?.total_users ?? 0;
+
   return (
     <div className="space-y-8">
       <header>
@@ -57,16 +65,36 @@ export default function VisaoGeral() {
         </p>
       </header>
 
+      {(wa || ag) && (
+        <section className="surface-card p-4 flex flex-wrap items-center gap-3">
+          {ag && <StatusChip view={mapAgentStatus(ag.status)} size="sm" />}
+          {wa && <StatusChip view={mapWhatsAppStatus(wa.status)} size="sm" />}
+          <span className="text-xs text-muted-foreground">
+            {mapAgentStatus(ag?.status).impact}
+          </span>
+        </section>
+      )}
+
       <Section title="Usuários" icon={Users}>
         {base.isLoading ? <Spinner /> : base.data ? (
-          <Grid>
-            <Stat label="Total" value={base.data.total_users} />
-            <Stat label="Novos 7d" value={base.data.new_users_7d} />
-            <Stat label="Novos 30d" value={base.data.new_users_30d} />
-            <Stat label="Onboarding concluído" value={base.data.onboarded_users} />
-          </Grid>
+          total === 0 ? (
+            <div className="surface-card p-8 text-center">
+              <p className="text-sm font-semibold">Nenhum usuário por aqui ainda</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece nesta lista.
+              </p>
+            </div>
+          ) : (
+            <Grid>
+              <Stat label="Total" value={base.data.total_users} />
+              <Stat label="Novos 7d" value={base.data.new_users_7d} />
+              <Stat label="Novos 30d" value={base.data.new_users_30d} />
+              <Stat label="Onboarding concluído" value={base.data.onboarded_users} />
+            </Grid>
+          )
         ) : <Empty />}
       </Section>
+
 
       <Section title="Engajamento (últimos períodos)" icon={Activity}>
         {engagement.isLoading ? <Spinner /> : engagement.data ? (

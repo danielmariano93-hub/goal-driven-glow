@@ -1,28 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, QrCode, Play, Square, RotateCw, LogOut, HeartPulse, Send, RefreshCw } from "lucide-react";
+import { Loader2, QrCode, RefreshCw, Send, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { StatusChip } from "@/components/admin/StatusChip";
+import { mapWhatsAppStatus, humanizeRelative } from "@/lib/admin/statusMapper";
+import { mapAdminActionError } from "@/lib/admin/errorMapper";
+import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
 
-type Snap = {
-  configured: boolean;
-  secrets: Record<string, boolean>;
-  health: { ok: boolean; latency_ms: number; error?: string } | null;
-  session: { status: string; error?: string } | null;
-  me: { phone_masked: string } | null;
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  WORKING: "bg-green-100 text-green-800 border-green-200",
-  SCAN_QR_CODE: "bg-blue-100 text-blue-800 border-blue-200",
-  STARTING: "bg-amber-100 text-amber-800 border-amber-200",
-  STOPPED: "bg-slate-100 text-slate-700 border-slate-200",
-  FAILED: "bg-red-100 text-red-800 border-red-200",
-  UNREACHABLE: "bg-red-100 text-red-800 border-red-200",
-  UNKNOWN: "bg-slate-100 text-slate-700 border-slate-200",
+type SessionSnap = {
+  status: string;
+  capabilities: { can_connect: boolean; can_send: boolean; needs_session: boolean; temporarily_unavailable: boolean };
+  phone_masked: string | null;
+  last_seen_at: string | null;
+  latency_ms: number | null;
+  error_code: string | null;
 };
 
 async function call<T = unknown>(action: string, extra?: Record<string, unknown>): Promise<T> {
@@ -32,7 +27,8 @@ async function call<T = unknown>(action: string, extra?: Record<string, unknown>
 }
 
 export function WhatsAppSessionPanel() {
-  const [snap, setSnap] = useState<Snap | null>(null);
+  const platform = useAdminPlatformStatus();
+  const [snap, setSnap] = useState<SessionSnap | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [qr, setQr] = useState<{ mimeType: string; base64: string } | null>(null);
   const [testTo, setTestTo] = useState("");
@@ -42,17 +38,21 @@ export function WhatsAppSessionPanel() {
 
   const refresh = async () => {
     try {
-      const s = await call<Snap & { ok?: boolean }>("status");
+      const s = await call<SessionSnap>("status");
       setSnap(s);
-      if (s.session?.status === "WORKING") stopPolling();
+      if (s.status === "connected") stopPolling();
       return s;
     } catch {
-      toast.error("Falha ao consultar sessão.");
+      toast.error("Não foi possível verificar agora.");
       return null;
     }
   };
 
-  useEffect(() => { refresh(); return () => stopPolling(); }, []);
+  useEffect(() => {
+    refresh();
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stopPolling = () => {
     if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
@@ -66,8 +66,8 @@ export function WhatsAppSessionPanel() {
       if (Date.now() > pollUntil.current) { stopPolling(); return; }
       const s = await refresh();
       if (!s) return;
-      if (s.session?.status === "WORKING") { stopPolling(); toast.success("Sessão conectada."); return; }
-      if (s.session?.status === "SCAN_QR_CODE") {
+      if (s.status === "connected") { toast.success("WhatsApp conectado."); return; }
+      if (s.status === "awaiting_qr") {
         try {
           const r = await call<{ ok: boolean; mimeType?: string; base64?: string }>("qr");
           if (r.ok && r.base64) setQr({ mimeType: r.mimeType ?? "image/png", base64: r.base64 });
@@ -78,65 +78,61 @@ export function WhatsAppSessionPanel() {
     pollTimer.current = window.setInterval(tick, 3_000);
   };
 
-  const run = async (action: string, opts?: { extra?: Record<string, unknown>; then?: string; label?: string }) => {
+  const run = async (action: string, label: string) => {
     setBusy(action);
     try {
-      const r = await call<{ ok?: boolean; error?: string }>(action, opts?.extra);
-      if (r.ok === false) throw new Error(r.error ?? "erro");
-      toast.success(opts?.label ?? "Ok.");
-      if (opts?.then) toast.info(opts.then);
+      const r = await call<{ ok?: boolean }>(action);
+      if (r?.ok === false) throw new Error("action_failed");
+      toast.success(label);
       await refresh();
+      platform.refetch();
     } catch (e) {
-      toast.error(String((e as Error).message).slice(0, 120));
-    } finally {
-      setBusy(null);
-    }
+      const fe = mapAdminActionError(e);
+      toast.error(`${fe.title} · ${fe.code}`);
+    } finally { setBusy(null); }
   };
 
-  const onCreate = async () => {
-    await run("create", { label: "Sessão criada/atualizada.", then: "Agora clique em Iniciar." });
-  };
-  const onStart = async () => {
-    await run("start", { label: "Sessão iniciada." });
-    await startPollingQr();
-  };
-  const onRestart = async () => { await run("restart", { label: "Reiniciada." }); await startPollingQr(); };
-  const onStop = async () => run("stop", { label: "Parada." });
-  const onLogout = async () => run("logout", { label: "Logout realizado." });
-  const onSyncWebhook = async () => run("sync_webhook", { label: "Webhook sincronizado." });
-
-  const onTestHealth = async () => {
-    setBusy("test_health");
+  const onConnect = async () => {
+    setBusy("connect");
     try {
-      const r = await call<{ ok: boolean; deep_ok: boolean; me: { phone_masked?: string } | null; session: { status: string } }>("test_health");
-      if (r.deep_ok) toast.success(`Saúde ok • ${r.session.status} • ${r.me?.phone_masked ?? "sem telefone"}`);
-      else toast.warning(`Saúde parcial • status ${r.session?.status ?? "?"}`);
+      await call("create");
+      await call("start");
+      await startPollingQr();
+      toast.success("Iniciando conexão…");
     } catch (e) {
-      toast.error(String((e as Error).message).slice(0, 120));
+      const fe = mapAdminActionError(e);
+      toast.error(`${fe.title} · ${fe.code}`);
     } finally { setBusy(null); }
   };
 
   const onSendTest = async () => {
-    if (!testTo || !testConsent) { toast.error("Informe telefone e marque consentimento."); return; }
+    if (!testTo || !testConsent) { toast.error("Informe o telefone e marque o consentimento."); return; }
     setBusy("send_test");
     try {
-      const r = await call<{ ok: boolean; error?: string; provider_message_id?: string }>("send_test", { to: testTo, consent: true });
-      if (!r.ok) throw new Error(r.error ?? "erro");
+      const r = await call<{ ok: boolean }>("send_test", { to: testTo, consent: true });
+      if (!r.ok) throw new Error("send_failed");
       toast.success("Mensagem de teste enviada.");
       setTestTo(""); setTestConsent(false);
     } catch (e) {
-      toast.error(String((e as Error).message).slice(0, 120));
+      const fe = mapAdminActionError(e);
+      toast.error(`${fe.title} · ${fe.code}`);
     } finally { setBusy(null); }
   };
 
-  const status = snap?.session?.status ?? "UNKNOWN";
-  const badge = STATUS_COLORS[status] ?? STATUS_COLORS.UNKNOWN;
-  const canSend = status === "WORKING";
+  const view = mapWhatsAppStatus(snap?.status);
+  const notConfigured = snap?.status === "not_configured";
+  const needsSession = snap?.capabilities?.needs_session === true;
+  const canSend = snap?.capabilities?.can_send === true;
 
   return (
-    <section className="mt-8">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-display text-lg font-semibold">Sessão WhatsApp (WAHA)</h2>
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <StatusChip view={view} />
+          <span className="text-xs text-muted-foreground">
+            {snap?.phone_masked ?? "sem telefone conectado"}
+          </span>
+        </div>
         <button
           onClick={() => refresh()}
           className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent"
@@ -145,185 +141,122 @@ export function WhatsAppSessionPanel() {
         </button>
       </div>
 
-      <div className="rounded-xl border bg-card p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${badge}`}>
-            {status}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {snap?.me?.phone_masked ?? "sem telefone conectado"}
-          </span>
-          {snap?.health && (
-            <span className="text-xs text-muted-foreground">
-              • latência {snap.health.latency_ms}ms{snap.health.error ? ` • ${snap.health.error}` : ""}
-            </span>
-          )}
+      <p className="text-sm text-muted-foreground mb-4">{view.impact}</p>
+
+      {notConfigured && (
+        <div className="rounded-2xl border border-border bg-card p-6 flex items-start gap-3">
+          <ShieldAlert className="h-5 w-5 text-muted-foreground mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold">Integração ainda não concluída</p>
+            <p className="text-muted-foreground mt-1">
+              A conexão base do canal WhatsApp precisa ser revisada antes que o assistente possa atender.
+            </p>
+            <button
+              onClick={() => refresh()}
+              className="mt-3 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium"
+            >
+              Revisar conexão
+            </button>
+          </div>
         </div>
+      )}
 
-        {!snap?.configured && (
-          <p className="mt-3 text-xs text-yellow-800 bg-yellow-50 border border-yellow-200 rounded-md p-2">
-            Adicione os secrets no Project Settings → Secrets para ativar a mensageria.
-          </p>
-        )}
+      {!notConfigured && (
+        <div className="surface-card p-5 space-y-4">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {snap?.last_seen_at && <span>Última verificação {humanizeRelative(snap.last_seen_at)}</span>}
+            {typeof snap?.latency_ms === "number" && <span>· responde em ~{snap.latency_ms}ms</span>}
+          </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <SharedSessionConfirm label="Criar/atualizar sessão" icon={<QrCode className="h-3 w-3" />}
-            onConfirm={onCreate} disabled={!!busy || !snap?.configured} busy={busy === "create"} />
-          <SharedSessionConfirm label="Iniciar" icon={<Play className="h-3 w-3" />}
-            onConfirm={onStart} disabled={!!busy || !snap?.configured} busy={busy === "start"} />
-          <SharedSessionConfirm label="Reiniciar" icon={<RotateCw className="h-3 w-3" />}
-            onConfirm={onRestart} disabled={!!busy || !snap?.configured} busy={busy === "restart"} />
-          <SharedSessionConfirm label="Sincronizar webhook" icon={<RefreshCw className="h-3 w-3" />}
-            onConfirm={onSyncWebhook} disabled={!!busy || !snap?.configured} busy={busy === "sync_webhook"} />
-          <button onClick={onTestHealth} disabled={!!busy || !snap?.configured}
-            className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-            {busy === "test_health" ? <Loader2 className="h-3 w-3 animate-spin" /> : <HeartPulse className="h-3 w-3" />} Testar saúde
-          </button>
-
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button disabled={!!busy || !snap?.configured}
-                className="inline-flex items-center gap-1 rounded-full border border-red-200 text-red-700 px-3 py-1.5 text-xs hover:bg-red-50 disabled:opacity-50">
-                <Square className="h-3 w-3" /> Parar
+          <div className="flex flex-wrap gap-2">
+            {needsSession && (
+              <button
+                onClick={onConnect}
+                disabled={!!busy}
+                className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50"
+              >
+                {busy === "connect" ? <Loader2 className="h-3 w-3 animate-spin" /> : <QrCode className="h-3 w-3" />}
+                Conectar WhatsApp
               </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Parar sessão?</AlertDialogTitle>
-                <AlertDialogDescription>A sessão ficará indisponível até ser reiniciada. Mensagens novas não serão enviadas.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={onStop}>Parar</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+            )}
 
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button disabled={!!busy || !snap?.configured}
-                className="inline-flex items-center gap-1 rounded-full border border-red-200 text-red-700 px-3 py-1.5 text-xs hover:bg-red-50 disabled:opacity-50">
-                <LogOut className="h-3 w-3" /> Logout
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Desconectar o WhatsApp?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  O número deixará de estar conectado. Você precisará escanear o QR novamente para reconectar.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={onLogout}>Desconectar</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+            {canSend && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button disabled={!!busy}
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-200 text-amber-800 px-3 py-1.5 text-xs hover:bg-amber-50 disabled:opacity-50">
+                    Reiniciar
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Reiniciar o canal WhatsApp?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      O atendimento ficará indisponível por alguns segundos. Os vínculos existentes são preservados.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => run("restart", "Canal reiniciado.")}>Reiniciar</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
 
-        {status === "SCAN_QR_CODE" && (
-          <div className="mt-5 rounded-lg border bg-slate-50 p-4">
-            <p className="text-xs text-muted-foreground mb-2">Escaneie com o WhatsApp do número oficial. O QR expira em ~30s e é renovado automaticamente.</p>
-            {qr ? (
-              <img
-                alt="QR Code"
-                src={`data:${qr.mimeType};base64,${qr.base64}`}
-                className="h-56 w-56 rounded-md border bg-white"
-              />
-            ) : (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Aguardando QR…
-              </div>
+            {canSend && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button disabled={!!busy}
+                    className="inline-flex items-center gap-1 rounded-full border border-red-200 text-red-700 px-3 py-1.5 text-xs hover:bg-red-50 disabled:opacity-50">
+                    Desconectar
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Desconectar o canal WhatsApp?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      O atendimento será encerrado. Você precisará escanear o QR Code novamente para reativar.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => run("logout", "Canal desconectado.")}>Desconectar</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
-        )}
-      </div>
 
-      <div className="mt-4 rounded-xl border bg-card p-5">
-        <p className="text-sm font-semibold mb-2">Enviar mensagem de teste</p>
-        <p className="text-xs text-muted-foreground mb-3">
-          Enviaremos uma mensagem marcada como [TESTE] apenas se você marcar o consentimento explícito. Use com um número seu.
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={testTo} onChange={(e) => setTestTo(e.target.value)}
-            placeholder="+55 11 9xxxx-xxxx"
-            className="h-9 rounded-md border px-3 text-sm min-w-[220px]"
-          />
-          <label className="text-xs flex items-center gap-2">
-            <input type="checkbox" checked={testConsent} onChange={(e) => setTestConsent(e.target.checked)} />
-            Tenho consentimento do destinatário
-          </label>
-          <button onClick={onSendTest} disabled={!canSend || !testTo || !testConsent || busy === "send_test"}
-            className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-xs disabled:opacity-50">
-            {busy === "send_test" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Enviar teste
-          </button>
+          {qr && (
+            <div className="rounded-xl border border-border bg-white p-4 grid place-items-center">
+              <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR Code para conectar o WhatsApp" className="max-w-[240px]" />
+              <p className="mt-3 text-xs text-muted-foreground">Abra o WhatsApp no aparelho e escaneie este código.</p>
+            </div>
+          )}
         </div>
-        {!canSend && <p className="mt-2 text-xs text-muted-foreground">Envio só habilita com sessão WORKING.</p>}
-      </div>
-
-      <OperationChecklist secrets={snap?.secrets} />
-    </section>
-  );
-}
-
-function OperationChecklist({ secrets }: { secrets?: Record<string, boolean> }) {
-  const items = [
-    { name: "whatsapp-send (outbox)", freq: "a cada 30s", path: "whatsapp-send" },
-    { name: "whatsapp-ack-watchdog", freq: "a cada 2min", path: "whatsapp-ack-watchdog" },
-    { name: "split-reminders-dispatch", freq: "a cada 5min", path: "split-reminders-dispatch" },
-    { name: "recurring generation", freq: "diária 03:00 SP", path: "recurring-generate" },
-  ];
-  return (
-    <div className="mt-4 rounded-xl border bg-card p-5">
-      <p className="text-sm font-semibold">Operação — Crons</p>
-      <p className="text-xs text-muted-foreground mt-1">
-        Configure um scheduler externo (ou pg_cron) para acionar cada função com o header <code className="text-[11px]">x-cron-secret: $CRON_SECRET</code>.
-        Status não é verificado automaticamente.
-      </p>
-      {!secrets?.CRON_SECRET && (
-        <p className="mt-2 text-xs text-yellow-800 bg-yellow-50 border border-yellow-200 rounded-md p-2">
-          CRON_SECRET ainda não configurado. Adicione em Project Settings → Secrets.
-        </p>
       )}
-      <ul className="mt-3 text-xs space-y-1">
-        {items.map((it) => (
-          <li key={it.path} className="flex items-center justify-between gap-3">
-            <span><strong>{it.name}</strong> · {it.freq}</span>
-            <code className="text-[11px] text-muted-foreground truncate max-w-[60%]">
-              POST /functions/v1/{it.path}
-            </code>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
-function SharedSessionConfirm({
-  label, icon, onConfirm, disabled, busy,
-}: { label: string; icon: React.ReactNode; onConfirm: () => void; disabled: boolean; busy: boolean }) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <button disabled={disabled}
-          className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : icon} {label}
-        </button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Continuar com "{label}"?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Esta instância WAHA pode estar em uso por outro projeto (ex.: Sniper AI). Esta ação altera a sessão compartilhada e pode desconectar o outro projeto. Prossiga apenas com autorização explícita.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Confirmar e prosseguir</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      {canSend && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold mb-2">Enviar mensagem de teste</h2>
+          <div className="surface-card p-5 space-y-3">
+            <input
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+              placeholder="Telefone com DDD"
+              className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+            />
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={testConsent} onChange={(e) => setTestConsent(e.target.checked)} />
+              Confirmo que a pessoa autorizou receber esta mensagem de teste.
+            </label>
+            <button onClick={onSendTest} disabled={!!busy}
+              className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50">
+              {busy === "send_test" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Enviar teste
+            </button>
+          </div>
+        </section>
+      )}
+    </section>
   );
 }

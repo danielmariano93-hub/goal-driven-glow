@@ -9,19 +9,25 @@ import { maskPhone, normalizeBrPhone } from "../_shared/messaging/types.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-function secretsStatus() {
-  return {
-    WAHA_API_URL: Boolean(Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL")),
-    WAHA_API_KEY: Boolean(Deno.env.get("WAHA_API_KEY")),
-    WAHA_WEBHOOK_SECRET: Boolean(Deno.env.get("WAHA_WEBHOOK_SECRET")),
-    WAHA_SESSION: Boolean(Deno.env.get("WAHA_SESSION") ?? "default"),
-    CRON_SECRET: Boolean(Deno.env.get("CRON_SECRET")),
-    LOVABLE_API_KEY: Boolean(Deno.env.get("LOVABLE_API_KEY")),
-  };
+function hasBaseConfig(): boolean {
+  return Boolean(Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL")) &&
+    Boolean(Deno.env.get("WAHA_API_KEY"));
 }
 
 function webhookUrl() {
   return `${SUPABASE_URL}/functions/v1/whatsapp-webhook`;
+}
+
+// Map raw WAHA session status codes to product-facing status codes.
+function mapStatus(raw: string | null | undefined, healthOk: boolean | null): string {
+  if (!raw) return healthOk === false ? "needs_attention" : "unavailable";
+  const s = raw.toUpperCase();
+  if (s === "WORKING") return "connected";
+  if (s === "SCAN_QR_CODE") return "awaiting_qr";
+  if (s === "STARTING") return "connecting";
+  if (s === "STOPPED") return "disconnected";
+  if (s === "FAILED" || s === "UNREACHABLE") return "needs_attention";
+  return "needs_attention";
 }
 
 async function requireAdmin(req: Request) {
@@ -39,24 +45,37 @@ async function requireAdmin(req: Request) {
   return { ok: true as const, userId: userRes.user.id };
 }
 
-async function deepStatus() {
+async function buildPublicStatus() {
   const provider = getProvider();
-  if (!provider.configured) {
-    return { configured: false, secrets: secretsStatus(), health: null, session: null, me: null };
+  if (!provider.configured || !hasBaseConfig()) {
+    return {
+      status: "not_configured",
+      capabilities: { can_connect: false, can_send: false, needs_session: false, temporarily_unavailable: false },
+      phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null,
+    };
   }
   const [health, session, me] = await Promise.all([
     provider.getHealth(),
     provider.getSessionStatus(),
     provider.getMe(),
   ]);
+  const mapped = mapStatus(session?.status, health?.ok ?? null);
+  const capabilities = {
+    can_connect: true,
+    can_send: mapped === "connected",
+    needs_session: ["disconnected", "awaiting_qr", "connecting"].includes(mapped),
+    temporarily_unavailable: mapped === "unavailable",
+  };
   return {
-    configured: true,
-    secrets: secretsStatus(),
-    health,
-    session,
-    me: me.phone ? { phone_masked: maskPhone(me.phone) } : null,
+    status: mapped,
+    capabilities,
+    phone_masked: me?.phone ? maskPhone(me.phone) : null,
+    last_seen_at: new Date().toISOString(),
+    latency_ms: health?.latency_ms ?? null,
+    error_code: health?.ok === false ? "provider_health_failed" : null,
   };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -69,13 +88,14 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // GET: legacy snapshot expected by existing admin page.
+  // GET: capability-based snapshot for admin UI. Never returns raw secret map.
   if (req.method === "GET") {
-    const snap = await deepStatus();
-    if (snap.configured && snap.health) {
+    const snap = await buildPublicStatus();
+    // Best-effort heartbeat for provider health (silent).
+    if (snap.status !== "not_configured") {
       await svc.from("provider_health_events").insert({
-        provider: "waha", ok: snap.health.ok, latency_ms: snap.health.latency_ms,
-        error_masked: snap.health.error ?? null,
+        provider: "waha", ok: snap.error_code === null, latency_ms: snap.latency_ms ?? 0,
+        error_masked: snap.error_code ?? null,
       }).then(() => {}, () => {});
     }
     return json(snap);
@@ -87,14 +107,15 @@ Deno.serve(async (req) => {
   const action = body.action ?? "status";
 
   if (!provider.configured && action !== "status") {
-    return json({ ok: false, error: "not_configured", secrets: secretsStatus() }, 400);
+    return json({ ok: false, status: "not_configured" }, 400);
   }
 
   try {
     switch (action) {
       case "status": {
-        return json({ ok: true, ...(await deepStatus()) });
+        return json(await buildPublicStatus());
       }
+
       case "create": {
         const r = await provider.createOrUpdateSession(webhookUrl());
         return json(r, r.ok ? 200 : 502);
@@ -133,25 +154,28 @@ Deno.serve(async (req) => {
           provider: "waha", ok: h.ok, latency_ms: h.latency_ms, error_masked: h.error ?? null,
         }).then(() => {}, () => {});
         return json({
-          ok: true, deep_ok: deepOk, health: h, session: s,
-          me: me.phone ? { phone_masked: maskPhone(me.phone) } : null,
+          ok: true, deep_ok: deepOk,
+          status: mapStatus(s?.status, h?.ok ?? null),
+          latency_ms: h?.latency_ms ?? null,
+          phone_masked: me?.phone ? maskPhone(me.phone) : null,
         });
       }
+
       case "send_test": {
-        if (!body.consent) return json({ ok: false, error: "consent_required" }, 400);
+        if (!body.consent) return json({ ok: false, error_code: "consent_required" }, 400);
         const to = normalizeBrPhone(String(body.to ?? ""));
-        if (!to) return json({ ok: false, error: "invalid_phone" }, 400);
+        if (!to) return json({ ok: false, error_code: "invalid_phone" }, 400);
         try {
           const r = await provider.sendText(to, "[TESTE NoControle.ia] Mensagem de teste enviada pelo painel administrativo.");
           return json({ ok: true, provider_message_id: r.provider_message_id });
-        } catch (e) {
-          return json({ ok: false, error: String((e as Error).message).slice(0, 120) }, 502);
+        } catch {
+          return json({ ok: false, error_code: "provider_error" }, 502);
         }
       }
       default:
-        return json({ ok: false, error: "unknown_action" }, 400);
+        return json({ ok: false, error_code: "unknown_action" }, 400);
     }
-  } catch (e) {
-    return json({ ok: false, error: String((e as Error).message).slice(0, 200) }, 500);
+  } catch {
+    return json({ ok: false, error_code: "internal_error" }, 500);
   }
 });

@@ -7,6 +7,7 @@
 // worker + provider ack drives the terminal state.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -127,5 +128,12 @@ Deno.serve(async (req) => {
     ids: jobs.map((j) => ({ id: j.id, phone: maskPhone(null) })),
   }));
 
+  await writeJobHeartbeat({
+    jobKey: "split-reminders-dispatch",
+    ok: failed === 0,
+    processed: enqueued,
+    failed,
+  });
   return json({ claimed: jobs.length, enqueued, skipped, failed });
 });
+

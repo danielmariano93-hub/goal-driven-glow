@@ -1,6 +1,7 @@
 // Watchdog: recover stuck leases and dead-letter old messages.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -38,5 +39,13 @@ Deno.serve(async (req) => {
       results.push({ id: m.id as string, action: "requeued" });
     }
   }
+  await writeJobHeartbeat({
+    jobKey: "whatsapp-ack-watchdog",
+    ok: true,
+    processed: recoveredCount + (stuck ?? []).length,
+    failed: 0,
+    sb: supabase,
+  });
   return json({ recovered: recoveredCount, checked: (stuck ?? []).length, results });
 });
+
