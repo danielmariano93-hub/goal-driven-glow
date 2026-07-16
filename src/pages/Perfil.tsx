@@ -149,6 +149,112 @@ export default function Perfil() {
           {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar link de alteração de senha"}
         </button>
       </div>
+
+      <NotificationPrefs />
+      <DataZone />
+    </div>
+  );
+}
+
+function NotificationPrefs() {
+  const { user } = useAuth();
+  const [prefs, setPrefs] = useState<any | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("notification_preferences" as any).select("*").eq("user_id", user.id).maybeSingle()
+      .then(({ data }) => setPrefs(data ?? {}));
+  }, [user]);
+  const keys = ["agent_confirmation", "recurrence_due", "goal_reached", "split_reminder", "import_done", "achievement", "system"] as const;
+  const labels: Record<string, string> = {
+    agent_confirmation: "Confirmações do agente",
+    recurrence_due: "Recorrências próximas",
+    goal_reached: "Metas atingidas",
+    split_reminder: "Lembretes de Divisão do Rolê",
+    import_done: "Importações concluídas",
+    achievement: "Conquistas",
+    system: "Avisos do sistema",
+  };
+  const save = async (k: string, v: boolean) => {
+    if (!user) return;
+    const next = { ...prefs, [k]: v, user_id: user.id };
+    setPrefs(next);
+    const { error } = await supabase.from("notification_preferences" as any).upsert(next, { onConflict: "user_id" });
+    if (error) toast.error(error.message);
+  };
+  return (
+    <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+      <h2 className="text-sm font-semibold">Preferências de notificação</h2>
+      <div className="mt-3 space-y-2">
+        {keys.map((k) => (
+          <label key={k} className="flex items-center justify-between text-xs">
+            <span>{labels[k]}</span>
+            <input
+              type="checkbox"
+              checked={prefs?.[k] ?? true}
+              onChange={(e) => save(k, e.target.checked)}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DataZone() {
+  const [busy, setBusy] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const doExport = async () => {
+    setBusy(true);
+    const { data, error } = await supabase.rpc("user_export_data" as any);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `nocontrole_export_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Exportação pronta");
+  };
+
+  const requestDeletion = async () => {
+    if (confirmText !== "EXCLUIR MINHA CONTA") {
+      return toast.error('Digite exatamente "EXCLUIR MINHA CONTA" para confirmar');
+    }
+    setBusy(true);
+    const { error } = await supabase.rpc("user_request_deletion" as any, { p_reason: null });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Solicitação registrada. Nossa equipe processará em breve.");
+    setConfirmText("");
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+      <h2 className="text-sm font-semibold">Meus dados</h2>
+      <p className="mt-1 text-xs text-muted-foreground">Exporte tudo em JSON ou solicite exclusão.</p>
+      <button onClick={doExport} disabled={busy} className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
+        Exportar meus dados
+      </button>
+      <div className="mt-6 pt-4 border-t border-border">
+        <p className="text-xs font-medium text-destructive">Zona de risco</p>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          A exclusão remove permanentemente todos os seus dados. Só mantemos logs mínimos legalmente exigidos, anonimizados.
+        </p>
+        <input
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder='Digite: EXCLUIR MINHA CONTA'
+          className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+        />
+        <button
+          onClick={requestDeletion}
+          disabled={busy || confirmText !== "EXCLUIR MINHA CONTA"}
+          className="mt-2 rounded-full bg-destructive text-destructive-foreground px-4 py-2 text-sm disabled:opacity-40"
+        >
+          Solicitar exclusão da conta
+        </button>
+      </div>
     </div>
   );
 }
