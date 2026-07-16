@@ -1,4 +1,5 @@
 import { WhatsAppSessionPanel } from "./WhatsAppSessionPanel";
+import { WhatsAppValidateCard } from "@/components/admin/WhatsAppValidateCard";
 
 export default function WhatsAppAdmin() {
   return (
@@ -9,6 +10,7 @@ export default function WhatsAppAdmin() {
           Canal oficial de mensageria do NoControle.ia. Ações críticas exigem confirmação e ficam auditadas.
         </p>
       </header>
+      <WhatsAppValidateCard />
       <WhatsAppSessionPanel />
     </div>
   );

@@ -8,6 +8,136 @@ const WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
 const WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? "default";
 const WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
 
+/**
+ * Sanitized credential validation. NEVER returns URLs, tokens, secret values,
+ * or raw error bodies — only booleans and short mapped codes.
+ */
+export type WahaValidationReport = {
+  secrets: { api_url: boolean; api_key: boolean; webhook_secret: boolean; session_name: string };
+  host: { ok: boolean; latency_ms: number; code: "ok" | "unreachable" | "not_configured" | "status_error" };
+  auth: { ok: boolean; code: "ok" | "unauthorized" | "unreachable" | "not_configured" | "status_error" };
+  session: { exists: boolean; status: string | null; code: "ok" | "session_missing" | "unreachable" | "unauthorized" | "not_configured" | "status_error" };
+  webhook: {
+    configured: boolean;
+    matches_url: boolean;
+    has_secret_header: boolean;
+    events_ok: boolean;
+    code: "ok" | "webhook_missing" | "webhook_mismatch" | "unreachable" | "unauthorized" | "not_configured" | "status_error";
+  };
+};
+
+const REQUIRED_EVENTS = ["message", "message.any", "message.ack", "session.status"];
+
+export async function validateWahaCredentials(expectedWebhookUrl: string): Promise<WahaValidationReport> {
+  const secrets = {
+    api_url: Boolean(WAHA_API_URL),
+    api_key: Boolean(WAHA_API_KEY),
+    webhook_secret: Boolean(WAHA_WEBHOOK_SECRET),
+    session_name: WAHA_SESSION,
+  };
+
+  if (!secrets.api_url || !secrets.api_key) {
+    return {
+      secrets,
+      host: { ok: false, latency_ms: 0, code: "not_configured" },
+      auth: { ok: false, code: "not_configured" },
+      session: { exists: false, status: null, code: "not_configured" },
+      webhook: { configured: false, matches_url: false, has_secret_header: false, events_ok: false, code: "not_configured" },
+    };
+  }
+
+  // Host reachability: unauthenticated ping to root (or /api/version). Timeout tight.
+  const t0 = performance.now();
+  let hostOk = false;
+  let hostCode: WahaValidationReport["host"]["code"] = "status_error";
+  try {
+    const r = await safeFetch(`${WAHA_API_URL}/api/version`, {}, 6_000);
+    hostOk = r.status < 500;
+    hostCode = hostOk ? "ok" : "status_error";
+  } catch {
+    hostCode = "unreachable";
+  }
+  const latency = Math.round(performance.now() - t0);
+
+  // Auth + session in a single call: /api/sessions/{name}
+  let authOk = false;
+  let authCode: WahaValidationReport["auth"]["code"] = "status_error";
+  let sessionExists = false;
+  let sessionStatus: string | null = null;
+  let sessionCode: WahaValidationReport["session"]["code"] = "status_error";
+  let sessionBody: { config?: { webhooks?: Array<{ url?: string; events?: string[]; customHeaders?: Array<{ name?: string; value?: string }> }> } } | null = null;
+
+  if (hostCode === "unreachable") {
+    authCode = "unreachable";
+    sessionCode = "unreachable";
+  } else {
+    try {
+      const r = await safeFetch(`${WAHA_API_URL}/api/sessions/${WAHA_SESSION}`, { headers: headers() }, 8_000);
+      if (r.status === 401 || r.status === 403) {
+        authCode = "unauthorized";
+        sessionCode = "unauthorized";
+      } else if (r.status === 404) {
+        authOk = true;
+        authCode = "ok";
+        sessionCode = "session_missing";
+      } else if (r.ok) {
+        authOk = true;
+        authCode = "ok";
+        sessionExists = true;
+        try {
+          sessionBody = await r.json();
+          sessionStatus = (sessionBody as { status?: string })?.status ?? null;
+        } catch { /* ignore body parse */ }
+        sessionCode = "ok";
+      } else {
+        authCode = "status_error";
+        sessionCode = "status_error";
+      }
+    } catch {
+      authCode = "unreachable";
+      sessionCode = "unreachable";
+    }
+  }
+
+  // Webhook derived from session config; never expose URLs, only booleans.
+  let webhook: WahaValidationReport["webhook"] = {
+    configured: false, matches_url: false, has_secret_header: false, events_ok: false,
+    code: "webhook_missing",
+  };
+  if (sessionCode === "unreachable" || sessionCode === "unauthorized" || sessionCode === "not_configured") {
+    webhook.code = sessionCode as WahaValidationReport["webhook"]["code"];
+  } else if (sessionCode === "session_missing") {
+    webhook.code = "webhook_missing";
+  } else if (sessionCode === "status_error") {
+    webhook.code = "status_error";
+  } else if (sessionBody?.config?.webhooks?.length) {
+    const hooks = sessionBody.config.webhooks;
+    const match = hooks.find((h) => (h?.url ?? "") === expectedWebhookUrl);
+    const anyConfigured = hooks.length > 0;
+    const matches = Boolean(match);
+    const events = match?.events ?? [];
+    const eventsOk = REQUIRED_EVENTS.every((e) => events.includes(e));
+    const hasSecret = Boolean(
+      match?.customHeaders?.some((h) => (h?.name ?? "").toLowerCase() === "x-webhook-secret" && Boolean(h?.value)),
+    );
+    webhook = {
+      configured: anyConfigured,
+      matches_url: matches,
+      has_secret_header: hasSecret,
+      events_ok: eventsOk,
+      code: matches && eventsOk && hasSecret ? "ok" : anyConfigured ? "webhook_mismatch" : "webhook_missing",
+    };
+  }
+
+  return {
+    secrets,
+    host: { ok: hostOk, latency_ms: latency, code: hostCode },
+    auth: { ok: authOk, code: authCode },
+    session: { exists: sessionExists, status: sessionStatus, code: sessionCode },
+    webhook,
+  };
+}
+
 function headers() {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (WAHA_API_KEY) h["X-Api-Key"] = WAHA_API_KEY;
