@@ -104,11 +104,18 @@ export default function LancamentoDetalhe() {
       p_id: tx.id, p_expected_version: tx.version, p_patch: patch as any, p_scope: hasGroup ? scope : "one",
     });
     setSaving(false);
-    if (error) return toast.error("Falha ao salvar", { description: error.message });
+    if (error) {
+      console.error("[LancamentoDetalhe] rpc error", error);
+      return toast.error("Não consegui salvar agora. Tente novamente em instantes.");
+    }
     const r = data as any;
     if (!r?.ok) {
-      if (r?.error === "conflict") return toast.error("Este lançamento foi alterado em outro lugar. Recarregue.");
-      return toast.error("Falha ao salvar", { description: r?.error ?? "erro" });
+      console.warn("[LancamentoDetalhe] rpc not ok", r);
+      if (r?.error === "conflict") return toast.error("Este lançamento foi alterado em outro lugar. Recarregue e tente de novo.");
+      if (r?.error === "not_owned") return toast.error("Lançamento não encontrado.");
+      if (r?.error === "credit_card_required") return toast.error("Escolha um cartão para este lançamento.");
+      if (r?.error === "account_required") return toast.error("Escolha uma conta para este lançamento.");
+      return toast.error("Não consegui salvar agora. Tente novamente em instantes.");
     }
     toast.success("Lançamento atualizado ✅");
     qc.invalidateQueries({ queryKey: ["transactions"] });
@@ -164,14 +171,14 @@ export default function LancamentoDetalhe() {
           <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="min-w-0">
             <label className="text-xs font-medium text-muted-foreground">Valor (R$)</label>
-            <input className="input-base w-full" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer} />
+            <input className="input-base w-full min-w-0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-xs font-medium text-muted-foreground">Data</label>
-            <input type="date" className="input-base w-full" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer} />
+            <input type="date" className="input-base w-full min-w-0" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer} />
           </div>
         </div>
 
