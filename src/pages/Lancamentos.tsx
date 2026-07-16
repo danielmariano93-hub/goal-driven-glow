@@ -12,6 +12,9 @@ import {
   type TransactionRow,
   type TxFilters,
 } from "@/lib/db/finance";
+import { useCreditCards } from "@/lib/db/creditCards";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { transactionSchema, transferSchema } from "@/lib/validation/finance";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import {
@@ -23,6 +26,7 @@ import {
 
 export default function Lancamentos() {
   const nav = useNavigate();
+  const qc = useQueryClient();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const [filters, setFilters] = useState<TxFilters>({ type: "all" });
@@ -34,9 +38,16 @@ export default function Lancamentos() {
   const [openTransfer, setOpenTransfer] = useState(false);
   const [editing, setEditing] = useState<TransactionRow | null>(null);
 
+  const { data: cards } = useCreditCards();
   const catName = (id: string | null) =>
     id ? categories?.find((c) => c.id === id)?.name ?? "—" : "—";
-  const accName = (id: string) => accounts?.find((a) => a.id === id)?.name ?? "—";
+  const accName = (t: TransactionRow) => {
+    if (t.payment_method === "credit_card" && t.credit_card_id) {
+      return cards?.find((c) => c.id === t.credit_card_id)?.name ?? "Cartão";
+    }
+    if (t.account_id) return accounts?.find((a) => a.id === t.account_id)?.name ?? "—";
+    return "—";
+  };
 
   const grouped = useMemo(() => {
     const g: Record<string, TransactionRow[]> = {};
@@ -143,28 +154,49 @@ export default function Lancamentos() {
                   <ul className="space-y-2">
                     {items.map((t) => {
                       const isTransfer = t.type === "transfer";
+                      const isCard = t.payment_method === "credit_card";
+                      const isInstallment = (t.installments_total ?? 1) > 1;
+                      const canDuplicate = !isTransfer && !isInstallment;
                       const openDetail = () => nav(`/app/lancamentos/${t.id}`);
                       const openEdit = () => nav(`/app/lancamentos/${t.id}?edit=1`);
-                      const doDuplicate = () => {
-                        if (isTransfer) {
-                          toast.message("Transferências não podem ser duplicadas.");
-                          return;
-                        }
-                        save.mutate(
-                          {
-                            account_id: t.account_id,
-                            category_id: t.category_id ?? null,
-                            type: t.type as "income" | "expense",
-                            status: (t.status ?? "confirmed") as "confirmed" | "planned",
+                      const doDuplicate = async () => {
+                        if (!canDuplicate) return;
+                        try {
+                          const base: Record<string, unknown> = {
+                            user_id: t.user_id,
+                            type: t.type,
+                            status: "confirmed",
                             amount: Number(t.amount),
                             occurred_at: todayISO(),
-                            description: t.description ?? "",
-                          },
-                          {
-                            onSuccess: () => toast.success("Lançamento duplicado"),
-                            onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
-                          },
-                        );
+                            description: t.description ?? null,
+                            category_id: t.category_id ?? null,
+                            payment_method: t.payment_method ?? "account",
+                            origin: "manual",
+                          };
+                          if (isCard) {
+                            if (!t.credit_card_id) {
+                              toast.error("Não é possível duplicar: cartão ausente.");
+                              return;
+                            }
+                            base.credit_card_id = t.credit_card_id;
+                            base.account_id = null;
+                            base.purchase_date = todayISO();
+                            base.competence_date = t.competence_date ?? todayISO();
+                          } else {
+                            if (!t.account_id) {
+                              toast.error("Não é possível duplicar: conta ausente.");
+                              return;
+                            }
+                            base.account_id = t.account_id;
+                            base.credit_card_id = null;
+                          }
+                          const { error } = await supabase.from("transactions").insert(base as never);
+                          if (error) throw error;
+                          toast.success("Lançamento duplicado");
+                          qc.invalidateQueries({ queryKey: ["transactions"] });
+                        } catch (e) {
+                          toast.error("Erro ao duplicar", { description: String((e as Error).message) });
+                        }
                       };
                       const doDelete = () => {
                         if (!confirm(isTransfer ? "Excluir esta transferência (ambas as pernas)?" : "Excluir este lançamento?")) return;
@@ -184,7 +216,7 @@ export default function Lancamentos() {
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-medium">{t.description || (isTransfer ? "Transferência" : catName(t.category_id))}</p>
                               <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                                {accName(t.account_id)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
+                                {accName(t)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
                                 {t.status === "planned" ? " · Planejado" : ""}
                               </p>
                             </div>
@@ -212,8 +244,8 @@ export default function Lancamentos() {
                               <DropdownMenuItem onClick={openEdit} disabled={isTransfer} className="gap-2">
                                 <Pencil size={14} /> Editar
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={doDuplicate} disabled={isTransfer} className="gap-2">
-                                <Copy size={14} /> Duplicar
+                              <DropdownMenuItem onClick={doDuplicate} disabled={!canDuplicate} className="gap-2" title={isInstallment ? "Não é possível duplicar compra parcelada em bloco" : undefined}>
+                                <Copy size={14} /> Duplicar{isInstallment ? " (parcelado)" : ""}
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={doDelete} className="gap-2 text-destructive focus:text-destructive">
                                 <Trash2 size={14} /> Excluir

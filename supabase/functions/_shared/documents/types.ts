@@ -1,0 +1,127 @@
+// Contrato canônico da extração multimodal.
+export type ExtractedItem = {
+  type: "income" | "expense";
+  description: string;
+  amount: number;
+  occurred_at: string; // YYYY-MM-DD
+  payment_method: "account" | "credit_card" | null;
+  account_hint: string | null;
+  card_hint: string | null;
+  category_hint: string | null;
+  installments_total: number | null;
+  installment_number: number | null;
+  purchase_date: string | null;
+  competence_date: string | null;
+  confidence: Record<string, number>;
+  source_span?: unknown;
+};
+
+export type ExtractionResult = {
+  document_kind: "receipt" | "invoice" | "statement" | "list" | "non_financial" | "illegible" | "unknown";
+  items: ExtractedItem[];
+  notes: string | null;
+};
+
+export const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+export const MAX_BYTES = 10 * 1024 * 1024;
+
+// Magic bytes: PNG, JPEG, WebP
+export function detectMime(bytes: Uint8Array): string | null {
+  if (bytes.length < 12) return null;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) return "image/webp";
+  return null;
+}
+
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function normalizeAmountBR(raw: string | number): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.round(raw * 100) / 100;
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().replace(/[R$\s]/g, "");
+  // 1.234,56 -> 1234.56 ; 1,234.56 -> 1234.56 ; 12.50 -> 12.50
+  const commaLast = s.lastIndexOf(",");
+  const dotLast = s.lastIndexOf(".");
+  let n: number;
+  if (commaLast > dotLast) {
+    n = Number(s.replace(/\./g, "").replace(",", "."));
+  } else {
+    n = Number(s.replace(/,/g, ""));
+  }
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
+export function normalizeDateBR(raw: string, fallback: string): string {
+  if (!raw) return fallback;
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = raw.match(/(\d{2})\/(\d{2})\/(\d{2,4})/);
+  if (br) {
+    let y = br[3];
+    if (y.length === 2) y = (Number(y) >= 70 ? "19" : "20") + y;
+    return `${y}-${br[2]}-${br[1]}`;
+  }
+  return fallback;
+}
+
+// Palavras-chave que NUNCA viram lançamento
+const NON_TX_KEYWORDS = [
+  "saldo disponível", "saldo total", "saldo anterior", "limite disponível",
+  "limite total", "subtotal", "total da fatura", "vencimento",
+  "pagamento efetuado - fatura", "pagamento fatura", "pagamento da fatura",
+];
+
+export function isNonTransactionLine(description: string): boolean {
+  const d = description.toLowerCase();
+  return NON_TX_KEYWORDS.some((k) => d.includes(k));
+}
+
+export function sanitize(result: unknown, fallbackDate: string): ExtractionResult {
+  if (!result || typeof result !== "object") {
+    return { document_kind: "unknown", items: [], notes: "unparseable" };
+  }
+  const r = result as Record<string, unknown>;
+  const kind = String(r.document_kind ?? "unknown") as ExtractionResult["document_kind"];
+  const validKind: ExtractionResult["document_kind"] =
+    ["receipt","invoice","statement","list","non_financial","illegible","unknown"].includes(kind)
+      ? kind : "unknown";
+  const rawItems = Array.isArray(r.items) ? r.items : [];
+  const items: ExtractedItem[] = [];
+  for (const raw of rawItems) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const description = String(it.description ?? "").trim();
+    if (!description || isNonTransactionLine(description)) continue;
+    const amount = normalizeAmountBR(it.amount as string | number);
+    if (amount == null) continue;
+    const type = it.type === "income" ? "income" : "expense";
+    const occurred_at = normalizeDateBR(String(it.occurred_at ?? ""), fallbackDate);
+    const paymentRaw = it.payment_method;
+    const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
+    const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
+    items.push({
+      type,
+      description: description.slice(0, 200),
+      amount,
+      occurred_at,
+      payment_method,
+      account_hint: (it.account_hint as string | null) ?? null,
+      card_hint: (it.card_hint as string | null) ?? null,
+      category_hint: (it.category_hint as string | null) ?? null,
+      installments_total: typeof it.installments_total === "number" && it.installments_total >= 1 && it.installments_total <= 48 ? it.installments_total : null,
+      installment_number: typeof it.installment_number === "number" && it.installment_number >= 1 && it.installment_number <= 48 ? it.installment_number : null,
+      purchase_date: typeof it.purchase_date === "string" ? normalizeDateBR(it.purchase_date, occurred_at) : null,
+      competence_date: typeof it.competence_date === "string" ? normalizeDateBR(it.competence_date, occurred_at) : null,
+      confidence: conf,
+      source_span: it.source_span,
+    });
+  }
+  return { document_kind: validKind, items, notes: (r.notes as string | null) ?? null };
+}

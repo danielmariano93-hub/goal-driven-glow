@@ -29,3 +29,12 @@ verify_jwt = true
 
 [functions.admin-bootstrap]
 verify_jwt = false
+
+[functions.assistant-ingest-document]
+verify_jwt = true
+
+[functions.assistant-review-actions]
+verify_jwt = true
+
+[functions.documents-cleanup]
+verify_jwt = false

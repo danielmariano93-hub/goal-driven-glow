@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Send, Loader2, Check, Ban } from "lucide-react";
+import { X, Send, Loader2, Check, Ban, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { AssessorAttachButton } from "./AssessorAttachButton";
+import { ReviewSheet } from "./ReviewSheet";
 
 type Pending = {
   id: string;
@@ -13,9 +15,17 @@ type Pending = {
   expires_at: string;
 };
 
+type DocDraft = {
+  document_id: string;
+  status: string;
+  items_count?: number;
+  document_kind?: string;
+  error?: string | null;
+};
+
 type Msg =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; pending?: Pending | null };
+  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null };
 
 const SUGGESTIONS = [
   "Como está meu mês?",
@@ -30,11 +40,28 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [reviewDocId, setReviewDocId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
   });
   const endRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
+
+  function onExtracted(info: DocDraft) {
+    let content = "";
+    if (info.status === "needs_review" && (info.items_count ?? 0) > 0) {
+      content = `Encontrei ${info.items_count} lançamento(s) nessa imagem. Toque em "Revisar" para conferir antes de registrar.`;
+    } else if (info.document_kind === "illegible") {
+      content = "Não consegui ler bem essa imagem. Pode enviar outra mais nítida?";
+    } else if (info.document_kind === "non_financial") {
+      content = "Essa imagem não parece ser um documento financeiro. Tenta uma foto de recibo, fatura ou lista de compras.";
+    } else if (info.status === "failed") {
+      content = `Tive um problema ao processar a imagem${info.error ? ` (${info.error})` : ""}. Pode tentar de novo?`;
+    } else {
+      content = "Não achei nenhum lançamento nessa imagem.";
+    }
+    setMessages((m) => [...m, { role: "assistant", content, doc: info }]);
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -153,6 +180,14 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               {m.role === "assistant" && m.pending && (
                 <ConfirmationCard pending={m.pending} onConfirm={() => decide(m.pending!, "confirm", i)} onCancel={() => decide(m.pending!, "cancel", i)} disabled={sending} />
               )}
+              {m.role === "assistant" && m.doc && m.doc.status === "needs_review" && (m.doc.items_count ?? 0) > 0 && (
+                <button
+                  onClick={() => setReviewDocId(m.doc!.document_id)}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/5"
+                >
+                  <FileText size={14} /> Revisar {m.doc.items_count} lançamento(s)
+                </button>
+              )}
             </div>
           ))}
           {sending && (
@@ -172,10 +207,11 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           }}
           className="flex items-center gap-2 border-t border-border p-3"
         >
+          <AssessorAttachButton conversationId={convId} onExtracted={onExtracted} disabled={sending} />
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Escreva uma mensagem…"
+            placeholder="Escreva uma mensagem ou envie uma foto…"
             className="input-base flex-1"
             disabled={sending}
           />
@@ -189,6 +225,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </form>
       </div>
+      {reviewDocId && <ReviewSheet documentId={reviewDocId} onClose={() => setReviewDocId(null)} />}
     </div>
   );
 
