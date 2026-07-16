@@ -140,18 +140,29 @@ async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined,
   return null;
 }
 
-async function resolveCreditCardId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
+async function resolveCreditCardFull(ctx: ToolContext, hintOrId?: string): Promise<
+  | { kind: "single"; id: string; name: string }
+  | { kind: "multiple"; choices: Array<{ id: string; name: string }> }
+  | { kind: "none"; available: Array<{ id: string; name: string }> }
+> {
   const { data } = await ctx.sb.from("credit_cards").select("id,name,brand,last_four")
     .eq("user_id", ctx.user_id).eq("active", true);
   const list: Candidate[] = (data ?? []).map((c: any) => ({
     id: c.id, name: c.name,
     aliases: [c.brand, c.last_four ? String(c.last_four) : null].filter(Boolean) as string[],
   }));
-  // If no hint provided but exactly one card exists, resolve to it.
   const r = resolveEntity(hintOrId ?? "", list);
-  if (r.kind === "single") return { id: r.match.id, name: r.match.name };
-  return null;
+  if (r.kind === "single") return { kind: "single", id: r.match.id, name: r.match.name };
+  if (r.kind === "multiple") return { kind: "multiple", choices: r.matches.map(m => ({ id: m.id, name: m.name })) };
+  return { kind: "none", available: list.map(c => ({ id: c.id, name: c.name })) };
 }
+
+async function resolveCreditCardId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
+  const r = await resolveCreditCardFull(ctx, hintOrId);
+  return r.kind === "single" ? { id: r.id, name: r.name } : null;
+}
+
+export { resolveCreditCardFull };
 
 export async function list_credit_cards(ctx: ToolContext): Promise<ToolResult> {
   const { data, error } = await ctx.sb.from("credit_cards")
