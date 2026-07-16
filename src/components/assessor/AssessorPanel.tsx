@@ -1,29 +1,61 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Send, Loader2 } from "lucide-react";
+import { X, Send, Loader2, Check, Ban } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Pending = {
+  id: string;
+  kind: string;
+  summary_text: string;
+  payload: Record<string, unknown>;
+  expires_at: string;
+};
+
+type Msg =
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; pending?: Pending | null };
 
 const SUGGESTIONS = [
   "Como está meu mês?",
   "Ver minhas metas",
   "O que posso melhorar?",
-  "Analisar a fatura do cartão",
   "Registrar um gasto",
 ];
+
+const STORAGE_KEY = "nc:assessor:conv";
 
 export function AssessorPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [convId, setConvId] = useState<string | null>(null);
+  const [convId, setConvId] = useState<string | null>(() => {
+    try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+  });
   const endRef = useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  useEffect(() => {
+    if (convId) {
+      try { localStorage.setItem(STORAGE_KEY, convId); } catch { /* ignore */ }
+    }
+  }, [convId]);
+
+  async function callAgent(payload: Record<string, unknown>): Promise<{ reply: string; pending: Pending | null; executed: any; conversation_id: string } | null> {
+    const { data, error } = await supabase.functions.invoke("agent-chat", {
+      body: { conversation_id: convId, ...payload },
+    });
+    if (error) throw error;
+    const d = data as any;
+    if (d?.error) throw new Error(d.error);
+    if (d?.conversation_id && d.conversation_id !== convId) setConvId(d.conversation_id);
+    return d;
+  }
 
   async function send(text: string) {
     const clean = text.trim();
@@ -32,14 +64,9 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     setInput("");
     setSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke("agent-chat", {
-        body: { text: clean, conversation_id: convId },
-      });
-      if (error) throw error;
-      const payload = data as { reply?: string; conversation_id?: string; error?: string };
-      if (payload?.error) throw new Error(payload.error);
-      if (payload?.conversation_id && !convId) setConvId(payload.conversation_id);
-      setMessages((m) => [...m, { role: "assistant", content: payload?.reply ?? "…" }]);
+      const res = await callAgent({ text: clean });
+      setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null }]);
+      if (res?.executed) refetchAll();
     } catch (e) {
       const msg = (e as Error).message || "Falha ao consultar seu assessor";
       toast.error("Erro no assessor", { description: msg });
@@ -50,6 +77,30 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     } finally {
       setSending(false);
     }
+  }
+
+  async function decide(pending: Pending, action: "confirm" | "cancel", idx: number) {
+    if (sending) return;
+    setSending(true);
+    try {
+      const res = await callAgent({ action, pending_id: pending.id });
+      // Clear pending on the originating message
+      setMessages((m) => m.map((msg, i) => (i === idx && msg.role === "assistant" ? { ...msg, pending: null } : msg)));
+      setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…" }]);
+      if (res?.executed) refetchAll();
+    } catch (e) {
+      toast.error("Não consegui concluir", { description: (e as Error).message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function refetchAll() {
+    qc.invalidateQueries({ queryKey: ["transactions"] });
+    qc.invalidateQueries({ queryKey: ["home"] });
+    qc.invalidateQueries({ queryKey: ["credit_cards"] });
+    qc.invalidateQueries({ queryKey: ["accounts"] });
+    qc.invalidateQueries({ queryKey: ["goals"] });
   }
 
   const panel = (
@@ -89,22 +140,25 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex flex-col items-start gap-2"}>
               <div
                 className={
                   m.role === "user"
                     ? "max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
-                    : "max-w-[85%] rounded-2xl border border-border bg-secondary px-3 py-2 text-sm"
+                    : "max-w-[85%] rounded-2xl border border-border bg-secondary px-3 py-2 text-sm whitespace-pre-line"
                 }
               >
                 {m.content}
               </div>
+              {m.role === "assistant" && m.pending && (
+                <ConfirmationCard pending={m.pending} onConfirm={() => decide(m.pending!, "confirm", i)} onCancel={() => decide(m.pending!, "cancel", i)} disabled={sending} />
+              )}
             </div>
           ))}
           {sending && (
             <div className="flex justify-start">
               <div className="rounded-2xl border border-border bg-secondary px-3 py-2 text-sm text-muted-foreground inline-flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Estou olhando suas finanças…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Um instante…
               </div>
             </div>
           )}
@@ -129,6 +183,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
             type="submit"
             disabled={sending || !input.trim()}
             className="btn-brand inline-flex items-center gap-1.5 disabled:opacity-50"
+            aria-label="Enviar"
           >
             <Send size={14} />
           </button>
@@ -138,4 +193,39 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   );
 
   return typeof document !== "undefined" ? createPortal(panel, document.body) : panel;
+}
+
+function ConfirmationCard({
+  pending,
+  onConfirm,
+  onCancel,
+  disabled,
+}: {
+  pending: Pending;
+  onConfirm: () => void;
+  onCancel: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="w-[85%] max-w-[85%] rounded-2xl border border-primary/30 bg-background p-3 shadow-sm">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">Confirmar antes de registrar</p>
+      <p className="text-sm text-foreground">{pending.summary_text}</p>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={onConfirm}
+          disabled={disabled}
+          className="btn-brand inline-flex flex-1 items-center justify-center gap-1.5 disabled:opacity-50"
+        >
+          <Check size={14} /> Confirmar
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={disabled}
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-2 text-sm hover:bg-secondary/70 disabled:opacity-50"
+        >
+          <Ban size={14} /> Cancelar
+        </button>
+      </div>
+    </div>
+  );
 }
