@@ -93,8 +93,8 @@ export default function WhatsApp() {
     setLink(null);
   };
 
-  const waLink = code && OFFICIAL_NUMBER
-    ? `https://wa.me/${OFFICIAL_NUMBER.replace(/\D/g, "")}?text=${encodeURIComponent("VINCULAR " + code)}`
+  const waLink = code && officialNumber
+    ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent("VINCULAR " + code)}`
     : null;
 
   if (loading) {
