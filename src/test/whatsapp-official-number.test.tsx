@@ -111,3 +111,61 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("WhatsAppLinkSheet — portal e erros inline", () => {
+  it("renderiza via portal em document.body", async () => {
+    invokeMock.mockResolvedValue({
+      data: { available: true, official_number: "+5511999998888" },
+      error: null,
+    });
+    const { container } = render(<WhatsAppLinkSheet open={true} onClose={() => {}} />);
+    // O container do render está vazio; o dialog vive no document.body
+    expect(container.querySelector("[role=dialog]")).toBeNull();
+    expect(document.body.querySelector("[role=dialog]")).not.toBeNull();
+  });
+
+  it("erro na RPC create_phone_link_code exibe alerta inline com botão Tentar novamente", async () => {
+    invokeMock.mockResolvedValue({
+      data: { available: true, official_number: "+5511999998888" },
+      error: null,
+    });
+    rpcMock.mockImplementation(async (fn: string) => {
+      if (fn === "list_my_whatsapp_link") return { data: [], error: null };
+      if (fn === "create_phone_link_code")
+        return { data: null, error: { message: "digest not found", code: "42883" } };
+      return { data: null, error: null };
+    });
+
+    render(<WhatsAppLinkSheet open={true} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    const btn = await screen.findByRole("button", { name: /Gerar código/i });
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    fireEvent.click(btn);
+
+    // Modal permanece aberto e mostra retry inline
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Tentar novamente/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("erro 'too many' mostra mensagem específica de rate-limit", async () => {
+    invokeMock.mockResolvedValue({
+      data: { available: true, official_number: "+5511999998888" },
+      error: null,
+    });
+    rpcMock.mockImplementation(async (fn: string) => {
+      if (fn === "list_my_whatsapp_link") return { data: [], error: null };
+      if (fn === "create_phone_link_code")
+        return { data: null, error: { message: "too many attempts, try again later" } };
+      return { data: null, error: null };
+    });
+
+    render(<WhatsAppLinkSheet open={true} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    fireEvent.click(await screen.findByRole("button", { name: /Gerar código/i }));
+
+    expect(await screen.findByText(/Muitas tentativas/i)).toBeInTheDocument();
+  });
+});
+

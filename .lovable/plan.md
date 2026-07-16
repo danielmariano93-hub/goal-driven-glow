@@ -1,52 +1,106 @@
 ## Objetivo
+Corrigir dois bugs em produção sem publicar: (1) RPC `create_phone_link_code` falhando por `digest` não qualificado; (2) `WhatsAppLinkSheet` aparecendo atrás da `BottomTabBar` no mobile.
 
-Fazer o fluxo do usuário comum funcionar mesmo quando `VITE_WHATSAPP_OFFICIAL_NUMBER` estiver ausente, resolvendo o número oficial via backend a partir da sessão WAHA já conectada, sem expor segredos.
+## Bug 1 — RPC `create_phone_link_code`
 
-## 1. Nova Edge Function `whatsapp-official-number` (autenticada, leitura)
+### Migration nova (versionada)
+Recriar `public.create_phone_link_code()` mantendo assinatura e contrato:
+- `SECURITY DEFINER`, `SET search_path = public` (mantido restrito).
+- Qualificar explicitamente todas as chamadas: `extensions.digest(...)`, `extensions.gen_random_bytes(...)` se aplicável.
+- Manter regras: `auth.uid()` obrigatório (senão `raise exception 'not_authenticated'`), rate-limit 5 tentativas/30min consultando `phone_link_codes` do usuário, gerar código numérico 6 dígitos, armazenar `code_hash` (sha256 via `extensions.digest`), `expires_at = now() + interval '10 minutes'`, `attempts = 0`, `used_at = null`.
+- `REVOKE ALL ... FROM public, anon;` e `GRANT EXECUTE ... TO authenticated;`.
+- Retornar apenas o código em texto plano (uma vez), sem detalhes internos em erro.
 
-- `verify_jwt = true` (usuário comum autenticado basta).
-- Fluxo:
-  1. Validar Bearer do usuário via `auth.getUser()`.
-  2. Instanciar service client, `loadWahaConfig()` (lê Vault). Se não configurado → `{ available: false, official_number: null, source: "unconfigured" }`.
-  3. Chamar `provider.getSessionStatus()` + `provider.getMe()`. Se status ≠ WORKING ou sem `phone` → `{ available: false, official_number: null, source: "not_connected" }`.
-  4. Normalizar telefone via `normalizeBrPhone`. Retornar apenas `{ available: true, official_number: "+55DDDNNNNNNNNN", source: "waha" }`.
-- Cache em memória do módulo (TTL 60s) para evitar hit a cada abertura do sheet.
-- Retornar apenas os 3 campos citados. Nunca URL/API key/webhook.
+### Validação segura
+- Testar via `SET LOCAL ROLE authenticated` + `SET LOCAL request.jwt.claims` em transação com `ROLLBACK` para não deixar linha real.
+- Ao final, `SELECT count(*) FROM phone_link_codes` para confirmar zero vínculo artificial.
 
-## 2. Cache público sanitizado (fallback)
+### Frontend
+Em `WhatsAppLinkSheet.tsx` e `pages/WhatsApp.tsx`:
+- No `catch` da RPC, gerar `correlationId = crypto.randomUUID()`, `console.error` sanitizado com `{ correlationId, code: error.code }`.
+- Substituir `toast.error(...)` genérico por **estado de erro inline dentro do sheet**, preservando consentimento e mostrando:
+  - título curto acionável (ex.: "Não consegui gerar o código agora"),
+  - mensagem específica quando `error.message` inclui "too many" (rate-limit),
+  - botão **"Tentar novamente"** que rechama `generateAndOpen`,
+  - `correlationId` em caption discreta.
+- Se o código já foi gerado antes do erro em `openWaMe`, preservar (fluxo popup-blocked continua igual).
 
-- Reaproveitar tabela `app_settings` (se existir) ou criar `public.platform_public_config` (`key text primary key`, `value text`, `updated_at`) — RLS habilitada, `GRANT SELECT` para `authenticated`, escrita só via service role. Migration com GRANT + policy `select using (true)`.
-- A edge function grava `official_whatsapp_number` (E.164) sempre que resolve com sucesso via WAHA. Ele serve como fallback quando WAHA está momentaneamente indisponível.
+## Bug 2 — Modal atrás da BottomTabBar
 
-## 3. Ajuste do `WhatsAppLinkSheet.tsx`
+### Portal + z-index
+Em `WhatsAppLinkSheet.tsx`:
+- Envolver o retorno com `createPortal(..., document.body)`.
+- Overlay: `fixed inset-0 z-[200]` (novo tier acima de tab bar e header).
+- Painel: filho do overlay, sem alterar stacking.
 
-- Estado: `resolving` | `available(number)` | `unavailable`.
-- Ao abrir: em paralelo `list_my_whatsapp_link` e `functions.invoke("whatsapp-official-number")`.
-- Se `available`, usar `official_number`. Se erro/`unavailable`, tentar fallback: (a) valor de `platform_public_config.official_whatsapp_number` via select; (b) `VITE_WHATSAPP_OFFICIAL_NUMBER` normalizado. Só mostrar "número oficial em configuração" quando **todas** as fontes falharem.
-- Normalização client-side via `normalizeBrPhone` antes de montar `wa.me`.
-- `create_phone_link_code` só é chamado **após** ter número válido e consentimento marcado; código guardado em state e não descartado em erro de abertura de janela.
-- `window.open` a partir do click síncrono (já é), mas se retornar `null` (popup bloqueado): mostrar bloco com código `VINCULAR NNNNNN`, botão **"Abrir WhatsApp novamente"** (retry `window.open`) e botão **"Copiar mensagem"**. Sheet não fecha automaticamente nesse caso.
-- Aplicar mesma lógica em `src/pages/WhatsApp.tsx` (mesmo bug do OFFICIAL_NUMBER ali).
+### Layout mobile premium
+- Painel mobile: `fixed bottom-0 left-0 right-0` (via container flex já existente com `items-end`), `max-h-[min(90dvh,640px)]`, `overflow-y-auto`, `pb-[calc(1.5rem+env(safe-area-inset-bottom))]`.
+- Desktop: mantém centralizado (`md:items-center`, `md:max-w-md`, `md:rounded-3xl`).
 
-## 4. Testes (vitest)
+### Scroll lock e a11y
+- `useEffect` quando `open`: setar `document.body.style.overflow = 'hidden'` e restaurar no cleanup.
+- Focar primeiro controle interativo ao abrir; Escape e clique no backdrop já existem.
+- `aria-modal="true"` e `role="dialog"` mantidos.
 
-Adicionar em `src/test/whatsapp-official-number.test.tsx`:
-- Sheet com env ausente + edge disponível → botão habilitado, chama `create_phone_link_code`, `wa.me` correto.
-- Env ausente + edge falha + fallback `platform_public_config` presente → funciona.
-- Env ausente + edge falha + sem fallback → mostra indisponibilidade.
-- Popup bloqueado (`window.open` mock retorna null) → código permanece visível com botão retry.
-- URL final `https://wa.me/5511999999999?text=VINCULAR%20123456`.
+### Ajustes de z-index globais
+- `BottomTabBar`: reduzir para `z-40` (se estiver `z-50`) para eliminar disputa; verificar que nenhum outro modal shadcn dependia dessa ordem (Dialog usa portal Radix próprio, isolado).
+- Sonner Toaster: configurar `toastOptions`/`className` com `z-[210]` **ou** — preferido — usar erro inline no sheet e deixar toasts globais como estão.
 
-## 5. Deploy e verificação real
+## Testes
 
-- Deploy explícito da nova função + `whatsapp-session` inalterada.
-- Rodar `bunx tsgo --noEmit`, `bunx vitest run`, build.
-- Consulta SQL: `select count(*) from whatsapp_links where phone_masked ilike '%test%'` para garantir zero vínculos artificiais.
-- Reportar URL do preview e instruir: entrar como usuário → Home → CTA WhatsApp → aceitar → clicar em "Gerar código" → WhatsApp abre com "VINCULAR NNNNNN" pré-preenchido.
+Novos/atualizados em `src/test/`:
+- `whatsapp-link-code.test.ts` (unit): mock supabase RPC; sucesso, erro genérico exibe retry inline preservando código quando aplicável, erro "too many" mostra mensagem específica.
+- `whatsapp-official-number.test.tsx`: adicionar caso de portal montado em `document.body` (query via `document.body.querySelector('[role=dialog]')`).
+- Regressão RPC via SQL: descrever passos no PR; execução real com rollback confirmando ausência de linha.
 
-## Não vamos
+Rodar: `bunx vitest run`, `tsgo`, build.
 
-- Alterar sessão WAHA, Vault, credenciais ou config atual.
-- Expor URL/API key WAHA no cliente.
-- Exigir platform_admin do usuário final.
-- Publicar produção.
+## Entregáveis
+- Migration nova em `supabase/migrations/` (não editar existentes).
+- `src/components/whatsapp/WhatsAppLinkSheet.tsx` refatorado (portal, scroll lock, erro inline, safe-area).
+- `src/components/BottomTabBar.tsx` z-index ajustado.
+- Testes atualizados.
+- Sem deploy de Edge Function (nenhuma alterada). Sem publicação. Nenhum toque em WAHA/Vault/secret.
+
+## Detalhes técnicos
+
+```text
+Camadas z-index após ajuste
+  toasts (sonner)      z-[210]  (se necessário)
+  WhatsAppLinkSheet    z-[200]  ← portal em body
+  Dialog shadcn        z-50     (Radix portal — isolado)
+  Header/FAB           z-40
+  BottomTabBar         z-40     (reduzido de z-50)
+  conteúdo             z-auto
+```
+
+```sql
+-- Esboço da nova função (executada via migration)
+CREATE OR REPLACE FUNCTION public.create_phone_link_code()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_recent int;
+  v_code text;
+  v_hash bytea;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  SELECT count(*) INTO v_recent FROM phone_link_codes
+    WHERE user_id = v_uid AND created_at > now() - interval '30 minutes';
+  IF v_recent >= 5 THEN RAISE EXCEPTION 'too many attempts'; END IF;
+  v_code := lpad((floor(random()*1000000))::int::text, 6, '0');
+  v_hash := extensions.digest(v_code, 'sha256');
+  INSERT INTO phone_link_codes(user_id, code_hash, expires_at)
+    VALUES (v_uid, v_hash, now() + interval '10 minutes');
+  RETURN v_code;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.create_phone_link_code() FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.create_phone_link_code() TO authenticated;
+```
+
+Ajustar campos ao schema real após leitura de `phone_link_codes` (colunas obrigatórias serão inspecionadas antes de escrever a migration final).
