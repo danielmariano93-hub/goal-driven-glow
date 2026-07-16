@@ -101,23 +101,24 @@ export function extractSpans(raw: string): ExtractedSpans {
   if (cardMatch && cardMatch.index != null) {
     out.payment_method = "credit_card";
     remaining = stripSpan(remaining, cardMatch.index, cardMatch.index + cardMatch[0].length);
-    // Após remover o método, uma marca próxima é hint do cartão
-    const brand = remaining.match(CARD_BRAND_RX);
-    if (brand && brand.index != null) {
-      out.card_hint = brand[0];
-      remaining = stripSpan(remaining, brand.index, brand.index + brand[0].length);
+    const brand = CARD_BRAND_RX.exec(remaining);
+    if (brand && brand[1]) {
+      const start = brand.index + (brand[0].length - brand[1].length);
+      out.card_hint = brand[1];
+      remaining = stripSpan(remaining, start, start + brand[1].length);
     } else {
-      out.card_hint = ""; // método sem marca → resolver para cartão único
+      out.card_hint = ""; // método sem marca → cartão único
     }
   } else {
     const debitMatch = remaining.match(DEBIT_METHOD_RX);
     if (debitMatch && debitMatch.index != null) {
       out.payment_method = "account";
       remaining = stripSpan(remaining, debitMatch.index, debitMatch.index + debitMatch[0].length);
-      const brand = remaining.match(CARD_BRAND_RX);
-      if (brand && brand.index != null) {
-        out.account_hint = brand[0];
-        remaining = stripSpan(remaining, brand.index, brand.index + brand[0].length);
+      const brand = CARD_BRAND_RX.exec(remaining);
+      if (brand && brand[1]) {
+        const start = brand.index + (brand[0].length - brand[1].length);
+        out.account_hint = brand[1];
+        remaining = stripSpan(remaining, start, start + brand[1].length);
       }
     }
   }
