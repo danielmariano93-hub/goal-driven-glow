@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, XCircle, Clock, HelpCircle } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Clock, HelpCircle, type LucideIcon } from "lucide-react";
 import type { StatusView, Tone } from "@/lib/admin/statusMapper";
 
 const TONE_CLASS: Record<Tone, string> = {
@@ -9,7 +9,7 @@ const TONE_CLASS: Record<Tone, string> = {
   neutral: "bg-slate-50 text-slate-700 border-slate-200",
 };
 
-const TONE_ICON: Record<Tone, React.ComponentType<{ className?: string; size?: number }>> = {
+const TONE_ICON: Record<Tone, LucideIcon> = {
   success: CheckCircle2,
   warn: AlertTriangle,
   danger: XCircle,
