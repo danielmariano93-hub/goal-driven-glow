@@ -17,7 +17,8 @@ function mapRpcError(code: string | undefined): string {
 
 // Espelha as regras de composição do patch no save() do formulário.
 type Tx = { description: string | null; category_id: string | null; amount: number; occurred_at: string; notes: string | null; payment_method: "account"|"credit_card"; account_id: string | null; credit_card_id: string | null };
-function buildPatch(tx: Tx, form: Tx & { paymentMethod: "account"|"credit_card"; accountId: string; cardId: string; description: string; categoryId: string; amount: string; occurredAt: string; notes: string }) {
+type Form = { paymentMethod: "account"|"credit_card"; accountId: string; cardId: string; description: string; categoryId: string; amount: string; occurredAt: string; notes: string };
+function buildPatch(tx: Tx, form: Form) {
   const patch: Record<string, unknown> = {};
   if ((tx.description ?? "") !== form.description) patch.description = form.description || null;
   if ((tx.category_id ?? "") !== form.categoryId) patch.category_id = form.categoryId || null;
