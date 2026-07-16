@@ -1,141 +1,123 @@
-# Plano de implementação — Saldo zero, Cartões de crédito, Assessor no app
 
-Escopo grande dividido em 4 frentes independentes. Nada de WAHA/webhook/Vault. Preservar correções anteriores. Não publicar em produção.
+# Plano: Corrigir dicas do assistente (user_insights)
 
-## 1. Bug — Saldo inicial R$ 0,00
+## Causa raiz
+1. `insights-generate` consulta `transactions.kind` — a coluna real é `transactions.type`. A agregação silenciosamente retorna zero fatos.
+2. O parser aceita a resposta da IA mesmo com `title`/`body` vazios. Como `insight` deixa de ser `null`, o fallback determinístico nunca roda.
+3. O cache reaproveita qualquer insight ativo recente sem validar conteúdo, então o card vazio persiste por 24h.
+4. Resultado: registro `c919f6e9…` gravado com `title=''`, `body=''`, e a Home renderiza um card sem texto (ou some, dependendo do fallback do componente).
 
-**Causa provável:** `Number(opening.replace(",", ".")) || 0` em `Contas.tsx` já aceita 0, mas o schema/UI trata string vazia; e possivelmente `.default(0)` + coerção. Auditar caminho completo.
+## Arquivos alterados
+- `supabase/functions/insights-generate/index.ts` — função principal.
+- `supabase/functions/_shared/insights/fallbacks.ts` — novo, fallbacks determinísticos por cenário + validação (Zod).
+- `src/components/home/AssistantTipCard.tsx` — nunca renderizar card sem `title`/`body`; skeleton; regeneração controlada.
+- `src/lib/copy/strings.ts` — copies de fallback e estados.
+- Nova migration `supabase/migrations/<ts>_fix_empty_user_insights.sql`.
+- Testes: `src/test/insights-fallbacks.test.ts` e `supabase/functions/insights-generate/index.test.ts` (Deno-compat via vitest node runner com mock de fetch).
 
-**Ações:**
-- `src/lib/validation/finance.ts`: `accountSchema.opening_balance` aceita `number` (inclui 0 e negativos). Sem `.default` implícito que mascare vazio.
-- `src/pages/Contas.tsx`: parse explícito. Se input vazio → erro "Informe 0 ou um valor". `parseFloat` em vez de `Number(x) || 0` (que trata 0 como falsy só se string vazia — refatorar para distinguir).
-- Verificar `useSaveAccount` em `src/lib/db/finance.ts` — garantir que envia `opening_balance: 0` literal ao Supabase (sem `|| 0` nem `?? undefined`).
-- Migration: se houver `CHECK (opening_balance > 0)` na tabela `accounts`, remover. Consultar antes.
+## 1. Edge Function `insights-generate`
+- Trocar `kind` → `type` na query de `transactions`. Somar `income`/`expense` corretamente.
+- Cache: reaproveitar somente quando `status='active'`, `expires_at > now()`, `generated_at > now()-6h`, `trim(title) <> ''` e `trim(body) <> ''`. Caso contrário, marcar registros ativos vazios do usuário como `status='invalid'` antes de gerar novo.
+- Validar resposta da IA com Zod:
+  ```
+  z.object({
+    type: z.enum(["habit","alert","celebration","onboarding","opportunity"]).optional(),
+    title: z.string().transform(s=>s.trim()).pipe(z.string().min(4).max(80)),
+    body:  z.string().transform(s=>s.trim()).pipe(z.string().min(10).max(240)),
+    cta_label: z.string().trim().min(2).max(40).optional(),
+    cta_route: z.string().regex(/^\/app\//).optional(),
+  })
+  ```
+  Rejeitar `"null"`, `"undefined"`, apenas whitespace, e strings compostas só de pontuação.
+- Timeout de 8s no fetch do gateway; qualquer falha (status ≠ 2xx, JSON inválido, schema inválido, timeout) → fallback determinístico com `fallback_reason` logado (sanitizado).
+- Antes de `insert`, revalidar via mesmo schema (defensivo). Nunca gravar vazio.
+- Fatos ampliados (para escolher fallback contextual): `total_tx_ever`, `income_month`, `expense_month`, `balance_month`, `active_goals`, `goal_names`, `has_credit_card`, `upcoming_recurring_7d`, `top_expense_category`.
+- Log estruturado: `{ generated|cached|fallback, fallback_reason?, model, latency_ms, invalid_response? }`. Sem PII.
+- Rate limit atual (6h) mantido. Adicionar param opcional `{ force: true }` que ignora cache mas ainda respeita 1 geração / 60s por usuário (guard simples via `generated_at`).
 
-**Testes (`validation.test.ts` + novo):**
-- vazio → rejeita
-- `0` → aceita e persiste 0
-- positivo → aceita
-- negativo → aceita
-- string "0,00" → aceita como 0
+## 2. Fallbacks determinísticos (`_shared/insights/fallbacks.ts`)
+Função pura `pickFallback(facts) → InsightPayload`. Ordem de decisão:
+1. `total_tx_ever === 0` → onboarding: "Bora começar juntos" / CTA `/app/lancamentos`.
+2. `total_tx_ever < 5` → habit: incentivar 3 dias de registro.
+3. `expense_month > income_month && income_month > 0` → alert: mostrar diferença real, CTA `/app/relatorios`.
+4. `income_month > expense_month && balance_month > 0` → celebration com valor real, CTA `/app/metas` se houver meta, senão `/app/investimentos`.
+5. `active_goals > 0` → opportunity focada no nome da meta.
+6. `upcoming_recurring_7d > 0` → alert de compromissos próximos, CTA `/app/recorrencias`.
+7. `has_credit_card` → habit sobre acompanhar fatura, CTA `/app/cartoes`.
+8. default → habit genérica útil, CTA `/app/lancamentos`.
+Todos com `title/body/cta_label/cta_route` válidos. `model="fallback"`.
 
-## 2. Cartões de crédito — módulo completo
+## 3. Migration de saneamento
+```sql
+UPDATE public.user_insights
+SET status = 'invalid', updated_at = now()
+WHERE status = 'active'
+  AND (title IS NULL OR btrim(title) = '' OR body IS NULL OR btrim(body) = '');
 
-### Banco (nova migration)
-Tabela `public.credit_cards`:
-- `id, user_id, name, brand, last_four, total_limit numeric, closing_day smallint (1-31), due_day smallint (1-31), color, statement_goal numeric, active bool, created_at, updated_at`
-- GRANT authenticated, service_role
-- RLS: user_id = auth.uid()
+ALTER TABLE public.user_insights
+  ADD CONSTRAINT user_insights_title_nonempty CHECK (btrim(title) <> ''),
+  ADD CONSTRAINT user_insights_body_nonempty  CHECK (btrim(body)  <> '');
+```
+Sem inserir dica para usuário específico. A próxima chamada da função gera normalmente (o guard de cache passa a ignorar `status='invalid'`).
 
-Tabela `transactions` — adicionar colunas:
-- `payment_method text` check in ('account','credit_card') default 'account'
-- `credit_card_id uuid null references credit_cards`
-- `installment_number int null, installments_total int null` (1..48)
-- `purchase_date date null, competence_date date null` (mês da fatura)
-- Trigger de validação: `payment_method='credit_card'` exige `credit_card_id`; senão exige `account_id`.
-- Backfill: transações existentes ficam `payment_method='account'`.
+## 4. Home / `AssistantTipCard`
+- Query só considera `status='active'` **e** `title`/`body` não vazios (filtro extra client-side além do server).
+- Estados: `loading` (skeleton com shimmer, mesma altura do card, evita layout shift), `data`, `generating` (mostra dica atual se existir; senão skeleton), `error/no-content` → renderizar fallback local (import estático de `pickFallback` com facts mínimos derivados dos hooks já existentes) + botão "Gerar nova dica" (dispara `invoke('insights-generate',{ body:{ force:true }})`, throttle 60s local).
+- Nunca retornar `null` silenciosamente. Nunca renderizar card com título/corpo vazios.
+- Feedback 👍/👎 preservado; após feedback "não gostei", oferecer regenerar.
 
-Função `public.credit_card_statement(p_card_id, p_ref_month date)` retornando total, itens, limite usado/disponível. RLS via SECURITY DEFINER com check de owner.
+## 5. Disparo e ciclo de vida
+- Geração **sob demanda** (nesta fase, sem cron):
+  - primeira visita à Home quando não há insight válido;
+  - após criar transação relevante: invalidar query `["assistant-tip"]` (invalidate-only, geração acontece na próxima render se cache expirou);
+  - botão manual "Gerar nova dica".
+- Expiração: 24h; dedupe: hash SHA-1 curto de `evidence` gravado em `evidence.hash`. Se hash igual ao último ativo do usuário e < 24h, reutilizar. Muda fatos → gera nova.
+- Sem loops: guard de 60s + rate limit 6h já existente.
 
-### Frontend
-- `src/lib/db/creditCards.ts`: hooks CRUD + statements.
-- `src/lib/validation/creditCards.ts`: `creditCardSchema` (closing_day/due_day 1-31, total_limit > 0, statement_goal ≥ 0).
-- `src/pages/Cartoes.tsx`: lista de cartões, fatura atual/próxima, limite usado/disponível %, fechamento/vencimento, últimas compras, parcelas futuras, categorias, comparação mês anterior, CTAs "Novo cartão", "Registrar gasto no cartão".
-- `src/pages/CartaoDetalhe.tsx`: fatura selecionada, itens, parcelas.
-- Modal `NovoCartaoModal`, `EditarCartaoModal`.
-- **Formulário de gasto** (`Lancamentos.tsx` e QuickActions/FAB): toggle Conta | Cartão. Se cartão: seletor de cartão (com "+ novo cartão" inline sem perder o rascunho), parcelas 1..48, cálculo automático da fatura de destino baseado em `closing_day` (`purchase_date <= closing_day → fatura mês atual; senão próximo mês`). Preview em linguagem simples: "Entra na fatura de novembro (fecha 25/10)".
-- Home: `CartaoResumo` compacto quando houver cartão — fatura atual, % do limite, dias até fechamento, comparação mês anterior, 1 insight determinístico. Sem cartão: onboarding discreto de 1 linha.
-- Navegação: adicionar "Cartões" no `MaisMenu` + entry point contextual na Home; **não** somar `total_limit` ao patrimônio (auditar `computeNetWorth` em `src/lib/engine/facts.ts`).
+## 6. IA / modelo
+- Confirmar disponibilidade do modelo no gateway antes do deploy. Modelo padrão: `google/gemini-2.5-flash` (o atual `gemini-3.5-flash` pode estar indisponível — verificar e ajustar; se ambos falharem, `google/gemini-2.5-flash-lite`). Fallback determinístico cobre indisponibilidade.
+- Prompt com contrato JSON explícito e exemplos negativos (proibido inventar valores, proibido conselho de investimento regulado).
 
-### Gamificação responsável
-- `src/lib/gamification/rules.ts`: nunca conceder XP por compra no cartão. Meta de fatura (`statement_goal`), progresso abaixo da meta, streak de meses dentro da meta.
-- Alertas em 50/70/85/100% do limite (via `notifications`).
-- Desafio opcional "7 dias sem compra por impulso" no catálogo `challenges_catalog`.
-- Cálculo de comprometimento da renda (fatura/receita mensal).
+## 7. Testes (bloqueadores)
+`src/test/insights-fallbacks.test.ts`:
+- cada cenário de `pickFallback` retorna payload válido no schema;
+- schema rejeita vazio, whitespace, "null", "undefined", rota fora de `/app/`;
+- schema aceita payload íntegro.
 
-### Testes
-- Fechamento: compra em dia antes/depois do closing_day → competência correta.
-- Parcelamento 1, 12, 48.
-- Limite usado nunca negativo.
-- Patrimônio NÃO inclui `total_limit` (teste em `facts.test.ts`).
-- RLS: usuário A não vê cartão de B (teste de integração).
+`supabase/functions/insights-generate/index.test.ts` (executado via vitest com `fetch` mockado e client Supabase mockado):
+- JSON completo válido → insere;
+- JSON com title/body vazios → cai em fallback, insere fallback;
+- whitespace/`"null"` → fallback;
+- JSON inválido / status 500 / timeout → fallback;
+- cache com insight válido recente → reaproveita, não chama gateway;
+- cache com insight vazio ativo → ignora, marca invalid e gera;
+- query de transações usa `type` (assert no mock);
+- nenhum insert com título/corpo vazios (assert no mock);
+- RLS: isolamento user A/B via mock de `auth.getUser`.
 
-## 3. Assessor dentro do app
+Rodar suíte completa + `tsgo` + `vite build`.
 
-### Backend
-- `src/lib/db/chat.ts`: hooks para `conversations` + `conversation_messages` filtradas por `source='app'`.
-- `agent-run` já existe. Adicionar suporte a `source='app'` (já aceita `source: 'simulator'|'whatsapp'`) — estender para `'app'` sem exigir `to_phone`. Auth: JWT do usuário; user_id resolvido no servidor via `getUser()`, ignorando qualquer id no payload. Rate limit por user_id (reuso de `admin_action_rate` ou novo `rate_limits`). Timeout de 30s.
-- Nova migration: coluna `source` em `conversations` (app|whatsapp) se não existir. RLS já cobre por user_id.
-- Ferramentas do agente (`_shared/agent/tools.ts`): já expõem createTransaction/goals/etc. Garantir `requestConfirmation` para escritas.
+## 8. Sequência de execução (uma rodada)
+1. Migration de saneamento + CHECK constraints.
+2. Criar `_shared/insights/fallbacks.ts` + schema Zod.
+3. Reescrever `insights-generate/index.ts` (query, cache, validação, fallback, logs, force).
+4. Atualizar `AssistantTipCard.tsx` + copies.
+5. Adicionar testes.
+6. `npm test`, typecheck, build.
+7. Deploy apenas de `insights-generate`. Sem tocar em WAHA/webhook/frontend em produção.
 
-### Frontend
-- `src/components/assessor/AssessorFab.tsx`: botão flutuante nas páginas principais (Home, Lançamentos, Metas, Cartões). Portal em `document.body`. Posicionamento `bottom: calc(58px + safe-area + 16px)` no mobile para não cobrir BottomTabBar; desktop `bottom-right`.
-- `src/components/assessor/AssessorPanel.tsx`: mobile bottom-sheet full-screen; desktop side panel/modal. Safe-area, keyboard-aware, auto-scroll.
-- `src/pages/Assessor.tsx`: rota `/app/assessor/:conversationId?` — conversa completa persistida.
-- Sugestões iniciais: "Registrar um gasto", "Como está meu mês?", "Ver metas", "Analisar fatura", "O que posso melhorar?".
-- Renderização de mensagens: markdown, cards de confirmação estruturados (resumo → confirmar/cancelar), card de sucesso pós-execução com "Desfazer" quando seguro (reverter transação criada nos últimos 60s).
-- Loading: "Estou olhando suas finanças…". Retry preserva input. Histórico indicando origem App/WhatsApp quando misturado.
-- Client → Edge Function `agent-run` via `supabase.functions.invoke('agent-run', { body: { source: 'app', ... } })`. Nenhum secret no cliente.
+## Critérios de aceite
+- Registro `c919f6e9…` fica `status='invalid'`.
+- Nova chamada gera insight com `title` e `body` não vazios (IA ou fallback).
+- Home sempre exibe uma dica útil (nunca card vazio, nunca some silenciosamente).
+- Query de transações usa `type`.
+- Todos os testes passam; build limpo.
+- Logs mostram `fallback_reason` quando aplicável, sem PII.
 
-### Testes
-- Auth: chamada sem JWT → 401.
-- Conversa persiste user_id e source='app'.
-- Escrita requer confirmação (pending_confirmations criada).
-- Sucesso e erro renderizam corretamente.
-- FAB não cobre BottomTabBar (`fixed`, z-index acima, portal).
+## Riscos
+- CHECK constraint quebra inserts legados: mitigado por UPDATE prévio na mesma migration.
+- Modelo indisponível no gateway: coberto por fallback.
+- Regeneração excessiva pelo botão: throttle 60s server + client.
 
-## 4. Insights e Home
-
-- `insights-generate/index.ts`: adicionar fallback determinístico quando IA falhar (top categoria do mês, comparação, dica genérica). Nunca retornar título vazio.
-- `AssistantTipCard.tsx`: se `title` vazio/undefined, não renderiza card.
-- Fatura no assessor: chamar `credit_card_statement` como ferramenta.
-- Invalidar queries `home`, `cartoes`, `chat` via React Query após ações do agente (`queryClient.invalidateQueries`).
-
-## 5. Qualidade e aceite
-
-- Rodar `bunx vitest run` — suíte completa passa.
-- Typecheck `tsgo`.
-- Build vite.
-- Testes RLS entre 2 users via psql SELECT direto (SET LOCAL).
-- Deploy Edge Functions modificadas (agent-run só se alterada).
-- Migrations aplicadas via `supabase--migration` (uma por frente: `credit_cards` + `transactions_columns`).
-- Confirmar: sem dados sintéticos permanentes (`credit_cards` count = 0 no fim; `conversations source='app'` só se usuário testou).
-- Relatório final: migrations aplicadas, funções deployadas, testes verdes, arquivos alterados, URL de preview.
-
-## Arquivos previstos (~25)
-
-**Migrations:**
-- `supabase/migrations/*_credit_cards.sql`
-- `supabase/migrations/*_transactions_payment_method.sql`
-- `supabase/migrations/*_accounts_opening_balance_check.sql` (só se houver CHECK)
-- `supabase/migrations/*_conversations_source.sql` (só se faltar)
-
-**Backend:**
-- editar `supabase/functions/agent-run/index.ts` (source=app)
-- editar `supabase/functions/insights-generate/index.ts` (fallback)
-
-**Frontend novos:**
-- `src/pages/Cartoes.tsx`, `src/pages/CartaoDetalhe.tsx`
-- `src/pages/Assessor.tsx`
-- `src/components/assessor/AssessorFab.tsx`, `AssessorPanel.tsx`, `MessageList.tsx`, `ConfirmCard.tsx`
-- `src/components/cartoes/NovoCartaoModal.tsx`, `FaturaCard.tsx`, `CartaoResumoHome.tsx`
-- `src/lib/db/creditCards.ts`, `src/lib/db/chat.ts`
-- `src/lib/validation/creditCards.ts`
-
-**Frontend editados:**
-- `src/pages/Contas.tsx`, `src/lib/validation/finance.ts`, `src/lib/db/finance.ts` (saldo zero)
-- `src/pages/Lancamentos.tsx` (toggle conta/cartão)
-- `src/pages/Index.tsx` (CartaoResumoHome)
-- `src/pages/MaisMenu.tsx` (link Cartões)
-- `src/App.tsx` (rotas /app/cartoes, /app/assessor)
-- `src/components/AppLayout.tsx` (FAB)
-- `src/lib/engine/facts.ts` (garantir que limite não entra no patrimônio)
-- `src/lib/gamification/rules.ts`
-
-**Testes novos/editados:**
-- `src/test/account-opening-balance.test.ts`
-- `src/test/credit-cards.test.ts` (fechamento, parcelamento, patrimônio)
-- `src/test/assessor.test.tsx` (FAB, portal, confirmação)
-- `src/test/insights-fallback.test.ts`
-
-Após aprovação, implemento tudo em sequência, rodo testes/typecheck/build e reporto evidências.
+## Fora de escopo
+WAHA, webhook, sessão, agente transacional, cartões, orquestrador, prompts do agente, notificações, gamificação.

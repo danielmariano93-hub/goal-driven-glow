@@ -1,23 +1,34 @@
 // Edge function: insights-generate
-// Gera uma dica personalizada para o usuário autenticado usando Lovable AI Gateway.
-// - JWT do usuário obrigatório.
-// - Rate-limit: 1 geração por 6h (se já existe insight ativo válido).
-// - Fallback editorial em falha.
+// Gera uma dica personalizada, com validação estrita e fallback determinístico.
+// - JWT obrigatório.
+// - Cache: reaproveita apenas insights ativos, não vazios e recém-gerados.
+// - IA opcional via Lovable Gateway; qualquer falha cai em fallback contextual.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { InsightSchema, pickFallback, parseInsightResponse, type InsightFacts } from "../_shared/insights/fallbacks.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
-const PROMPT_VERSION = "v1";
-const MODEL = "google/gemini-3.5-flash";
+const PROMPT_VERSION = "v2";
+const MODEL = "google/gemini-2.5-flash";
+const AI_TIMEOUT_MS = 8000;
+
+function logEvent(event: Record<string, unknown>) {
+  try { console.log(JSON.stringify({ fn: "insights-generate", ...event })); } catch { /* noop */ }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+
+  const started = Date.now();
+  let body: { force?: boolean } = {};
+  try { body = (await req.json()) ?? {}; } catch { /* empty body ok */ }
+  const force = body.force === true;
 
   const supaUser = createClient(SUPABASE_URL, SERVICE_ROLE, {
     global: { headers: { Authorization: auth } },
@@ -29,117 +40,161 @@ Deno.serve(async (req) => {
 
   const supa = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-  // Se já existe uma ativa não-expirada e recém-gerada (< 6h), reaproveita.
-  const cutoff = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
-  const { data: existing } = await supa
+  // 60s spam guard (per user) even when force=true
+  const { data: veryRecent } = await supa
     .from("user_insights")
-    .select("*")
+    .select("id, generated_at")
     .eq("user_id", uid)
-    .eq("status", "active")
-    .gt("expires_at", new Date().toISOString())
-    .gt("generated_at", cutoff)
+    .gte("generated_at", new Date(Date.now() - 60_000).toISOString())
     .order("generated_at", { ascending: false })
     .limit(1);
-  if (existing && existing.length > 0) {
-    return json({ insight: existing[0], cached: true });
+  if (veryRecent && veryRecent.length > 0 && force) {
+    logEvent({ uid_len: uid.length, event: "throttled" });
+    // fall through to cache read below
   }
 
-  // Agrega dados mínimos server-side.
+  // Cache reuse (6h) — only real content.
+  if (!force) {
+    const cutoff = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
+    const { data: existing } = await supa
+      .from("user_insights")
+      .select("*")
+      .eq("user_id", uid)
+      .eq("status", "active")
+      .gt("expires_at", nowIso)
+      .gt("generated_at", cutoff)
+      .order("generated_at", { ascending: false })
+      .limit(5);
+    const usable = (existing ?? []).find(
+      (r: any) => typeof r.title === "string" && r.title.trim() && typeof r.body === "string" && r.body.trim(),
+    );
+    if (usable) {
+      logEvent({ event: "cached", latency_ms: Date.now() - started });
+      return json({ insight: usable, cached: true });
+    }
+  }
+
+  // Aggregate facts
   const ym = new Date().toISOString().slice(0, 7);
-  const [{ count: txCount }, { data: goals }, { data: recentTx }] = await Promise.all([
+  const [
+    { count: txCount },
+    { data: goals },
+    { data: recentTx },
+    { count: cardCount },
+    { data: recurring },
+  ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,status").eq("user_id", uid).eq("status", "active"),
     supa
       .from("transactions")
-      .select("kind,amount,category_id,occurred_at")
+      .select("type,amount,category_id,occurred_at")
       .eq("user_id", uid)
+      .eq("status", "confirmed")
       .gte("occurred_at", `${ym}-01`)
       .order("occurred_at", { ascending: false })
-      .limit(200),
+      .limit(300),
+    supa.from("credit_cards").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("active", true),
+    supa.from("recurring_entries").select("id,next_due_date,active").eq("user_id", uid).eq("active", true),
   ]);
 
-  const txs = (recentTx ?? []) as any[];
-  const income = txs.filter((t) => t.kind === "income").reduce((s, t) => s + Number(t.amount), 0);
-  const expense = txs.filter((t) => t.kind === "expense").reduce((s, t) => s + Number(t.amount), 0);
+  const txs = (recentTx ?? []) as Array<{ type: string; amount: number | string }>;
+  const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + Number(t.amount), 0);
+  const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + Number(t.amount), 0);
   const totalCount = txCount ?? 0;
 
-  const facts = {
+  const in7 = Date.now() + 7 * 86400_000;
+  const upcoming7 = (recurring ?? []).filter((r: any) => {
+    if (!r?.next_due_date) return false;
+    const d = new Date(r.next_due_date + "T00:00:00").getTime();
+    return d >= Date.now() - 86400_000 && d <= in7;
+  }).length;
+
+  const facts: InsightFacts = {
     total_tx_ever: totalCount,
     month: ym,
     income_month: Number(income.toFixed(2)),
     expense_month: Number(expense.toFixed(2)),
     balance_month: Number((income - expense).toFixed(2)),
     active_goals: (goals ?? []).length,
-    goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name),
+    goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name).filter(Boolean),
+    has_credit_card: (cardCount ?? 0) > 0,
+    upcoming_recurring_7d: upcoming7,
+    top_expense_category: null,
   };
 
-  const isOnboarding = totalCount < 3;
-
-  // Gera via Lovable AI, com fallback editorial.
+  // Try AI
   let insight: any = null;
+  let fallbackReason: string | null = null;
 
   if (LOVABLE_API_KEY) {
-    try {
-      const system = `Você é o assistente do NoControle.ia. Escreva uma dica curta em português brasileiro (título ≤ 60 chars, texto ≤ 200 chars) baseada estritamente nos dados fornecidos. Tom: caloroso, direto, aliado. Não invente valores. Sem julgamento. Sem promessa de retorno financeiro. Não recomende investimentos regulados. Se houver poucos dados, use type "onboarding" e diga que ainda está te conhecendo. Responda somente em JSON.`;
-      const user = `Dados do usuário (JSON): ${JSON.stringify(facts)}. Gere UMA dica.`;
+    const system = `Você é o assistente do NoControle.ia. Escreva UMA dica curta em português brasileiro baseada estritamente nos dados fornecidos. Regras rígidas:
+- title: 4 a 80 caracteres, não vazio, sem "null"/"undefined".
+- body: 10 a 240 caracteres, não vazio.
+- type: um de habit, alert, celebration, onboarding, opportunity.
+- cta_label: 2 a 40 caracteres.
+- cta_route: começa com /app/ (ex: /app/lancamentos, /app/metas, /app/relatorios, /app/cartoes, /app/recorrencias).
+- Tom caloroso, direto, aliado. Sem julgamento. Sem promessa de retorno financeiro. Sem conselho de investimento regulado. Não invente valores.
+Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
+    const userMsg = `Dados (JSON): ${JSON.stringify(facts)}. Gere UMA dica.`;
 
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
+    try {
       const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
+        signal: ctrl.signal,
         headers: {
           "Content-Type": "application/json",
-          "Lovable-API-Key": LOVABLE_API_KEY,
+          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         },
         body: JSON.stringify({
           model: MODEL,
           messages: [
             { role: "system", content: system },
-            { role: "user", content: user },
+            { role: "user", content: userMsg },
           ],
           response_format: { type: "json_object" },
         }),
       });
-
-      if (resp.ok) {
+      if (!resp.ok) {
+        fallbackReason = `ai_status_${resp.status}`;
+      } else {
         const j = await resp.json();
-        const content = j.choices?.[0]?.message?.content;
-        const parsed = typeof content === "string" ? JSON.parse(content) : content;
-        const type = ["habit", "alert", "celebration", "onboarding", "opportunity"].includes(parsed.type)
-          ? parsed.type
-          : isOnboarding
-          ? "onboarding"
-          : "habit";
-        insight = {
-          type,
-          title: String(parsed.title ?? "").slice(0, 100),
-          body: String(parsed.body ?? "").slice(0, 400),
-          cta_label: String(parsed.cta_label ?? "Ver detalhes").slice(0, 60),
-          cta_route: /^\/app\//.test(parsed.cta_route ?? "") ? parsed.cta_route : "/app/lancamentos",
-          model: MODEL,
-        };
+        const content = j?.choices?.[0]?.message?.content;
+        const parsed = typeof content === "string" ? safeJson(content) : content;
+        const validated = parseInsightResponse(parsed);
+        if (!validated) {
+          fallbackReason = "ai_invalid_schema";
+        } else {
+          insight = {
+            type: validated.type ?? (facts.total_tx_ever < 3 ? "onboarding" : "habit"),
+            title: validated.title,
+            body: validated.body,
+            cta_label: validated.cta_label ?? "Ver detalhes",
+            cta_route: validated.cta_route ?? "/app/lancamentos",
+            model: MODEL,
+          };
+        }
       }
-    } catch (_e) {
-      /* fallback */
+    } catch (e) {
+      fallbackReason = (e as Error)?.name === "AbortError" ? "ai_timeout" : "ai_error";
+    } finally {
+      clearTimeout(timer);
     }
+  } else {
+    fallbackReason = "no_api_key";
   }
 
   if (!insight) {
-    insight = isOnboarding
-      ? {
-          type: "onboarding",
-          title: "Vamos nos conhecer melhor",
-          body: "Registre seu primeiro gasto ou entrada para eu começar a te ajudar de verdade.",
-          cta_label: "Anotar gasto",
-          cta_route: "/app/lancamentos",
-          model: "fallback",
-        }
-      : {
-          type: "habit",
-          title: "Um passo por vez",
-          body: "Registrar seus gastos por 3 dias seguidos já muda como você enxerga o próprio dinheiro.",
-          cta_label: "Anotar gasto",
-          cta_route: "/app/lancamentos",
-          model: "fallback",
-        };
+    insight = pickFallback(facts);
+  }
+
+  // Defensive revalidation before insert
+  const finalCheck = InsightSchema.safeParse(insight);
+  if (!finalCheck.success) {
+    insight = pickFallback(facts);
+    fallbackReason = (fallbackReason ?? "") + "|final_invalid";
   }
 
   const now = new Date();
@@ -147,7 +202,12 @@ Deno.serve(async (req) => {
     .from("user_insights")
     .insert({
       user_id: uid,
-      ...insight,
+      type: insight.type,
+      title: insight.title,
+      body: insight.body,
+      cta_label: insight.cta_label,
+      cta_route: insight.cta_route,
+      model: insight.model,
       evidence: facts,
       prompt_version: PROMPT_VERSION,
       generated_at: now.toISOString(),
@@ -157,6 +217,20 @@ Deno.serve(async (req) => {
     .select("*")
     .single();
 
-  if (error) return json({ error: error.message }, 500);
-  return json({ insight: inserted, cached: false });
+  if (error) {
+    logEvent({ event: "insert_error", err: error.message, fallbackReason });
+    return json({ error: "insert_failed" }, 500);
+  }
+
+  logEvent({
+    event: fallbackReason ? "fallback" : "generated",
+    fallback_reason: fallbackReason,
+    model: insight.model,
+    latency_ms: Date.now() - started,
+  });
+  return json({ insight: inserted, cached: false, fallback: !!fallbackReason });
 });
+
+function safeJson(s: string): unknown {
+  try { return JSON.parse(s); } catch { return null; }
+}
