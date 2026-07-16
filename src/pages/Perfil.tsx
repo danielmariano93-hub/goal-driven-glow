@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { displayNameSchema } from "@/lib/validation/auth";
 import { incomeFrequencyValues, type IncomeFrequency } from "@/lib/validation/onboarding";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { WhatsAppLinkSheet } from "@/components/whatsapp/WhatsAppLinkSheet";
 
 export default function Perfil() {
   const { user, profile, refreshProfile, requestPasswordReset } = useAuth();
@@ -150,8 +151,64 @@ export default function Perfil() {
         </button>
       </div>
 
+      <WhatsAppConnection />
       <NotificationPrefs />
       <DataZone />
+    </div>
+  );
+}
+
+function WhatsAppConnection() {
+  const [link, setLink] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.rpc("list_my_whatsapp_link");
+    const row = (data?.[0] as any) ?? null;
+    setLink(row?.status === "active" ? row : null);
+  };
+  useEffect(() => { load(); }, []);
+
+  const revoke = async () => {
+    if (!confirm("Desvincular seu WhatsApp? Você poderá vincular novamente depois.")) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("revoke_whatsapp_link");
+    setBusy(false);
+    if (error) return toast.error("Não consegui desvincular.");
+    toast.success("Vínculo revogado.");
+    setLink(null);
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+      <h2 className="text-sm font-semibold">Conexões</h2>
+      <p className="mt-1 text-xs text-muted-foreground">Onde seu assistente pode te encontrar.</p>
+      <div className="mt-3 flex items-center justify-between rounded-xl border border-border bg-background p-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">WhatsApp</p>
+          <p className="text-[11px] text-muted-foreground">
+            {link ? `Vinculado · ${link.phone_masked}` : "Não vinculado"}
+          </p>
+        </div>
+        {link ? (
+          <button
+            onClick={revoke}
+            disabled={busy}
+            className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-40"
+          >
+            Desvincular
+          </button>
+        ) : (
+          <button
+            onClick={() => setSheetOpen(true)}
+            className="rounded-full bg-primary px-3 py-1.5 text-xs text-primary-foreground"
+          >
+            Vincular
+          </button>
+        )}
+      </div>
+      <WhatsAppLinkSheet open={sheetOpen} onClose={() => { setSheetOpen(false); load(); }} />
     </div>
   );
 }
