@@ -231,6 +231,18 @@
     text-wrap: balance;
   }
 
+  .safe-pb {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  }
+
+  .safe-pt {
+    padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+  }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+
   .grid-pattern {
     background-image:
       linear-gradient(hsl(var(--border) / 0.6) 1px, transparent 1px),
