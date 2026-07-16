@@ -39,6 +39,7 @@ const DivisaoDoRoleDetalhe = lazy(() => import("./pages/DivisaoDoRoleDetalhe"));
 const Recorrencias = lazy(() => import("./pages/Recorrencias"));
 const Desafios = lazy(() => import("./pages/Desafios"));
 const Notificacoes = lazy(() => import("./pages/Notificacoes"));
+const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 
 // Platform admin (lazy)
 const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
@@ -108,6 +109,7 @@ const App = () => (
                 <Route path="recorrencias" element={<Recorrencias />} />
                 <Route path="desafios" element={<Desafios />} />
                 <Route path="notificacoes" element={<Notificacoes />} />
+                <Route path="cobrancas" element={<CobrancasRecebidas />} />
               </Route>
 
               {/* Platform admin — separate application */}
