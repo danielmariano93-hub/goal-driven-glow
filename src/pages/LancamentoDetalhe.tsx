@@ -224,12 +224,54 @@ export default function LancamentoDetalhe() {
         </div>
 
         {!isTransfer && (
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Categoria</label>
-            <select id="field-category" className="input-base w-full" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
-              <option value="">Sem categoria</option>
-              {catsForType.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+          <div className="rounded-lg border border-border p-3 space-y-3">
+            <div>
+              <p className="text-xs font-semibold mb-2">Forma de pagamento</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {(["account","credit_card"] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMethod(m)}
+                    className={`rounded-full px-3 py-1.5 border ${paymentMethod === m ? "bg-primary text-primary-foreground border-primary" : "border-border bg-secondary"}`}
+                    aria-pressed={paymentMethod === m}
+                  >
+                    {m === "account" ? "Conta" : "Cartão de crédito"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {paymentMethod === "account" ? (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Conta</label>
+                <select
+                  className="input-base w-full"
+                  value={accountId}
+                  onChange={e => { setAccountId(e.target.value); if (e.target.value) setCardId(""); }}
+                >
+                  <option value="">Selecione uma conta</option>
+                  {accs.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Cartão</label>
+                <select
+                  className="input-base w-full"
+                  value={cardId}
+                  onChange={e => { setCardId(e.target.value); if (e.target.value) setAccountId(""); }}
+                >
+                  <option value="">Selecione um cartão</option>
+                  {cards.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {hasGroup && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Alterar cartão em compras parceladas afeta apenas os lançamentos no escopo escolhido abaixo.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
