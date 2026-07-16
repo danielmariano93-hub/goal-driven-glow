@@ -6,6 +6,7 @@ import {
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { can, roleLabel, type PlatformAction } from "@/lib/admin/permissions";
+import { AdminErrorBoundary } from "@/components/admin/AdminErrorBoundary";
 
 type Item = {
   to: string;
