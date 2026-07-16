@@ -187,8 +187,29 @@ Deno.serve(async (req) => {
   const run_id = run?.id as string | undefined;
   const toolCallLog: any[] = [];
   let steps = 0, tokensIn = 0, tokensOut = 0;
+  let fastPathUsed = false;
 
-  if (isLLMConfigured()) {
+  // ---------- Deterministic fast-path for card expenses ----------
+  // Guarantees a tool call even if the model refuses. Handles two shapes:
+  //  (a) Single message with amount + "cartão"/bank keyword.
+  //  (b) Follow-up like "É o único cartão cadastrado" / "Cartão Itaú" completing
+  //      an unresolved expense from the previous user turn.
+  try {
+    const fast = await tryFastPathCardExpense(svc, { user_id, conversation_id }, text, history);
+    if (fast) {
+      steps = 1;
+      toolCallLog.push({
+        step_index: 1, tool_name: "create_transaction_draft",
+        args: fast.args, result: fast.result.ok ? fast.result.result : null,
+        ok: fast.result.ok, duration_ms: fast.duration_ms,
+        error: fast.result.ok ? null : (fast.result as any).error,
+      });
+      reply = fast.reply;
+      fastPathUsed = true;
+    }
+  } catch (_e) { /* fall through to LLM */ }
+
+  if (!fastPathUsed && isLLMConfigured()) {
     try {
       const turn = await runAgentTurn(
         { sb: svc, user_id, conversation_id },
@@ -201,10 +222,23 @@ Deno.serve(async (req) => {
     } catch (e) {
       errorSanitized = sanitizeError(e);
     }
-  } else {
+  } else if (!fastPathUsed) {
     reply = "Assessor indisponível no momento. Tente novamente em instantes.";
   }
   if (!reply) reply = "Certo. Pode me dizer em uma frase o que você quer fazer?";
+
+  // Anti-loop guard: if the assistant is about to repeat the same question it
+  // already asked in the last 3 turns without new data, replace with a useful
+  // fallback that lists real options.
+  const lastAssistant = [...history].reverse().find(h => h.role === "assistant")?.content ?? "";
+  if (
+    !fastPathUsed && reply.trim().endsWith("?") &&
+    normalizeQ(reply) === normalizeQ(lastAssistant) && normalizeQ(reply).length > 5
+  ) {
+    reply = await antiLoopFallback(svc, user_id, text) ?? reply;
+    toolCallLog.push({ step_index: (steps || 0) + 1, tool_name: "loop_guard_triggered", args: {}, result: {}, ok: true, duration_ms: 0, error: null });
+  }
+
 
   // Look for the pending draft created during this turn (single per conversation)
   const pendingOut = await findPending(svc, conversation_id, user_id, null);
