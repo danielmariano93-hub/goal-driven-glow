@@ -1,61 +1,56 @@
-# Plano — Sessão WAHA isolada `nocontrole` + conexão real
 
-## Causa raiz do estado atual
-A arquitetura assumiu erroneamente que WAHA Core permite apenas uma sessão `default`. A documentação vigente confirma múltiplas sessões no mesmo container. O provider e a config no Vault fixaram `session_name=default`, o que impediria coexistir com a sessão do Sniper. Precisamos isolar o NoControle numa sessão dedicada, sem tocar em nenhuma outra.
+## Objetivo
+Usar o slot `default` do Manager WAHA (tier CORE) exclusivamente para o NoControle, com isolamento vindo do Vault + metadata + webhook próprio, e destravar o painel `/admin/whatsapp` para mostrar status real e QR.
 
-## Escopo desta rodada
-Único número, uma sessão exclusiva chamada `nocontrole` no Manager compartilhado. Nenhuma operação atinge `default`/`sniper`/outras. Conectar agora até QR ou WORKING.
+## Causa raiz
+No commit anterior fixamos `NOCONTROLE_SESSION = "nocontrole"` como canônico no provider, webhook e RPC `admin_waha_save_config`. Como o Manager real está em CORE, ele rejeita qualquer sessão ≠ `default` com HTTP 422, e a antiga `default` (Sniper, FAILED) foi liberada pelo owner. Precisamos voltar a resolver `session_name` sempre pelo Vault, com fallback `default`, e nunca aceitar do frontend.
 
-## Mudanças
+## Passos
 
-### 1. Vault / config canônica
-- Atualizar registro no Vault (`_vault_upsert`) para `session_name = "nocontrole"`, mantendo `api_url`, `api_key`, `webhook_secret` já armazenados.
-- Não expor o nome no frontend como editável (constante de projeto).
+### 1. Vault
+- Atualizar via `_vault_upsert`: `WAHA_SESSION_NAME_NOCONTROLE = "default"`.
+- Manter URL, API key e webhook secret já gravados.
 
-### 2. Provider `_shared/messaging/waha.ts`
-- Remover fallback `"default"`. Session sempre vem da config carregada do Vault (`loadConfig()`); se ausente ou vazio, retornar erro `config_missing` — nunca cair em default.
-- Todas as chamadas (`/api/sessions/{s}`, start/stop/logout/restart, `/api/{s}/auth/qr`, `/me`, sendText, webhook subscribe) usam a variável resolvida em runtime.
-- Health/status/QR/me/restart/logout/stop passam a receber/usar o `session_name` da config.
-- `listSessions()` (novo helper): apenas para verificar existência de `nocontrole`; nunca modifica outras.
-- `ensureSession()`: se não existe → cria com metadata (`app: "nocontrole"`, `environment: production|beta`, `project: "nocontrole"`) e webhook apenas para essa sessão; se existe → PUT idempotente somente nos campos de config/webhook desta sessão (nunca em outras).
+### 2. Migration SQL
+- `admin_waha_save_config(...)`: remover o pin de `nocontrole`. Aceitar `p_session_name` apenas quando explicitamente enviado pelo backend admin; default no servidor = `default`. Frontend nunca envia esse campo (whitelist server-side).
+- `admin_waha_resolve_config()`: já retorna do Vault — sem mudanças além de garantir default `default`.
+- Limpar heartbeats/estado que dependam do literal `nocontrole` como chave de sessão (metadata do projeto permanece `nocontrole`).
 
-### 3. Edge functions
-- `whatsapp-session/index.ts`: remover `body.session_name ?? "default"`. Ignorar qualquer `session_name` vindo do cliente; resolver internamente. Ações (`create`, `start`, `stop`, `logout`, `restart`, `qr`, `status`, `me`) sempre operam em `nocontrole`.
-- `whatsapp-send/index.ts`: outbox força `session = nocontrole`.
-- `whatsapp-webhook/index.ts`:
-  - validar assinatura/secret já existente;
-  - **rejeitar** payloads cujo `session !== "nocontrole"` (log sanitizado, 202 no-op para não gerar retry hostil);
-  - idempotência por `(session, event_id|message_id)`.
-- `whatsapp-ack-watchdog/index.ts`: logs/telemetria incluem `session_name`.
+### 3. Runtime provider (`supabase/functions/_shared/messaging/waha.ts`)
+- Remover `NOCONTROLE_SESSION` como constante canônica; manter apenas `DEFAULT_SESSION_FALLBACK = "default"`.
+- `WAHA_SESSION` inicializado do env com fallback `default`; `loadWahaConfig` sobrescreve com Vault.
+- `buildSessionConfig`: incluir `metadata: { app: "nocontrole", project: "nocontrole", environment: <env> }` no config da sessão, junto ao webhook.
+- Não hardcode `nocontrole` em nenhum caminho de request (send, QR, status, /me).
 
-### 4. Banco
-- Revisar uniques/índices que assumam provider único. Adicionar coluna/valor `session_name` em: `messaging_provider_events` (dedupe key), `messaging_connections` (chave por provider+session), tabelas de outbox/ACK conforme necessário. Migration idempotente com backfill = `'nocontrole'` para linhas existentes deste projeto.
-- RLS mantida; nada muda em `platform_admins`.
+### 4. Edge functions
+- `whatsapp-webhook`: validar `payload.session === getSessionName()` (agora `default`), rejeitar demais. Idempotência já inclui `provider_message_id`; adicionar `session_name` na chave para evitar colisão histórica.
+- `whatsapp-send`, `whatsapp-ack-watchdog`, health: já usam `getSessionName()` — confirmar após remoção do literal.
+- `whatsapp-session`:
+  - Ação `setup`: `createOrUpdateSession(webhookUrl)` idempotente (PUT/POST) com config novo (webhook + metadata NoControle) → se sessão FAILED, `restart`; se persistir FAILED, `logout` + `start` para forçar novo pareamento.
+  - Ação `status`: retornar status real; quando `SCAN_QR_CODE`, buscar QR.
+  - Nunca aceitar `session_name` do body.
 
-### 5. Painel admin `/admin/whatsapp`
-- Exibe apenas o canal "NoControle" (label fixo). Nenhuma listagem/gestão de sessões externas.
-- Status/QR consomem endpoints que já operam em `nocontrole`.
-- Manter correções anteriores: `can_manage_config` + wizard estável.
-- Estrutura interna preparada para múltiplos canais no futuro (array de canais, mesmo que apenas um item hoje).
+### 5. Frontend `WhatsAppSessionPanel.tsx`
+- Botão "Conectar" chama `setup` e navega direto à etapa QR (não apenas refresh).
+- Enquanto status ∈ {`STARTING`,`SCAN_QR_CODE`}, poll a cada 3s e re-fetch QR quando status muda.
+- Não exigir wizard de URL/key se Vault já tem config (`configured=true`).
+- Owner com `can_manage_config=true` mantém acesso.
 
-### 6. Conexão real agora
-- Confirmar segredos no Vault (sem repetir valores).
-- `GET /api/version` + `GET /api/sessions` para validar Manager.
-- Criar/atualizar sessão `nocontrole` (não tocar `default`), aplicar metadata e webhook.
-- Iniciar sessão; se `SCAN_QR_CODE` → expor QR no admin; se `WORKING` → mostrar conectado; sem envio externo.
+### 6. Execução real contra Manager
+Sequência dentro de `whatsapp-session` (executada uma vez no console admin/manual):
+1. `GET /api/sessions/default` → confirma FAILED.
+2. `PUT /api/sessions/default` com config novo (webhook NoControle + metadata + eventos + header secret).
+3. Se PUT retornar não-ok mas sessão existe: `POST /api/sessions/default/logout` → `POST /api/sessions/default/start`.
+4. Poll status: STOPPED→start; STARTING→aguardar; FAILED→restart→(persistir) logout+start; SCAN_QR_CODE→GET QR; WORKING→GET /me.
 
 ### 7. Testes
-- Unit: provider recusa operar sem config; nunca chama endpoint fora de `nocontrole`.
-- Webhook: payload `session="default"` é ignorado; `session="nocontrole"` é processado; assinatura inválida rejeita.
-- Send: força session correta mesmo se cliente enviar outro nome.
-- Watchdog/telemetria: log inclui session.
-- Regressão single-session: fluxos de status/QR continuam funcionando.
-- `bun test`, typecheck e build.
+- Atualizar `admin-waha-validate.test.ts` e `whatsapp-permissions.test.tsx` para o novo default `default`.
+- Novo teste: webhook rejeita `session !== resolved`.
+- Novo teste: provider não contém literal `"nocontrole"` em chamadas HTTP.
+- `bunx vitest run` + `tsgo`.
 
-## Aceite ao final
-Relatar: Vault atualizado (sim/não), Manager validado, sessão `nocontrole` criada/reutilizada sem afetar outras, status real, webhook sincronizado, QR disponível ou WORKING, bloqueios remanescentes. Sem repetir credenciais.
+## Aceite
+Vault `session_name=default`; sessão `default` reconfigurada com webhook + metadata NoControle; status real `SCAN_QR_CODE` ou `WORKING`; QR visível no admin; owner Daniel com acesso; nenhuma credencial repetida.
 
-## Detalhes técnicos
-- Arquivos-alvo: `supabase/functions/_shared/messaging/waha.ts`, `whatsapp-session/index.ts`, `whatsapp-send/index.ts`, `whatsapp-webhook/index.ts`, `whatsapp-ack-watchdog/index.ts`, `src/pages/admin/WhatsAppSessionPanel.tsx`, migration nova para uniques com `session_name`.
-- Constante `NOCONTROLE_SESSION = "nocontrole"` no `_shared`; qualquer divergência do valor no Vault dispara erro de contrato.
-- Metadata enviada em `POST/PUT /api/sessions/nocontrole`: `{ config: { metadata: { app, environment, project } , webhooks: [...] } }`.
+## Ação manual restante
+Escanear o QR no painel `/admin/whatsapp` (única etapa que exige o celular do owner).
