@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Send, Loader2, Check, Ban } from "lucide-react";
+import { X, Send, Loader2, Check, Ban, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { AssessorAttachButton } from "./AssessorAttachButton";
+import { ReviewSheet } from "./ReviewSheet";
 
 type Pending = {
   id: string;
@@ -13,9 +15,17 @@ type Pending = {
   expires_at: string;
 };
 
+type DocDraft = {
+  document_id: string;
+  status: string;
+  items_count?: number;
+  document_kind?: string;
+  error?: string | null;
+};
+
 type Msg =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; pending?: Pending | null };
+  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null };
 
 const SUGGESTIONS = [
   "Como está meu mês?",
