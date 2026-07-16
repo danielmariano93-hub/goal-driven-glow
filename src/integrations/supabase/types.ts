@@ -1976,6 +1976,30 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_reminder_jobs: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          created_at: string
+          id: string
+          idempotency_key: string | null
+          last_error: string | null
+          lease_expires_at: string | null
+          outbound_message_id: string | null
+          owner_user_id: string
+          participant_id: string
+          scheduled_for: string
+          shared_expense_id: string
+          status: Database["public"]["Enums"]["reminder_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "reminder_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       complete_onboarding: {
         Args: {
           p_display_name: string
