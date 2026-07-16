@@ -72,6 +72,7 @@ export default function DivisaoDoRoleNova() {
           phone_e164: p.phone_e164 || null,
           amount_due: p.amount_due ?? null,
         })),
+        p_owner_amount: includeOwner && mode === "custom" ? ownerNum : null,
       });
       if (error) throw error;
       toast.success("Divisão criada");
