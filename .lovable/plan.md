@@ -1,78 +1,142 @@
-# Plano operacional — Configurar secrets, criar admin, validar sem alterar sessão WAHA
 
-Execução imediata após aprovação. Nada aparece em código, migrations, logs ou chat.
+# Refatoração: Platform Admin vs Usuário Financeiro
 
-## 1. Ajuste mínimo de código (mitiga conflito com Sniper AI)
+Objetivo: separar completamente a experiência do founder (administra o negócio NoControle.ia) da experiência do usuário financeiro (administra a própria vida financeira). Preservar tudo já construído em `/app/*`, isolar `/admin/*` como aplicação independente.
 
-Antes de gravar `WAHA_SESSION=default` — que é a mesma sessão do Sniper AI — proteger contra sobrescrita acidental:
+## 1. Modelo de papéis (migration incremental)
 
-- `supabase/functions/_shared/messaging/waha.ts`: passar a ler `NOCONTROLE_WAHA_SESSION ?? WAHA_SESSION ?? "default"`, mantendo compatibilidade.
-- `src/pages/admin/WhatsAppSessionPanel.tsx`: em `Criar/atualizar sessão`, `Iniciar`, `Reiniciar`, `Sincronizar webhook` e `Logout`, exigir `AlertDialog` extra com aviso:
-  > "Esta instância WAHA pode estar em uso por outro projeto (ex.: Sniper AI). Continuar irá alterar a sessão compartilhada."
-  O botão só prossegue com confirmação explícita.
-- `test_health`, `status` e `qr` seguem sem confirmação (não alteram nada no WAHA).
+Nova estrutura, coexistindo temporariamente com `user_roles`:
 
-Nenhuma migração de banco. Nenhum secret em código.
+- Enum `platform_role`: `platform_owner | platform_admin | support | analyst`.
+- Tabela `platform_admins(user_id uuid PK → auth.users, role platform_role, active bool default true, created_at, created_by uuid)`. RLS: apenas `platform_owner/platform_admin` leem; nenhuma escrita direta (só via RPC).
+- Tabela `platform_admin_audit(id, actor_user_id, target_user_id, action, meta jsonb, created_at)`. RLS: leitura por owner/admin.
+- RPCs `SECURITY DEFINER` sem argumento `user_id`:
+  - `is_platform_admin() → bool` (qualquer role ativa).
+  - `current_platform_admin_role() → platform_role | null`.
+  - `grant_platform_admin(_target uuid, _role platform_role)` — só `platform_owner`; audita.
+  - `revoke_platform_admin(_target uuid)` — só `platform_owner`; audita; impede auto-revogação do último owner.
+- Migração de dados: para cada `user_roles.role='admin'` existente, inserir em `platform_admins` com `role='platform_owner'` (idempotente) e registrar audit.
+- Manter `is_current_user_admin()` como wrapper temporário sobre `is_platform_admin()` para compatibilidade das Edge Functions existentes até serem atualizadas nesta rodada.
+- Founder (`daniel.assis@nocontrole.com.br`): garantir `platform_admins.role='platform_owner'` idempotente via migration que resolve o `user_id` por e-mail se já existir em `auth.users`. Não inserir dados financeiros para o founder. Não marcar `onboarding_completed_at` como completo para forçá-lo ao /app.
 
-## 2. Gravar secrets via secret manager
+## 2. Tabelas de finanças da empresa
 
-- `set_secret`: `WAHA_API_URL=https://waha.sincrofy.com.br`, `WAHA_API_KEY=<fornecido>`, `WAHA_SESSION=default`, `BOOTSTRAP_ADMIN_PASSWORD=<fornecido pelo proprietário>`.
-- `generate_secret`: `WAHA_WEBHOOK_SECRET` (48 chars), `CRON_SECRET` (48 chars).
-- `LOVABLE_API_KEY`: verificar via `fetch_secrets`; se ausente, `ai_gateway--create`.
-- `WAHA_BASE_URL`: não gravo; provider já usa `WAHA_API_URL` com fallback legado, sem operação necessária.
-- Valores nunca voltam ao chat.
+Namespaces separados, RLS bloqueando usuário financeiro:
 
-## 3. Criar admin `daniel.assis@nocontrole.com.br`
+- `company_accounts`, `company_categories`, `company_vendors`, `company_transactions`, `company_budgets`.
+- Grants apenas para `authenticated` + `service_role`.
+- RLS: `USING (is_platform_admin() AND current_platform_admin_role() IN ('platform_owner','platform_admin'))`.
+- Trigger `updated_at`.
+- Sem dados fictícios; empty states quando vazio.
 
-- `supabase--curl_edge_functions` `POST /admin-bootstrap` com header `x-bootstrap-secret: $CRON_SECRET`.
-- Função lida com idempotência (não recria se existir), grava `profiles`, `user_financial_settings`, `user_roles(admin,user)`, e audit em `admin_grants_audit`.
-- Verificar com `supabase--read_query`:
-  ```
-  select id, email, email_confirmed_at is not null as confirmed
-  from auth.users where lower(email)='daniel.assis@nocontrole.com.br';
+## 3. Guards e roteamento
 
-  select role from public.user_roles
-  where user_id=(select id from auth.users where lower(email)='daniel.assis@nocontrole.com.br');
-  ```
-- Nenhum hash/token consultado ou logado.
+- `PlatformAdminRoute`: verifica RPC `current_platform_admin_role()`. Se não admin → `/app`. Se anon → `/login?next=`.
+- `ProtectedRoute` (existente): se usuário for platform admin sem role `user` → redireciona `/admin`. Onboarding financeiro só se roles inclui `user` e não completou.
+- `AuthContext`: expor `platformRole` além de `roles`. Não misturar com `isAdmin` financeiro (remover uso de `isAdmin` legado que hoje libera menu admin no `DesktopSidebar`).
+- Login: após auth, decidir destino: `platformRole` presente → `/admin`; senão `/onboarding` ou `next` ou `/app`.
+- Founder NÃO recebe `user_roles.role='user'` automático (ajustar trigger `handle_new_user` para não inserir `user` quando o usuário já for platform admin; ou remover role `user` do founder via migration).
 
-## 4. Higienização pós-bootstrap
+## 4. AdminLayout independente
 
-- `secrets--delete_secret BOOTSTRAP_ADMIN_PASSWORD` imediatamente após sucesso.
-- Definir `BOOTSTRAP_DISABLED=1` via `set_secret` para desativar a função (mantém código, mas retorna 410).
+- `src/components/admin/AdminLayout.tsx`: sidebar desktop e bottom nav mobile próprios. Branding "NoControle.ia Admin — Centro de Comando". Header mostra e-mail + label da role (Platform Owner/Admin/Support/Analyst).
+- Não reutilizar `AppLayout`/`DesktopSidebar`/`BottomTabBar`.
+- Remover botão "Admin" do `DesktopSidebar` financeiro.
 
-## 5. Validar WAHA sem alterar sessão
+## 5. Rotas admin (lazy)
 
-- `curl_edge_functions GET /whatsapp-session` requer JWT admin. No ambiente do agente eu não tenho sessão do admin recém-criado, então **não vou chamar** para não retornar 401 nem forçar workaround inseguro.
-- Reporto ao proprietário: "faça login como Daniel, abra /admin/agente, clique em Testar saúde" — status será mostrado sanitizado no painel.
-- Nenhum `create`/`sync_webhook`/`start`/`logout` será executado.
+Todas envoltas em `<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>` como layout com `Outlet`:
 
-## 6. Crons
+```
+/admin                     VisaoGeral (dashboard executivo)
+/admin/usuarios            Usuarios
+/admin/engajamento         Engajamento
+/admin/financeiro          Financeiro da empresa
+/admin/financeiro/lancamentos
+/admin/agente              Agente (prompts, config, runs)
+/admin/agente/simulador    Simulador
+/admin/whatsapp            WhatsApp/WAHA (mover WhatsAppSessionPanel)
+/admin/operacao            Jobs, crons, outbox, dead letters
+/admin/produto             Desafios, categorias globais, feature flags
+/admin/seguranca           Admins, auditoria, exclusões
+/admin/configuracoes       Configurações
+```
 
-- Com `CRON_SECRET` configurado, o painel "Operação — Crons" mostrará `configured`.
-- Não vou registrar o valor em SQL/pg_cron (evitar exposição em `pg_cron.job`).
-- Scheduler nativo do Lovable Cloud/Supabase para chamadas HTTPS agendadas não está exposto por tool disponível — reporto como ação manual (curl-driven ou pg_cron gerido pelo proprietário com secret via `vault`).
+Todas com empty states honestos; sem placeholders inertes.
 
-## 7. Conflito de sessão WAHA compartilhada — atenção
+## 6. Matriz de permissões
 
-- A instância `https://waha.sincrofy.com.br` provavelmente está com a sessão `default` já autenticada pelo número do Sniper AI.
-- **Não** vou criar/iniciar/logout no NoControle. O painel agora exibe aviso e confirmação forte antes de qualquer ação destrutiva.
-- Se o proprietário quiser usar um número separado para o NoControle, precisará: (a) subir outra instância WAHA (Core aceita 1 sessão), ou (b) usar WAHA Plus com múltiplas sessões e definir `NOCONTROLE_WAHA_SESSION` distinta, ou (c) migrar o Sniper para outra instância. Reporto isso como decisão pendente do proprietário.
+Módulo `src/lib/admin/permissions.ts` + espelho em `_shared/admin/permissions.ts` para Edge Functions:
 
-## 8. Relatório final (formato)
+| Área | owner | admin | support | analyst |
+|---|---|---|---|---|
+| Visão Geral | ✓ | ✓ | ✓ | ✓ (read) |
+| Usuários (ler) | ✓ | ✓ | ✓ | ✓ |
+| Usuários (suspender/reset) | ✓ | ✓ | ✓ | ✗ |
+| Financeiro empresa | ✓ | ✓ | ✗ | ✗ |
+| Agente config | ✓ | ✓ | ✗ | ✗ (read) |
+| WhatsApp ações críticas | ✓ | ✓ | ✗ | ✗ |
+| Operação (retry/kill) | ✓ | ✓ | ✗ | ✗ |
+| Produto flags | ✓ | ✓ | ✗ | ✗ |
+| Segurança (grant/revoke) | ✓ | ✗ | ✗ | ✗ |
+| Segurança (audit read) | ✓ | ✓ | ✗ | ✗ |
+| Configurações críticas | ✓ | ✗ | ✗ | ✗ |
 
-Somente:
-- `admin_criado: sim|nao`, `role_admin_ativa: sim|nao`;
-- `secrets_configurados`: lista de nomes (sem valores);
-- `bootstrap_password_removido: sim`;
-- `bootstrap_disabled: sim`;
-- `health_waha`: "não verificado nesta rodada — sessão compartilhada com Sniper AI; validar via /admin/agente após login";
-- `conflito_sessao`: descrição curta;
-- `acao_manual_restante`: schedulers dos crons + confirmação humana antes de tocar na sessão.
+Edge Functions revalidam role via RPC no servidor (`current_platform_admin_role()` executado com JWT do chamador).
 
-## Critérios de aceite
+## 7. Migração de páginas existentes
 
-- daniel.assis@nocontrole.com.br presente em `auth.users` com `email_confirmed_at`, role `admin` em `user_roles`.
-- `WAHA_API_URL`, `WAHA_API_KEY`, `WAHA_SESSION`, `WAHA_WEBHOOK_SECRET`, `CRON_SECRET`, `LOVABLE_API_KEY`, `BOOTSTRAP_DISABLED` = configured; `BOOTSTRAP_ADMIN_PASSWORD` = removido.
-- Nenhum valor de secret aparece no diff, bundle, chat ou log.
-- Sessão WAHA `default` intacta (nenhuma chamada a create/start/sync/logout).
+- Mover `src/pages/AdminDashboard.tsx` → `src/pages/admin/VisaoGeral.tsx` (adaptar).
+- Mover `src/pages/admin/Agente.tsx` remove o `WhatsAppSessionPanel` embutido; painel WAHA passa a viver em `src/pages/admin/WhatsApp.tsx`.
+- Novas páginas: `Usuarios.tsx`, `Engajamento.tsx`, `Financeiro.tsx`, `Operacao.tsx`, `Produto.tsx`, `Seguranca.tsx`, `Configuracoes.tsx`.
+- RPCs de suporte (novas, `SECURITY DEFINER`, gated por `is_platform_admin`):
+  - `admin_users_list(p_search text, p_limit int, p_offset int)` — retorna id, email, created_at, onboarding_completed_at, last_sign_in_at, whatsapp_linked bool. Sem descrições/valores.
+  - `admin_engagement_stats()` — DAU/WAU/MAU, ativação, retenção coorte simples.
+  - `admin_agent_stats()` — runs, sucesso, tokens, custo agregado.
+  - `admin_ops_health()` — outbox pendentes, dead letters, reminder jobs, imports recentes.
+  - `admin_list_platform_admins()` — owner/admin only.
+- Dashboard executivo estende `admin_dashboard_stats` existente com engajamento agregado; nunca expõe valores pessoais.
+
+## 8. Founder bootstrap
+
+- Migration idempotente: se `auth.users` contém `daniel.assis@nocontrole.com.br`, inserir/atualizar em `platform_admins` como `platform_owner active=true` e remover `user_roles.role='user'`. Se não existir ainda, a estrutura fica pronta e `admin-bootstrap` (já existente) passa a também gravar em `platform_admins` além de `user_roles`.
+- Ajustar `handle_new_user` para NÃO inserir `user_roles.role='user'` se o e-mail estiver em uma allowlist controlada por `platform_admins` (via check pós-insert), ou mais simples: `admin-bootstrap` remove a role `user` após criação.
+
+## 9. Testes
+
+- Unit: matriz de permissões (`can(role, action)`).
+- Integration (mock supabase): guards `PlatformAdminRoute` / `ProtectedRoute` para os 4 papéis + anon.
+- RLS smoke (SQL): usuário financeiro não lê `company_*`; support não escreve `platform_admins`; owner concede/revoga; analyst não altera.
+- Existing 68 testes continuam passando.
+
+## 10. Fora de escopo
+
+- Não redesenhar `/app/*`.
+- Não criar billing/MRR real (mostrar "não configurado").
+- Não implementar "impersonate user".
+- Sem publicação.
+
+## Detalhes técnicos
+
+**Arquivos novos**
+- `supabase/migrations/<ts>_platform_admin_model.sql`
+- `supabase/migrations/<ts>_company_finance.sql`
+- `src/components/auth/PlatformAdminRoute.tsx`
+- `src/components/admin/AdminLayout.tsx`, `AdminSidebar.tsx`, `AdminBottomNav.tsx`
+- `src/pages/admin/{VisaoGeral,Usuarios,Engajamento,Financeiro,WhatsApp,Operacao,Produto,Seguranca,Configuracoes}.tsx`
+- `src/lib/admin/permissions.ts`
+- `supabase/functions/_shared/admin/guard.ts` (helper que valida role no servidor)
+
+**Arquivos editados**
+- `src/App.tsx` — novas rotas `/admin/*` como layout aninhado.
+- `src/context/AuthContext.tsx` — expor `platformRole`, remover `isAdmin` legado (ou reapontar).
+- `src/components/auth/ProtectedRoute.tsx` — redireciona platform admin para `/admin`.
+- `src/pages/Login.tsx` — decisão de destino pós-login.
+- `src/components/DesktopSidebar.tsx` — remover atalho Admin.
+- `src/pages/AdminDashboard.tsx` → renomear para `pages/admin/VisaoGeral.tsx`.
+- `src/pages/admin/Agente.tsx` — separar WhatsApp panel.
+- Edge Functions admin-* — usar novo guard baseado em `is_platform_admin`.
+
+**Migrations** (2 incrementais, sem alterar antigas): platform_admin_model e company_finance.
+
+Após aprovação, executo tudo nesta rodada, rodo testes, typecheck e reporto: migrations aplicadas, rotas, matriz de permissões, resultado dos testes e status real do founder (se `auth.users` já contém o e-mail).
