@@ -68,7 +68,7 @@ export default function Usuarios() {
         </div>
 
       ) : (
-        <div className="surface-card overflow-hidden">
+        <div className="surface-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-secondary/50 text-xs text-muted-foreground">
               <tr>

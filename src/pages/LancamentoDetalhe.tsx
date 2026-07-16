@@ -304,16 +304,17 @@ export default function LancamentoDetalhe() {
           </div>
         )}
 
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-2">
           {!isTransfer && (
-            <button onClick={save} disabled={saving} className="btn-brand inline-flex items-center gap-1.5 disabled:opacity-50">
+            <button onClick={save} disabled={saving} className="btn-brand inline-flex items-center justify-center gap-1.5 disabled:opacity-50 w-full sm:w-auto">
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save size={14} />} Salvar
             </button>
           )}
-          <button onClick={del} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive hover:bg-destructive/20 disabled:opacity-50">
+          <button onClick={del} disabled={saving} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive hover:bg-destructive/20 disabled:opacity-50 w-full sm:w-auto">
             <Trash2 size={14} /> Excluir
           </button>
         </div>
+
       </section>
     </div>
   );

@@ -95,7 +95,7 @@ export default function Seguranca() {
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Shield size={14} className="text-primary" /> Administradores</h2>
         {q.isLoading ? <Spinner /> : !q.data?.length ? <Empty msg="Nenhum admin cadastrado." /> : (
-          <div className="surface-card overflow-hidden">
+          <div className="surface-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-secondary/50 text-xs text-muted-foreground">
                 <tr>
@@ -135,7 +135,7 @@ export default function Seguranca() {
       <section>
         <h2 className="mb-3 text-sm font-semibold">Auditoria (últimas 50 ações)</h2>
         {audit.isLoading ? <Spinner /> : !audit.data?.length ? <Empty msg="Sem eventos de auditoria." /> : (
-          <div className="surface-card overflow-hidden">
+          <div className="surface-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-secondary/50 text-xs text-muted-foreground">
                 <tr><th className="px-4 py-3 text-left">Data</th><th className="px-4 py-3 text-left">Ação</th><th className="px-4 py-3 text-left">Detalhes</th></tr>

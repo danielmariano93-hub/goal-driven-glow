@@ -49,7 +49,7 @@ export default function Produto() {
       <Section title="Categorias globais" icon={Tag}>
         {categories.isLoading ? <Spinner /> :
           !categories.data || categories.data.length === 0 ? <Empty msg="Nenhuma categoria global." /> : (
-          <div className="surface-card overflow-hidden">
+          <div className="surface-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-secondary/50 text-xs text-muted-foreground">
                 <tr><th className="px-4 py-3 text-left">Nome</th><th className="px-4 py-3 text-left">Tipo</th><th className="px-4 py-3 text-left">Slug</th></tr>
