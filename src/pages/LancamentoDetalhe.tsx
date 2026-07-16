@@ -55,18 +55,22 @@ export default function LancamentoDetalhe() {
 
   useEffect(() => {
     if (!id || !user) return;
-    setLoading(true);
-    supabase.from("transactions").select("*").eq("id", id).eq("user_id", user.id).maybeSingle()
-      .then(({ data, error }) => {
-        if (error || !data) { toast.error("Lançamento não encontrado"); nav("/app/lancamentos"); return; }
-        const t = data as unknown as Tx;
-        setTx(t);
-        setDescription(t.description ?? "");
-        setCategoryId(t.category_id ?? "");
-        setAmount(String(t.amount));
-        setOccurredAt(t.occurred_at);
-        setNotes(t.notes ?? "");
-      }).finally(() => setLoading(false));
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase.from("transactions").select("*").eq("id", id).eq("user_id", user.id).maybeSingle();
+      if (cancelled) return;
+      if (error || !data) { toast.error("Lançamento não encontrado"); nav("/app/lancamentos"); setLoading(false); return; }
+      const t = data as unknown as Tx;
+      setTx(t);
+      setDescription(t.description ?? "");
+      setCategoryId(t.category_id ?? "");
+      setAmount(String(t.amount));
+      setOccurredAt(t.occurred_at);
+      setNotes(t.notes ?? "");
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [id, user, nav]);
 
   useEffect(() => {
