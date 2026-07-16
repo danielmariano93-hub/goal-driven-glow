@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export default function Lancamentos() {
+  const nav = useNavigate();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const [filters, setFilters] = useState<TxFilters>({ type: "all" });
