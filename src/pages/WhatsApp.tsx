@@ -5,9 +5,31 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-// The single official WhatsApp number of the platform. This is a placeholder until the WAHA
-// credentials are provisioned; the UI shows "número oficial em configuração" when unset.
-const OFFICIAL_NUMBER = (import.meta.env.VITE_WHATSAPP_OFFICIAL_NUMBER as string | undefined) ?? "";
+import { normalizeBrPhone } from "@/lib/phone";
+
+// The single official WhatsApp number of the platform. Resolved from the connected
+// WAHA session via the `whatsapp-official-number` edge function, with a persistent
+// sanitized fallback and a build-time env fallback.
+const OFFICIAL_NUMBER_ENV = (import.meta.env.VITE_WHATSAPP_OFFICIAL_NUMBER as string | undefined) ?? "";
+
+async function resolveOfficialNumber(): Promise<string | null> {
+  try {
+    const { data } = await supabase.functions.invoke<{ available: boolean; official_number: string | null }>(
+      "whatsapp-official-number", { method: "GET" as any });
+    if (data?.available && data.official_number) {
+      const n = normalizeBrPhone(data.official_number);
+      if (n) return n;
+    }
+  } catch { /* fallthrough */ }
+  try {
+    const { data } = await supabase.from("platform_public_config")
+      .select("value").eq("key", "official_whatsapp_number").maybeSingle();
+    const raw = (data as { value?: string } | null)?.value;
+    const n = raw ? normalizeBrPhone(raw) : null;
+    if (n) return n;
+  } catch { /* fallthrough */ }
+  return OFFICIAL_NUMBER_ENV ? normalizeBrPhone(OFFICIAL_NUMBER_ENV) : null;
+}
 
 type LinkRow = {
   id: string;
