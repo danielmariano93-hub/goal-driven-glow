@@ -154,10 +154,13 @@ Deno.serve(async (req) => {
           provider: "waha", ok: h.ok, latency_ms: h.latency_ms, error_masked: h.error ?? null,
         }).then(() => {}, () => {});
         return json({
-          ok: true, deep_ok: deepOk, health: h, session: s,
-          me: me.phone ? { phone_masked: maskPhone(me.phone) } : null,
+          ok: true, deep_ok: deepOk,
+          status: mapStatus(s?.status, h?.ok ?? null),
+          latency_ms: h?.latency_ms ?? null,
+          phone_masked: me?.phone ? maskPhone(me.phone) : null,
         });
       }
+
       case "send_test": {
         if (!body.consent) return json({ ok: false, error: "consent_required" }, 400);
         const to = normalizeBrPhone(String(body.to ?? ""));
