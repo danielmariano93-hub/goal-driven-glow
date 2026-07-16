@@ -217,6 +217,53 @@ Deno.serve(async (req) => {
           return json({ ok: false, error_code: "provider_error" }, 502, extraHeaders);
         }
       }
+      case "prepare_pairing": {
+        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!(await rateOk(gate.sb, "waha_prepare"))) {
+          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+        }
+        const p = await provider.preparePairing(webhookUrl());
+        const snap = await buildPublicStatus();
+        return json({ ok: p.ok, ...snap, correlation_id: correlationId }, 200, extraHeaders);
+      }
+      case "begin_qr": {
+        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!(await rateOk(gate.sb, "waha_qr"))) {
+          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+        }
+        const p = await provider.preparePairing(webhookUrl());
+        if (!p.ok) return json({ ok: false, error_code: "prepare_failed" }, 502, extraHeaders);
+        // wait a beat if not yet scan_qr
+        let raw = p.status;
+        const start = Date.now();
+        while (raw !== "SCAN_QR_CODE" && raw !== "WORKING" && Date.now() - start < 8_000) {
+          await new Promise((r) => setTimeout(r, 700));
+          const s = await provider.getSessionStatus();
+          raw = (s.status ?? "").toUpperCase();
+        }
+        if (raw === "WORKING") return json({ ok: true, connected: true }, 200, extraHeaders);
+        if (raw !== "SCAN_QR_CODE") return json({ ok: false, error_code: "qr_not_ready" }, 202, extraHeaders);
+        const q = await provider.getQr();
+        if (!q.ok || !q.base64) return json({ ok: false, error_code: "qr_unavailable" }, 502, extraHeaders);
+        const expires_at = new Date(Date.now() + 60_000).toISOString();
+        return json({ ok: true, qr: q.base64, mime_type: q.mimeType ?? "image/png", expires_at }, 200, extraHeaders);
+      }
+      case "request_pairing_code": {
+        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (gate.role !== "platform_owner" && gate.role !== "platform_admin") {
+          return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+        }
+        if (!(await rateOk(gate.sb, "waha_pairing_code"))) {
+          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+        }
+        const phoneE164 = normalizeBrPhone(String(body.to ?? ""));
+        if (!phoneE164) return json({ ok: false, error_code: "invalid_phone" }, 400, extraHeaders);
+        const digits = phoneE164.replace(/^\+/, "");
+        await provider.preparePairing(webhookUrl());
+        const r = await provider.requestPairingCode(digits);
+        if (!r.ok) return json({ ok: false, error_code: r.error_code ?? "provider_error" }, 200, extraHeaders);
+        return json({ ok: true, pairing_code: r.code, expires_at: r.expires_at ?? new Date(Date.now() + 60_000).toISOString() }, 200, extraHeaders);
+      }
       default:
         return json({ ok: false, error_code: "unknown_action" }, 400, extraHeaders);
     }

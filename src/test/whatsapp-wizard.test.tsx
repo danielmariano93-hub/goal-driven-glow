@@ -23,13 +23,15 @@ function reply(action: string, body: Body): unknown {
   if (action === "save_config") return { ok: true, configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString() };
   if (action === "setup_session") return { ok: true, status: "awaiting_qr" };
   if (action === "qr") return { ok: true, base64: "AAA", mimeType: "image/png" };
+  if (action === "begin_qr") return { ok: true, qr: "AAA", mime_type: "image/png", expires_at: new Date(Date.now() + 60000).toISOString() };
+  if (action === "request_pairing_code") return { ok: true, pairing_code: "ABCD-1234", expires_at: new Date(Date.now() + 60000).toISOString() };
   return { ok: true };
   void body;
 }
 
 let pending: Array<() => void> = [];
 
-function installMock(options: { failStatus?: boolean; hangStatus?: boolean } = {}) {
+function installMock(options: { failStatus?: boolean; hangStatus?: boolean; configured?: boolean; sessionStatus?: string; codeError?: string } = {}) {
   invokeMock.mockImplementation(async (_fn: string, opts: { body: { action: string } & Record<string, unknown> }) => {
     const action = opts.body.action;
     if (action === "config_status" && options.hangStatus) {
@@ -38,9 +40,20 @@ function installMock(options: { failStatus?: boolean; hangStatus?: boolean } = {
     if (action === "config_status" && options.failStatus) {
       return { data: null, error: { message: "boom" } };
     }
+    if (action === "config_status" && options.configured) {
+      return { data: { configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString(), admin_role: "platform_owner", can_manage_config: true }, error: null };
+    }
+    if (action === "status" && options.configured) {
+      const st = options.sessionStatus ?? "needs_attention";
+      return { data: { status: st, capabilities: { can_connect: true, can_send: st === "connected", needs_session: st !== "connected", temporarily_unavailable: false }, phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null }, error: null };
+    }
+    if (action === "request_pairing_code" && options.codeError) {
+      return { data: { ok: false, error_code: options.codeError }, error: null };
+    }
     return { data: reply(action, opts.body as Body), error: null };
   });
 }
+
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -120,5 +133,47 @@ describe("WhatsAppSetupWizard — fluxo e segurança", () => {
     const raw = sessionStorage.getItem("nc:wa-wizard") ?? "";
     expect(raw).not.toMatch(/supersecretkey/);
     expect(raw).not.toMatch(/api[_-]?key/i);
+  });
+});
+
+describe("WhatsAppSessionPanel — Conectar aparelho (QR + código)", () => {
+  it("com status FAILED (needs_attention) mostra card 'Conectar aparelho' com abas", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
+  });
+
+  it("aba QR auto-carrega e renderiza imagem base64", async () => {
+    installMock({ configured: true, sessionStatus: "awaiting_qr" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    const img = await screen.findByAltText(/QR de conexão/i) as HTMLImageElement;
+    expect(img.src).toContain("data:image/png;base64,AAA");
+  });
+
+  it("aba Código pelo telefone gera pairing code e mostra bloco copiável", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    fireEvent.click(screen.getByRole("tab", { name: /Código pelo telefone/i }));
+    const phone = screen.getByPlaceholderText("+55 11 99999-9999") as HTMLInputElement;
+    fireEvent.change(phone, { target: { value: "+5511912345678" } });
+    fireEvent.click(screen.getByRole("button", { name: /Gerar código/i }));
+    await waitFor(() => expect(screen.getByText(/ABCD-1234/)).toBeInTheDocument());
+  });
+
+  it("erro method_unsupported no código mostra fallback QR sem quebrar", async () => {
+    installMock({ configured: true, sessionStatus: "needs_attention", codeError: "method_unsupported" });
+    render(<WhatsAppSessionPanel />);
+    await screen.findByText(/Conectar aparelho/i);
+    fireEvent.click(screen.getByRole("tab", { name: /Código pelo telefone/i }));
+    const phone = screen.getByPlaceholderText("+55 11 99999-9999") as HTMLInputElement;
+    fireEvent.change(phone, { target: { value: "+5511912345678" } });
+    fireEvent.click(screen.getByRole("button", { name: /Gerar código/i }));
+    await waitFor(() => expect(screen.getByText(/não suporta o código por telefone/i)).toBeInTheDocument());
+    // aba QR continua acessível
+    expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
   });
 });
