@@ -119,6 +119,13 @@ export default function DivisaoDoRoleNova() {
               <input type="checkbox" checked={includeOwner} onChange={e => setIncludeOwner(e.target.checked)} />
               Incluir você na divisão
             </label>
+            {includeOwner && mode === "custom" && (
+              <div className="pt-2">
+                <label className="block text-xs font-medium">Sua parte (R$)</label>
+                <input inputMode="decimal" value={ownerAmount} onChange={e => setOwnerAmount(e.target.value)}
+                  placeholder="0,00" className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+              </div>
+            )}
           </div>
 
           <div className="surface-card p-4 space-y-2">
