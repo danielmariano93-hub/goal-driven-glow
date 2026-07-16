@@ -58,7 +58,7 @@ describe("edição de lançamento — composição de patch", () => {
 
   it("só descrição/valor/nota compõem patch sem tocar em método", () => {
     const patch = buildPatch(base, {
-      ...base, paymentMethod: "account", accountId: "acc-1", cardId: "",
+      paymentMethod: "account", accountId: "acc-1", cardId: "",
       description: "Mercado do bairro", categoryId: "", amount: "120", occurredAt: "2026-07-01", notes: "compra semanal",
     });
     expect(patch).toEqual({ description: "Mercado do bairro", amount: 120, notes: "compra semanal" });
@@ -66,7 +66,7 @@ describe("edição de lançamento — composição de patch", () => {
 
   it("troca de conta preserva payment_method e não envia credit_card_id", () => {
     const patch = buildPatch(base, {
-      ...base, paymentMethod: "account", accountId: "acc-2", cardId: "",
+      paymentMethod: "account", accountId: "acc-2", cardId: "",
       description: base.description ?? "", categoryId: "", amount: String(base.amount), occurredAt: base.occurred_at, notes: base.notes ?? "",
     });
     expect(patch).toEqual({ account_id: "acc-2" });
@@ -76,7 +76,7 @@ describe("edição de lançamento — composição de patch", () => {
 
   it("mudar de conta para cartão envia payment_method + credit_card_id e limpa account_id", () => {
     const patch = buildPatch(base, {
-      ...base, paymentMethod: "credit_card", accountId: "", cardId: "card-9",
+      paymentMethod: "credit_card", accountId: "", cardId: "card-9",
       description: base.description ?? "", categoryId: "", amount: String(base.amount), occurredAt: base.occurred_at, notes: base.notes ?? "",
     });
     expect(patch).toMatchObject({ payment_method: "credit_card", credit_card_id: "card-9", account_id: null });
@@ -85,7 +85,7 @@ describe("edição de lançamento — composição de patch", () => {
   it("mudar de cartão para conta envia payment_method + account_id e limpa credit_card_id", () => {
     const card: Tx = { ...base, payment_method: "credit_card", account_id: null, credit_card_id: "card-1" };
     const patch = buildPatch(card, {
-      ...card, paymentMethod: "account", accountId: "acc-3", cardId: "card-1",
+      paymentMethod: "account", accountId: "acc-3", cardId: "card-1",
       description: card.description ?? "", categoryId: "", amount: String(card.amount), occurredAt: card.occurred_at, notes: card.notes ?? "",
     });
     expect(patch).toMatchObject({ payment_method: "account", account_id: "acc-3", credit_card_id: null });
@@ -94,7 +94,7 @@ describe("edição de lançamento — composição de patch", () => {
   it("categoria vazia vira null (limpar)", () => {
     const withCat: Tx = { ...base, category_id: "cat-1" };
     const patch = buildPatch(withCat, {
-      ...withCat, paymentMethod: "account", accountId: "acc-1", cardId: "",
+      paymentMethod: "account", accountId: "acc-1", cardId: "",
       description: withCat.description ?? "", categoryId: "", amount: String(withCat.amount), occurredAt: withCat.occurred_at, notes: withCat.notes ?? "",
     });
     expect(patch).toEqual({ category_id: null });
