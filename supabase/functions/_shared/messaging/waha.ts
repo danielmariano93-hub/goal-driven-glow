@@ -3,13 +3,14 @@ import { normalizeBrPhone } from "./types.ts";
 
 // Runtime WAHA config. Initialized from env vars (retrocompat) and can be
 // hydrated at request time from the Supabase Vault via `loadWahaConfig`.
-// Canonical session name for the NoControle channel. The Manager may host
-// other unrelated sessions (e.g. `default`, `sniper`); we never touch them.
-export const NOCONTROLE_SESSION = "nocontrole";
+// Session isolation for this project is enforced by the resolved
+// `session_name` from Vault + a project-scoped webhook URL + session metadata,
+// NOT by a hardcoded session literal. Fallback is the WAHA CORE-safe `default`.
+export const DEFAULT_SESSION_FALLBACK = "default";
 let WAHA_API_URL =
   Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL") ?? "";
 let WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
-let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? NOCONTROLE_SESSION;
+let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? DEFAULT_SESSION_FALLBACK;
 let WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
 
 export function getSessionName(): string { return WAHA_SESSION; }
