@@ -194,7 +194,7 @@ export default function Lancamentos() {
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-medium">{t.description || (isTransfer ? "Transferência" : catName(t.category_id))}</p>
                               <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                                {accName(t.account_id)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
+                                {accName(t)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
                                 {t.status === "planned" ? " · Planejado" : ""}
                               </p>
                             </div>
