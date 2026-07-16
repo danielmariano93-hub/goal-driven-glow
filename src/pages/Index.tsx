@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Loader2, ArrowUpRight, ArrowDownRight, Info } from "lucide-react";
 import { useAccounts, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
-import { computeNetWorth, computeMonthlyIncomeExpense, formatBRL } from "@/lib/engine/facts";
+import { computeNetWorth, computeMonthlyIncomeExpense, currentMonthYM, formatBRL } from "@/lib/engine/facts";
 import { useAuth } from "@/context/AuthContext";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
@@ -28,7 +28,7 @@ export default function Index() {
     (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status }))
   );
 
-  const monthly = computeMonthlyIncomeExpense(tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never, undefined as never);
+  const monthly = computeMonthlyIncomeExpense(tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never, currentMonthYM());
 
   const hasAccount = acc.length > 0;
   const hasTransaction = tx.length > 0;
