@@ -366,7 +366,7 @@ export function WhatsAppSessionPanel() {
   const notConfigured = !config?.configured;
   const canSend = snap?.capabilities?.can_send === true;
   const needsSession = snap?.capabilities?.needs_session === true;
-  const isOwner = config?.role === "platform_owner";
+  const canManageConfig = config?.can_manage_config === true;
 
   if (notConfigured) {
     return (
