@@ -23,6 +23,8 @@ function reply(action: string, body: Body): unknown {
   if (action === "save_config") return { ok: true, configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString() };
   if (action === "setup_session") return { ok: true, status: "awaiting_qr" };
   if (action === "qr") return { ok: true, base64: "AAA", mimeType: "image/png" };
+  if (action === "begin_qr") return { ok: true, qr: "AAA", mime_type: "image/png", expires_at: new Date(Date.now() + 60000).toISOString() };
+  if (action === "request_pairing_code") return { ok: true, pairing_code: "ABCD-1234", expires_at: new Date(Date.now() + 60000).toISOString() };
   return { ok: true };
   void body;
 }
