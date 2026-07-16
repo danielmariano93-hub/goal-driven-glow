@@ -40,11 +40,28 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [reviewDocId, setReviewDocId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
   });
   const endRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
+
+  function onExtracted(info: DocDraft) {
+    let content = "";
+    if (info.status === "needs_review" && (info.items_count ?? 0) > 0) {
+      content = `Encontrei ${info.items_count} lançamento(s) nessa imagem. Toque em "Revisar" para conferir antes de registrar.`;
+    } else if (info.document_kind === "illegible") {
+      content = "Não consegui ler bem essa imagem. Pode enviar outra mais nítida?";
+    } else if (info.document_kind === "non_financial") {
+      content = "Essa imagem não parece ser um documento financeiro. Tenta uma foto de recibo, fatura ou lista de compras.";
+    } else if (info.status === "failed") {
+      content = `Tive um problema ao processar a imagem${info.error ? ` (${info.error})` : ""}. Pode tentar de novo?`;
+    } else {
+      content = "Não achei nenhum lançamento nessa imagem.";
+    }
+    setMessages((m) => [...m, { role: "assistant", content, doc: info }]);
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
