@@ -128,5 +128,12 @@ Deno.serve(async (req) => {
     ids: jobs.map((j) => ({ id: j.id, phone: maskPhone(null) })),
   }));
 
+  await writeJobHeartbeat({
+    jobKey: "split-reminders-dispatch",
+    ok: failed === 0,
+    processed: enqueued,
+    failed,
+  });
   return json({ claimed: jobs.length, enqueued, skipped, failed });
 });
+

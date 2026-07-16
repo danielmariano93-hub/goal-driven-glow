@@ -39,5 +39,13 @@ Deno.serve(async (req) => {
       results.push({ id: m.id as string, action: "requeued" });
     }
   }
+  await writeJobHeartbeat({
+    jobKey: "whatsapp-ack-watchdog",
+    ok: true,
+    processed: recoveredCount + (stuck ?? []).length,
+    failed: 0,
+    sb: supabase,
+  });
   return json({ recovered: recoveredCount, checked: (stuck ?? []).length, results });
 });
+
