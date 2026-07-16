@@ -345,16 +345,25 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: run_before_spending,
   },
   {
+    name: "list_credit_cards",
+    description: "Lista os cartões de crédito ativos do usuário.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_credit_cards,
+  },
+  {
     name: "create_transaction_draft",
-    description: "Cria uma proposta de lançamento (receita ou despesa) aguardando CONFIRMAR do usuário.",
+    description: "Cria uma proposta de lançamento (receita ou despesa) aguardando CONFIRMAR. Use 'account' para conta comum OU 'credit_card' para despesa em cartão. Não misture os dois.",
     parameters: {
       type: "object",
       properties: {
         type: { type: "string", enum: ["income", "expense"] },
-        amount: num, account: requiredStr,
+        amount: num,
+        account: optionalStr,
+        credit_card: optionalStr,
+        installments_total: { type: "integer" },
         category: optionalStr, occurred_at: optionalStr, description: optionalStr,
       },
-      required: ["type", "amount", "account"], additionalProperties: false,
+      required: ["type", "amount"], additionalProperties: false,
     },
     execute: create_transaction_draft,
   },
