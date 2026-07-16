@@ -224,6 +224,16 @@ export default function LancamentoDetalhe() {
         </div>
 
         {!isTransfer && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Categoria</label>
+            <select id="field-category" className="input-base w-full" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+              <option value="">Sem categoria</option>
+              {catsForType.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        {!isTransfer && (
           <div className="rounded-lg border border-border p-3 space-y-3">
             <div>
               <p className="text-xs font-semibold mb-2">Forma de pagamento</p>
