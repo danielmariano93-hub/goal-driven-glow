@@ -38,8 +38,8 @@ export default function Planejamento() {
   return (
     <div>
       <header className="mb-6">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Antes de gastar</h1>
-        <p className="text-sm text-muted-foreground">Cálculo factual do impacto. Sem aprovação ou score.</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight">Antes de comprar</h1>
+        <p className="text-sm text-muted-foreground">Veja como essa compra pode mexer com o seu mês.</p>
       </header>
 
       <div className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
