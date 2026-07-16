@@ -60,8 +60,7 @@ export function AssistantTipCard() {
 
   const sendFeedback = async (value: "useful" | "not_useful") => {
     if (!data) return;
-    await supabase
-      .from("user_insights" as never)
+    await (supabase.from("user_insights" as never) as any)
       .update({ feedback: value })
       .eq("id", data.id);
     toast.success(copy.tip.thanks);
