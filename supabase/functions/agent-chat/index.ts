@@ -11,7 +11,8 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { runAgentTurn, isLLMConfigured, sanitizeError } from "../_shared/agent/llm.ts";
 import { loadActivePrompt } from "../_shared/agent/prompt.ts";
-import { interpret } from "../_shared/agent/parser.ts";
+import { interpret, parseBrAmount } from "../_shared/agent/parser.ts";
+import { create_transaction_draft, resolveCreditCardFull } from "../_shared/agent/tools.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
