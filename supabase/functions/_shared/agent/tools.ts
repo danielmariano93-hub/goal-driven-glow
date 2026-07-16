@@ -8,6 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { computeBeforeSpending } from "../engine/facts.ts";
+import { resolveEntity, type Candidate } from "./resolvers.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
