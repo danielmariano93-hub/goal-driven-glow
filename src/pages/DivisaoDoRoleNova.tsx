@@ -22,11 +22,13 @@ export default function DivisaoDoRoleNova() {
   const [dueDate, setDueDate] = useState("");
   const [mode, setMode] = useState<"equal" | "custom">("equal");
   const [includeOwner, setIncludeOwner] = useState(true);
+  const [ownerAmount, setOwnerAmount] = useState<string>("");
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [pixKey, setPixKey] = useState("");
   const [participants, setParticipants] = useState<Participant[]>([{ name: "", phone_e164: "" }]);
 
   const totalNum = Number(total.replace(",", "."));
+  const ownerNum = Number(String(ownerAmount).replace(",", "."));
   const preview = mode === "equal" && totalNum > 0
     ? splitEqual(totalNum, [
         ...(includeOwner ? [{ name: "Você", is_owner: true }] : []),
@@ -36,7 +38,7 @@ export default function DivisaoDoRoleNova() {
 
   const customSum = mode === "custom"
     ? validateCustomSplit(totalNum, [
-        ...(includeOwner ? [Number(participants[0]?.amount_due ?? 0)] : []),
+        ...(includeOwner ? [ownerNum || 0] : []),
         ...participants.map(p => Number(p.amount_due ?? 0)),
       ])
     : { ok: true, sum: 0 };
@@ -70,6 +72,7 @@ export default function DivisaoDoRoleNova() {
           phone_e164: p.phone_e164 || null,
           amount_due: p.amount_due ?? null,
         })),
+        p_owner_amount: includeOwner && mode === "custom" ? ownerNum : null,
       });
       if (error) throw error;
       toast.success("Divisão criada");
@@ -116,6 +119,13 @@ export default function DivisaoDoRoleNova() {
               <input type="checkbox" checked={includeOwner} onChange={e => setIncludeOwner(e.target.checked)} />
               Incluir você na divisão
             </label>
+            {includeOwner && mode === "custom" && (
+              <div className="pt-2">
+                <label className="block text-xs font-medium">Sua parte (R$)</label>
+                <input inputMode="decimal" value={ownerAmount} onChange={e => setOwnerAmount(e.target.value)}
+                  placeholder="0,00" className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+              </div>
+            )}
           </div>
 
           <div className="surface-card p-4 space-y-2">
