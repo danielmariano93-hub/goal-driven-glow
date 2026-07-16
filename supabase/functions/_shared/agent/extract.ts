@@ -3,7 +3,7 @@
 // identificados. Preservar literalmente siglas informadas ("VOS" nunca vira "VPS").
 // Nunca inventar dados.
 
-import { parseBrAmount } from "@/lib/agent/parser";
+import { parseBrAmount } from "./parser.ts";
 
 export type ExtractedSpans = {
   amount: number | null;
