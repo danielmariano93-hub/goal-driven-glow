@@ -83,6 +83,7 @@ Deno.serve(async (req) => {
     { data: recentTx },
     { count: cardCount },
     { data: recurring },
+    { data: uncategorized },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,status").eq("user_id", uid).eq("status", "active"),
@@ -96,6 +97,17 @@ Deno.serve(async (req) => {
       .limit(300),
     supa.from("credit_cards").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("active", true),
     supa.from("recurring_entries").select("id,next_due_date,active").eq("user_id", uid).eq("active", true),
+    // Lançamento sem categoria (últimos 30 dias, prioridade máxima)
+    supa
+      .from("transactions")
+      .select("id,description,amount,occurred_at")
+      .eq("user_id", uid)
+      .eq("status", "confirmed")
+      .in("type", ["income", "expense"] as any)
+      .is("category_id", null)
+      .gte("occurred_at", new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10))
+      .order("occurred_at", { ascending: false })
+      .limit(1),
   ]);
 
   const txs = (recentTx ?? []) as Array<{ type: string; amount: number | string }>;
@@ -110,6 +122,10 @@ Deno.serve(async (req) => {
     return d >= Date.now() - 86400_000 && d <= in7;
   }).length;
 
+  const uncategorized_tx = (uncategorized && uncategorized.length > 0)
+    ? { id: uncategorized[0].id as string, description: (uncategorized[0].description as string) ?? null, amount: Number(uncategorized[0].amount), occurred_at: uncategorized[0].occurred_at as string }
+    : null;
+
   const facts: InsightFacts = {
     total_tx_ever: totalCount,
     month: ym,
@@ -121,7 +137,35 @@ Deno.serve(async (req) => {
     has_credit_card: (cardCount ?? 0) > 0,
     upcoming_recurring_7d: upcoming7,
     top_expense_category: null,
+    uncategorized_tx,
   };
+
+  // Deep-link determinístico: sempre que existir uncategorized_tx, priorizamos
+  // o card de categorização, mesmo com a IA disponível.
+  if (uncategorized_tx) {
+    const fb = pickFallback(facts);
+    const now = new Date();
+    const { data: inserted, error } = await supa
+      .from("user_insights")
+      .insert({
+        user_id: uid, type: fb.type, title: fb.title, body: fb.body,
+        cta_label: fb.cta_label, cta_route: fb.cta_route, model: fb.model,
+        evidence: { ...facts, transaction_id: uncategorized_tx.id },
+        prompt_version: PROMPT_VERSION,
+        generated_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
+        status: "active",
+      })
+      .select("*")
+      .single();
+    if (error) {
+      logEvent({ event: "insert_error_categorize", err: error.message });
+      return json({ error: "insert_failed" }, 500);
+    }
+    logEvent({ event: "categorize_priority", latency_ms: Date.now() - started });
+    return json({ insight: inserted, cached: false, fallback: false, prioritized: true });
+  }
+
 
   // Try AI
   let insight: any = null;
