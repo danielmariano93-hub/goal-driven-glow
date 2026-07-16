@@ -3,7 +3,7 @@
 // identificados. Preservar literalmente siglas informadas ("VOS" nunca vira "VPS").
 // Nunca inventar dados.
 
-import { parseBrAmount } from "./parser.ts";
+import { parseBrAmount } from "@/lib/agent/parser";
 
 export type ExtractedSpans = {
   amount: number | null;
@@ -135,13 +135,14 @@ export function extractSpans(raw: string): ExtractedSpans {
   const catMatch = remaining.match(CATEGORY_HINT_RX);
   if (catMatch) out.category_hint = catMatch[1].toLowerCase();
 
-  // 6) descrição = restante, tirando conectores iniciais e finais.
+  // 6) descrição = restante, tirando conectores/fillers iniciais e finais.
   let desc = remaining;
-  // Remove conectores no início (com ou sem espaço trailing)
-  const CONNECTORS_BARE = /^(gastei|paguei|comprei|registrei|registra|registrar|registre|inclua|incluir|incluí|foi|de|no|na|em|com)(\s+|$)/i;
-  while (CONNECTORS_BARE.test(desc)) desc = desc.replace(CONNECTORS_BARE, "");
-  desc = desc.replace(/^\s*de\s+/i, "").replace(/\s+de\s*$/i, "").trim();
-  desc = desc.replace(/\s+/g, " ").trim();
+  const CONNECTORS_BARE = /^(gastei|paguei|comprei|registrei|registra|registrar|registre|inclua|incluir|inclui|incluí|foi|um|uma|gasto|compra|receita|entrada|de|do|da|no|na|em|com|para|pro|pra)(\s+|$)/i;
+  // Colapsar "de de" e espaços múltiplos primeiro
+  const collapse = (s: string) => s.replace(/\b(de|do|da)\s+\1\b/gi, "$1").replace(/\s+/g, " ").trim();
+  desc = collapse(desc);
+  while (CONNECTORS_BARE.test(desc)) { desc = desc.replace(CONNECTORS_BARE, ""); desc = collapse(desc); }
+  desc = desc.replace(/\s+(de|do|da)\s*$/i, "").trim();
   out.description = desc;
 
   return out;
