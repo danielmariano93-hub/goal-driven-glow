@@ -90,6 +90,12 @@ const App = () => (
                 <Route path="whatsapp" element={<WhatsApp />} />
                 <Route path="importar" element={<Importar />} />
                 <Route path="mais" element={<MaisMenu />} />
+                <Route path="divisao-do-role" element={<DivisaoDoRole />} />
+                <Route path="divisao-do-role/nova" element={<DivisaoDoRoleNova />} />
+                <Route path="divisao-do-role/:id" element={<DivisaoDoRoleDetalhe />} />
+                <Route path="recorrencias" element={<Recorrencias />} />
+                <Route path="desafios" element={<Desafios />} />
+                <Route path="notificacoes" element={<Notificacoes />} />
               </Route>
 
               <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
