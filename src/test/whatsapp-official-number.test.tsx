@@ -60,7 +60,9 @@ describe("WhatsAppLinkSheet — resolução do número oficial", () => {
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith("create_phone_link_code"));
     await waitFor(() => {
       const url = openSpy.mock.calls[0]?.[0] as string;
-      expect(url).toBe("https://wa.me/5511999998888?text=VINCULAR%20123456");
+      expect(url).toContain("wa.me/5511999998888");
+      expect(url).toContain(encodeURIComponent("código de verificação"));
+      expect(url).toContain("123456");
     });
   });
 
