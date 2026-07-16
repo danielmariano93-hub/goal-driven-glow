@@ -3,6 +3,7 @@ import { Loader2, ShieldAlert, CheckCircle2, XCircle, Play } from "lucide-react"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
+import { WhatsAppSessionPanel } from "./WhatsAppSessionPanel";
 
 type Health = {
   configured: boolean;
