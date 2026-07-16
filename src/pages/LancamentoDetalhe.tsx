@@ -1,0 +1,216 @@
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/context/AuthContext";
+import { useCategories, useAccounts } from "@/lib/db/finance";
+import { useCreditCards } from "@/lib/db/creditCards";
+import { toast } from "sonner";
+import { Loader2, ArrowLeft, Trash2, Save } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+
+type Tx = {
+  id: string;
+  user_id: string;
+  type: "income" | "expense" | "transfer";
+  amount: number | string;
+  occurred_at: string;
+  description: string | null;
+  category_id: string | null;
+  account_id: string | null;
+  credit_card_id: string | null;
+  payment_method: "account" | "credit_card" | null;
+  installment_number: number | null;
+  installments_total: number | null;
+  purchase_group_id: string | null;
+  transfer_group_id: string | null;
+  version: number;
+  notes: string | null;
+  purchase_date?: string | null;
+  competence_date?: string | null;
+};
+
+export default function LancamentoDetalhe() {
+  const { id } = useParams<{ id: string }>();
+  const [params] = useSearchParams();
+  const nav = useNavigate();
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const editing = params.get("edit") === "1";
+  const focus = params.get("focus"); // "category", etc.
+
+  const { data: cats = [] } = useCategories();
+  const { data: accs = [] } = useAccounts();
+  const { data: cards = [] } = useCreditCards();
+
+  const [tx, setTx] = useState<Tx | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [scope, setScope] = useState<"one" | "future" | "all">("one");
+
+  const [description, setDescription] = useState("");
+  const [categoryId, setCategoryId] = useState<string | "">("");
+  const [amount, setAmount] = useState("");
+  const [occurredAt, setOccurredAt] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (!id || !user) return;
+    setLoading(true);
+    supabase.from("transactions").select("*").eq("id", id).eq("user_id", user.id).maybeSingle()
+      .then(({ data, error }) => {
+        if (error || !data) { toast.error("Lançamento não encontrado"); nav("/app/lancamentos"); return; }
+        const t = data as unknown as Tx;
+        setTx(t);
+        setDescription(t.description ?? "");
+        setCategoryId(t.category_id ?? "");
+        setAmount(String(t.amount));
+        setOccurredAt(t.occurred_at);
+        setNotes(t.notes ?? "");
+      }).finally(() => setLoading(false));
+  }, [id, user, nav]);
+
+  useEffect(() => {
+    if (editing && focus === "category") {
+      const el = document.getElementById("field-category");
+      el?.focus?.();
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [editing, focus, tx]);
+
+  const isTransfer = tx?.type === "transfer";
+  const isCardTx = tx?.payment_method === "credit_card";
+  const hasGroup = !!tx?.purchase_group_id;
+  const cardName = useMemo(() => cards.find((c: any) => c.id === tx?.credit_card_id)?.name ?? "—", [cards, tx]);
+  const accName = useMemo(() => accs.find((a) => a.id === tx?.account_id)?.name ?? "—", [accs, tx]);
+  const catsForType = cats.filter((c: any) => tx ? (c.type === tx.type || c.type === "both") : true);
+
+  async function save() {
+    if (!tx) return;
+    setSaving(true);
+    const patch: Record<string, unknown> = {};
+    if ((tx.description ?? "") !== description) patch.description = description || null;
+    if ((tx.category_id ?? "") !== categoryId) patch.category_id = categoryId || null;
+    const parsedAmount = Number(String(amount).replace(",", "."));
+    if (Number.isFinite(parsedAmount) && parsedAmount > 0 && parsedAmount !== Number(tx.amount)) patch.amount = parsedAmount;
+    if (occurredAt && occurredAt !== tx.occurred_at) patch.occurred_at = occurredAt;
+    if ((tx.notes ?? "") !== notes) patch.notes = notes || null;
+    if (Object.keys(patch).length === 0) { setSaving(false); toast.message("Nada mudou."); return; }
+
+    const { data, error } = await supabase.rpc("transaction_update_direct" as any, {
+      p_id: tx.id, p_expected_version: tx.version, p_patch: patch as any, p_scope: hasGroup ? scope : "one",
+    });
+    setSaving(false);
+    if (error) return toast.error("Falha ao salvar", { description: error.message });
+    const r = data as any;
+    if (!r?.ok) {
+      if (r?.error === "conflict") return toast.error("Este lançamento foi alterado em outro lugar. Recarregue.");
+      return toast.error("Falha ao salvar", { description: r?.error ?? "erro" });
+    }
+    toast.success("Lançamento atualizado ✅");
+    qc.invalidateQueries({ queryKey: ["transactions"] });
+    qc.invalidateQueries({ queryKey: ["assistant-tip"] });
+    nav("/app/lancamentos");
+  }
+
+  async function del() {
+    if (!tx) return;
+    if (!confirm(isTransfer ? "Excluir esta transferência (par completo)?" : `Excluir (${scope === "one" ? "esta parcela" : scope === "future" ? "esta e futuras" : "todas as parcelas"})?`)) return;
+    setSaving(true);
+    const { data, error } = await supabase.rpc("transaction_delete_direct" as any, {
+      p_id: tx.id, p_expected_version: tx.version, p_scope: hasGroup ? scope : "one",
+    });
+    setSaving(false);
+    if (error) return toast.error("Falha ao excluir", { description: error.message });
+    const r = data as any;
+    if (!r?.ok) {
+      if (r?.error === "conflict") return toast.error("Este lançamento foi alterado em outro lugar. Recarregue.");
+      return toast.error("Falha ao excluir", { description: r?.error ?? "erro" });
+    }
+    toast.success("Lançamento excluído");
+    qc.invalidateQueries({ queryKey: ["transactions"] });
+    qc.invalidateQueries({ queryKey: ["assistant-tip"] });
+    nav("/app/lancamentos");
+  }
+
+  if (loading) return <div className="grid place-items-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (!tx) return null;
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <header className="mb-4 flex items-center gap-2">
+        <Link to="/app/lancamentos" className="grid h-9 w-9 place-items-center rounded-full hover:bg-secondary" aria-label="Voltar"><ArrowLeft size={18} /></Link>
+        <div>
+          <h1 className="font-display text-xl font-bold">Detalhes do lançamento</h1>
+          <p className="text-xs text-muted-foreground">
+            {isCardTx ? `Cartão: ${cardName}` : isTransfer ? "Transferência" : `Conta: ${accName}`}
+            {tx.installments_total && tx.installments_total > 1 ? ` · Parcela ${tx.installment_number}/${tx.installments_total}` : ""}
+          </p>
+        </div>
+      </header>
+
+      <section className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        {isTransfer && (
+          <p className="rounded-lg bg-secondary p-2 text-xs text-muted-foreground">
+            Transferências não podem ser editadas parcialmente. Você pode apenas excluir o par completo.
+          </p>
+        )}
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Descrição</label>
+          <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Valor (R$)</label>
+            <input className="input-base w-full" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Data</label>
+            <input type="date" className="input-base w-full" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer} />
+          </div>
+        </div>
+
+        {!isTransfer && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Categoria</label>
+            <select id="field-category" className="input-base w-full" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+              <option value="">Sem categoria</option>
+              {catsForType.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Notas</label>
+          <textarea className="input-base w-full min-h-[70px]" value={notes} onChange={e => setNotes(e.target.value)} disabled={isTransfer} />
+        </div>
+
+        {hasGroup && !isTransfer && (
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs font-semibold mb-2">Aplicar a</p>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {(["one", "future", "all"] as const).map(s => (
+                <button key={s} onClick={() => setScope(s)}
+                  className={`rounded-full px-3 py-1.5 border ${scope === s ? "bg-primary text-primary-foreground border-primary" : "border-border bg-secondary"}`}>
+                  {s === "one" ? "Só esta parcela" : s === "future" ? "Esta e futuras" : "Todas as parcelas"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          {!isTransfer && (
+            <button onClick={save} disabled={saving} className="btn-brand inline-flex items-center gap-1.5 disabled:opacity-50">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save size={14} />} Salvar
+            </button>
+          )}
+          <button onClick={del} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive hover:bg-destructive/20 disabled:opacity-50">
+            <Trash2 size={14} /> Excluir
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}

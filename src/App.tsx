@@ -21,6 +21,7 @@ import NotFound from "./pages/NotFound";
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Index = lazy(() => import("./pages/Index"));
 const Lancamentos = lazy(() => import("./pages/Lancamentos"));
+const LancamentoDetalhe = lazy(() => import("./pages/LancamentoDetalhe"));
 const Contas = lazy(() => import("./pages/Contas"));
 const Categorias = lazy(() => import("./pages/Categorias"));
 const Metas = lazy(() => import("./pages/Metas"));
@@ -92,6 +93,7 @@ const App = () => (
               >
                 <Route index element={<Index />} />
                 <Route path="lancamentos" element={<Lancamentos />} />
+                <Route path="lancamentos/:id" element={<LancamentoDetalhe />} />
                 <Route path="contas" element={<Contas />} />
                 <Route path="categorias" element={<Categorias />} />
                 <Route path="metas" element={<Metas />} />
