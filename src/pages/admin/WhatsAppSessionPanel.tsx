@@ -450,7 +450,7 @@ export function WhatsAppSessionPanel() {
 
         {(snap?.status === "awaiting_qr" || (connectMode && snap?.status !== "connected")) && (
           <div className="rounded-xl border border-border bg-white p-4 space-y-2">
-            <p className="text-xs text-muted-foreground">Escaneie o código no WhatsApp do número oficial.</p>
+            <p className="text-xs text-muted-foreground">Escaneie este QR Code</p>
             {qr ? (
               <div className="grid place-items-center">
                 <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
