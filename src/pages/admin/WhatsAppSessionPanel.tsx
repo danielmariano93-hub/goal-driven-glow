@@ -645,6 +645,14 @@ export function WhatsAppSessionPanel() {
       </div>
       <p className="text-sm text-muted-foreground">{view.impact}</p>
 
+      <InboundHealthCard onSync={async () => {
+        try {
+          const r = await call<{ ok: boolean }>("sync_webhook");
+          if (r?.ok) toast.success("Webhook sincronizado.");
+          else toast.error("Não consegui sincronizar o webhook.");
+        } catch { toast.error("Não consegui sincronizar o webhook."); }
+      }} />
+
       {!isConnected && (
         <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
       )}
