@@ -281,6 +281,10 @@ export function WhatsAppSessionPanel() {
     setConfigError(null);
     try {
       const c = await call<ConfigStatus>("config_status");
+      if (!c || typeof c.can_manage_config !== "boolean") {
+        setConfigError("invalid_contract");
+        return;
+      }
       setConfig(c);
       try {
         const s = await call<SessionSnap>("status");
@@ -295,6 +299,12 @@ export function WhatsAppSessionPanel() {
   }, []);
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") loadConfig({ silent: true }); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loadConfig]);
 
   const refresh = useCallback(() => loadConfig({ silent: true }), [loadConfig]);
 
