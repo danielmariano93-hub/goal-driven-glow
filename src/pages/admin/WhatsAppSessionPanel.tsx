@@ -537,6 +537,7 @@ function InboundHealthCard({ onSync }: { onSync: () => void | Promise<void> }) {
   );
 }
 
+export function WhatsAppSessionPanel() {
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [snap, setSnap] = useState<SessionSnap | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
