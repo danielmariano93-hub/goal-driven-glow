@@ -1,18 +1,35 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+// Export the caller's data. Requires a real authenticated JWT.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { corsHeaders, json } from "../_shared/cors.ts";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const auth = req.headers.get("authorization")?.replace("Bearer ", "");
-  if (!auth) return new Response("unauthorized", { status: 401, headers: corsHeaders });
+  if (req.method !== "POST" && req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  const token = authHeader.slice("Bearer ".length);
+
   const client = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: `Bearer ${auth}` } } },
+    SUPABASE_URL,
+    Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
+    { global: { headers: { Authorization: authHeader } } },
   );
+
+  // Validate token via getClaims (verifies signature + expiration).
+  const { data: claims, error: cErr } = await client.auth.getClaims(token);
+  if (cErr || !claims?.claims) return json({ error: "unauthorized" }, 401);
+
   const { data, error } = await client.rpc("user_export_data");
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (error) return json({ error: error.message }, 400);
+
   return new Response(JSON.stringify(data, null, 2), {
-    headers: { ...corsHeaders, "Content-Type": "application/json", "Content-Disposition": `attachment; filename="export.json"` },
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="nocontrole_export.json"`,
+    },
   });
 });

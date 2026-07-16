@@ -5,3 +5,21 @@ verify_jwt = false
 
 [functions.whatsapp-ack-watchdog]
 verify_jwt = false
+
+[functions.split-reminders-dispatch]
+verify_jwt = false
+
+[functions.user-data-export]
+verify_jwt = true
+
+[functions.admin-process-deletion]
+verify_jwt = true
+
+[functions.agent-run]
+verify_jwt = true
+
+[functions.whatsapp-send]
+verify_jwt = true
+
+[functions.whatsapp-session]
+verify_jwt = true
