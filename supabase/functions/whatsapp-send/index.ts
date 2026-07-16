@@ -68,5 +68,14 @@ Deno.serve(async (req) => {
       results.push({ id: m.id, ok: false, error: String((e as Error).message) });
     }
   }
+  const failed = results.filter((r) => !r.ok).length;
+  await writeJobHeartbeat({
+    jobKey: "whatsapp-send",
+    ok: failed === 0,
+    processed: results.length,
+    failed,
+    sb,
+  });
   return json({ processed: results.length, results });
 });
+
