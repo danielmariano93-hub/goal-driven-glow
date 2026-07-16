@@ -1,12 +1,63 @@
 import type { MessagingProvider, NormalizedInbound } from "./types.ts";
 import { normalizeBrPhone } from "./types.ts";
 
-// Accept WAHA_API_URL (Sniper naming) with legacy fallback WAHA_BASE_URL.
-const WAHA_API_URL =
+// Runtime WAHA config. Initialized from env vars (retrocompat) and can be
+// hydrated at request time from the Supabase Vault via `loadWahaConfig`.
+let WAHA_API_URL =
   Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL") ?? "";
-const WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
-const WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? "default";
-const WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
+let WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
+let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? "default";
+let WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
+
+export type WahaConfig = { api_url: string; api_key: string; webhook_secret: string; session_name: string };
+
+/** Hydrate module state from a candidate config (Vault). Falls back to env when a slot is empty. */
+export function primeWahaConfig(cfg: Partial<WahaConfig>) {
+  if (cfg.api_url)        WAHA_API_URL = cfg.api_url;
+  if (cfg.api_key)        WAHA_API_KEY = cfg.api_key;
+  if (cfg.session_name)   WAHA_SESSION = cfg.session_name;
+  if (cfg.webhook_secret) WAHA_WEBHOOK_SECRET = cfg.webhook_secret;
+}
+
+/** Load config from Vault via the resolver RPC (service_role). Safe to call once per request. */
+export async function loadWahaConfig(supabaseServiceClient: {
+  rpc: (fn: string) => Promise<{ data: unknown; error: unknown }>;
+}): Promise<{ source: "vault" | "env" | "mixed" }> {
+  try {
+    const { data, error } = await supabaseServiceClient.rpc("admin_waha_resolve_config");
+    if (error || !data) return { source: "env" };
+    const c = data as Partial<WahaConfig>;
+    const anyVault = Boolean(c?.api_url || c?.api_key || c?.webhook_secret);
+    if (anyVault) primeWahaConfig(c);
+    return { source: anyVault ? "vault" : "env" };
+  } catch {
+    return { source: "env" };
+  }
+}
+
+export function isWahaConfigured(): boolean {
+  return Boolean(WAHA_API_URL && WAHA_API_KEY && WAHA_SESSION && WAHA_WEBHOOK_SECRET);
+}
+
+/** Build ephemeral fetch closures using a candidate config (for `test_config`). */
+export function buildWahaTester(cand: { api_url: string; api_key: string }) {
+  const h = { "Content-Type": "application/json", "X-Api-Key": cand.api_key };
+  return {
+    async ping(): Promise<{ host_ok: boolean; auth_ok: boolean; latency_ms: number; code: "ok" | "unreachable" | "unauthorized" | "status_error" }> {
+      const t0 = performance.now();
+      try {
+        const r = await safeFetch(`${cand.api_url}/api/sessions`, { headers: h }, 6_000);
+        const latency = Math.round(performance.now() - t0);
+        if (r.status === 401 || r.status === 403) return { host_ok: true, auth_ok: false, latency_ms: latency, code: "unauthorized" };
+        if (r.ok || r.status === 404) return { host_ok: true, auth_ok: true, latency_ms: latency, code: "ok" };
+        return { host_ok: r.status < 500, auth_ok: false, latency_ms: latency, code: "status_error" };
+      } catch {
+        return { host_ok: false, auth_ok: false, latency_ms: Math.round(performance.now() - t0), code: "unreachable" };
+      }
+    },
+  };
+}
+
 
 /**
  * Sanitized credential validation. NEVER returns URLs, tokens, secret values,
