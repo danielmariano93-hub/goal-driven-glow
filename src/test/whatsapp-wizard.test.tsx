@@ -31,7 +31,7 @@ function reply(action: string, body: Body): unknown {
 
 let pending: Array<() => void> = [];
 
-function installMock(options: { failStatus?: boolean; hangStatus?: boolean } = {}) {
+function installMock(options: { failStatus?: boolean; hangStatus?: boolean; configured?: boolean; sessionStatus?: string; codeError?: string } = {}) {
   invokeMock.mockImplementation(async (_fn: string, opts: { body: { action: string } & Record<string, unknown> }) => {
     const action = opts.body.action;
     if (action === "config_status" && options.hangStatus) {
@@ -40,9 +40,20 @@ function installMock(options: { failStatus?: boolean; hangStatus?: boolean } = {
     if (action === "config_status" && options.failStatus) {
       return { data: null, error: { message: "boom" } };
     }
+    if (action === "config_status" && options.configured) {
+      return { data: { configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString(), admin_role: "platform_owner", can_manage_config: true }, error: null };
+    }
+    if (action === "status" && options.configured) {
+      const st = options.sessionStatus ?? "needs_attention";
+      return { data: { status: st, capabilities: { can_connect: true, can_send: st === "connected", needs_session: st !== "connected", temporarily_unavailable: false }, phone_masked: null, last_seen_at: null, latency_ms: null, error_code: null }, error: null };
+    }
+    if (action === "request_pairing_code" && options.codeError) {
+      return { data: { ok: false, error_code: options.codeError }, error: null };
+    }
     return { data: reply(action, opts.body as Body), error: null };
   });
 }
+
 
 beforeEach(() => {
   invokeMock.mockReset();
