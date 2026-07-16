@@ -1,151 +1,193 @@
-# Plano: Categorização + Edição de lançamentos (app + assessor) + deep-link de insight
 
-## Causa raiz
-1. **Extrator do assessor** trata "cartão de crédito" como descrição: o LLM não recebe schema estrito separando `description` de `payment_method`, e o fast-path em `agent-chat/index.ts` grava `description` livre sem sanitização contra tokens de meio de pagamento. Além disso, não tenta resolver `category_id` — a transação nasce com `category_id=null`.
-2. **App não permite editar lançamento**: `Lancamentos.tsx` tem `editing`/`TxModal`, mas nenhum handler chama `setEditing(t)+setOpenTx(true)`; o item da lista não tem tap/menu. `TxModal` só cobre conta (não `credit_card_id`, `payment_method`, `purchase_date`, `competence_date`, `installments`). `useSaveTransaction` em `src/lib/db/finance.ts` ignora esses campos.
-3. **Insight de "categorize este lançamento"** grava CTA genérica `/app/lancamentos` — `evidence` não carrega `transaction_id`, então a Home não sabe abrir o item específico.
-4. **Agente só cria** (`create_transaction_draft`). Falta `get_transaction`, `search_transactions`, `update_transaction_draft`, `delete_transaction_draft` e o executor de confirmação para `transaction_update`/`transaction_delete`.
-5. **`pending_confirmations`** hoje só cobre criação. Precisa de `kind` genérico + `payload` canônico + `expected_version` para update/delete com concorrência otimista.
+# Plano revisado — Categorização + Edição de lançamentos + Deep-link de insight
 
-## Arquitetura alvo
+Executável em uma única rodada. Não inclui WAHA/webhook/sessão. Não toca em dados do usuário real.
 
-```text
-             ┌───────────────────────────────────────────┐
-             │            Assessor (app + wpp)           │
-             │  agent-chat / agent-run  ── mesmas tools  │
-             └─────────────┬─────────────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────────────┐
-        ▼                  ▼                          ▼
-  extract_intent     search/get_tx           update/delete_tx_draft
-  (LLM + zod)        (server, ownership)     (server, allowlist, snapshot)
-        │                                            │
-        └──────────► create_transaction_draft ◄──────┘
-                           │
-                   pending_confirmations
-                (kind: create|update|delete)
-                           │
-                    confirm_action (RPC)
-                 revalida ownership+version
-                    aplica snapshot atômico
-                           │
-                    invalida queries + CTA
-```
+## 1. Causa raiz consolidada
+- **Extrator do agente** aplica sanitização ampla e confunde `description` com `payment_method`/instituição (ex.: "VOS no cartão de crédito Itaú" → description "cartão de crédito"). Precisa isolar spans, não remover palavras.
+- **Sem fluxo de edição/exclusão** ponta a ponta: `pending_confirmations` só cobre criação; UI só permite excluir; agente não tem tools de update/delete confiáveis.
+- **Parcelas** hoje são linhas independentes sem agrupador → impossível "editar todas as futuras".
+- **Insight de categorização** não existe: transações com `category_id null` não geram card com deep-link para o lançamento.
+- **Prompt v3 anterior** divergiu da versão publicada pelo admin. Precisa ser filho da ativa, publicado pelo mesmo fluxo.
 
-Tools são **compartilhadas** em `supabase/functions/_shared/agent/tools.ts` e chamadas pelo mesmo orquestrador. `user_id` é sempre resolvido no servidor a partir do JWT.
+## 2. Schema real constatado (read-only)
 
-## Arquivos alterados / criados
+`pending_confirmations`: id, user_id, conversation_id, **kind text**, **payload jsonb**, summary_text, **status confirmation_status(pending|confirmed|cancelled|expired)**, expires_at, executed_at, **result_ref uuid**, **result_snapshot jsonb**, confirmed_from_message_id, conversation_msg_ref, created_at.
 
-### Backend (Edge Functions + SQL)
-- `supabase/migrations/<ts>_transaction_edit_confirmations.sql` — nova migration:
-  - Estender `pending_confirmations`: adicionar `kind` (`create_transaction`|`update_transaction`|`delete_transaction`), `target_id uuid null`, `expected_version int null`, `patch jsonb null`, `snapshot_before jsonb null`, `snapshot_after jsonb null` (ou reutilizar `payload jsonb` com contrato canônico documentado no plan). Se colunas já existem com nomes próximos, apenas ampliar CHECK/enums.
-  - Adicionar `transactions.version int not null default 1` + trigger `BEFORE UPDATE` que incrementa `version` e valida `expected_version` quando fornecido via `SET LOCAL`.
-  - RPC `confirm_transaction_action(p_confirmation_id uuid) returns jsonb`: SECURITY DEFINER, valida `auth.uid()==user_id`, faz update/delete com allowlist, retorna snapshot before/after, marca confirmação como `applied` (idempotência: se já `applied`, retorna snapshot salvo).
-  - Allowlist de campos editáveis: `amount, description, notes, occurred_at, category_id, status, account_id, credit_card_id, payment_method, purchase_date, competence_date, installment_number, installment_total`. Sem `user_id`, sem `id`, sem `transfer_group_id` fora de transferência.
-  - Regras: se `type=transfer` → RPC recusa update/delete singular; direciona para fluxo dedicado (fora desta rodada implementar UI de transferência, mas RPC bloqueia com erro claro).
-  - Para parcelamento: RPC aceita `scope: "one" | "future"`; quando `future`, itera `transactions` do mesmo `installment_group_id` (usar coluna existente se houver; caso contrário, escopo `one` apenas nesta rodada — declarar como gap se coluna não existir hoje).
-  - Grants + RLS mantidos; `confirm_transaction_action` acessível a `authenticated`.
+`transactions`: id, user_id, account_id, category_id, type, status(confirmed|planned), amount, occurred_at, description, notes, emotional_trigger, transfer_group_id, direction, origin(manual|agent|import|recurring|split), import_source_id, **payment_method text default 'account'**, credit_card_id, **installments_total**, installment_number, purchase_date, competence_date, created_at, updated_at.
 
-- `supabase/functions/_shared/agent/tools.ts`:
-  - `get_transaction({ id })`: SELECT com ownership; retorna também `credit_card`/`account`/`category` resumidos + `version`.
-  - `search_transactions({ query?, amount?, from?, to?, category?, account?, card?, limit=10 })`: filtros seguros, retorna lista compacta com id, valor, data, descrição, categoria, meio, `version`.
-  - `update_transaction_draft({ id, patch, expected_version })`: valida allowlist, cria `pending_confirmation kind=update_transaction` com `snapshot_before`, `patch`, `expected_version`; retorna `pending_id` + preview before/after.
-  - `delete_transaction_draft({ id, expected_version, scope? })`: mesmo padrão, `kind=delete_transaction`.
-  - `resolve_category({ text })`: fuzzy conservador sobre categorias reais do usuário (globais + pessoais). Retorna `single|multiple|none`.
-  - `sanitize_description(raw, payment_method)`: strip de tokens `cartão`, `cartão de crédito`, `no crédito`, `débito`, `pix`, `dinheiro`, `conta`, nomes de bancos/cartões conhecidos do usuário — determinístico, aplicado depois do LLM.
+`user_insights`: type, title, body, cta_label, cta_route, **evidence jsonb**, status, expires_at.
 
-- `supabase/functions/_shared/agent/prompt.ts` — ativar **v3** do prompt via migration em `agent_prompt_versions`:
-  - Contrato JSON estrito para extração: `{ amount, description, occurred_at, category_hint, payment_method, account_hint, card_hint, installments }`. `description` NUNCA contém termos de meio de pagamento.
-  - Regra: preservar termos literais entre aspas e siglas ("VOS" permanece "VOS"). Sem correções silenciosas.
-  - Regra de categoria: tentar resolver; se ambíguo → perguntar com choices; se nenhum → oferecer "Deixar sem categoria" como opção explícita e continuar.
-  - Regras para edição: precisa `id`; se usuário disse "último", chamar `search_transactions` com `limit=1 order by occurred_at desc`.
-  - Toda edição/exclusão → tool draft + confirmação; nunca aplicar direto.
+Não existem: `installment_group_id`, `version`, `applied` status. Serão adicionados via migration mínima.
 
-- `supabase/functions/agent-chat/index.ts` e `supabase/functions/agent-run/index.ts`:
-  - Rotear intents `edit|delete|categorize|search` para as novas tools.
-  - Fast-path determinístico para "categorize o último X como Y", "muda descrição para Z", "esse foi no cartão W".
-  - Após confirmação bem-sucedida, incluir `cta: { label: "Ver lançamento", route: "/app/lancamentos/:id" }` no retorno.
-  - Anti-loop existente estendido para não repetir a mesma pergunta de categoria.
-
-- `supabase/functions/insights-generate/index.ts`:
-  - Quando o insight se refere a um lançamento específico (ex.: `category_id null` recente), incluir `evidence.transaction_id` e `cta_route=/app/lancamentos/<id>?edit=1`.
-  - Fallback `pickFallback` (em `_shared/insights/fallbacks.ts`) recebe `uncategorized_recent_tx_id` e emite CTA precisa.
-
-### Frontend
-- `src/lib/db/finance.ts`:
-  - `useTransaction(id)` — fetch por id.
-  - `useSaveTransaction` — aceitar `payment_method`, `credit_card_id`, `purchase_date`, `competence_date`, `installment_*`; validar combinações (cartão exige `credit_card_id` e proíbe `account_id`; conta exige `account_id`).
-  - `useUpdateTransactionViaAgent({ id, patch })` — chama `agent-chat` internamente? Não: chama diretamente RPC `confirm_transaction_action` apenas quando confirmação já criada pelo assessor. Para edição direta do app, `useSaveTransaction` continua UPDATE direto (sem passar por confirmation) com `expected_version`.
-
-- `src/lib/validation/finance.ts` — schema estendido para cartão/parcelas com refinements condicionais.
-
-- `src/pages/Lancamentos.tsx`:
-  - Cada item vira `button`/`Link` com tap → abre `TxDetailSheet`.
-  - Suportar query `?edit=<uuid>` e rota `/app/lancamentos/:id` (adicionar em `App.tsx`).
-  - Botão "Editar" visível no sheet; "Excluir" com confirmação.
-
-- `src/components/lancamentos/TxDetailSheet.tsx` (novo) — mostra todos os campos, incluindo cartão/fatura/parcela; ações Editar, Duplicar, Excluir.
-
-- `src/components/lancamentos/TxModal.tsx` (reescrever):
-  - Segmented control: **Conta** | **Cartão** | **Transferência (somente leitura nesta rodada)**.
-  - Modo Cartão: seletor de cartão, `purchase_date`, cálculo de `competence_date` a partir do fechamento do cartão, `installments`.
-  - Modo Conta: seletor de conta.
-  - Validações Zod condicionais.
-  - Ao salvar edição de parcelado: pergunta "somente esta parcela" vs "esta e futuras" (se coluna de grupo existir; senão só "esta parcela" com aviso).
-
-- `src/components/home/AssistantTipCard.tsx`:
-  - Ler `evidence.transaction_id` e usar `cta_route` já pronta. Se `transaction_id` existe e a query de fetch retorna 404 → renderizar fallback "esse lançamento não existe mais" + CTA lista.
-
-- `src/App.tsx` — nova rota `/app/lancamentos/:id` (mesma page com prop `initialEditId`).
-
-### Contratos de tools (resumo)
+## 3. Arquitetura
 
 ```text
-get_transaction        → { transaction, version }
-search_transactions    → { results: [...], count, choices? }
-update_transaction_draft(id, patch, expected_version)
-                       → { pending_id, before, after, diff }
-delete_transaction_draft(id, expected_version, scope?)
-                       → { pending_id, snapshot }
-resolve_category(text) → { status: "single"|"multiple"|"none", matches }
-confirm_action(pending_id)
-                       → { status: "applied"|"conflict"|"expired", result_ref, snapshot_after }
+Usuário/Agente
+   │
+   ├─ App direto: RPC transaction_update_direct(id, expected_updated_at, patch)
+   │              RPC transaction_delete_direct(id, expected_updated_at, scope)
+   │              (auth.uid() = owner via RLS)
+   │
+   └─ Agente:    tool draft → pending_confirmations(kind,payload) → user confirma
+                 → RPC confirm_pending(confirmation_id) [SECURITY DEFINER]
+                 → executor interno usa payload.user_id fixado pelo orquestrador
+                 → grava result_ref + result_snapshot + status=confirmed
+                 → idempotente: se já confirmed, devolve result_snapshot
+
+Insight categorização (transaction_id em evidence)
+   → Home card CTA "/app/lancamentos/:id?edit=1&focus=category"
+   → TxDetailSheet abre com foco no seletor
+   → categorizar expira o insight específico
 ```
 
-## Testes (bloqueadores, todos em uma rodada)
-- `src/test/agent-parser.test.ts` +
-  - "131,51 de VOS no cartão de crédito Itaú" → `description="VOS"`, `payment_method="credit_card"`, `card_hint="Itaú"`, `category_hint=null`.
-  - preservar "VOS" (não virar VPS).
-- `src/test/agent-resolvers.test.ts` — categoria: single/multiple/none; "sem categoria" explícito.
-- `src/test/tx-editing.test.ts` (novo) — save/update via `useSaveTransaction` cobrindo cartão sem `account_id`, conta sem `credit_card_id`, categoria only, mudança de data + recomputo de `competence_date`.
-- `src/test/agent-tools-tx.test.ts` (novo) — get/search/update_draft/delete_draft com mock Supabase; ownership rejeitada para outro user.
-- `src/test/pending-confirmations.test.ts` — apply idempotente; conflito de `expected_version`; delete com confirmação; falha nunca retorna sucesso.
-- `src/test/insights-fallbacks.test.ts` — cenário `uncategorized_recent_tx_id` gera CTA com id.
-- E2E manual documentado: registrar → categorizar via insight → editar via app → editar via assessor → excluir via assessor.
-- `npm test`, `tsgo`, `vite build` verdes.
+## 4. Migration mínima (uma única)
 
-## Sequência de execução (uma rodada)
-1. Migration (versão de tx, `pending_confirmations` ampliado, RPC `confirm_transaction_action`, v3 do prompt).
-2. Tools compartilhadas + sanitizer + resolver de categoria.
-3. `agent-chat` + `agent-run` roteando novas intents.
-4. `insights-generate` incluindo `transaction_id` em `evidence`.
-5. Frontend: `useTransaction`, `useSaveTransaction` estendido, rota `/app/lancamentos/:id`, `TxDetailSheet`, `TxModal` reescrito, tap na lista, CTA do insight.
-6. Testes novos + rodar suíte.
-7. Deploy somente das Edge Functions alteradas. **Sem publicar frontend.**
+```sql
+-- 4.1 Concorrência otimista
+ALTER TABLE public.transactions ADD COLUMN version integer NOT NULL DEFAULT 1;
+CREATE OR REPLACE FUNCTION public.bump_transaction_version() RETURNS trigger
+LANGUAGE plpgsql AS $$ BEGIN NEW.version := OLD.version + 1; NEW.updated_at := now(); RETURN NEW; END $$;
+CREATE TRIGGER trg_tx_version BEFORE UPDATE ON public.transactions
+  FOR EACH ROW EXECUTE FUNCTION public.bump_transaction_version();
 
-## Critérios de aceite
-- Nova mensagem "131,51 de VOS no cartão de crédito Itaú" grava `description="VOS"`, `payment_method="credit_card"`, `credit_card_id` resolvido, `account_id=null`, e pergunta categoria (ou aceita "sem categoria").
-- Transação existente `2a03b111…` pode ser corrigida via app (tap → editar → salvar) e via assessor ("troque a descrição desse gasto para VOS") com confirmação real.
-- Insight de categorização abre exatamente o lançamento pendente; após categorizar, dica é encerrada.
-- Edição de compra em cartão nunca adiciona `account_id`; edição em conta nunca adiciona `credit_card_id`.
-- RPC rejeita ownership de outro user, rejeita conflito de versão, é idempotente em retry.
-- Suíte, typecheck e build verdes.
+-- 4.2 Grupo de parcelamento (novo, backfill null preservado)
+ALTER TABLE public.transactions ADD COLUMN purchase_group_id uuid;
+CREATE INDEX idx_tx_purchase_group ON public.transactions(user_id, purchase_group_id)
+  WHERE purchase_group_id IS NOT NULL;
+-- linhas antigas ficam NULL; UI oferece scope=one apenas quando NULL.
 
-## Riscos
-- Coluna de grupo de parcelamento pode não existir → declarar como gap; nesta rodada suportar apenas escopo "esta parcela" com aviso.
-- Concorrência otimista exige `version` em `transactions`; migration precisa preencher default para linhas antigas.
-- Reescrita do `TxModal` pode regredir criação — mitigar com testes de save cobrindo conta e cartão.
-- LLM v3 pode variar; sanitizer determinístico de `description` cobre falhas.
+-- 4.3 RPCs (SECURITY DEFINER, search_path=public)
+--  a) confirm_pending(confirmation_id uuid) → jsonb
+--     valida owner (auth.uid() = user_id OU service_role); se status=confirmed retorna result_snapshot;
+--     se pending: dispatch por kind → tx_create | tx_update | tx_delete | transfer | goal | contribution | debt;
+--     grava result_ref + result_snapshot + status=confirmed + executed_at atomicamente.
+--  b) transaction_update_direct(p_id, p_expected_version, p_patch jsonb, p_scope text default 'one') → jsonb
+--     UPDATE ... WHERE id=p_id AND user_id=auth.uid() AND version=p_expected_version;
+--     GET DIAGNOSTICS row_count; se 0 → RAISE 'CONFLICT';
+--     patch é allowlist: description, category_id, amount, occurred_at, notes, purchase_date, competence_date, installments_total (com regras), credit_card_id, account_id (mutuamente exclusivos por payment_method);
+--     scope='future'|'all' só quando purchase_group_id NOT NULL; itera irmãos.
+--  c) transaction_delete_direct(p_id, p_expected_version, p_scope) → jsonb (mesma lógica).
 
-## Fora de escopo
-WAHA, webhook, sessão, WhatsApp infra, transferências (edição), Open Finance, gamificação, notificações. Nenhuma alteração automática na transação real `2a03b111…` — só via ação do usuário.
+-- 4.4 Sem novo status enum. Idempotência: status=confirmed + result_snapshot.
+
+-- 4.5 CHECK: payment_method='card' ⇒ credit_card_id NOT NULL AND account_id IS NULL
+--            payment_method='account' ⇒ account_id NOT NULL AND credit_card_id IS NULL
+-- (adicionado apenas se não existir; validado antes)
+```
+
+Grants padrão: `authenticated` executa RPCs; `service_role` ALL.
+
+## 5. Contratos payload/result_snapshot (canônicos)
+
+`kind` estendido no domínio (texto livre, sem enum): `transaction_create`, `transaction_update`, `transaction_delete`, `transfer_create`, `goal_*`, `contribution_*`, `debt_*` (mantém compat).
+
+- `transaction_update.payload`:
+  ```json
+  { "user_id":"…", "transaction_id":"…", "expected_version": 3,
+    "scope":"one|future|all",
+    "patch": { "description":"…", "category_id":"…", "amount":…, "occurred_at":"…",
+               "purchase_date":"…", "competence_date":"…",
+               "credit_card_id":"…"|null, "account_id":"…"|null,
+               "installments_total": … },
+    "before": { …snapshot mínimo… } }
+  ```
+- `transaction_delete.payload`: `{ user_id, transaction_id, expected_version, scope, before }`.
+- `result_snapshot` (todos os kinds): `{ ok:true, id|ids:[…], after:{…}, changed_fields:[…], scope }`.
+
+## 6. Extração por spans (agente)
+
+Novo módulo `_shared/agent/extract.ts` (e mirror em `src/lib/agent/extract.ts` p/ testes):
+
+- Regex + heurística para localizar spans: `amount`, `date`, `installment` ("em 3x"), `payment_method` ("cartão", "débito", "dinheiro"), `card_name`/`account_name` (fuzzy match contra lista real do usuário), `category_hint`.
+- `description` = texto original **menos os spans identificados**, colapsando espaços; **nunca** remove palavras avulsas ("crédito", "banco", "Itaú") fora de spans.
+- Se `description` sobra vazia/curta e `card_name` foi extraído, description default = `""` (não inventa) e agente pergunta.
+- Preserva literalmente siglas: "VOS" nunca é convertido para "VPS".
+- Testes cobrem: "131,51 de VOS no cartão de crédito Itaú" → description=`VOS`, card=`Cartão Itaú`; "paguei análise de crédito no Itaú" → description=`análise de crédito`.
+
+## 7. Tools do agente (compartilhadas `_shared/agent/tools.ts`)
+
+Adicionar/consolidar:
+- `search_transactions({query?, limit=5, since?, until?})` → lista com id, description, amount, occurred_at, category, card/account, version.
+- `get_transaction({id})` → detalhe completo + version.
+- `draft_transaction_update({id, patch, scope})` → cria `pending_confirmations(kind=transaction_update)` com `expected_version` capturado agora; devolve `confirmation_id` e diff `before/after`.
+- `draft_transaction_delete({id, scope})` idem.
+- `confirm({confirmation_id})` chama RPC `confirm_pending`. Idempotente.
+- Todas as tools recebem `user_id` **do orquestrador** (JWT), nunca do modelo.
+
+## 8. UI
+
+- **`TxDetailSheet`** (novo) em `src/components/lancamentos/TxDetailSheet.tsx`: abre por rota `/app/lancamentos/:id`, aceita `?edit=1&focus=category`. Mostra Conta **ou** Cartão (nunca ambos). Campos condicionais por `payment_method`. Para transferências: read-only + aviso "duas pernas".
+- **`TxModal` refatorado**: alterna `account`/`card`; se `card`, mostra `purchase_date`, `installments_total`, calcula `competence_date` no cliente e revalida no servidor; ao mudar cartão/`purchase_date` recomputa.
+- **Escopo de parcelamento**: se `purchase_group_id` presente → radios `esta | esta e futuras | todas`. Caso NULL → só "esta" com nota "parcelamento antigo sem agrupamento".
+- **Home `AssistantTipCard`**: se `evidence.transaction_id`, CTA vai direto ao sheet. Após success, `queryClient.invalidateQueries(['transactions','insights','home'])`.
+- **Confirmação no agente**: `AssessorPanel` mostra card before/after + botões Confirmar/Cancelar + "Ver lançamento" (deep-link).
+
+## 9. Insight de categorização
+
+Em `insights-generate`:
+- Antes dos fallbacks genéricos, checar `SELECT id FROM transactions WHERE user_id=$1 AND category_id IS NULL AND status='confirmed' ORDER BY occurred_at DESC LIMIT 1`.
+- Se existe: gerar insight `type='categorize_transaction'`, `evidence={transaction_id, amount, description, occurred_at}`, `cta_route=/app/lancamentos/:id?edit=1&focus=category`.
+- Validador rejeita insight `categorize_transaction` sem `evidence.transaction_id` válido.
+- Ao categorizar (RPC update com `category_id` não-nulo), edge/trigger expira insight correspondente: `UPDATE user_insights SET status='dismissed' WHERE evidence->>'transaction_id' = :id AND type='categorize_transaction'`.
+- Se `transaction_id` sumir/foi excluído/outro user: card cai para fallback amigável ("Não encontramos esse lançamento; abra a lista").
+
+## 10. Prompt versionado pelo admin
+
+- Ler versão ativa (`agent_prompt_versions` where active).
+- Criar nova versão **filha** copiando `structured_config`, `model`, temperatura, limites.
+- Anexar programaticamente bloco `POLICIES (não editáveis)` ao final do prompt do founder, documentando composição no README de agente.
+- Publicar via mesmo fluxo (marcar nova como ativa). `agent_runs.prompt_version_id` continua registrando corretamente.
+- Painel do founder mostra a versão ativa exata.
+
+## 11. Testes automatizados (bloqueadores)
+
+Vitest + supabase-js com JWT de usuários fixture A/B (criados em `beforeAll`, dropados em `afterAll`).
+
+- `extract.test.ts`: 8 cenários incluindo "VOS", "análise de crédito", "12x", contas vs cartões, ambiguidade.
+- `tools-update.test.ts`: draft → confirm → uma alteração; retry do confirm → zero alterações extras (idempotência); version alterada entre draft e confirm → `CONFLICT`.
+- `tools-delete.test.ts`: idem.
+- `parcelamento.test.ts`: cria compra em 3x com `purchase_group_id`; edita `scope=future` da 2ª → 2 e 3 alteradas, 1 intacta; `scope=all` altera as 3; row antiga sem group → só permite `one`.
+- `insight-categorize.test.ts`: cria tx sem categoria → insight gerado com `evidence.transaction_id` correto; categorizar via RPC expira o insight; tx excluída → fallback.
+- `isolamento.test.ts`: user A não consegue update em tx de B (RPC retorna erro; RLS bloqueia).
+- `ui-deep-link.test.tsx`: `/app/lancamentos/:id?edit=1&focus=category` monta sheet, foca select, salva, invalida queries.
+- `transfer-readonly.test.tsx`: sheet mostra read-only.
+
+Comando: `bunx vitest run`. Bloqueia merge se falhar.
+
+## 12. Sequência única de implementação (1 rodada)
+
+1. Migration (§4).
+2. `_shared/agent/extract.ts` + mirror + testes.
+3. Tools update/delete/search/get (`_shared/agent/tools.ts`), remover sanitização ampla.
+4. Executor `confirm_pending` (RPC) e `transaction_update_direct`/`delete_direct`.
+5. Nova versão de prompt filha da ativa, publicada e marcada ativa.
+6. `insights-generate`: prioridade de `categorize_transaction` + validação.
+7. UI: `TxDetailSheet`, rota, refactor `TxModal`, escopo de parcelamento, `AssistantTipCard` deep-link, `AssessorPanel` confirmação before/after.
+8. Suíte de testes; typecheck; build.
+9. Deploy apenas das edge functions afetadas (`agent-chat`, `insights-generate`). **Não publicar frontend**.
+
+## 13. Critérios de aceite
+
+- "131,51 de VOS no cartão de crédito Itaú" registra description=`VOS`, `credit_card_id=<Itaú>`, `account_id=null`, e pergunta categoria.
+- Home mostra card "Categorizar VOS" com CTA que abre o sheet certo, foco no select. Após categorizar, card some.
+- Editar categoria pelo agente: draft mostra before/after, `confirm` altera uma vez; retry não duplica.
+- Conflito de version → mensagem "esse lançamento mudou, revise novamente".
+- User A não vê/edita nada de B.
+- Parcelamento novo em 3x com grupo; escopo `future`/`all` funciona; parcelamento antigo permite só `one`.
+- Transferência aparece read-only com explicação.
+- Painel admin do agente mostra a nova versão ativa; edições futuras do founder continuam funcionando.
+- `bunx vitest run` verde; `tsgo` sem erros; build sem erros.
+
+## 14. Riscos e gaps
+
+- **Backfill de `purchase_group_id`**: não haverá — parcelamentos antigos permanecem `one`. Comunicado na UI.
+- **CHECK payment_method**: pode falhar se houver linhas legadas inconsistentes. Antes do CHECK, rodar `SELECT` de auditoria; se houver, adicionar CHECK como `NOT VALID` + backlog de saneamento (fora desta rodada).
+- **Edição de `installments_total`** em compras já parceladas: só reduzir mantendo passadas confirmadas; aumentar cria novas linhas com mesmo `purchase_group_id`. Documentado no sheet.
+- **Transferências edição**: fora de escopo, planejar rodada dedicada.
+- **Agent SDK step budget**: manter 6–8 steps.
+- **Cache de queries**: garantir `invalidateQueries` em todos os pontos de mutação.
+
+## 15. Fora de escopo
+
+WAHA, webhook, sessão do WhatsApp, edição de transferências, importação, split, gamificação, novos módulos de relatório. Nenhum dado do usuário real é criado/alterado durante testes.
