@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, Loader2, ArrowLeftRight } from "lucide-react";
+import { Plus, Loader2, ArrowLeftRight, MoreHorizontal, Pencil, Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 import {
   useAccounts,
   useCategories,
@@ -13,8 +14,15 @@ import {
 } from "@/lib/db/finance";
 import { transactionSchema, transferSchema } from "@/lib/validation/finance";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function Lancamentos() {
+  const nav = useNavigate();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const [filters, setFilters] = useState<TxFilters>({ type: "all" });
@@ -133,41 +141,88 @@ export default function Lancamentos() {
                     {new Date(date + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
                   </p>
                   <ul className="space-y-2">
-                    {items.map((t) => (
-                      <li key={t.id} className="flex items-center justify-between rounded-2xl border border-border bg-card p-3 shadow-card">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{t.description || (t.type === "transfer" ? "Transferência" : catName(t.category_id))}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {accName(t.account_id)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
-                            {t.status === "planned" ? " · Planejado" : ""}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`font-semibold tabular-nums ${
-                              t.type === "income" ? "text-success" : t.type === "expense" ? "text-destructive" : "text-foreground"
-                            }`}
-                          >
-                            {t.type === "expense" ? "−" : t.type === "income" ? "+" : ""}
-                            {formatBRL(Number(t.amount))}
-                          </span>
+                    {items.map((t) => {
+                      const isTransfer = t.type === "transfer";
+                      const openDetail = () => nav(`/app/lancamentos/${t.id}`);
+                      const openEdit = () => nav(`/app/lancamentos/${t.id}?edit=1`);
+                      const doDuplicate = () => {
+                        if (isTransfer) {
+                          toast.message("Transferências não podem ser duplicadas.");
+                          return;
+                        }
+                        save.mutate(
+                          {
+                            account_id: t.account_id,
+                            category_id: t.category_id ?? null,
+                            type: t.type as "income" | "expense",
+                            status: (t.status ?? "confirmed") as "confirmed" | "planned",
+                            amount: Number(t.amount),
+                            occurred_at: todayISO(),
+                            description: t.description ?? "",
+                          },
+                          {
+                            onSuccess: () => toast.success("Lançamento duplicado"),
+                            onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+                          },
+                        );
+                      };
+                      const doDelete = () => {
+                        if (!confirm(isTransfer ? "Excluir esta transferência (ambas as pernas)?" : "Excluir este lançamento?")) return;
+                        del.mutate(t, {
+                          onSuccess: () => toast.success("Excluído"),
+                          onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+                        });
+                      };
+                      return (
+                        <li key={t.id} className="group flex items-center justify-between rounded-2xl border border-border bg-card p-3 shadow-card transition-colors hover:bg-secondary/50 focus-within:ring-2 focus-within:ring-primary/40">
                           <button
-                            onClick={() => {
-                              if (confirm(t.type === "transfer" ? "Excluir esta transferência (ambas as pernas)?" : "Excluir este lançamento?")) {
-                                del.mutate(t, {
-                                  onSuccess: () => toast.success("Excluído"),
-                                  onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
-                                });
-                              }
-                            }}
-                            className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
-                            aria-label="Excluir"
+                            type="button"
+                            onClick={openDetail}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left min-h-[48px]"
+                            aria-label={`Abrir lançamento: ${t.description || (isTransfer ? "Transferência" : catName(t.category_id))}`}
                           >
-                            <Trash2 size={14} />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">{t.description || (isTransfer ? "Transferência" : catName(t.category_id))}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                                {accName(t.account_id)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
+                                {t.status === "planned" ? " · Planejado" : ""}
+                              </p>
+                            </div>
+                            <span
+                              className={`font-semibold tabular-nums ${
+                                t.type === "income" ? "text-success" : t.type === "expense" ? "text-destructive" : "text-foreground"
+                              }`}
+                            >
+                              {t.type === "expense" ? "−" : t.type === "income" ? "+" : ""}
+                              {formatBRL(Number(t.amount))}
+                            </span>
                           </button>
-                        </div>
-                      </li>
-                    ))}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                                className="ml-2 grid h-11 w-11 place-items-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                aria-label="Ações do lançamento"
+                              >
+                                <MoreHorizontal size={18} />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem onClick={openEdit} disabled={isTransfer} className="gap-2">
+                                <Pencil size={14} /> Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={doDuplicate} disabled={isTransfer} className="gap-2">
+                                <Copy size={14} /> Duplicar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={doDelete} className="gap-2 text-destructive focus:text-destructive">
+                                <Trash2 size={14} /> Excluir
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               ))}
