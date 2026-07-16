@@ -244,8 +244,8 @@ export default function Lancamentos() {
                               <DropdownMenuItem onClick={openEdit} disabled={isTransfer} className="gap-2">
                                 <Pencil size={14} /> Editar
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={doDuplicate} disabled={isTransfer} className="gap-2">
-                                <Copy size={14} /> Duplicar
+                              <DropdownMenuItem onClick={doDuplicate} disabled={!canDuplicate} className="gap-2" title={isInstallment ? "Não é possível duplicar compra parcelada em bloco" : undefined}>
+                                <Copy size={14} /> Duplicar{isInstallment ? " (parcelado)" : ""}
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={doDelete} className="gap-2 text-destructive focus:text-destructive">
                                 <Trash2 size={14} /> Excluir
