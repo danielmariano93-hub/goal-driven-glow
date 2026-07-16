@@ -11,7 +11,6 @@ import {
   PiggyBank,
   Tag,
   LogOut,
-  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -41,7 +40,7 @@ const navGroups = [
 export function DesktopSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, isAdmin } = useAuth();
+  const { signOut } = useAuth();
 
   const isActive = (path: string, exact?: boolean) =>
     exact ? location.pathname === path : location.pathname === path || location.pathname.startsWith(path + '/');
@@ -92,15 +91,6 @@ export function DesktopSidebar() {
 
       {/* Footer */}
       <div className="border-t border-border p-3 space-y-1">
-        {isAdmin && (
-          <button
-            onClick={() => navigate('/admin')}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-          >
-            <ShieldCheck size={16} strokeWidth={1.7} />
-            <span>Admin</span>
-          </button>
-        )}
         <button
           onClick={() => signOut().then(() => navigate('/'))}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"

@@ -3,7 +3,7 @@ import { Loader2, ShieldAlert, CheckCircle2, XCircle, Play } from "lucide-react"
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { WhatsAppSessionPanel } from "./WhatsAppSessionPanel";
+
 
 type Health = {
   configured: boolean;
@@ -67,7 +67,7 @@ export default function AgenteAdmin() {
   });
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
+    <div className="space-y-6">
       <header className="mb-8 flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">Agente & Mensageria</h1>
@@ -166,8 +166,6 @@ export default function AgenteAdmin() {
           ))}
         </div>
       </section>
-
-      <WhatsAppSessionPanel />
     </div>
   );
 }

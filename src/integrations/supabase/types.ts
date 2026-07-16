@@ -450,6 +450,198 @@ export type Database = {
         }
         Relationships: []
       }
+      company_accounts: {
+        Row: {
+          created_at: string
+          currency: string
+          id: string
+          kind: string
+          name: string
+          notes: string | null
+          opening_balance: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          id?: string
+          kind?: string
+          name: string
+          notes?: string | null
+          opening_balance?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          id?: string
+          kind?: string
+          name?: string
+          notes?: string | null
+          opening_balance?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      company_budgets: {
+        Row: {
+          category_id: string | null
+          created_at: string
+          id: string
+          month: string
+          notes: string | null
+          planned_amount: number
+          updated_at: string
+        }
+        Insert: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          month: string
+          notes?: string | null
+          planned_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          month?: string
+          notes?: string | null
+          planned_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_budgets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "company_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_categories: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          kind: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      company_transactions: {
+        Row: {
+          account_id: string | null
+          amount: number
+          category_id: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          occurred_at: string
+          type: string
+          updated_at: string
+          vendor_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          amount: number
+          category_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          occurred_at: string
+          type: string
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          amount?: number
+          category_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          occurred_at?: string
+          type?: string
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_transactions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "company_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_transactions_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "company_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_transactions_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "company_vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_vendors: {
+        Row: {
+          contact: string | null
+          created_at: string
+          document: string | null
+          id: string
+          name: string
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          contact?: string | null
+          created_at?: string
+          document?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          contact?: string | null
+          created_at?: string
+          document?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       conversation_messages: {
         Row: {
           body_masked: string
@@ -1174,6 +1366,60 @@ export type Database = {
           id?: string
           lookup_key?: string | null
           used_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      platform_admin_audit: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          created_at: string
+          id: string
+          meta: Json
+          target_user_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          meta?: Json
+          target_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          meta?: Json
+          target_user_id?: string | null
+        }
+        Relationships: []
+      }
+      platform_admins: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          role: Database["public"]["Enums"]["platform_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          role: Database["public"]["Enums"]["platform_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          role?: Database["public"]["Enums"]["platform_role"]
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1927,11 +2173,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_agent_stats: { Args: never; Returns: Json }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
         Returns: undefined
       }
       admin_dashboard_stats: { Args: never; Returns: Json }
+      admin_engagement_stats: { Args: never; Returns: Json }
+      admin_list_platform_admins: {
+        Args: never
+        Returns: {
+          active: boolean
+          created_at: string
+          display_name: string
+          email: string
+          role: Database["public"]["Enums"]["platform_role"]
+          user_id: string
+        }[]
+      }
+      admin_ops_health: { Args: never; Returns: Json }
       admin_process_deletion_request: {
         Args: { p_id: string }
         Returns: string
@@ -1939,6 +2199,19 @@ export type Database = {
       admin_reject_deletion_request: {
         Args: { p_id: string; p_notes: string }
         Returns: undefined
+      }
+      admin_users_list: {
+        Args: { p_limit?: number; p_offset?: number; p_search?: string }
+        Returns: {
+          created_at: string
+          display_name: string
+          email: string
+          is_platform_admin: boolean
+          last_sign_in_at: string
+          onboarding_completed_at: string
+          user_id: string
+          whatsapp_linked: boolean
+        }[]
       }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
@@ -2045,7 +2318,18 @@ export type Database = {
         }
         Returns: string
       }
+      current_platform_admin_role: {
+        Args: never
+        Returns: Database["public"]["Enums"]["platform_role"]
+      }
       ensure_profile: { Args: never; Returns: undefined }
+      grant_platform_admin: {
+        Args: {
+          _role: Database["public"]["Enums"]["platform_role"]
+          _target: string
+        }
+        Returns: undefined
+      }
       has_role:
         | {
             Args: { _role: Database["public"]["Enums"]["app_role"] }
@@ -2064,6 +2348,7 @@ export type Database = {
         Returns: Json
       }
       is_current_user_admin: { Args: never; Returns: boolean }
+      is_platform_admin: { Args: never; Returns: boolean }
       join_challenge: { Args: { p_slug: string }; Returns: string }
       list_my_whatsapp_link: {
         Args: never
@@ -2098,6 +2383,7 @@ export type Database = {
         Returns: number
       }
       recurring_skip: { Args: { p_occurrence_id: string }; Returns: undefined }
+      revoke_platform_admin: { Args: { _target: string }; Returns: undefined }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
       split_add_payment: {
@@ -2192,6 +2478,7 @@ export type Database = {
         | "paid"
         | "waived"
         | "opted_out"
+      platform_role: "platform_owner" | "platform_admin" | "support" | "analyst"
       prompt_status: "draft" | "active" | "archived"
       recurring_frequency: "daily" | "weekly" | "monthly" | "yearly"
       recurring_status: "active" | "paused" | "finished"
@@ -2390,6 +2677,7 @@ export const Constants = {
         "waived",
         "opted_out",
       ],
+      platform_role: ["platform_owner", "platform_admin", "support", "analyst"],
       prompt_status: ["draft", "active", "archived"],
       recurring_frequency: ["daily", "weekly", "monthly", "yearly"],
       recurring_status: ["active", "paused", "finished"],

@@ -1,10 +1,10 @@
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Heart, User, ChevronRight, PiggyBank, LogOut, Wallet, Tag, ShieldCheck, MessageCircle, Upload, Users, Repeat, Trophy, BarChart3, Bell } from 'lucide-react';
+import { CreditCard, Heart, User, ChevronRight, PiggyBank, LogOut, Wallet, Tag, MessageCircle, Upload, Users, Repeat, Trophy, BarChart3, Bell } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 export default function MaisMenu() {
   const navigate = useNavigate();
-  const { signOut, isAdmin } = useAuth();
+  const { signOut } = useAuth();
 
   const items = [
     { path: '/app/divisao-do-role', label: 'Divisão do Rolê', desc: 'Divida contas com amigos', icon: Users, bg: 'bg-primary/10', iconColor: 'text-primary' },
@@ -49,21 +49,6 @@ export default function MaisMenu() {
             </button>
           );
         })}
-        {isAdmin && (
-          <button
-            onClick={() => navigate('/admin')}
-            className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-secondary/50 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <ShieldCheck size={16} className="text-primary" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Admin</p>
-              <p className="text-[11px] text-muted-foreground">Painel administrativo</p>
-            </div>
-            <ChevronRight size={14} className="text-muted-foreground" />
-          </button>
-        )}
       </div>
 
       <button

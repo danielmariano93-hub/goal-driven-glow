@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Wallet, Sparkles, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { loginSchema } from "@/lib/validation/auth";
 
 export default function Login() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get("next") || "/app";
+  const nextParam = params.get("next");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,13 +26,23 @@ export default function Login() {
     }
     setLoading(true);
     const { error } = await signIn(parsed.data.email, parsed.data.password);
-    setLoading(false);
     if (error) {
+      setLoading(false);
       setError(error);
       return;
     }
-    navigate(next.startsWith("/") ? next : "/app", { replace: true });
+    // Decidir destino: platform admin → /admin; caso contrário /app ou next.
+    try {
+      const { data: role } = await supabase.rpc("current_platform_admin_role");
+      if (role) {
+        navigate("/admin", { replace: true });
+        return;
+      }
+    } catch {}
+    const target = nextParam && nextParam.startsWith("/") ? nextParam : "/app";
+    navigate(target, { replace: true });
   }
+
 
   return (
     <div className="min-h-screen bg-background">

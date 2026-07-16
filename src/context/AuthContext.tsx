@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import type { PlatformRole } from "@/lib/admin/permissions";
 
 export type Profile = {
   id: string;
@@ -30,7 +31,9 @@ type AuthContextValue = {
   user: User | null;
   profile: Profile | null;
   roles: AppRole[];
-  isAdmin: boolean;
+  isFinancialUser: boolean;
+  platformRole: PlatformRole | null;
+  isPlatformAdmin: boolean;
   recovering: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (
@@ -50,20 +53,25 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 async function fetchProfileAndRoles(userId: string): Promise<{
   profile: Profile | null;
   roles: AppRole[];
+  platformRole: PlatformRole | null;
 }> {
-  const [profileRes, rolesRes] = await Promise.all([
+  const [profileRes, rolesRes, platformRes] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, display_name, onboarding_completed_at, timezone, currency")
       .eq("id", userId)
       .maybeSingle(),
     supabase.from("user_roles").select("role").eq("user_id", userId),
+    supabase.rpc("current_platform_admin_role"),
   ]);
   if (profileRes.error) throw profileRes.error;
   if (rolesRes.error) throw rolesRes.error;
   const profile = (profileRes.data as Profile | null) ?? null;
   const roles = ((rolesRes.data as { role: AppRole }[] | null) ?? []).map((r) => r.role);
-  return { profile, roles };
+  const platformRole = (!platformRes.error && platformRes.data
+    ? (platformRes.data as PlatformRole)
+    : null);
+  return { profile, roles, platformRole };
 }
 
 function friendlyAuthError(message: string | undefined): string {
@@ -84,26 +92,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
+  const [platformRole, setPlatformRole] = useState<PlatformRole | null>(null);
   const [recovering, setRecovering] = useState(false);
   const lastUserIdRef = useRef<string | null>(null);
 
   const hydrateProfile = async (uid: string) => {
     setAuthError(null);
     try {
-      let { profile, roles } = await fetchProfileAndRoles(uid);
-      if (!profile) {
-        // Try to self-heal: some old accounts may lack profile row
+      let { profile, roles, platformRole } = await fetchProfileAndRoles(uid);
+      if (!profile && !platformRole) {
+        // Self-heal: legacy accounts may lack profile row (financial users only)
         await supabase.rpc("ensure_profile");
         const again = await fetchProfileAndRoles(uid);
         profile = again.profile;
         roles = again.roles;
+        platformRole = again.platformRole;
       }
       setProfile(profile);
       setRoles(roles);
+      setPlatformRole(platformRole);
       setStatus("ready");
     } catch (e) {
       console.error("[auth] hydrate profile failed", e);
-      setAuthError("Não conseguimos carregar seu perfil. Verifique sua conexão.");
+      setAuthError("Não conseguimos carregar sua conta. Verifique sua conexão.");
       setStatus("error");
     }
   };
@@ -126,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastUserIdRef.current = null;
         setProfile(null);
         setRoles([]);
+        setPlatformRole(null);
         setStatus("ready");
       }
     });
@@ -153,7 +165,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       roles,
-      isAdmin: roles.includes("admin"),
+      isFinancialUser: roles.includes("user"),
+      platformRole,
+      isPlatformAdmin: !!platformRole,
       recovering,
       async signIn(email, password) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -177,6 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         setProfile(null);
         setRoles([]);
+        setPlatformRole(null);
         setRecovering(false);
       },
       async requestPasswordReset(email) {
@@ -200,7 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [status, authError, session, user, profile, roles, recovering]
+    [status, authError, session, user, profile, roles, platformRole, recovering]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
