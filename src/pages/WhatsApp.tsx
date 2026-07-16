@@ -47,6 +47,10 @@ export default function WhatsApp() {
   const [ttl, setTtl] = useState<number>(0);
   const [consent, setConsent] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [officialNumber, setOfficialNumber] = useState<string | null>(null);
+
+  useEffect(() => { resolveOfficialNumber().then(setOfficialNumber); }, []);
+
 
   const refresh = async () => {
     setLoading(true);
