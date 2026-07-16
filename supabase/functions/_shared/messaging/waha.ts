@@ -226,6 +226,15 @@ export interface WahaExtras {
 
 const webhookEvents = ["message", "message.any", "message.ack", "session.status"] as const;
 
+/** Append an opaque token to the webhook URL. Some WAHA versions/engines do
+ *  not propagate customHeaders reliably; the receiver accepts either the
+ *  header or the query token. Both compare to the same secret. */
+function webhookUrlWithToken(base: string): string {
+  if (!WAHA_WEBHOOK_SECRET) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}t=${encodeURIComponent(WAHA_WEBHOOK_SECRET)}`;
+}
+
 function buildSessionConfig(webhookUrl: string) {
   return {
     name: WAHA_SESSION,
@@ -237,7 +246,7 @@ function buildSessionConfig(webhookUrl: string) {
       },
       webhooks: [
         {
-          url: webhookUrl,
+          url: webhookUrlWithToken(webhookUrl),
           events: [...webhookEvents],
           hmac: null,
           retries: { policy: "linear", delaySeconds: 2, attempts: 3 },
