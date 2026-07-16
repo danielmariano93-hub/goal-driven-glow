@@ -23,6 +23,7 @@ export function BottomTabBar() {
         "/app/relatorios",
         "/app/perfil",
         "/app/contas",
+        "/app/cartoes",
         "/app/categorias",
         "/app/investimentos",
         "/app/recorrencias",

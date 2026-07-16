@@ -43,6 +43,17 @@ describe("finance validation", () => {
   it("account requires name", () => {
     expect(accountSchema.safeParse({ name: "", type: "checking", opening_balance: 0, active: true }).success).toBe(false);
   });
+  it("account accepts opening_balance = 0", () => {
+    const r = accountSchema.safeParse({ name: "Carteira", type: "cash", opening_balance: 0, active: true });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.opening_balance).toBe(0);
+  });
+  it("account accepts negative opening_balance", () => {
+    expect(accountSchema.safeParse({ name: "X", type: "checking", opening_balance: -50, active: true }).success).toBe(true);
+  });
+  it("account accepts positive opening_balance", () => {
+    expect(accountSchema.safeParse({ name: "X", type: "checking", opening_balance: 1234.56, active: true }).success).toBe(true);
+  });
   it("debt outstanding <= original enforced in UI, schema allows individually", () => {
     expect(debtSchema.safeParse({ name: "X", original_amount: 100, outstanding_balance: 50 }).success).toBe(true);
     expect(debtSchema.safeParse({ name: "X", original_amount: -5, outstanding_balance: 0 }).success).toBe(false);

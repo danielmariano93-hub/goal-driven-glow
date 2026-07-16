@@ -3,6 +3,7 @@ import { LogOut } from 'lucide-react';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
 import { NotificationBell } from '@/components/NotificationBell';
+import { AssessorFab } from '@/components/assessor/AssessorFab';
 import { useAuth } from '@/context/AuthContext';
 
 export function AppLayout() {
@@ -31,7 +32,9 @@ export function AppLayout() {
         </div>
       </main>
       <BottomTabBar />
+      <AssessorFab />
     </div>
   );
 }
+
 

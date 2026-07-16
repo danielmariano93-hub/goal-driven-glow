@@ -737,7 +737,8 @@ export type Database = {
           id: string
           last_message_at: string
           pending_slots: Json | null
-          phone_e164: string
+          phone_e164: string | null
+          source: string
           user_id: string
         }
         Insert: {
@@ -745,7 +746,8 @@ export type Database = {
           id?: string
           last_message_at?: string
           pending_slots?: Json | null
-          phone_e164: string
+          phone_e164?: string | null
+          source?: string
           user_id: string
         }
         Update: {
@@ -753,7 +755,56 @@ export type Database = {
           id?: string
           last_message_at?: string
           pending_slots?: Json | null
-          phone_e164?: string
+          phone_e164?: string | null
+          source?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      credit_cards: {
+        Row: {
+          active: boolean
+          brand: string | null
+          closing_day: number
+          color: string | null
+          created_at: string
+          due_day: number
+          id: string
+          last_four: string | null
+          name: string
+          statement_goal: number | null
+          total_limit: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          brand?: string | null
+          closing_day: number
+          color?: string | null
+          created_at?: string
+          due_day: number
+          id?: string
+          last_four?: string | null
+          name: string
+          statement_goal?: number | null
+          total_limit?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          brand?: string | null
+          closing_day?: number
+          color?: string | null
+          created_at?: string
+          due_day?: number
+          id?: string
+          last_four?: string | null
+          name?: string
+          statement_goal?: number | null
+          total_limit?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -2032,18 +2083,24 @@ export type Database = {
       }
       transactions: {
         Row: {
-          account_id: string
+          account_id: string | null
           amount: number
           category_id: string | null
+          competence_date: string | null
           created_at: string
+          credit_card_id: string | null
           description: string | null
           direction: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger: string | null
           id: string
           import_source_id: string | null
+          installment_number: number | null
+          installments_total: number | null
           notes: string | null
           occurred_at: string
           origin: Database["public"]["Enums"]["txn_origin"]
+          payment_method: string
+          purchase_date: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -2051,18 +2108,24 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          account_id: string
+          account_id?: string | null
           amount: number
           category_id?: string | null
+          competence_date?: string | null
           created_at?: string
+          credit_card_id?: string | null
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
           id?: string
           import_source_id?: string | null
+          installment_number?: number | null
+          installments_total?: number | null
           notes?: string | null
           occurred_at: string
           origin?: Database["public"]["Enums"]["txn_origin"]
+          payment_method?: string
+          purchase_date?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -2070,18 +2133,24 @@ export type Database = {
           user_id: string
         }
         Update: {
-          account_id?: string
+          account_id?: string | null
           amount?: number
           category_id?: string | null
+          competence_date?: string | null
           created_at?: string
+          credit_card_id?: string | null
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
           id?: string
           import_source_id?: string | null
+          installment_number?: number | null
+          installments_total?: number | null
           notes?: string | null
           occurred_at?: string
           origin?: Database["public"]["Enums"]["txn_origin"]
+          payment_method?: string
+          purchase_date?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
@@ -2101,6 +2170,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
             referencedColumns: ["id"]
           },
         ]
@@ -2605,6 +2681,10 @@ export type Database = {
           p_occurred_at: string
           p_to_account: string
         }
+        Returns: string
+      }
+      credit_card_competence: {
+        Args: { p_closing_day: number; p_purchase: string }
         Returns: string
       }
       current_platform_admin_role: {
