@@ -207,6 +207,17 @@ export default function LancamentoDetalhe() {
           </p>
         )}
 
+        {(() => {
+          const forbidden = new Set(["credito","credito.","cartao","cartão","crédito","pix","debito","débito","dinheiro","boleto","transferencia","transferência","ted","doc","fatura"]);
+          const norm = (description ?? "").trim().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+          const looksLikeMethod = description.trim() && forbidden.has(norm);
+          return looksLikeMethod ? (
+            <p className="rounded-lg border border-amber-400/40 bg-amber-50 p-2 text-xs text-amber-800">
+              A descrição atual parece o meio de pagamento (“{description}”). Que tal contar em quê foi? Ex.: mercado, gasolina, farmácia.
+            </p>
+          ) : null;
+        })()}
+
         <div>
           <label className="text-xs font-medium text-muted-foreground">Descrição</label>
           <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer} />

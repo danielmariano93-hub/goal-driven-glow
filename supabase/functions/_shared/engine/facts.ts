@@ -15,6 +15,7 @@ export interface TransactionRow {
   description: string | null; transfer_group_id: string | null;
   payment_method?: string | null;
   credit_card_id?: string | null;
+  settles_card_id?: string | null;
 }
 
 export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
@@ -78,10 +79,10 @@ export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
   let total = 0;
   for (const t of txs) {
     if (t.status !== "confirmed" || t.type !== "expense") continue;
-    if (txOrigin(t) !== "credit_card") continue;
-    total += Number(t.amount || 0);
+    if (txOrigin(t) === "credit_card") total += Number(t.amount || 0);
+    if (t.settles_card_id) total -= Number(t.amount || 0);
   }
-  return round2(total);
+  return round2(Math.max(0, total));
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
