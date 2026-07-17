@@ -1,16 +1,17 @@
 import { Link } from "react-router-dom";
-import { Loader2, ArrowUpRight, ArrowDownRight, Info } from "lucide-react";
+import { Loader2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { useAccounts, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
 import { computeNetWorth, computeMonthlyIncomeExpense, currentMonthYM, formatBRL } from "@/lib/engine/facts";
-import { useAuth } from "@/context/AuthContext";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { WhatsAppCta } from "@/components/home/WhatsAppCta";
 import { ParaPagarResumo } from "@/components/home/ParaPagarResumo";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
+import { PulseHero } from "@/components/home/PulseHero";
+import { PatrimonioCard } from "@/components/home/PatrimonioCard";
+import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 
 export default function Index() {
-  const { profile } = useAuth();
   const { data: accounts, isLoading: la } = useAccounts();
   const { data: txs, isLoading: lt } = useAllTransactions();
   const { data: goals } = useGoals();
@@ -28,7 +29,8 @@ export default function Index() {
     (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status }))
   );
 
-  const monthly = computeMonthlyIncomeExpense(tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never, currentMonthYM());
+  const monthlyAccount = computeMonthlyIncomeExpense(tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never, currentMonthYM(), { origin: "account" });
+  const monthlyCard = computeMonthlyIncomeExpense(tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never, currentMonthYM(), { origin: "credit_card" });
 
   const hasAccount = acc.length > 0;
   const hasTransaction = tx.length > 0;
@@ -37,18 +39,9 @@ export default function Index() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-3xl bg-gradient-brand p-6 text-white shadow-brand md:p-7">
-        <p className="text-[11px] font-medium uppercase tracking-wider opacity-80">
-          Olá{profile?.display_name ? `, ${profile.display_name}` : ""}
-        </p>
-        <p className="mt-1 text-xs opacity-90">Seu patrimônio hoje</p>
-        <p className="mt-1 font-display text-3xl font-bold tabular-nums md:text-4xl">
-          {loading ? "…" : formatBRL(nw.net)}
-        </p>
-        <p className="mt-2 text-[11px] opacity-80">
-          <Info size={11} className="inline" /> Em caixa {formatBRL(nw.cash)} · Investido {formatBRL(nw.invested)} · Dívidas {formatBRL(nw.owed)}
-        </p>
-      </section>
+      <PulseHero />
+
+      <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} />
 
       <AssistantTipCard />
 
@@ -68,18 +61,21 @@ export default function Index() {
         <div className="grid grid-cols-2 gap-3">
           <Kpi
             label="Entrou este mês"
-            value={formatBRL(monthly.income)}
+            value={formatBRL(monthlyAccount.income)}
             icon={<ArrowUpRight />}
             accent="text-success"
           />
           <Kpi
-            label="Saiu este mês"
-            value={formatBRL(monthly.expense)}
+            label="Saiu da conta este mês"
+            value={formatBRL(monthlyAccount.expense)}
             icon={<ArrowDownRight />}
             accent="text-destructive"
+            sub={monthlyCard.expense > 0 ? `+ ${formatBRL(monthlyCard.expense)} foi para a fatura do cartão` : undefined}
           />
         </div>
       )}
+
+      <EmotionalCheckinCard />
 
       {!isFresh && (
         <div className="flex justify-center pt-1">
@@ -95,14 +91,16 @@ export default function Index() {
   );
 }
 
-function Kpi({ label, value, icon, accent }: { label: string; value: string; icon: React.ReactNode; accent: string }) {
+function Kpi({ label, value, icon, accent, sub }: { label: string; value: string; icon: React.ReactNode; accent: string; sub?: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-card min-w-0">
       <div className={`flex items-center gap-2 text-[11px] ${accent}`}>
         <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
-        <span className="font-medium">{label}</span>
+        <span className="font-medium truncate">{label}</span>
       </div>
-      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 truncate text-lg font-semibold tabular-nums">{value}</p>
+      {sub ? <p className="mt-0.5 text-[10px] text-muted-foreground leading-tight">{sub}</p> : null}
     </div>
   );
 }
+

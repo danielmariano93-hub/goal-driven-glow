@@ -13,6 +13,16 @@ export interface TransactionRow {
   status: "confirmed" | "planned";
   amount: number; occurred_at: string;
   description: string | null; transfer_group_id: string | null;
+  payment_method?: string | null;
+  credit_card_id?: string | null;
+}
+
+export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
+  "account" | "credit_card" {
+  if (t.credit_card_id) return "credit_card";
+  const pm = (t.payment_method ?? "").toString().toLowerCase();
+  if (pm === "credit_card") return "credit_card";
+  return "account";
 }
 export interface RecurringRow {
   id: string; name: string; type: "income" | "expense";
@@ -41,9 +51,12 @@ export function computeAccountBalances(accounts: AccountRow[], txs: TransactionR
   for (const t of txs) {
     if (t.status !== "confirmed") continue;
     if (t.type === "transfer") continue;
+    if (txOrigin(t) !== "account") continue;
+    if (!t.account_id) continue;
     const amt = Number(t.amount || 0);
     map[t.account_id] = (map[t.account_id] || 0) + (t.type === "income" ? amt : -amt);
   }
+  // Fatura em aberto por cartão (v1 estimativa) — expostas via helper abaixo.
   const groups: Record<string, TransactionRow[]> = {};
   for (const t of txs) {
     if (t.type !== "transfer" || t.status !== "confirmed" || !t.transfer_group_id) continue;
@@ -59,6 +72,16 @@ export function computeAccountBalances(accounts: AccountRow[], txs: TransactionR
   }
   for (const k of Object.keys(map)) map[k] = round2(map[k]);
   return map;
+}
+
+export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
+  let total = 0;
+  for (const t of txs) {
+    if (t.status !== "confirmed" || t.type !== "expense") continue;
+    if (txOrigin(t) !== "credit_card") continue;
+    total += Number(t.amount || 0);
+  }
+  return round2(total);
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {

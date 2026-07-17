@@ -11,6 +11,8 @@ export interface AccountRow {
   active: boolean;
 }
 
+export type PaymentMethod = "account" | "credit_card" | "cash" | "pix" | "other";
+
 export interface TransactionRow {
   id: string;
   account_id: string;
@@ -21,6 +23,30 @@ export interface TransactionRow {
   occurred_at: string; // YYYY-MM-DD
   description: string | null;
   transfer_group_id: string | null;
+  payment_method?: PaymentMethod | string | null;
+  credit_card_id?: string | null;
+  competence_date?: string | null;
+}
+
+export interface CreditCardRow {
+  id: string;
+  name: string;
+  total_limit: number;
+  closing_day: number;
+  due_day: number;
+  active: boolean;
+}
+
+/**
+ * Resolve the effective payment origin for a confirmed tx.
+ * Legacy rows may have null payment_method; infer from credit_card_id.
+ */
+export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
+  "account" | "credit_card" {
+  if (t.credit_card_id) return "credit_card";
+  const pm = (t.payment_method ?? "").toString().toLowerCase();
+  if (pm === "credit_card") return "credit_card";
+  return "account";
 }
 
 export interface CategoryRow {
@@ -88,18 +114,16 @@ export function computeAccountBalances(
   for (const a of accounts) map[a.id] = Number(a.opening_balance || 0);
   for (const t of txs) {
     if (t.status !== "confirmed") continue;
+    if (t.type === "transfer") continue;
+    // Só afeta a conta se a origem for a própria conta (não cartão).
+    if (txOrigin(t) !== "account") continue;
+    if (!t.account_id) continue;
     const amt = Number(t.amount || 0);
     if (!map[t.account_id] && map[t.account_id] !== 0) map[t.account_id] = 0;
     if (t.type === "income") map[t.account_id] += amt;
     else if (t.type === "expense") map[t.account_id] -= amt;
-    else if (t.type === "transfer") {
-      // With paired legs, treat as +/- on each account depending on which leg via description convention?
-      // We rely on the two-legs pattern where each row represents one leg's account.
-      // Convention: first leg (source) debits, second leg (destination) credits.
-      // We can't distinguish here, so use created order via transfer_group; caller uses pair.
-    }
   }
-  // Apply transfers by pair: pair legs by transfer_group_id
+  // Transferências continuam movendo dinheiro entre contas (pares).
   const groups: Record<string, TransactionRow[]> = {};
   for (const t of txs) {
     if (t.type !== "transfer" || t.status !== "confirmed" || !t.transfer_group_id) continue;
@@ -107,7 +131,6 @@ export function computeAccountBalances(
   }
   for (const legs of Object.values(groups)) {
     if (legs.length < 2) continue;
-    // sort by created id string to be deterministic; assume first row = source (debit), second = destination (credit)
     const sorted = [...legs].sort((a, b) => a.id.localeCompare(b.id));
     const src = sorted[0];
     const dst = sorted[1];
@@ -124,15 +147,45 @@ export function computeTotalCash(accounts: AccountRow[], txs: TransactionRow[]):
   return round2(Object.values(bals).reduce((a, b) => a + b, 0));
 }
 
-/** Month = "YYYY-MM" in local (America/Sao_Paulo) — occurred_at is already a date string, no TZ conversion needed */
+/** Fatura em aberto (estimativa v1): soma expenses confirmadas com credit_card_id.
+ *  Pagamentos de fatura (transactions payment_method='account' quitando cartão)
+ *  ainda não são modelados; considerar limitação e exibir como "estimativa". */
+export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
+  let total = 0;
+  for (const t of txs) {
+    if (t.status !== "confirmed") continue;
+    if (t.type !== "expense") continue;
+    if (txOrigin(t) !== "credit_card") continue;
+    total += Number(t.amount || 0);
+  }
+  return round2(total);
+}
+
+export function computeCreditCardOutstandingByCard(txs: TransactionRow[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const t of txs) {
+    if (t.status !== "confirmed" || t.type !== "expense") continue;
+    if (!t.credit_card_id) continue;
+    map[t.credit_card_id] = round2((map[t.credit_card_id] || 0) + Number(t.amount || 0));
+  }
+  return map;
+}
+
+/** Month = "YYYY-MM" */
 export function isInMonth(dateStr: string, ym: string): boolean {
   return dateStr.startsWith(ym);
 }
 
-export function computeMonthlyIncomeExpense(txs: TransactionRow[], ym: string) {
-  const inMonth = txs.filter((t) => isInMonth(t.occurred_at, ym) && t.status === "confirmed");
-  const income = sumBy(inMonth.filter((t) => t.type === "income"), (t) => Number(t.amount));
-  const expense = sumBy(inMonth.filter((t) => t.type === "expense"), (t) => Number(t.amount));
+export function computeMonthlyIncomeExpense(
+  txs: TransactionRow[],
+  ym: string,
+  filter?: { origin?: "account" | "credit_card" | "all" },
+) {
+  const origin = filter?.origin ?? "all";
+  const inMonth = txs.filter((t) => isInMonth(t.occurred_at, ym) && t.status === "confirmed" && t.type !== "transfer");
+  const scoped = origin === "all" ? inMonth : inMonth.filter((t) => txOrigin(t) === origin);
+  const income = sumBy(scoped.filter((t) => t.type === "income"), (t) => Number(t.amount));
+  const expense = sumBy(scoped.filter((t) => t.type === "expense"), (t) => Number(t.amount));
   return { income, expense, net: round2(income - expense) };
 }
 
@@ -172,12 +225,14 @@ export function computeNetWorth(
 ) {
   const cash = computeTotalCash(accounts, txs);
   const invested = sumBy(investments, (i) => Number(i.current_value));
-  const owed = sumBy(
+  const cardsOwed = computeCreditCardOutstanding(txs);
+  const otherDebts = sumBy(
     debts.filter((d) => d.status === "active"),
     (d) => Number(d.outstanding_balance)
   );
+  const owed = round2(cardsOwed + otherDebts);
   const net = round2(cash + invested - owed);
-  return { cash, invested, owed, net };
+  return { cash, invested, cardsOwed, otherDebts, owed, net };
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
