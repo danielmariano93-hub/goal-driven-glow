@@ -3,13 +3,14 @@ import { Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-const MAX_BYTES = 10 * 1024 * 1024;
-const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
+const MAX_BYTES = 20 * 1024 * 1024;
+const ALLOWED = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
 export type PreparedAttachment = {
   file: File;
   url: string;
   name: string;
+  mimeType: string;
 };
 
 async function stripExifAndCompress(file: File): Promise<Blob> {
@@ -43,13 +44,15 @@ export async function ingestDocument(
   conversationId: string | null,
   guidance: string,
 ) {
-  const blob = await stripExifAndCompress(file).catch(() => file);
+  const isPdf = file.type === "application/pdf";
+  const blob = isPdf ? file : await stripExifAndCompress(file).catch(() => file);
+  const mimeType = isPdf ? "application/pdf" : "image/jpeg";
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const create = await supabase.functions.invoke("assistant-ingest-document", {
     body: {
       mode: "create-upload",
       filename: file.name,
-      mime_type: "image/jpeg",
+      mime_type: mimeType,
       size_bytes: bytes.length,
       conversation_id: conversationId,
     },
@@ -58,7 +61,7 @@ export async function ingestDocument(
   const upload = create.data as { document_id: string; upload_url: string };
   const put = await fetch(upload.upload_url, {
     method: "PUT",
-    headers: { "Content-Type": "image/jpeg", "x-upsert": "true" },
+    headers: { "Content-Type": mimeType, "x-upsert": "true" },
     body: bytes,
   });
   if (!put.ok) throw new Error(`upload_failed:${put.status}`);
@@ -86,14 +89,14 @@ export function AssessorAttachButton({
 
   function handleFile(file: File) {
     if (!ALLOWED.includes(file.type)) {
-      toast.error("Formato não suportado. Envie JPEG, PNG ou WebP.");
+      toast.error("Formato não suportado. Envie PDF, JPEG, PNG ou WebP.");
       return;
     }
     if (file.size > MAX_BYTES) {
-      toast.error("Arquivo muito grande (máximo 10MB).");
+      toast.error("Arquivo muito grande (máximo 20 MB).");
       return;
     }
-    onSelected({ file, url: URL.createObjectURL(file), name: file.name });
+    onSelected({ file, url: URL.createObjectURL(file), name: file.name, mimeType: file.type });
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -102,7 +105,7 @@ export function AssessorAttachButton({
       <input
         ref={fileRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="application/pdf,image/jpeg,image/png,image/webp,.pdf"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -114,8 +117,8 @@ export function AssessorAttachButton({
         onClick={() => fileRef.current?.click()}
         disabled={disabled}
         className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-border bg-secondary text-muted-foreground hover:text-foreground disabled:opacity-50"
-        aria-label="Anexar imagem"
-        title="Anexar recibo, fatura ou print"
+        aria-label="Anexar documento"
+        title="Anexar PDF, extrato, fatura, recibo ou print"
       >
         <Paperclip size={16} />
       </button>

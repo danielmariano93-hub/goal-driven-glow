@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { AssessorAttachButton, ingestDocument, type PreparedAttachment } from "./AssessorAttachButton";
 import { ReviewSheet } from "./ReviewSheet";
+import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
 
 type Pending = {
   id: string;
@@ -25,7 +26,7 @@ type DocDraft = {
 
 type Msg =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null };
+  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null; report?: SpendingReport | null };
 
 const SUGGESTIONS = [
   "Como está meu mês?",
@@ -47,19 +48,26 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   });
   const endRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
+  const viewport = useVisualViewport();
+
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, []);
 
   function onExtracted(info: DocDraft) {
     let content = "";
     if (info.status === "needs_review" && (info.items_count ?? 0) > 0) {
-      content = `Encontrei ${info.items_count} lançamento(s) nessa imagem. Toque em "Revisar" para conferir antes de registrar.`;
+      content = `Encontrei ${info.items_count} lançamento(s) nesse documento. Toque em "Revisar" para conferir antes de registrar.`;
     } else if (info.document_kind === "illegible") {
-      content = "Não consegui ler bem essa imagem. Pode enviar outra mais nítida?";
+      content = "Não consegui ler bem esse documento. Se for PDF, confira se ele não tem senha; se for imagem, envie uma versão mais nítida.";
     } else if (info.document_kind === "non_financial") {
-      content = "Essa imagem não parece ser um documento financeiro. Tenta uma foto de recibo, fatura ou lista de compras.";
+      content = "Esse arquivo não parece ser um documento financeiro. Tente um extrato, fatura, recibo ou lista de compras.";
     } else if (info.status === "failed") {
-      content = `Tive um problema ao processar a imagem${info.error ? ` (${info.error})` : ""}. Pode tentar de novo?`;
+      content = "Não consegui processar o documento. Confira se o PDF possui senha, se tem até 20 MB e tente novamente.";
     } else {
-      content = "Não achei nenhum lançamento nessa imagem.";
+      content = "Não achei nenhum lançamento nesse documento.";
     }
     setMessages((m) => [...m, { role: "assistant", content, doc: info }]);
   }
@@ -74,7 +82,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     }
   }, [convId]);
 
-  async function callAgent(payload: Record<string, unknown>): Promise<{ reply: string; pending: Pending | null; executed: any; conversation_id: string } | null> {
+  async function callAgent(payload: Record<string, unknown>): Promise<{ reply: string; pending: Pending | null; executed: any; conversation_id: string; report?: SpendingReport | null } | null> {
     const { data, error } = await supabase.functions.invoke("agent-chat", {
       body: { conversation_id: convId, ...payload },
     });
@@ -103,7 +111,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         setAttachment(null);
       } else {
         const res = await callAgent({ text: clean });
-        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null }]);
+        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null, report: res?.report ?? null }]);
         if (res?.executed) refetchAll();
       }
     } catch (e) {
@@ -143,13 +151,17 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   }
 
   const panel = (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background md:items-end md:justify-end md:bg-black/40" onClick={onClose}>
+    <div
+      className="fixed inset-x-0 z-[100] flex flex-col overflow-hidden bg-background overscroll-none md:inset-0 md:items-end md:justify-end md:bg-black/40"
+      style={{ top: viewport.top, height: viewport.height }}
+      onClick={onClose}
+    >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full flex-col bg-card md:h-[85vh] md:max-h-[720px] md:w-[420px] md:m-4 md:rounded-2xl md:shadow-brand"
+        className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-card md:m-4 md:h-[85vh] md:max-h-[720px] md:w-[420px] md:rounded-2xl md:shadow-brand"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <header className="flex items-center justify-between border-b border-border px-4 py-3">
+        <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <div>
             <p className="font-display text-base font-bold">Seu assessor</p>
             <p className="text-[11px] text-muted-foreground">Converse como no WhatsApp</p>
@@ -159,7 +171,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4">
           {messages.length === 0 && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
@@ -200,6 +212,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                   <FileText size={14} /> Revisar {m.doc.items_count} lançamento(s)
                 </button>
               )}
+              {m.role === "assistant" && m.report && <SpendingReportCard report={m.report} />}
             </div>
           ))}
           {sending && (
@@ -213,11 +226,13 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {attachment && (
-          <div className="mx-3 mb-2 flex min-w-0 items-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-2">
-            <img src={attachment.url} alt="Imagem anexada" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+          <div className="mx-3 mb-2 flex min-w-0 shrink-0 items-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-2">
+            {attachment.mimeType === "application/pdf"
+              ? <div className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><FileText size={22} /></div>
+              : <img src={attachment.url} alt="Imagem anexada" className="h-12 w-12 shrink-0 rounded-lg object-cover" />}
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium">{attachment.name}</p>
-              <p className="text-[11px] text-muted-foreground">Adicione uma orientação e toque em enviar.</p>
+              <p className="text-[11px] text-muted-foreground">Adicione uma orientação e toque em enviar. Nada será salvo sem sua revisão.</p>
             </div>
             <button
               type="button"
@@ -237,7 +252,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
             e.preventDefault();
             send(input);
           }}
-          className="flex items-center gap-2 border-t border-border p-3"
+          className="flex w-full min-w-0 shrink-0 items-center gap-2 border-t border-border bg-card p-3"
         >
           <AssessorAttachButton
             onSelected={(next) => {
@@ -249,14 +264,15 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Escreva uma mensagem ou envie uma foto…"
-            className="input-base flex-1"
+            placeholder="Escreva uma mensagem ou anexe um documento…"
+            className="input-base min-w-0 flex-1 text-base"
             disabled={sending}
+            onFocus={() => window.setTimeout(() => endRef.current?.scrollIntoView({ block: "end" }), 120)}
           />
           <button
             type="submit"
             disabled={sending || (!input.trim() && !attachment)}
-            className="btn-brand inline-flex items-center gap-1.5 disabled:opacity-50"
+            className="btn-brand inline-flex h-10 w-10 shrink-0 items-center justify-center p-0 disabled:opacity-50"
             aria-label="Enviar"
           >
             <Send size={14} />
@@ -268,6 +284,31 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   );
 
   return typeof document !== "undefined" ? createPortal(panel, document.body) : panel;
+}
+
+function useVisualViewport() {
+  const initial = () => ({
+    height: typeof window === "undefined" ? "100dvh" : `${window.visualViewport?.height ?? window.innerHeight}px`,
+    top: typeof window === "undefined" ? "0px" : `${window.visualViewport?.offsetTop ?? 0}px`,
+  });
+  const [viewport, setViewport] = useState(initial);
+  useEffect(() => {
+    const visual = window.visualViewport;
+    const update = () => setViewport({
+      height: `${visual?.height ?? window.innerHeight}px`,
+      top: `${visual?.offsetTop ?? 0}px`,
+    });
+    update();
+    visual?.addEventListener("resize", update);
+    visual?.addEventListener("scroll", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      visual?.removeEventListener("resize", update);
+      visual?.removeEventListener("scroll", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+  return viewport;
 }
 
 function ConfirmationCard({

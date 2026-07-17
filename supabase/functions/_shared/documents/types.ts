@@ -22,10 +22,10 @@ export type ExtractionResult = {
   notes: string | null;
 };
 
-export const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
-export const MAX_BYTES = 10 * 1024 * 1024;
+export const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+export const MAX_BYTES = 20 * 1024 * 1024;
 
-// Magic bytes: PNG, JPEG, WebP
+// Magic bytes: PNG, JPEG, WebP, PDF
 export function detectMime(bytes: Uint8Array): string | null {
   if (bytes.length < 12) return null;
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
@@ -34,6 +34,7 @@ export function detectMime(bytes: Uint8Array): string | null {
     bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
     bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
   ) return "image/webp";
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return "application/pdf";
   return null;
 }
 

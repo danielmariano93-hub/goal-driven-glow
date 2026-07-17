@@ -28,7 +28,7 @@ async function getUser(req: Request) {
 
 const SYSTEM_PROMPT = `Você é um extrator financeiro para o app NoControle.ia.
 
-Analise a imagem enviada (recibo, fatura, extrato, print de compra ou lista) e devolva JSON puro no formato:
+Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON puro no formato:
 {
   "document_kind": "receipt|invoice|statement|list|non_financial|illegible",
   "items": [
@@ -63,7 +63,7 @@ REGRAS ESTRITAS:
 - Estorno/reembolso é income.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
-async function callMultimodal(publicBase64Url: string, guidance: string, signal: AbortSignal): Promise<{ result: ExtractionResult; tokens_in: number; tokens_out: number; ms: number; error?: string }> {
+async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<{ result: ExtractionResult; tokens_in: number; tokens_out: number; ms: number; error?: string }> {
   const start = Date.now();
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -79,8 +79,10 @@ async function callMultimodal(publicBase64Url: string, guidance: string, signal:
           {
             role: "user",
             content: [
-              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}. Extraia lançamentos desta imagem em JSON estrito.` },
-              { type: "image_url", image_url: { url: publicBase64Url } },
+              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}. Extraia lançamentos do documento inteiro em JSON estrito.` },
+              mimeType === "application/pdf"
+                ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
+                : { type: "image_url", image_url: { url: publicBase64Url } },
             ],
           },
         ],
@@ -154,7 +156,7 @@ Deno.serve(async (req) => {
     if (!Number.isFinite(size_bytes) || size_bytes <= 0 || size_bytes > MAX_BYTES) return json({ error: "size_out_of_range", max: MAX_BYTES }, 400);
 
     const doc_id = crypto.randomUUID();
-    const ext = mime_type === "image/png" ? "png" : mime_type === "image/webp" ? "webp" : "jpg";
+    const ext = mime_type === "application/pdf" ? "pdf" : mime_type === "image/png" ? "png" : mime_type === "image/webp" ? "webp" : "jpg";
     const storage_path = `${user.id}/${doc_id}.${ext}`;
 
     // Create signed upload URL
@@ -238,7 +240,7 @@ Deno.serve(async (req) => {
       const t = setTimeout(() => ac.abort(), 45_000);
       try {
         const guidance = String(body.guidance ?? "").slice(0, 500);
-        const out = await callMultimodal(dataUrl, guidance, ac.signal);
+        const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", guidance, ac.signal);
         extraction = out.result;
         if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance)) {
           const today = new Date().toISOString().slice(0, 10);

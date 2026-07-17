@@ -82,6 +82,57 @@ export async function list_recent_transactions(ctx: ToolContext, args: { limit?:
   return { ok: true, result: data ?? [] };
 }
 
+export async function analyze_spending(ctx: ToolContext, args: {
+  days?: number; from?: string; to?: string; payment_method?: "account" | "credit_card";
+}): Promise<ToolResult> {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  const to = iso.test(args?.to ?? "") ? args.to! : new Date().toISOString().slice(0, 10);
+  const days = Math.max(1, Math.min(366, Number(args?.days ?? 30)));
+  const start = new Date(`${to}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - days + 1);
+  const from = iso.test(args?.from ?? "") ? args.from! : start.toISOString().slice(0, 10);
+
+  let query = ctx.sb.from("transactions")
+    .select("id,type,amount,occurred_at,description,category_id,payment_method,credit_card_id")
+    .eq("user_id", ctx.user_id).gte("occurred_at", from).lte("occurred_at", to)
+    .order("occurred_at", { ascending: true });
+  if (args?.payment_method) query = query.eq("payment_method", args.payment_method);
+  const [{ data, error }, { data: categories }] = await Promise.all([
+    query,
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+  ]);
+  if (error) return { ok: false, error: error.message };
+
+  const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
+  const rows = (data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
+  const expenses = rows.filter((r: any) => r.type === "expense");
+  const income = rows.filter((r: any) => r.type === "income");
+  const byCategory = new Map<string, number>();
+  const byDay = new Map<string, number>();
+  for (const row of expenses) {
+    const category = row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria";
+    byCategory.set(category, (byCategory.get(category) ?? 0) + row.amount);
+    byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + row.amount);
+  }
+  const categoriesRank = [...byCategory.entries()]
+    .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+    .sort((a, b) => b.value - a.value);
+  const daily = [...byDay.entries()].map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
+  const totalExpense = expenses.reduce((sum: number, r: any) => sum + r.amount, 0);
+  const totalIncome = income.reduce((sum: number, r: any) => sum + r.amount, 0);
+  const uncategorized = categoriesRank.find((c) => c.name === "Sem categoria")?.value ?? 0;
+  return {
+    ok: true,
+    result: {
+      kind: "spending_report", period: { from, to, days },
+      totals: { expense: Math.round(totalExpense * 100) / 100, income: Math.round(totalIncome * 100) / 100, net: Math.round((totalIncome - totalExpense) * 100) / 100 },
+      transactions_count: rows.length, categories: categoriesRank, daily,
+      top_category: categoriesRank[0] ?? null, uncategorized,
+      data_limit: rows.length === 0 ? "no_data" : rows.length < 3 ? "small_sample" : null,
+    },
+  };
+}
+
 export async function run_before_spending(ctx: ToolContext, args: { amount: number; account_hint?: string }): Promise<ToolResult> {
   const amount = Number(args?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
@@ -511,6 +562,20 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Lista os lançamentos mais recentes do usuário.",
     parameters: { type: "object", properties: { limit: { type: "integer" } }, additionalProperties: false },
     execute: list_recent_transactions,
+  },
+  {
+    name: "analyze_spending",
+    description: "Analisa gastos reais por período e devolve totais, ranking por categoria e série diária para gráficos/relatórios. Use sempre que o usuário pedir análise, comparação, onde gasta mais, gráfico ou relatório; mesmo com poucos dados, analise o que existir e apenas sinalize a amostra pequena.",
+    parameters: {
+      type: "object",
+      properties: {
+        days: { type: "integer", minimum: 1, maximum: 366 },
+        from: optionalStr, to: optionalStr,
+        payment_method: { type: "string", enum: ["account", "credit_card"] },
+      },
+      additionalProperties: false,
+    },
+    execute: analyze_spending,
   },
   {
     name: "run_before_spending",

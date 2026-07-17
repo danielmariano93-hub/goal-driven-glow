@@ -12,7 +12,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { runAgentTurn, isLLMConfigured, sanitizeError } from "../_shared/agent/llm.ts";
 import { loadActivePrompt } from "../_shared/agent/prompt.ts";
 import { interpret, parseBrAmount } from "../_shared/agent/parser.ts";
-import { create_transaction_draft, resolveCreditCardFull } from "../_shared/agent/tools.ts";
+import { analyze_spending, create_transaction_draft, resolveCreditCardFull } from "../_shared/agent/tools.ts";
 import { extractSpans } from "../_shared/agent/extract.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -190,12 +190,31 @@ Deno.serve(async (req) => {
   let steps = 0, tokensIn = 0, tokensOut = 0;
   let fastPathUsed = false;
 
+  // ---------- Deterministic analytics path ----------
+  // Financial questions must never be refused merely because the sample is small.
+  if (isAnalyticsRequest(text)) {
+    const t0 = Date.now();
+    const args = analyticsArgs(text);
+    const result = await analyze_spending({ sb: svc, user_id, conversation_id }, args);
+    toolCallLog.push({
+      step_index: 1, tool_name: "analyze_spending", args,
+      result: result.ok ? result.result : null, ok: result.ok,
+      duration_ms: Date.now() - t0, error: result.ok ? null : result.error,
+    });
+    if (result.ok) {
+      reply = buildAnalyticsReply(result.result);
+      steps = 1;
+      fastPathUsed = true;
+    }
+  }
+
   // ---------- Deterministic fast-path for card expenses ----------
   // Guarantees a tool call even if the model refuses. Handles two shapes:
   //  (a) Single message with amount + "cartão"/bank keyword.
   //  (b) Follow-up like "É o único cartão cadastrado" / "Cartão Itaú" completing
   //      an unresolved expense from the previous user turn.
   try {
+    if (fastPathUsed) throw new Error("analytics_path_used");
     const fast = await tryFastPathCardExpense(svc, { user_id, conversation_id }, text, history);
     if (fast) {
       steps = 1;
@@ -270,7 +289,8 @@ Deno.serve(async (req) => {
   } as any);
   await svc.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", conversation_id);
 
-  return json({ ok: true, conversation_id, reply, pending: pendingOut, executed: null });
+  const report = [...toolCallLog].reverse().find((c) => c.ok && c.tool_name === "analyze_spending")?.result ?? null;
+  return json({ ok: true, conversation_id, reply, pending: pendingOut, executed: null, report });
 });
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -311,6 +331,35 @@ const SINGLE_CARD_HINT = /\b(único|unico|so\s+tenho|so\s+um|apenas\s+um|o\s+ún
 function normalizeQ(s: string): string {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9? ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isAnalyticsRequest(text: string): boolean {
+  return /\b(analis[ae]|an[aá]lise|onde.*gast|gasto.*mais|gr[aá]fico|relat[oó]rio|compare|compara[cç][aã]o|evolu[cç][aã]o|resumo.*gast|como est[aá].*m[eê]s)\b/i.test(text);
+}
+
+function analyticsArgs(text: string): { days: number; payment_method?: "account" | "credit_card" } {
+  let days = 30;
+  const explicit = text.match(/(?:[uú]ltim[oa]s?\s+)?(\d{1,3})\s+dias?/i);
+  if (explicit) days = Math.max(1, Math.min(366, Number(explicit[1])));
+  else if (/\bhoje\b/i.test(text)) days = 1;
+  else if (/\bsemana\b/i.test(text)) days = 7;
+  else if (/\b(ano|12 meses)\b/i.test(text)) days = 366;
+  else if (/\b(3 meses|trimestre)\b/i.test(text)) days = 90;
+  const payment_method = /\bcart[aã]o|fatura|cr[eé]dito\b/i.test(text) ? "credit_card" as const
+    : /\bconta|d[eé]bito|pix\b/i.test(text) ? "account" as const : undefined;
+  return { days, ...(payment_method ? { payment_method } : {}) };
+}
+
+function buildAnalyticsReply(report: any): string {
+  if (!report || report.transactions_count === 0) return "Não encontrei lançamentos nesse período. Você pode ampliar o período ou registrar os primeiros gastos.";
+  const top = report.top_category
+    ? `${report.top_category.name} (${BRL.format(Number(report.top_category.value))})`
+    : "nenhuma categoria ainda";
+  const sample = report.data_limit === "small_sample" ? " É uma leitura inicial com poucos lançamentos." : "";
+  const categoryTip = Number(report.uncategorized || 0) > 0
+    ? ` Há ${BRL.format(Number(report.uncategorized))} sem categoria — vale categorizar para melhorar a leitura.`
+    : "";
+  return `No período, você gastou ${BRL.format(Number(report.totals.expense))}. Onde mais pesou foi ${top}.${sample}${categoryTip}`;
 }
 
 async function tryFastPathCardExpense(
@@ -390,4 +439,3 @@ async function antiLoopFallback(sb: SupabaseClient, user_id: string, _text: stri
   if (names.length === 1) return `Vou usar seu único cartão cadastrado: ${names[0]}. Me diga o valor e o que foi.`;
   return `Seus cartões: ${names.join(", ")}. Qual deles?`;
 }
-
