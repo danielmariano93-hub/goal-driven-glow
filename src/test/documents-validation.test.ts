@@ -20,8 +20,7 @@ describe("validateExtractedRow — whitelists & quarantine", () => {
   it("rejects amount = 0", () => {
     const r = validateExtractedRow({ ...base(), amount: 0 });
     expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.reason).toBe("invalid_amount");
+    expect(r.ok === false && r.reason).toBe("invalid_amount");
   });
   it("rejects negative amount", () => {
     const r = validateExtractedRow({ ...base(), amount: -5 });
@@ -34,14 +33,12 @@ describe("validateExtractedRow — whitelists & quarantine", () => {
   it("rejects unknown type", () => {
     const r = validateExtractedRow({ ...base(), type: "transfer" });
     expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("type");
+    expect(r.ok === false && r.field).toBe("type");
   });
   it("rejects unknown movement_kind (e.g. informational)", () => {
     const r = validateExtractedRow({ ...base(), movement_kind: "informational" });
     expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.field).toBe("movement_kind");
+    expect(r.ok === false && r.field).toBe("movement_kind");
   });
   it("rejects unknown payment_method", () => {
     const r = validateExtractedRow({ ...base(), payment_method: "boleto" });
