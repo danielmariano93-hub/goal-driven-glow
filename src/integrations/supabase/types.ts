@@ -1857,6 +1857,7 @@ export type Database = {
           id: string
           next_action: string | null
           score: number
+          snapshot_date: string
           state: string
           user_id: string
           week_delta: number | null
@@ -1869,6 +1870,7 @@ export type Database = {
           id?: string
           next_action?: string | null
           score: number
+          snapshot_date: string
           state?: string
           user_id: string
           week_delta?: number | null
@@ -1881,6 +1883,7 @@ export type Database = {
           id?: string
           next_action?: string | null
           score?: number
+          snapshot_date?: string
           state?: string
           user_id?: string
           week_delta?: number | null
