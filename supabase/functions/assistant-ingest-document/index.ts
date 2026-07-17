@@ -163,44 +163,131 @@ function normalizedMerchant(value: string | null | undefined) {
     .replace(/\b\d{4,}\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-async function findDuplicates(sb: ReturnType<typeof createClient>, user_id: string, items: { amount: number; occurred_at: string; description: string | null; payment_method?: string | null }[]): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
+type DupeHit = { transaction_id: string; strength: "strong" | "ambiguous"; reason: string };
+
+/**
+ * Classifica cada item candidato contra transações existentes do usuário.
+ * - Strong: mesmo fingerprint OU (mesmo tipo/data/valor E descrição normalizada casa OU mesma referência bancária).
+ * - Ambiguous: mesmo tipo/data/valor mas descrição diferente (revisão manual necessária).
+ */
+async function classifyDuplicates(
+  sb: ReturnType<typeof createClient>,
+  user_id: string,
+  items: Array<{ type: string; amount: number; occurred_at: string; normalized_description: string | null; bank_reference: string | null; fingerprint: string }>,
+): Promise<Map<number, DupeHit>> {
+  const map = new Map<number, DupeHit>();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const { data } = await sb.from("transactions")
-      .select("id, description, payment_method")
-      .eq("user_id", user_id)
-      .eq("amount", it.amount)
-      .eq("occurred_at", it.occurred_at)
+    // 1) forte por fingerprint (chave única)
+    const { data: fpMatch } = await sb.from("transactions")
+      .select("id").eq("user_id", user_id).eq("dedupe_fingerprint", it.fingerprint).limit(1);
+    if (fpMatch && fpMatch.length > 0) {
+      map.set(i, { transaction_id: fpMatch[0].id as string, strength: "strong", reason: "fingerprint" });
+      continue;
+    }
+    // 2) forte por bank_reference se disponível
+    if (it.bank_reference) {
+      const { data: brMatch } = await sb.from("transactions")
+        .select("id").eq("user_id", user_id).eq("bank_reference", it.bank_reference).limit(1);
+      if (brMatch && brMatch.length > 0) {
+        map.set(i, { transaction_id: brMatch[0].id as string, strength: "strong", reason: "bank_reference" });
+        continue;
+      }
+    }
+    // 3) mesmo tipo/data/valor → strong se descrição normalizada casa, ambiguous senão
+    const { data: candidates } = await sb.from("transactions")
+      .select("id, description, raw_description")
+      .eq("user_id", user_id).eq("amount", it.amount).eq("occurred_at", it.occurred_at)
       .limit(20);
-    const match = (data ?? []).find((candidate) => normalizedMerchant(candidate.description) === normalizedMerchant(it.description)
-      && (!it.payment_method || !candidate.payment_method || candidate.payment_method === it.payment_method));
-    if (match?.id) map.set(i, match.id as string);
+    if (!candidates || candidates.length === 0) continue;
+    const target = (it.normalized_description ?? "").toLowerCase().trim();
+    const strong = candidates.find((c) => {
+      const n = normalizeDescription(String(c.raw_description ?? c.description ?? "")).friendly.toLowerCase().trim();
+      return n && target && n === target;
+    });
+    if (strong?.id) {
+      map.set(i, { transaction_id: strong.id as string, strength: "strong", reason: "type+date+amount+desc" });
+    } else {
+      map.set(i, { transaction_id: candidates[0].id as string, strength: "ambiguous", reason: "type+date+amount" });
+    }
   }
   return map;
 }
 
+/**
+ * Enriquecimento: descrição amigável (raw preservada), fingerprint, categoria por
+ * regras determinísticas → histórico do usuário → hint do modelo. Sinaliza a fonte
+ * da categoria para transparência no ReviewSheet.
+ */
 async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, items: ExtractionResult["items"]) {
   const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
     sb.from("categories").select("id, name, type").eq("user_id", userId),
-    sb.from("transactions").select("description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
+    sb.from("transactions").select("description, raw_description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
   ]);
-  return items.map((item) => {
-    const merchant = normalizedMerchant(item.description);
-    const historical = (history ?? []).filter((row) => row.type === item.type && normalizedMerchant(row.description) === merchant && row.category_id);
-    const counts = new Map<string, number>();
-    historical.forEach((row) => counts.set(row.category_id, (counts.get(row.category_id) ?? 0) + 1));
-    const learnedCategory = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    const hint = normalizedMerchant(item.category_hint);
-    const hintedCategory = (categories ?? []).find((category) => category.type === item.type && normalizedMerchant(category.name) === hint)?.id ?? null;
-    const accountHint = normalizedMerchant(item.account_hint);
-    const matchedAccount = accountHint ? (accounts ?? []).find((account) => normalizedMerchant(`${account.name} ${account.institution ?? ""}`).includes(accountHint) || accountHint.includes(normalizedMerchant(account.name))) : null;
-    const cardHint = normalizedMerchant(item.card_hint);
-    const matchedCard = cardHint ? (cards ?? []).find((card) => normalizedMerchant(card.name).includes(cardHint) || cardHint.includes(normalizedMerchant(card.name))) : null;
-    return { ...item, category_id: learnedCategory ?? hintedCategory, account_id: matchedAccount?.id ?? null, credit_card_id: matchedCard?.id ?? null, merchant_key: merchant };
-  });
+  const enriched = [];
+  for (const item of items) {
+    const rawDesc = String(item.description ?? "");
+    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
+    const normalizedKey = friendly.toLowerCase().trim();
+    const bankRef = extractBankReference(rawDesc);
+
+    // Categoria: regra > histórico > hint do modelo
+    let categoryId: string | null = null;
+    let categorySource: string | null = null;
+    let categoryConfidence: number | null = null;
+    const findCatByName = (name: string) => (categories ?? []).find((c) => c.type === item.type && (c.name.toLowerCase() === name.toLowerCase() || c.name.toLowerCase().includes(name.toLowerCase())))?.id ?? null;
+    if (ruleCategory) {
+      const c = findCatByName(ruleCategory);
+      if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
+    }
+    if (!categoryId) {
+      const historicalHits = (history ?? []).filter((row) => row.type === item.type && normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim() === normalizedKey && row.category_id);
+      const counts = new Map<string, number>();
+      historicalHits.forEach((r) => counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1));
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
+    }
+    if (!categoryId && item.category_hint) {
+      const c = findCatByName(item.category_hint);
+      if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
+    }
+
+    // Contas/cartões
+    const accountHint = (item.account_hint ?? "").toLowerCase();
+    const matchedAccount = accountHint ? (accounts ?? []).find((a) => `${a.name} ${a.institution ?? ""}`.toLowerCase().includes(accountHint) || accountHint.includes(a.name.toLowerCase())) : null;
+    const cardHint = (item.card_hint ?? "").toLowerCase();
+    const matchedCard = cardHint ? (cards ?? []).find((c) => c.name.toLowerCase().includes(cardHint) || cardHint.includes(c.name.toLowerCase())) : null;
+
+    const account_id = matchedAccount?.id ?? null;
+    const credit_card_id = matchedCard?.id ?? null;
+    const fingerprint = await computeFingerprint({
+      user_id: userId,
+      type: item.type,
+      occurred_at: item.occurred_at,
+      amount: item.amount,
+      account_id,
+      credit_card_id,
+      bank_reference: bankRef,
+      normalized_description: friendly,
+    });
+
+    enriched.push({
+      ...item,
+      raw_description: rawDesc,
+      normalized_description: friendly,
+      description: friendly || rawDesc,
+      bank_reference: bankRef,
+      dedupe_fingerprint: fingerprint,
+      category_id: categoryId,
+      category_source: categorySource,
+      category_confidence: categoryConfidence,
+      account_id,
+      credit_card_id,
+    });
+  }
+  return enriched;
 }
 
 function userMessageFor(errorTag: string | null | undefined): string {
