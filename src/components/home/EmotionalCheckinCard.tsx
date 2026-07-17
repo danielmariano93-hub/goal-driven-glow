@@ -76,21 +76,26 @@ export function EmotionalCheckinCard() {
     if (!user || !selected) return;
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = {
-        mood: selected.v,
-        trigger_label: selected.key,
-        notes: note || null,
-        transaction_id: txId || null,
-      };
       if (today) {
-        const { error } = await supabase.from("emotional_checkins").update(payload).eq("id", today.id);
+        const { error } = await supabase
+          .from("emotional_checkins")
+          .update({
+            mood: selected.v,
+            trigger_label: selected.key,
+            notes: note || null,
+            transaction_id: txId || null,
+          })
+          .eq("id", today.id);
         if (error) throw error;
         toast.success("Check-in de hoje atualizado.");
       } else {
         const { error } = await supabase.from("emotional_checkins").insert({
           user_id: user.id,
           occurred_at: new Date().toISOString(),
-          ...payload,
+          mood: selected.v,
+          trigger_label: selected.key,
+          notes: note || null,
+          transaction_id: txId || null,
         });
         if (error) throw error;
         toast.success("Registrado. Obrigado por compartilhar.");
