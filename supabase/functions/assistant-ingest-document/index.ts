@@ -479,12 +479,41 @@ function pdfHasPasswordEncryption(bytes: Uint8Array): boolean {
   return false;
 }
 
-const TERMINAL_STATUSES = new Set(["needs_review", "confirmed", "partially_confirmed", "canceled"]);
+const TERMINAL_STATUSES = new Set(["needs_review", "partial", "confirmed", "partially_confirmed", "canceled"]);
 const TRANSIENT_ERROR_PREFIXES = ["gateway:", "fetch_error", "timeout:", "download:", "items_insert:", "extraction:"];
 
 function isTransientErrorTag(tag: string | null): boolean {
   if (!tag) return false;
   return TRANSIENT_ERROR_PREFIXES.some((p) => tag.startsWith(p));
+}
+
+/** Idempotently emit a processing event and, when the document originated from
+ *  WhatsApp, queue an outbound message once per (document_id, event_type).
+ *  Any failure is swallowed — status notifications must never block ingestion. */
+async function notifyDocumentTransition(
+  sb: ReturnType<typeof createClient>,
+  doc: { id: string; user_id: string; source?: string | null; conversation_id?: string | null },
+  eventType: string,
+  waMessage?: string | null,
+  eventExtras: Record<string, unknown> = {},
+) {
+  try {
+    const { data: prior } = await sb.from("document_processing_events")
+      .select("id").eq("document_id", doc.id).eq("event_type", eventType).limit(1).maybeSingle();
+    if (prior) return; // dedup by (document_id, event_type)
+    await sb.from("document_processing_events").insert({
+      document_id: doc.id, user_id: doc.user_id, event_type: eventType, ...eventExtras,
+    });
+    if (doc.source === "whatsapp" && waMessage && doc.conversation_id) {
+      const { data: conv } = await sb.from("conversations").select("phone_e164").eq("id", doc.conversation_id).maybeSingle();
+      const phone = (conv as { phone_e164?: string } | null)?.phone_e164;
+      if (phone) {
+        await sb.from("outbound_messages").insert({
+          user_id: doc.user_id, to_phone: phone, kind: "system", body: waMessage,
+        });
+      }
+    }
+  } catch { /* swallow */ }
 }
 
 /**
