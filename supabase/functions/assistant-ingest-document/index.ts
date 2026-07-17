@@ -20,7 +20,11 @@ const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
-const MAX_ITEMS_PER_DOCUMENT = 80;
+const MAX_ITEMS_PER_DOCUMENT = 240;
+const BATCH_ITEMS_LIMIT = 50;
+const PDF_BATCHES = 5;
+const IMAGE_BATCHES = 1;
+const BATCH_MAX_TOKENS = 3600;
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -37,29 +41,13 @@ async function getUser(req: Request) {
 
 const SYSTEM_PROMPT = `Você é um extrator financeiro para o app NoControle.ia.
 
-Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON puro no formato:
-{
-  "document_kind": "receipt|invoice|statement|list|non_financial|illegible",
-  "items": [
-    {
-      "type": "expense|income",
-      "description": "texto literal da linha",
-      "amount": 123.45,
-      "occurred_at": "YYYY-MM-DD",
-      "payment_method": "account|credit_card|null",
-      "account_hint": "Nubank Conta|Itaú|null",
-      "card_hint": "Nubank Cartão|Inter Mastercard|null",
-      "category_hint": "Alimentação|Transporte|null",
-      "movement_kind": "transaction|refund|internal_transfer|investment_application|investment_redemption|informational",
-      "installments_total": null,
-      "installment_number": null,
-      "purchase_date": null,
-      "competence_date": null,
-      "confidence": {"amount":0.9,"occurred_at":0.7}
-    }
-  ],
-  "notes": "por que descartei linhas de saldo, limite ou pagamento de fatura"
-}
+Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON PURO, compacto, sem markdown:
+{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null}}
+
+Cada item em "i" é EXATAMENTE:
+[tipo,data,valor,descricao,pagamento,conta,cartao,movimento,parcelas_total,parcela_numero,data_compra,competencia,categoria]
+
+Use null para campo desconhecido. Não use objetos dentro de "i".
 
 REGRAS ESTRITAS:
 - Valores em real brasileiro: aceite formatos 1.234,56 e 1234.56.
@@ -67,18 +55,18 @@ REGRAS ESTRITAS:
 - A data atual é informada na mensagem do usuário. Se a linha não tiver data completa, use a data atual.
 - Nunca invente ano. Data parcial (apenas hora, dia/mês ou dia da semana) usa o ano da data atual.
 - Elementos da interface do celular e datas de referência do extrato não são, por si só, a data da compra.
-- Nunca invente texto ilegível — melhor devolver items=[] e document_kind=illegible.
-- Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva document_kind=non_financial e items=[].
+- Nunca invente texto ilegível — melhor devolver i=[] e k="illegible".
+- Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva k="non_financial" e i=[].
 - EXCLUA todas as linhas informativas: SALDO DO DIA, saldo atual/em conta/anterior/disponível/total, limites, cabeçalhos, período, emissão, subtotais e totais.
 - RESGATE CDB é resgate de investimento, não receita. Aplicação é investimento, não despesa.
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
-- Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
-- Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
-- LIMITE RÍGIDO: devolva no máximo ${MAX_ITEMS_PER_DOCUMENT} lançamentos por documento. Se houver mais, devolva os ${MAX_ITEMS_PER_DOCUMENT} MAIS RECENTES (por data) e explique o corte em "notes".
+- Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
+- O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
+- LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
 - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
-- Seja compacto no JSON: omita campos com valor null quando possível.
-- Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
+- Ordene sempre do mais recente para o mais antigo.
+- Só devolva JSON, sem markdown, sem comentários fora do campo "n".`;
 
 type StatementMetadata = {
   opening_balance: number | null;
@@ -95,12 +83,15 @@ type MultimodalOutcome = {
   tokens_in: number;
   tokens_out: number;
   ms: number;
+  has_more: boolean;
+  partial: boolean;
   errorTag?: string;
 };
 
 function extractStatementMetadata(parsed: unknown, fallback: string): StatementMetadata | null {
   if (!parsed || typeof parsed !== "object") return null;
-  const raw = (parsed as Record<string, unknown>)["statement_metadata"];
+  const source = parsed as Record<string, unknown>;
+  const raw = source["statement_metadata"] ?? source["m"];
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const opening = normalizeAmountBR((r.opening_balance ?? null) as string | number | null ?? "");
@@ -114,7 +105,64 @@ function extractStatementMetadata(parsed: unknown, fallback: string): StatementM
   return { opening_balance: opening, closing_balance: closing, balance_date: balDate, period_start: periodStart, period_end: periodEnd, bank };
 }
 
-async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<MultimodalOutcome> {
+function recoverCompactJson(text: string): { parsed: unknown; partial: boolean } | null {
+  const arrayMarker = text.search(/"i"\s*:/);
+  if (arrayMarker < 0) return null;
+  const arrayStart = text.indexOf("[", arrayMarker);
+  if (arrayStart < 0) return null;
+
+  const rows: unknown[] = [];
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let rowStart = -1;
+  for (let i = arrayStart + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "[") {
+      if (depth === 0) rowStart = i;
+      depth++;
+      continue;
+    }
+    if (ch === "]") {
+      if (depth > 0) depth--;
+      if (depth === 0 && rowStart >= 0) {
+        const rawRow = text.slice(rowStart, i + 1);
+        try { rows.push(JSON.parse(rawRow)); } catch { /* ignore broken row */ }
+        rowStart = -1;
+        continue;
+      }
+      if (depth === 0 && rowStart < 0) break;
+    }
+  }
+  if (rows.length === 0) return null;
+
+  const kindMatch = text.match(/"k"\s*:\s*"([^"]+)"/);
+  const noteMatch = text.match(/"n"\s*:\s*"([^"]*)"/);
+  return {
+    parsed: {
+      k: kindMatch?.[1] ?? "statement",
+      i: rows,
+      n: noteMatch?.[1] ? `${noteMatch[1]} Extração parcial recuperada.` : "Extração parcial recuperada.",
+    },
+    partial: true,
+  };
+}
+
+async function callMultimodal(
+  publicBase64Url: string,
+  mimeType: string,
+  filename: string,
+  guidance: string,
+  signal: AbortSignal,
+  batch: { index: number; max: number; exclude: string[] },
+): Promise<MultimodalOutcome> {
   const start = Date.now();
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -130,7 +178,11 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
           {
             role: "user",
             content: [
-              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}. Extraia lançamentos do documento inteiro em JSON estrito.` },
+              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}.
+Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos ainda não extraídos, do mais recente ao mais antigo.
+Não repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.length ? batch.exclude.join("; ") : "nenhum"}.
+Se este for o lote 1, comece pelos lançamentos mais recentes do documento. Se for lote >1, continue com lançamentos mais antigos ou diferentes dos já listados.
+Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.` },
               mimeType === "application/pdf"
                 ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
                 : { type: "image_url", image_url: { url: publicBase64Url } },
@@ -138,27 +190,45 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
           },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 8000,
+        max_tokens: BATCH_MAX_TOKENS,
       }),
       signal,
     });
     const ms = Date.now() - start;
     if (!res.ok) {
       const body = await res.text();
-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
+      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? "{}";
     const tokens_in = data?.usage?.prompt_tokens ?? 0;
     const tokens_out = data?.usage?.completion_tokens ?? 0;
     let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, errorTag: "extraction:invalid_json" }; }
+    let partial = false;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      const recovered = recoverCompactJson(text);
+      if (!recovered) {
+        return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, has_more: false, partial: false, errorTag: "extraction:invalid_json" };
+      }
+      parsed = recovered.parsed;
+      partial = recovered.partial;
+    }
     const today = new Date().toISOString().slice(0, 10);
-    return { result: sanitize(parsed, today), statement: extractStatementMetadata(parsed, today), tokens_in, tokens_out, ms };
+    return {
+      result: sanitize(parsed, today),
+      statement: extractStatementMetadata(parsed, today),
+      tokens_in,
+      tokens_out,
+      ms,
+      has_more: (parsed as Record<string, unknown>)?.more === true,
+      partial,
+    };
   } catch (e) {
     const err = e as Error;
     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
-    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
+    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
   }
 }
 
