@@ -74,6 +74,16 @@ export function computeAccountBalances(accounts: AccountRow[], txs: TransactionR
   return map;
 }
 
+export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
+  let total = 0;
+  for (const t of txs) {
+    if (t.status !== "confirmed" || t.type !== "expense") continue;
+    if (txOrigin(t) !== "credit_card") continue;
+    total += Number(t.amount || 0);
+  }
+  return round2(total);
+}
+
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
   const result: { id: string; name: string; type: "income" | "expense"; amount: number; date: string }[] = [];
   const t0 = new Date(today); t0.setHours(0, 0, 0, 0);
