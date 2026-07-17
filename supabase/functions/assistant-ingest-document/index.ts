@@ -18,8 +18,9 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
-const PROCESSING_STALE_MS = 3 * 60 * 1000;
-const EXTRACTION_TIMEOUT_MS = 4 * 60 * 1000;
+const PROCESSING_STALE_MS = 5 * 60 * 1000;
+const EXTRACTION_TIMEOUT_MS = 90 * 1000;
+const MAX_ITEMS_PER_DOCUMENT = 80;
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
