@@ -19,6 +19,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
+import { downloadInboundMedia } from "../_shared/messaging/wahaMedia.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
 
 type DropCtx = {
@@ -250,6 +251,86 @@ Deno.serve(async (req) => {
     conversation_id: conv.id, user_id: link.user_id, direction: "inbound",
     body_masked: evt.body.slice(0, 500),
   });
+
+  // === MEDIA PATH: document ingestion ===
+  if (evt.media && evt.media.url) {
+    // Idempotency: same provider_message_id must never create two document_imports.
+    const { data: existing } = await sb.from("document_imports")
+      .select("id, status").eq("provider_message_id", evt.provider_message_id).maybeSingle();
+    if (existing) {
+      await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+      return json({ ok: true, media: "duplicate", document_id: existing.id });
+    }
+    // Load WAHA config for potential authenticated fallback download.
+    const dl = await downloadInboundMedia({
+      media: evt.media,
+      // provider-level config already primed by loadWahaConfig
+      messageId: evt.provider_message_id,
+    });
+    if (!dl.ok) {
+      await sb.from("outbound_messages").insert({
+        user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
+        body: dl.code === "size_exceeds"
+          ? "Esse arquivo é maior que 20 MB e não consegui processar. Envie um documento menor ou peça extrato em partes."
+          : dl.code === "mime_not_allowed"
+          ? "Esse formato de arquivo eu ainda não consigo ler. Envie PDF, JPG, PNG ou WEBP, por favor."
+          : "Recebi seu arquivo, mas não consegui baixá-lo por aqui. Reenvie, por favor.",
+      });
+      triggerDispatcher();
+      await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+      return json({ ok: true, media: "download_failed", code: dl.code });
+    }
+    const doc_id = crypto.randomUUID();
+    const ext = dl.mime_type === "application/pdf" ? "pdf" : dl.mime_type.split("/")[1];
+    const storage_path = `${link.user_id}/${doc_id}.${ext}`;
+    const up = await sb.storage.from("documents").upload(storage_path, dl.bytes, { contentType: dl.mime_type, upsert: false });
+    if (up.error) {
+      await sb.from("outbound_messages").insert({
+        user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
+        body: "Recebi seu arquivo mas tive problemas para armazená-lo. Tente novamente em instantes.",
+      });
+      triggerDispatcher();
+      return json({ ok: true, media: "storage_failed" });
+    }
+    // Compute sha256 for dedup / audit.
+    const shaBuf = await crypto.subtle.digest("SHA-256", dl.bytes);
+    const sha = Array.from(new Uint8Array(shaBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const { error: insErrDoc } = await sb.from("document_imports").insert({
+      id: doc_id,
+      user_id: link.user_id,
+      source: "whatsapp",
+      provider_message_id: evt.provider_message_id,
+      conversation_id: conv.id,
+      storage_path,
+      mime_type: dl.mime_type,
+      size_bytes: dl.bytes.length,
+      sha256: sha,
+      status: "uploaded",
+      user_instructions: evt.body ? evt.body.slice(0, 500) : null,
+    });
+    if (insErrDoc) {
+      console.error("[webhook] document_imports insert failed", insErrDoc.message);
+      return json({ ok: true, media: "insert_failed" });
+    }
+    await sb.from("document_processing_events").insert({
+      document_id: doc_id, user_id: link.user_id,
+      event_type: "document_received",
+      metadata: { source: "whatsapp", mime: dl.mime_type, size: dl.bytes.length },
+    }).then(() => {}, () => {});
+    await sb.from("outbound_messages").insert({
+      user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
+      body: "Recebi seu documento e já estou lendo para você. Volto em instantes com os lançamentos para você conferir. 📄",
+    });
+    // Fire-and-forget the ingestion trigger.
+    fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+      body: JSON.stringify({ mode: "process-inbound-media", document_id: doc_id, user_id: link.user_id, guidance: evt.body ?? "" }),
+    }).catch(() => {});
+    triggerDispatcher();
+    await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+    return json({ ok: true, media: "queued", document_id: doc_id });
+  }
 
   const result = await runOrchestrator({
     user_id: link.user_id, conversation_id: conv.id as string,

@@ -193,3 +193,57 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
   }
   return { document_kind: validKind, items, notes: (r.notes as string | null) ?? (r.n as string | null) ?? null };
 }
+
+// ---------- Whitelists (must mirror extracted_items CHECK constraints) ----------
+export const ALLOWED_TYPES = new Set(["income", "expense"]);
+export const ALLOWED_MOVEMENT_KINDS = new Set([
+  "transaction", "refund", "internal_transfer",
+  "investment_application", "investment_redemption",
+]);
+export const ALLOWED_PAYMENT_METHODS = new Set(["account", "credit_card"]);
+export const ALLOWED_STATUSES = new Set([
+  "needs_review", "ignored", "confirmed",
+  "duplicate_suspect", "rejected", "failed", "rolled_back",
+]);
+
+export type ValidationOutcome<T> =
+  | { ok: true; row: T }
+  | { ok: false; reason: string; field: string };
+
+/** Guards every field a row will hit against the real DB constraints. Any
+ *  unknown/invalid value produces a quarantined row instead of a hard failure.
+ */
+export function validateExtractedRow<T extends Record<string, unknown>>(row: T): ValidationOutcome<T> {
+  const amount = Number(row.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "invalid_amount", field: "amount" };
+
+  const type = String(row.type ?? "");
+  if (!ALLOWED_TYPES.has(type)) return { ok: false, reason: "invalid_type", field: "type" };
+
+  const mk = String(row.movement_kind ?? "transaction");
+  if (!ALLOWED_MOVEMENT_KINDS.has(mk)) return { ok: false, reason: "invalid_movement_kind", field: "movement_kind" };
+
+  const pm = row.payment_method;
+  if (pm != null && !ALLOWED_PAYMENT_METHODS.has(String(pm))) return { ok: false, reason: "invalid_payment_method", field: "payment_method" };
+
+  const occ = String(row.occurred_at ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(occ)) return { ok: false, reason: "invalid_date", field: "occurred_at" };
+  const parsed = new Date(`${occ}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== occ) {
+    return { ok: false, reason: "invalid_date", field: "occurred_at" };
+  }
+
+  const description = String(row.description ?? "").trim();
+  if (!description) return { ok: false, reason: "empty_description", field: "description" };
+
+  const it = Number(row.installments_total ?? 0);
+  if (row.installments_total != null && (!Number.isInteger(it) || it < 1 || it > 48)) {
+    return { ok: false, reason: "invalid_installments_total", field: "installments_total" };
+  }
+  const iN = Number(row.installment_number ?? 0);
+  if (row.installment_number != null && (!Number.isInteger(iN) || iN < 1 || iN > 48)) {
+    return { ok: false, reason: "invalid_installment_number", field: "installment_number" };
+  }
+
+  return { ok: true, row: { ...row, movement_kind: mk } as T };
+}

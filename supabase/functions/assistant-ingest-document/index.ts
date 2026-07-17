@@ -10,7 +10,7 @@
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, type ExtractionResult } from "../_shared/documents/types.ts";
+import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -106,9 +106,19 @@ function extractStatementMetadata(parsed: unknown, fallback: string): StatementM
 }
 
 function recoverCompactJson(text: string): { parsed: unknown; partial: boolean } | null {
-  const arrayMarker = text.search(/"i"\s*:/);
-  if (arrayMarker < 0) return null;
-  const arrayStart = text.indexOf("[", arrayMarker);
+  // Locate the items array even when the JSON is truncated/malformed BEFORE `"i":`.
+  // Strategy: find the first `[` after the first `"i"` marker OR fall back to the
+  // first `[[` sequence in the text (compact rows start with `[`).
+  let arrayStart = -1;
+  const iMarker = text.search(/"i"\s*:/);
+  if (iMarker >= 0) {
+    const bracket = text.indexOf("[", iMarker);
+    if (bracket >= 0) arrayStart = bracket;
+  }
+  if (arrayStart < 0) {
+    const nested = text.indexOf("[[");
+    if (nested >= 0) arrayStart = nested;
+  }
   if (arrayStart < 0) return null;
 
   const rows: unknown[] = [];
@@ -492,10 +502,13 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   const stale = now - updatedAt > PROCESSING_STALE_MS;
 
   const prevErrTag = parseErrorTag(doc.error).tag;
-  const failureCount = Number(doc.counters?.failure_count ?? 0);
+  const failureCount = Number(doc.counters?.failure_count ?? doc.attempt_count ?? 0);
+  const attemptCount = Number(doc.attempt_count ?? 0);
+  // Terminal after 3 attempts — panel must offer explicit "reprocessar" that resets attempt_count.
+  if (attemptCount >= 3 && doc.status === "failed") return { acquired: false, doc };
   const canResume = doc.status === "uploaded"
     || (doc.status === "processing" && stale)
-    || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3);
+    || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3 && attemptCount < 3);
 
   if (!canResume) return { acquired: false, doc };
 
@@ -512,7 +525,7 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   }
 
   const { data: updated, error: upErr } = await sb.from("document_imports")
-    .update({ status: "processing", error: null })
+    .update({ status: "processing", error: null, attempt_count: attemptCount + 1 })
     .eq("id", documentId)
     .eq("user_id", userId)
     .eq("status", doc.status) // optimistic lock on previous status
@@ -737,19 +750,56 @@ async function processDocument(documentId: string, userId: string, guidance: str
           };
         });
 
-        const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
-        if (itemsErr) {
-          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
-          return;
+        // Quarantine: validate each row against DB whitelists BEFORE insert.
+        // Valid → needs_review/duplicate_suspect. Invalid → status='rejected' with reason.
+        const validRows: typeof rows = [];
+        const rejectedRows: typeof rows = [];
+        for (const r of rows) {
+          const v = validateExtractedRow(r);
+          if (v.ok) validRows.push(v.row);
+          else rejectedRows.push({ ...r, status: "rejected", duplicate_reason: `rejected:${v.reason}:${v.field}` });
+        }
+
+        if (validRows.length > 0) {
+          const { error: itemsErr } = await sb.from("extracted_items").insert(validRows);
+          if (itemsErr) {
+            // Degrade to per-row insert to salvage what we can.
+            let salvaged = 0;
+            for (const r of validRows) {
+              const { error: perErr } = await sb.from("extracted_items").insert([r]);
+              if (!perErr) salvaged++;
+              else rejectedRows.push({ ...r, status: "rejected", duplicate_reason: `rejected:insert_error:${perErr.message.slice(0, 60)}` });
+            }
+            if (salvaged === 0 && rejectedRows.length === 0) {
+              await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+              return;
+            }
+          }
+        }
+        if (rejectedRows.length > 0) {
+          await sb.from("extracted_items").insert(rejectedRows).then(() => {}, () => {});
         }
 
         idxOffset += rows.length;
-        counters.total_items += rows.length;
+        counters.total_items += validRows.length;
         counters.duplicate_strong += batchDupStrong;
         counters.duplicate_ambiguous += batchDupAmbiguous;
         counters.categorized_auto += batchCategorized;
-        counters.uncategorized += rows.length - batchCategorized;
+        counters.uncategorized += validRows.length - batchCategorized;
         counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+        // Progress event
+        await sb.from("document_processing_events").insert({
+          document_id: documentId,
+          user_id: userId,
+          event_type: rejectedRows.length > 0 ? "items_quarantined" : "fragment_completed",
+          stage: `batch_${batchIndex}`,
+          progress_current: batchIndex,
+          progress_total: maxBatches,
+          items_found: rows.length,
+          items_valid: validRows.length,
+          items_rejected: rejectedRows.length,
+          metadata: { batch: batchIndex },
+        }).then(() => {}, () => {});
 
         await finish({
           status: "processing",
@@ -814,14 +864,34 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  const user = await getUser(req);
-  if (!user) return json({ error: "unauthorized" }, 401);
-
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  const mode = String(body.mode ?? "");
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-  const mode = String(body.mode ?? "");
+
+  // === INTERNAL: server-triggered ingestion for WhatsApp inbound media ===
+  // Bypasses user JWT via a service-role bearer. Never expose this mode from clients.
+  if (mode === "process-inbound-media") {
+    const auth = req.headers.get("Authorization") ?? "";
+    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return json({ error: "forbidden" }, 403);
+    const document_id = String(body.document_id ?? "");
+    const user_id = String(body.user_id ?? "");
+    const guidance = String(body.guidance ?? "").slice(0, 500);
+    if (!document_id || !user_id) return json({ error: "missing_fields" }, 400);
+    const { acquired, doc } = await acquireProcessingLock(sb, document_id, user_id);
+    if (!doc) return json({ error: "not_found" }, 404);
+    if (!acquired) return json({ ok: true, status: doc.status, document_id }, 200);
+    const correlationId = makeCorrelationId();
+    console.log(`[assistant-ingest cid=${correlationId}] whatsapp-media document=${document_id} user=${user_id}`);
+    const work = processDocument(document_id, user_id, guidance, correlationId);
+    if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") EdgeRuntime.waitUntil(work);
+    else work.catch((err) => console.error(`[assistant-ingest cid=${correlationId}] bg`, err));
+    return json({ ok: true, status: "processing", document_id, correlation_id: correlationId }, 202);
+  }
+
+  const user = await getUser(req);
+  if (!user) return json({ error: "unauthorized" }, 401);
 
   // === CREATE UPLOAD ===
   if (mode === "create-upload") {
