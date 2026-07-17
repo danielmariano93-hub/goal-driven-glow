@@ -432,6 +432,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
   const finish = async (patch: Record<string, unknown>) => {
     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
   };
+  const heartbeat = async () => {
+    await sb.from("document_imports").update({ updated_at: new Date().toISOString() })
+      .eq("id", documentId).eq("user_id", userId).eq("status", "processing");
+  };
 
   try {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
