@@ -18,7 +18,34 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
+import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
+
+type DropCtx = {
+  reason: string;
+  event: string | null;
+  session: string | null;
+  jid_domains: string[];
+  has_alt: boolean;
+  has_key: boolean;
+};
+
+async function logDrop(
+  sb: ReturnType<typeof createClient>,
+  ctx: DropCtx,
+) {
+  try {
+    await sb.from("provider_inbound_drops").insert({
+      provider: "waha",
+      reason: ctx.reason,
+      event: ctx.event,
+      session: ctx.session,
+      jid_domains: ctx.jid_domains,
+      has_alt: ctx.has_alt,
+      has_key: ctx.has_key,
+    });
+  } catch (_) { /* diagnostic — never blocks the response */ }
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
