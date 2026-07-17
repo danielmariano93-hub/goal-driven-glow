@@ -138,6 +138,7 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
           },
         ],
         response_format: { type: "json_object" },
+        max_tokens: 8000,
       }),
       signal,
     });
