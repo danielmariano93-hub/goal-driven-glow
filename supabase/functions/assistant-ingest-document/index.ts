@@ -592,6 +592,25 @@ async function processDocument(documentId: string, userId: string, guidance: str
     let idxOffset = 0;
     const maxBatches = doc.mime_type === "application/pdf" ? PDF_BATCHES : IMAGE_BATCHES;
 
+    const { data: existingItems } = await sb.from("extracted_items")
+      .select("idx,type,amount,occurred_at,description,normalized_description,status,category_id")
+      .eq("document_id", documentId)
+      .eq("user_id", userId)
+      .in("status", ["needs_review", "duplicate_suspect"])
+      .order("idx");
+    for (const existing of existingItems ?? []) {
+      const sig = `${existing.occurred_at}|${Number(existing.amount).toFixed(2)}|${String(existing.description ?? "").toLowerCase().replace(/\s+/g, " ").trim()}`.slice(0, 180);
+      seenSignatures.add(sig);
+      const localKey = `${existing.type}|${existing.occurred_at}|${Number(existing.amount).toFixed(2)}|${existing.normalized_description ?? existing.description ?? ""}`;
+      seenInDocument.set(localKey, Number(existing.idx ?? 0));
+      idxOffset = Math.max(idxOffset, Number(existing.idx ?? -1) + 1);
+      counters.total_items++;
+      if (existing.status === "duplicate_suspect") counters.duplicate_ambiguous++;
+      if (existing.category_id) counters.categorized_auto++;
+    }
+    counters.uncategorized = counters.total_items - counters.categorized_auto;
+    counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+
     for (let batchIndex = 1; batchIndex <= maxBatches && counters.total_items < MAX_ITEMS_PER_DOCUMENT; batchIndex++) {
       await heartbeat();
       const ac = new AbortController();
