@@ -50,6 +50,36 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     return () => { document.body.style.overflow = previous; };
   }, []);
 
+  // Retomada silenciosa: documentos deste usuário travados em uploaded/processing
+  // nas últimas 24h são retomados em background. Nada é gravado sem revisão.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const { data } = await supabase
+        .from("document_imports")
+        .select("id, status, created_at")
+        .in("status", ["uploaded", "processing"])
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (cancelled || !data?.length) return;
+      for (const doc of data) {
+        try {
+          const result = await resumeIngestion(doc.id);
+          if (cancelled) return;
+          if (result.status === "needs_review" && (result.items_count ?? 0) > 0) {
+            onExtracted(result);
+          }
+        } catch {
+          // silencioso — usuário pode tentar de novo pelo attach
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function onExtracted(info: DocDraft) {
     let content = "";
     if (info.status === "needs_review" && (info.items_count ?? 0) > 0) {
