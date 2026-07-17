@@ -130,18 +130,34 @@ Deno.serve(async (req) => {
 
   let payload: unknown;
   try { payload = JSON.parse(raw); } catch { return json({ error: "invalid_json" }, 400); }
-  const evtSession = (payload as { session?: string } | null)?.session;
-  const expected = getSessionName();
-  if (evtSession && evtSession !== expected) {
-    console.log(`[webhook] ignored foreign session=${evtSession}`);
-    return json({ ok: true, ignored: "foreign_session" }, 200);
-  }
-  const evt = provider.mapInboundEvent(payload);
-  if (!evt) return json({ ok: true, ignored: "unmapped_or_bot" }, 200);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  const expected = getSessionName();
+  const classified = classifyInbound(payload, expected);
+  if (!classified.ok) {
+    await logDrop(sb, {
+      reason: classified.reason,
+      event: classified.event,
+      session: classified.session,
+      jid_domains: classified.jid_domains,
+      has_alt: classified.has_alt,
+      has_key: classified.has_key,
+    });
+    console.log(`[webhook] dropped reason=${classified.reason} event=${classified.event ?? ""} jids=${classified.jid_domains.join(",")}`);
+    return json({ ok: true, ignored: classified.reason }, 200);
+  }
+  const evt = {
+    provider: "waha" as const,
+    provider_message_id: classified.provider_message_id,
+    from_phone: classified.from_phone,
+    to_phone: classified.to_phone,
+    body: classified.body,
+    received_at: classified.received_at,
+    media: classified.media,
+  };
 
   const raw_hash = await sha256Hex(raw);
   const { data: inb, error: insErr } = await sb.from("inbound_messages").insert({
