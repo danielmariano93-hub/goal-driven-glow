@@ -16,13 +16,7 @@ type Pending = {
   expires_at: string;
 };
 
-type DocDraft = {
-  document_id: string;
-  status: string;
-  items_count?: number;
-  document_kind?: string;
-  error?: string | null;
-};
+type DocDraft = IngestResult;
 
 type Msg =
   | { role: "user"; content: string }
