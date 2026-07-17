@@ -28,15 +28,15 @@ type CompactRow = [
   string,
   string | number,
   string,
-  "account" | "credit_card" | null?,
-  string | null?,
-  string | null?,
+  ("account" | "credit_card" | null)?,
+  (string | null)?,
+  (string | null)?,
   ExtractedItem["movement_kind"]?,
-  number | null?,
-  number | null?,
-  string | null?,
-  string | null?,
-  string | null?,
+  (number | null)?,
+  (number | null)?,
+  (string | null)?,
+  (string | null)?,
+  (string | null)?,
 ];
 
 export const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
