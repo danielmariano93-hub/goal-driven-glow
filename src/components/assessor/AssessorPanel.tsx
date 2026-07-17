@@ -97,7 +97,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       const { data: documents } = await supabase
         .from("document_imports")
         .select("id, status, document_kind, error, created_at, updated_at")
-        .in("status", ["uploaded", "processing", "needs_review", "failed", "rolled_back"])
+        .in("status", ["uploaded", "processing", "needs_review", "partial", "failed", "rolled_back"])
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(10);
@@ -109,7 +109,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       for (const doc of documents ?? []) {
         try {
           let result: IngestResult;
-          if (doc.status === "needs_review") {
+          if (doc.status === "needs_review" || doc.status === "partial") {
             const { count } = await supabase
               .from("extracted_items")
               .select("id", { count: "exact", head: true })
@@ -161,8 +161,9 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
 
   function onExtracted(info: DocDraft) {
     let content = "";
-    if (info.status === "needs_review" && (info.items_count ?? 0) > 0) {
-      content = `Encontrei ${info.items_count} lançamento(s) nesse documento. Toque em "Revisar" para conferir antes de registrar.`;
+    if ((info.status === "needs_review" || info.status === "partial") && (info.items_count ?? 0) > 0) {
+      const prefix = info.status === "partial" ? "Consegui ler parte do documento e " : "";
+      content = `${prefix}Encontrei ${info.items_count} lançamento(s) nesse documento. Toque em "Revisar" para conferir antes de registrar.`;
     } else if (info.document_kind === "illegible") {
       content = "Não consegui ler bem esse documento. Se for PDF, confira se ele não tem senha; se for imagem, envie uma versão mais nítida.";
     } else if (info.document_kind === "non_financial") {
@@ -350,7 +351,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               {m.role === "assistant" && m.pending && (
                 <ConfirmationCard pending={m.pending} onConfirm={() => decide(m.pending!, "confirm", i)} onCancel={() => decide(m.pending!, "cancel", i)} disabled={sending} />
               )}
-              {m.role === "assistant" && m.doc && m.doc.status === "needs_review" && (m.doc.items_count ?? 0) > 0 && (
+              {m.role === "assistant" && m.doc && (m.doc.status === "needs_review" || m.doc.status === "partial") && (m.doc.items_count ?? 0) > 0 && (
                 <button
                   onClick={(event) => {
                     event.stopPropagation();

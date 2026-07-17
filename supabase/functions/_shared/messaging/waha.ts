@@ -18,6 +18,11 @@ let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA
 let WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
 
 export function getSessionName(): string { return WAHA_SESSION; }
+/** Expose primed config so downstream helpers (e.g. wahaMedia) can perform
+ *  authenticated calls without re-reading env or Vault. */
+export function getWahaAccess(): { api_url: string; api_key: string; session: string } {
+  return { api_url: WAHA_API_URL, api_key: WAHA_API_KEY, session: WAHA_SESSION };
+}
 
 export type WahaConfig = { api_url: string; api_key: string; webhook_secret: string; session_name: string };
 

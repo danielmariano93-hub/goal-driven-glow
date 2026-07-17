@@ -1,6 +1,10 @@
 // Edge Function: documents-cleanup
-// Deletes storage blobs and raw_text after 7 days from finalization/failure,
-// and expires documents at their expires_at (default 30 days).
+// Responsibilities:
+//   1. Expire long-idle blobs (>7d terminal) and raw_text.
+//   2. Expire docs past expires_at.
+//   3. Watchdog: resume `processing` jobs whose heartbeat is stale (>5min),
+//      up to 3 attempts total. Preserve any extracted_items already saved.
+//      After 3 attempts, mark terminal 'failed'.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
@@ -8,13 +12,13 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET = "documents";
+const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+const MAX_ATTEMPTS = 3;
 
 const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
-  // Require either a service-role Authorization or an internal secret header.
   const auth = req.headers.get("Authorization") ?? "";
   const providedSecret = req.headers.get("x-internal-secret") ?? "";
   const authorized =
@@ -23,7 +27,7 @@ Deno.serve(async (req) => {
   if (!authorized) return json({ error: "unauthorized" }, 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-  let processed = 0, failed = 0;
+  let processed = 0, failed = 0, resumed = 0, terminated = 0;
 
   // 1) Remove storage blob + raw_text for docs terminal >= 7 days
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -35,29 +39,78 @@ Deno.serve(async (req) => {
     .limit(200);
   for (const d of terminals ?? []) {
     try {
-      if (d.storage_path) {
-        await sb.storage.from(BUCKET).remove([d.storage_path as string]);
-      }
+      if (d.storage_path) await sb.storage.from(BUCKET).remove([d.storage_path as string]);
       await sb.from("document_imports").update({ storage_path: "", raw_text: null }).eq("id", d.id);
       processed++;
-    } catch {
-      failed++;
-    }
+    } catch { failed++; }
   }
 
   // 2) Expire docs past expires_at
   await sb.from("document_imports").update({ status: "expired" })
     .lt("expires_at", new Date().toISOString())
-    .in("status", ["uploaded", "processing", "needs_review", "partially_confirmed"]);
+    .in("status", ["uploaded", "processing", "needs_review", "partial", "partially_confirmed"]);
+
+  // 3) Watchdog: resume stale `processing` OR requeue stale `uploaded` jobs.
+  // Heartbeat is `updated_at`; if it's fresh, the worker is still owning the job.
+  const staleCutoff = new Date(Date.now() - HEARTBEAT_STALE_MS).toISOString();
+  const { data: stalled } = await sb.from("document_imports")
+    .select("id, user_id, status, attempt_count, user_instructions, source, conversation_id")
+    .in("status", ["processing", "uploaded"])
+    .lt("updated_at", staleCutoff)
+    .limit(20);
+  for (const d of stalled ?? []) {
+    const attempts = Number(d.attempt_count ?? 0);
+    if (attempts >= MAX_ATTEMPTS) {
+      await sb.from("document_imports")
+        .update({ status: "failed", error: "watchdog:max_attempts" })
+        .eq("id", d.id).eq("status", d.status);
+      await sb.from("document_processing_events").insert({
+        document_id: d.id, user_id: d.user_id, event_type: "processing_failed",
+        error_code: "watchdog:max_attempts",
+      }).then(() => {}, () => {});
+      // Notify WhatsApp user if applicable (dedup by prior event lookup)
+      if (d.source === "whatsapp" && d.conversation_id) {
+        const { data: conv } = await sb.from("conversations")
+          .select("phone_e164").eq("id", d.conversation_id).maybeSingle();
+        const phone = (conv as { phone_e164?: string } | null)?.phone_e164;
+        if (phone) {
+          await sb.from("outbound_messages").insert({
+            user_id: d.user_id, to_phone: phone, kind: "system",
+            body: "Não consegui concluir a leitura desse documento após várias tentativas. Você pode reenviar ou tentar por partes.",
+          }).then(() => {}, () => {});
+        }
+      }
+      terminated++;
+      continue;
+    }
+    // Retry: reset to uploaded, worker will bump attempt_count when acquiring lock.
+    const { error: reErr } = await sb.from("document_imports")
+      .update({ status: "uploaded", error: null })
+      .eq("id", d.id).eq("status", d.status);
+    if (reErr) { failed++; continue; }
+    // Fire-and-forget internal call to re-drive the ingestion.
+    fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+      body: JSON.stringify({
+        mode: "process-inbound-media",
+        document_id: d.id,
+        user_id: d.user_id,
+        guidance: String(d.user_instructions ?? "").slice(0, 500),
+      }),
+    }).catch(() => {});
+    resumed++;
+  }
 
   const nextRun = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
   await writeJobHeartbeat({
     jobKey: "documents-cleanup",
     ok: true,
-    processed, failed,
+    processed: processed + resumed + terminated,
+    failed,
     nextRunAt: nextRun,
     sb,
   });
 
-  return json({ ok: true, processed, failed });
+  return json({ ok: true, processed, failed, resumed, terminated });
 });

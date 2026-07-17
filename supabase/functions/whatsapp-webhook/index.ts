@@ -17,7 +17,7 @@
 //    a cron worker.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
+import { getProvider, getSessionName, getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
 import { downloadInboundMedia } from "../_shared/messaging/wahaMedia.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
@@ -253,7 +253,9 @@ Deno.serve(async (req) => {
   });
 
   // === MEDIA PATH: document ingestion ===
-  if (evt.media && evt.media.url) {
+  // Any media descriptor triggers the download flow; URL is optional because
+  // NOWEB frequently omits it and we must download via the WAHA files endpoint.
+  if (evt.media) {
     // Idempotency: same provider_message_id must never create two document_imports.
     const { data: existing } = await sb.from("document_imports")
       .select("id, status").eq("provider_message_id", evt.provider_message_id).maybeSingle();
@@ -261,21 +263,25 @@ Deno.serve(async (req) => {
       await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
       return json({ ok: true, media: "duplicate", document_id: existing.id });
     }
-    // Load WAHA config for potential authenticated fallback download.
+    const access = getWahaAccess();
     const dl = await downloadInboundMedia({
       media: evt.media,
-      // provider-level config already primed by loadWahaConfig
+      apiUrl: access.api_url,
+      apiKey: access.api_key,
+      session: access.session,
       messageId: evt.provider_message_id,
     });
     if (!dl.ok) {
-      await sb.from("outbound_messages").insert({
-        user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
-        body: dl.code === "size_exceeds"
-          ? "Esse arquivo é maior que 20 MB e não consegui processar. Envie um documento menor ou peça extrato em partes."
-          : dl.code === "mime_not_allowed"
-          ? "Esse formato de arquivo eu ainda não consigo ler. Envie PDF, JPG, PNG ou WEBP, por favor."
-          : "Recebi seu arquivo, mas não consegui baixá-lo por aqui. Reenvie, por favor.",
-      });
+      const body = dl.code === "size_exceeds"
+        ? "Esse arquivo é maior que 20 MB e não consegui processar. Envie um documento menor ou peça extrato em partes."
+        : dl.code === "mime_not_allowed"
+        ? "Esse formato de arquivo eu ainda não consigo ler. Envie PDF, JPG, PNG ou WEBP, por favor."
+        : dl.code === "unsafe_url"
+        ? "Não consegui baixar esse arquivo com segurança. Reenvie diretamente pelo WhatsApp, por favor."
+        : dl.code === "timeout"
+        ? "A leitura demorou demais para baixar. Tente enviar novamente em instantes."
+        : "Recebi seu arquivo, mas não consegui baixá-lo por aqui. Reenvie, por favor.";
+      await sb.from("outbound_messages").insert({ user_id: link.user_id, to_phone: evt.from_phone, kind: "system", body });
       triggerDispatcher();
       await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
       return json({ ok: true, media: "download_failed", code: dl.code });
@@ -292,7 +298,6 @@ Deno.serve(async (req) => {
       triggerDispatcher();
       return json({ ok: true, media: "storage_failed" });
     }
-    // Compute sha256 for dedup / audit.
     const shaBuf = await crypto.subtle.digest("SHA-256", dl.bytes);
     const sha = Array.from(new Uint8Array(shaBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
     const { error: insErrDoc } = await sb.from("document_imports").insert({
@@ -321,7 +326,7 @@ Deno.serve(async (req) => {
       user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
       body: "Recebi seu documento e já estou lendo para você. Volto em instantes com os lançamentos para você conferir. 📄",
     });
-    // Fire-and-forget the ingestion trigger.
+    // Fire-and-forget the ingestion trigger. `process-inbound-media` handles auth.
     fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
@@ -331,6 +336,7 @@ Deno.serve(async (req) => {
     await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
     return json({ ok: true, media: "queued", document_id: doc_id });
   }
+
 
   const result = await runOrchestrator({
     user_id: link.user_id, conversation_id: conv.id as string,

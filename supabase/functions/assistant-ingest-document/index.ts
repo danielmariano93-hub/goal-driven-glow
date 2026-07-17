@@ -479,12 +479,41 @@ function pdfHasPasswordEncryption(bytes: Uint8Array): boolean {
   return false;
 }
 
-const TERMINAL_STATUSES = new Set(["needs_review", "confirmed", "partially_confirmed", "canceled"]);
+const TERMINAL_STATUSES = new Set(["needs_review", "partial", "confirmed", "partially_confirmed", "canceled"]);
 const TRANSIENT_ERROR_PREFIXES = ["gateway:", "fetch_error", "timeout:", "download:", "items_insert:", "extraction:"];
 
 function isTransientErrorTag(tag: string | null): boolean {
   if (!tag) return false;
   return TRANSIENT_ERROR_PREFIXES.some((p) => tag.startsWith(p));
+}
+
+/** Idempotently emit a processing event and, when the document originated from
+ *  WhatsApp, queue an outbound message once per (document_id, event_type).
+ *  Any failure is swallowed — status notifications must never block ingestion. */
+async function notifyDocumentTransition(
+  sb: ReturnType<typeof createClient>,
+  doc: { id: string; user_id: string; source?: string | null; conversation_id?: string | null },
+  eventType: string,
+  waMessage?: string | null,
+  eventExtras: Record<string, unknown> = {},
+) {
+  try {
+    const { data: prior } = await sb.from("document_processing_events")
+      .select("id").eq("document_id", doc.id).eq("event_type", eventType).limit(1).maybeSingle();
+    if (prior) return; // dedup by (document_id, event_type)
+    await sb.from("document_processing_events").insert({
+      document_id: doc.id, user_id: doc.user_id, event_type: eventType, ...eventExtras,
+    });
+    if (doc.source === "whatsapp" && waMessage && doc.conversation_id) {
+      const { data: conv } = await sb.from("conversations").select("phone_e164").eq("id", doc.conversation_id).maybeSingle();
+      const phone = (conv as { phone_e164?: string } | null)?.phone_e164;
+      if (phone) {
+        await sb.from("outbound_messages").insert({
+          user_id: doc.user_id, to_phone: phone, kind: "system", body: waMessage,
+        });
+      }
+    }
+  } catch { /* swallow */ }
 }
 
 /**
@@ -548,6 +577,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
   try {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
     if (!doc) return;
+    await notifyDocumentTransition(sb, { id: documentId, user_id: userId, source: doc.source, conversation_id: doc.conversation_id }, "processing_started", null);
     const previousFailureCount = Number(doc.counters?.failure_count ?? 0);
     const failureCounters = (base: Record<string, unknown> = {}) => ({ ...base, failure_count: previousFailureCount + 1 });
 
@@ -751,53 +781,89 @@ async function processDocument(documentId: string, userId: string, guidance: str
         });
 
         // Quarantine: validate each row against DB whitelists BEFORE insert.
-        // Valid → needs_review/duplicate_suspect. Invalid → status='rejected' with reason.
+        // Valid → needs_review/duplicate_suspect. Invalid → NEVER hits extracted_items;
+        // instead we log to `document_item_rejections` with a sanitized reason.
         const validRows: typeof rows = [];
-        const rejectedRows: typeof rows = [];
+        const rejections: Array<{ idx: number; code: string; field: string; excerpt: string; fields: Record<string, unknown> }> = [];
         for (const r of rows) {
           const v = validateExtractedRow(r);
           if (v.ok) validRows.push(v.row);
-          else rejectedRows.push({ ...r, status: "rejected", duplicate_reason: `rejected:${v.reason}:${v.field}` });
+          else rejections.push({
+            idx: Number(r.idx ?? -1),
+            code: v.reason,
+            field: v.field,
+            excerpt: String(r.description ?? "").slice(0, 120),
+            fields: {
+              type: r.type ?? null,
+              amount: typeof r.amount === "number" ? r.amount : null,
+              occurred_at: r.occurred_at ?? null,
+              movement_kind: r.movement_kind ?? null,
+              payment_method: r.payment_method ?? null,
+              installments_total: r.installments_total ?? null,
+              installment_number: r.installment_number ?? null,
+            },
+          });
         }
 
+        let persisted = 0;
+        let insertErrorTag: string | null = null;
         if (validRows.length > 0) {
           const { error: itemsErr } = await sb.from("extracted_items").insert(validRows);
-          if (itemsErr) {
+          if (!itemsErr) {
+            persisted = validRows.length;
+          } else {
             // Degrade to per-row insert to salvage what we can.
-            let salvaged = 0;
             for (const r of validRows) {
               const { error: perErr } = await sb.from("extracted_items").insert([r]);
-              if (!perErr) salvaged++;
-              else rejectedRows.push({ ...r, status: "rejected", duplicate_reason: `rejected:insert_error:${perErr.message.slice(0, 60)}` });
+              if (!perErr) persisted++;
+              else rejections.push({
+                idx: Number(r.idx ?? -1),
+                code: "insert_error",
+                field: "row",
+                excerpt: String(r.description ?? "").slice(0, 120),
+                fields: { message: String(perErr.message ?? "").slice(0, 80) },
+              });
             }
-            if (salvaged === 0 && rejectedRows.length === 0) {
-              await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
-              return;
-            }
+            if (persisted === 0) insertErrorTag = `items_insert:${itemsErr.message}`.slice(0, 180);
           }
         }
-        if (rejectedRows.length > 0) {
-          await sb.from("extracted_items").insert(rejectedRows).then(() => {}, () => {});
+        if (rejections.length > 0) {
+          await sb.from("document_item_rejections").insert(rejections.map((r) => ({
+            document_id: documentId,
+            user_id: userId,
+            item_index: r.idx,
+            reason_code: r.code,
+            reason_field: r.field,
+            reason_message: `${r.code}:${r.field}`.slice(0, 200),
+            offending_fields: r.fields,
+            description_excerpt: r.excerpt,
+          }))).then(() => {}, () => {});
         }
 
+        if (persisted === 0 && rejections.length === 0 && insertErrorTag) {
+          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(insertErrorTag, correlationId) });
+          return;
+        }
+        if (rejections.length > 0) counters.partial = true;
+
         idxOffset += rows.length;
-        counters.total_items += validRows.length;
+        counters.total_items += persisted;
         counters.duplicate_strong += batchDupStrong;
         counters.duplicate_ambiguous += batchDupAmbiguous;
         counters.categorized_auto += batchCategorized;
-        counters.uncategorized += validRows.length - batchCategorized;
-        counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+        counters.uncategorized += Math.max(0, persisted - batchCategorized);
+        counters.needs_review = Math.max(0, counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous);
         // Progress event
         await sb.from("document_processing_events").insert({
           document_id: documentId,
           user_id: userId,
-          event_type: rejectedRows.length > 0 ? "items_quarantined" : "fragment_completed",
+          event_type: rejections.length > 0 ? "items_quarantined" : "fragment_completed",
           stage: `batch_${batchIndex}`,
           progress_current: batchIndex,
           progress_total: maxBatches,
           items_found: rows.length,
-          items_valid: validRows.length,
-          items_rejected: rejectedRows.length,
+          items_valid: persisted,
+          items_rejected: rejections.length,
           metadata: { batch: batchIndex },
         }).then(() => {}, () => {});
 
@@ -817,8 +883,11 @@ async function processDocument(documentId: string, userId: string, guidance: str
       if (freshItems.length === 0 && batchIndex > 1) break;
     }
 
+    const finalStatus = counters.total_items === 0
+      ? (lastErrorTag ? "failed" : "needs_review")
+      : (counters.partial ? "partial" : "needs_review");
     await finish({
-      status: "needs_review",
+      status: finalStatus,
       document_kind: documentKind,
       model: MODEL,
       tokens_in,
@@ -832,11 +901,31 @@ async function processDocument(documentId: string, userId: string, guidance: str
       period_end: statement?.period_end ?? null,
       statement_bank: statement?.bank ?? null,
       counters: { ...counters, notes: notes.slice(0, 6), stopped_after_error: lastErrorTag ?? null },
-      error: null,
+      error: finalStatus === "failed" && lastErrorTag ? encodeError(lastErrorTag, correlationId) : null,
     });
+
+    // Emit user-facing transition notifications idempotently
+    const docCtx = { id: documentId, user_id: userId, source: doc.source, conversation_id: doc.conversation_id };
+    if (finalStatus === "needs_review") {
+      await notifyDocumentTransition(sb, docCtx, "review_ready",
+        `Terminei de ler seu documento e encontrei ${counters.total_items} lançamento(s). Abra o app para revisar antes de registrar. ✅`);
+      await notifyDocumentTransition(sb, docCtx, "processing_completed", null);
+    } else if (finalStatus === "partial") {
+      await notifyDocumentTransition(sb, docCtx, "partial_result_available",
+        `Consegui ler parte do documento (${counters.total_items} lançamento(s)). Abra o app para revisar o que já capturei. Alguns itens ficaram fora e você pode reenviar por partes se quiser.`);
+    } else if (finalStatus === "failed") {
+      await notifyDocumentTransition(sb, docCtx, "processing_failed",
+        "Tive dificuldade para concluir a leitura desse documento. Você pode reenviar ou tentar por partes.",
+        { error_code: lastErrorTag ?? "unknown" });
+    }
   } catch (e) {
     console.error(`[assistant-ingest cid=${correlationId}] processDocument crashed`, e);
     await finish({ status: "failed", error: encodeError(`fetch_error:${(e as Error).message?.slice(0, 160) ?? "unknown"}`, correlationId) });
+    try {
+      const { data: doc2 } = await sb.from("document_imports").select("id,user_id,source,conversation_id").eq("id", documentId).maybeSingle();
+      if (doc2) await notifyDocumentTransition(sb, doc2 as { id: string; user_id: string; source: string | null; conversation_id: string | null }, "processing_failed",
+        "Tive dificuldade para concluir a leitura desse documento. Você pode reenviar ou tentar por partes.");
+    } catch { /* ignore */ }
   }
 }
 
@@ -844,7 +933,7 @@ async function respondWithStatus(sb: ReturnType<typeof createClient>, documentId
   const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
   if (!doc) return json({ error: "not_found" }, 404);
   const { tag, correlation_id } = parseErrorTag(doc.error);
-  const { data: items } = doc.status === "needs_review"
+  const { data: items } = (doc.status === "needs_review" || doc.status === "partial")
     ? await sb.from("extracted_items").select("id").eq("document_id", documentId).eq("user_id", userId)
     : { data: [] as { id: string }[] };
   return json({
