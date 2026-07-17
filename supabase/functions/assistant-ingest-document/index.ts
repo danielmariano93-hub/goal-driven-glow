@@ -416,10 +416,10 @@ function userMessageFor(errorTag: string | null | undefined): string {
   if (errorTag.startsWith("size_exceeds")) return "Arquivo maior que o permitido (20 MB).";
   if (errorTag.startsWith("upload_missing")) return "Não achei o arquivo enviado. Reenvie, por favor.";
   if (errorTag.startsWith("download")) return "Tive dificuldade para ler o arquivo. Tente novamente.";
-  if (errorTag.startsWith("timeout")) return "A extração demorou mais que o esperado. Tente novamente em instantes.";
+  if (errorTag.startsWith("timeout")) return "A leitura ficou grande demais e demorou mais que o esperado. Tente novamente por partes.";
   if (errorTag.startsWith("gateway")) return "O serviço de leitura instabilizou. Tente novamente em instantes.";
   if (errorTag.startsWith("fetch_error")) return "Falha de rede ao ler o documento. Tente novamente.";
-  if (errorTag.startsWith("extraction")) return "O documento veio confuso. Envie uma versão mais nítida ou tente novamente.";
+  if (errorTag.startsWith("extraction")) return "A extração ficou grande demais para concluir de uma vez. Tente novamente por partes.";
   if (errorTag.startsWith("items_insert")) return "Consegui ler, mas falhei ao gravar o rascunho. Tente novamente.";
   return "Não consegui processar o documento agora.";
 }
@@ -492,9 +492,10 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   const stale = now - updatedAt > PROCESSING_STALE_MS;
 
   const prevErrTag = parseErrorTag(doc.error).tag;
+  const failureCount = Number(doc.counters?.failure_count ?? 0);
   const canResume = doc.status === "uploaded"
     || (doc.status === "processing" && stale)
-    || (doc.status === "failed" && isTransientErrorTag(prevErrTag));
+    || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3);
 
   if (!canResume) return { acquired: false, doc };
 
@@ -527,6 +528,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
   try {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
     if (!doc) return;
+    const previousFailureCount = Number(doc.counters?.failure_count ?? 0);
+    const failureCounters = (base: Record<string, unknown> = {}) => ({ ...base, failure_count: previousFailureCount + 1 });
 
     const { data: fileBlob, error: dlErr } = await sb.storage.from(BUCKET).download(doc.storage_path);
     if (dlErr || !fileBlob) {
@@ -621,7 +624,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
       if (out.errorTag) {
         lastErrorTag = out.errorTag;
         if (counters.total_items > 0) break;
-        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters, error: encodeError(out.errorTag, correlationId) });
+        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
         return;
       }
 
@@ -710,7 +713,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
         const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
         if (itemsErr) {
-          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters, error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
           return;
         }
 
