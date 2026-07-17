@@ -75,6 +75,9 @@ REGRAS ESTRITAS:
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
 - Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
+- LIMITE RÍGIDO: devolva no máximo ${MAX_ITEMS_PER_DOCUMENT} lançamentos por documento. Se houver mais, devolva os ${MAX_ITEMS_PER_DOCUMENT} MAIS RECENTES (por data) e explique o corte em "notes".
+- Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
+- Seja compacto no JSON: omita campos com valor null quando possível.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
 type StatementMetadata = {
