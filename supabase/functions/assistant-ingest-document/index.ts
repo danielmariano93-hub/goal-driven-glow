@@ -75,13 +75,39 @@ REGRAS ESTRITAS:
 - Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
+type StatementMetadata = {
+  opening_balance: number | null;
+  closing_balance: number | null;
+  balance_date: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  bank: string | null;
+};
+
 type MultimodalOutcome = {
   result: ExtractionResult;
+  statement: StatementMetadata | null;
   tokens_in: number;
   tokens_out: number;
   ms: number;
   errorTag?: string;
 };
+
+function extractStatementMetadata(parsed: unknown, fallback: string): StatementMetadata | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = (parsed as Record<string, unknown>)["statement_metadata"];
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const opening = normalizeAmountBR((r.opening_balance ?? null) as string | number | null ?? "");
+  const closing = normalizeAmountBR((r.closing_balance ?? null) as string | number | null ?? "");
+  const balDate = typeof r.balance_date === "string" ? normalizeDateBR(r.balance_date, fallback) : null;
+  const periodStart = typeof r.period_start === "string" ? normalizeDateBR(r.period_start, fallback) : null;
+  const periodEnd = typeof r.period_end === "string" ? normalizeDateBR(r.period_end, fallback) : null;
+  const bank = typeof r.bank === "string" ? r.bank.slice(0, 80) : null;
+  const anySet = opening != null || closing != null || balDate || periodStart || periodEnd || bank;
+  if (!anySet) return null;
+  return { opening_balance: opening, closing_balance: closing, balance_date: balDate, period_start: periodStart, period_end: periodEnd, bank };
+}
 
 async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<MultimodalOutcome> {
   const start = Date.now();
