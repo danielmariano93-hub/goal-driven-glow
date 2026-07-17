@@ -10,7 +10,7 @@
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, type ExtractionResult } from "../_shared/documents/types.ts";
+import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -747,19 +747,56 @@ async function processDocument(documentId: string, userId: string, guidance: str
           };
         });
 
-        const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
-        if (itemsErr) {
-          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
-          return;
+        // Quarantine: validate each row against DB whitelists BEFORE insert.
+        // Valid → needs_review/duplicate_suspect. Invalid → status='rejected' with reason.
+        const validRows: typeof rows = [];
+        const rejectedRows: typeof rows = [];
+        for (const r of rows) {
+          const v = validateExtractedRow(r);
+          if (v.ok) validRows.push(v.row);
+          else rejectedRows.push({ ...r, status: "rejected", duplicate_reason: `rejected:${v.reason}:${v.field}` });
+        }
+
+        if (validRows.length > 0) {
+          const { error: itemsErr } = await sb.from("extracted_items").insert(validRows);
+          if (itemsErr) {
+            // Degrade to per-row insert to salvage what we can.
+            let salvaged = 0;
+            for (const r of validRows) {
+              const { error: perErr } = await sb.from("extracted_items").insert([r]);
+              if (!perErr) salvaged++;
+              else rejectedRows.push({ ...r, status: "rejected", duplicate_reason: `rejected:insert_error:${perErr.message.slice(0, 60)}` });
+            }
+            if (salvaged === 0 && rejectedRows.length === 0) {
+              await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+              return;
+            }
+          }
+        }
+        if (rejectedRows.length > 0) {
+          await sb.from("extracted_items").insert(rejectedRows).then(() => {}, () => {});
         }
 
         idxOffset += rows.length;
-        counters.total_items += rows.length;
+        counters.total_items += validRows.length;
         counters.duplicate_strong += batchDupStrong;
         counters.duplicate_ambiguous += batchDupAmbiguous;
         counters.categorized_auto += batchCategorized;
-        counters.uncategorized += rows.length - batchCategorized;
+        counters.uncategorized += validRows.length - batchCategorized;
         counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+        // Progress event
+        await sb.from("document_processing_events").insert({
+          document_id: documentId,
+          user_id: userId,
+          event_type: rejectedRows.length > 0 ? "items_quarantined" : "fragment_completed",
+          stage: `batch_${batchIndex}`,
+          progress_current: batchIndex,
+          progress_total: maxBatches,
+          items_found: rows.length,
+          items_valid: validRows.length,
+          items_rejected: rejectedRows.length,
+          metadata: { batch: batchIndex },
+        }).then(() => {}, () => {});
 
         await finish({
           status: "processing",
