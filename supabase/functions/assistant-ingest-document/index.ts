@@ -1,11 +1,13 @@
 // Edge Function: assistant-ingest-document
 // Modes:
 //   POST { mode:'create-upload', filename, mime_type, size_bytes, conversation_id? }
-//     -> { document_id, upload_url, storage_path }
-//   POST { mode:'finalize', document_id }
-//     -> { ok, status, items? }
+//     -> { document_id, upload_url, storage_path, token }
+//   POST { mode:'finalize', document_id, guidance? }
+//     -> 202 { status:'processing' | terminal, document_id, correlation_id?, user_message? }
+//   POST { mode:'resume', document_id }
+//     -> same shape as finalize
 //   POST { mode:'status', document_id }
-//     -> { document_id, status, items?, error? }
+//     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, type ExtractionResult } from "../_shared/documents/types.ts";
@@ -15,6 +17,10 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
+const PROCESSING_STALE_MS = 3 * 60 * 1000;
+
+// deno-lint-ignore no-explicit-any
+declare const EdgeRuntime: any;
 
 async function getUser(req: Request) {
   const auth = req.headers.get("Authorization") ?? "";
@@ -67,7 +73,15 @@ REGRAS ESTRITAS:
 - Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
-async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<{ result: ExtractionResult; tokens_in: number; tokens_out: number; ms: number; error?: string }> {
+type MultimodalOutcome = {
+  result: ExtractionResult;
+  tokens_in: number;
+  tokens_out: number;
+  ms: number;
+  errorTag?: string;
+};
+
+async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<MultimodalOutcome> {
   const start = Date.now();
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -97,21 +111,20 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
     const ms = Date.now() - start;
     if (!res.ok) {
       const body = await res.text();
-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, tokens_in: 0, tokens_out: 0, ms, error: `gateway:${res.status}:${body.slice(0,200)}` };
+      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? "{}";
     const tokens_in = data?.usage?.prompt_tokens ?? 0;
     const tokens_out = data?.usage?.completion_tokens ?? 0;
     let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { parsed = {}; }
+    try { parsed = JSON.parse(text); } catch { return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, tokens_in, tokens_out, ms, errorTag: "extraction:invalid_json" }; }
     const today = new Date().toISOString().slice(0, 10);
     return { result: sanitize(parsed, today), tokens_in, tokens_out, ms };
   } catch (e) {
-    return {
-      result: { document_kind: "unknown", items: [], notes: "fetch_error" },
-      tokens_in: 0, tokens_out: 0, ms: Date.now() - start, error: (e as Error).message,
-    };
+    const err = e as Error;
+    const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
+    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
   }
 }
 
@@ -162,6 +175,257 @@ async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, 
   });
 }
 
+function userMessageFor(errorTag: string | null | undefined): string {
+  if (!errorTag) return "Não consegui processar o documento agora. Tente novamente em instantes.";
+  if (errorTag.startsWith("pdf_encrypted")) return "Esse PDF está protegido por senha. Remova a senha e envie novamente.";
+  if (errorTag.startsWith("mime_mismatch")) return "O arquivo não é um PDF/imagem válido. Envie novamente.";
+  if (errorTag.startsWith("size_exceeds")) return "Arquivo maior que o permitido (20 MB).";
+  if (errorTag.startsWith("upload_missing")) return "Não achei o arquivo enviado. Reenvie, por favor.";
+  if (errorTag.startsWith("download")) return "Tive dificuldade para ler o arquivo. Tente novamente.";
+  if (errorTag.startsWith("timeout")) return "A extração demorou mais que o esperado. Tente novamente em instantes.";
+  if (errorTag.startsWith("gateway")) return "O serviço de leitura instabilizou. Tente novamente em instantes.";
+  if (errorTag.startsWith("fetch_error")) return "Falha de rede ao ler o documento. Tente novamente.";
+  if (errorTag.startsWith("extraction")) return "O documento veio confuso. Envie uma versão mais nítida ou tente novamente.";
+  if (errorTag.startsWith("items_insert")) return "Consegui ler, mas falhei ao gravar o rascunho. Tente novamente.";
+  return "Não consegui processar o documento agora.";
+}
+
+function makeCorrelationId() {
+  return crypto.randomUUID();
+}
+
+function encodeError(tag: string, correlationId: string) {
+  // "tag|cid=<uuid>" — keeps existing prefix matchers working.
+  return `${tag}|cid=${correlationId}`;
+}
+
+function parseErrorTag(err: string | null | undefined): { tag: string | null; correlation_id: string | null } {
+  if (!err) return { tag: null, correlation_id: null };
+  const m = err.match(/^(.*?)\|cid=([0-9a-f-]+)$/i);
+  if (m) return { tag: m[1], correlation_id: m[2] };
+  return { tag: err, correlation_id: null };
+}
+
+function pdfHasPasswordEncryption(bytes: Uint8Array): boolean {
+  // Look for "/Encrypt" in the first 8KB and last 8KB of the PDF.
+  const decoder = new TextDecoder("latin1");
+  const headSlice = decoder.decode(bytes.subarray(0, Math.min(bytes.length, 8192)));
+  if (headSlice.includes("/Encrypt")) return true;
+  if (bytes.length > 8192) {
+    const tailSlice = decoder.decode(bytes.subarray(Math.max(0, bytes.length - 8192)));
+    if (tailSlice.includes("/Encrypt")) return true;
+  }
+  return false;
+}
+
+const TERMINAL_STATUSES = new Set(["needs_review", "confirmed", "partially_confirmed", "canceled"]);
+const TRANSIENT_ERROR_PREFIXES = ["gateway:", "fetch_error", "timeout:", "download:", "items_insert:", "extraction:"];
+
+function isTransientErrorTag(tag: string | null): boolean {
+  if (!tag) return false;
+  return TRANSIENT_ERROR_PREFIXES.some((p) => tag.startsWith(p));
+}
+
+/**
+ * Atomically transitions the document to `processing`. Returns true if this call
+ * won the race and must run the heavy work; false if another worker already
+ * owns it or the document is in a terminal state.
+ */
+async function acquireProcessingLock(sb: ReturnType<typeof createClient>, documentId: string, userId: string): Promise<{ acquired: boolean; doc: any | null }> {
+  const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
+  if (!doc) return { acquired: false, doc: null };
+  if (TERMINAL_STATUSES.has(doc.status)) return { acquired: false, doc };
+
+  const now = Date.now();
+  const updatedAt = doc.updated_at ? new Date(doc.updated_at).getTime() : 0;
+  const stale = now - updatedAt > PROCESSING_STALE_MS;
+
+  const prevErrTag = parseErrorTag(doc.error).tag;
+  const canResume = doc.status === "uploaded"
+    || (doc.status === "processing" && stale)
+    || (doc.status === "failed" && isTransientErrorTag(prevErrTag));
+
+  if (!canResume) return { acquired: false, doc };
+
+  // Clear any orphaned draft items from a previous failed attempt.
+  if (doc.status !== "uploaded") {
+    await sb.from("extracted_items").delete().eq("document_id", documentId).eq("user_id", userId).in("status", ["needs_review", "duplicate_suspect"]);
+  }
+
+  const { data: updated, error: upErr } = await sb.from("document_imports")
+    .update({ status: "processing", error: null })
+    .eq("id", documentId)
+    .eq("user_id", userId)
+    .eq("status", doc.status) // optimistic lock on previous status
+    .select("*")
+    .maybeSingle();
+  if (upErr || !updated) return { acquired: false, doc };
+  return { acquired: true, doc: updated };
+}
+
+async function processDocument(documentId: string, userId: string, guidance: string, correlationId: string) {
+  const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  const finish = async (patch: Record<string, unknown>) => {
+    await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
+  };
+
+  try {
+    const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
+    if (!doc) return;
+
+    const { data: fileBlob, error: dlErr } = await sb.storage.from(BUCKET).download(doc.storage_path);
+    if (dlErr || !fileBlob) {
+      await finish({ status: "failed", error: encodeError(`upload_missing:${dlErr?.message ?? "no_blob"}`, correlationId) });
+      return;
+    }
+    const bytes = new Uint8Array(await fileBlob.arrayBuffer());
+    if (bytes.length > MAX_BYTES) {
+      await finish({ status: "failed", error: encodeError("size_exceeds:", correlationId) });
+      return;
+    }
+    const magic = detectMime(bytes);
+    if (!magic || magic !== doc.mime_type) {
+      await finish({ status: "failed", error: encodeError(`mime_mismatch:${magic ?? "unknown"}`, correlationId) });
+      return;
+    }
+    if (doc.mime_type === "application/pdf" && pdfHasPasswordEncryption(bytes)) {
+      await finish({ status: "failed", error: encodeError("pdf_encrypted:", correlationId) });
+      return;
+    }
+    const sha = await sha256Hex(bytes);
+
+    // Dedup by (user_id, sha256): reuse prior doc if exists.
+    const { data: existing } = await sb.from("document_imports").select("id, status").eq("user_id", userId).eq("sha256", sha).neq("id", documentId).maybeSingle();
+    if (existing?.id) {
+      await sb.storage.from(BUCKET).remove([doc.storage_path]).catch(() => undefined);
+      await sb.from("document_imports").delete().eq("id", documentId).eq("user_id", userId);
+      return;
+    }
+    if (doc.sha256 !== sha) {
+      await sb.from("document_imports").update({ sha256: sha }).eq("id", documentId).eq("user_id", userId);
+    }
+
+    if (!LOVABLE_API_KEY) {
+      await finish({ status: "failed", error: encodeError("gateway:no_api_key", correlationId) });
+      return;
+    }
+
+    // Base64 in chunks (avoid stack overflow on large binaries).
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)) as unknown as number[]);
+    }
+    const b64 = btoa(bin);
+    const dataUrl = `data:${doc.mime_type};base64,${b64}`;
+
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 90_000);
+    let extraction: ExtractionResult;
+    let tokens_in = 0, tokens_out = 0, ms = 0;
+    let errorTag: string | undefined;
+    try {
+      const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", (guidance ?? "").slice(0, 500), ac.signal);
+      extraction = out.result;
+      tokens_in = out.tokens_in;
+      tokens_out = out.tokens_out;
+      ms = out.ms;
+      errorTag = out.errorTag;
+      if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance ?? "")) {
+        const today = new Date().toISOString().slice(0, 10);
+        extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (errorTag) {
+      await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, error: encodeError(errorTag, correlationId) });
+      return;
+    }
+
+    if (extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") {
+      await finish({
+        status: "needs_review",
+        document_kind: extraction.document_kind,
+        model: MODEL,
+        tokens_in,
+        tokens_out,
+        extraction_ms: ms,
+        error: null,
+      });
+      return;
+    }
+
+    const enriched = await enrichItems(sb, userId, extraction.items);
+    const dupes = await findDuplicates(sb, userId, enriched);
+    const rows = enriched.map((it, idx) => ({
+      document_id: documentId,
+      user_id: userId,
+      idx,
+      type: it.type,
+      amount: it.amount,
+      occurred_at: it.occurred_at,
+      description: it.description,
+      payment_method: it.payment_method,
+      account_hint: it.account_hint,
+      card_hint: it.card_hint,
+      category_hint: it.category_hint,
+      category_id: it.category_id,
+      account_id: it.account_id,
+      credit_card_id: it.credit_card_id,
+      installments_total: it.installments_total,
+      installment_number: it.installment_number,
+      purchase_date: it.purchase_date,
+      competence_date: it.competence_date,
+      confidence: it.confidence,
+      raw: it as unknown as Record<string, unknown>,
+      status: dupes.has(idx) ? "duplicate_suspect" : "needs_review",
+      duplicate_of: dupes.get(idx) ?? null,
+    }));
+    if (rows.length > 0) {
+      const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
+      if (itemsErr) {
+        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+        return;
+      }
+    }
+
+    await finish({
+      status: "needs_review",
+      document_kind: extraction.document_kind,
+      model: MODEL,
+      tokens_in,
+      tokens_out,
+      extraction_ms: ms,
+      error: null,
+    });
+  } catch (e) {
+    console.error(`[assistant-ingest cid=${correlationId}] processDocument crashed`, e);
+    await finish({ status: "failed", error: encodeError(`fetch_error:${(e as Error).message?.slice(0, 160) ?? "unknown"}`, correlationId) });
+  }
+}
+
+async function respondWithStatus(sb: ReturnType<typeof createClient>, documentId: string, userId: string, extra: Record<string, unknown> = {}, status = 200) {
+  const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
+  if (!doc) return json({ error: "not_found" }, 404);
+  const { tag, correlation_id } = parseErrorTag(doc.error);
+  const { data: items } = doc.status === "needs_review"
+    ? await sb.from("extracted_items").select("id").eq("document_id", documentId).eq("user_id", userId)
+    : { data: [] as { id: string }[] };
+  return json({
+    ok: true,
+    status: doc.status,
+    document_id: documentId,
+    document_kind: doc.document_kind ?? null,
+    items_count: (items ?? []).length,
+    error: tag,
+    correlation_id,
+    user_message: tag ? userMessageFor(tag) : null,
+    ...extra,
+  }, status);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -189,11 +453,9 @@ Deno.serve(async (req) => {
     const ext = mime_type === "application/pdf" ? "pdf" : mime_type === "image/png" ? "png" : mime_type === "image/webp" ? "webp" : "jpg";
     const storage_path = `${user.id}/${doc_id}.${ext}`;
 
-    // Create signed upload URL
     const { data: signed, error: signErr } = await sb.storage.from(BUCKET).createSignedUploadUrl(storage_path);
     if (signErr || !signed) return json({ error: "signed_url_failed", details: signErr?.message }, 500);
 
-    // Placeholder sha256 — final value computed at finalize
     const { error: insErr } = await sb.from("document_imports").insert({
       id: doc_id,
       user_id: user.id,
@@ -207,154 +469,40 @@ Deno.serve(async (req) => {
     });
     if (insErr) return json({ error: "insert_failed", details: insErr.message }, 500);
 
-    return json({ ok: true, document_id: doc_id, upload_url: signed.signedUrl, storage_path, token: signed.token });
+    return json({ ok: true, document_id: doc_id, upload_url: signed.signedUrl, storage_path, token: signed.token, filename });
   }
 
-  // === FINALIZE ===
-  if (mode === "finalize") {
+  // === FINALIZE / RESUME ===
+  if (mode === "finalize" || mode === "resume") {
     const document_id = String(body.document_id ?? "");
     if (!document_id) return json({ error: "missing_document_id" }, 400);
-    const { data: doc, error } = await sb.from("document_imports").select("*").eq("id", document_id).eq("user_id", user.id).maybeSingle();
-    if (error || !doc) return json({ error: "not_found" }, 404);
+    const guidance = String(body.guidance ?? "");
 
-    if (doc.status === "confirmed" || doc.status === "partially_confirmed" || doc.status === "canceled") {
-      return json({ ok: true, status: doc.status, document_id });
+    const { acquired, doc } = await acquireProcessingLock(sb, document_id, user.id);
+    if (!doc) return json({ error: "not_found" }, 404);
+
+    if (!acquired) {
+      // Already terminal, or another worker owns it. Just report current state.
+      return respondWithStatus(sb, document_id, user.id, {}, 200);
     }
 
-    // Download file, validate magic bytes/size, compute sha256, dedupe
-    const { data: fileBlob, error: dlErr } = await sb.storage.from(BUCKET).download(doc.storage_path);
-    if (dlErr || !fileBlob) {
-      await sb.from("document_imports").update({ status: "failed", error: `download:${dlErr?.message ?? "no_blob"}` }).eq("id", document_id);
-      return json({ error: "download_failed", details: dlErr?.message }, 500);
-    }
-    const bytes = new Uint8Array(await fileBlob.arrayBuffer());
-    if (bytes.length > MAX_BYTES) {
-      await sb.from("document_imports").update({ status: "failed", error: "size_exceeds" }).eq("id", document_id);
-      return json({ error: "size_exceeds" }, 400);
-    }
-    const magic = detectMime(bytes);
-    if (!magic || magic !== doc.mime_type) {
-      await sb.from("document_imports").update({ status: "failed", error: `mime_mismatch:${magic ?? "unknown"}` }).eq("id", document_id);
-      return json({ error: "mime_mismatch", got: magic }, 400);
-    }
-    const sha = await sha256Hex(bytes);
-
-    // Deduplicate by (user_id, sha256): if a prior doc has the same hash, return it and delete this upload
-    const { data: existing } = await sb.from("document_imports").select("id, status").eq("user_id", user.id).eq("sha256", sha).neq("id", document_id).maybeSingle();
-    if (existing?.id) {
-      await sb.storage.from(BUCKET).remove([doc.storage_path]);
-      await sb.from("document_imports").delete().eq("id", document_id);
-      return json({ ok: true, deduped: true, document_id: existing.id, status: existing.status });
-    }
-
-    await sb.from("document_imports").update({ status: "processing", sha256: sha }).eq("id", document_id);
-
-    // Call multimodal model with base64 data URL (bucket is private).
-    // Chunked base64 to avoid Maximum call stack size exceeded on 5-10MB images.
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)) as unknown as number[]);
-    }
-    const b64 = btoa(bin);
-    const dataUrl = `data:${doc.mime_type};base64,${b64}`;
-
-    let extraction: ExtractionResult = { document_kind: "unknown", items: [], notes: null };
-    let modelOk = true;
-    let tokens_in = 0, tokens_out = 0, ms = 0, gwErr: string | undefined;
-    if (!LOVABLE_API_KEY) {
-      modelOk = false;
-      gwErr = "no_api_key";
+    const correlationId = makeCorrelationId();
+    console.log(`[assistant-ingest cid=${correlationId}] dispatch document=${document_id} user=${user.id} mode=${mode}`);
+    const work = processDocument(document_id, user.id, guidance, correlationId);
+    if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+      EdgeRuntime.waitUntil(work);
     } else {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), 45_000);
-      try {
-        const guidance = String(body.guidance ?? "").slice(0, 500);
-        const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", guidance, ac.signal);
-        extraction = out.result;
-        if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance)) {
-          const today = new Date().toISOString().slice(0, 10);
-          extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
-        }
-        tokens_in = out.tokens_in;
-        tokens_out = out.tokens_out;
-        ms = out.ms;
-        if (out.error) { modelOk = false; gwErr = out.error; }
-      } finally {
-        clearTimeout(t);
-      }
+      // Fallback (tests / local): fire-and-forget with catch to avoid unhandled rejection.
+      work.catch((err) => console.error(`[assistant-ingest cid=${correlationId}] background`, err));
     }
-
-    if (!modelOk || extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") {
-      const failStatus = !modelOk ? "failed" : "needs_review";
-      await sb.from("document_imports").update({
-        status: failStatus,
-        document_kind: extraction.document_kind,
-        model: MODEL,
-        tokens_in, tokens_out,
-        extraction_ms: ms,
-        error: gwErr ?? null,
-      }).eq("id", document_id);
-      return json({
-        ok: true,
-        status: failStatus,
-        document_id,
-        document_kind: extraction.document_kind,
-        items: [],
-        error: gwErr ?? null,
-      });
-    }
-
-    // Aplica memória pessoal de categorias e tenta reconhecer conta/cartão sem esconder a revisão.
-    const enriched = await enrichItems(sb, user.id, extraction.items);
-    const dupes = await findDuplicates(sb, user.id, enriched);
-    const rows = enriched.map((it, idx) => ({
-      document_id,
-      user_id: user.id,
-      idx,
-      type: it.type,
-      amount: it.amount,
-      occurred_at: it.occurred_at,
-      description: it.description,
-      payment_method: it.payment_method,
-      account_hint: it.account_hint,
-      card_hint: it.card_hint,
-      category_hint: it.category_hint,
-      category_id: it.category_id,
-      account_id: it.account_id,
-      credit_card_id: it.credit_card_id,
-      installments_total: it.installments_total,
-      installment_number: it.installment_number,
-      purchase_date: it.purchase_date,
-      competence_date: it.competence_date,
-      confidence: it.confidence,
-      raw: it as unknown as Record<string, unknown>,
-      status: dupes.has(idx) ? "duplicate_suspect" : "needs_review",
-      duplicate_of: dupes.get(idx) ?? null,
-    }));
-    if (rows.length > 0) {
-      const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
-      if (itemsErr) {
-        await sb.from("document_imports").update({ status: "failed", error: `items:${itemsErr.message}` }).eq("id", document_id);
-        return json({ error: "items_insert_failed", details: itemsErr.message }, 500);
-      }
-    }
-
-    await sb.from("document_imports").update({
-      status: "needs_review",
-      document_kind: extraction.document_kind,
-      model: MODEL,
-      tokens_in, tokens_out,
-      extraction_ms: ms,
-    }).eq("id", document_id);
 
     return json({
       ok: true,
-      status: "needs_review",
+      status: "processing",
       document_id,
-      document_kind: extraction.document_kind,
-      items_count: rows.length,
-    });
+      correlation_id: correlationId,
+      user_message: "Estou lendo esse documento. Já te aviso.",
+    }, 202);
   }
 
   // === STATUS ===
@@ -364,7 +512,19 @@ Deno.serve(async (req) => {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", document_id).eq("user_id", user.id).maybeSingle();
     if (!doc) return json({ error: "not_found" }, 404);
     const { data: items } = await sb.from("extracted_items").select("*").eq("document_id", document_id).eq("user_id", user.id).order("idx");
-    return json({ ok: true, document: doc, items: items ?? [] });
+    const { tag, correlation_id } = parseErrorTag(doc.error);
+    return json({
+      ok: true,
+      document: doc,
+      status: doc.status,
+      document_id,
+      document_kind: doc.document_kind ?? null,
+      items: items ?? [],
+      items_count: (items ?? []).length,
+      error: tag,
+      correlation_id,
+      user_message: tag ? userMessageFor(tag) : null,
+    });
   }
 
   return json({ error: "unknown_mode" }, 400);
