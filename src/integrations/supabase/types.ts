@@ -2349,6 +2349,7 @@ export type Database = {
           payment_method: string
           purchase_date: string | null
           purchase_group_id: string | null
+          settles_card_id: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -2376,6 +2377,7 @@ export type Database = {
           payment_method?: string
           purchase_date?: string | null
           purchase_group_id?: string | null
+          settles_card_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -2403,6 +2405,7 @@ export type Database = {
           payment_method?: string
           purchase_date?: string | null
           purchase_group_id?: string | null
+          settles_card_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
@@ -2428,6 +2431,13 @@ export type Database = {
           {
             foreignKeyName: "transactions_credit_card_id_fkey"
             columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_settles_card_id_fkey"
+            columns: ["settles_card_id"]
             isOneToOne: false
             referencedRelation: "credit_cards"
             referencedColumns: ["id"]
