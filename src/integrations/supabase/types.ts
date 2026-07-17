@@ -1049,6 +1049,53 @@ export type Database = {
         }
         Relationships: []
       }
+      document_item_rejections: {
+        Row: {
+          created_at: string
+          description_excerpt: string | null
+          document_id: string
+          id: string
+          item_index: number | null
+          offending_fields: Json
+          reason_code: string
+          reason_field: string | null
+          reason_message: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description_excerpt?: string | null
+          document_id: string
+          id?: string
+          item_index?: number | null
+          offending_fields?: Json
+          reason_code: string
+          reason_field?: string | null
+          reason_message?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description_excerpt?: string | null
+          document_id?: string
+          id?: string
+          item_index?: number | null
+          offending_fields?: Json
+          reason_code?: string
+          reason_field?: string | null
+          reason_message?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_item_rejections_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_processing_events: {
         Row: {
           created_at: string
