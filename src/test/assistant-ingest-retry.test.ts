@@ -40,7 +40,7 @@ describe("ingestDocument", () => {
     vi.useFakeTimers();
   });
 
-  it("upload OK + finalize retorna processing + status vira needs_review após poll/resume", async () => {
+  it("upload OK + finalize retorna processing sem bloquear o painel", async () => {
     uploadToSignedUrl.mockResolvedValue({ error: null });
 
     invoke.mockImplementation((_fn: string, opts: { body: Record<string, unknown> }) => {
@@ -57,29 +57,21 @@ describe("ingestDocument", () => {
       if (mode === "finalize") {
         return Promise.resolve({ data: { document_id: "doc-1", status: "processing", correlation_id: "cid-1" }, error: null });
       }
-      if (mode === "status") {
-        const seen = invoke.mock.calls.filter((c) => (c[1] as { body?: { mode?: string } })?.body?.mode === "status").length;
-        if (seen <= 1) return Promise.resolve({ data: { document_id: "doc-1", status: "processing" }, error: null });
-        return Promise.resolve({ data: { document_id: "doc-1", status: "needs_review", items_count: 3, document_kind: "statement" }, error: null });
-      }
-      if (mode === "resume") {
-        return Promise.resolve({ data: { document_id: "doc-1", status: "processing" }, error: null });
-      }
       return Promise.resolve({ data: null, error: new Error("unexpected " + mode) });
     });
 
-    const pending = ingestDocument(makePdf(), null, "extrato do mês");
-    await vi.advanceTimersByTimeAsync(60_000);
-    const result = await pending;
+    const result = await ingestDocument(makePdf(), null, "extrato do mês");
 
-    expect(result.status).toBe("needs_review");
-    expect(result.items_count).toBe(3);
+    expect(result.status).toBe("processing");
     expect(uploadToSignedUrl).toHaveBeenCalledTimes(1);
     expect(upload).not.toHaveBeenCalled();
     const modes = modesCalled();
     expect(modes.filter((m) => m === "create-upload")).toHaveLength(1);
     expect(modes.filter((m) => m === "finalize")).toHaveLength(1);
-    expect(modes.filter((m) => m === "status").length).toBeGreaterThanOrEqual(2);
+    expect(modes).not.toContain("status");
+    expect(modes).not.toContain("resume");
+    const createCall = invoke.mock.calls.find((c) => (c[1] as { body?: { mode?: string } })?.body?.mode === "create-upload");
+    expect((createCall?.[1] as { body: { guidance?: string } }).body.guidance).toBe("extrato do mês");
   });
 
   it("uploadToSignedUrl falha → fallback autenticado grava → verify OK → finalize prossegue", async () => {

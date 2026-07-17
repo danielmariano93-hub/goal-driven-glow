@@ -54,13 +54,6 @@ async function stripExifAndCompress(file: File): Promise<Blob> {
   });
 }
 
-const POLL_STEPS_MS = [2000, 3000, 5000, 8000, 12000, 20000];
-const TERMINAL = new Set(["needs_review", "confirmed", "partially_confirmed", "canceled", "failed"]);
-
-function sleep(ms: number) {
-  return new Promise<void>((r) => setTimeout(r, ms));
-}
-
 async function invokeStatus(documentId: string): Promise<IngestResult> {
   const { data, error } = await supabase.functions.invoke("assistant-ingest-document", {
     body: { mode: "status", document_id: documentId },
@@ -94,18 +87,8 @@ async function invokeMarkUploadMissing(documentId: string): Promise<IngestResult
   return data as IngestResult;
 }
 
-async function pollUntilTerminal(documentId: string): Promise<IngestResult> {
-  let last: IngestResult | null = null;
-  for (const wait of POLL_STEPS_MS) {
-    await sleep(wait);
-    try {
-      last = await invokeStatus(documentId);
-    } catch {
-      continue;
-    }
-    if (last && TERMINAL.has(last.status)) return last;
-  }
-  return last ?? { document_id: documentId, status: "processing" };
+export async function getIngestionStatus(documentId: string): Promise<IngestResult> {
+  return invokeStatus(documentId);
 }
 
 /** Retomada silenciosa: verifica objeto no storage; se sumiu, marca upload_missing sem reprocessar. */
@@ -126,8 +109,7 @@ export async function resumeIngestion(documentId: string): Promise<IngestResult>
   } catch {
     current = await invokeStatus(documentId).catch(() => ({ document_id: documentId, status: "processing" } as IngestResult));
   }
-  if (TERMINAL.has(current.status)) return current;
-  return pollUntilTerminal(documentId);
+  return current;
 }
 
 export async function ingestDocument(
@@ -149,6 +131,7 @@ export async function ingestDocument(
       mime_type: mimeType,
       size_bytes: bytes.length,
       conversation_id: conversationId,
+      guidance: guidance.trim() || null,
     },
   });
   if (create.error) throw create.error;
@@ -205,20 +188,8 @@ export async function ingestDocument(
     current = { document_id: upload.document_id, status: "processing" };
   }
 
-  if (!TERMINAL.has(current.status)) {
-    current = await pollUntilTerminal(upload.document_id);
-  }
-
-  if (!TERMINAL.has(current.status)) {
-    // Ainda travado: uma tentativa explícita de retomada.
-    try {
-      const resumed = await invokeMode("resume", upload.document_id, guidance);
-      current = TERMINAL.has(resumed.status) ? resumed : await pollUntilTerminal(upload.document_id);
-    } catch {
-      current = await invokeStatus(upload.document_id).catch(() => current);
-    }
-  }
-
+  // O processamento é um job do servidor. Não mantenha o composer bloqueado nem
+  // vincule a vida do job a este painel: AssessorPanel acompanha o status pelo id.
   return current;
 }
 

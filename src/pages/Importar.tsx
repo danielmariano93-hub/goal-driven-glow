@@ -39,7 +39,7 @@ function RecentDocumentImports() {
   const [docs, setDocs] = useState<any[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const load = async () => {
-    const { data } = await supabase.from("document_imports").select("id,status,document_kind,created_at,counters,statement_closing_balance,statement_balance_date").order("created_at", { ascending: false }).limit(10);
+    const { data } = await supabase.from("document_imports").select("id,status,document_kind,created_at,counters,error,statement_closing_balance,statement_balance_date").order("created_at", { ascending: false }).limit(10);
     setDocs(data ?? []);
   };
   useEffect(() => { void load(); }, []);
@@ -57,7 +57,7 @@ function RecentDocumentImports() {
     setBusy(id);
     const { error } = await supabase.functions.invoke("assistant-ingest-document", { body: { mode: "reprocess", document_id: id } });
     setBusy(null);
-    if (error) return toast.error("Não consegui reprocessar agora.");
+    if (error) return toast.error("Não consegui reprocessar agora.", { description: error.message });
     toast.success("Reprocessamento iniciado. Você poderá revisar antes de confirmar.");
     void load();
   };
@@ -68,7 +68,7 @@ function RecentDocumentImports() {
       <div><strong>{d.document_kind ?? "Documento"}</strong><br/><span className="text-muted-foreground">{new Date(d.created_at).toLocaleString("pt-BR")} · {d.status}</span>{d.statement_closing_balance != null && <><br/>Saldo bancário: {formatBRL(Number(d.statement_closing_balance))}</>}</div>
       <div className="flex gap-2">
         {["confirmed","partially_confirmed"].includes(d.status) && <button disabled={busy===d.id} onClick={() => rollback(d.id)} className="rounded-full border border-destructive/30 px-3 py-1.5 text-destructive">Desfazer com segurança</button>}
-        {d.status === "rolled_back" && <button disabled={busy===d.id} onClick={() => reprocess(d.id)} className="rounded-full bg-primary px-3 py-1.5 text-primary-foreground">Reprocessar</button>}
+        {["rolled_back", "failed"].includes(d.status) && <button disabled={busy===d.id} onClick={() => reprocess(d.id)} className="rounded-full bg-primary px-3 py-1.5 text-primary-foreground">{d.status === "failed" ? "Tentar novamente" : "Reprocessar"}</button>}
       </div>
     </div>)}
   </section>;

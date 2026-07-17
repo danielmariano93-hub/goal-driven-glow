@@ -4,7 +4,7 @@ import { X, Send, Loader2, Check, Ban, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { AssessorAttachButton, ingestDocument, resumeIngestion, type PreparedAttachment, type IngestResult } from "./AssessorAttachButton";
+import { AssessorAttachButton, getIngestionStatus, ingestDocument, resumeIngestion, type PreparedAttachment, type IngestResult } from "./AssessorAttachButton";
 import { ReviewSheet } from "./ReviewSheet";
 import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
 import { useAuth } from "@/context/AuthContext";
@@ -93,11 +93,11 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         }));
       }
 
-      const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
       const { data: documents } = await supabase
         .from("document_imports")
         .select("id, status, document_kind, error, created_at")
-        .in("status", ["uploaded", "processing", "needs_review"])
+        .in("status", ["uploaded", "processing", "needs_review", "failed", "rolled_back"])
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(10);
@@ -115,8 +115,10 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               .eq("document_id", doc.id)
               .in("status", ["needs_review", "duplicate_suspect"]);
             result = { document_id: doc.id, status: doc.status, document_kind: doc.document_kind, items_count: count ?? 0 };
-          } else {
+          } else if (doc.status === "uploaded" || doc.status === "processing") {
             result = await resumeIngestion(doc.id);
+          } else {
+            result = await getIngestionStatus(doc.id);
           }
           if (cancelled) return;
           onExtracted(result);
@@ -127,6 +129,28 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     })();
     return () => { cancelled = true; };
   }, [storageKey, user]);
+
+  // O job continua no servidor mesmo com o painel fechado. Enquanto ele estiver
+  // aberto, acompanhe os documentos ativos sem bloquear o campo de mensagem.
+  const activeDocumentKey = [...new Set(messages.flatMap((message) =>
+      message.role === "assistant" && message.doc && ["uploaded", "processing"].includes(message.doc.status)
+        ? [message.doc.document_id]
+        : []
+    ))].sort().join(",");
+
+  useEffect(() => {
+    const activeIds = activeDocumentKey ? activeDocumentKey.split(",") : [];
+    if (activeIds.length === 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      const results = await Promise.all(activeIds.map((id) => getIngestionStatus(id).catch(() => null)));
+      if (cancelled) return;
+      results.forEach((result) => { if (result) onExtracted(result); });
+    };
+    const timer = window.setInterval(() => { void tick(); }, 5000);
+    void tick();
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeDocumentKey]);
 
   function onExtracted(info: DocDraft) {
     let content = "";
@@ -197,6 +221,8 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         onExtracted(result);
         URL.revokeObjectURL(currentAttachment.url);
         setAttachment(null);
+        // Upload aceito: o servidor trabalha em segundo plano e o usuário já pode
+        // continuar conversando ou fechar o painel.
       } else {
         const res = await callAgent({ text: clean });
         setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null, report: res?.report ?? null }]);
@@ -225,6 +251,22 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       if (res?.executed) refetchAll();
     } catch (e) {
       toast.error("Não consegui concluir", { description: (e as Error).message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function retryDocument(documentId: string) {
+    if (sending) return;
+    setSending(true);
+    onExtracted({ document_id: documentId, status: "processing" });
+    try {
+      const result = await resumeIngestion(documentId);
+      onExtracted(result);
+    } catch (error) {
+      toast.error("Não consegui retomar a leitura", { description: (error as Error).message });
+      const status = await getIngestionStatus(documentId).catch(() => null);
+      if (status) onExtracted(status);
     } finally {
       setSending(false);
     }
@@ -306,6 +348,15 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                   className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/5"
                 >
                   <FileText size={14} /> Revisar {m.doc.items_count} lançamento(s)
+                </button>
+              )}
+              {m.role === "assistant" && m.doc?.status === "failed" && (
+                <button
+                  onClick={() => retryDocument(m.doc!.document_id)}
+                  disabled={sending}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/5 disabled:opacity-50"
+                >
+                  <Loader2 className={sending ? "h-3.5 w-3.5 animate-spin" : "hidden"} /> Tentar novamente
                 </button>
               )}
               {m.role === "assistant" && m.report && <SpendingReportCard report={m.report} />}

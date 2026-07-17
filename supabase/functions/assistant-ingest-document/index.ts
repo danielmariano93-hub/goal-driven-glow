@@ -19,6 +19,7 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 3 * 60 * 1000;
+const EXTRACTION_TIMEOUT_MS = 4 * 60 * 1000;
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -412,13 +413,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
     }
     const sha = await sha256Hex(bytes);
 
-    // Dedup by (user_id, sha256): reuse prior doc if exists.
-    const { data: existing } = await sb.from("document_imports").select("id, status").eq("user_id", userId).eq("sha256", sha).neq("id", documentId).maybeSingle();
-    if (existing?.id) {
-      await sb.storage.from(BUCKET).remove([doc.storage_path]).catch(() => undefined);
-      await sb.from("document_imports").delete().eq("id", documentId).eq("user_id", userId);
-      return;
-    }
+    // Não apague um novo job só porque o mesmo PDF já foi enviado. A versão
+    // anterior pode ter falhado (caso real: timeout) e o cliente continuaria
+    // consultando um document_id removido para sempre. A deduplicação correta é
+    // feita por lançamento na revisão, preservando reenvio e reparação auditável.
     if (doc.sha256 !== sha) {
       await sb.from("document_imports").update({ sha256: sha }).eq("id", documentId).eq("user_id", userId);
     }
@@ -438,7 +436,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 90_000);
+    const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
     let extraction: ExtractionResult;
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
@@ -636,8 +634,28 @@ Deno.serve(async (req) => {
       sha256: `pending:${doc_id}`,
       status: "uploaded",
       conversation_id,
+      user_instructions: String(body.guidance ?? "").trim().slice(0, 2000) || null,
     });
     if (insErr) return json({ error: "insert_failed", details: insErr.message }, 500);
+
+    // O envio de documento também é uma mensagem da conversa. Persista após o
+    // job existir, para que fechar/reabrir o painel nunca apague essa interação.
+    if (conversation_id) {
+      const guidance = String(body.guidance ?? "").trim();
+      const persistedText = `${guidance || "Analise este documento financeiro."}\n📎 ${filename}`.slice(0, 2000);
+      const { data: persisted } = await sb.from("conversation_messages").insert({
+        conversation_id,
+        user_id: user.id,
+        direction: "inbound",
+        body_masked: persistedText,
+      }).select("id").maybeSingle();
+      if (persisted?.id) {
+        await sb.from("document_imports").update({ message_id: persisted.id })
+          .eq("id", doc_id).eq("user_id", user.id);
+      }
+      await sb.from("conversations").update({ last_message_at: new Date().toISOString() })
+        .eq("id", conversation_id).eq("user_id", user.id);
+    }
 
     return json({ ok: true, document_id: doc_id, upload_url: signed.signedUrl, storage_path, token: signed.token, filename });
   }
@@ -695,9 +713,13 @@ Deno.serve(async (req) => {
     if (!document_id) return json({ error: "missing_document_id" }, 400);
     let guidance = String(body.guidance ?? "");
     if (mode === "reprocess") {
-      const { data: prior } = await sb.from("document_imports").select("status,user_instructions")
+      const { data: prior } = await sb.from("document_imports").select("status,user_instructions,error")
         .eq("id", document_id).eq("user_id", user.id).maybeSingle();
-      if (!prior || prior.status !== "rolled_back") return json({ error: "rollback_required" }, 409);
+      const priorTag = parseErrorTag((prior as { error?: string } | null)?.error).tag;
+      const retryableFailure = prior?.status === "failed" && isTransientErrorTag(priorTag);
+      if (!prior || (prior.status !== "rolled_back" && !retryableFailure)) {
+        return json({ error: "reprocess_not_allowed", user_message: "Só é possível reprocessar uma importação desfeita ou uma falha temporária." }, 409);
+      }
       guidance = guidance || String(prior.user_instructions ?? "");
       await sb.from("extracted_items").delete().eq("document_id", document_id).eq("user_id", user.id)
         .in("status", ["rolled_back","ignored","rejected","failed","duplicate_suspect","needs_review"]);
