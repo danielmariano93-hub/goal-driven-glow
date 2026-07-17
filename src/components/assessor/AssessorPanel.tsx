@@ -59,7 +59,9 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     } else if (info.document_kind === "non_financial") {
       content = "Esse arquivo não parece ser um documento financeiro. Tente um extrato, fatura, recibo ou lista de compras.";
     } else if (info.status === "failed") {
-      content = "Não consegui processar o documento. Confira se o PDF possui senha, se tem até 20 MB e tente novamente.";
+      content = info.user_message ?? "Não consegui processar o documento. Confira se o PDF possui senha, se tem até 20 MB e tente novamente.";
+    } else if (info.status === "processing" || info.status === "uploaded") {
+      content = "Ainda estou processando esse documento. Assim que terminar, aviso aqui.";
     } else {
       content = "Não achei nenhum lançamento nesse documento.";
     }
