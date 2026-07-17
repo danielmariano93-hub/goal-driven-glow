@@ -10,7 +10,8 @@ export type NormalizedInbound = {
   from_bot: boolean;
   received_at: string; // ISO
   media?: {
-    url: string;
+    url?: string;
+    base64?: string;
     mime_type: string;
     filename?: string;
   };
