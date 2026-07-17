@@ -156,12 +156,6 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
   }
 }
 
-function normalizedMerchant(value: string | null | undefined) {
-  return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-    .replace(/^(on|pay|electron|pix\s+(whats(?:\s+qrcode)?|transf))\s+/i, "")
-    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " ")
-    .replace(/\b\d{4,}\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
-}
 
 type DupeHit = { transaction_id: string; strength: "strong" | "ambiguous"; reason: string };
 
