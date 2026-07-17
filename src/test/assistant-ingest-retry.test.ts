@@ -17,9 +17,13 @@ vi.mock("@/integrations/supabase/client", () => ({
 import { ingestDocument } from "@/components/assessor/AssessorAttachButton";
 
 function makePdf(): File {
-  // Minimal valid-looking PDF blob (content irrelevant, only File API is exercised in client).
-  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]); // %PDF-
-  return new File([bytes], "extrato.pdf", { type: "application/pdf" });
+  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+  const file = new File([bytes], "extrato.pdf", { type: "application/pdf" });
+  // jsdom's File may lack arrayBuffer; polyfill.
+  if (typeof (file as unknown as { arrayBuffer?: unknown }).arrayBuffer !== "function") {
+    Object.defineProperty(file, "arrayBuffer", { value: async () => bytes.buffer });
+  }
+  return file;
 }
 
 describe("ingestDocument: retry after transient finalize failure", () => {
