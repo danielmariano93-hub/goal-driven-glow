@@ -1,3 +1,5 @@
+import { formatPrivateBRL } from "@/lib/privacy";
+
 // Pure factual engine — no arbitrary scores, no linear projections.
 // All money in numbers with 2-decimal semantics; caller should format for display.
 
@@ -350,7 +352,7 @@ export function computeBeforeSpending(input: BeforeSpendingInput): BeforeSpendin
 
 /** Format helpers used across UI */
 export function formatBRL(n: number): string {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n || 0);
+  return formatPrivateBRL(n);
 }
 
 export function currentMonthYM(now = new Date()): string {

@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import { AuthProvider } from "@/context/AuthContext";
+import { PrivacyModeProvider } from "@/context/PrivacyModeContext";
 import { AppLayout } from "@/components/AppLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { PlatformAdminRoute } from "@/components/auth/PlatformAdminRoute";
@@ -71,6 +72,7 @@ const App = () => (
     <TooltipProvider>
       <BrowserRouter>
         <AuthProvider>
+          <PrivacyModeProvider>
           <Toaster />
           <Sonner />
           <Suspense fallback={<Fallback />}>
@@ -137,6 +139,7 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
+          </PrivacyModeProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

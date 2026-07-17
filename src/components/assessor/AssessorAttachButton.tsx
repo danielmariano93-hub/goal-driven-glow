@@ -23,6 +23,11 @@ export type IngestResult = {
   user_message?: string | null;
 };
 
+export type IngestProgress = {
+  stage: "preparing" | "uploading" | "processing";
+  documentId?: string;
+};
+
 async function stripExifAndCompress(file: File): Promise<Blob> {
   return await new Promise((resolve, reject) => {
     const img = new Image();
@@ -129,7 +134,9 @@ export async function ingestDocument(
   file: File,
   conversationId: string | null,
   guidance: string,
+  onProgress?: (progress: IngestProgress) => void,
 ): Promise<IngestResult> {
+  onProgress?.({ stage: "preparing" });
   const isPdf = file.type === "application/pdf";
   const blob = isPdf ? file : await stripExifAndCompress(file).catch(() => file);
   const mimeType = isPdf ? "application/pdf" : "image/jpeg";
@@ -151,6 +158,7 @@ export async function ingestDocument(
     storage_path: string;
     token: string;
   };
+  onProgress?.({ stage: "uploading", documentId: upload.document_id });
 
   const { error: uploadError } = await supabase.storage
     .from("documents")
@@ -177,6 +185,8 @@ export async function ingestDocument(
     }
     verified = await invokeVerifyUpload(upload.document_id).catch(() => ({ exists: false, size: 0 }));
   }
+
+  onProgress?.({ stage: "processing", documentId: upload.document_id });
 
   if (!verified.exists) {
     // Sinaliza no servidor e aborta antes de qualquer IA.

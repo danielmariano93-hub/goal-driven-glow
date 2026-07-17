@@ -1794,6 +1794,7 @@ export type Database = {
           currency: string
           display_name: string | null
           id: string
+          hide_financial_values: boolean
           is_sandbox: boolean
           onboarding_completed_at: string | null
           timezone: string
@@ -1804,6 +1805,7 @@ export type Database = {
           currency?: string
           display_name?: string | null
           id: string
+          hide_financial_values?: boolean
           is_sandbox?: boolean
           onboarding_completed_at?: string | null
           timezone?: string
@@ -1814,6 +1816,7 @@ export type Database = {
           currency?: string
           display_name?: string | null
           id?: string
+          hide_financial_values?: boolean
           is_sandbox?: boolean
           onboarding_completed_at?: string | null
           timezone?: string

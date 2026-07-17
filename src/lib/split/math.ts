@@ -48,5 +48,6 @@ export function validateCustomSplit(total: number, values: number[]): { ok: bool
 }
 
 export function formatBRL(v: number): string {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return formatPrivateBRL(v);
 }
+import { formatPrivateBRL } from "@/lib/privacy";

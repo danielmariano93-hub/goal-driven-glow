@@ -8,6 +8,7 @@ import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/engine/facts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { usePrivacyMode } from "@/context/PrivacyModeContext";
 
 type Item = {
   id: string;
@@ -52,6 +53,7 @@ export function ReviewSheet({
   onClose: () => void;
 }) {
   const nav = useNavigate();
+  const { valuesHidden } = usePrivacyMode();
   const qc = useQueryClient();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
@@ -214,7 +216,7 @@ export function ReviewSheet({
       .filter((c) => c.type === t || c.type === "both");
 
   const panel = (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-background md:items-center md:justify-center md:bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-[140] flex flex-col bg-background md:items-center md:justify-center md:bg-black/50" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-card md:h-[90vh] md:max-h-[800px] md:w-[720px] md:rounded-2xl md:shadow-brand"
@@ -313,7 +315,8 @@ export function ReviewSheet({
                           <div>
                             <label className="text-[10px] text-muted-foreground">Valor</label>
                             <input
-                              inputMode="decimal"
+                              inputMode={valuesHidden ? undefined : "decimal"}
+                              type={valuesHidden ? "password" : "text"}
                               defaultValue={Number(it.amount).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               onBlur={(e) => {
                                 const v = parseBRLInput(e.target.value);

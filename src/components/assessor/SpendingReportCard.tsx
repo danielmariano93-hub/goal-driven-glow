@@ -1,5 +1,7 @@
 import { BarChart3, Download } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatBRL } from "@/lib/engine/facts";
+import { usePrivacyMode } from "@/context/PrivacyModeContext";
 
 export type SpendingReport = {
   kind: "spending_report";
@@ -20,6 +22,7 @@ const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (char) =
 }[char] ?? char));
 
 export function SpendingReportCard({ report }: { report: SpendingReport }) {
+  usePrivacyMode(); // Mantém o card reativo ao botão de ocultar/mostrar valores.
   const chart = report.categories.slice(0, 6);
 
   function printReport() {
@@ -35,7 +38,7 @@ export function SpendingReportCard({ report }: { report: SpendingReport }) {
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary"><BarChart3 size={14} /> Relatório</p>
-          <p className="mt-1 text-2xl font-bold">{money.format(report.totals.expense)}</p>
+          <p className="mt-1 text-2xl font-bold">{formatBRL(report.totals.expense)}</p>
           <p className="text-[11px] text-muted-foreground">{date(report.period.from)} a {date(report.period.to)} · {report.transactions_count} lançamentos</p>
         </div>
         <button type="button" onClick={printReport} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border" aria-label="Baixar relatório em PDF" title="Imprimir ou salvar em PDF"><Download size={15} /></button>
@@ -47,13 +50,13 @@ export function SpendingReportCard({ report }: { report: SpendingReport }) {
               <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.25} />
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="name" width={86} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(value: number) => money.format(value)} cursor={{ fill: "hsl(var(--secondary))" }} />
+              <Tooltip formatter={(value: number) => formatBRL(value)} cursor={{ fill: "hsl(var(--secondary))" }} />
               <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       ) : <p className="mt-3 rounded-xl bg-secondary p-3 text-xs text-muted-foreground">Ainda não há despesas nesse período.</p>}
-      {report.uncategorized > 0 && <p className="mt-2 text-xs text-amber-700">Há {money.format(report.uncategorized)} sem categoria. Categorizar melhora a análise.</p>}
+      {report.uncategorized > 0 && <p className="mt-2 text-xs text-amber-700">Há {formatBRL(report.uncategorized)} sem categoria. Categorizar melhora a análise.</p>}
       {report.data_limit === "small_sample" && <p className="mt-2 text-[11px] text-muted-foreground">Esta é uma leitura inicial com poucos lançamentos; ela ficará mais precisa com o uso.</p>}
     </section>
   );

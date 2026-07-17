@@ -1,13 +1,15 @@
 import { Outlet } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { Eye, EyeOff, LogOut } from 'lucide-react';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
 import { NotificationBell } from '@/components/NotificationBell';
 import { AssessorFab } from '@/components/assessor/AssessorFab';
 import { useAuth } from '@/context/AuthContext';
+import { usePrivacyMode } from '@/context/PrivacyModeContext';
 
 export function AppLayout() {
   const { profile, signOut } = useAuth();
+  const { valuesHidden, toggleValues } = usePrivacyMode();
   return (
     <div className="min-h-screen bg-background flex">
       <DesktopSidebar />
@@ -18,6 +20,15 @@ export function AppLayout() {
               {profile?.display_name ? `Olá, ${profile.display_name}` : ""}
             </p>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void toggleValues()}
+                className="grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
+                aria-label={valuesHidden ? "Mostrar valores financeiros" : "Ocultar valores financeiros"}
+                title={valuesHidden ? "Mostrar valores" : "Ocultar valores"}
+              >
+                {valuesHidden ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
               <NotificationBell />
               <button
                 type="button"
@@ -36,4 +47,3 @@ export function AppLayout() {
     </div>
   );
 }
-

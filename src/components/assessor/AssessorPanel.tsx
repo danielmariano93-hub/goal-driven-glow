@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AssessorAttachButton, ingestDocument, resumeIngestion, type PreparedAttachment, type IngestResult } from "./AssessorAttachButton";
 import { ReviewSheet } from "./ReviewSheet";
 import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
+import { useAuth } from "@/context/AuthContext";
 
 type Pending = {
   id: string;
@@ -29,16 +30,17 @@ const SUGGESTIONS = [
   "Registrar um gasto",
 ];
 
-const STORAGE_KEY = "nc:assessor:conv";
-
 export function AssessorPanel({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const storageKey = user ? `nc:assessor:conv:${user.id}` : "nc:assessor:conv";
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [attachment, setAttachment] = useState<PreparedAttachment | null>(null);
   const [reviewDocId, setReviewDocId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(() => {
-    try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+    return null;
   });
   const endRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
@@ -50,35 +52,81 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     return () => { document.body.style.overflow = previous; };
   }, []);
 
-  // Retomada silenciosa: documentos deste usuário travados em uploaded/processing
-  // nas últimas 24h são retomados em background. Nada é gravado sem revisão.
+  // Recupera a conversa persistida e os documentos recentes. O processamento ocorre
+  // no servidor; fechar o painel não perde o trabalho nem o botão de revisão.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-      const { data } = await supabase
+      if (!user) return;
+      setLoadingHistory(true);
+      let savedConversation: string | null = null;
+      try { savedConversation = localStorage.getItem(storageKey); } catch { /* ignore */ }
+      let conversation = savedConversation;
+      if (conversation) {
+        const { data } = await supabase.from("conversations").select("id").eq("id", conversation).maybeSingle();
+        if (!data) conversation = null;
+      }
+      if (!conversation) {
+        const { data } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("source", "app")
+          .order("last_message_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        conversation = data?.id ?? null;
+      }
+      if (cancelled) return;
+      setConvId(conversation);
+
+      let history: Msg[] = [];
+      if (conversation) {
+        const { data } = await supabase
+          .from("conversation_messages")
+          .select("id, direction, body_masked, created_at")
+          .eq("conversation_id", conversation)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        history = (data ?? []).reverse().map((message) => ({
+          role: message.direction === "inbound" ? "user" as const : "assistant" as const,
+          content: message.body_masked,
+        }));
+      }
+
+      const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      const { data: documents } = await supabase
         .from("document_imports")
-        .select("id, status, created_at")
-        .in("status", ["uploaded", "processing"])
+        .select("id, status, document_kind, error, created_at")
+        .in("status", ["uploaded", "processing", "needs_review"])
         .gte("created_at", since)
         .order("created_at", { ascending: false })
-        .limit(5);
-      if (cancelled || !data?.length) return;
-      for (const doc of data) {
+        .limit(10);
+      if (cancelled) return;
+      setMessages(history);
+      setLoadingHistory(false);
+
+      for (const doc of documents ?? []) {
         try {
-          const result = await resumeIngestion(doc.id);
-          if (cancelled) return;
-          if (result.status === "needs_review" && (result.items_count ?? 0) > 0) {
-            onExtracted(result);
+          let result: IngestResult;
+          if (doc.status === "needs_review") {
+            const { count } = await supabase
+              .from("extracted_items")
+              .select("id", { count: "exact", head: true })
+              .eq("document_id", doc.id)
+              .in("status", ["needs_review", "duplicate_suspect"]);
+            result = { document_id: doc.id, status: doc.status, document_kind: doc.document_kind, items_count: count ?? 0 };
+          } else {
+            result = await resumeIngestion(doc.id);
           }
+          if (cancelled) return;
+          onExtracted(result);
         } catch {
-          // silencioso — usuário pode tentar de novo pelo attach
+          // O documento permanece salvo e será tentado novamente na próxima abertura.
         }
       }
     })();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [storageKey, user]);
 
   function onExtracted(info: DocDraft) {
     let content = "";
@@ -95,7 +143,10 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     } else {
       content = "Não achei nenhum lançamento nesse documento.";
     }
-    setMessages((m) => [...m, { role: "assistant", content, doc: info }]);
+    setMessages((current) => {
+      const withoutSameDocument = current.filter((message) => message.role !== "assistant" || message.doc?.document_id !== info.document_id);
+      return [...withoutSameDocument, { role: "assistant", content, doc: info }];
+    });
   }
 
   useEffect(() => {
@@ -104,9 +155,9 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (convId) {
-      try { localStorage.setItem(STORAGE_KEY, convId); } catch { /* ignore */ }
+      try { localStorage.setItem(storageKey, convId); } catch { /* ignore */ }
     }
-  }, [convId]);
+  }, [convId, storageKey]);
 
   async function callAgent(payload: Record<string, unknown>): Promise<{ reply: string; pending: Pending | null; executed: any; conversation_id: string; report?: SpendingReport | null } | null> {
     const { data, error } = await supabase.functions.invoke("agent-chat", {
@@ -121,7 +172,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
 
   async function send(text: string) {
     const clean = text.trim();
-    if ((!clean && !attachment) || sending) return;
+    if ((!clean && !attachment) || sending || loadingHistory) return;
     const currentAttachment = attachment;
     const userContent = currentAttachment
       ? `${clean || "Analise estes lançamentos."}\n📎 ${currentAttachment.name}`
@@ -131,7 +182,18 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     setSending(true);
     try {
       if (currentAttachment) {
-        const result = await ingestDocument(currentAttachment.file, convId, clean);
+        const result = await ingestDocument(currentAttachment.file, convId, clean, (progress) => {
+          if (!progress.documentId) return;
+          const content = progress.stage === "uploading"
+            ? "Arquivo recebido. Estou preparando a leitura…"
+            : "Estou analisando seu documento. Pode fechar esta tela: continuo trabalhando e deixo a revisão salva aqui.";
+          onExtracted({ document_id: progress.documentId, status: progress.stage === "uploading" ? "uploaded" : "processing" });
+          setMessages((current) => current.map((message) =>
+            message.role === "assistant" && message.doc?.document_id === progress.documentId
+              ? { ...message, content }
+              : message
+          ));
+        });
         onExtracted(result);
         URL.revokeObjectURL(currentAttachment.url);
         setAttachment(null);
@@ -180,7 +242,9 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     <div
       className="fixed inset-x-0 z-[100] flex flex-col overflow-hidden bg-background overscroll-none md:inset-0 md:items-end md:justify-end md:bg-black/40"
       style={{ top: viewport.top, height: viewport.height }}
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -198,7 +262,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         </header>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4">
-          {messages.length === 0 && (
+          {!loadingHistory && messages.length === 0 && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Oi! Eu conheço suas contas, cartões e metas. Posso registrar gastos, analisar seu mês e sugerir ajustes.
@@ -225,6 +289,9 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                     : "max-w-[85%] rounded-2xl border border-border bg-secondary px-3 py-2 text-sm whitespace-pre-line"
                 }
               >
+                {m.role === "assistant" && (m.doc?.status === "processing" || m.doc?.status === "uploaded") && (
+                  <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                )}
                 {m.content}
               </div>
               {m.role === "assistant" && m.pending && (
@@ -232,7 +299,10 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               )}
               {m.role === "assistant" && m.doc && m.doc.status === "needs_review" && (m.doc.items_count ?? 0) > 0 && (
                 <button
-                  onClick={() => setReviewDocId(m.doc!.document_id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setReviewDocId(m.doc!.document_id);
+                  }}
                   className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/5"
                 >
                   <FileText size={14} /> Revisar {m.doc.items_count} lançamento(s)
@@ -241,7 +311,14 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               {m.role === "assistant" && m.report && <SpendingReportCard report={m.report} />}
             </div>
           ))}
-          {sending && (
+          {loadingHistory && (
+            <div className="flex justify-start">
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-border bg-secondary px-3 py-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando sua conversa…
+              </div>
+            </div>
+          )}
+          {sending && !messages.some((message) => message.role === "assistant" && (message.doc?.status === "processing" || message.doc?.status === "uploaded")) && (
             <div className="flex justify-start">
               <div className="rounded-2xl border border-border bg-secondary px-3 py-2 text-sm text-muted-foreground inline-flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Um instante…
@@ -285,19 +362,19 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               if (attachment) URL.revokeObjectURL(attachment.url);
               setAttachment(next);
             }}
-            disabled={sending}
+            disabled={sending || loadingHistory}
           />
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Escreva uma mensagem ou anexe um documento…"
             className="input-base min-w-0 flex-1 text-base"
-            disabled={sending}
+            disabled={sending || loadingHistory}
             onFocus={() => window.setTimeout(() => endRef.current?.scrollIntoView({ block: "end" }), 120)}
           />
           <button
             type="submit"
-            disabled={sending || (!input.trim() && !attachment)}
+            disabled={sending || loadingHistory || (!input.trim() && !attachment)}
             className="btn-brand inline-flex h-10 w-10 shrink-0 items-center justify-center p-0 disabled:opacity-50"
             aria-label="Enviar"
           >
