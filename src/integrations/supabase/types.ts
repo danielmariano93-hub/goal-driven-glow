@@ -857,10 +857,38 @@ export type Database = {
         }
         Relationships: []
       }
+      document_import_audit: {
+        Row: {
+          action: string
+          created_at: string
+          document_id: string
+          id: string
+          payload: Json
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          document_id: string
+          id?: string
+          payload?: Json
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          document_id?: string
+          id?: string
+          payload?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       document_imports: {
         Row: {
           conversation_id: string | null
           cost_usd_micros: number | null
+          counters: Json
           created_at: string
           document_kind: string | null
           error: string | null
@@ -871,20 +899,28 @@ export type Database = {
           message_id: string | null
           mime_type: string
           model: string | null
+          period_end: string | null
+          period_start: string | null
           raw_text: string | null
           sha256: string
           size_bytes: number
           source: string
+          statement_balance_date: string | null
+          statement_bank: string | null
+          statement_closing_balance: number | null
+          statement_opening_balance: number | null
           status: string
           storage_path: string
           tokens_in: number | null
           tokens_out: number | null
           updated_at: string
           user_id: string
+          user_instructions: string | null
         }
         Insert: {
           conversation_id?: string | null
           cost_usd_micros?: number | null
+          counters?: Json
           created_at?: string
           document_kind?: string | null
           error?: string | null
@@ -895,20 +931,28 @@ export type Database = {
           message_id?: string | null
           mime_type: string
           model?: string | null
+          period_end?: string | null
+          period_start?: string | null
           raw_text?: string | null
           sha256: string
           size_bytes: number
           source: string
+          statement_balance_date?: string | null
+          statement_bank?: string | null
+          statement_closing_balance?: number | null
+          statement_opening_balance?: number | null
           status?: string
           storage_path: string
           tokens_in?: number | null
           tokens_out?: number | null
           updated_at?: string
           user_id: string
+          user_instructions?: string | null
         }
         Update: {
           conversation_id?: string | null
           cost_usd_micros?: number | null
+          counters?: Json
           created_at?: string
           document_kind?: string | null
           error?: string | null
@@ -919,16 +963,23 @@ export type Database = {
           message_id?: string | null
           mime_type?: string
           model?: string | null
+          period_end?: string | null
+          period_start?: string | null
           raw_text?: string | null
           sha256?: string
           size_bytes?: number
           source?: string
+          statement_balance_date?: string | null
+          statement_bank?: string | null
+          statement_closing_balance?: number | null
+          statement_opening_balance?: number | null
           status?: string
           storage_path?: string
           tokens_in?: number | null
           tokens_out?: number | null
           updated_at?: string
           user_id?: string
+          user_instructions?: string | null
         }
         Relationships: []
       }
@@ -978,24 +1029,31 @@ export type Database = {
           account_hint: string | null
           account_id: string | null
           amount: number
+          bank_reference: string | null
           card_hint: string | null
+          category_confidence: number | null
           category_hint: string | null
           category_id: string | null
+          category_source: string | null
           competence_date: string | null
           confidence: Json
           created_at: string
           credit_card_id: string | null
+          dedupe_fingerprint: string | null
           description: string | null
           document_id: string
           duplicate_of: string | null
+          duplicate_reason: string | null
           id: string
           idx: number
           installment_number: number | null
           installments_total: number | null
+          normalized_description: string | null
           occurred_at: string
           payment_method: string | null
           purchase_date: string | null
           raw: Json | null
+          raw_description: string | null
           source_span: Json | null
           status: string
           transaction_id: string | null
@@ -1007,24 +1065,31 @@ export type Database = {
           account_hint?: string | null
           account_id?: string | null
           amount: number
+          bank_reference?: string | null
           card_hint?: string | null
+          category_confidence?: number | null
           category_hint?: string | null
           category_id?: string | null
+          category_source?: string | null
           competence_date?: string | null
           confidence?: Json
           created_at?: string
           credit_card_id?: string | null
+          dedupe_fingerprint?: string | null
           description?: string | null
           document_id: string
           duplicate_of?: string | null
+          duplicate_reason?: string | null
           id?: string
           idx: number
           installment_number?: number | null
           installments_total?: number | null
+          normalized_description?: string | null
           occurred_at: string
           payment_method?: string | null
           purchase_date?: string | null
           raw?: Json | null
+          raw_description?: string | null
           source_span?: Json | null
           status?: string
           transaction_id?: string | null
@@ -1036,24 +1101,31 @@ export type Database = {
           account_hint?: string | null
           account_id?: string | null
           amount?: number
+          bank_reference?: string | null
           card_hint?: string | null
+          category_confidence?: number | null
           category_hint?: string | null
           category_id?: string | null
+          category_source?: string | null
           competence_date?: string | null
           confidence?: Json
           created_at?: string
           credit_card_id?: string | null
+          dedupe_fingerprint?: string | null
           description?: string | null
           document_id?: string
           duplicate_of?: string | null
+          duplicate_reason?: string | null
           id?: string
           idx?: number
           installment_number?: number | null
           installments_total?: number | null
+          normalized_description?: string | null
           occurred_at?: string
           payment_method?: string | null
           purchase_date?: string | null
           raw?: Json | null
+          raw_description?: string | null
           source_span?: Json | null
           status?: string
           transaction_id?: string | null
@@ -2338,10 +2410,12 @@ export type Database = {
         Row: {
           account_id: string | null
           amount: number
+          bank_reference: string | null
           category_id: string | null
           competence_date: string | null
           created_at: string
           credit_card_id: string | null
+          dedupe_fingerprint: string | null
           description: string | null
           direction: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger: string | null
@@ -2355,6 +2429,7 @@ export type Database = {
           payment_method: string
           purchase_date: string | null
           purchase_group_id: string | null
+          raw_description: string | null
           settles_card_id: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
@@ -2366,10 +2441,12 @@ export type Database = {
         Insert: {
           account_id?: string | null
           amount: number
+          bank_reference?: string | null
           category_id?: string | null
           competence_date?: string | null
           created_at?: string
           credit_card_id?: string | null
+          dedupe_fingerprint?: string | null
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
@@ -2383,6 +2460,7 @@ export type Database = {
           payment_method?: string
           purchase_date?: string | null
           purchase_group_id?: string | null
+          raw_description?: string | null
           settles_card_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
@@ -2394,10 +2472,12 @@ export type Database = {
         Update: {
           account_id?: string | null
           amount?: number
+          bank_reference?: string | null
           category_id?: string | null
           competence_date?: string | null
           created_at?: string
           credit_card_id?: string | null
+          dedupe_fingerprint?: string | null
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
@@ -2411,6 +2491,7 @@ export type Database = {
           payment_method?: string
           purchase_date?: string | null
           purchase_group_id?: string | null
+          raw_description?: string | null
           settles_card_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
@@ -3041,6 +3122,10 @@ export type Database = {
       recurring_skip: { Args: { p_occurrence_id: string }; Returns: undefined }
       revoke_platform_admin: { Args: { _target: string }; Returns: undefined }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
+      rollback_document_import: {
+        Args: { p_document_id: string }
+        Returns: Json
+      }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
       split_add_payment: {
         Args: { p_amount: number; p_participant_id: string }
