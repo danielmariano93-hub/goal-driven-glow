@@ -10,7 +10,8 @@
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, type ExtractionResult } from "../_shared/documents/types.ts";
+import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, type ExtractionResult } from "../_shared/documents/types.ts";
+import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -71,15 +72,42 @@ REGRAS ESTRITAS:
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
+- Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
+
+type StatementMetadata = {
+  opening_balance: number | null;
+  closing_balance: number | null;
+  balance_date: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  bank: string | null;
+};
 
 type MultimodalOutcome = {
   result: ExtractionResult;
+  statement: StatementMetadata | null;
   tokens_in: number;
   tokens_out: number;
   ms: number;
   errorTag?: string;
 };
+
+function extractStatementMetadata(parsed: unknown, fallback: string): StatementMetadata | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = (parsed as Record<string, unknown>)["statement_metadata"];
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const opening = normalizeAmountBR((r.opening_balance ?? null) as string | number | null ?? "");
+  const closing = normalizeAmountBR((r.closing_balance ?? null) as string | number | null ?? "");
+  const balDate = typeof r.balance_date === "string" ? normalizeDateBR(r.balance_date, fallback) : null;
+  const periodStart = typeof r.period_start === "string" ? normalizeDateBR(r.period_start, fallback) : null;
+  const periodEnd = typeof r.period_end === "string" ? normalizeDateBR(r.period_end, fallback) : null;
+  const bank = typeof r.bank === "string" ? r.bank.slice(0, 80) : null;
+  const anySet = opening != null || closing != null || balDate || periodStart || periodEnd || bank;
+  if (!anySet) return null;
+  return { opening_balance: opening, closing_balance: closing, balance_date: balDate, period_start: periodStart, period_end: periodEnd, bank };
+}
 
 async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<MultimodalOutcome> {
   const start = Date.now();
@@ -111,68 +139,149 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
     const ms = Date.now() - start;
     if (!res.ok) {
       const body = await res.text();
-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
+      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? "{}";
     const tokens_in = data?.usage?.prompt_tokens ?? 0;
     const tokens_out = data?.usage?.completion_tokens ?? 0;
     let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, tokens_in, tokens_out, ms, errorTag: "extraction:invalid_json" }; }
+    try { parsed = JSON.parse(text); } catch { return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, errorTag: "extraction:invalid_json" }; }
     const today = new Date().toISOString().slice(0, 10);
-    return { result: sanitize(parsed, today), tokens_in, tokens_out, ms };
+    return { result: sanitize(parsed, today), statement: extractStatementMetadata(parsed, today), tokens_in, tokens_out, ms };
   } catch (e) {
     const err = e as Error;
     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
-    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
+    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
   }
 }
 
-function normalizedMerchant(value: string | null | undefined) {
-  return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-    .replace(/^(on|pay|electron|pix\s+(whats(?:\s+qrcode)?|transf))\s+/i, "")
-    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " ")
-    .replace(/\b\d{4,}\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
-}
 
-async function findDuplicates(sb: ReturnType<typeof createClient>, user_id: string, items: { amount: number; occurred_at: string; description: string | null; payment_method?: string | null }[]): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
+type DupeHit = { transaction_id: string; strength: "strong" | "ambiguous"; reason: string };
+
+/**
+ * Classifica cada item candidato contra transações existentes do usuário.
+ * - Strong: mesmo fingerprint OU (mesmo tipo/data/valor E descrição normalizada casa OU mesma referência bancária).
+ * - Ambiguous: mesmo tipo/data/valor mas descrição diferente (revisão manual necessária).
+ */
+async function classifyDuplicates(
+  sb: ReturnType<typeof createClient>,
+  user_id: string,
+  items: Array<{ type: string; amount: number; occurred_at: string; normalized_description: string | null; bank_reference: string | null; fingerprint: string }>,
+): Promise<Map<number, DupeHit>> {
+  const map = new Map<number, DupeHit>();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const { data } = await sb.from("transactions")
-      .select("id, description, payment_method")
-      .eq("user_id", user_id)
-      .eq("amount", it.amount)
-      .eq("occurred_at", it.occurred_at)
+    // 1) forte por fingerprint (chave única)
+    const { data: fpMatch } = await sb.from("transactions")
+      .select("id").eq("user_id", user_id).eq("dedupe_fingerprint", it.fingerprint).limit(1);
+    if (fpMatch && fpMatch.length > 0) {
+      map.set(i, { transaction_id: fpMatch[0].id as string, strength: "strong", reason: "fingerprint" });
+      continue;
+    }
+    // 2) forte por bank_reference se disponível
+    if (it.bank_reference) {
+      const { data: brMatch } = await sb.from("transactions")
+        .select("id").eq("user_id", user_id).eq("bank_reference", it.bank_reference).limit(1);
+      if (brMatch && brMatch.length > 0) {
+        map.set(i, { transaction_id: brMatch[0].id as string, strength: "strong", reason: "bank_reference" });
+        continue;
+      }
+    }
+    // 3) mesmo tipo/data/valor → strong se descrição normalizada casa, ambiguous senão
+    const { data: candidates } = await sb.from("transactions")
+      .select("id, description, raw_description")
+      .eq("user_id", user_id).eq("amount", it.amount).eq("occurred_at", it.occurred_at)
       .limit(20);
-    const match = (data ?? []).find((candidate) => normalizedMerchant(candidate.description) === normalizedMerchant(it.description)
-      && (!it.payment_method || !candidate.payment_method || candidate.payment_method === it.payment_method));
-    if (match?.id) map.set(i, match.id as string);
+    if (!candidates || candidates.length === 0) continue;
+    const target = (it.normalized_description ?? "").toLowerCase().trim();
+    const strong = candidates.find((c) => {
+      const n = normalizeDescription(String(c.raw_description ?? c.description ?? "")).friendly.toLowerCase().trim();
+      return n && target && n === target;
+    });
+    if (strong?.id) {
+      map.set(i, { transaction_id: strong.id as string, strength: "strong", reason: "type+date+amount+desc" });
+    } else {
+      map.set(i, { transaction_id: candidates[0].id as string, strength: "ambiguous", reason: "type+date+amount" });
+    }
   }
   return map;
 }
 
+/**
+ * Enriquecimento: descrição amigável (raw preservada), fingerprint, categoria por
+ * regras determinísticas → histórico do usuário → hint do modelo. Sinaliza a fonte
+ * da categoria para transparência no ReviewSheet.
+ */
 async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, items: ExtractionResult["items"]) {
   const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
     sb.from("categories").select("id, name, type").eq("user_id", userId),
-    sb.from("transactions").select("description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
+    sb.from("transactions").select("description, raw_description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
   ]);
-  return items.map((item) => {
-    const merchant = normalizedMerchant(item.description);
-    const historical = (history ?? []).filter((row) => row.type === item.type && normalizedMerchant(row.description) === merchant && row.category_id);
-    const counts = new Map<string, number>();
-    historical.forEach((row) => counts.set(row.category_id, (counts.get(row.category_id) ?? 0) + 1));
-    const learnedCategory = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    const hint = normalizedMerchant(item.category_hint);
-    const hintedCategory = (categories ?? []).find((category) => category.type === item.type && normalizedMerchant(category.name) === hint)?.id ?? null;
-    const accountHint = normalizedMerchant(item.account_hint);
-    const matchedAccount = accountHint ? (accounts ?? []).find((account) => normalizedMerchant(`${account.name} ${account.institution ?? ""}`).includes(accountHint) || accountHint.includes(normalizedMerchant(account.name))) : null;
-    const cardHint = normalizedMerchant(item.card_hint);
-    const matchedCard = cardHint ? (cards ?? []).find((card) => normalizedMerchant(card.name).includes(cardHint) || cardHint.includes(normalizedMerchant(card.name))) : null;
-    return { ...item, category_id: learnedCategory ?? hintedCategory, account_id: matchedAccount?.id ?? null, credit_card_id: matchedCard?.id ?? null, merchant_key: merchant };
-  });
+  const enriched = [];
+  for (const item of items) {
+    const rawDesc = String(item.description ?? "");
+    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
+    const normalizedKey = friendly.toLowerCase().trim();
+    const bankRef = extractBankReference(rawDesc);
+
+    // Categoria: regra > histórico > hint do modelo
+    let categoryId: string | null = null;
+    let categorySource: string | null = null;
+    let categoryConfidence: number | null = null;
+    const findCatByName = (name: string) => (categories ?? []).find((c) => c.type === item.type && (c.name.toLowerCase() === name.toLowerCase() || c.name.toLowerCase().includes(name.toLowerCase())))?.id ?? null;
+    if (ruleCategory) {
+      const c = findCatByName(ruleCategory);
+      if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
+    }
+    if (!categoryId) {
+      const historicalHits = (history ?? []).filter((row) => row.type === item.type && normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim() === normalizedKey && row.category_id);
+      const counts = new Map<string, number>();
+      historicalHits.forEach((r) => counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1));
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
+    }
+    if (!categoryId && item.category_hint) {
+      const c = findCatByName(item.category_hint);
+      if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
+    }
+
+    // Contas/cartões
+    const accountHint = (item.account_hint ?? "").toLowerCase();
+    const matchedAccount = accountHint ? (accounts ?? []).find((a) => `${a.name} ${a.institution ?? ""}`.toLowerCase().includes(accountHint) || accountHint.includes(a.name.toLowerCase())) : null;
+    const cardHint = (item.card_hint ?? "").toLowerCase();
+    const matchedCard = cardHint ? (cards ?? []).find((c) => c.name.toLowerCase().includes(cardHint) || cardHint.includes(c.name.toLowerCase())) : null;
+
+    const account_id = matchedAccount?.id ?? null;
+    const credit_card_id = matchedCard?.id ?? null;
+    const fingerprint = await computeFingerprint({
+      user_id: userId,
+      type: item.type,
+      occurred_at: item.occurred_at,
+      amount: item.amount,
+      account_id,
+      credit_card_id,
+      bank_reference: bankRef,
+      normalized_description: friendly,
+    });
+
+    enriched.push({
+      ...item,
+      raw_description: rawDesc,
+      normalized_description: friendly,
+      description: friendly || rawDesc,
+      bank_reference: bankRef,
+      dedupe_fingerprint: fingerprint,
+      category_id: categoryId,
+      category_source: categorySource,
+      category_confidence: categoryConfidence,
+      account_id,
+      credit_card_id,
+    });
+  }
+  return enriched;
 }
 
 function userMessageFor(errorTag: string | null | undefined): string {
@@ -322,11 +431,13 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 90_000);
     let extraction: ExtractionResult;
+    let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
     let errorTag: string | undefined;
     try {
       const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", (guidance ?? "").slice(0, 500), ac.signal);
       extraction = out.result;
+      statement = out.statement;
       tokens_in = out.tokens_in;
       tokens_out = out.tokens_out;
       ms = out.ms;
@@ -358,31 +469,54 @@ async function processDocument(documentId: string, userId: string, guidance: str
     }
 
     const enriched = await enrichItems(sb, userId, extraction.items);
-    const dupes = await findDuplicates(sb, userId, enriched);
-    const rows = enriched.map((it, idx) => ({
-      document_id: documentId,
-      user_id: userId,
-      idx,
+    const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
       type: it.type,
-      amount: it.amount,
+      amount: Number(it.amount),
       occurred_at: it.occurred_at,
-      description: it.description,
-      payment_method: it.payment_method,
-      account_hint: it.account_hint,
-      card_hint: it.card_hint,
-      category_hint: it.category_hint,
-      category_id: it.category_id,
-      account_id: it.account_id,
-      credit_card_id: it.credit_card_id,
-      installments_total: it.installments_total,
-      installment_number: it.installment_number,
-      purchase_date: it.purchase_date,
-      competence_date: it.competence_date,
-      confidence: it.confidence,
-      raw: it as unknown as Record<string, unknown>,
-      status: dupes.has(idx) ? "duplicate_suspect" : "needs_review",
-      duplicate_of: dupes.get(idx) ?? null,
-    }));
+      normalized_description: it.normalized_description ?? null,
+      bank_reference: it.bank_reference ?? null,
+      fingerprint: it.dedupe_fingerprint,
+    })));
+    let categorizedAuto = 0;
+    let dupStrong = 0;
+    let dupAmbiguous = 0;
+    const rows = enriched.map((it, idx) => {
+      const hit = dupes.get(idx);
+      if (hit?.strength === "strong") dupStrong++;
+      else if (hit?.strength === "ambiguous") dupAmbiguous++;
+      if (it.category_id) categorizedAuto++;
+      return {
+        document_id: documentId,
+        user_id: userId,
+        idx,
+        type: it.type,
+        amount: it.amount,
+        occurred_at: it.occurred_at,
+        description: it.description,
+        raw_description: it.raw_description,
+        normalized_description: it.normalized_description,
+        bank_reference: it.bank_reference,
+        dedupe_fingerprint: it.dedupe_fingerprint,
+        payment_method: it.payment_method,
+        account_hint: it.account_hint,
+        card_hint: it.card_hint,
+        category_hint: it.category_hint,
+        category_id: it.category_id,
+        category_source: it.category_source,
+        category_confidence: it.category_confidence,
+        account_id: it.account_id,
+        credit_card_id: it.credit_card_id,
+        installments_total: it.installments_total,
+        installment_number: it.installment_number,
+        purchase_date: it.purchase_date,
+        competence_date: it.competence_date,
+        confidence: it.confidence,
+        raw: it as unknown as Record<string, unknown>,
+        status: hit ? "duplicate_suspect" : "needs_review",
+        duplicate_of: hit?.transaction_id ?? null,
+        duplicate_reason: hit ? `${hit.strength}:${hit.reason}` : null,
+      };
+    });
     if (rows.length > 0) {
       const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
       if (itemsErr) {
@@ -391,6 +525,16 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }
     }
 
+    const needsReview = rows.length - dupStrong - dupAmbiguous;
+    const counters = {
+      total_items: rows.length,
+      duplicate_strong: dupStrong,
+      duplicate_ambiguous: dupAmbiguous,
+      categorized_auto: categorizedAuto,
+      needs_review: needsReview,
+      uncategorized: rows.length - categorizedAuto,
+    };
+
     await finish({
       status: "needs_review",
       document_kind: extraction.document_kind,
@@ -398,6 +542,14 @@ async function processDocument(documentId: string, userId: string, guidance: str
       tokens_in,
       tokens_out,
       extraction_ms: ms,
+      user_instructions: (guidance ?? "").slice(0, 2000) || null,
+      statement_opening_balance: statement?.opening_balance ?? null,
+      statement_closing_balance: statement?.closing_balance ?? null,
+      statement_balance_date: statement?.balance_date ?? null,
+      period_start: statement?.period_start ?? null,
+      period_end: statement?.period_end ?? null,
+      statement_bank: statement?.bank ?? null,
+      counters,
       error: null,
     });
   } catch (e) {

@@ -39,7 +39,12 @@ export function AppLayout() {
               </button>
             </div>
           </div>
-          <Outlet />
+          {/* Reatividade do olho: remonta a rota atual sempre que a preferência
+              muda, garantindo que qualquer valor formatado pelo módulo puro
+              formatBRL/formatPrivateBRL seja refletido imediatamente. */}
+          <div key={valuesHidden ? "priv-on" : "priv-off"}>
+            <Outlet />
+          </div>
         </div>
       </main>
       <BottomTabBar />
