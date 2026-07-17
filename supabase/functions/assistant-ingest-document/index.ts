@@ -864,14 +864,34 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  const user = await getUser(req);
-  if (!user) return json({ error: "unauthorized" }, 401);
-
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  const mode = String(body.mode ?? "");
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-  const mode = String(body.mode ?? "");
+
+  // === INTERNAL: server-triggered ingestion for WhatsApp inbound media ===
+  // Bypasses user JWT via a service-role bearer. Never expose this mode from clients.
+  if (mode === "process-inbound-media") {
+    const auth = req.headers.get("Authorization") ?? "";
+    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return json({ error: "forbidden" }, 403);
+    const document_id = String(body.document_id ?? "");
+    const user_id = String(body.user_id ?? "");
+    const guidance = String(body.guidance ?? "").slice(0, 500);
+    if (!document_id || !user_id) return json({ error: "missing_fields" }, 400);
+    const { acquired, doc } = await acquireProcessingLock(sb, document_id, user_id);
+    if (!doc) return json({ error: "not_found" }, 404);
+    if (!acquired) return json({ ok: true, status: doc.status, document_id }, 200);
+    const correlationId = makeCorrelationId();
+    console.log(`[assistant-ingest cid=${correlationId}] whatsapp-media document=${document_id} user=${user_id}`);
+    const work = processDocument(document_id, user_id, guidance, correlationId);
+    if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") EdgeRuntime.waitUntil(work);
+    else work.catch((err) => console.error(`[assistant-ingest cid=${correlationId}] bg`, err));
+    return json({ ok: true, status: "processing", document_id, correlation_id: correlationId }, 202);
+  }
+
+  const user = await getUser(req);
+  if (!user) return json({ error: "unauthorized" }, 401);
 
   // === CREATE UPLOAD ===
   if (mode === "create-upload") {
