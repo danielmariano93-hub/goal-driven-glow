@@ -23,6 +23,22 @@ export type ExtractionResult = {
   notes: string | null;
 };
 
+type CompactRow = [
+  "expense" | "income",
+  string,
+  string | number,
+  string,
+  ("account" | "credit_card" | null)?,
+  (string | null)?,
+  (string | null)?,
+  ExtractedItem["movement_kind"]?,
+  (number | null)?,
+  (number | null)?,
+  (string | null)?,
+  (string | null)?,
+  (string | null)?,
+];
+
 export const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 export const MAX_BYTES = 20 * 1024 * 1024;
 
@@ -40,7 +56,8 @@ export function detectMime(bytes: Uint8Array): string | null {
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", bytes);
+  const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const buf = await crypto.subtle.digest("SHA-256", copy);
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -100,13 +117,45 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     return { document_kind: "unknown", items: [], notes: "unparseable" };
   }
   const r = result as Record<string, unknown>;
-  const kind = String(r.document_kind ?? "unknown") as ExtractionResult["document_kind"];
+  const compactKind = typeof r.k === "string" ? r.k : null;
+  const kind = String(r.document_kind ?? compactKind ?? "unknown") as ExtractionResult["document_kind"];
   const validKind: ExtractionResult["document_kind"] =
     ["receipt","invoice","statement","list","non_financial","illegible","unknown"].includes(kind)
       ? kind : "unknown";
-  const rawItems = Array.isArray(r.items) ? r.items : [];
+  const rawItems = Array.isArray(r.items) ? r.items : Array.isArray(r.i) ? r.i : [];
   const items: ExtractedItem[] = [];
   for (const raw of rawItems) {
+    if (Array.isArray(raw)) {
+      const row = raw as CompactRow;
+      const type = row[0] === "income" ? "income" : "expense";
+      const description = String(row[3] ?? "").trim();
+      if (!description || isNonTransactionLine(description)) continue;
+      const amount = normalizeAmountBR(row[2]);
+      if (amount == null) continue;
+      const movementKind = (typeof row[7] === "string" ? row[7] : "transaction") as ExtractedItem["movement_kind"];
+      if (movementKind === "informational") continue;
+      const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
+      const paymentRaw = row[4];
+      const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
+      items.push({
+        type,
+        description: description.slice(0, 200),
+        amount,
+        occurred_at,
+        payment_method,
+        account_hint: typeof row[5] === "string" ? row[5] : null,
+        card_hint: typeof row[6] === "string" ? row[6] : null,
+        category_hint: typeof row[12] === "string" ? row[12] : null,
+        installments_total: typeof row[8] === "number" && row[8] >= 1 && row[8] <= 48 ? row[8] : null,
+        installment_number: typeof row[9] === "number" && row[9] >= 1 && row[9] <= 48 ? row[9] : null,
+        purchase_date: typeof row[10] === "string" ? normalizeDateBR(row[10], occurred_at) : null,
+        competence_date: typeof row[11] === "string" ? normalizeDateBR(row[11], occurred_at) : null,
+        confidence: { amount: 0.85, occurred_at: 0.85 },
+        movement_kind: movementKind,
+        source_span: null,
+      });
+      continue;
+    }
     if (!raw || typeof raw !== "object") continue;
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
@@ -142,5 +191,5 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
       source_span: it.source_span,
     });
   }
-  return { document_kind: validKind, items, notes: (r.notes as string | null) ?? null };
+  return { document_kind: validKind, items, notes: (r.notes as string | null) ?? (r.n as string | null) ?? null };
 }

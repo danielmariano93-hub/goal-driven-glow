@@ -1,73 +1,141 @@
-## Diagnóstico (confirmado no banco e no código)
+# Diagnóstico minucioso: por que o assessor entra em loop e falha no PDF
 
-Documento real do usuário: `703108bb-...` — PDF 690KB, `status='processing'` há 3+ min, `extraction_ms=180315`, `tokens_out=44188`, 0 linhas em `extracted_items`. O anterior (`0252fd7f-...`) falhou com `timeout:aborted` após 90s. Padrão: extração termina ou fica presa, mas a gravação final não acontece; o painel repõe o job em cima do que ainda está rodando.
+## Evidências confirmadas
 
-Causas raiz (todas verificadas nos arquivos):
+1. O problema atual não é mais upload físico.
+   - Os documentos recentes chegam ao backend e entram no pipeline.
+   - A falha recorrente agora acontece na extração por IA.
 
-1. **Saída do LLM sem teto** (`supabase/functions/assistant-ingest-document/index.ts` L113–158). O prompt não limita quantidade de linhas, extratos grandes produzem 40k+ tokens de saída e a chamada rasga o timeout de 4 min do `EdgeRuntime.waitUntil`. Sem `max_tokens`, sem paginação, sem limite explícito no prompt.
-2. **Sem heartbeat durante o processamento** (mesma função, `processDocument`). `updated_at` só muda no `finish` final. O `PROCESSING_STALE_MS=3min` (L21) faz o `acquireProcessingLock` considerar stale qualquer job com mais de 3 min, e dispara **um segundo worker sobre o primeiro** (o painel chama `resumeIngestion` no mount e a cada 5s).
-3. **N+1 no enriquecimento** (L219–295 + L168–212). Para cada item extraído são feitas 3 queries sequenciais em `transactions` (`dedupe_fingerprint`, `bank_reference`, `type+amount+occurred_at`). Extrato com 60 linhas ≈ 180 RTTs em série. Depois `enrichItems` volta a fazer `normalizeDescription(...)` para cada linha do histórico dentro de outro loop.
-4. **Painel repõe job automaticamente** (`src/components/assessor/AssessorPanel.tsx` L108–128 e L141–153). Ao abrir, dispara `resumeIngestion` em todos os `uploaded/processing`, e depois ainda faz polling `getIngestionStatus` a cada 5s. Combina com o item 2 e vira corrida.
-5. **Base64 síncrono em memória** (L429–436). Aceitável, mas em conjunto com o resto amplifica o problema.
+2. As tentativas recentes falham por JSON inválido causado por truncamento da resposta do modelo.
+   - Documento `910e5d1a-8874-420b-86bd-4a228b0eb6bc`: `status='failed'`, `error='extraction:invalid_json|cid=10be2264-2431-4709-8ee2-2b3b7886fb56'`, `tokens_out=8000`, `extraction_ms=31914`, `extracted_count=0`.
+   - Documento `f36e4728-895e-450d-8eba-3de5bab440c6`: `status='failed'`, `error='extraction:invalid_json|cid=f645c27a-83dc-44c5-80de-010102431da5'`, `tokens_out=8000`, `extraction_ms=34209`, `extracted_count=0`.
+   - Documento `31e950a0-13c1-463a-9843-0be10dd06581`: `status='failed'`, `error='extraction:invalid_json|cid=7f14dd05-ffbd-4f08-9705-cdf1d736072f'`, `tokens_out=8000`, `extraction_ms=33923`, `extracted_count=0`.
+   - O padrão `tokens_out=8000` exatamente igual ao limite configurado indica saída cortada antes de fechar o JSON.
 
-## Correção proposta (uma rodada, backend + 1 arquivo de frontend)
+3. O pipeline já conseguiu extrair esse tipo de documento antes, mas com custo/tempo inviável.
+   - Documento `703108bb-e07c-4c2e-8df6-97b6a225dd50`: `extracted_count=235`, `tokens_out=43074`, `extraction_ms=166132`, `status='canceled'`.
+   - Isso prova que o documento é interpretável, mas a abordagem atual exige resposta longa demais.
 
-### A. Extração enxuta e bounded (`assistant-ingest-document/index.ts`)
+4. O usuário vê mensagem ruim porque `invalid_json` vira erro genérico de “documento confuso”.
+   - Na prática, o problema não é o PDF ser confuso; é o contrato de saída da IA ser grande demais e frágil.
 
-- Adicionar no `SYSTEM_PROMPT`: **"máximo 80 lançamentos por documento; se houver mais, devolva os 80 mais recentes e explique em `notes`. Descrições ≤ 80 caracteres."**
-- Passar `max_tokens: 8000` na chamada do gateway. 8k é suficiente para 80 itens em JSON compacto.
-- Reduzir `EXTRACTION_TIMEOUT_MS` para 90s (era 240s). Se estourar, marca `timeout` — que já é retentável — em vez de deixar o edge runtime matar o processo silenciosamente.
+5. O loop vem da combinação de falha retentável + retomada/polling + processamento sem checkpoint útil.
+   - Quando a IA falha antes de gravar `extracted_items`, o documento fica sem resultado útil.
+   - Reprocessar o documento inteiro repete a mesma chamada longa e volta a bater no limite.
 
-### B. Heartbeat + lock robusto
+## Causa raiz
 
-- Antes de chamar o LLM, no `processDocument`: gravar `updated_at = now()` a cada etapa (download → chamada LLM → enrich → insert).
-- Elevar `PROCESSING_STALE_MS` para 5 min e checar heartbeat separado.
-- `acquireProcessingLock`: se `status='processing'` e não stale, retornar `{acquired:false}` **sem apagar itens**.
+A extração está tentando transformar um PDF inteiro em um único JSON grande, com objetos verbosos por lançamento. Em extratos densos, o modelo gera muitos itens e atinge o teto de saída (`8000` tokens), deixando JSON incompleto. Como a gravação só acontece após parsear o JSON inteiro, qualquer truncamento descarta tudo.
 
-### C. Enriquecimento em lote (mata o N+1)
+# Plano de correção definitiva
 
-Substituir o loop de `classifyDuplicates` por três queries agregadas:
+## 1. Trocar a extração monolítica por extração em lotes com checkpoint
 
-```ts
-// 1. Todas as fingerprints do lote em uma query
-sb.from("transactions").select("id, dedupe_fingerprint")
-  .eq("user_id", userId).in("dedupe_fingerprint", allFingerprints)
+Implementar no `assistant-ingest-document` um modo de processamento por páginas/faixas:
 
-// 2. Bank refs em uma query
-sb.from("transactions").select("id, bank_reference")
-  .eq("user_id", userId).in("bank_reference", allBankRefs)
+- Detectar PDF e dividir o trabalho em janelas pequenas.
+- Processar cada janela separadamente com limite rígido de itens por lote.
+- Persistir os itens válidos imediatamente após cada lote.
+- Atualizar `counters`, `updated_at` e metadados de progresso a cada lote.
+- Se um lote falhar, marcar apenas aquele trecho como falho e preservar os lançamentos já extraídos.
 
-// 3. Candidatos type+date+amount: uma query com OR agrupado por (type, occurred_at) IN (...) + amount IN (...)
+Resultado esperado: um erro em uma parte do PDF não joga fora tudo que já foi extraído.
+
+## 2. Reduzir drasticamente o tamanho do contrato de resposta da IA
+
+Alterar o prompt e o parser para aceitar resposta compacta, com menos tokens:
+
+```json
+{
+  "k":"statement",
+  "n":"observações curtas",
+  "i":[
+    ["expense","2026-07-16",9.93,"Uber","account",null,null,"transaction"]
+  ]
+}
 ```
 
-No `enrichItems`, também: buscar histórico apenas para as `normalized_description` do lote (`.in("description", uniqueDescriptions)`), não os 1000 últimos.
+Mapear internamente para o contrato canônico atual (`ExtractedItem`).
 
-### D. Painel não reprocessa jobs em andamento (`AssessorPanel.tsx`)
+Manter compatibilidade com o formato antigo durante a transição.
 
-- No mount, para docs `processing`/`uploaded`: chamar apenas `getIngestionStatus` (não `resumeIngestion`). Só disparar `resume` se o `updated_at` do doc for > 5 min atrás (documento realmente órfão).
-- Manter o polling de 5s como está — ele apenas consulta status, não reprocessa.
+## 3. Usar fallback de recuperação de JSON parcial
 
-### E. Limpeza do documento travado do usuário
+Quando o modelo retornar JSON truncado:
 
-Após deploy, marcar `703108bb-...` como `failed` com `error='timeout:aborted|cid=recovery'` para permitir retry limpo. Um único `UPDATE` via migration ou SQL manual — não altera schema.
+- Tentar extrair o maior prefixo válido do array `i`.
+- Salvar os itens recuperáveis.
+- Marcar o documento como `needs_review` com nota de extração parcial, em vez de `failed` total quando houver itens aproveitáveis.
 
-## Fora do escopo (não mexer)
+Resultado esperado: `invalid_json` deixa de ser erro fatal quando há lançamentos úteis na resposta.
 
-- WhatsApp webhook, WAHA, sessão.
-- Bucket `documents` (já corrigido).
-- Schema de `document_imports` / `extracted_items`.
-- Prompt do agente conversacional (`agent-chat`).
-- Publicação do frontend não é objetivo, mas o arquivo `AssessorPanel.tsx` faz parte do fix.
+## 4. Prompt mais operacional, menos interpretativo
 
-## Arquivos afetados
+Substituir instruções subjetivas por regras mecânicas:
 
-- `supabase/functions/assistant-ingest-document/index.ts` (prompt, timeout, heartbeat, lock, enriquecimento em lote)
-- `src/components/assessor/AssessorPanel.tsx` (não reprocessar em job vivo)
-- Deploy: `assistant-ingest-document`
-- SQL pontual: um `UPDATE` no documento travado
+- Extrair somente linhas transacionais.
+- Ignorar saldo, limite, total, cabeçalho, rodapé, fatura paga, resumo e propaganda.
+- Não resumir o documento.
+- Não explicar raciocínio.
+- Não preencher categoria se não estiver clara.
+- Preservar descrição literal quando não houver merchant conhecido.
+- Retornar no máximo N itens por lote.
+- Se houver mais itens no trecho, sinalizar `has_more=true`/nota curta.
 
-## Validação
+## 5. Melhorar a UX de erro/progresso no painel do assessor
 
-- `bun test` (deve manter 195/195).
-- Reenviar o PDF real; verificar `document_imports` finalizando em < 2 min com `status='needs_review'` e `extracted_items` populado.
-- Confirmar que abrir/fechar o painel durante processamento não cria segundo worker (checar `updated_at` monotônico).
+No `AssessorPanel`:
+
+- Mostrar estados distintos: `enviado`, `lendo arquivo`, `extraindo lançamentos`, `salvando revisão`, `revisão parcial`, `falhou`.
+- Trocar “documento confuso” por mensagens técnicas amigáveis:
+  - “Consegui ler parte do arquivo. Revise os lançamentos encontrados.”
+  - “A extração ficou grande demais. Vou tentar por partes.”
+  - “Não consegui acessar o arquivo enviado” apenas quando for upload/storage real.
+- Não disparar reprocessamento automático imediato após `invalid_json`; usar botão “Tentar novamente por partes”.
+
+## 6. Anti-loop real no processamento de documentos
+
+Adicionar proteção por documento:
+
+- Registrar tentativa atual com `cid`, modo e janela processada.
+- Se o mesmo documento falhar pelo mesmo erro duas vezes seguidas, mudar estratégia automaticamente para lote menor.
+- Se falhar três vezes, parar e pedir ação do usuário, sem continuar reprocessando sozinho.
+- Não chamar `resume` em documento com erro terminal recente.
+
+## 7. Validação E2E com evidências
+
+Depois da implementação, validar com o documento real recente:
+
+- Reprocessar `910e5d1a-8874-420b-86bd-4a228b0eb6bc` ou novo upload equivalente.
+- Confirmar no banco:
+  - `status='needs_review'` ou `status='completed'`.
+  - `extracted_items > 0`.
+  - `tokens_out` por chamada abaixo do teto.
+  - `counters.total_items` coerente.
+- Confirmar nos logs:
+  - nenhuma chamada bate exatamente `tokens_out=8000`.
+  - sem `extraction:invalid_json` fatal.
+- Confirmar na UI:
+  - painel abre revisão em lote.
+  - usuário consegue editar e confirmar.
+
+# Arquivos previstos
+
+- `supabase/functions/assistant-ingest-document/index.ts`
+  - Extração compacta, lotes, checkpoints, fallback de JSON parcial e anti-loop.
+- `supabase/functions/_shared/documents/types.ts`
+  - Parser compatível com formato compacto e formato antigo.
+- `src/components/assessor/AssessorPanel.tsx`
+  - Estados e mensagens de erro/progresso mais precisos.
+- Testes em `src/test/assistant-ingest-retry.test.ts` ou novo teste de parser compacto.
+
+# Fora do escopo
+
+- Não mexer em WhatsApp webhook, WAHA, sessão ou infraestrutura de WhatsApp.
+- Não publicar frontend.
+- Não alterar o schema principal sem necessidade.
+- Não apagar dados antigos automaticamente.
+
+# Resultado esperado
+
+O assessor deixa de depender de uma única resposta gigante da IA. PDFs densos passam a ser processados por partes, com salvamento incremental, mensagens corretas e proteção contra loop. Mesmo quando a IA produzir saída parcial, o usuário deve conseguir revisar os lançamentos extraídos em vez de receber uma falha genérica.

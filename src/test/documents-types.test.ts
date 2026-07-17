@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { sanitize as sanitizeDocumentExtraction } from "../../supabase/functions/_shared/documents/types";
 
 // Duplicate the shared logic here for browser-friendly test, since edge/_shared
 // uses Deno imports. Behavior must match _shared/documents/types.ts.
@@ -80,5 +81,37 @@ describe("Non-transaction filter", () => {
   });
   it("keeps normal purchase", () => {
     expect(isNonTx("iFood delivery")).toBe(false);
+  });
+});
+
+describe("Compact extraction contract", () => {
+  it("maps compact rows into canonical extracted items", () => {
+    const result = sanitizeDocumentExtraction({
+      k: "statement",
+      i: [
+        ["expense", "2026-07-16", 9.93, "UBER TRIP", "account", "Itaú", null, "transaction", null, null, null, null, "Transporte"],
+        ["income", "16/07/2026", "500,19", "RESGATE CDB", "account", "Itaú", null, "investment_redemption"],
+        ["expense", "2026-07-16", 100, "Saldo do dia", "account"],
+      ],
+      n: "ok",
+    }, "2026-07-17");
+
+    expect(result.document_kind).toBe("statement");
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({
+      type: "expense",
+      occurred_at: "2026-07-16",
+      amount: 9.93,
+      description: "UBER TRIP",
+      payment_method: "account",
+      account_hint: "Itaú",
+      category_hint: "Transporte",
+      movement_kind: "transaction",
+    });
+    expect(result.items[1]).toMatchObject({
+      type: "income",
+      amount: 500.19,
+      movement_kind: "investment_redemption",
+    });
   });
 });

@@ -20,7 +20,11 @@ const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
-const MAX_ITEMS_PER_DOCUMENT = 80;
+const MAX_ITEMS_PER_DOCUMENT = 240;
+const BATCH_ITEMS_LIMIT = 50;
+const PDF_BATCHES = 5;
+const IMAGE_BATCHES = 1;
+const BATCH_MAX_TOKENS = 3600;
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -37,29 +41,13 @@ async function getUser(req: Request) {
 
 const SYSTEM_PROMPT = `Você é um extrator financeiro para o app NoControle.ia.
 
-Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON puro no formato:
-{
-  "document_kind": "receipt|invoice|statement|list|non_financial|illegible",
-  "items": [
-    {
-      "type": "expense|income",
-      "description": "texto literal da linha",
-      "amount": 123.45,
-      "occurred_at": "YYYY-MM-DD",
-      "payment_method": "account|credit_card|null",
-      "account_hint": "Nubank Conta|Itaú|null",
-      "card_hint": "Nubank Cartão|Inter Mastercard|null",
-      "category_hint": "Alimentação|Transporte|null",
-      "movement_kind": "transaction|refund|internal_transfer|investment_application|investment_redemption|informational",
-      "installments_total": null,
-      "installment_number": null,
-      "purchase_date": null,
-      "competence_date": null,
-      "confidence": {"amount":0.9,"occurred_at":0.7}
-    }
-  ],
-  "notes": "por que descartei linhas de saldo, limite ou pagamento de fatura"
-}
+Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON PURO, compacto, sem markdown:
+{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null}}
+
+Cada item em "i" é EXATAMENTE:
+[tipo,data,valor,descricao,pagamento,conta,cartao,movimento,parcelas_total,parcela_numero,data_compra,competencia,categoria]
+
+Use null para campo desconhecido. Não use objetos dentro de "i".
 
 REGRAS ESTRITAS:
 - Valores em real brasileiro: aceite formatos 1.234,56 e 1234.56.
@@ -67,18 +55,18 @@ REGRAS ESTRITAS:
 - A data atual é informada na mensagem do usuário. Se a linha não tiver data completa, use a data atual.
 - Nunca invente ano. Data parcial (apenas hora, dia/mês ou dia da semana) usa o ano da data atual.
 - Elementos da interface do celular e datas de referência do extrato não são, por si só, a data da compra.
-- Nunca invente texto ilegível — melhor devolver items=[] e document_kind=illegible.
-- Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva document_kind=non_financial e items=[].
+- Nunca invente texto ilegível — melhor devolver i=[] e k="illegible".
+- Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva k="non_financial" e i=[].
 - EXCLUA todas as linhas informativas: SALDO DO DIA, saldo atual/em conta/anterior/disponível/total, limites, cabeçalhos, período, emissão, subtotais e totais.
 - RESGATE CDB é resgate de investimento, não receita. Aplicação é investimento, não despesa.
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
-- Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
-- Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
-- LIMITE RÍGIDO: devolva no máximo ${MAX_ITEMS_PER_DOCUMENT} lançamentos por documento. Se houver mais, devolva os ${MAX_ITEMS_PER_DOCUMENT} MAIS RECENTES (por data) e explique o corte em "notes".
+- Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
+- O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
+- LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
 - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
-- Seja compacto no JSON: omita campos com valor null quando possível.
-- Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
+- Ordene sempre do mais recente para o mais antigo.
+- Só devolva JSON, sem markdown, sem comentários fora do campo "n".`;
 
 type StatementMetadata = {
   opening_balance: number | null;
@@ -95,12 +83,15 @@ type MultimodalOutcome = {
   tokens_in: number;
   tokens_out: number;
   ms: number;
+  has_more: boolean;
+  partial: boolean;
   errorTag?: string;
 };
 
 function extractStatementMetadata(parsed: unknown, fallback: string): StatementMetadata | null {
   if (!parsed || typeof parsed !== "object") return null;
-  const raw = (parsed as Record<string, unknown>)["statement_metadata"];
+  const source = parsed as Record<string, unknown>;
+  const raw = source["statement_metadata"] ?? source["m"];
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const opening = normalizeAmountBR((r.opening_balance ?? null) as string | number | null ?? "");
@@ -114,7 +105,64 @@ function extractStatementMetadata(parsed: unknown, fallback: string): StatementM
   return { opening_balance: opening, closing_balance: closing, balance_date: balDate, period_start: periodStart, period_end: periodEnd, bank };
 }
 
-async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<MultimodalOutcome> {
+function recoverCompactJson(text: string): { parsed: unknown; partial: boolean } | null {
+  const arrayMarker = text.search(/"i"\s*:/);
+  if (arrayMarker < 0) return null;
+  const arrayStart = text.indexOf("[", arrayMarker);
+  if (arrayStart < 0) return null;
+
+  const rows: unknown[] = [];
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let rowStart = -1;
+  for (let i = arrayStart + 1; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "[") {
+      if (depth === 0) rowStart = i;
+      depth++;
+      continue;
+    }
+    if (ch === "]") {
+      if (depth > 0) depth--;
+      if (depth === 0 && rowStart >= 0) {
+        const rawRow = text.slice(rowStart, i + 1);
+        try { rows.push(JSON.parse(rawRow)); } catch { /* ignore broken row */ }
+        rowStart = -1;
+        continue;
+      }
+      if (depth === 0 && rowStart < 0) break;
+    }
+  }
+  if (rows.length === 0) return null;
+
+  const kindMatch = text.match(/"k"\s*:\s*"([^"]+)"/);
+  const noteMatch = text.match(/"n"\s*:\s*"([^"]*)"/);
+  return {
+    parsed: {
+      k: kindMatch?.[1] ?? "statement",
+      i: rows,
+      n: noteMatch?.[1] ? `${noteMatch[1]} Extração parcial recuperada.` : "Extração parcial recuperada.",
+    },
+    partial: true,
+  };
+}
+
+async function callMultimodal(
+  publicBase64Url: string,
+  mimeType: string,
+  filename: string,
+  guidance: string,
+  signal: AbortSignal,
+  batch: { index: number; max: number; exclude: string[] },
+): Promise<MultimodalOutcome> {
   const start = Date.now();
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -130,7 +178,11 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
           {
             role: "user",
             content: [
-              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}. Extraia lançamentos do documento inteiro em JSON estrito.` },
+              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}.
+Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos ainda não extraídos, do mais recente ao mais antigo.
+Não repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.length ? batch.exclude.join("; ") : "nenhum"}.
+Se este for o lote 1, comece pelos lançamentos mais recentes do documento. Se for lote >1, continue com lançamentos mais antigos ou diferentes dos já listados.
+Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.` },
               mimeType === "application/pdf"
                 ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
                 : { type: "image_url", image_url: { url: publicBase64Url } },
@@ -138,27 +190,45 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
           },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 8000,
+        max_tokens: BATCH_MAX_TOKENS,
       }),
       signal,
     });
     const ms = Date.now() - start;
     if (!res.ok) {
       const body = await res.text();
-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
+      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? "{}";
     const tokens_in = data?.usage?.prompt_tokens ?? 0;
     const tokens_out = data?.usage?.completion_tokens ?? 0;
     let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, errorTag: "extraction:invalid_json" }; }
+    let partial = false;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      const recovered = recoverCompactJson(text);
+      if (!recovered) {
+        return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, has_more: false, partial: false, errorTag: "extraction:invalid_json" };
+      }
+      parsed = recovered.parsed;
+      partial = recovered.partial;
+    }
     const today = new Date().toISOString().slice(0, 10);
-    return { result: sanitize(parsed, today), statement: extractStatementMetadata(parsed, today), tokens_in, tokens_out, ms };
+    return {
+      result: sanitize(parsed, today),
+      statement: extractStatementMetadata(parsed, today),
+      tokens_in,
+      tokens_out,
+      ms,
+      has_more: (parsed as Record<string, unknown>)?.more === true,
+      partial,
+    };
   } catch (e) {
     const err = e as Error;
     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
-    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
+    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
   }
 }
 
@@ -346,10 +416,10 @@ function userMessageFor(errorTag: string | null | undefined): string {
   if (errorTag.startsWith("size_exceeds")) return "Arquivo maior que o permitido (20 MB).";
   if (errorTag.startsWith("upload_missing")) return "Não achei o arquivo enviado. Reenvie, por favor.";
   if (errorTag.startsWith("download")) return "Tive dificuldade para ler o arquivo. Tente novamente.";
-  if (errorTag.startsWith("timeout")) return "A extração demorou mais que o esperado. Tente novamente em instantes.";
+  if (errorTag.startsWith("timeout")) return "A leitura ficou grande demais e demorou mais que o esperado. Tente novamente por partes.";
   if (errorTag.startsWith("gateway")) return "O serviço de leitura instabilizou. Tente novamente em instantes.";
   if (errorTag.startsWith("fetch_error")) return "Falha de rede ao ler o documento. Tente novamente.";
-  if (errorTag.startsWith("extraction")) return "O documento veio confuso. Envie uma versão mais nítida ou tente novamente.";
+  if (errorTag.startsWith("extraction")) return "A extração ficou grande demais para concluir de uma vez. Tente novamente por partes.";
   if (errorTag.startsWith("items_insert")) return "Consegui ler, mas falhei ao gravar o rascunho. Tente novamente.";
   return "Não consegui processar o documento agora.";
 }
@@ -368,6 +438,23 @@ function parseErrorTag(err: string | null | undefined): { tag: string | null; co
   const m = err.match(/^(.*?)\|cid=([0-9a-f-]+)$/i);
   if (m) return { tag: m[1], correlation_id: m[2] };
   return { tag: err, correlation_id: null };
+}
+
+function itemSignature(item: ExtractionResult["items"][number]) {
+  return `${item.occurred_at}|${Number(item.amount).toFixed(2)}|${item.description.toLowerCase().replace(/\s+/g, " ").trim()}`.slice(0, 180);
+}
+
+function emptyCounters() {
+  return {
+    total_items: 0,
+    duplicate_strong: 0,
+    duplicate_ambiguous: 0,
+    categorized_auto: 0,
+    needs_review: 0,
+    uncategorized: 0,
+    batches_completed: 0,
+    partial: false,
+  };
 }
 
 function pdfHasPasswordEncryption(bytes: Uint8Array): boolean {
@@ -405,15 +492,23 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   const stale = now - updatedAt > PROCESSING_STALE_MS;
 
   const prevErrTag = parseErrorTag(doc.error).tag;
+  const failureCount = Number(doc.counters?.failure_count ?? 0);
   const canResume = doc.status === "uploaded"
     || (doc.status === "processing" && stale)
-    || (doc.status === "failed" && isTransientErrorTag(prevErrTag));
+    || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3);
 
   if (!canResume) return { acquired: false, doc };
 
-  // Clear any orphaned draft items from a previous failed attempt.
+  // Clear orphaned draft items only when there are no usable checkpoints to preserve.
   if (doc.status !== "uploaded") {
-    await sb.from("extracted_items").delete().eq("document_id", documentId).eq("user_id", userId).in("status", ["needs_review", "duplicate_suspect"]);
+    const { count } = await sb.from("extracted_items")
+      .select("id", { count: "exact", head: true })
+      .eq("document_id", documentId)
+      .eq("user_id", userId)
+      .in("status", ["needs_review", "duplicate_suspect"]);
+    if ((count ?? 0) === 0) {
+      await sb.from("extracted_items").delete().eq("document_id", documentId).eq("user_id", userId).in("status", ["needs_review", "duplicate_suspect"]);
+    }
   }
 
   const { data: updated, error: upErr } = await sb.from("document_imports")
@@ -440,6 +535,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
   try {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
     if (!doc) return;
+    const previousFailureCount = Number(doc.counters?.failure_count ?? 0);
+    const failureCounters = (base: Record<string, unknown> = {}) => ({ ...base, failure_count: previousFailureCount + 1 });
 
     const { data: fileBlob, error: dlErr } = await sb.storage.from(BUCKET).download(doc.storage_path);
     if (dlErr || !fileBlob) {
@@ -484,136 +581,195 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const b64 = btoa(bin);
     const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
-    await heartbeat();
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
-    // Heartbeat periódico durante a chamada ao LLM: mantém `updated_at` fresco
-    // e impede que um segundo worker classifique o job como stale.
-    const beat = setInterval(() => { void heartbeat(); }, 20_000);
-    let extraction: ExtractionResult;
+    let documentKind: ExtractionResult["document_kind"] = "unknown";
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
-    let errorTag: string | undefined;
-    try {
-      const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", (guidance ?? "").slice(0, 500), ac.signal);
-      extraction = out.result;
-      statement = out.statement;
-      tokens_in = out.tokens_in;
-      tokens_out = out.tokens_out;
-      ms = out.ms;
-      errorTag = out.errorTag;
+    let lastErrorTag: string | undefined;
+    const notes: string[] = [];
+    const counters = emptyCounters();
+    const seenSignatures = new Set<string>();
+    const seenInDocument = new Map<string, number>();
+    let idxOffset = 0;
+    const maxBatches = doc.mime_type === "application/pdf" ? PDF_BATCHES : IMAGE_BATCHES;
+
+    const { data: existingItems } = await sb.from("extracted_items")
+      .select("idx,type,amount,occurred_at,description,normalized_description,status,category_id")
+      .eq("document_id", documentId)
+      .eq("user_id", userId)
+      .in("status", ["needs_review", "duplicate_suspect"])
+      .order("idx");
+    for (const existing of existingItems ?? []) {
+      const sig = `${existing.occurred_at}|${Number(existing.amount).toFixed(2)}|${String(existing.description ?? "").toLowerCase().replace(/\s+/g, " ").trim()}`.slice(0, 180);
+      seenSignatures.add(sig);
+      const localKey = `${existing.type}|${existing.occurred_at}|${Number(existing.amount).toFixed(2)}|${existing.normalized_description ?? existing.description ?? ""}`;
+      seenInDocument.set(localKey, Number(existing.idx ?? 0));
+      idxOffset = Math.max(idxOffset, Number(existing.idx ?? -1) + 1);
+      counters.total_items++;
+      if (existing.status === "duplicate_suspect") counters.duplicate_ambiguous++;
+      if (existing.category_id) counters.categorized_auto++;
+    }
+    counters.uncategorized = counters.total_items - counters.categorized_auto;
+    counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+
+    for (let batchIndex = 1; batchIndex <= maxBatches && counters.total_items < MAX_ITEMS_PER_DOCUMENT; batchIndex++) {
+      await heartbeat();
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
+      const beat = setInterval(() => { void heartbeat(); }, 20_000);
+      let out: MultimodalOutcome;
+      try {
+        out = await callMultimodal(
+          dataUrl,
+          doc.mime_type,
+          doc.storage_path?.split("/").pop() ?? "documento",
+          (guidance ?? "").slice(0, 500),
+          ac.signal,
+          { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
+        );
+      } finally {
+        clearTimeout(timer);
+        clearInterval(beat);
+      }
+      await heartbeat();
+
+      tokens_in += out.tokens_in;
+      tokens_out += out.tokens_out;
+      ms += out.ms;
+      counters.batches_completed = batchIndex;
+      counters.partial = counters.partial || out.partial;
+      if (out.result.notes) notes.push(`Lote ${batchIndex}: ${out.result.notes}`);
+      if (out.statement && !statement) statement = out.statement;
+      if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
+
+      let extraction = out.result;
       if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance ?? "")) {
         const today = new Date().toISOString().slice(0, 10);
         extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
       }
-    } finally {
-      clearTimeout(timer);
-      clearInterval(beat);
-    }
-    await heartbeat();
 
-    // Trava dura de segurança: nunca gravar mais que MAX_ITEMS_PER_DOCUMENT.
-    if (extraction.items.length > MAX_ITEMS_PER_DOCUMENT) {
-      extraction = { ...extraction, items: extraction.items.slice(0, MAX_ITEMS_PER_DOCUMENT) };
-    }
-
-    if (errorTag) {
-      await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, error: encodeError(errorTag, correlationId) });
-      return;
-    }
-
-    if (extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") {
-      await finish({
-        status: "needs_review",
-        document_kind: extraction.document_kind,
-        model: MODEL,
-        tokens_in,
-        tokens_out,
-        extraction_ms: ms,
-        error: null,
-      });
-      return;
-    }
-
-    const enriched = await enrichItems(sb, userId, extraction.items);
-    const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
-      type: it.type,
-      amount: Number(it.amount),
-      occurred_at: it.occurred_at,
-      normalized_description: it.normalized_description ?? null,
-      bank_reference: it.bank_reference ?? null,
-      fingerprint: it.dedupe_fingerprint,
-    })));
-    let categorizedAuto = 0;
-    let dupStrong = 0;
-    let dupAmbiguous = 0;
-    // Duplicatas dentro do próprio arquivo são ambíguas, nunca descartadas de
-    // forma automática: extratos podem conter duas compras legítimas idênticas.
-    const seenInDocument = new Map<string, number>();
-    const rows = enriched.map((it, idx) => {
-      const hit = dupes.get(idx);
-      const localKey = `${it.type}|${it.occurred_at}|${Number(it.amount).toFixed(2)}|${it.normalized_description ?? ""}`;
-      const priorIdx = seenInDocument.get(localKey);
-      seenInDocument.set(localKey, idx);
-      const localDuplicate = priorIdx == null ? null : { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` };
-      const effectiveHit = hit ?? localDuplicate;
-      if (effectiveHit?.strength === "strong") dupStrong++;
-      else if (effectiveHit?.strength === "ambiguous") dupAmbiguous++;
-      if (it.category_id) categorizedAuto++;
-      return {
-        document_id: documentId,
-        user_id: userId,
-        idx,
-        type: it.type,
-        amount: it.amount,
-        occurred_at: it.occurred_at,
-        description: it.description,
-        raw_description: it.raw_description,
-        normalized_description: it.normalized_description,
-        bank_reference: it.bank_reference,
-        dedupe_fingerprint: it.dedupe_fingerprint,
-        payment_method: it.payment_method,
-        account_hint: it.account_hint,
-        card_hint: it.card_hint,
-        category_hint: it.category_hint,
-        category_id: it.category_id,
-        category_source: it.category_source,
-        category_confidence: it.category_confidence,
-        movement_kind: it.movement_kind ?? "transaction",
-        account_id: it.account_id,
-        credit_card_id: it.credit_card_id,
-        installments_total: it.installments_total,
-        installment_number: it.installment_number,
-        purchase_date: it.purchase_date,
-        competence_date: it.competence_date,
-        confidence: it.confidence,
-        raw: it as unknown as Record<string, unknown>,
-        status: effectiveHit ? "duplicate_suspect" : "needs_review",
-        duplicate_of: hit?.transaction_id ?? null,
-        duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
-      };
-    });
-    if (rows.length > 0) {
-      const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
-      if (itemsErr) {
-        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+      if (out.errorTag) {
+        lastErrorTag = out.errorTag;
+        if (counters.total_items > 0) break;
+        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
         return;
       }
-    }
 
-    const needsReview = rows.length - dupStrong - dupAmbiguous;
-    const counters = {
-      total_items: rows.length,
-      duplicate_strong: dupStrong,
-      duplicate_ambiguous: dupAmbiguous,
-      categorized_auto: categorizedAuto,
-      needs_review: needsReview,
-      uncategorized: rows.length - categorizedAuto,
-    };
+      if ((extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") && counters.total_items === 0 && extraction.items.length === 0) {
+        await finish({
+          status: "needs_review",
+          document_kind: extraction.document_kind,
+          model: MODEL,
+          tokens_in,
+          tokens_out,
+          extraction_ms: ms,
+          counters,
+          error: null,
+        });
+        return;
+      }
+
+      const remaining = MAX_ITEMS_PER_DOCUMENT - counters.total_items;
+      const freshItems = extraction.items
+        .filter((item) => {
+          const sig = itemSignature(item);
+          if (seenSignatures.has(sig)) return false;
+          seenSignatures.add(sig);
+          return true;
+        })
+        .slice(0, Math.min(BATCH_ITEMS_LIMIT, remaining));
+
+      if (freshItems.length > 0) {
+        const enriched = await enrichItems(sb, userId, freshItems);
+        const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
+          type: it.type,
+          amount: Number(it.amount),
+          occurred_at: it.occurred_at,
+          normalized_description: it.normalized_description ?? null,
+          bank_reference: it.bank_reference ?? null,
+          fingerprint: it.dedupe_fingerprint,
+        })));
+
+        let batchCategorized = 0;
+        let batchDupStrong = 0;
+        let batchDupAmbiguous = 0;
+        const rows = enriched.map((it, idx) => {
+          const globalIdx = idxOffset + idx;
+          const hit = dupes.get(idx);
+          const localKey = `${it.type}|${it.occurred_at}|${Number(it.amount).toFixed(2)}|${it.normalized_description ?? ""}`;
+          const priorIdx = seenInDocument.get(localKey);
+          seenInDocument.set(localKey, globalIdx);
+          const localDuplicate = priorIdx == null ? null : { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` };
+          const effectiveHit = hit ?? localDuplicate;
+          if (effectiveHit?.strength === "strong") batchDupStrong++;
+          else if (effectiveHit?.strength === "ambiguous") batchDupAmbiguous++;
+          if (it.category_id) batchCategorized++;
+          return {
+            document_id: documentId,
+            user_id: userId,
+            idx: globalIdx,
+            type: it.type,
+            amount: it.amount,
+            occurred_at: it.occurred_at,
+            description: it.description,
+            raw_description: it.raw_description,
+            normalized_description: it.normalized_description,
+            bank_reference: it.bank_reference,
+            dedupe_fingerprint: it.dedupe_fingerprint,
+            payment_method: it.payment_method,
+            account_hint: it.account_hint,
+            card_hint: it.card_hint,
+            category_hint: it.category_hint,
+            category_id: it.category_id,
+            category_source: it.category_source,
+            category_confidence: it.category_confidence,
+            movement_kind: it.movement_kind ?? "transaction",
+            account_id: it.account_id,
+            credit_card_id: it.credit_card_id,
+            installments_total: it.installments_total,
+            installment_number: it.installment_number,
+            purchase_date: it.purchase_date,
+            competence_date: it.competence_date,
+            confidence: it.confidence,
+            raw: it as unknown as Record<string, unknown>,
+            status: effectiveHit ? "duplicate_suspect" : "needs_review",
+            duplicate_of: hit?.transaction_id ?? null,
+            duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
+          };
+        });
+
+        const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
+        if (itemsErr) {
+          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+          return;
+        }
+
+        idxOffset += rows.length;
+        counters.total_items += rows.length;
+        counters.duplicate_strong += batchDupStrong;
+        counters.duplicate_ambiguous += batchDupAmbiguous;
+        counters.categorized_auto += batchCategorized;
+        counters.uncategorized += rows.length - batchCategorized;
+        counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+
+        await finish({
+          status: "processing",
+          document_kind: documentKind,
+          model: MODEL,
+          tokens_in,
+          tokens_out,
+          extraction_ms: ms,
+          counters,
+          error: null,
+        });
+      }
+
+      if (!out.has_more && freshItems.length < BATCH_ITEMS_LIMIT) break;
+      if (freshItems.length === 0 && batchIndex > 1) break;
+    }
 
     await finish({
       status: "needs_review",
-      document_kind: extraction.document_kind,
+      document_kind: documentKind,
       model: MODEL,
       tokens_in,
       tokens_out,
@@ -625,7 +781,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
       period_start: statement?.period_start ?? null,
       period_end: statement?.period_end ?? null,
       statement_bank: statement?.bank ?? null,
-      counters,
+      counters: { ...counters, notes: notes.slice(0, 6), stopped_after_error: lastErrorTag ?? null },
       error: null,
     });
   } catch (e) {

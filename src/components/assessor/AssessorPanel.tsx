@@ -168,9 +168,13 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     } else if (info.document_kind === "non_financial") {
       content = "Esse arquivo não parece ser um documento financeiro. Tente um extrato, fatura, recibo ou lista de compras.";
     } else if (info.status === "failed") {
-      content = info.user_message ?? "Não consegui processar o documento. Confira se o PDF possui senha, se tem até 20 MB e tente novamente.";
+      content = info.user_message ?? "Não consegui concluir a leitura. O arquivo ficou grande demais para processar de uma vez; tente novamente por partes.";
     } else if (info.status === "processing" || info.status === "uploaded") {
-      content = "Ainda estou processando esse documento. Assim que terminar, aviso aqui.";
+      content = (info.items_count ?? 0) > 0
+        ? `Já encontrei ${info.items_count} lançamento(s). Continuo lendo o restante e salvo tudo para revisão.`
+        : info.status === "uploaded"
+          ? "Arquivo recebido. Estou preparando a leitura…"
+          : "Estou extraindo os lançamentos por partes. Pode fechar esta tela: a revisão fica salva aqui.";
     } else {
       content = "Não achei nenhum lançamento nesse documento.";
     }
@@ -363,7 +367,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                   disabled={sending}
                   className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/5 disabled:opacity-50"
                 >
-                  <Loader2 className={sending ? "h-3.5 w-3.5 animate-spin" : "hidden"} /> Tentar novamente
+                  <Loader2 className={sending ? "h-3.5 w-3.5 animate-spin" : "hidden"} /> Tentar por partes
                 </button>
               )}
               {m.role === "assistant" && m.report && <SpendingReportCard report={m.report} />}
