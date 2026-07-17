@@ -11,6 +11,8 @@ export interface AccountRow {
   active: boolean;
 }
 
+export type PaymentMethod = "account" | "credit_card" | "cash" | "pix" | "other";
+
 export interface TransactionRow {
   id: string;
   account_id: string;
@@ -21,6 +23,30 @@ export interface TransactionRow {
   occurred_at: string; // YYYY-MM-DD
   description: string | null;
   transfer_group_id: string | null;
+  payment_method?: PaymentMethod | string | null;
+  credit_card_id?: string | null;
+  competence_date?: string | null;
+}
+
+export interface CreditCardRow {
+  id: string;
+  name: string;
+  total_limit: number;
+  closing_day: number;
+  due_day: number;
+  active: boolean;
+}
+
+/**
+ * Resolve the effective payment origin for a confirmed tx.
+ * Legacy rows may have null payment_method; infer from credit_card_id.
+ */
+export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
+  "account" | "credit_card" {
+  if (t.credit_card_id) return "credit_card";
+  const pm = (t.payment_method ?? "").toString().toLowerCase();
+  if (pm === "credit_card") return "credit_card";
+  return "account";
 }
 
 export interface CategoryRow {
