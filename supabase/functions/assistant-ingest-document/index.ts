@@ -437,11 +437,13 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 90_000);
     let extraction: ExtractionResult;
+    let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
     let errorTag: string | undefined;
     try {
       const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", (guidance ?? "").slice(0, 500), ac.signal);
       extraction = out.result;
+      statement = out.statement;
       tokens_in = out.tokens_in;
       tokens_out = out.tokens_out;
       ms = out.ms;
