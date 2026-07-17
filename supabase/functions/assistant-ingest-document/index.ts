@@ -10,7 +10,8 @@
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, type ExtractionResult } from "../_shared/documents/types.ts";
+import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, type ExtractionResult } from "../_shared/documents/types.ts";
+import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
