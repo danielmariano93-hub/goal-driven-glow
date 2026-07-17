@@ -943,6 +943,7 @@ export type Database = {
       }
       document_imports: {
         Row: {
+          attempt_count: number
           conversation_id: string | null
           cost_usd_micros: number | null
           counters: Json
@@ -956,8 +957,10 @@ export type Database = {
           message_id: string | null
           mime_type: string
           model: string | null
+          next_attempt_at: string | null
           period_end: string | null
           period_start: string | null
+          provider_message_id: string | null
           raw_text: string | null
           sha256: string
           size_bytes: number
@@ -975,6 +978,7 @@ export type Database = {
           user_instructions: string | null
         }
         Insert: {
+          attempt_count?: number
           conversation_id?: string | null
           cost_usd_micros?: number | null
           counters?: Json
@@ -988,8 +992,10 @@ export type Database = {
           message_id?: string | null
           mime_type: string
           model?: string | null
+          next_attempt_at?: string | null
           period_end?: string | null
           period_start?: string | null
+          provider_message_id?: string | null
           raw_text?: string | null
           sha256: string
           size_bytes: number
@@ -1007,6 +1013,7 @@ export type Database = {
           user_instructions?: string | null
         }
         Update: {
+          attempt_count?: number
           conversation_id?: string | null
           cost_usd_micros?: number | null
           counters?: Json
@@ -1020,8 +1027,10 @@ export type Database = {
           message_id?: string | null
           mime_type?: string
           model?: string | null
+          next_attempt_at?: string | null
           period_end?: string | null
           period_start?: string | null
+          provider_message_id?: string | null
           raw_text?: string | null
           sha256?: string
           size_bytes?: number
@@ -1039,6 +1048,65 @@ export type Database = {
           user_instructions?: string | null
         }
         Relationships: []
+      }
+      document_processing_events: {
+        Row: {
+          created_at: string
+          document_id: string
+          error_code: string | null
+          event_type: string
+          id: string
+          items_found: number | null
+          items_rejected: number | null
+          items_valid: number | null
+          metadata: Json
+          progress_current: number | null
+          progress_total: number | null
+          stage: string | null
+          user_id: string
+          user_message: string | null
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          error_code?: string | null
+          event_type: string
+          id?: string
+          items_found?: number | null
+          items_rejected?: number | null
+          items_valid?: number | null
+          metadata?: Json
+          progress_current?: number | null
+          progress_total?: number | null
+          stage?: string | null
+          user_id: string
+          user_message?: string | null
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          error_code?: string | null
+          event_type?: string
+          id?: string
+          items_found?: number | null
+          items_rejected?: number | null
+          items_valid?: number | null
+          metadata?: Json
+          progress_current?: number | null
+          progress_total?: number | null
+          stage?: string | null
+          user_id?: string
+          user_message?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_processing_events_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       emotional_checkins: {
         Row: {
