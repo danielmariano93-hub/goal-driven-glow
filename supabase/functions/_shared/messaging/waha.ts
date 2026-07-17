@@ -1,5 +1,9 @@
 import type { MessagingProvider, NormalizedInbound } from "./types.ts";
 import { normalizeBrPhone } from "./types.ts";
+import { classifyInbound, type ClassifiedInbound } from "./wahaInbound.ts";
+
+export { classifyInbound } from "./wahaInbound.ts";
+export type { ClassifiedInbound } from "./wahaInbound.ts";
 
 // Runtime WAHA config. Initialized from env vars (retrocompat) and can be
 // hydrated at request time from the Supabase Vault via `loadWahaConfig`.
