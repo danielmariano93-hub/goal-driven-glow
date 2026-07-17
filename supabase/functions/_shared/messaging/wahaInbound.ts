@@ -16,6 +16,15 @@ export type DropReason =
   | "no_real_jid"
   | "no_message_id";
 
+export type MediaHint = {
+  url?: string;
+  base64?: string;
+  mime_type: string;
+  filename?: string;
+  /** Where the parser found the media descriptor. Purely diagnostic. */
+  via: "root_media" | "message_image" | "message_document" | "message_video" | "data_message";
+};
+
 export type ClassifiedInbound =
   | {
       ok: true;
@@ -24,7 +33,7 @@ export type ClassifiedInbound =
       to_phone?: string;
       body: string;
       received_at: string;
-      media?: { url: string; mime_type: string; filename?: string };
+      media?: MediaHint;
     }
   | {
       ok: false;
@@ -55,7 +64,6 @@ function sanitizeTimestamp(ts: unknown): string {
   const nowMs = Date.now();
   let n = typeof ts === "number" ? ts : NaN;
   if (Number.isFinite(n)) {
-    // Accept seconds (typical) or milliseconds.
     if (n < 1e12) n = n * 1000;
     if (n < nowMs - 30 * 86400 * 1000 || n > nowMs + 86400 * 1000) n = nowMs;
     return new Date(n).toISOString();
@@ -69,14 +77,9 @@ function get(o: unknown, key: string): unknown {
   return o && typeof o === "object" ? (o as P)[key] : undefined;
 }
 
-/** Collect every JID-shaped string candidate we saw on the payload — used
- *  ONLY to report the domain suffixes in drop diagnostics. Never returns the
- *  local part / phone digits. */
 function collectJidDomains(pl: unknown): string[] {
   const out = new Set<string>();
-  const keys = [
-    "from", "to", "participant", "remoteJidAlt", "participantAlt",
-  ];
+  const keys = ["from", "to", "participant", "remoteJidAlt", "participantAlt"];
   for (const k of keys) {
     const j = parseJid(get(pl, k));
     if (j?.domain) out.add(j.domain);
@@ -100,7 +103,6 @@ function collectPhoneCandidates(pl: unknown): unknown[] {
   const _data = get(pl, "_data");
   const _dkey = get(_data, "key");
   return [
-    // Alt fields — NOWEB puts the real phone JID here when the primary is @lid.
     get(pl, "remoteJidAlt"),
     get(pl, "participantAlt"),
     get(_dkey, "remoteJidAlt"),
@@ -108,7 +110,6 @@ function collectPhoneCandidates(pl: unknown): unknown[] {
     get(_data, "remoteJidAlt"),
     get(key, "remoteJidAlt"),
     get(key, "participantAlt"),
-    // Primary fields — only accepted if suffix is a real phone domain.
     get(pl, "from"),
     get(key, "remoteJid"),
     get(pl, "participant"),
@@ -168,6 +169,69 @@ function resolveFromMe(pl: unknown): boolean {
   );
 }
 
+/** Detect media across the multiple shapes a NOWEB payload can take.
+ *  Returns undefined only when no media descriptor is present at all.
+ *  Note: `url` and `base64` are optional — many NOWEB payloads carry a
+ *  media descriptor without a public URL, and the downloader must then
+ *  fetch it authenticated via `/api/{session}/files/{msgId}`. */
+function resolveMedia(pl: unknown): MediaHint | undefined {
+  const asStr = (v: unknown): string | undefined =>
+    typeof v === "string" && v ? v : undefined;
+
+  // 1) Root `media` object (WAHA WEBJS-like)
+  const rootMedia = get(pl, "media");
+  if (rootMedia && typeof rootMedia === "object") {
+    const url = asStr(get(rootMedia, "url"));
+    const b64 = asStr(get(rootMedia, "data")) ?? asStr(get(rootMedia, "base64"));
+    const mime = asStr(get(rootMedia, "mimetype")) ?? asStr(get(rootMedia, "mime_type"))
+      ?? asStr(get(pl, "mimetype")) ?? "application/octet-stream";
+    const filename = asStr(get(rootMedia, "filename")) ?? asStr(get(rootMedia, "name"));
+    if (url || b64 || mime !== "application/octet-stream") {
+      return { url, base64: b64, mime_type: mime, filename, via: "root_media" };
+    }
+  }
+
+  // 2) message.{imageMessage|documentMessage|videoMessage} (NOWEB shape)
+  const messages = [
+    get(pl, "message"),
+    get(get(pl, "_data"), "message"),
+  ];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    const doc = get(m, "documentMessage");
+    if (doc && typeof doc === "object") {
+      return {
+        url: asStr(get(doc, "url")),
+        mime_type: asStr(get(doc, "mimetype")) ?? "application/pdf",
+        filename: asStr(get(doc, "fileName")) ?? asStr(get(doc, "filename")),
+        via: m === messages[1] ? "data_message" : "message_document",
+      };
+    }
+    const img = get(m, "imageMessage");
+    if (img && typeof img === "object") {
+      return {
+        url: asStr(get(img, "url")),
+        mime_type: asStr(get(img, "mimetype")) ?? "image/jpeg",
+        filename: asStr(get(img, "fileName")) ?? asStr(get(img, "filename")),
+        via: m === messages[1] ? "data_message" : "message_image",
+      };
+    }
+    const vid = get(m, "videoMessage");
+    if (vid && typeof vid === "object") {
+      // Videos are not supported by the ingestion pipeline, but expose the
+      // descriptor so the webhook can respond with a friendly rejection.
+      return {
+        url: asStr(get(vid, "url")),
+        mime_type: asStr(get(vid, "mimetype")) ?? "video/mp4",
+        filename: asStr(get(vid, "fileName")),
+        via: m === messages[1] ? "data_message" : "message_video",
+      };
+    }
+  }
+
+  return undefined;
+}
+
 export function classifyInbound(
   payload: unknown,
   expectedSession: string,
@@ -180,10 +244,7 @@ export function classifyInbound(
   const jid_domains = collectJidDomains(pl);
   const has_alt = jid_domains.length > 0 && [
     "remoteJidAlt", "participantAlt",
-  ].some((_) => {
-    // reuse candidate collection presence check
-    return collectPhoneCandidates(pl).slice(0, 7).some((v) => typeof v === "string" && v);
-  });
+  ].some((_) => collectPhoneCandidates(pl).slice(0, 7).some((v) => typeof v === "string" && v));
   const has_key = Boolean(get(pl, "key") || get(get(pl, "_data"), "key"));
 
   const drop = (reason: DropReason): ClassifiedInbound => ({
@@ -192,7 +253,6 @@ export function classifyInbound(
 
   if (session && expectedSession && session !== expectedSession) return drop("foreign_session");
 
-  // Accept unnamed events (legacy), and message/message.any.
   if (event && !["message", "message.any"].includes(event)) {
     const ev = event.toLowerCase();
     if (ev.startsWith("session.") || ev.startsWith("state.") ||
@@ -201,14 +261,12 @@ export function classifyInbound(
         ev === "message.revoked" || ev === "message.edited") {
       return drop("event_ignored");
     }
-    // Unknown non-message event
     if (!ev.startsWith("message")) return drop("event_ignored");
   }
 
   if (!pl || typeof pl !== "object") return drop("no_payload");
   if (resolveFromMe(pl)) return drop("from_me");
 
-  // Group detection across all candidate JIDs.
   const allJidStrings: unknown[] = [
     get(pl, "from"), get(pl, "to"), get(pl, "participant"),
     get(get(pl, "key"), "remoteJid"), get(get(pl, "key"), "participant"),
@@ -219,14 +277,12 @@ export function classifyInbound(
     if (j && GROUP_DOMAINS.has(j.domain)) return drop("group");
   }
 
-  // Resolve real phone.
   const candidates = collectPhoneCandidates(pl);
   let realDigits: string | null = null;
   for (const raw of candidates) {
     const j = parseJid(raw);
     if (!j) continue;
     if (GROUP_DOMAINS.has(j.domain)) return drop("group");
-    // Empty domain (bare digits) is accepted only if not a lid marker.
     if (!j.domain || REAL_PHONE_DOMAINS.has(j.domain)) {
       const normalized = normalizeBrPhone(j.local);
       if (normalized) { realDigits = normalized; break; }
@@ -245,15 +301,7 @@ export function classifyInbound(
     ? (parseJid(toJid)?.local ?? undefined)
     : undefined;
 
-  const media = get(pl, "media");
-  const mediaUrl = get(media, "url");
-  const outMedia = typeof mediaUrl === "string" && mediaUrl ? {
-    url: mediaUrl,
-    mime_type: (typeof get(media, "mimetype") === "string"
-      ? get(media, "mimetype") as string
-      : (typeof get(pl, "mimetype") === "string" ? get(pl, "mimetype") as string : "application/octet-stream")),
-    filename: typeof get(media, "filename") === "string" ? get(media, "filename") as string : undefined,
-  } : undefined;
+  const media = resolveMedia(pl);
 
   return {
     ok: true,
@@ -262,6 +310,6 @@ export function classifyInbound(
     to_phone,
     body,
     received_at,
-    media: outMedia,
+    media,
   };
 }
