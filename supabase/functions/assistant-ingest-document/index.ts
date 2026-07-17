@@ -484,8 +484,12 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const b64 = btoa(bin);
     const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
+    await heartbeat();
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
+    // Heartbeat periódico durante a chamada ao LLM: mantém `updated_at` fresco
+    // e impede que um segundo worker classifique o job como stale.
+    const beat = setInterval(() => { void heartbeat(); }, 20_000);
     let extraction: ExtractionResult;
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
