@@ -79,10 +79,10 @@ export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
   let total = 0;
   for (const t of txs) {
     if (t.status !== "confirmed" || t.type !== "expense") continue;
-    if (txOrigin(t) !== "credit_card") continue;
-    total += Number(t.amount || 0);
+    if (txOrigin(t) === "credit_card") total += Number(t.amount || 0);
+    if (t.settles_card_id) total -= Number(t.amount || 0);
   }
-  return round2(total);
+  return round2(Math.max(0, total));
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
