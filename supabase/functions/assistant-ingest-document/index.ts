@@ -231,24 +231,51 @@ async function classifyDuplicates(
  * da categoria para transparência no ReviewSheet.
  */
 async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, items: ExtractionResult["items"]) {
+  // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
+  const normalized = items.map((item) => {
+    const rawDesc = String(item.description ?? "");
+    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
+    return {
+      item,
+      rawDesc,
+      friendly,
+      normalizedKey: friendly.toLowerCase().trim(),
+      ruleCategory,
+      bankRef: extractBankReference(rawDesc),
+    };
+  });
+  const uniqueDescriptions = [...new Set(normalized.map((n) => n.friendly).filter(Boolean))].slice(0, 200);
+
+  // 2) Uma única leva de queries.
   const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
     sb.from("categories").select("id, name, type").eq("user_id", userId),
-    sb.from("transactions").select("description, raw_description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
+    uniqueDescriptions.length > 0
+      ? sb.from("transactions").select("description, raw_description, category_id, type")
+          .eq("user_id", userId).not("category_id", "is", null)
+          .in("description", uniqueDescriptions)
+          .order("occurred_at", { ascending: false }).limit(500)
+      : Promise.resolve({ data: [] as Array<{ description: string; raw_description: string | null; category_id: string; type: string }> }),
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
   ]);
-  const enriched = [];
-  for (const item of items) {
-    const rawDesc = String(item.description ?? "");
-    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
-    const normalizedKey = friendly.toLowerCase().trim();
-    const bankRef = extractBankReference(rawDesc);
 
-    // Categoria: regra > histórico > hint do modelo
-    let categoryId: string | null = null;
-    let categorySource: string | null = null;
-    let categoryConfidence: number | null = null;
-    const catKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  // 3) Índice de histórico por chave normalizada — normaliza cada linha do histórico UMA vez.
+  const historyByKey = new Map<string, Map<string, number>>(); // key -> categoryId -> count
+  for (const row of (history ?? [])) {
+    const key = normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim();
+    if (!key || !row.category_id) continue;
+    const type = row.type;
+    const compositeKey = `${type}|${key}`;
+    let bucket = historyByKey.get(compositeKey);
+    if (!bucket) { bucket = new Map(); historyByKey.set(compositeKey, bucket); }
+    bucket.set(row.category_id, (bucket.get(row.category_id) ?? 0) + 1);
+  }
+
+  const catKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+  const enriched = [];
+  for (const n of normalized) {
+    const { item, rawDesc, friendly, normalizedKey, ruleCategory, bankRef } = n;
     const findCatByName = (name: string) => {
       const wanted = catKey(name);
       return (categories ?? []).find((c) =>
@@ -256,23 +283,27 @@ async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, 
         (catKey(c.name) === wanted || catKey(c.name).includes(wanted) || wanted.includes(catKey(c.name)))
       )?.id ?? null;
     };
+
+    let categoryId: string | null = null;
+    let categorySource: string | null = null;
+    let categoryConfidence: number | null = null;
+
     if (ruleCategory) {
       const c = findCatByName(ruleCategory);
       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
     }
     if (!categoryId) {
-      const historicalHits = (history ?? []).filter((row) => row.type === item.type && normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim() === normalizedKey && row.category_id);
-      const counts = new Map<string, number>();
-      historicalHits.forEach((r) => counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1));
-      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
+      const bucket = historyByKey.get(`${item.type}|${normalizedKey}`);
+      if (bucket) {
+        const top = [...bucket.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
+      }
     }
     if (!categoryId && item.category_hint) {
       const c = findCatByName(item.category_hint);
       if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
     }
 
-    // Contas/cartões
     const accountHint = (item.account_hint ?? "").toLowerCase();
     const matchedAccount = accountHint ? (accounts ?? []).find((a) => `${a.name} ${a.institution ?? ""}`.toLowerCase().includes(accountHint) || accountHint.includes(a.name.toLowerCase())) : null;
     const cardHint = (item.card_hint ?? "").toLowerCase();
