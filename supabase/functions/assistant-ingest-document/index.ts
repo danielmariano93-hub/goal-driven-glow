@@ -577,6 +577,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
   try {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
     if (!doc) return;
+    await notifyDocumentTransition(sb, { id: documentId, user_id: userId, source: doc.source, conversation_id: doc.conversation_id }, "processing_started", null);
     const previousFailureCount = Number(doc.counters?.failure_count ?? 0);
     const failureCounters = (base: Record<string, unknown> = {}) => ({ ...base, failure_count: previousFailureCount + 1 });
 
