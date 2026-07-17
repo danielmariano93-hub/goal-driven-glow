@@ -58,13 +58,19 @@ export async function ingestDocument(
     },
   });
   if (create.error) throw create.error;
-  const upload = create.data as { document_id: string; upload_url: string };
-  const put = await fetch(upload.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": mimeType, "x-upsert": "true" },
-    body: bytes,
-  });
-  if (!put.ok) throw new Error(`upload_failed:${put.status}`);
+  const upload = create.data as {
+    document_id: string;
+    upload_url: string;
+    storage_path: string;
+    token: string;
+  };
+  const { error: uploadError } = await supabase.storage
+    .from("documents")
+    .uploadToSignedUrl(upload.storage_path, upload.token, blob, {
+      contentType: mimeType,
+      upsert: true,
+    });
+  if (uploadError) throw new Error("Não consegui enviar o arquivo. Verifique sua conexão e tente novamente.");
   const finalize = await supabase.functions.invoke("assistant-ingest-document", {
     body: { mode: "finalize", document_id: upload.document_id, guidance: guidance.trim() || null },
   });
