@@ -26,6 +26,8 @@ export interface TransactionRow {
   payment_method?: PaymentMethod | string | null;
   credit_card_id?: string | null;
   competence_date?: string | null;
+  /** Se preenchido, esta transação é um pagamento de fatura do cartão indicado. */
+  settles_card_id?: string | null;
 }
 
 export interface CreditCardRow {
