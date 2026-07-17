@@ -1848,6 +1848,45 @@ export type Database = {
         }
         Relationships: []
       }
+      pulse_snapshots: {
+        Row: {
+          band: string
+          computed_at: string
+          created_at: string
+          factors: Json
+          id: string
+          next_action: string | null
+          score: number
+          state: string
+          user_id: string
+          week_delta: number | null
+        }
+        Insert: {
+          band: string
+          computed_at?: string
+          created_at?: string
+          factors?: Json
+          id?: string
+          next_action?: string | null
+          score: number
+          state?: string
+          user_id: string
+          week_delta?: number | null
+        }
+        Update: {
+          band?: string
+          computed_at?: string
+          created_at?: string
+          factors?: Json
+          id?: string
+          next_action?: string | null
+          score?: number
+          state?: string
+          user_id?: string
+          week_delta?: number | null
+        }
+        Relationships: []
+      }
       recurring_entries: {
         Row: {
           account_id: string | null
