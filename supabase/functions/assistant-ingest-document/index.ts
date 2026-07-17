@@ -106,9 +106,19 @@ function extractStatementMetadata(parsed: unknown, fallback: string): StatementM
 }
 
 function recoverCompactJson(text: string): { parsed: unknown; partial: boolean } | null {
-  const arrayMarker = text.search(/"i"\s*:/);
-  if (arrayMarker < 0) return null;
-  const arrayStart = text.indexOf("[", arrayMarker);
+  // Locate the items array even when the JSON is truncated/malformed BEFORE `"i":`.
+  // Strategy: find the first `[` after the first `"i"` marker OR fall back to the
+  // first `[[` sequence in the text (compact rows start with `[`).
+  let arrayStart = -1;
+  const iMarker = text.search(/"i"\s*:/);
+  if (iMarker >= 0) {
+    const bracket = text.indexOf("[", iMarker);
+    if (bracket >= 0) arrayStart = bracket;
+  }
+  if (arrayStart < 0) {
+    const nested = text.indexOf("[[");
+    if (nested >= 0) arrayStart = nested;
+  }
   if (arrayStart < 0) return null;
 
   const rows: unknown[] = [];
