@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_balance_snapshots: {
+        Row: {
+          account_id: string
+          balance: number
+          balance_date: string
+          created_at: string
+          id: string
+          reconciliation: Json
+          source: string
+          source_document_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          balance: number
+          balance_date: string
+          created_at?: string
+          id?: string
+          reconciliation?: Json
+          source?: string
+          source_document_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          balance?: number
+          balance_date?: string
+          created_at?: string
+          id?: string
+          reconciliation?: Json
+          source?: string
+          source_document_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_balance_snapshots_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_balance_snapshots_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_deletion_requests: {
         Row: {
           admin_notes: string | null
@@ -1048,6 +1105,7 @@ export type Database = {
           idx: number
           installment_number: number | null
           installments_total: number | null
+          movement_kind: string
           normalized_description: string | null
           occurred_at: string
           payment_method: string | null
@@ -1084,6 +1142,7 @@ export type Database = {
           idx: number
           installment_number?: number | null
           installments_total?: number | null
+          movement_kind?: string
           normalized_description?: string | null
           occurred_at: string
           payment_method?: string | null
@@ -1120,6 +1179,7 @@ export type Database = {
           idx?: number
           installment_number?: number | null
           installments_total?: number | null
+          movement_kind?: string
           normalized_description?: string | null
           occurred_at?: string
           payment_method?: string | null
@@ -2423,6 +2483,8 @@ export type Database = {
           import_source_id: string | null
           installment_number: number | null
           installments_total: number | null
+          movement_kind: string
+          normalized_description: string | null
           notes: string | null
           occurred_at: string
           origin: Database["public"]["Enums"]["txn_origin"]
@@ -2454,6 +2516,8 @@ export type Database = {
           import_source_id?: string | null
           installment_number?: number | null
           installments_total?: number | null
+          movement_kind?: string
+          normalized_description?: string | null
           notes?: string | null
           occurred_at: string
           origin?: Database["public"]["Enums"]["txn_origin"]
@@ -2485,6 +2549,8 @@ export type Database = {
           import_source_id?: string | null
           installment_number?: number | null
           installments_total?: number | null
+          movement_kind?: string
+          normalized_description?: string | null
           notes?: string | null
           occurred_at?: string
           origin?: Database["public"]["Enums"]["txn_origin"]
@@ -3112,6 +3178,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: string
+      }
+      reconcile_document_balance: {
+        Args: { p_account_id: string; p_document_id: string }
+        Returns: Json
       }
       recover_expired_outbound_leases: { Args: never; Returns: number }
       recurring_confirm: { Args: { p_occurrence_id: string }; Returns: string }
