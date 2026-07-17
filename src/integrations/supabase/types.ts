@@ -1063,10 +1063,38 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "extracted_items_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_items_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_items_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "extracted_items_document_id_fkey"
             columns: ["document_id"]
             isOneToOne: false
             referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_items_duplicate_of_fkey"
+            columns: ["duplicate_of"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
           {
@@ -2672,6 +2700,19 @@ export type Database = {
         }[]
       }
       admin_dashboard_stats: { Args: never; Returns: Json }
+      admin_document_metrics: {
+        Args: { p_days?: number }
+        Returns: {
+          avg_latency_ms: number
+          failed: number
+          pending: number
+          succeeded: number
+          success_rate: number
+          tokens_in: number
+          tokens_out: number
+          total: number
+        }[]
+      }
       admin_engagement_stats: { Args: never; Returns: Json }
       admin_list_platform_admins: {
         Args: never
