@@ -10,6 +10,7 @@ import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { PulseHero } from "@/components/home/PulseHero";
 import { PatrimonioCard } from "@/components/home/PatrimonioCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
+import { ResumoContas } from "@/components/home/ResumoContas";
 
 export default function Index() {
   const { data: accounts, isLoading: la } = useAccounts();
@@ -44,6 +45,8 @@ export default function Index() {
       <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} />
 
       <AssistantTipCard />
+
+      <ResumoContas cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} />
 
       <QuickActions />
 

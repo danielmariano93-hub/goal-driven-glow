@@ -214,13 +214,46 @@ export function ReviewSheet({
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between border-b border-border px-4 py-2 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs">
               <button onClick={toggleAll} className="text-primary hover:underline">
                 {selected.size > 0 ? "Desmarcar todos" : "Selecionar todos"}
               </button>
-              <span className="text-muted-foreground">
-                {selected.size} selecionado(s) · <strong className="text-foreground">{formatBRL(total)}</strong>
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (accounts.length === 0) return toast.error("Cadastre uma conta primeiro.");
+                    const first = accounts[0];
+                    setItems((xs) => xs.map((x) => selected.has(x.id) ? { ...x, payment_method: "account", account_id: first.id, credit_card_id: null } : x));
+                    // Persistir em segundo plano
+                    for (const id of selected) {
+                      void supabase.functions.invoke("assistant-review-actions", { body: { action: "update", item_id: id, patch: { payment_method: "account", account_id: first.id, credit_card_id: null } } });
+                    }
+                    toast.success(`Origem aplicada: Conta ${first.name}`);
+                  }}
+                  className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted"
+                >
+                  Aplicar Conta a todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (cards.length === 0) return toast.error("Cadastre um cartão primeiro.");
+                    const first = cards[0];
+                    setItems((xs) => xs.map((x) => selected.has(x.id) ? { ...x, payment_method: "credit_card", credit_card_id: first.id, account_id: null } : x));
+                    for (const id of selected) {
+                      void supabase.functions.invoke("assistant-review-actions", { body: { action: "update", item_id: id, patch: { payment_method: "credit_card", credit_card_id: first.id, account_id: null } } });
+                    }
+                    toast.success(`Origem aplicada: Cartão ${first.name}`);
+                  }}
+                  className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted"
+                >
+                  Aplicar Cartão a todos
+                </button>
+                <span className="text-muted-foreground">
+                  {selected.size} · <strong className="text-foreground">{formatBRL(total)}</strong>
+                </span>
+              </div>
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {items.map((it) => {
