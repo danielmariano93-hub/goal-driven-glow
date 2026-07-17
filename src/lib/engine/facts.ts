@@ -152,24 +152,29 @@ export function computeTotalCash(accounts: AccountRow[], txs: TransactionRow[]):
 /** Fatura em aberto (estimativa v1): soma expenses confirmadas com credit_card_id.
  *  Pagamentos de fatura (transactions payment_method='account' quitando cartão)
  *  ainda não são modelados; considerar limitação e exibir como "estimativa". */
-export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
+export function computeCreditCardOutstanding(txs: TransactionRow[], cardId?: string): number {
   let total = 0;
   for (const t of txs) {
-    if (t.status !== "confirmed") continue;
-    if (t.type !== "expense") continue;
-    if (txOrigin(t) !== "credit_card") continue;
-    total += Number(t.amount || 0);
+    if (t.status !== "confirmed" || t.type !== "expense") continue;
+    if (cardId) {
+      if (t.credit_card_id === cardId) total += Number(t.amount || 0);
+      if (t.settles_card_id === cardId) total -= Number(t.amount || 0);
+    } else {
+      if (txOrigin(t) === "credit_card") total += Number(t.amount || 0);
+      if (t.settles_card_id) total -= Number(t.amount || 0);
+    }
   }
-  return round2(total);
+  return round2(Math.max(0, total));
 }
 
 export function computeCreditCardOutstandingByCard(txs: TransactionRow[]): Record<string, number> {
   const map: Record<string, number> = {};
   for (const t of txs) {
     if (t.status !== "confirmed" || t.type !== "expense") continue;
-    if (!t.credit_card_id) continue;
-    map[t.credit_card_id] = round2((map[t.credit_card_id] || 0) + Number(t.amount || 0));
+    if (t.credit_card_id) map[t.credit_card_id] = (map[t.credit_card_id] || 0) + Number(t.amount || 0);
+    if (t.settles_card_id) map[t.settles_card_id] = (map[t.settles_card_id] || 0) - Number(t.amount || 0);
   }
+  for (const k of Object.keys(map)) map[k] = round2(Math.max(0, map[k]));
   return map;
 }
 
