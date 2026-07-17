@@ -508,6 +508,13 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }
     } finally {
       clearTimeout(timer);
+      clearInterval(beat);
+    }
+    await heartbeat();
+
+    // Trava dura de segurança: nunca gravar mais que MAX_ITEMS_PER_DOCUMENT.
+    if (extraction.items.length > MAX_ITEMS_PER_DOCUMENT) {
+      extraction = { ...extraction, items: extraction.items.slice(0, MAX_ITEMS_PER_DOCUMENT) };
     }
 
     if (errorTag) {
