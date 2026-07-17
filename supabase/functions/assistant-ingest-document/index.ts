@@ -472,6 +472,53 @@ Deno.serve(async (req) => {
     return json({ ok: true, document_id: doc_id, upload_url: signed.signedUrl, storage_path, token: signed.token, filename });
   }
 
+  // === VERIFY UPLOAD ===
+  // Server-side check that the signed upload actually persisted the object.
+  // No side effects: purely diagnostic.
+  if (mode === "verify-upload") {
+    const document_id = String(body.document_id ?? "");
+    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    const { data: doc } = await sb.from("document_imports")
+      .select("id, storage_path, user_id")
+      .eq("id", document_id).eq("user_id", user.id).maybeSingle();
+    if (!doc) return json({ error: "not_found" }, 404);
+    const dir = doc.storage_path.split("/").slice(0, -1).join("/");
+    const name = doc.storage_path.split("/").pop() ?? "";
+    const { data: list, error: listErr } = await sb.storage.from(BUCKET).list(dir, { search: name, limit: 1 });
+    if (listErr) return json({ ok: true, exists: false, size: 0, error: listErr.message });
+    const found = (list ?? []).find((entry) => entry.name === name);
+    // metadata.size is available on Supabase Storage list responses.
+    // deno-lint-ignore no-explicit-any
+    const size = Number((found as any)?.metadata?.size ?? 0);
+    return json({ ok: true, exists: !!found && size > 0, size });
+  }
+
+  // === MARK UPLOAD MISSING ===
+  // Client failed to persist the object even after fallback; record it so the
+  // document doesn't stay orphaned in `uploaded`. Never triggers IA.
+  if (mode === "mark-upload-missing") {
+    const document_id = String(body.document_id ?? "");
+    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    const correlationId = makeCorrelationId();
+    const { data: doc } = await sb.from("document_imports")
+      .select("id, status").eq("id", document_id).eq("user_id", user.id).maybeSingle();
+    if (!doc) return json({ error: "not_found" }, 404);
+    if (TERMINAL_STATUSES.has(doc.status)) {
+      return respondWithStatus(sb, document_id, user.id, {}, 200);
+    }
+    await sb.from("document_imports")
+      .update({ status: "failed", error: encodeError("upload_missing:client_reported", correlationId) })
+      .eq("id", document_id).eq("user_id", user.id);
+    return json({
+      ok: true,
+      status: "failed",
+      document_id,
+      error: "upload_missing",
+      correlation_id: correlationId,
+      user_message: "Não consegui salvar o arquivo. Verifique sua conexão e tente novamente.",
+    }, 200);
+  }
+
   // === FINALIZE / RESUME ===
   if (mode === "finalize" || mode === "resume") {
     const document_id = String(body.document_id ?? "");
