@@ -72,6 +72,7 @@ REGRAS ESTRITAS:
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
+- Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
 type MultimodalOutcome = {
