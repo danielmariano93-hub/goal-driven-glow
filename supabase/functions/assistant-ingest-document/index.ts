@@ -499,9 +499,16 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
 
   if (!canResume) return { acquired: false, doc };
 
-  // Clear any orphaned draft items from a previous failed attempt.
+  // Clear orphaned draft items only when there are no usable checkpoints to preserve.
   if (doc.status !== "uploaded") {
-    await sb.from("extracted_items").delete().eq("document_id", documentId).eq("user_id", userId).in("status", ["needs_review", "duplicate_suspect"]);
+    const { count } = await sb.from("extracted_items")
+      .select("id", { count: "exact", head: true })
+      .eq("document_id", documentId)
+      .eq("user_id", userId)
+      .in("status", ["needs_review", "duplicate_suspect"]);
+    if ((count ?? 0) === 0) {
+      await sb.from("extracted_items").delete().eq("document_id", documentId).eq("user_id", userId).in("status", ["needs_review", "duplicate_suspect"]);
+    }
   }
 
   const { data: updated, error: upErr } = await sb.from("document_imports")
