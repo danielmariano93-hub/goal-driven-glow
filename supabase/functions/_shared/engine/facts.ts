@@ -13,6 +13,16 @@ export interface TransactionRow {
   status: "confirmed" | "planned";
   amount: number; occurred_at: string;
   description: string | null; transfer_group_id: string | null;
+  payment_method?: string | null;
+  credit_card_id?: string | null;
+}
+
+export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
+  "account" | "credit_card" {
+  if (t.credit_card_id) return "credit_card";
+  const pm = (t.payment_method ?? "").toString().toLowerCase();
+  if (pm === "credit_card") return "credit_card";
+  return "account";
 }
 export interface RecurringRow {
   id: string; name: string; type: "income" | "expense";
