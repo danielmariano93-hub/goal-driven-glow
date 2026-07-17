@@ -475,31 +475,54 @@ async function processDocument(documentId: string, userId: string, guidance: str
     }
 
     const enriched = await enrichItems(sb, userId, extraction.items);
-    const dupes = await findDuplicates(sb, userId, enriched);
-    const rows = enriched.map((it, idx) => ({
-      document_id: documentId,
-      user_id: userId,
-      idx,
+    const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
       type: it.type,
-      amount: it.amount,
+      amount: Number(it.amount),
       occurred_at: it.occurred_at,
-      description: it.description,
-      payment_method: it.payment_method,
-      account_hint: it.account_hint,
-      card_hint: it.card_hint,
-      category_hint: it.category_hint,
-      category_id: it.category_id,
-      account_id: it.account_id,
-      credit_card_id: it.credit_card_id,
-      installments_total: it.installments_total,
-      installment_number: it.installment_number,
-      purchase_date: it.purchase_date,
-      competence_date: it.competence_date,
-      confidence: it.confidence,
-      raw: it as unknown as Record<string, unknown>,
-      status: dupes.has(idx) ? "duplicate_suspect" : "needs_review",
-      duplicate_of: dupes.get(idx) ?? null,
-    }));
+      normalized_description: it.normalized_description ?? null,
+      bank_reference: it.bank_reference ?? null,
+      fingerprint: it.dedupe_fingerprint,
+    })));
+    let categorizedAuto = 0;
+    let dupStrong = 0;
+    let dupAmbiguous = 0;
+    const rows = enriched.map((it, idx) => {
+      const hit = dupes.get(idx);
+      if (hit?.strength === "strong") dupStrong++;
+      else if (hit?.strength === "ambiguous") dupAmbiguous++;
+      if (it.category_id) categorizedAuto++;
+      return {
+        document_id: documentId,
+        user_id: userId,
+        idx,
+        type: it.type,
+        amount: it.amount,
+        occurred_at: it.occurred_at,
+        description: it.description,
+        raw_description: it.raw_description,
+        normalized_description: it.normalized_description,
+        bank_reference: it.bank_reference,
+        dedupe_fingerprint: it.dedupe_fingerprint,
+        payment_method: it.payment_method,
+        account_hint: it.account_hint,
+        card_hint: it.card_hint,
+        category_hint: it.category_hint,
+        category_id: it.category_id,
+        category_source: it.category_source,
+        category_confidence: it.category_confidence,
+        account_id: it.account_id,
+        credit_card_id: it.credit_card_id,
+        installments_total: it.installments_total,
+        installment_number: it.installment_number,
+        purchase_date: it.purchase_date,
+        competence_date: it.competence_date,
+        confidence: it.confidence,
+        raw: it as unknown as Record<string, unknown>,
+        status: hit ? "duplicate_suspect" : "needs_review",
+        duplicate_of: hit?.transaction_id ?? null,
+        duplicate_reason: hit ? `${hit.strength}:${hit.reason}` : null,
+      };
+    });
     if (rows.length > 0) {
       const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
       if (itemsErr) {
@@ -508,6 +531,16 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }
     }
 
+    const needsReview = rows.length - dupStrong - dupAmbiguous;
+    const counters = {
+      total_items: rows.length,
+      duplicate_strong: dupStrong,
+      duplicate_ambiguous: dupAmbiguous,
+      categorized_auto: categorizedAuto,
+      needs_review: needsReview,
+      uncategorized: rows.length - categorizedAuto,
+    };
+
     await finish({
       status: "needs_review",
       document_kind: extraction.document_kind,
@@ -515,6 +548,14 @@ async function processDocument(documentId: string, userId: string, guidance: str
       tokens_in,
       tokens_out,
       extraction_ms: ms,
+      user_instructions: (guidance ?? "").slice(0, 2000) || null,
+      statement_opening_balance: statement?.opening_balance ?? null,
+      statement_closing_balance: statement?.closing_balance ?? null,
+      statement_balance_date: statement?.balance_date ?? null,
+      period_start: statement?.period_start ?? null,
+      period_end: statement?.period_end ?? null,
+      statement_bank: statement?.bank ?? null,
+      counters,
       error: null,
     });
   } catch (e) {
