@@ -502,10 +502,13 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   const stale = now - updatedAt > PROCESSING_STALE_MS;
 
   const prevErrTag = parseErrorTag(doc.error).tag;
-  const failureCount = Number(doc.counters?.failure_count ?? 0);
+  const failureCount = Number(doc.counters?.failure_count ?? doc.attempt_count ?? 0);
+  const attemptCount = Number(doc.attempt_count ?? 0);
+  // Terminal after 3 attempts — panel must offer explicit "reprocessar" that resets attempt_count.
+  if (attemptCount >= 3 && doc.status === "failed") return { acquired: false, doc };
   const canResume = doc.status === "uploaded"
     || (doc.status === "processing" && stale)
-    || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3);
+    || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3 && attemptCount < 3);
 
   if (!canResume) return { acquired: false, doc };
 
@@ -522,7 +525,7 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   }
 
   const { data: updated, error: upErr } = await sb.from("document_imports")
-    .update({ status: "processing", error: null })
+    .update({ status: "processing", error: null, attempt_count: attemptCount + 1 })
     .eq("id", documentId)
     .eq("user_id", userId)
     .eq("status", doc.status) // optimistic lock on previous status
