@@ -54,7 +54,7 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
       body: "x",
     }), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
+    if (r.ok === false) {
       expect(r.reason).toBe("no_real_jid");
       expect(r.jid_domains).toContain("lid");
     }
@@ -75,7 +75,7 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
       id: "m1", fromMe: true, from: "5511988887777@c.us", body: "x",
     }), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("from_me");
+    if (r.ok === false) expect(r.reason).toBe("from_me");
   });
 
   it("drops key.fromMe nested", () => {
@@ -85,7 +85,7 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
       body: "x",
     }), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("from_me");
+    if (r.ok === false) expect(r.reason).toBe("from_me");
   });
 
   it("drops group JIDs (@g.us)", () => {
@@ -96,19 +96,19 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
       body: "x",
     }), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("group");
+    if (r.ok === false) expect(r.reason).toBe("group");
   });
 
   it("drops non-message events", () => {
     const r = classifyInbound(base({}, "session.status"), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("event_ignored");
+    if (r.ok === false) expect(r.reason).toBe("event_ignored");
   });
 
   it("drops foreign session", () => {
     const r = classifyInbound({ event: "message", session: "other", payload: { id: "1", from: "5511988887777@c.us" } }, SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("foreign_session");
+    if (r.ok === false) expect(r.reason).toBe("foreign_session");
   });
 
   it("drops when no message id anywhere", () => {
@@ -116,7 +116,7 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
       from: "5511988887777@c.us", body: "x",
     }), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("no_message_id");
+    if (r.ok === false) expect(r.reason).toBe("no_message_id");
   });
 
   it("extracts body from imageMessage.caption when body is empty", () => {
