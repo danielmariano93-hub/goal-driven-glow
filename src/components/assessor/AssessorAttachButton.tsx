@@ -72,6 +72,23 @@ async function invokeMode(mode: "finalize" | "resume", documentId: string, guida
   return data as IngestResult;
 }
 
+async function invokeVerifyUpload(documentId: string): Promise<{ exists: boolean; size: number }> {
+  const { data, error } = await supabase.functions.invoke("assistant-ingest-document", {
+    body: { mode: "verify-upload", document_id: documentId },
+  });
+  if (error) throw error;
+  const d = data as { exists?: boolean; size?: number };
+  return { exists: !!d?.exists, size: Number(d?.size ?? 0) };
+}
+
+async function invokeMarkUploadMissing(documentId: string): Promise<IngestResult> {
+  const { data, error } = await supabase.functions.invoke("assistant-ingest-document", {
+    body: { mode: "mark-upload-missing", document_id: documentId },
+  });
+  if (error) throw error;
+  return data as IngestResult;
+}
+
 async function pollUntilTerminal(documentId: string): Promise<IngestResult> {
   let last: IngestResult | null = null;
   for (const wait of POLL_STEPS_MS) {
@@ -86,8 +103,18 @@ async function pollUntilTerminal(documentId: string): Promise<IngestResult> {
   return last ?? { document_id: documentId, status: "processing" };
 }
 
-/** Retomada silenciosa: dispara resume + polling curto para um doc já uploaded/processing. */
+/** Retomada silenciosa: verifica objeto no storage; se sumiu, marca upload_missing sem reprocessar. */
 export async function resumeIngestion(documentId: string): Promise<IngestResult> {
+  // Antes de tentar resume, confirmar que o arquivo físico existe.
+  try {
+    const verify = await invokeVerifyUpload(documentId);
+    if (!verify.exists) {
+      try { return await invokeMarkUploadMissing(documentId); }
+      catch { return { document_id: documentId, status: "failed", error: "upload_missing", user_message: "Não consegui salvar o arquivo. Reenvie, por favor." }; }
+    }
+  } catch {
+    // Se verify falhar (ex: 404), segue para status.
+  }
   let current: IngestResult;
   try {
     current = await invokeMode("resume", documentId);
@@ -134,6 +161,30 @@ export async function ingestDocument(
   if (uploadError) {
     const err = new Error("Não consegui enviar o arquivo. Verifique sua conexão e tente novamente.");
     (err as Error & { code?: string }).code = "upload";
+    throw err;
+  }
+
+  // Verificação server-side: o objeto realmente está no storage?
+  let verified = await invokeVerifyUpload(upload.document_id).catch(() => ({ exists: false, size: 0 }));
+
+  if (!verified.exists) {
+    // Fallback único: upload autenticado no mesmo caminho (respeita RLS por prefixo user_id/).
+    try {
+      const { error: fbErr } = await supabase.storage
+        .from("documents")
+        .upload(upload.storage_path, blob, { contentType: mimeType, upsert: true });
+      if (fbErr) throw fbErr;
+    } catch {
+      // segue: se falhou, verify vai continuar false
+    }
+    verified = await invokeVerifyUpload(upload.document_id).catch(() => ({ exists: false, size: 0 }));
+  }
+
+  if (!verified.exists) {
+    // Sinaliza no servidor e aborta antes de qualquer IA.
+    try { await invokeMarkUploadMissing(upload.document_id); } catch { /* ignore */ }
+    const err = new Error("Não consegui salvar o arquivo. Verifique sua conexão e tente novamente.");
+    (err as Error & { code?: string }).code = "upload_missing";
     throw err;
   }
 
