@@ -191,7 +191,7 @@ async function classifyDuplicates(
     // 3) mesmo tipo/data/valor → strong se descrição normalizada casa, ambiguous senão
     const { data: candidates } = await sb.from("transactions")
       .select("id, description, raw_description")
-      .eq("user_id", user_id).eq("amount", it.amount).eq("occurred_at", it.occurred_at)
+      .eq("user_id", user_id).eq("type", it.type).eq("amount", it.amount).eq("occurred_at", it.occurred_at)
       .limit(20);
     if (!candidates || candidates.length === 0) continue;
     const target = (it.normalized_description ?? "").toLowerCase().trim();
@@ -199,11 +199,13 @@ async function classifyDuplicates(
       const n = normalizeDescription(String(c.raw_description ?? c.description ?? "")).friendly.toLowerCase().trim();
       return n && target && n === target;
     });
-    if (strong?.id) {
-      map.set(i, { transaction_id: strong.id as string, strength: "strong", reason: "type+date+amount+desc" });
-    } else {
-      map.set(i, { transaction_id: candidates[0].id as string, strength: "ambiguous", reason: "type+date+amount" });
-    }
+    // Sem identificador bancário, até uma descrição igual pode representar duas
+    // compras reais no mesmo dia. Trate como ambígua e peça decisão humana.
+    map.set(i, {
+      transaction_id: (strong?.id ?? candidates[0].id) as string,
+      strength: "ambiguous",
+      reason: strong ? "type+date+amount+desc" : "type+date+amount",
+    });
   }
   return map;
 }
@@ -231,7 +233,14 @@ async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, 
     let categoryId: string | null = null;
     let categorySource: string | null = null;
     let categoryConfidence: number | null = null;
-    const findCatByName = (name: string) => (categories ?? []).find((c) => c.type === item.type && (c.name.toLowerCase() === name.toLowerCase() || c.name.toLowerCase().includes(name.toLowerCase())))?.id ?? null;
+    const catKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const findCatByName = (name: string) => {
+      const wanted = catKey(name);
+      return (categories ?? []).find((c) =>
+        (c.type === item.type || c.type === "both") &&
+        (catKey(c.name) === wanted || catKey(c.name).includes(wanted) || wanted.includes(catKey(c.name)))
+      )?.id ?? null;
+    };
     if (ruleCategory) {
       const c = findCatByName(ruleCategory);
       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
@@ -480,10 +489,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
     let categorizedAuto = 0;
     let dupStrong = 0;
     let dupAmbiguous = 0;
+    // Duplicatas dentro do próprio arquivo são ambíguas, nunca descartadas de
+    // forma automática: extratos podem conter duas compras legítimas idênticas.
+    const seenInDocument = new Map<string, number>();
     const rows = enriched.map((it, idx) => {
       const hit = dupes.get(idx);
-      if (hit?.strength === "strong") dupStrong++;
-      else if (hit?.strength === "ambiguous") dupAmbiguous++;
+      const localKey = `${it.type}|${it.occurred_at}|${Number(it.amount).toFixed(2)}|${it.normalized_description ?? ""}`;
+      const priorIdx = seenInDocument.get(localKey);
+      seenInDocument.set(localKey, idx);
+      const localDuplicate = priorIdx == null ? null : { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` };
+      const effectiveHit = hit ?? localDuplicate;
+      if (effectiveHit?.strength === "strong") dupStrong++;
+      else if (effectiveHit?.strength === "ambiguous") dupAmbiguous++;
       if (it.category_id) categorizedAuto++;
       return {
         document_id: documentId,
@@ -504,6 +521,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         category_id: it.category_id,
         category_source: it.category_source,
         category_confidence: it.category_confidence,
+        movement_kind: it.movement_kind ?? "transaction",
         account_id: it.account_id,
         credit_card_id: it.credit_card_id,
         installments_total: it.installments_total,
@@ -512,9 +530,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
         competence_date: it.competence_date,
         confidence: it.confidence,
         raw: it as unknown as Record<string, unknown>,
-        status: hit ? "duplicate_suspect" : "needs_review",
+        status: effectiveHit ? "duplicate_suspect" : "needs_review",
         duplicate_of: hit?.transaction_id ?? null,
-        duplicate_reason: hit ? `${hit.strength}:${hit.reason}` : null,
+        duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
       };
     });
     if (rows.length > 0) {
@@ -671,11 +689,20 @@ Deno.serve(async (req) => {
     }, 200);
   }
 
-  // === FINALIZE / RESUME ===
-  if (mode === "finalize" || mode === "resume") {
+  // === FINALIZE / RESUME / REPROCESS AFTER AUDITED ROLLBACK ===
+  if (mode === "finalize" || mode === "resume" || mode === "reprocess") {
     const document_id = String(body.document_id ?? "");
     if (!document_id) return json({ error: "missing_document_id" }, 400);
-    const guidance = String(body.guidance ?? "");
+    let guidance = String(body.guidance ?? "");
+    if (mode === "reprocess") {
+      const { data: prior } = await sb.from("document_imports").select("status,user_instructions")
+        .eq("id", document_id).eq("user_id", user.id).maybeSingle();
+      if (!prior || prior.status !== "rolled_back") return json({ error: "rollback_required" }, 409);
+      guidance = guidance || String(prior.user_instructions ?? "");
+      await sb.from("extracted_items").delete().eq("document_id", document_id).eq("user_id", user.id)
+        .in("status", ["rolled_back","ignored","rejected","failed","duplicate_suspect","needs_review"]);
+      await sb.from("document_imports").update({ status: "uploaded", error: null }).eq("id", document_id).eq("user_id", user.id);
+    }
 
     const { acquired, doc } = await acquireProcessingLock(sb, document_id, user.id);
     if (!doc) return json({ error: "not_found" }, 404);

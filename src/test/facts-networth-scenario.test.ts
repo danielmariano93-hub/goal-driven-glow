@@ -61,3 +61,17 @@ describe("cenário-âncora patrimônio (R$100 / R$198,67 / R$131,51)", () => {
     expect(txOrigin({ payment_method: "credit_card", credit_card_id: null })).toBe("credit_card");
   });
 });
+
+describe("conciliação por snapshot bancário", () => {
+  it("parte do saldo conciliado e soma somente movimentos posteriores", () => {
+    const accounts = [acc("a", 100)];
+    const txs: TransactionRow[] = [
+      tx({ id: "old", account_id: "a", type: "expense", amount: 5000, occurred_at: "2026-07-03", payment_method: "account" }),
+      tx({ id: "new", account_id: "a", type: "expense", amount: 20, occurred_at: "2026-07-17", payment_method: "account" }),
+    ];
+    const result = computeAccountBalances(accounts, txs, [
+      { account_id: "a", balance_date: "2026-07-16", balance: 273.19 },
+    ]);
+    expect(result.a).toBe(253.19);
+  });
+});

@@ -13,6 +13,13 @@ export interface AccountRow {
   active: boolean;
 }
 
+export interface AccountBalanceSnapshotRow {
+  account_id: string;
+  balance_date: string;
+  balance: number;
+  status?: string;
+}
+
 export type PaymentMethod = "account" | "credit_card" | "cash" | "pix" | "other";
 
 export interface TransactionRow {
@@ -112,16 +119,23 @@ const sumBy = <T>(arr: T[], get: (x: T) => number) => round2(arr.reduce((a, b) =
  */
 export function computeAccountBalances(
   accounts: AccountRow[],
-  txs: TransactionRow[]
+  txs: TransactionRow[],
+  snapshots: AccountBalanceSnapshotRow[] = []
 ): Record<string, number> {
   const map: Record<string, number> = {};
+  const cutoff: Record<string, string> = {};
   for (const a of accounts) map[a.id] = Number(a.opening_balance || 0);
+  for (const s of snapshots.filter((x) => !x.status || x.status === "confirmed").sort((a,b) => a.balance_date.localeCompare(b.balance_date))) {
+    map[s.account_id] = Number(s.balance);
+    cutoff[s.account_id] = s.balance_date;
+  }
   for (const t of txs) {
     if (t.status !== "confirmed") continue;
     if (t.type === "transfer") continue;
     // Só afeta a conta se a origem for a própria conta (não cartão).
     if (txOrigin(t) !== "account") continue;
     if (!t.account_id) continue;
+    if (cutoff[t.account_id] && t.occurred_at <= cutoff[t.account_id]) continue;
     const amt = Number(t.amount || 0);
     if (!map[t.account_id] && map[t.account_id] !== 0) map[t.account_id] = 0;
     if (t.type === "income") map[t.account_id] += amt;
@@ -138,6 +152,8 @@ export function computeAccountBalances(
     const sorted = [...legs].sort((a, b) => a.id.localeCompare(b.id));
     const src = sorted[0];
     const dst = sorted[1];
+    if (cutoff[src.account_id] && src.occurred_at <= cutoff[src.account_id]) continue;
+    if (cutoff[dst.account_id] && dst.occurred_at <= cutoff[dst.account_id]) continue;
     const amt = Number(src.amount || 0);
     map[src.account_id] = (map[src.account_id] || 0) - amt;
     map[dst.account_id] = (map[dst.account_id] || 0) + amt;
@@ -146,8 +162,8 @@ export function computeAccountBalances(
   return map;
 }
 
-export function computeTotalCash(accounts: AccountRow[], txs: TransactionRow[]): number {
-  const bals = computeAccountBalances(accounts, txs);
+export function computeTotalCash(accounts: AccountRow[], txs: TransactionRow[], snapshots: AccountBalanceSnapshotRow[] = []): number {
+  const bals = computeAccountBalances(accounts, txs, snapshots);
   return round2(Object.values(bals).reduce((a, b) => a + b, 0));
 }
 
@@ -230,9 +246,10 @@ export function computeNetWorth(
   accounts: AccountRow[],
   txs: TransactionRow[],
   investments: InvestmentRow[],
-  debts: DebtRow[]
+  debts: DebtRow[],
+  snapshots: AccountBalanceSnapshotRow[] = []
 ) {
-  const cash = computeTotalCash(accounts, txs);
+  const cash = computeTotalCash(accounts, txs, snapshots);
   const invested = sumBy(investments, (i) => Number(i.current_value));
   const cardsOwed = computeCreditCardOutstanding(txs);
   const otherDebts = sumBy(

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { Loader2, ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
-import { useAccounts, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
+import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
 import { computeNetWorth, formatBRL, round2, txOrigin } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
@@ -23,12 +23,13 @@ export default function Index() {
   const [customStart, setCustomStart] = useState(isoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [customEnd, setCustomEnd] = useState(isoDate(new Date()));
   const { data: accounts, isLoading: la } = useAccounts();
+  const { data: balanceSnapshots, isLoading: lbs } = useAccountBalanceSnapshots();
   const { data: txs, isLoading: lt } = useAllTransactions();
   const { data: goals } = useGoals();
   const { data: investments } = useInvestments();
   const { data: debts } = useDebts();
 
-  const loading = la || lt;
+  const loading = la || lt || lbs;
   const acc = accounts ?? [];
   const tx = txs ?? [];
 
@@ -36,7 +37,8 @@ export default function Index() {
     acc.map((a) => ({ id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active })),
     tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never,
     (investments ?? []).map((i) => ({ id: i.id, name: i.name, invested_amount: Number(i.invested_amount), current_value: Number(i.current_value), goal_id: i.goal_id })),
-    (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status }))
+    (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status })),
+    (balanceSnapshots ?? []).map((s) => ({ ...s, balance: Number(s.balance) }))
   );
 
   const periodSummary = useMemo(() => {
@@ -46,7 +48,9 @@ export default function Index() {
     if (period === "30d") startDate.setDate(startDate.getDate() - 29);
     if (period === "90d") startDate.setDate(startDate.getDate() - 89);
     const start = period === "custom" ? customStart : isoDate(startDate);
-    const filtered = tx.filter((item) => item.status === "confirmed" && item.type !== "transfer" && item.occurred_at >= start && item.occurred_at <= end);
+    const filtered = tx.filter((item) => item.status === "confirmed" && item.type !== "transfer" &&
+      !["internal_transfer","investment_application","investment_redemption"].includes((item as { movement_kind?: string }).movement_kind ?? "transaction") &&
+      item.occurred_at >= start && item.occurred_at <= end);
     const accountIncome = filtered.filter((item) => item.type === "income" && txOrigin(item as never) === "account").reduce((sum, item) => sum + Number(item.amount), 0);
     const accountExpense = filtered.filter((item) => item.type === "expense" && txOrigin(item as never) === "account").reduce((sum, item) => sum + Number(item.amount), 0);
     const cardExpense = filtered.filter((item) => item.type === "expense" && txOrigin(item as never) === "credit_card").reduce((sum, item) => sum + Number(item.amount), 0);

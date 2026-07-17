@@ -112,9 +112,10 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     const description = String(it.description ?? "").trim();
     if (!description || isNonTransactionLine(description)) continue;
     const movementKind = String(it.movement_kind ?? "transaction") as ExtractedItem["movement_kind"];
-    // Esses movimentos precisam de contrapartida ou atualização de investimento. Não os
-    // transforme silenciosamente em receita/despesa e não distorça o patrimônio.
-    if (["informational", "internal_transfer", "investment_application", "investment_redemption"].includes(movementKind ?? "")) continue;
+    // Linhas informativas não entram no livro. Transferências e movimentos de
+    // investimento, porém, alteram o caixa da conta e precisam chegar à revisão.
+    // Eles serão excluídos apenas dos indicadores de renda/consumo, nunca do saldo.
+    if (movementKind === "informational") continue;
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
     const type = it.type === "income" ? "income" : "expense";

@@ -5,6 +5,8 @@
 //   { action:'ignore', item_id }
 //   { action:'confirm', document_id, item_ids:[...] }
 //   { action:'cancel', document_id }
+//   { action:'reconcile', document_id, account_id }
+//   { action:'rollback', document_id }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 
@@ -96,6 +98,25 @@ Deno.serve(async (req) => {
     const document_id = String(body.document_id ?? "");
     if (!document_id) return json({ error: "missing_document_id" }, 400);
     const { data, error } = await userClient.rpc("cancel_document_import", { p_document_id: document_id });
+    if (error) return json({ error: "rpc_failed", details: error.message }, 400);
+    return json({ ok: true, result: data });
+  }
+
+  if (action === "reconcile") {
+    const document_id = String(body.document_id ?? "");
+    const account_id = String(body.account_id ?? "");
+    if (!document_id || !account_id) return json({ error: "missing_fields" }, 400);
+    const { data, error } = await userClient.rpc("reconcile_document_balance", {
+      p_document_id: document_id, p_account_id: account_id,
+    });
+    if (error) return json({ error: "rpc_failed", details: error.message }, 400);
+    return json({ ok: true, result: data });
+  }
+
+  if (action === "rollback") {
+    const document_id = String(body.document_id ?? "");
+    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    const { data, error } = await userClient.rpc("rollback_document_import", { p_document_id: document_id });
     if (error) return json({ error: "rpc_failed", details: error.message }, 400);
     return json({ ok: true, result: data });
   }

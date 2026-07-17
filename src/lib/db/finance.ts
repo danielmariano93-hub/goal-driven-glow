@@ -38,6 +38,23 @@ export function useAccounts() {
   });
 }
 
+export function useAccountBalanceSnapshots() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["account_balance_snapshots", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("account_balance_snapshots" as never)
+        .select("account_id,balance_date,balance,status")
+        .eq("status", "confirmed")
+        .order("balance_date", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as unknown as Array<{ account_id: string; balance_date: string; balance: number; status: string }>;
+    },
+  });
+}
+
 export function useSaveAccount() {
   const { user } = useAuth();
   const qc = useQueryClient();

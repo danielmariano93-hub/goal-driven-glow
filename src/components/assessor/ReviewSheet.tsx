@@ -32,6 +32,25 @@ type Item = {
   competence_date: string | null;
   duplicate_of: string | null;
   transaction_id: string | null;
+  raw_description?: string | null;
+  normalized_description?: string | null;
+  duplicate_reason?: string | null;
+  category_source?: string | null;
+  category_confidence?: number | null;
+  movement_kind?: string | null;
+};
+
+type DocumentInfo = {
+  document_kind: string | null;
+  statement_opening_balance: number | null;
+  statement_closing_balance: number | null;
+  statement_balance_date: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  statement_bank: string | null;
+  counters: Record<string, number> | null;
+  user_instructions: string | null;
+  status: string;
 };
 
 function parseBRLInput(raw: string): number | null {
@@ -63,6 +82,9 @@ export function ReviewSheet({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [docKind, setDocKind] = useState<string | null>(null);
+  const [documentInfo, setDocumentInfo] = useState<DocumentInfo | null>(null);
+  const [reconcileAccount, setReconcileAccount] = useState("");
+  const [reconciling, setReconciling] = useState(false);
   const [bulkTarget, setBulkTarget] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
 
@@ -80,8 +102,9 @@ export function ReviewSheet({
         setLoading(false);
         return;
       }
-      const d = data as { document: { document_kind: string | null }; items: Item[] };
+      const d = data as { document: DocumentInfo; items: Item[] };
       setItems(d.items);
+      setDocumentInfo(d.document);
       setDocKind(d.document?.document_kind ?? null);
       const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review").map((i) => i.id));
       setSelected(initial);
@@ -173,6 +196,8 @@ export function ReviewSheet({
       toast.error("Faltam informações", { description: `${notReady.length} item(ns) precisam de conta ou cartão.` });
       return;
     }
+    const uncategorized = items.filter((i) => selected.has(i.id) && !i.category_id && i.movement_kind === "transaction").length;
+    if (uncategorized > 0 && !confirm(`${uncategorized} lançamento(s) continuam sem categoria. Deseja confirmar mesmo assim?`)) return;
     setConfirming(true);
     try {
       const { data, error } = await supabase.functions.invoke("assistant-review-actions", {
@@ -199,6 +224,20 @@ export function ReviewSheet({
     } finally {
       setConfirming(false);
     }
+  }
+
+  async function reconcileBalance() {
+    if (!reconcileAccount) return toast.error("Escolha a conta do extrato.");
+    setReconciling(true);
+    const { data, error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: { action: "reconcile", document_id: documentId, account_id: reconcileAccount },
+    });
+    setReconciling(false);
+    if (error) return toast.error("Não consegui conciliar o saldo.");
+    const result = (data as { result?: { difference?: number } })?.result;
+    qc.invalidateQueries({ queryKey: ["account_balance_snapshots"] });
+    qc.invalidateQueries({ queryKey: ["home"] });
+    toast.success("Saldo do banco conciliado", { description: result?.difference ? `Diferença auditada: ${formatBRL(Number(result.difference))}` : "O cálculo fechou com o extrato." });
   }
 
   async function cancelImport() {
@@ -253,6 +292,32 @@ export function ReviewSheet({
           </div>
         ) : (
           <>
+            {documentInfo && (
+              <div className="space-y-2 border-b border-border bg-secondary/30 px-4 py-3 text-xs">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <span>Período<br/><strong>{documentInfo.period_start ?? "—"} a {documentInfo.period_end ?? "—"}</strong></span>
+                  <span>Duplicatas<br/><strong>{documentInfo.counters?.duplicate_strong ?? 0} fortes · {documentInfo.counters?.duplicate_ambiguous ?? 0} possíveis</strong></span>
+                  <span>Categorizados<br/><strong>{documentInfo.counters?.categorized_auto ?? 0}</strong></span>
+                  <span>Sem categoria<br/><strong>{documentInfo.counters?.uncategorized ?? items.filter(i => !i.category_id).length}</strong></span>
+                </div>
+                {documentInfo.user_instructions && <p className="text-muted-foreground">Orientação aplicada: {documentInfo.user_instructions}</p>}
+                {documentInfo.statement_closing_balance != null && (
+                  <div className="rounded-xl border border-border bg-card p-3">
+                    <p className="font-semibold">Saldo informado pelo banco: {formatBRL(Number(documentInfo.statement_closing_balance))}</p>
+                    <p className="text-muted-foreground">Data: {documentInfo.statement_balance_date ?? "—"}. Esse saldo vira um marco auditável; lançamentos posteriores continuam sendo somados normalmente.</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <select value={reconcileAccount} onChange={(e) => setReconcileAccount(e.target.value)} className="input-base max-w-[230px] text-xs">
+                        <option value="">Escolha a conta…</option>
+                        {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                      <button onClick={reconcileBalance} disabled={reconciling || !reconcileAccount} className="rounded-full bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50">
+                        {reconciling ? "Conciliando…" : "Usar saldo do extrato"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs">
               <button onClick={toggleAll} className="text-primary hover:underline">
                 {selected.size > 0 ? "Desmarcar todos" : "Selecionar todos"}
@@ -293,6 +358,9 @@ export function ReviewSheet({
                         aria-label={`Selecionar ${it.description ?? "item"}`}
                       />
                       <div className="min-w-0 flex-1 space-y-2">
+                        {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">Possível duplicata: {it.duplicate_reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.</p>}
+                        {it.movement_kind && it.movement_kind !== "transaction" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replaceAll("_", " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.raw_description && it.raw_description !== it.description && <p className="text-[10px] text-muted-foreground">No banco: {it.raw_description}</p>}
                         <div className="flex items-center justify-between gap-2">
                           <input
                             value={it.description ?? ""}

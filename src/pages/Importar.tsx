@@ -27,11 +27,51 @@ export default function Importar() {
           </button>
         ))}
       </div>
+      <RecentDocumentImports />
       {tab === "legacy" && <LegacyImport />}
       {tab === "csv" && <CsvImport />}
       {tab === "ofx" && <OfxImport />}
     </div>
   );
+}
+
+function RecentDocumentImports() {
+  const [docs, setDocs] = useState<any[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = async () => {
+    const { data } = await supabase.from("document_imports").select("id,status,document_kind,created_at,counters,statement_closing_balance,statement_balance_date").order("created_at", { ascending: false }).limit(10);
+    setDocs(data ?? []);
+  };
+  useEffect(() => { void load(); }, []);
+  const rollback = async (id: string) => {
+    if (!confirm("Desfazer apenas os lançamentos criados por esta importação? Edições posteriores serão preservadas.")) return;
+    setBusy(id);
+    const { data, error } = await supabase.functions.invoke("assistant-review-actions", { body: { action: "rollback", document_id: id } });
+    setBusy(null);
+    if (error) return toast.error("Não consegui desfazer a importação.");
+    const r = (data as any)?.result;
+    toast.success(`${r?.removed ?? 0} lançamento(s) desfeito(s)`, { description: `${r?.preserved_edited ?? 0} editado(s) foram preservados.` });
+    void load();
+  };
+  const reprocess = async (id: string) => {
+    setBusy(id);
+    const { error } = await supabase.functions.invoke("assistant-ingest-document", { body: { mode: "reprocess", document_id: id } });
+    setBusy(null);
+    if (error) return toast.error("Não consegui reprocessar agora.");
+    toast.success("Reprocessamento iniciado. Você poderá revisar antes de confirmar.");
+    void load();
+  };
+  if (!docs.length) return null;
+  return <section className="surface-card space-y-3 p-4">
+    <div><h2 className="font-display font-semibold">Importações recentes</h2><p className="text-xs text-muted-foreground">Histórico e reparação auditável dos documentos enviados ao assessor.</p></div>
+    {docs.map((d) => <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3 text-xs">
+      <div><strong>{d.document_kind ?? "Documento"}</strong><br/><span className="text-muted-foreground">{new Date(d.created_at).toLocaleString("pt-BR")} · {d.status}</span>{d.statement_closing_balance != null && <><br/>Saldo bancário: {formatBRL(Number(d.statement_closing_balance))}</>}</div>
+      <div className="flex gap-2">
+        {["confirmed","partially_confirmed"].includes(d.status) && <button disabled={busy===d.id} onClick={() => rollback(d.id)} className="rounded-full border border-destructive/30 px-3 py-1.5 text-destructive">Desfazer com segurança</button>}
+        {d.status === "rolled_back" && <button disabled={busy===d.id} onClick={() => reprocess(d.id)} className="rounded-full bg-primary px-3 py-1.5 text-primary-foreground">Reprocessar</button>}
+      </div>
+    </div>)}
+  </section>;
 }
 
 function LegacyImport() {

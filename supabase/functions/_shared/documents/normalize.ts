@@ -25,6 +25,18 @@ const MERCHANT_DICT: Array<{ pattern: RegExp; canonical: string; category?: stri
   { pattern: /\bp[aã]o\s*de\s*a[çc][uú]car\b/i, canonical: "Pão de Açúcar", category: "Mercado" },
   { pattern: /\bassa[íi]\b/i, canonical: "Assaí", category: "Mercado" },
   { pattern: /\bextra\b/i, canonical: "Extra", category: "Mercado" },
+  { pattern: /\bautopass\b|\bautop\b/i, canonical: "Autopass", category: "Transporte" },
+  { pattern: /\benel\b/i, canonical: "Enel", category: "Moradia" },
+  { pattern: /\bclaro\b/i, canonical: "Claro", category: "Moradia" },
+  { pattern: /\btotal\s*pass\b/i, canonical: "TotalPass", category: "Saúde" },
+  { pattern: /\bcobasi\b/i, canonical: "Cobasi", category: "Pets" },
+  { pattern: /\bsympla\b/i, canonical: "Sympla", category: "Lazer" },
+  { pattern: /\bseguro\s+cart[aã]o\b/i, canonical: "Seguro do cartão", category: "Financeiro" },
+  { pattern: /\bnetfl\b/i, canonical: "Netflix", category: "Assinaturas" },
+  { pattern: /\b99\s*food\b/i, canonical: "99Food", category: "Alimentação" },
+  { pattern: /\baplica[cç][aã]o\s+cdb\b/i, canonical: "Aplicação em CDB" },
+  { pattern: /\bresgate\s+cdb\b/i, canonical: "Resgate de CDB" },
+  { pattern: /\brend\s+pago\s+aplic\b/i, canonical: "Rendimento de aplicação" },
 ];
 
 const NOISE_PATTERNS: RegExp[] = [
@@ -52,7 +64,10 @@ function extractPixCounterparty(raw: string): string | null {
   // Padrões: "PIX ENVIADO JOAO DA SILVA", "PIX RECEBIDO - MARIA", "PIX QRCODE ABC"
   const m = raw.match(/\bpix(?:\s+(?:enviado|recebido|out|in|transf(?:er[êe]ncia)?|qr(?:code)?|whats?(?:app)?))?[\s\-:]+([\p{L}][\p{L}\s.'-]{2,60})/iu);
   if (!m) return null;
-  const name = m[1].trim().replace(/\s+/g, " ");
+  const name = m[1].trim()
+    .replace(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*$/g, "")
+    .replace(/\d{4}\s*$/g, "")
+    .replace(/\s+/g, " ").trim();
   if (/^\d+$/.test(name)) return null;
   // Title case
   return name.split(" ").map((w) => w.length <= 2 ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
