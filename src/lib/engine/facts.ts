@@ -225,12 +225,14 @@ export function computeNetWorth(
 ) {
   const cash = computeTotalCash(accounts, txs);
   const invested = sumBy(investments, (i) => Number(i.current_value));
-  const owed = sumBy(
+  const cardsOwed = computeCreditCardOutstanding(txs);
+  const otherDebts = sumBy(
     debts.filter((d) => d.status === "active"),
     (d) => Number(d.outstanding_balance)
   );
+  const owed = round2(cardsOwed + otherDebts);
   const net = round2(cash + invested - owed);
-  return { cash, invested, owed, net };
+  return { cash, invested, cardsOwed, otherDebts, owed, net };
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
