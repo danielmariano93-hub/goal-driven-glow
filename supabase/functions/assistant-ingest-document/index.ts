@@ -139,16 +139,6 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
     const ms = Date.now() - start;
     if (!res.ok) {
       const body = await res.text();
-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
-    }
-    const data = await res.json();
-    const text = data?.choices?.[0]?.message?.content ?? "{}";
-    const tokens_in = data?.usage?.prompt_tokens ?? 0;
-    const tokens_out = data?.usage?.completion_tokens ?? 0;
-    let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, tokens_in, tokens_out, ms, errorTag: "extraction:invalid_json" }; }
-    if (!res.ok) {
-      const body = await res.text();
       return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
@@ -163,10 +153,6 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
     const err = e as Error;
     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
     return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
-  }
-}
-    const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
-    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, errorTag: tag };
   }
 }
 
