@@ -96,7 +96,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
       const { data: documents } = await supabase
         .from("document_imports")
-        .select("id, status, document_kind, error, created_at")
+        .select("id, status, document_kind, error, created_at, updated_at")
         .in("status", ["uploaded", "processing", "needs_review", "failed", "rolled_back"])
         .gte("created_at", since)
         .order("created_at", { ascending: false })
@@ -105,6 +105,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       setMessages(history);
       setLoadingHistory(false);
 
+      const ORPHAN_THRESHOLD_MS = 5 * 60 * 1000;
       for (const doc of documents ?? []) {
         try {
           let result: IngestResult;
@@ -116,7 +117,13 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               .in("status", ["needs_review", "duplicate_suspect"]);
             result = { document_id: doc.id, status: doc.status, document_kind: doc.document_kind, items_count: count ?? 0 };
           } else if (doc.status === "uploaded" || doc.status === "processing") {
-            result = await resumeIngestion(doc.id);
+            // Só reprocessar se o job estiver realmente órfão (>5 min sem heartbeat).
+            // Caso contrário, apenas exibir status atual — o worker segue rodando.
+            const updatedAt = doc.updated_at ? new Date(doc.updated_at).getTime() : 0;
+            const isOrphan = Date.now() - updatedAt > ORPHAN_THRESHOLD_MS;
+            result = isOrphan
+              ? await resumeIngestion(doc.id)
+              : await getIngestionStatus(doc.id);
           } else {
             result = await getIngestionStatus(doc.id);
           }

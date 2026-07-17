@@ -18,8 +18,9 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
-const PROCESSING_STALE_MS = 3 * 60 * 1000;
-const EXTRACTION_TIMEOUT_MS = 4 * 60 * 1000;
+const PROCESSING_STALE_MS = 5 * 60 * 1000;
+const EXTRACTION_TIMEOUT_MS = 90 * 1000;
+const MAX_ITEMS_PER_DOCUMENT = 80;
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -74,6 +75,9 @@ REGRAS ESTRITAS:
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
 - Além dos items, devolva no topo do JSON um bloco opcional "statement_metadata": {"opening_balance":number|null, "closing_balance":number|null, "balance_date":"YYYY-MM-DD"|null, "period_start":"YYYY-MM-DD"|null, "period_end":"YYYY-MM-DD"|null, "bank":string|null}. Extraia esses campos APENAS de linhas informativas do extrato ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
+- LIMITE RÍGIDO: devolva no máximo ${MAX_ITEMS_PER_DOCUMENT} lançamentos por documento. Se houver mais, devolva os ${MAX_ITEMS_PER_DOCUMENT} MAIS RECENTES (por data) e explique o corte em "notes".
+- Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
+- Seja compacto no JSON: omita campos com valor null quando possível.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
 type StatementMetadata = {
@@ -134,6 +138,7 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
           },
         ],
         response_format: { type: "json_object" },
+        max_tokens: 8000,
       }),
       signal,
     });
@@ -171,39 +176,48 @@ async function classifyDuplicates(
   items: Array<{ type: string; amount: number; occurred_at: string; normalized_description: string | null; bank_reference: string | null; fingerprint: string }>,
 ): Promise<Map<number, DupeHit>> {
   const map = new Map<number, DupeHit>();
+  if (items.length === 0) return map;
+
+  const fingerprints = [...new Set(items.map((it) => it.fingerprint).filter(Boolean))];
+  const bankRefs = [...new Set(items.map((it) => it.bank_reference).filter((v): v is string => !!v))];
+  const dates = [...new Set(items.map((it) => it.occurred_at))];
+  const amounts = [...new Set(items.map((it) => it.amount))];
+
+  const [fpRes, brRes, tdaRes] = await Promise.all([
+    fingerprints.length > 0
+      ? sb.from("transactions").select("id, dedupe_fingerprint").eq("user_id", user_id).in("dedupe_fingerprint", fingerprints)
+      : Promise.resolve({ data: [] as Array<{ id: string; dedupe_fingerprint: string }> }),
+    bankRefs.length > 0
+      ? sb.from("transactions").select("id, bank_reference").eq("user_id", user_id).in("bank_reference", bankRefs)
+      : Promise.resolve({ data: [] as Array<{ id: string; bank_reference: string }> }),
+    // Sobre-conjunto candidato: mesmas datas e mesmos valores. Filtra em memória depois.
+    sb.from("transactions").select("id, type, amount, occurred_at, description, raw_description")
+      .eq("user_id", user_id).in("occurred_at", dates).in("amount", amounts).limit(500),
+  ]);
+
+  const fpIndex = new Map<string, string>();
+  for (const row of (fpRes.data ?? [])) fpIndex.set(row.dedupe_fingerprint as string, row.id as string);
+  const brIndex = new Map<string, string>();
+  for (const row of (brRes.data ?? [])) brIndex.set(row.bank_reference as string, row.id as string);
+  const tdaCandidates = (tdaRes.data ?? []) as Array<{ id: string; type: string; amount: number; occurred_at: string; description: string; raw_description: string | null }>;
+
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    // 1) forte por fingerprint (chave única)
-    const { data: fpMatch } = await sb.from("transactions")
-      .select("id").eq("user_id", user_id).eq("dedupe_fingerprint", it.fingerprint).limit(1);
-    if (fpMatch && fpMatch.length > 0) {
-      map.set(i, { transaction_id: fpMatch[0].id as string, strength: "strong", reason: "fingerprint" });
-      continue;
-    }
-    // 2) forte por bank_reference se disponível
+    const fpHit = fpIndex.get(it.fingerprint);
+    if (fpHit) { map.set(i, { transaction_id: fpHit, strength: "strong", reason: "fingerprint" }); continue; }
     if (it.bank_reference) {
-      const { data: brMatch } = await sb.from("transactions")
-        .select("id").eq("user_id", user_id).eq("bank_reference", it.bank_reference).limit(1);
-      if (brMatch && brMatch.length > 0) {
-        map.set(i, { transaction_id: brMatch[0].id as string, strength: "strong", reason: "bank_reference" });
-        continue;
-      }
+      const brHit = brIndex.get(it.bank_reference);
+      if (brHit) { map.set(i, { transaction_id: brHit, strength: "strong", reason: "bank_reference" }); continue; }
     }
-    // 3) mesmo tipo/data/valor → strong se descrição normalizada casa, ambiguous senão
-    const { data: candidates } = await sb.from("transactions")
-      .select("id, description, raw_description")
-      .eq("user_id", user_id).eq("type", it.type).eq("amount", it.amount).eq("occurred_at", it.occurred_at)
-      .limit(20);
-    if (!candidates || candidates.length === 0) continue;
+    const candidates = tdaCandidates.filter((c) => c.type === it.type && Number(c.amount) === Number(it.amount) && c.occurred_at === it.occurred_at);
+    if (candidates.length === 0) continue;
     const target = (it.normalized_description ?? "").toLowerCase().trim();
     const strong = candidates.find((c) => {
       const n = normalizeDescription(String(c.raw_description ?? c.description ?? "")).friendly.toLowerCase().trim();
       return n && target && n === target;
     });
-    // Sem identificador bancário, até uma descrição igual pode representar duas
-    // compras reais no mesmo dia. Trate como ambígua e peça decisão humana.
     map.set(i, {
-      transaction_id: (strong?.id ?? candidates[0].id) as string,
+      transaction_id: (strong?.id ?? candidates[0].id),
       strength: "ambiguous",
       reason: strong ? "type+date+amount+desc" : "type+date+amount",
     });
@@ -217,24 +231,51 @@ async function classifyDuplicates(
  * da categoria para transparência no ReviewSheet.
  */
 async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, items: ExtractionResult["items"]) {
+  // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
+  const normalized = items.map((item) => {
+    const rawDesc = String(item.description ?? "");
+    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
+    return {
+      item,
+      rawDesc,
+      friendly,
+      normalizedKey: friendly.toLowerCase().trim(),
+      ruleCategory,
+      bankRef: extractBankReference(rawDesc),
+    };
+  });
+  const uniqueDescriptions = [...new Set(normalized.map((n) => n.friendly).filter(Boolean))].slice(0, 200);
+
+  // 2) Uma única leva de queries.
   const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
     sb.from("categories").select("id, name, type").eq("user_id", userId),
-    sb.from("transactions").select("description, raw_description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
+    uniqueDescriptions.length > 0
+      ? sb.from("transactions").select("description, raw_description, category_id, type")
+          .eq("user_id", userId).not("category_id", "is", null)
+          .in("description", uniqueDescriptions)
+          .order("occurred_at", { ascending: false }).limit(500)
+      : Promise.resolve({ data: [] as Array<{ description: string; raw_description: string | null; category_id: string; type: string }> }),
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
   ]);
-  const enriched = [];
-  for (const item of items) {
-    const rawDesc = String(item.description ?? "");
-    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
-    const normalizedKey = friendly.toLowerCase().trim();
-    const bankRef = extractBankReference(rawDesc);
 
-    // Categoria: regra > histórico > hint do modelo
-    let categoryId: string | null = null;
-    let categorySource: string | null = null;
-    let categoryConfidence: number | null = null;
-    const catKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  // 3) Índice de histórico por chave normalizada — normaliza cada linha do histórico UMA vez.
+  const historyByKey = new Map<string, Map<string, number>>(); // key -> categoryId -> count
+  for (const row of (history ?? [])) {
+    const key = normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim();
+    if (!key || !row.category_id) continue;
+    const type = row.type;
+    const compositeKey = `${type}|${key}`;
+    let bucket = historyByKey.get(compositeKey);
+    if (!bucket) { bucket = new Map(); historyByKey.set(compositeKey, bucket); }
+    bucket.set(row.category_id, (bucket.get(row.category_id) ?? 0) + 1);
+  }
+
+  const catKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+  const enriched = [];
+  for (const n of normalized) {
+    const { item, rawDesc, friendly, normalizedKey, ruleCategory, bankRef } = n;
     const findCatByName = (name: string) => {
       const wanted = catKey(name);
       return (categories ?? []).find((c) =>
@@ -242,23 +283,27 @@ async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, 
         (catKey(c.name) === wanted || catKey(c.name).includes(wanted) || wanted.includes(catKey(c.name)))
       )?.id ?? null;
     };
+
+    let categoryId: string | null = null;
+    let categorySource: string | null = null;
+    let categoryConfidence: number | null = null;
+
     if (ruleCategory) {
       const c = findCatByName(ruleCategory);
       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
     }
     if (!categoryId) {
-      const historicalHits = (history ?? []).filter((row) => row.type === item.type && normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim() === normalizedKey && row.category_id);
-      const counts = new Map<string, number>();
-      historicalHits.forEach((r) => counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1));
-      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
+      const bucket = historyByKey.get(`${item.type}|${normalizedKey}`);
+      if (bucket) {
+        const top = [...bucket.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
+      }
     }
     if (!categoryId && item.category_hint) {
       const c = findCatByName(item.category_hint);
       if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
     }
 
-    // Contas/cartões
     const accountHint = (item.account_hint ?? "").toLowerCase();
     const matchedAccount = accountHint ? (accounts ?? []).find((a) => `${a.name} ${a.institution ?? ""}`.toLowerCase().includes(accountHint) || accountHint.includes(a.name.toLowerCase())) : null;
     const cardHint = (item.card_hint ?? "").toLowerCase();
@@ -387,6 +432,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
   const finish = async (patch: Record<string, unknown>) => {
     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
   };
+  const heartbeat = async () => {
+    await sb.from("document_imports").update({ updated_at: new Date().toISOString() })
+      .eq("id", documentId).eq("user_id", userId).eq("status", "processing");
+  };
 
   try {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
@@ -435,8 +484,12 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const b64 = btoa(bin);
     const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
+    await heartbeat();
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
+    // Heartbeat periódico durante a chamada ao LLM: mantém `updated_at` fresco
+    // e impede que um segundo worker classifique o job como stale.
+    const beat = setInterval(() => { void heartbeat(); }, 20_000);
     let extraction: ExtractionResult;
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
@@ -455,6 +508,13 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }
     } finally {
       clearTimeout(timer);
+      clearInterval(beat);
+    }
+    await heartbeat();
+
+    // Trava dura de segurança: nunca gravar mais que MAX_ITEMS_PER_DOCUMENT.
+    if (extraction.items.length > MAX_ITEMS_PER_DOCUMENT) {
+      extraction = { ...extraction, items: extraction.items.slice(0, MAX_ITEMS_PER_DOCUMENT) };
     }
 
     if (errorTag) {
