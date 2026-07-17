@@ -189,7 +189,9 @@ export function useSaveTransaction() {
       if (!user) throw new Error("not authenticated");
       const payload = {
         user_id: user.id,
-        account_id: input.account_id,
+        account_id: input.payment_method === "credit_card" ? null : input.account_id,
+        credit_card_id: input.payment_method === "credit_card" ? input.credit_card_id : null,
+        payment_method: input.payment_method,
         category_id: input.category_id || null,
         type: input.type,
         status: input.status,

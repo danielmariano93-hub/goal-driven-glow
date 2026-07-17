@@ -30,7 +30,7 @@ function normalizeDateBR(raw: string, fallback: string): string {
   return fallback;
 }
 
-const NON_TX = ["saldo disponível", "saldo total", "limite disponível", "pagamento fatura", "subtotal"];
+const NON_TX = ["saldo disponível", "saldo total", "saldo do dia", "limite disponível", "limite da conta", "pagamento fatura", "subtotal"];
 const isNonTx = (d: string) => NON_TX.some((k) => d.toLowerCase().includes(k));
 
 describe("BRL amount normalization", () => {
@@ -73,6 +73,10 @@ describe("Non-transaction filter", () => {
   });
   it("skips pagamento fatura", () => {
     expect(isNonTx("Pagamento fatura Nubank")).toBe(true);
+  });
+  it("skips daily balance and overdraft limit", () => {
+    expect(isNonTx("SALDO DO DIA")).toBe(true);
+    expect(isNonTx("Limite da Conta utilizado")).toBe(true);
   });
   it("keeps normal purchase", () => {
     expect(isNonTx("iFood delivery")).toBe(false);

@@ -35,6 +35,12 @@ describe("finance validation", () => {
     expect(transactionSchema.safeParse({ account_id: "00000000-0000-0000-0000-000000000000", type: "expense", status: "confirmed", amount: 0, occurred_at: "2026-01-01" }).success).toBe(false);
     expect(transactionSchema.safeParse({ account_id: "00000000-0000-0000-0000-000000000000", type: "expense", status: "confirmed", amount: 10, occurred_at: "2026-01-01" }).success).toBe(true);
   });
+  it("accepts a credit-card expense without an account", () => {
+    expect(transactionSchema.safeParse({ payment_method: "credit_card", account_id: null, credit_card_id: "00000000-0000-0000-0000-000000000001", type: "expense", status: "confirmed", amount: 42.9, occurred_at: "2026-07-17" }).success).toBe(true);
+  });
+  it("requires the selected financial source", () => {
+    expect(transactionSchema.safeParse({ payment_method: "credit_card", account_id: null, credit_card_id: null, type: "expense", status: "confirmed", amount: 42.9, occurred_at: "2026-07-17" }).success).toBe(false);
+  });
   it("transfer rejects same accounts", () => {
     const same = "00000000-0000-0000-0000-000000000000";
     const r = transferSchema.safeParse({ from_account_id: same, to_account_id: same, amount: 10, occurred_at: "2026-01-01" });

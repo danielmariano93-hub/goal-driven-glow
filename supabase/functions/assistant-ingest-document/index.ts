@@ -41,6 +41,7 @@ Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou li
       "account_hint": "Nubank Conta|Itaú|null",
       "card_hint": "Nubank Cartão|Inter Mastercard|null",
       "category_hint": "Alimentação|Transporte|null",
+      "movement_kind": "transaction|refund|internal_transfer|investment_application|investment_redemption|informational",
       "installments_total": null,
       "installment_number": null,
       "purchase_date": null,
@@ -59,8 +60,11 @@ REGRAS ESTRITAS:
 - Elementos da interface do celular e datas de referência do extrato não são, por si só, a data da compra.
 - Nunca invente texto ilegível — melhor devolver items=[] e document_kind=illegible.
 - Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva document_kind=non_financial e items=[].
-- EXCLUA linhas de: saldo disponível, saldo total, limite disponível, limite total, subtotal, total da fatura, pagamento de fatura.
-- Estorno/reembolso é income.
+- EXCLUA todas as linhas informativas: SALDO DO DIA, saldo atual/em conta/anterior/disponível/total, limites, cabeçalhos, período, emissão, subtotais e totais.
+- RESGATE CDB é resgate de investimento, não receita. Aplicação é investimento, não despesa.
+- PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
+- Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
+- Preserve a descrição literal; não use "crédito" ou "débito" como descrição.
 - Só devolva JSON, sem markdown, sem comentários fora do campo notes.`;
 
 async function callMultimodal(publicBase64Url: string, mimeType: string, filename: string, guidance: string, signal: AbortSignal): Promise<{ result: ExtractionResult; tokens_in: number; tokens_out: number; ms: number; error?: string }> {
@@ -111,25 +115,51 @@ async function callMultimodal(publicBase64Url: string, mimeType: string, filenam
   }
 }
 
-async function findDuplicates(sb: ReturnType<typeof createClient>, user_id: string, items: { amount: number; occurred_at: string; description: string | null }[]): Promise<Map<number, string>> {
+function normalizedMerchant(value: string | null | undefined) {
+  return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/^(on|pay|electron|pix\s+(whats(?:\s+qrcode)?|transf))\s+/i, "")
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " ")
+    .replace(/\b\d{4,}\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function findDuplicates(sb: ReturnType<typeof createClient>, user_id: string, items: { amount: number; occurred_at: string; description: string | null; payment_method?: string | null }[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const startDate = new Date(it.occurred_at);
-    startDate.setDate(startDate.getDate() - 2);
-    const endDate = new Date(it.occurred_at);
-    endDate.setDate(endDate.getDate() + 2);
     const { data } = await sb.from("transactions")
-      .select("id")
+      .select("id, description, payment_method")
       .eq("user_id", user_id)
       .eq("amount", it.amount)
-      .gte("occurred_at", startDate.toISOString().slice(0, 10))
-      .lte("occurred_at", endDate.toISOString().slice(0, 10))
-      .limit(1)
-      .maybeSingle();
-    if (data?.id) map.set(i, data.id as string);
+      .eq("occurred_at", it.occurred_at)
+      .limit(20);
+    const match = (data ?? []).find((candidate) => normalizedMerchant(candidate.description) === normalizedMerchant(it.description)
+      && (!it.payment_method || !candidate.payment_method || candidate.payment_method === it.payment_method));
+    if (match?.id) map.set(i, match.id as string);
   }
   return map;
+}
+
+async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, items: ExtractionResult["items"]) {
+  const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
+    sb.from("categories").select("id, name, type").eq("user_id", userId),
+    sb.from("transactions").select("description, category_id, type").eq("user_id", userId).not("category_id", "is", null).order("occurred_at", { ascending: false }).limit(1000),
+    sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
+    sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
+  ]);
+  return items.map((item) => {
+    const merchant = normalizedMerchant(item.description);
+    const historical = (history ?? []).filter((row) => row.type === item.type && normalizedMerchant(row.description) === merchant && row.category_id);
+    const counts = new Map<string, number>();
+    historical.forEach((row) => counts.set(row.category_id, (counts.get(row.category_id) ?? 0) + 1));
+    const learnedCategory = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    const hint = normalizedMerchant(item.category_hint);
+    const hintedCategory = (categories ?? []).find((category) => category.type === item.type && normalizedMerchant(category.name) === hint)?.id ?? null;
+    const accountHint = normalizedMerchant(item.account_hint);
+    const matchedAccount = accountHint ? (accounts ?? []).find((account) => normalizedMerchant(`${account.name} ${account.institution ?? ""}`).includes(accountHint) || accountHint.includes(normalizedMerchant(account.name))) : null;
+    const cardHint = normalizedMerchant(item.card_hint);
+    const matchedCard = cardHint ? (cards ?? []).find((card) => normalizedMerchant(card.name).includes(cardHint) || cardHint.includes(normalizedMerchant(card.name))) : null;
+    return { ...item, category_id: learnedCategory ?? hintedCategory, account_id: matchedAccount?.id ?? null, credit_card_id: matchedCard?.id ?? null, merchant_key: merchant };
+  });
 }
 
 Deno.serve(async (req) => {
@@ -275,9 +305,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Persist items
-    const dupes = await findDuplicates(sb, user.id, extraction.items);
-    const rows = extraction.items.map((it, idx) => ({
+    // Aplica memória pessoal de categorias e tenta reconhecer conta/cartão sem esconder a revisão.
+    const enriched = await enrichItems(sb, user.id, extraction.items);
+    const dupes = await findDuplicates(sb, user.id, enriched);
+    const rows = enriched.map((it, idx) => ({
       document_id,
       user_id: user.id,
       idx,
@@ -289,6 +320,9 @@ Deno.serve(async (req) => {
       account_hint: it.account_hint,
       card_hint: it.card_hint,
       category_hint: it.category_hint,
+      category_id: it.category_id,
+      account_id: it.account_id,
+      credit_card_id: it.credit_card_id,
       installments_total: it.installments_total,
       installment_number: it.installment_number,
       purchase_date: it.purchase_date,

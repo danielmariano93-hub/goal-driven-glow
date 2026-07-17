@@ -267,6 +267,7 @@ export default function Lancamentos() {
         <TxModal
           initial={editing}
           accounts={accounts ?? []}
+          cards={(cards ?? []).filter((card) => card.active)}
           categories={categories ?? []}
           saving={save.isPending}
           onClose={() => setOpenTx(false)}
@@ -317,6 +318,7 @@ function EmptyMessage({ title, description }: { title: string; description: stri
 function TxModal({
   initial,
   accounts,
+  cards,
   categories,
   saving,
   onClose,
@@ -324,6 +326,7 @@ function TxModal({
 }: {
   initial: TransactionRow | null;
   accounts: { id: string; name: string }[];
+  cards: { id: string; name: string }[];
   categories: { id: string; name: string; type: "income" | "expense" }[];
   saving: boolean;
   onClose: () => void;
@@ -331,6 +334,10 @@ function TxModal({
 }) {
   const [type, setType] = useState<"income" | "expense">((initial?.type as "income" | "expense") ?? "expense");
   const [accountId, setAccountId] = useState(initial?.account_id ?? accounts[0]?.id ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card">(
+    initial?.payment_method === "credit_card" ? "credit_card" : "account"
+  );
+  const [creditCardId, setCreditCardId] = useState(initial?.credit_card_id ?? cards[0]?.id ?? "");
   const [categoryId, setCategoryId] = useState<string | "">(initial?.category_id ?? "");
   const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
   const [occurredAt, setOccurredAt] = useState(initial?.occurred_at ?? todayISO());
@@ -343,7 +350,9 @@ function TxModal({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = transactionSchema.safeParse({
-      account_id: accountId,
+      payment_method: type === "income" ? "account" : paymentMethod,
+      account_id: type === "income" || paymentMethod === "account" ? accountId : null,
+      credit_card_id: type === "expense" && paymentMethod === "credit_card" ? creditCardId : null,
       category_id: categoryId || null,
       type,
       status,
@@ -383,8 +392,17 @@ function TxModal({
             <label className="mb-1 block text-xs font-medium">Valor (R$)</label>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base" placeholder="0,00" />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Conta</label>
+          {type === "expense" && cards.length > 0 ? (
+            <div>
+              <label className="mb-1 block text-xs font-medium">De onde saiu?</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setPaymentMethod("account")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "account" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Conta</button>
+                <button type="button" onClick={() => setPaymentMethod("credit_card")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "credit_card" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Cartão de crédito</button>
+              </div>
+            </div>
+          ) : null}
+          {(type === "income" || paymentMethod === "account") ? <div>
+            <label className="mb-1 block text-xs font-medium">{type === "income" ? "Conta que recebeu" : "Conta de saída"}</label>
             <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input-base">
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -392,7 +410,13 @@ function TxModal({
                 </option>
               ))}
             </select>
-          </div>
+          </div> : <div>
+            <label className="mb-1 block text-xs font-medium">Cartão utilizado</label>
+            <select value={creditCardId} onChange={(e) => setCreditCardId(e.target.value)} className="input-base">
+              <option value="">Selecione um cartão</option>
+              {cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
+            </select>
+          </div>}
           <div>
             <label className="mb-1 block text-xs font-medium">Categoria</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-base">

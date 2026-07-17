@@ -14,7 +14,7 @@ export function AppLayout() {
       <main className="flex-1 min-w-0">
         <div className="mx-auto w-full max-w-lg md:max-w-5xl px-4 md:px-8 pb-28 md:pb-10 md:pt-4">
           <div className="mb-4 flex items-center justify-between md:mb-6">
-            <p className="text-xs text-muted-foreground">
+            <p className="min-w-0 truncate font-display text-lg font-semibold text-foreground md:text-xl">
               {profile?.display_name ? `Olá, ${profile.display_name}` : ""}
             </p>
             <div className="flex items-center gap-2">
@@ -36,5 +36,4 @@ export function AppLayout() {
     </div>
   );
 }
-
 

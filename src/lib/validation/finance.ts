@@ -19,7 +19,9 @@ export const categorySchema = z.object({
 export type CategoryInput = z.infer<typeof categorySchema>;
 
 export const transactionSchema = z.object({
-  account_id: z.string().uuid("Conta obrigatória"),
+  payment_method: z.enum(["account", "credit_card"]).default("account"),
+  account_id: z.string().uuid().nullable().optional(),
+  credit_card_id: z.string().uuid().nullable().optional(),
   category_id: z.string().uuid().nullable().optional(),
   type: z.enum(["income", "expense"]),
   status: z.enum(["confirmed", "planned"]).default("confirmed"),
@@ -27,6 +29,16 @@ export const transactionSchema = z.object({
   occurred_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida"),
   description: z.string().trim().max(120).optional().or(z.literal("")),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
+}).superRefine((value, ctx) => {
+  if (value.type === "income" && !value.account_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["account_id"], message: "Escolha a conta que recebeu o valor" });
+  }
+  if (value.type === "expense" && value.payment_method === "account" && !value.account_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["account_id"], message: "Escolha a conta de saída" });
+  }
+  if (value.type === "expense" && value.payment_method === "credit_card" && !value.credit_card_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["credit_card_id"], message: "Escolha o cartão utilizado" });
+  }
 });
 export type TransactionInput = z.infer<typeof transactionSchema>;
 

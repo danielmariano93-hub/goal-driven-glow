@@ -16,9 +16,15 @@ const MOODS = [
   { key: "preocupado", v: 1, label: "Preocupado", emoji: "😰" },
 ];
 
-function todayLocalIso() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function saoPauloDate(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 export function EmotionalCheckinCard() {
@@ -33,16 +39,13 @@ export function EmotionalCheckinCard() {
     queryKey: ["emotional-today", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const start = `${todayLocalIso()}T00:00:00`;
       const { data, error } = await supabase
         .from("emotional_checkins")
-        .select("id, mood, notes, trigger_label, transaction_id")
-        .gte("occurred_at", start)
+        .select("id, mood, notes, trigger_label, transaction_id, occurred_at")
         .order("occurred_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error && (error as { code?: string }).code !== "PGRST116") throw error;
-      return data;
+        .limit(10);
+      if (error) throw error;
+      return (data ?? []).find((item) => saoPauloDate(new Date(item.occurred_at)) === saoPauloDate()) ?? null;
     },
   });
 

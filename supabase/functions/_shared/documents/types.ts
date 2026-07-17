@@ -13,6 +13,7 @@ export type ExtractedItem = {
   purchase_date: string | null;
   competence_date: string | null;
   confidence: Record<string, number>;
+  movement_kind?: "transaction" | "refund" | "internal_transfer" | "investment_application" | "investment_redemption" | "informational";
   source_span?: unknown;
 };
 
@@ -83,8 +84,9 @@ export function normalizeDateBR(raw: string, fallback: string, confidence = 0): 
 
 // Palavras-chave que NUNCA viram lançamento
 const NON_TX_KEYWORDS = [
-  "saldo disponível", "saldo total", "saldo anterior", "limite disponível",
-  "limite total", "subtotal", "total da fatura", "vencimento",
+  "saldo disponível", "saldo total", "saldo anterior", "saldo atual", "saldo em conta", "saldo do dia",
+  "limite disponível", "limite utilizado", "limite da conta", "limite total", "subtotal", "total da fatura", "vencimento",
+  "período de visualização", "periodo de visualizacao", "emitido em", "extrato conta", "lançamentos",
   "pagamento efetuado - fatura", "pagamento fatura", "pagamento da fatura",
 ];
 
@@ -109,6 +111,10 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
     if (!description || isNonTransactionLine(description)) continue;
+    const movementKind = String(it.movement_kind ?? "transaction") as ExtractedItem["movement_kind"];
+    // Esses movimentos precisam de contrapartida ou atualização de investimento. Não os
+    // transforme silenciosamente em receita/despesa e não distorça o patrimônio.
+    if (["informational", "internal_transfer", "investment_application", "investment_redemption"].includes(movementKind ?? "")) continue;
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
     const type = it.type === "income" ? "income" : "expense";
@@ -131,6 +137,7 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
       purchase_date: typeof it.purchase_date === "string" ? normalizeDateBR(it.purchase_date, occurred_at) : null,
       competence_date: typeof it.competence_date === "string" ? normalizeDateBR(it.competence_date, occurred_at) : null,
       confidence: conf,
+      movement_kind: movementKind,
       source_span: it.source_span,
     });
   }
