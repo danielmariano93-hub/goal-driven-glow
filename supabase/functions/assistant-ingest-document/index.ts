@@ -440,6 +440,23 @@ function parseErrorTag(err: string | null | undefined): { tag: string | null; co
   return { tag: err, correlation_id: null };
 }
 
+function itemSignature(item: ExtractionResult["items"][number]) {
+  return `${item.occurred_at}|${Number(item.amount).toFixed(2)}|${item.description.toLowerCase().replace(/\s+/g, " ").trim()}`.slice(0, 180);
+}
+
+function emptyCounters() {
+  return {
+    total_items: 0,
+    duplicate_strong: 0,
+    duplicate_ambiguous: 0,
+    categorized_auto: 0,
+    needs_review: 0,
+    uncategorized: 0,
+    batches_completed: 0,
+    partial: false,
+  };
+}
+
 function pdfHasPasswordEncryption(bytes: Uint8Array): boolean {
   // Look for "/Encrypt" in the first 8KB and last 8KB of the PDF.
   const decoder = new TextDecoder("latin1");
@@ -554,136 +571,176 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const b64 = btoa(bin);
     const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
-    await heartbeat();
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
-    // Heartbeat periódico durante a chamada ao LLM: mantém `updated_at` fresco
-    // e impede que um segundo worker classifique o job como stale.
-    const beat = setInterval(() => { void heartbeat(); }, 20_000);
-    let extraction: ExtractionResult;
+    let documentKind: ExtractionResult["document_kind"] = "unknown";
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
-    let errorTag: string | undefined;
-    try {
-      const out = await callMultimodal(dataUrl, doc.mime_type, doc.storage_path?.split("/").pop() ?? "documento", (guidance ?? "").slice(0, 500), ac.signal);
-      extraction = out.result;
-      statement = out.statement;
-      tokens_in = out.tokens_in;
-      tokens_out = out.tokens_out;
-      ms = out.ms;
-      errorTag = out.errorTag;
+    let lastErrorTag: string | undefined;
+    const notes: string[] = [];
+    const counters = emptyCounters();
+    const seenSignatures = new Set<string>();
+    const seenInDocument = new Map<string, number>();
+    let idxOffset = 0;
+    const maxBatches = doc.mime_type === "application/pdf" ? PDF_BATCHES : IMAGE_BATCHES;
+
+    for (let batchIndex = 1; batchIndex <= maxBatches && counters.total_items < MAX_ITEMS_PER_DOCUMENT; batchIndex++) {
+      await heartbeat();
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
+      const beat = setInterval(() => { void heartbeat(); }, 20_000);
+      let out: MultimodalOutcome;
+      try {
+        out = await callMultimodal(
+          dataUrl,
+          doc.mime_type,
+          doc.storage_path?.split("/").pop() ?? "documento",
+          (guidance ?? "").slice(0, 500),
+          ac.signal,
+          { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
+        );
+      } finally {
+        clearTimeout(timer);
+        clearInterval(beat);
+      }
+      await heartbeat();
+
+      tokens_in += out.tokens_in;
+      tokens_out += out.tokens_out;
+      ms += out.ms;
+      counters.batches_completed = batchIndex;
+      counters.partial = counters.partial || out.partial;
+      if (out.result.notes) notes.push(`Lote ${batchIndex}: ${out.result.notes}`);
+      if (out.statement && !statement) statement = out.statement;
+      if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
+
+      let extraction = out.result;
       if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance ?? "")) {
         const today = new Date().toISOString().slice(0, 10);
         extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
       }
-    } finally {
-      clearTimeout(timer);
-      clearInterval(beat);
-    }
-    await heartbeat();
 
-    // Trava dura de segurança: nunca gravar mais que MAX_ITEMS_PER_DOCUMENT.
-    if (extraction.items.length > MAX_ITEMS_PER_DOCUMENT) {
-      extraction = { ...extraction, items: extraction.items.slice(0, MAX_ITEMS_PER_DOCUMENT) };
-    }
-
-    if (errorTag) {
-      await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, error: encodeError(errorTag, correlationId) });
-      return;
-    }
-
-    if (extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") {
-      await finish({
-        status: "needs_review",
-        document_kind: extraction.document_kind,
-        model: MODEL,
-        tokens_in,
-        tokens_out,
-        extraction_ms: ms,
-        error: null,
-      });
-      return;
-    }
-
-    const enriched = await enrichItems(sb, userId, extraction.items);
-    const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
-      type: it.type,
-      amount: Number(it.amount),
-      occurred_at: it.occurred_at,
-      normalized_description: it.normalized_description ?? null,
-      bank_reference: it.bank_reference ?? null,
-      fingerprint: it.dedupe_fingerprint,
-    })));
-    let categorizedAuto = 0;
-    let dupStrong = 0;
-    let dupAmbiguous = 0;
-    // Duplicatas dentro do próprio arquivo são ambíguas, nunca descartadas de
-    // forma automática: extratos podem conter duas compras legítimas idênticas.
-    const seenInDocument = new Map<string, number>();
-    const rows = enriched.map((it, idx) => {
-      const hit = dupes.get(idx);
-      const localKey = `${it.type}|${it.occurred_at}|${Number(it.amount).toFixed(2)}|${it.normalized_description ?? ""}`;
-      const priorIdx = seenInDocument.get(localKey);
-      seenInDocument.set(localKey, idx);
-      const localDuplicate = priorIdx == null ? null : { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` };
-      const effectiveHit = hit ?? localDuplicate;
-      if (effectiveHit?.strength === "strong") dupStrong++;
-      else if (effectiveHit?.strength === "ambiguous") dupAmbiguous++;
-      if (it.category_id) categorizedAuto++;
-      return {
-        document_id: documentId,
-        user_id: userId,
-        idx,
-        type: it.type,
-        amount: it.amount,
-        occurred_at: it.occurred_at,
-        description: it.description,
-        raw_description: it.raw_description,
-        normalized_description: it.normalized_description,
-        bank_reference: it.bank_reference,
-        dedupe_fingerprint: it.dedupe_fingerprint,
-        payment_method: it.payment_method,
-        account_hint: it.account_hint,
-        card_hint: it.card_hint,
-        category_hint: it.category_hint,
-        category_id: it.category_id,
-        category_source: it.category_source,
-        category_confidence: it.category_confidence,
-        movement_kind: it.movement_kind ?? "transaction",
-        account_id: it.account_id,
-        credit_card_id: it.credit_card_id,
-        installments_total: it.installments_total,
-        installment_number: it.installment_number,
-        purchase_date: it.purchase_date,
-        competence_date: it.competence_date,
-        confidence: it.confidence,
-        raw: it as unknown as Record<string, unknown>,
-        status: effectiveHit ? "duplicate_suspect" : "needs_review",
-        duplicate_of: hit?.transaction_id ?? null,
-        duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
-      };
-    });
-    if (rows.length > 0) {
-      const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
-      if (itemsErr) {
-        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+      if (out.errorTag) {
+        lastErrorTag = out.errorTag;
+        if (counters.total_items > 0) break;
+        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters, error: encodeError(out.errorTag, correlationId) });
         return;
       }
-    }
 
-    const needsReview = rows.length - dupStrong - dupAmbiguous;
-    const counters = {
-      total_items: rows.length,
-      duplicate_strong: dupStrong,
-      duplicate_ambiguous: dupAmbiguous,
-      categorized_auto: categorizedAuto,
-      needs_review: needsReview,
-      uncategorized: rows.length - categorizedAuto,
-    };
+      if ((extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") && counters.total_items === 0 && extraction.items.length === 0) {
+        await finish({
+          status: "needs_review",
+          document_kind: extraction.document_kind,
+          model: MODEL,
+          tokens_in,
+          tokens_out,
+          extraction_ms: ms,
+          counters,
+          error: null,
+        });
+        return;
+      }
+
+      const remaining = MAX_ITEMS_PER_DOCUMENT - counters.total_items;
+      const freshItems = extraction.items
+        .filter((item) => {
+          const sig = itemSignature(item);
+          if (seenSignatures.has(sig)) return false;
+          seenSignatures.add(sig);
+          return true;
+        })
+        .slice(0, Math.min(BATCH_ITEMS_LIMIT, remaining));
+
+      if (freshItems.length > 0) {
+        const enriched = await enrichItems(sb, userId, freshItems);
+        const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
+          type: it.type,
+          amount: Number(it.amount),
+          occurred_at: it.occurred_at,
+          normalized_description: it.normalized_description ?? null,
+          bank_reference: it.bank_reference ?? null,
+          fingerprint: it.dedupe_fingerprint,
+        })));
+
+        let batchCategorized = 0;
+        let batchDupStrong = 0;
+        let batchDupAmbiguous = 0;
+        const rows = enriched.map((it, idx) => {
+          const globalIdx = idxOffset + idx;
+          const hit = dupes.get(idx);
+          const localKey = `${it.type}|${it.occurred_at}|${Number(it.amount).toFixed(2)}|${it.normalized_description ?? ""}`;
+          const priorIdx = seenInDocument.get(localKey);
+          seenInDocument.set(localKey, globalIdx);
+          const localDuplicate = priorIdx == null ? null : { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` };
+          const effectiveHit = hit ?? localDuplicate;
+          if (effectiveHit?.strength === "strong") batchDupStrong++;
+          else if (effectiveHit?.strength === "ambiguous") batchDupAmbiguous++;
+          if (it.category_id) batchCategorized++;
+          return {
+            document_id: documentId,
+            user_id: userId,
+            idx: globalIdx,
+            type: it.type,
+            amount: it.amount,
+            occurred_at: it.occurred_at,
+            description: it.description,
+            raw_description: it.raw_description,
+            normalized_description: it.normalized_description,
+            bank_reference: it.bank_reference,
+            dedupe_fingerprint: it.dedupe_fingerprint,
+            payment_method: it.payment_method,
+            account_hint: it.account_hint,
+            card_hint: it.card_hint,
+            category_hint: it.category_hint,
+            category_id: it.category_id,
+            category_source: it.category_source,
+            category_confidence: it.category_confidence,
+            movement_kind: it.movement_kind ?? "transaction",
+            account_id: it.account_id,
+            credit_card_id: it.credit_card_id,
+            installments_total: it.installments_total,
+            installment_number: it.installment_number,
+            purchase_date: it.purchase_date,
+            competence_date: it.competence_date,
+            confidence: it.confidence,
+            raw: it as unknown as Record<string, unknown>,
+            status: effectiveHit ? "duplicate_suspect" : "needs_review",
+            duplicate_of: hit?.transaction_id ?? null,
+            duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
+          };
+        });
+
+        const { error: itemsErr } = await sb.from("extracted_items").insert(rows);
+        if (itemsErr) {
+          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters, error: encodeError(`items_insert:${itemsErr.message}`, correlationId) });
+          return;
+        }
+
+        idxOffset += rows.length;
+        counters.total_items += rows.length;
+        counters.duplicate_strong += batchDupStrong;
+        counters.duplicate_ambiguous += batchDupAmbiguous;
+        counters.categorized_auto += batchCategorized;
+        counters.uncategorized += rows.length - batchCategorized;
+        counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
+
+        await finish({
+          status: "processing",
+          document_kind: documentKind,
+          model: MODEL,
+          tokens_in,
+          tokens_out,
+          extraction_ms: ms,
+          counters,
+          error: null,
+        });
+      }
+
+      if (!out.has_more && freshItems.length < BATCH_ITEMS_LIMIT) break;
+      if (freshItems.length === 0 && batchIndex > 1) break;
+    }
 
     await finish({
       status: "needs_review",
-      document_kind: extraction.document_kind,
+      document_kind: documentKind,
       model: MODEL,
       tokens_in,
       tokens_out,
@@ -695,7 +752,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
       period_start: statement?.period_start ?? null,
       period_end: statement?.period_end ?? null,
       statement_bank: statement?.bank ?? null,
-      counters,
+      counters: { ...counters, notes: notes.slice(0, 6), stopped_after_error: lastErrorTag ?? null },
       error: null,
     });
   } catch (e) {
