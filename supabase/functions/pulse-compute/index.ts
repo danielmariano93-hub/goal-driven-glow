@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
     const cutoff90 = new Date(today); cutoff90.setDate(cutoff90.getDate() - 90);
 
     // Buscar dados em paralelo.
-    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR] = await Promise.all([
+    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR] = await Promise.all([
       sb.from("transactions").select("id,type,status,amount,occurred_at,category_id,credit_card_id,payment_method,settles_card_id").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
       sb.from("accounts").select("id,opening_balance,active").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active").eq("user_id", userId).eq("active", true),
@@ -47,6 +47,7 @@ Deno.serve(async (req) => {
       sb.from("goal_contributions").select("goal_id,amount"),
       sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", iso(cutoff30)),
       sb.from("recurring_rules").select("id,active,amount").eq("user_id", userId).eq("active", true),
+      sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
     ]);
 
     const txs = (txsR.data ?? []) as Array<{ id: string; type: string; status: string; amount: number | string; occurred_at: string; category_id: string | null; credit_card_id: string | null; payment_method: string | null; settles_card_id?: string | null }>;
@@ -57,6 +58,7 @@ Deno.serve(async (req) => {
     const contribs = (contribR.data ?? []) as Array<{ goal_id: string; amount: number | string }>;
     const emos = (emoR.data ?? []) as Array<{ occurred_at: string; transaction_id: string | null }>;
     const recurring = (recR.data ?? []) as Array<{ id: string; active: boolean; amount: number | string }>;
+    const timezone = String(profileR.data?.timezone || "America/Sao_Paulo");
 
     const confirmed = txs.filter((t) => t.status === "confirmed" && t.type !== "transfer");
     const last14 = confirmed.filter((t) => t.occurred_at >= iso(cutoff14));
@@ -148,15 +150,27 @@ Deno.serve(async (req) => {
 
     // Upsert idempotente diário (um snapshot por dia, atualiza se já existe).
     const nowIso = new Date().toISOString();
-    const today_local = new Date(today.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10); // aproximação São Paulo (-03)
-    // Deletar duplicatas do dia antes de inserir (evita conflito no índice funcional).
-    await sb.rpc("noop" as never).catch(() => undefined); // no-op if not exists
+    let todayLocal: string;
+    try {
+      todayLocal = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(today);
+    } catch {
+      todayLocal = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(today);
+    }
     const { data: existing } = await sb
       .from("pulse_snapshots")
       .select("id")
       .eq("user_id", userId)
-      .gte("computed_at", `${today_local}T00:00:00-03:00`)
-      .lte("computed_at", `${today_local}T23:59:59-03:00`)
+      .eq("snapshot_date", todayLocal)
       .limit(1)
       .maybeSingle();
 
@@ -170,6 +184,7 @@ Deno.serve(async (req) => {
       week_delta: weekDelta,
       state: pulse.state,
       computed_at: nowIso,
+      snapshot_date: todayLocal,
     };
     if (existing?.id) {
       await sb.from("pulse_snapshots").update(payload).eq("id", existing.id);

@@ -61,6 +61,8 @@ export function ReviewSheet({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [docKind, setDocKind] = useState<string | null>(null);
+  const [bulkTarget, setBulkTarget] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +73,8 @@ export function ReviewSheet({
       });
       if (cancelled) return;
       if (error) {
-        toast.error("Falha ao carregar itens", { description: error.message });
+        console.error("[ReviewSheet] list", error);
+        toast.error("Não consegui abrir a revisão agora. Tente novamente.");
         setLoading(false);
         return;
       }
@@ -110,7 +113,40 @@ export function ReviewSheet({
     const { error } = await supabase.functions.invoke("assistant-review-actions", {
       body: { action: "update", item_id: id, patch },
     });
-    if (error) toast.error("Falha ao atualizar", { description: error.message });
+    if (error) {
+      console.error("[ReviewSheet] update", error);
+      toast.error("Não consegui salvar essa alteração. Tente novamente.");
+    }
+  }
+
+  async function applyBulkTarget() {
+    if (!bulkTarget || selected.size === 0) {
+      toast.error("Selecione os lançamentos e escolha a origem.");
+      return;
+    }
+    const [method, resourceId] = bulkTarget.split(":");
+    const patch: Partial<Item> = method === "account"
+      ? { payment_method: "account", account_id: resourceId, credit_card_id: null }
+      : { payment_method: "credit_card", credit_card_id: resourceId, account_id: null };
+    setBulkSaving(true);
+    try {
+      const ids = [...selected];
+      const results = await Promise.all(ids.map((id) => supabase.functions.invoke("assistant-review-actions", {
+        body: { action: "update", item_id: id, patch },
+      })));
+      const failed = results.some((result) => result.error);
+      if (failed) throw new Error("bulk_update_failed");
+      setItems((xs) => xs.map((x) => selected.has(x.id) ? { ...x, ...patch } : x));
+      const label = method === "account"
+        ? accounts.find((a) => a.id === resourceId)?.name
+        : cards.find((c: { id: string; name: string }) => c.id === resourceId)?.name;
+      toast.success(`Origem aplicada: ${label ?? "seleção"}`);
+    } catch (error) {
+      console.error("[ReviewSheet] bulk update", error);
+      toast.error("Não consegui aplicar a origem a todos. Tente novamente.");
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   async function ignoreItem(id: string) {
@@ -156,7 +192,8 @@ export function ReviewSheet({
       onClose();
       if (r.created_count > 0) nav("/app/lancamentos");
     } catch (e) {
-      toast.error("Falha ao confirmar", { description: (e as Error).message });
+      console.error("[ReviewSheet] confirm", e);
+      toast.error("Não consegui confirmar agora. Seus itens continuam salvos para revisão.");
     } finally {
       setConfirming(false);
     }
@@ -218,37 +255,15 @@ export function ReviewSheet({
               <button onClick={toggleAll} className="text-primary hover:underline">
                 {selected.size > 0 ? "Desmarcar todos" : "Selecionar todos"}
               </button>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (accounts.length === 0) return toast.error("Cadastre uma conta primeiro.");
-                    const first = accounts[0];
-                    setItems((xs) => xs.map((x) => selected.has(x.id) ? { ...x, payment_method: "account", account_id: first.id, credit_card_id: null } : x));
-                    // Persistir em segundo plano
-                    for (const id of selected) {
-                      void supabase.functions.invoke("assistant-review-actions", { body: { action: "update", item_id: id, patch: { payment_method: "account", account_id: first.id, credit_card_id: null } } });
-                    }
-                    toast.success(`Origem aplicada: Conta ${first.name}`);
-                  }}
-                  className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted"
-                >
-                  Aplicar Conta a todos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (cards.length === 0) return toast.error("Cadastre um cartão primeiro.");
-                    const first = cards[0];
-                    setItems((xs) => xs.map((x) => selected.has(x.id) ? { ...x, payment_method: "credit_card", credit_card_id: first.id, account_id: null } : x));
-                    for (const id of selected) {
-                      void supabase.functions.invoke("assistant-review-actions", { body: { action: "update", item_id: id, patch: { payment_method: "credit_card", credit_card_id: first.id, account_id: null } } });
-                    }
-                    toast.success(`Origem aplicada: Cartão ${first.name}`);
-                  }}
-                  className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted"
-                >
-                  Aplicar Cartão a todos
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                <label htmlFor="bulk-payment-target" className="sr-only">Origem para os selecionados</label>
+                <select id="bulk-payment-target" value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value)} className="min-w-0 max-w-[180px] rounded-full border border-border bg-card px-2.5 py-1 text-[11px]">
+                  <option value="">Escolher origem…</option>
+                  {accounts.map((a) => <option key={a.id} value={`account:${a.id}`}>Conta · {a.name}</option>)}
+                  {cards.map((c: { id: string; name: string }) => <option key={c.id} value={`credit_card:${c.id}`}>Cartão · {c.name}</option>)}
+                </select>
+                <button type="button" onClick={applyBulkTarget} disabled={!bulkTarget || selected.size === 0 || bulkSaving} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted disabled:opacity-50">
+                  {bulkSaving ? "Aplicando…" : "Aplicar aos selecionados"}
                 </button>
                 <span className="text-muted-foreground">
                   {selected.size} · <strong className="text-foreground">{formatBRL(total)}</strong>

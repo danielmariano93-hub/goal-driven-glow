@@ -1,4 +1,5 @@
-import { Wallet, CreditCard, LineChart, AlertCircle } from "lucide-react";
+import { ChevronRight, CreditCard, LineChart, Wallet } from "lucide-react";
+import { Link } from "react-router-dom";
 import { formatBRL } from "@/lib/engine/facts";
 
 interface Props {
@@ -14,49 +15,43 @@ export function PatrimonioCard({ cash, cardsOwed, invested, otherDebts, net, loa
   const fmt = (n: number) => (loading ? "…" : formatBRL(n));
 
   return (
-    <section className="rounded-3xl bg-card p-5 shadow-card ring-1 ring-border">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        Seu patrimônio hoje
-      </p>
-      <p className={`mt-1 font-display text-3xl font-bold tabular-nums md:text-4xl ${net < 0 ? "text-destructive" : "text-foreground"}`}>
-        {fmt(net)}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Soma o que você tem em conta e investimentos e desconta fatura do cartão e outras dívidas.
-      </p>
-      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-        <Cell icon={<Wallet size={14} />} label="Em conta" value={fmt(cash)} tone={cash < 0 ? "negative" : "neutral"} />
-        <Cell icon={<CreditCard size={14} />} label="Fatura do cartão" value={fmt(cardsOwed)} tone={cardsOwed > 0 ? "warning" : "neutral"} sub="em aberto (estimativa)" />
-        <Cell icon={<LineChart size={14} />} label="Investido" value={fmt(invested)} tone="positive" />
-        <Cell icon={<AlertCircle size={14} />} label="Outras dívidas" value={fmt(otherDebts)} tone={otherDebts > 0 ? "warning" : "neutral"} />
+    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#21164F] via-[#7543FF] to-[#F06467] p-5 text-white shadow-brand sm:p-6">
+      <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-white/15 blur-3xl" />
+      <div className="relative">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/75">Seu patrimônio hoje</p>
+        <p className="mt-1 font-display text-4xl font-bold tabular-nums tracking-tight sm:text-5xl">
+          {fmt(net)}
+        </p>
+        <p className="mt-1 max-w-sm text-xs leading-relaxed text-white/75">
+          O que você tem, menos fatura e outras dívidas.
+        </p>
+
+        <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/20 pt-4">
+          <HeroMetric icon={<Wallet size={13} />} label="Em conta" value={fmt(cash)} />
+          <HeroMetric icon={<CreditCard size={13} />} label="Na fatura" value={fmt(cardsOwed)} />
+          <HeroMetric icon={<LineChart size={13} />} label="Investido" value={fmt(invested)} />
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="min-w-0 truncate text-[11px] text-white/70">
+            Outras dívidas: <span className="font-semibold text-white">{fmt(otherDebts)}</span>
+          </p>
+          <Link to="/app/planejamento" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/15 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80">
+            Ver composição <ChevronRight size={12} />
+          </Link>
+        </div>
       </div>
     </section>
   );
 }
 
-function Cell({
-  icon,
-  label,
-  value,
-  tone,
-  sub,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  tone: "positive" | "negative" | "warning" | "neutral";
-  sub?: string;
-}) {
-  const color =
-    tone === "positive" ? "text-success" : tone === "negative" ? "text-destructive" : tone === "warning" ? "text-amber-600" : "text-foreground";
+function HeroMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-muted/40 p-3 min-w-0">
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className={color}>{icon}</span>
-        <span className="truncate">{label}</span>
+    <div className="min-w-0">
+      <div className="flex items-center gap-1 text-[10px] text-white/70">
+        {icon}<span className="truncate">{label}</span>
       </div>
-      <p className={`mt-1 truncate text-base font-semibold tabular-nums ${color}`}>{value}</p>
-      {sub ? <p className="mt-0.5 text-[10px] text-muted-foreground">{sub}</p> : null}
+      <p className="mt-1 truncate text-sm font-semibold tabular-nums text-white sm:text-base">{value}</p>
     </div>
   );
 }

@@ -40,19 +40,19 @@ export default function Index() {
 
   return (
     <div className="space-y-5">
-      <PulseHero />
-
       <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} />
 
-      <AssistantTipCard />
+      <PulseHero />
 
-      <ResumoContas cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} />
+      <AssistantTipCard />
 
       <QuickActions />
 
       <WhatsAppCta />
 
       <ParaPagarResumo />
+
+      <ResumoContas cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} />
 
       {loading ? (
         <div className="grid place-items-center py-8">
@@ -106,4 +106,3 @@ function Kpi({ label, value, icon, accent, sub }: { label: string; value: string
     </div>
   );
 }
-
