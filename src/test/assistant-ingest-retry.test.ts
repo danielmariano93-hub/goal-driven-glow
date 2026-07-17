@@ -82,20 +82,57 @@ describe("ingestDocument", () => {
     expect(modes.filter((m) => m === "status").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("falha de upload propaga com code=upload e não invoca finalize", async () => {
+  it("uploadToSignedUrl falha → fallback autenticado grava → verify OK → finalize prossegue", async () => {
     uploadToSignedUrl.mockResolvedValue({ error: new Error("network") });
+    upload.mockResolvedValue({ error: null, data: { path: "u/doc-2.pdf" } });
+
     invoke.mockImplementation((_fn: string, opts: { body: Record<string, unknown> }) => {
-      if (opts.body.mode === "create-upload") {
+      const mode = opts.body.mode;
+      if (mode === "create-upload") {
         return Promise.resolve({ data: { document_id: "doc-2", upload_url: "u", storage_path: "u/doc-2.pdf", token: "t" }, error: null });
       }
-      return Promise.resolve({ data: null, error: new Error("should not reach") });
+      if (mode === "verify-upload") {
+        return Promise.resolve({ data: { exists: true, size: 42 }, error: null });
+      }
+      if (mode === "finalize") {
+        return Promise.resolve({ data: { document_id: "doc-2", status: "needs_review", items_count: 1 }, error: null });
+      }
+      return Promise.resolve({ data: null, error: new Error("unexpected " + mode) });
     });
 
-    await expect(ingestDocument(makePdf(), null, "")).rejects.toThrow(/enviar o arquivo/);
+    const result = await ingestDocument(makePdf(), null, "");
+    expect(result.status).toBe("needs_review");
+    expect(upload).toHaveBeenCalledTimes(1);
     const modes = modesCalled();
-    expect(modes).toContain("create-upload");
+    expect(modes).toContain("finalize");
+    expect(modes).not.toContain("mark-upload-missing");
+  });
+
+  it("uploadToSignedUrl falha e fallback também falha → mark-upload-missing e finalize nunca é chamado", async () => {
+    uploadToSignedUrl.mockResolvedValue({ error: new Error("network") });
+    upload.mockResolvedValue({ error: new Error("network"), data: null });
+
+    invoke.mockImplementation((_fn: string, opts: { body: Record<string, unknown> }) => {
+      const mode = opts.body.mode;
+      if (mode === "create-upload") {
+        return Promise.resolve({ data: { document_id: "doc-2b", upload_url: "u", storage_path: "u/doc-2b.pdf", token: "t" }, error: null });
+      }
+      if (mode === "verify-upload") {
+        return Promise.resolve({ data: { exists: false, size: 0 }, error: null });
+      }
+      if (mode === "mark-upload-missing") {
+        return Promise.resolve({
+          data: { document_id: "doc-2b", status: "failed", error: "upload_missing", user_message: "Não consegui salvar o arquivo." },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: new Error("unexpected " + mode) });
+    });
+
+    await expect(ingestDocument(makePdf(), null, "")).rejects.toThrow(/salvar o arquivo/);
+    const modes = modesCalled();
+    expect(modes).toContain("mark-upload-missing");
     expect(modes).not.toContain("finalize");
-    expect(modes).not.toContain("verify-upload");
   });
 
   it("uploadToSignedUrl 'sucesso' sem objeto → fallback autenticado grava → finalize prossegue", async () => {

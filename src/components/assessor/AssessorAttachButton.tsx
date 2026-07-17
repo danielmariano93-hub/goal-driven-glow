@@ -158,14 +158,12 @@ export async function ingestDocument(
       contentType: mimeType,
       upsert: true,
     });
-  if (uploadError) {
-    const err = new Error("Não consegui enviar o arquivo. Verifique sua conexão e tente novamente.");
-    (err as Error & { code?: string }).code = "upload";
-    throw err;
-  }
 
   // Verificação server-side: o objeto realmente está no storage?
-  let verified = await invokeVerifyUpload(upload.document_id).catch(() => ({ exists: false, size: 0 }));
+  // Se o signed-url falhou, pulamos o primeiro verify e vamos direto ao fallback.
+  let verified = uploadError
+    ? { exists: false, size: 0 }
+    : await invokeVerifyUpload(upload.document_id).catch(() => ({ exists: false, size: 0 }));
 
   if (!verified.exists) {
     // Fallback único: upload autenticado no mesmo caminho (respeita RLS por prefixo user_id/).
