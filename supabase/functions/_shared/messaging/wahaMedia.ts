@@ -94,18 +94,17 @@ export async function downloadInboundMedia(opts: {
     const res = await fetchWithLimits(opts.media.url, {});
     if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
     // Do NOT fall through if the failure was a hard safety violation
-    if (res.code !== "download_failed") return res;
+    if (res.code !== "download_failed") return { ok: false, code: res.code, detail: res.detail };
   }
 
   // Path 3: WAHA-hosted authenticated URL
   if (opts.apiUrl && opts.apiKey && opts.session && opts.messageId) {
-    // Trusted admin-configured endpoint; still require https + non-loopback.
     const baseGuard = assertPublicHttpsUrl(`${opts.apiUrl.replace(/\/$/, "")}/api/`);
     if (!baseGuard.ok) return { ok: false, code: "unsafe_url", detail: baseGuard.code };
     const url = `${opts.apiUrl.replace(/\/$/, "")}/api/${encodeURIComponent(opts.session)}/files/${encodeURIComponent(opts.messageId)}`;
     const res = await fetchWithLimits(url, { "X-Api-Key": opts.apiKey });
     if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
-    return res;
+    return { ok: false, code: res.code, detail: res.detail };
   }
 
   return { ok: false, code: "no_url" };
