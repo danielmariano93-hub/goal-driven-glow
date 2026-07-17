@@ -933,7 +933,7 @@ async function respondWithStatus(sb: ReturnType<typeof createClient>, documentId
   const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
   if (!doc) return json({ error: "not_found" }, 404);
   const { tag, correlation_id } = parseErrorTag(doc.error);
-  const { data: items } = doc.status === "needs_review"
+  const { data: items } = (doc.status === "needs_review" || doc.status === "partial")
     ? await sb.from("extracted_items").select("id").eq("document_id", documentId).eq("user_id", userId)
     : { data: [] as { id: string }[] };
   return json({
