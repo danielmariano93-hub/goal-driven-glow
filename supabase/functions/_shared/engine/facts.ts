@@ -51,9 +51,12 @@ export function computeAccountBalances(accounts: AccountRow[], txs: TransactionR
   for (const t of txs) {
     if (t.status !== "confirmed") continue;
     if (t.type === "transfer") continue;
+    if (txOrigin(t) !== "account") continue;
+    if (!t.account_id) continue;
     const amt = Number(t.amount || 0);
     map[t.account_id] = (map[t.account_id] || 0) + (t.type === "income" ? amt : -amt);
   }
+  // Fatura em aberto por cartão (v1 estimativa) — expostas via helper abaixo.
   const groups: Record<string, TransactionRow[]> = {};
   for (const t of txs) {
     if (t.type !== "transfer" || t.status !== "confirmed" || !t.transfer_group_id) continue;
