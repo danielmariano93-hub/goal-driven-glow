@@ -359,7 +359,7 @@ export function ReviewSheet({
                       />
                       <div className="min-w-0 flex-1 space-y-2">
                         {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">Possível duplicata: {it.duplicate_reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.</p>}
-                        {it.movement_kind && it.movement_kind !== "transaction" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replaceAll("_", " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.movement_kind && it.movement_kind !== "transaction" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
                         {it.raw_description && it.raw_description !== it.description && <p className="text-[10px] text-muted-foreground">No banco: {it.raw_description}</p>}
                         <div className="flex items-center justify-between gap-2">
                           <input
