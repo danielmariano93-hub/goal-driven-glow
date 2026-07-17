@@ -164,7 +164,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     if ((info.status === "needs_review" || info.status === "partial") && (info.items_count ?? 0) > 0) {
       const prefix = info.status === "partial" ? "Consegui ler parte do documento e " : "";
       content = `${prefix}Encontrei ${info.items_count} lançamento(s) nesse documento. Toque em "Revisar" para conferir antes de registrar.`;
-    } else if (false) {
+    } else if (info.document_kind === "illegible") {
       content = "Não consegui ler bem esse documento. Se for PDF, confira se ele não tem senha; se for imagem, envie uma versão mais nítida.";
     } else if (info.document_kind === "non_financial") {
       content = "Esse arquivo não parece ser um documento financeiro. Tente um extrato, fatura, recibo ou lista de compras.";
@@ -351,7 +351,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               {m.role === "assistant" && m.pending && (
                 <ConfirmationCard pending={m.pending} onConfirm={() => decide(m.pending!, "confirm", i)} onCancel={() => decide(m.pending!, "cancel", i)} disabled={sending} />
               )}
-              {m.role === "assistant" && m.doc && m.doc.status === "needs_review" && (m.doc.items_count ?? 0) > 0 && (
+              {m.role === "assistant" && m.doc && (m.doc.status === "needs_review" || m.doc.status === "partial") && (m.doc.items_count ?? 0) > 0 && (
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
