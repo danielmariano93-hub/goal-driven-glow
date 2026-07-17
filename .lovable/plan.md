@@ -1,141 +1,113 @@
-# Diagnóstico minucioso: por que o assessor entra em loop e falha no PDF
+# Plano — Corrigir parser WAHA NOWEB (@lid) no whatsapp-webhook
 
-## Evidências confirmadas
+## Diagnóstico
 
-1. O problema atual não é mais upload físico.
-   - Os documentos recentes chegam ao backend e entram no pipeline.
-   - A falha recorrente agora acontece na extração por IA.
+O endpoint responde 200 e o log mostra `ignored=unmapped_or_bot`, ou seja, `mapInboundEvent` retorna `null` sem persistir nada. Causa provável no engine NOWEB 2026.5.1:
 
-2. As tentativas recentes falham por JSON inválido causado por truncamento da resposta do modelo.
-   - Documento `910e5d1a-8874-420b-86bd-4a228b0eb6bc`: `status='failed'`, `error='extraction:invalid_json|cid=10be2264-2431-4709-8ee2-2b3b7886fb56'`, `tokens_out=8000`, `extraction_ms=31914`, `extracted_count=0`.
-   - Documento `f36e4728-895e-450d-8eba-3de5bab440c6`: `status='failed'`, `error='extraction:invalid_json|cid=f645c27a-83dc-44c5-80de-010102431da5'`, `tokens_out=8000`, `extraction_ms=34209`, `extracted_count=0`.
-   - Documento `31e950a0-13c1-463a-9843-0be10dd06581`: `status='failed'`, `error='extraction:invalid_json|cid=7f14dd05-ffbd-4f08-9705-cdf1d736072f'`, `tokens_out=8000`, `extraction_ms=33923`, `extracted_count=0`.
-   - O padrão `tokens_out=8000` exatamente igual ao limite configurado indica saída cortada antes de fechar o JSON.
+- `payload.from` / `payload.key.remoteJid` vêm como `<num>@lid` (identificador opaco do NOWEB), não `@c.us` nem `@s.whatsapp.net`. Após remover `@c.us`/`@s.whatsapp.net`, o parser atual mantém `<num>@lid`, então derruba tudo em `@.+` e passa um número **não real** para `normalizeBrPhone`, que falha (ou pior, aceitaria um id opaco). O telefone real vem em campos `*Alt` (`remoteJidAlt`, `participantAlt`) ou aninhados em `_data.key.*`.
+- Não há nenhum caminho de log/persistência para eventos descartados, então o "200 silencioso" esconde a causa.
+- Não há dedupe entre `message` e `message.any` (o mesmo `provider_message_id` chega duas vezes). Hoje é absorvido pela unique key em `inbound_messages`, mas o diagnóstico duplica.
 
-3. O pipeline já conseguiu extrair esse tipo de documento antes, mas com custo/tempo inviável.
-   - Documento `703108bb-e07c-4c2e-8df6-97b6a225dd50`: `extracted_count=235`, `tokens_out=43074`, `extraction_ms=166132`, `status='canceled'`.
-   - Isso prova que o documento é interpretável, mas a abordagem atual exige resposta longa demais.
+## Correção cirúrgica
 
-4. O usuário vê mensagem ruim porque `invalid_json` vira erro genérico de “documento confuso”.
-   - Na prática, o problema não é o PDF ser confuso; é o contrato de saída da IA ser grande demais e frágil.
+Escopo restrito a `_shared/messaging/waha.ts` (parser), `_shared/messaging/types.ts` (helper `resolveRealJid`, opcional), `whatsapp-webhook/index.ts` (persistência do diagnóstico) e testes.
 
-5. O loop vem da combinação de falha retentável + retomada/polling + processamento sem checkpoint útil.
-   - Quando a IA falha antes de gravar `extracted_items`, o documento fica sem resultado útil.
-   - Reprocessar o documento inteiro repete a mesma chamada longa e volta a bater no limite.
+### 1) Parser NOWEB seguro (`mapInboundEvent`)
 
-## Causa raiz
+Ordem de resolução do telefone (para cada candidato, extrair sufixo e só aceitar `@c.us` ou `@s.whatsapp.net`; **rejeitar `@lid`, `@g.us`, `@broadcast`, `@newsletter`**):
 
-A extração está tentando transformar um PDF inteiro em um único JSON grande, com objetos verbosos por lançamento. Em extratos densos, o modelo gera muitos itens e atinge o teto de saída (`8000` tokens), deixando JSON incompleto. Como a gravação só acontece após parsear o JSON inteiro, qualquer truncamento descarta tudo.
+```
+pl.remoteJidAlt
+pl.participantAlt
+pl._data?.key?.remoteJidAlt
+pl._data?.key?.participantAlt
+pl._data?.remoteJidAlt
+pl.key?.remoteJidAlt
+pl.key?.participantAlt
+pl.from              (se sufixo c.us/s.whatsapp.net)
+pl.key?.remoteJid    (se sufixo c.us/s.whatsapp.net)
+pl.participant       (se sufixo c.us/s.whatsapp.net)
+```
 
-# Plano de correção definitiva
+Regras invariantes:
+- Se todos os candidatos válidos falharem → retornar `null` com `reason="no_real_jid"`.
+- Nunca passar um `@lid` para `normalizeBrPhone`. Nunca gravar `@lid` em `whatsapp_links.phone_e164`.
+- Bloquear grupos: sufixo `@g.us` em qualquer candidato aceito → `reason="group"`.
+- `fromMe` (raiz ou `key.fromMe` ou `_data.key.fromMe`) → `reason="from_me"`.
+- Filtro de evento: aceitar apenas `event ∈ {message, message.any}` explicitamente; qualquer outro → `reason="event_ignored"` (hoje há um tolerante que aceita ausência de evento — manter).
+- `msgId`: `pl.id (string|object._serialized|object.id) → pl.key?.id → pl._data?.id?._serialized → pl._data?.key?.id`. Se ausente → `reason="no_message_id"`.
+- `body`: manter o encadeamento atual + `pl.message?.imageMessage?.caption`, `videoMessage.caption`, `documentMessage.caption`, `pl._data?.message?.*` equivalentes. Vazio é permitido (mídia sem legenda) — não é motivo de descarte.
+- `timestamp`: aceitar `pl.timestamp` (segundos) e `pl.messageTimestamp` (segundos). Sanitizar se fora de `[now-30d, now+1d]` → cair para `Date.now()`.
 
-## 1. Trocar a extração monolítica por extração em lotes com checkpoint
+Retorno adicional (opcional, sem quebrar contrato): função interna `classifyInbound(payload)` que retorna `{ ok: NormalizedInbound } | { ok: null, reason, event, session, jid_domains: string[] }`. O `mapInboundEvent` continua expondo apenas `NormalizedInbound | null` (compatível com `MessagingProvider`).
 
-Implementar no `assistant-ingest-document` um modo de processamento por páginas/faixas:
+### 2) Dedupe message + message.any
 
-- Detectar PDF e dividir o trabalho em janelas pequenas.
-- Processar cada janela separadamente com limite rígido de itens por lote.
-- Persistir os itens válidos imediatamente após cada lote.
-- Atualizar `counters`, `updated_at` e metadados de progresso a cada lote.
-- Se um lote falhar, marcar apenas aquele trecho como falho e preservar os lançamentos já extraídos.
+No `whatsapp-webhook/index.ts`, após `classifyInbound`, calcular `provider_message_id` **antes** do insert (já é feito). O unique constraint já dedupa a persistência do inbound; o problema é chamar `runOrchestrator` duas vezes. Adicionar guarda: `INSERT ... ON CONFLICT (provider_message_id) DO NOTHING RETURNING id`. Se `id` for null → segunda cópia, responder `{ok:true, dedup:true}` sem orquestrar (o código atual já faz isso via `if (insErr) return dedup`, mas depende do erro de duplicate; migrar para `ignoreDuplicates` explícito é mais robusto).
 
-Resultado esperado: um erro em uma parte do PDF não joga fora tudo que já foi extraído.
+### 3) Diagnóstico sanitizado
 
-## 2. Reduzir drasticamente o tamanho do contrato de resposta da IA
-
-Alterar o prompt e o parser para aceitar resposta compacta, com menos tokens:
+Nova tabela leve `provider_inbound_drops` (ou reuso de `provider_health_events` com `kind='inbound_drop'`). Preferir **reuso de `provider_health_events`** — já existe no schema — para evitar migration nova. Payload gravado:
 
 ```json
 {
-  "k":"statement",
-  "n":"observações curtas",
-  "i":[
-    ["expense","2026-07-16",9.93,"Uber","account",null,null,"transaction"]
-  ]
+  "reason": "no_real_jid" | "group" | "from_me" | "event_ignored" | "foreign_session" | "no_message_id" | "unmapped",
+  "event": "message.any",
+  "session": "default",
+  "jid_domains": ["lid"],       // sufixos vistos, nunca o JID inteiro
+  "has_alt": false,
+  "has_key": true
 }
 ```
 
-Mapear internamente para o contrato canônico atual (`ExtractedItem`).
+Nunca gravar: body, telefone, JID completo, pushName, ids privados, payload bruto.
 
-Manter compatibilidade com o formato antigo durante a transição.
+No `whatsapp-webhook`, substituir todos os `return json({ok:true, ignored:...})` por: `await logDrop(reason, evt, session, jid_domains)` + `return json`. Falha do log não bloqueia a resposta.
 
-## 3. Usar fallback de recuperação de JSON parcial
+### 4) Testes unitários (Vitest)
 
-Quando o modelo retornar JSON truncado:
+Novo arquivo `src/test/waha-mapinbound.test.ts` cobrindo `classifyInbound` (exportado para testes):
 
-- Tentar extrair o maior prefixo válido do array `i`.
-- Salvar os itens recuperáveis.
-- Marcar o documento como `needs_review` com nota de extração parcial, em vez de `failed` total quando houver itens aproveitáveis.
+- NOWEB @lid com `remoteJidAlt: "5511999999999@s.whatsapp.net"` → aceita, `from_phone="+5511999999999"`.
+- NOWEB @lid sem alt → `reason="no_real_jid"`.
+- Legado `pl.from="5511988887777@c.us"` → aceita.
+- `fromMe: true` na raiz → `reason="from_me"`.
+- `key.fromMe: true` aninhado → `reason="from_me"`.
+- `remoteJid: "...@g.us"` → `reason="group"`.
+- `event: "session.status"` → `reason="event_ignored"`.
+- Sem `key.id` nem `id` nem `_data.id` → `reason="no_message_id"`.
+- Mesmo `provider_message_id` chegando via `message` e `message.any` → segundo insert é dedup (teste no wrapper, mockando supabase).
+- Body vindo apenas de `imageMessage.caption`.
+- Timestamp fora de janela → substituído por `Date.now()`.
 
-Resultado esperado: `invalid_json` deixa de ser erro fatal quando há lançamentos úteis na resposta.
+Rodar `vitest run` — meta: 100% verde + suite anterior estável.
 
-## 4. Prompt mais operacional, menos interpretativo
+### 5) Deploy
 
-Substituir instruções subjetivas por regras mecânicas:
+Apenas `whatsapp-webhook`. `whatsapp-send` **não** precisa (não muda). `_shared/messaging/waha.ts` é incluído automaticamente na função quando referenciado.
 
-- Extrair somente linhas transacionais.
-- Ignorar saldo, limite, total, cabeçalho, rodapé, fatura paga, resumo e propaganda.
-- Não resumir o documento.
-- Não explicar raciocínio.
-- Não preencher categoria se não estiver clara.
-- Preservar descrição literal quando não houver merchant conhecido.
-- Retornar no máximo N itens por lote.
-- Se houver mais itens no trecho, sinalizar `has_more=true`/nota curta.
+## Arquivos
 
-## 5. Melhorar a UX de erro/progresso no painel do assessor
+- `supabase/functions/_shared/messaging/waha.ts` — reescrever `mapInboundEvent` + exportar `classifyInbound`.
+- `supabase/functions/_shared/messaging/jid.ts` (novo, opcional) — util `parseJid(raw): { local, domain } | null` + lista branca de domínios reais.
+- `supabase/functions/whatsapp-webhook/index.ts` — usar `classifyInbound`, logar drops em `provider_health_events`, dedupe explícito por `provider_message_id`.
+- `src/test/waha-mapinbound.test.ts` (novo).
+- Sem migration nova (reusa `provider_health_events`). Se essa tabela não tiver o shape necessário, cria migration mínima adicionando índice `(created_at desc)` — verificar antes.
 
-No `AssessorPanel`:
+## Critério de aceite
 
-- Mostrar estados distintos: `enviado`, `lendo arquivo`, `extraindo lançamentos`, `salvando revisão`, `revisão parcial`, `falhou`.
-- Trocar “documento confuso” por mensagens técnicas amigáveis:
-  - “Consegui ler parte do arquivo. Revise os lançamentos encontrados.”
-  - “A extração ficou grande demais. Vou tentar por partes.”
-  - “Não consegui acessar o arquivo enviado” apenas quando for upload/storage real.
-- Não disparar reprocessamento automático imediato após `invalid_json`; usar botão “Tentar novamente por partes”.
+1. Enviar mensagem real do WhatsApp para o número oficial:
+   - `inbound_messages` ganha linha nova (uma só, mesmo com `message`+`message.any`).
+   - `conversations`/`conversation_messages` populam.
+   - `agent_runs` registra execução.
+   - `outbound_messages` recebe resposta e é enviada.
+2. Payload com `@lid` sem alt não deve mais causar 200 silencioso — deve aparecer registro em `provider_health_events` com `reason="no_real_jid"`.
+3. Nenhum `whatsapp_links.phone_e164` contém `@lid` (query de verificação).
+4. Todos os testes novos + suite existente passam.
+5. Deploy de `whatsapp-webhook` confirmado; nenhuma alteração em WAHA/sessão/infra.
 
-## 6. Anti-loop real no processamento de documentos
+## Fora do escopo
 
-Adicionar proteção por documento:
-
-- Registrar tentativa atual com `cid`, modo e janela processada.
-- Se o mesmo documento falhar pelo mesmo erro duas vezes seguidas, mudar estratégia automaticamente para lote menor.
-- Se falhar três vezes, parar e pedir ação do usuário, sem continuar reprocessando sozinho.
-- Não chamar `resume` em documento com erro terminal recente.
-
-## 7. Validação E2E com evidências
-
-Depois da implementação, validar com o documento real recente:
-
-- Reprocessar `910e5d1a-8874-420b-86bd-4a228b0eb6bc` ou novo upload equivalente.
-- Confirmar no banco:
-  - `status='needs_review'` ou `status='completed'`.
-  - `extracted_items > 0`.
-  - `tokens_out` por chamada abaixo do teto.
-  - `counters.total_items` coerente.
-- Confirmar nos logs:
-  - nenhuma chamada bate exatamente `tokens_out=8000`.
-  - sem `extraction:invalid_json` fatal.
-- Confirmar na UI:
-  - painel abre revisão em lote.
-  - usuário consegue editar e confirmar.
-
-# Arquivos previstos
-
-- `supabase/functions/assistant-ingest-document/index.ts`
-  - Extração compacta, lotes, checkpoints, fallback de JSON parcial e anti-loop.
-- `supabase/functions/_shared/documents/types.ts`
-  - Parser compatível com formato compacto e formato antigo.
-- `src/components/assessor/AssessorPanel.tsx`
-  - Estados e mensagens de erro/progresso mais precisos.
-- Testes em `src/test/assistant-ingest-retry.test.ts` ou novo teste de parser compacto.
-
-# Fora do escopo
-
-- Não mexer em WhatsApp webhook, WAHA, sessão ou infraestrutura de WhatsApp.
-- Não publicar frontend.
-- Não alterar o schema principal sem necessidade.
-- Não apagar dados antigos automaticamente.
-
-# Resultado esperado
-
-O assessor deixa de depender de uma única resposta gigante da IA. PDFs densos passam a ser processados por partes, com salvamento incremental, mensagens corretas e proteção contra loop. Mesmo quando a IA produzir saída parcial, o usuário deve conseguir revisar os lançamentos extraídos em vez de receber uma falha genérica.
+- WAHA config, sessão, QR, admin panel.
+- `whatsapp-send`, orquestrador, agente, prompts.
+- Frontend/publish.

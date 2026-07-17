@@ -1,5 +1,9 @@
 import type { MessagingProvider, NormalizedInbound } from "./types.ts";
 import { normalizeBrPhone } from "./types.ts";
+import { classifyInbound, type ClassifiedInbound } from "./wahaInbound.ts";
+
+export { classifyInbound } from "./wahaInbound.ts";
+export type { ClassifiedInbound } from "./wahaInbound.ts";
 
 // Runtime WAHA config. Initialized from env vars (retrocompat) and can be
 // hydrated at request time from the Supabase Vault via `loadWahaConfig`.
@@ -323,83 +327,17 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
     return false;
   },
   mapInboundEvent(payload: unknown): NormalizedInbound | null {
-    const p = payload as {
-      event?: string;
-      session?: string;
-      payload?: {
-        id?: string | { id?: string; _serialized?: string };
-        from?: string;
-        to?: string;
-        body?: string;
-        fromMe?: boolean;
-        timestamp?: number;
-        key?: { id?: string; remoteJid?: string; fromMe?: boolean };
-        message?: {
-          conversation?: string;
-          extendedTextMessage?: { text?: string };
-          imageMessage?: { caption?: string };
-          videoMessage?: { caption?: string };
-        };
-        pushName?: string;
-        hasMedia?: boolean;
-        mimetype?: string;
-        media?: { url?: string; mimetype?: string; filename?: string };
-        _data?: { id?: { _serialized?: string } };
-      };
-    };
-    if (p?.session && p.session !== WAHA_SESSION) return null;
-    // Accept both event-name conventions from WAHA 2026.5.1.
-    if (p?.event && !["message", "message.any"].includes(p.event)) {
-      // still tolerate legacy payloads without `event`
-      // return null only for explicit non-message events
-      const ev = p.event.toLowerCase();
-      if (ev.startsWith("session.") || ev.startsWith("state.")) return null;
-    }
-    const pl = p?.payload;
-    if (!pl) return null;
-    const fromMe = Boolean(pl.fromMe ?? pl.key?.fromMe);
-    if (fromMe) return null;
-
-    // Resolve `from`: prefer explicit `from`, fall back to key.remoteJid.
-    const rawFrom = (pl.from ?? pl.key?.remoteJid ?? "").toString();
-    if (!rawFrom) return null;
-    const cleanedFrom = rawFrom
-      .replace(/@c\.us$/i, "")
-      .replace(/@s\.whatsapp\.net$/i, "")
-      .replace(/@.+$/, ""); // drop group suffixes just in case
-    const from = normalizeBrPhone(cleanedFrom);
-    if (!from) return null;
-
-    // Resolve message id — WAHA sometimes returns an object.
-    let msgId: string | undefined;
-    if (typeof pl.id === "string") msgId = pl.id;
-    else if (pl.id && typeof pl.id === "object") msgId = pl.id._serialized ?? pl.id.id;
-    if (!msgId) msgId = pl.key?.id ?? pl._data?.id?._serialized;
-    if (!msgId) msgId = crypto.randomUUID();
-
-    // Resolve body — WAHA 2026.5.1 may nest text under `message.*`.
-    const body = (
-      pl.body ??
-      pl.message?.conversation ??
-      pl.message?.extendedTextMessage?.text ??
-      pl.message?.imageMessage?.caption ??
-      pl.message?.videoMessage?.caption ??
-      ""
-    ).toString().trim();
-
+    const c = classifyInbound(payload, WAHA_SESSION);
+    if (!c.ok) return null;
     return {
       provider: "waha",
-      provider_message_id: msgId,
-      from_phone: from,
-      to_phone: pl.to ?? undefined,
-      body,
+      provider_message_id: c.provider_message_id,
+      from_phone: c.from_phone,
+      to_phone: c.to_phone,
+      body: c.body,
       from_bot: false,
-      received_at: new Date((pl.timestamp ?? Date.now() / 1000) * 1000).toISOString(),
-      media: pl.media?.url ? {
-        url: pl.media.url,
-        mime_type: pl.media.mimetype ?? pl.mimetype ?? "application/octet-stream",
-        filename: pl.media.filename,
-      } : undefined,
+      received_at: c.received_at,
+      media: c.media,
     };
   },
   // --- WahaExtras (portal admin) ---

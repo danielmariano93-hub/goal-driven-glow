@@ -1983,6 +1983,42 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_inbound_drops: {
+        Row: {
+          event: string | null
+          has_alt: boolean
+          has_key: boolean
+          id: string
+          jid_domains: string[]
+          occurred_at: string
+          provider: string
+          reason: string
+          session: string | null
+        }
+        Insert: {
+          event?: string | null
+          has_alt?: boolean
+          has_key?: boolean
+          id?: string
+          jid_domains?: string[]
+          occurred_at?: string
+          provider: string
+          reason: string
+          session?: string | null
+        }
+        Update: {
+          event?: string | null
+          has_alt?: boolean
+          has_key?: boolean
+          id?: string
+          jid_domains?: string[]
+          occurred_at?: string
+          provider?: string
+          reason?: string
+          session?: string | null
+        }
+        Relationships: []
+      }
       pulse_snapshots: {
         Row: {
           band: string

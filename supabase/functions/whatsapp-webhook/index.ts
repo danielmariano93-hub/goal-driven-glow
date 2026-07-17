@@ -18,7 +18,34 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
+import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
+
+type DropCtx = {
+  reason: string;
+  event: string | null;
+  session: string | null;
+  jid_domains: string[];
+  has_alt: boolean;
+  has_key: boolean;
+};
+
+async function logDrop(
+  sb: ReturnType<typeof createClient>,
+  ctx: DropCtx,
+) {
+  try {
+    await sb.from("provider_inbound_drops").insert({
+      provider: "waha",
+      reason: ctx.reason,
+      event: ctx.event,
+      session: ctx.session,
+      jid_domains: ctx.jid_domains,
+      has_alt: ctx.has_alt,
+      has_key: ctx.has_key,
+    });
+  } catch (_) { /* diagnostic — never blocks the response */ }
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -103,18 +130,34 @@ Deno.serve(async (req) => {
 
   let payload: unknown;
   try { payload = JSON.parse(raw); } catch { return json({ error: "invalid_json" }, 400); }
-  const evtSession = (payload as { session?: string } | null)?.session;
-  const expected = getSessionName();
-  if (evtSession && evtSession !== expected) {
-    console.log(`[webhook] ignored foreign session=${evtSession}`);
-    return json({ ok: true, ignored: "foreign_session" }, 200);
-  }
-  const evt = provider.mapInboundEvent(payload);
-  if (!evt) return json({ ok: true, ignored: "unmapped_or_bot" }, 200);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  const expected = getSessionName();
+  const classified = classifyInbound(payload, expected);
+  if (!classified.ok) {
+    await logDrop(sb, {
+      reason: classified.reason,
+      event: classified.event,
+      session: classified.session,
+      jid_domains: classified.jid_domains,
+      has_alt: classified.has_alt,
+      has_key: classified.has_key,
+    });
+    console.log(`[webhook] dropped reason=${classified.reason} event=${classified.event ?? ""} jids=${classified.jid_domains.join(",")}`);
+    return json({ ok: true, ignored: classified.reason }, 200);
+  }
+  const evt = {
+    provider: "waha" as const,
+    provider_message_id: classified.provider_message_id,
+    from_phone: classified.from_phone,
+    to_phone: classified.to_phone,
+    body: classified.body,
+    received_at: classified.received_at,
+    media: classified.media,
+  };
 
   const raw_hash = await sha256Hex(raw);
   const { data: inb, error: insErr } = await sb.from("inbound_messages").insert({
