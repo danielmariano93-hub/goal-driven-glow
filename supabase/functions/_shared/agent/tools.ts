@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { computeBeforeSpending } from "../engine/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
+import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -16,6 +17,10 @@ export type ToolContext = {
   sb: SupabaseClient;
   user_id: string;
   conversation_id: string;
+  /** Raw user text of the current turn. Used server-side to derive
+   *  occurred_at from pt-BR relative anchors (hoje/ontem/anteontem)
+   *  regardless of any date the model may have hallucinated. */
+  user_text?: string;
 };
 
 export type ToolResult = { ok: true; result: any } | { ok: false; error: string };
