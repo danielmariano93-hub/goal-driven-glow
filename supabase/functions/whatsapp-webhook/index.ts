@@ -341,31 +341,41 @@ Deno.serve(async (req) => {
   }
 
 
-  try {
-    const result = await runOrchestrator({
-      user_id: link.user_id, conversation_id: conv.id as string,
-      inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
-    });
-    await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
-    triggerDispatcher();
-    return json({ ok: true, reply_kind: result.reply_kind, path: result.path });
-  } catch (e) {
-    const sanitized = String((e as Error).message ?? "orchestrator_error").slice(0, 200);
-    console.error("[webhook] orchestrator failed", sanitized);
-    // Idempotent friendly reply so the user never gets silence.
-    const idem = `orch-err:${inbound_message_id}`;
-    await sb.from("outbound_messages").insert({
-      user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
-      channel: "whatsapp",
-      idempotency_key: idem,
-      inbound_message_id,
-      status: "queued",
-      body: "Tive um problema para responder agora. Pode tentar novamente em instantes? 💛",
-    });
-    await sb.from("inbound_messages")
-      .update({ processed_at: new Date().toISOString(), ignored_reason: "orchestrator_error" })
-      .eq("id", inbound_message_id);
-    triggerDispatcher();
-    return json({ ok: true, error: "orchestrator_error" });
+  // Detach the orchestrator from the HTTP response. WAHA only needs a 200 to
+  // ACK the webhook; long LLM turns must not keep the request open (isolate
+  // may be killed mid-flight and the user gets silence). We ACK now, run the
+  // agent in the background, and ALWAYS enqueue a reply — success or crash.
+  const orchestrate = async () => {
+    try {
+      await runOrchestrator({
+        user_id: link.user_id, conversation_id: conv.id as string,
+        inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
+      });
+      await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+    } catch (e) {
+      const sanitized = String((e as Error).message ?? "orchestrator_error").slice(0, 200);
+      console.error("[webhook] orchestrator failed", sanitized);
+      const idem = `orch-err:${inbound_message_id}`;
+      await sb.from("outbound_messages").insert({
+        user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
+        channel: "whatsapp",
+        idempotency_key: idem,
+        inbound_message_id,
+        status: "queued",
+        body: FRIENDLY_ORCHESTRATOR_ERROR,
+      }).then(() => {}, () => {});
+      await sb.from("inbound_messages")
+        .update({ processed_at: new Date().toISOString(), ignored_reason: "orchestrator_error" })
+        .eq("id", inbound_message_id).then(() => {}, () => {});
+    } finally {
+      triggerDispatcher();
+    }
+  };
+
+  if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+    EdgeRuntime.waitUntil(orchestrate());
+  } else {
+    orchestrate().catch((err) => console.error("[webhook] orchestrate bg", err));
   }
+  return json({ ok: true, accepted: true, inbound_message_id }, 202);
 });
