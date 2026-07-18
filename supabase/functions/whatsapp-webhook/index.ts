@@ -107,6 +107,40 @@ async function firstNameFor(sb: ReturnType<typeof createClient>, userId: string)
   } catch { return null; }
 }
 
+async function ensureConversation(
+  sb: ReturnType<typeof createClient>,
+  args: { user_id: string; phone_e164: string },
+): Promise<string | null> {
+  const now = new Date().toISOString();
+  const { data: existing, error: selectErr } = await sb.from("conversations")
+    .select("id")
+    .eq("user_id", args.user_id)
+    .eq("phone_e164", args.phone_e164)
+    .maybeSingle();
+  if (selectErr) console.error("[webhook] conversation select failed", String(selectErr.message).slice(0, 200));
+  if (existing?.id) {
+    await sb.from("conversations").update({ last_message_at: now }).eq("id", existing.id).then(() => {}, () => {});
+    return existing.id as string;
+  }
+
+  const { data: created, error: insertErr } = await sb.from("conversations").insert({
+    user_id: args.user_id,
+    phone_e164: args.phone_e164,
+    last_message_at: now,
+    source: "whatsapp",
+  }).select("id").maybeSingle();
+  if (created?.id) return created.id as string;
+
+  // Race-safe retry: another webhook may have created the conversation first.
+  if (insertErr) console.error("[webhook] conversation insert failed", String(insertErr.message).slice(0, 200));
+  const { data: retry } = await sb.from("conversations")
+    .select("id")
+    .eq("user_id", args.user_id)
+    .eq("phone_e164", args.phone_e164)
+    .maybeSingle();
+  return (retry?.id as string | undefined) ?? null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -245,13 +279,22 @@ Deno.serve(async (req) => {
     return json({ ok: true, unlinked: true });
   }
 
-  const { data: conv } = await sb.from("conversations").upsert(
-    { user_id: link.user_id, phone_e164: evt.from_phone, last_message_at: new Date().toISOString() },
-    { onConflict: "user_id,phone_e164" },
-  ).select("id").maybeSingle();
-  if (!conv) return json({ error: "conv_failed" }, 500);
+  const conversationId = await ensureConversation(sb, { user_id: link.user_id as string, phone_e164: evt.from_phone });
+  if (!conversationId) {
+    await sb.from("outbound_messages").insert({
+      user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
+      channel: "whatsapp", inbound_message_id,
+      idempotency_key: `conv-err:${inbound_message_id}`,
+      status: "queued", body: FRIENDLY_ORCHESTRATOR_ERROR,
+    }).then(() => {}, () => {});
+    await sb.from("inbound_messages")
+      .update({ processed_at: new Date().toISOString(), ignored_reason: "conversation_error" })
+      .eq("id", inbound_message_id).then(() => {}, () => {});
+    triggerDispatcher();
+    return json({ ok: true, error: "conversation_error" }, 200);
+  }
   await sb.from("conversation_messages").insert({
-    conversation_id: conv.id, user_id: link.user_id, direction: "inbound",
+    conversation_id: conversationId, user_id: link.user_id, direction: "inbound",
     body_masked: evt.body.slice(0, 500),
   });
 
@@ -348,7 +391,7 @@ Deno.serve(async (req) => {
   const orchestrate = async () => {
     try {
       await runOrchestrator({
-        user_id: link.user_id, conversation_id: conv.id as string,
+      user_id: link.user_id, conversation_id: conversationId,
         inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
       });
       await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
