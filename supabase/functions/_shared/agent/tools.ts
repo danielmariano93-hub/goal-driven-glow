@@ -436,7 +436,10 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
     patch.description = p.description ?? null;
   }
   if (typeof p.amount === "number" && p.amount > 0) patch.amount = p.amount;
-  if (typeof p.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_at)) patch.occurred_at = p.occurred_at;
+  if (typeof p.occurred_at === "string" && p.occurred_at.trim()) {
+    const r = resolveOccurredAt({ text: ctx.user_text, modelValue: p.occurred_at });
+    patch.occurred_at = r.iso;
+  }
   if (typeof p.notes === "string" || p.notes === null) patch.notes = p.notes ?? null;
   if (p.category !== undefined) {
     if (p.category === null || p.category === "") patch.category_id = null;
