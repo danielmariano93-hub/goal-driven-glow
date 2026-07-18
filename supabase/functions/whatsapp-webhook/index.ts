@@ -351,7 +351,7 @@ Deno.serve(async (req) => {
       user_id: link.user_id,
       source: "whatsapp",
       provider_message_id: evt.provider_message_id,
-      conversation_id: conv.id,
+      conversation_id: conversationId,
       storage_path,
       mime_type: dl.mime_type,
       size_bytes: dl.bytes.length,
