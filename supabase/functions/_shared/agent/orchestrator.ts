@@ -60,7 +60,7 @@ async function enqueueReply(
   sb: SupabaseClient,
   args: { user_id: string; to_phone: string; body: string; idempotency_key: string; inbound_message_id: string; source: "whatsapp"|"simulator" }
 ) {
-  await sb.from("outbound_messages").insert({
+  const { error } = await sb.from("outbound_messages").insert({
     user_id: args.user_id,
     to_phone: args.to_phone,
     body: args.body,
@@ -70,6 +70,27 @@ async function enqueueReply(
     inbound_message_id: args.inbound_message_id,
     status: args.source === "simulator" ? "sent" : "queued",
   });
+  if (error) {
+    // Duplicate idempotency_key is safe to ignore (retry path).
+    const msg = String(error.message ?? "");
+    if (!/duplicate|unique/i.test(msg)) {
+      console.error("[orchestrator] enqueueReply failed", msg.slice(0, 200));
+      throw new Error("outbound_insert_failed");
+    }
+  }
+}
+
+export const FRIENDLY_ORCHESTRATOR_ERROR =
+  "Tive um problema para responder agora. Pode tentar novamente em instantes? 💛";
+
+/** Map a conversation_messages row (real schema: direction/body_masked) to
+ *  the {role, content} shape the LLM expects. Exported for unit tests. */
+export function mapConversationRow(row: { direction?: string | null; body_masked?: string | null }): { role: "user" | "assistant"; content: string } | null {
+  const dir = String(row?.direction ?? "");
+  if (dir !== "inbound" && dir !== "outbound") return null;
+  const content = String(row?.body_masked ?? "").trim();
+  if (!content) return null;
+  return { role: dir === "inbound" ? "user" : "assistant", content };
 }
 
 function buildReceipt(kind: string, result: any): string {
@@ -201,18 +222,26 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
     return { reply: body, reply_kind: "cancelled", path: "deterministic_fallback" };
   }
 
-  // Register a run
-  const prompt = await loadActivePrompt(sb);
+  // ----- Guarded run: any failure below still produces a friendly reply -----
   const startedAt = Date.now();
-  const { data: run } = await sb.from("agent_runs").insert({
-    user_id: input.user_id,
-    conversation_id: input.conversation_id,
-    prompt_version_id: prompt.id,
-    model: prompt.model,
-    status: "running",
-    started_at: new Date().toISOString(),
-  }).select("id").maybeSingle();
-  const run_id = run?.id as string | undefined;
+  let prompt: Awaited<ReturnType<typeof loadActivePrompt>> | null = null;
+  try { prompt = await loadActivePrompt(sb); }
+  catch (e) { console.error("[orchestrator] loadActivePrompt failed", String((e as Error).message).slice(0, 200)); }
+
+  let run_id: string | undefined;
+  try {
+    const { data: run } = await sb.from("agent_runs").insert({
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      prompt_version_id: prompt?.id ?? null,
+      model: prompt?.model ?? "unknown",
+      status: "running",
+      started_at: new Date().toISOString(),
+    }).select("id").maybeSingle();
+    run_id = run?.id as string | undefined;
+  } catch (e) {
+    console.error("[orchestrator] agent_runs insert failed", String((e as Error).message).slice(0, 200));
+  }
 
   let path: "llm" | "deterministic_fallback" = "deterministic_fallback";
   let reply = ""; let draft_id: string | undefined;
@@ -221,19 +250,18 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
   let errorSanitized: string | null = null;
   const toolCallLog: Array<{ step_index: number; tool_name: string; args: any; result: any; ok: boolean; duration_ms: number; error?: string | null }> = [];
 
-  if (isLLMConfigured()) {
+  if (prompt && isLLMConfigured()) {
     try {
-      // Load recent conversation history so the agent can act on the "last
-      // transaction" referenced implicitly ("muda a categoria", "era X").
+      // Load recent conversation history (real schema: direction/body_masked).
       const { data: histRows } = await sb.from("conversation_messages")
-        .select("role, content, created_at")
+        .select("direction, body_masked, created_at")
         .eq("conversation_id", input.conversation_id)
         .order("created_at", { ascending: false })
         .limit(12);
-      const history = ((histRows ?? []) as Array<{ role: string; content: string }>)
+      const history = ((histRows ?? []) as Array<{ direction: string; body_masked: string }>)
         .reverse()
-        .filter(r => r.role === "user" || r.role === "assistant")
-        .map(r => ({ role: r.role as "user" | "assistant", content: String(r.content ?? "") }));
+        .map(mapConversationRow)
+        .filter((r): r is { role: "user" | "assistant"; content: string } => r !== null);
 
       const turn = await runAgentTurn(
         { sb, user_id: input.user_id, conversation_id: input.conversation_id },
@@ -244,16 +272,10 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
       path = "llm";
       tokensIn = turn.tokensIn; tokensOut = turn.tokensOut; steps = turn.steps;
       toolCallLog.push(...turn.toolCalls);
-      // Detect draft creation
       const draftCall = turn.toolCalls.find(c => c.ok && c.tool_name.endsWith("_draft"));
-      if (draftCall) {
-        draft_id = draftCall.result?.draft_id;
-        kind = "draft";
-      } else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) {
-        kind = "cancelled";
-      } else {
-        kind = "info";
-      }
+      if (draftCall) { draft_id = draftCall.result?.draft_id; kind = "draft"; }
+      else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) kind = "cancelled";
+      else kind = "info";
     } catch (e) {
       errorSanitized = sanitizeError(e);
       path = "deterministic_fallback";
@@ -261,36 +283,45 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
   }
 
   if (path === "deterministic_fallback") {
-    const fb = await fallbackTurn(sb, input);
-    reply = fb.reply; draft_id = fb.draft_id; kind = fb.kind;
+    try {
+      const fb = await fallbackTurn(sb, input);
+      reply = fb.reply; draft_id = fb.draft_id; kind = fb.kind;
+    } catch (e) {
+      errorSanitized = errorSanitized ?? sanitizeError(e);
+      reply = FRIENDLY_ORCHESTRATOR_ERROR;
+      kind = "info";
+    }
   }
 
   const latency = Date.now() - startedAt;
 
   if (run_id) {
-    await sb.from("agent_runs").update({
-      status: errorSanitized ? "error" : "done",
-      ended_at: new Date().toISOString(),
-      path,
-      steps,
-      tokens_in: tokensIn || null,
-      tokens_out: tokensOut || null,
-      latency_ms: latency,
-      error_sanitized: errorSanitized,
-      error_masked: errorSanitized,
-    }).eq("id", run_id);
-
-    if (toolCallLog.length > 0) {
-      await sb.from("agent_tool_calls").insert(
-        toolCallLog.map(c => ({
-          run_id, step_index: c.step_index, tool_name: c.tool_name,
-          args: c.args ?? {}, result: c.result ?? null,
-          ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
-        })),
-      );
+    try {
+      await sb.from("agent_runs").update({
+        status: errorSanitized ? "error" : "done",
+        ended_at: new Date().toISOString(),
+        path, steps,
+        tokens_in: tokensIn || null,
+        tokens_out: tokensOut || null,
+        latency_ms: latency,
+        error_sanitized: errorSanitized,
+        error_masked: errorSanitized,
+      }).eq("id", run_id);
+      if (toolCallLog.length > 0) {
+        await sb.from("agent_tool_calls").insert(
+          toolCallLog.map(c => ({
+            run_id, step_index: c.step_index, tool_name: c.tool_name,
+            args: c.args ?? {}, result: c.result ?? null,
+            ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
+          })),
+        );
+      }
+    } catch (e) {
+      console.error("[orchestrator] run persistence failed", String((e as Error).message).slice(0, 200));
     }
   }
 
+  if (!reply) reply = FRIENDLY_ORCHESTRATOR_ERROR;
   await enqueueReply(sb, { ...input, body: reply, idempotency_key: idem });
   return { reply, reply_kind: kind, path, draft_id, run_id };
 }

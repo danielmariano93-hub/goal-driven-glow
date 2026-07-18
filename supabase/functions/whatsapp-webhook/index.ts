@@ -338,11 +338,31 @@ Deno.serve(async (req) => {
   }
 
 
-  const result = await runOrchestrator({
-    user_id: link.user_id, conversation_id: conv.id as string,
-    inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
-  });
-  await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
-  triggerDispatcher();
-  return json({ ok: true, reply_kind: result.reply_kind, path: result.path });
+  try {
+    const result = await runOrchestrator({
+      user_id: link.user_id, conversation_id: conv.id as string,
+      inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
+    });
+    await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+    triggerDispatcher();
+    return json({ ok: true, reply_kind: result.reply_kind, path: result.path });
+  } catch (e) {
+    const sanitized = String((e as Error).message ?? "orchestrator_error").slice(0, 200);
+    console.error("[webhook] orchestrator failed", sanitized);
+    // Idempotent friendly reply so the user never gets silence.
+    const idem = `orch-err:${inbound_message_id}`;
+    await sb.from("outbound_messages").insert({
+      user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
+      channel: "whatsapp",
+      idempotency_key: idem,
+      inbound_message_id,
+      status: "queued",
+      body: "Tive um problema para responder agora. Pode tentar novamente em instantes? 💛",
+    });
+    await sb.from("inbound_messages")
+      .update({ processed_at: new Date().toISOString(), ignored_reason: "orchestrator_error" })
+      .eq("id", inbound_message_id);
+    triggerDispatcher();
+    return json({ ok: true, error: "orchestrator_error" });
+  }
 });
