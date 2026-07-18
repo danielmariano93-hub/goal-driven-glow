@@ -109,7 +109,7 @@ function buildReceipt(kind: string, result: any): string {
 
 async function fallbackTurn(sb: SupabaseClient, input: OrchestratorInput): Promise<{ reply: string; draft_id?: string; kind: OrchestratorResult["reply_kind"] }> {
   const intent: ParsedIntent = interpret(input.text);
-  const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id };
+  const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text };
 
   if (intent.kind === "query") {
     if (intent.topic === "summary") {
