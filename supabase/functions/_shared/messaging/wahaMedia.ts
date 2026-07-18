@@ -92,7 +92,7 @@ export async function downloadInboundMedia(opts: {
     const guard = assertPublicHttpsUrl(opts.media.url);
     if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
     const res = await fetchWithLimits(opts.media.url, {});
-    if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
+    if (res.ok === true) return finalize(res.bytes, declaredMime, filenameHint);
     // Do NOT fall through if the failure was a hard safety violation
     if (res.code !== "download_failed") return { ok: false, code: res.code, detail: res.detail };
   }
@@ -103,7 +103,7 @@ export async function downloadInboundMedia(opts: {
     if (!baseGuard.ok) return { ok: false, code: "unsafe_url", detail: baseGuard.code };
     const url = `${opts.apiUrl.replace(/\/$/, "")}/api/${encodeURIComponent(opts.session)}/files/${encodeURIComponent(opts.messageId)}`;
     const res = await fetchWithLimits(url, { "X-Api-Key": opts.apiKey });
-    if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
+    if (res.ok === true) return finalize(res.bytes, declaredMime, filenameHint);
     return { ok: false, code: res.code, detail: res.detail };
   }
 
