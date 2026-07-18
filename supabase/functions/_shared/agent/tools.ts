@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { computeBeforeSpending } from "../engine/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
+import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -16,6 +17,10 @@ export type ToolContext = {
   sb: SupabaseClient;
   user_id: string;
   conversation_id: string;
+  /** Raw user text of the current turn. Used server-side to derive
+   *  occurred_at from pt-BR relative anchors (hoje/ontem/anteontem)
+   *  regardless of any date the model may have hallucinated. */
+  user_text?: string;
 };
 
 export type ToolResult = { ok: true; result: any } | { ok: false; error: string };
@@ -86,7 +91,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
   days?: number; from?: string; to?: string; payment_method?: "account" | "credit_card";
 }): Promise<ToolResult> {
   const iso = /^\d{4}-\d{2}-\d{2}$/;
-  const to = iso.test(args?.to ?? "") ? args.to! : new Date().toISOString().slice(0, 10);
+  const to = iso.test(args?.to ?? "") ? args.to! : todaySaoPaulo();
   const days = Math.max(1, Math.min(366, Number(args?.days ?? 30)));
   const start = new Date(`${to}T12:00:00Z`);
   start.setUTCDate(start.getUTCDate() - days + 1);
@@ -245,7 +250,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   if (rawDesc && METHOD_ONLY_TERMS.has(normDesc)) {
     return { ok: false, error: "needs_description", hint: "A descrição não pode ser apenas o meio de pagamento (crédito, débito, pix, cartão…). Pergunte ao usuário 'em quê foi essa compra?' antes de criar o rascunho." } as any;
   }
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
   const cat = await resolveCategoryId(ctx, args.category, args.type);
 
   if (args.credit_card && args.type === "expense") {
@@ -285,7 +290,7 @@ export async function create_transfer_draft(ctx: ToolContext, args: {
   const to = await resolveAccountId(ctx, args.to_account);
   if (!from || !to) return { ok: false, error: "account_not_found" };
   if (from.id === to.id) return { ok: false, error: "same_account" };
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
   const summary = `Transferência de ${BRL.format(amount)} de ${from.name} para ${to.name} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transfer", { amount, from_account_id: from.id, to_account_id: to.id, occurred_at, description: args.description ?? null }, summary);
   if (!id) return { ok: false, error: "draft_failed" };
@@ -329,7 +334,7 @@ export async function add_goal_contribution_draft(ctx: ToolContext, args: {
   }
   if (!goalId) return { ok: false, error: "goal_not_found" };
   const acc = args.account ? await resolveAccountId(ctx, args.account) : null;
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
   const summary = `Aporte de ${BRL.format(amount)} para “${goalName}”${acc ? ` de ${acc.name}` : ""} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "goal_contribution", { goal_id: goalId, amount, account_id: acc?.id ?? null, occurred_at }, summary);
   if (!id) return { ok: false, error: "draft_failed" };
@@ -431,7 +436,10 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
     patch.description = p.description ?? null;
   }
   if (typeof p.amount === "number" && p.amount > 0) patch.amount = p.amount;
-  if (typeof p.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.occurred_at)) patch.occurred_at = p.occurred_at;
+  if (typeof p.occurred_at === "string" && p.occurred_at.trim()) {
+    const r = resolveOccurredAt({ text: ctx.user_text, modelValue: p.occurred_at });
+    patch.occurred_at = r.iso;
+  }
   if (typeof p.notes === "string" || p.notes === null) patch.notes = p.notes ?? null;
   if (p.category !== undefined) {
     if (p.category === null || p.category === "") patch.category_id = null;

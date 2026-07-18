@@ -47,6 +47,60 @@ export function todaySaoPaulo(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** True when `iso` is a real calendar date (round-trips through Date). */
+export function isValidCalendarDate(iso: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso ?? "")) return false;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (y < 1970 || y > 2100) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/** Shift a São Paulo ISO date by N days. */
+export function shiftSaoPaulo(baseIso: string, days: number): string {
+  const [Y, M, D] = baseIso.split("-").map(Number);
+  const dt = new Date(Date.UTC(Y, M - 1, D + days, 12, 0, 0));
+  return todaySaoPaulo(dt);
+}
+
+/** Detect hoje/ontem/anteontem in pt-BR text. Returns the resolved ISO date
+ *  (America/Sao_Paulo) or null when the text has no relative anchor. */
+export function resolveRelativeDate(text: string, now: Date = new Date()): string | null {
+  if (!text) return null;
+  const t = text.toLowerCase();
+  const today = todaySaoPaulo(now);
+  if (/\banteontem\b/.test(t)) return shiftSaoPaulo(today, -2);
+  if (/\bontem\b/.test(t)) return shiftSaoPaulo(today, -1);
+  if (/\bhoje\b|\bagora\b/.test(t)) return today;
+  return null;
+}
+
+/** Server-side sanitizer for `occurred_at`. Precedence:
+ *  1) If user text contains a relative anchor (hoje/ontem/anteontem), FORCE it.
+ *  2) Else, if the model produced a valid, plausible date, keep it.
+ *  3) Else, fall back to today in America/Sao_Paulo.
+ *  Plausibility: no future dates; no dates older than 370 days unless the
+ *  text itself carries an explicit YYYY-MM-DD literal. */
+export function resolveOccurredAt(input: { text?: string; modelValue?: string | null; now?: Date }): { iso: string; source: "relative" | "model" | "today"; note?: string } {
+  const now = input.now ?? new Date();
+  const today = todaySaoPaulo(now);
+  const rel = resolveRelativeDate(input.text ?? "", now);
+  if (rel) return { iso: rel, source: "relative" };
+  const mv = String(input.modelValue ?? "");
+  if (isValidCalendarDate(mv)) {
+    const explicit = /\b\d{4}-\d{2}-\d{2}\b/.test(input.text ?? "");
+    const [Y1, M1, D1] = today.split("-").map(Number);
+    const [Y2, M2, D2] = mv.split("-").map(Number);
+    const t0 = Date.UTC(Y1, M1 - 1, D1);
+    const tv = Date.UTC(Y2, M2 - 1, D2);
+    const diffDays = Math.round((t0 - tv) / 86400000);
+    if (tv > t0) return { iso: today, source: "today", note: "future_rejected" };
+    if (diffDays > 370 && !explicit) return { iso: today, source: "today", note: "too_old_rejected" };
+    return { iso: mv, source: "model" };
+  }
+  return { iso: today, source: "today" };
+}
+
 function relativeDate(text: string, now: Date = new Date()): string {
   const today = todaySaoPaulo(now);
   const t = text.toLowerCase();

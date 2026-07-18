@@ -109,7 +109,7 @@ function buildReceipt(kind: string, result: any): string {
 
 async function fallbackTurn(sb: SupabaseClient, input: OrchestratorInput): Promise<{ reply: string; draft_id?: string; kind: OrchestratorResult["reply_kind"] }> {
   const intent: ParsedIntent = interpret(input.text);
-  const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id };
+  const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text };
 
   if (intent.kind === "query") {
     if (intent.topic === "summary") {
@@ -264,7 +264,7 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
         .filter((r): r is { role: "user" | "assistant"; content: string } => r !== null);
 
       const turn = await runAgentTurn(
-        { sb, user_id: input.user_id, conversation_id: input.conversation_id },
+        { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text },
         input.text,
         { model: prompt.model, maxSteps: prompt.max_steps, temperature: prompt.temperature, systemPrompt: prompt.system_prompt, timeoutMs: 25_000, history },
       );

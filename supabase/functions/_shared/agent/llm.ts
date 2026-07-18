@@ -8,6 +8,24 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { openAIToolDefinitions, toolByName, type ToolContext, type ToolResult } from "./tools.ts";
+import { todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
+
+/** Builds a deterministic temporal system message. The LLM MUST use these
+ *  values as "now" — never dates from examples, history, or its training. */
+function temporalSystemContext(now: Date = new Date()): string {
+  const hoje = todaySaoPaulo(now);
+  const ontem = shiftSaoPaulo(hoje, -1);
+  const anteontem = shiftSaoPaulo(hoje, -2);
+  return [
+    "CONTEXTO TEMPORAL (fonte da verdade — obrigatório):",
+    `- timezone=America/Sao_Paulo`,
+    `- hoje=${hoje}`,
+    `- ontem=${ontem}`,
+    `- anteontem=${anteontem}`,
+    "Regras: nunca use datas de exemplos, do histórico antigo ou do seu conhecimento como data atual.",
+    "Quando o usuário disser 'hoje', 'ontem' ou 'anteontem', use exatamente os valores acima em occurred_at. Se nenhuma data for citada, use hoje.",
+  ].join("\n");
+}
 
 const LOVABLE_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -77,6 +95,7 @@ export async function runAgentTurn(
   }));
   const messages: ChatMessage[] = [
     { role: "system", content: opts.systemPrompt },
+    { role: "system", content: temporalSystemContext() },
     ...history,
     { role: "user", content: userText },
   ];
