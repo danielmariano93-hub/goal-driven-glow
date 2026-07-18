@@ -95,6 +95,7 @@ export async function runAgentTurn(
   }));
   const messages: ChatMessage[] = [
     { role: "system", content: opts.systemPrompt },
+    { role: "system", content: temporalSystemContext() },
     ...history,
     { role: "user", content: userText },
   ];
