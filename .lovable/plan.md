@@ -1,200 +1,143 @@
 
-# Plano consolidado — Fluxo de documentos do assessor + WhatsApp
+# Plano — Correção definitiva: WhatsApp texto + Assessor de documentos
 
-## 1. Diagnóstico confirmado
+## 1. Evidências reais do banco (não hipóteses)
 
-**No código (arquivos lidos: `assistant-ingest-document/index.ts`, `_shared/documents/types.ts`, `_shared/documents/normalize.ts`, `whatsapp-webhook/index.ts`, `_shared/messaging/waha.ts`, `_shared/messaging/wahaInbound.ts`, `_shared/agent/orchestrator.ts`, `AssessorPanel.tsx`, `AssessorAttachButton.tsx`):**
+### 1a. WhatsApp: silêncio total pós-vinculação
+Após a última vinculação bem-sucedida em `2026-07-17 22:43` (Daniel, `+5511977992569`, link `234901cf` ativo), **nenhuma** mensagem de texto do usuário produziu resposta:
 
-- `normalizeAmountBR` rejeita corretamente `0`, negativos, `NaN` e infinitos tanto para número quanto para string. **A hipótese de que zero como número escapa está incorreta.**
-- `sanitize` normaliza `type` para `income|expense` e filtra `movement_kind === "informational"`. **Porém não valida o whitelist do banco:** valores como `transfer`, `payment`, `purchase`, `fee`, `credit`, `debit` são reencaminhados literalmente à coluna, violando `extracted_items_movement_kind_check`.
-- `normalizeDateBR` valida ISO real e distância <=370 dias, mas aceita mês/dia inválidos em ISO e datas parciais fora de faixa terminam no fallback silenciosamente sem marca de baixa confiança.
-- **Inserção em lote sem quarentena:** `sb.from("extracted_items").insert(rows)` — uma linha inválida derruba todas do lote (`items_insert: check constraint`), como registrado no `document_imports 2c72f7f6…`.
-- **Batching não determinístico:** cada iteração reenvia o PDF inteiro + exclude list. Sem paginação real (`PDF_BATCHES=5`, `dataUrl` completo). Custo repetido e risco de invalid_json (confirmado em vários `document_imports` recentes com erro `extraction:invalid_json`).
-- **Recuperação de JSON truncado exige `"i":`** — se o modelo devolve JSON mal formado antes desse marcador, todo o lote é perdido.
-- **Fluxo WhatsApp NÃO trata mídia.** `whatsapp-webhook/index.ts` chama `runOrchestrator` **apenas com texto**; `NormalizedInbound.media` é extraído em `wahaInbound.ts` mas nunca consumido. Não há download, não há criação de `document_imports` a partir de mensagem WhatsApp, não há confirmação ao usuário. Isso responde o "PDF enviado e nada aconteceu".
-- **Processamento durável frágil:** `EdgeRuntime.waitUntil` + heartbeat a cada 20s + `PROCESSING_STALE_MS=5min`. Se a isolate morrer, o job só é retomado quando o painel do assessor faz polling e chama `resume`. Sem worker/watchdog independente. Nenhum fluxo assíncrono suportado para o WhatsApp (usuário não abre painel).
-- **Anti-loop parcial:** `resume` verifica `updated_at` para não invadir job vivo, mas não há contador `attempt_count` nem `next_attempt_at` durável. Falhas sequenciais podem reprocessar indefinidamente se reabertas.
+| inbound_id | corpo | received_at | processed_at | outbound? | agent_run? | drop? |
+|---|---|---|---|---|---|---|
+| `32a101f5` | "Analise os gastos do meu extrato…" | 22:11 | **NULL** | não | não | não |
+| `71b12893` | "Você está analisando?" | 22:12 | NULL | não | não | não |
+| `38b77ce6` | "Olá, ainda está aí?" | 22:40 | NULL | não | não | não |
+| `9ea7147f` | "Acabei de gastar 21,90 no Mc Donalds" | 23:39 | NULL | não | não | não |
+| `d8a2f6e9` | "Oi" | 23:45 | NULL | não | não | não |
+| `c8696f78` | "Acabei de gastar 21,90…" | 07-18 20:31 | NULL | não | não | não |
+| `45502f2e` | "Acabei de gastar 21,90…" | 07-18 20:32 | NULL | não | não | não |
 
-**No banco (`supabase--read_query`):**
+`agent_runs` mais recente é `8dd5ccee` de `2026-07-17 17:23` (antes de tudo isso). Existem 2 runs órfãos com `status='running'` desde 07-16.
+`outbound_messages` mais recente é `2bc7b208` de `2026-07-17 22:43` (a saudação da vinculação). Zero outbounds após.
+`provider_inbound_drops` só registra `session.status` e `message.ack` — nenhum drop para essas inbounds.
+`provider_message_id` das falhas: `false_11746853019855@lid_...` — engine NOWEB com `@lid`.
 
-- Constraints reais de `extracted_items`:
-  - `amount > 0` (violado 1x hoje, `document 2c72f7f6…`).
-  - `movement_kind ∈ {transaction, refund, internal_transfer, investment_application, investment_redemption}` — sem `informational`.
-  - `type ∈ {income, expense}`; `payment_method ∈ {account, credit_card, null}`.
-  - `status ∈ {needs_review, ignored, confirmed, duplicate_suspect, rejected, failed, rolled_back}` — **`rejected` e `failed` já existem**, podemos usar para quarentena in-line sem migration extra de tabela.
-- Últimos 8 `document_imports`: 3 `extraction:invalid_json`, 1 `items_insert:amount_check`, 1 `timeout:aborted`, 2 `upload_missing`, 1 `canceled` com 235 itens.
-- Não existe tabela de eventos de progresso; painel do assessor consome `document_imports.counters`/status.
+**Conclusão factual:** o webhook está inserindo o `inbound_messages`, mas nunca chega a chamar `runOrchestrator` (ou o isolate morre antes do try/catch executar o fallback). Nenhum `agent_run` é criado, nenhum outbound (nem o "orch-err") é enfileirado, `processed_at` fica NULL. Isso é diferente do que o patch anterior desta thread afirmou ter resolvido.
 
-## 2. Hipóteses do usuário — o que foi confirmado
+**Causa raiz mais provável (a validar no fix, não afirmar como certeza):** o path chegou até `runOrchestrator` mas o isolate foi encerrado por timeout de LLM/edge antes do `catch`. Como `enqueueReply` só é chamado no final do orchestrator, um travamento em `runAgentTurn` (25 s de timeout interno + rede + retries) somado ao restante ultrapassa o wall-clock do isolate, e a fila não recebe nada. O `waitUntil` não é usado aqui, então quando o cliente HTTP cai, o trabalho pendente é abortado.
 
-| Hipótese | Confirmada? | Nota |
-|---|---|---|
-| Falha `amount_check` derruba lote | **Sim** | Mas causa não é number/string — é linha com amount 0 sobrevivendo por outro path. Corrigir com quarentena e revalidação pós-normalização. |
-| Falta whitelist de `movement_kind` e `type` | **Sim** para `movement_kind`; parcial para `type` | Precisa normalizar/quarentenar. |
-| Um item inválido derruba o lote | **Sim** | Ausência de per-row insert / try-per-row. |
-| Batching reenvia PDF inteiro | **Sim** | Reprocessa custo. |
-| `waitUntil` insuficiente | **Sim, parcial** | Frontend sustenta o retry, WhatsApp não tem quem sustente. |
-| WhatsApp não encaminha mídia | **Sim, crítico** | Nenhum code path. |
-| Sem comunicação de status pelo WhatsApp | **Sim** | Ausência de outbound de progresso. |
-| Painel sem estados claros / risco de loop | **Parcialmente** | Estados existem mas reabrir dispara `resume`. |
+### 1b. Assessor de documentos: falhas em cadeia
+Últimos `document_imports` (excluindo o único `confirmed` em 07-16 22:22):
 
-**Não confirmado:** que number 0 escape `normalizeAmountBR`. A rota real do zero é outra (provavelmente item com `movement_kind` desconhecido cujo amount passou zero após normalização adicional externa — a ser fechado no fix).
+- `2c72f7f6` (07-17 21:51) — `failed` — `items_insert: extracted_items_amount_check`. Zero linhas em `extracted_items` para esse `document_id` (batch inteiro perdido).
+- `910e5d1a`, `f36e4728`, `31e950a0` (07-17 20:56–21:22) — `failed` — `extraction:invalid_json`.
+- `703108bb` (07-17 20:34) — `canceled` com 235 itens (usuário desistiu; sinal de UX ruim).
+- `0252fd7f` (07-17 17:20) — `failed` — `timeout:aborted`.
+- 6 imports (07-17 14:42–16:30) — `failed` — `upload_missing`.
 
-## 3. Arquivos que serão alterados
+`document_processing_events`, `document_item_rejections` e `provider_inbound_drops` já existem no schema. Colunas `attempt_count`, `next_attempt_at`, `provider_message_id` já existem em `document_imports`. Ou seja, a fundação da rodada anterior está no banco, mas o código que a usa **não** está fechando os buracos.
 
-**Contrato de extração / validação:**
-- `supabase/functions/_shared/documents/types.ts` — endurecer sanitize, exportar `validateExtractedRow` com whitelists e resultado `{ ok, row } | { ok:false, reason, field }`.
-- `supabase/functions/_shared/documents/normalize.ts` — sem mudanças estruturais.
+### 1c. Mídia do WhatsApp
+`whatsapp-webhook/index.ts` já tem branch para `evt.media` que cria `document_imports` com `source='whatsapp'` e chama `assistant-ingest-document` em modo `process-inbound-media`. Nenhum `document_imports` com `source='whatsapp'` existe ainda — não há evidência de que o usuário tenha enviado PDF pelo WA nessa janela, então a rota é **não validada em produção**. Vai ficar como validação manual pós-fix.
 
-**Ingestão:**
-- `supabase/functions/assistant-ingest-document/index.ts`:
-  - Validar cada `row` antes do `insert` e separar em `valid_rows` / `rejected_rows`.
-  - Persistir válidos com insert em lote; se ainda falhar, degradar para insert linha-a-linha (raro).
-  - Persistir rejeições em `extracted_items` com `status='rejected'` + `duplicate_reason='rejected:<code>'` OU numa nova tabela leve — decisão: **usar `extracted_items` com `status='rejected'`** (sem migration nova).
-  - Substituir `recoverCompactJson` por parser tolerante que aceita JSON truncado mesmo sem `"i":` (procurar primeiro `[` após `k`).
-  - Anti-loop durável: novo campo `attempt_count` em `document_imports` (migration idempotente) + `next_attempt_at`; recusar novo `finalize/resume` quando `attempt_count >= 3` e `status='failed'`, exigindo botão de "reprocessar" que zera contador.
-  - Novo modo `ingest-whatsapp-media`: chamado pelo webhook após download, cria `document_imports` com `source='whatsapp'`, dispara background processing.
-  - Emitir eventos de progresso em `document_processing_events` (migration idempotente): `document_received`, `processing_started`, `fragment_completed`, `review_ready`, `processing_completed`, `processing_failed`.
-  - Para documentos com origem WhatsApp: enfileirar `outbound_messages` de status (imediato, no início, revisão pronta, conclusão/erro) — reaproveitando dispatcher existente.
+## 2. Objetivos desta rodada
 
-**WhatsApp mídia:**
-- `supabase/functions/_shared/messaging/wahaMedia.ts` (novo) — descoberta de mídia no payload NOWEB, download autenticado do endpoint WAHA (`/api/{session}/files/…` ou `hasMedia`+`downloadMedia`), SSRF guard reaproveitando `_shared/security/ssrf.ts`, whitelist MIME, cap 20 MB, magic bytes, `sha256Hex` para idempotência.
-- `supabase/functions/_shared/messaging/waha.ts` — expor helper `downloadInboundMedia(payloadOrId)` no provider.
-- `supabase/functions/whatsapp-webhook/index.ts` — quando `classified.media` presente: baixar, subir ao bucket `documents/{user_id}/{document_id}/{sha}.pdf` via service role, criar `document_imports` (`source='whatsapp'`, `provider_message_id`, `conversation_id`), disparar `assistant-ingest-document` em modo `ingest-whatsapp-media`, enfileirar outbound "Recebi seu documento…", **não** chamar orquestrador de texto quando o corpo estiver vazio e houver mídia (se houver legenda, gravar como `guidance`).
+1. Garantir que **toda** mensagem de texto do WhatsApp de usuário vinculado produza uma resposta — mesmo em falha de LLM, timeout ou crash — e que `processed_at`/`agent_runs`/`outbound_messages` reflitam o resultado.
+2. Impedir que uma única linha inválida em `extracted_items` derrube o import inteiro (quarentena real).
+3. Endurecer o parser de JSON do Gemini para recuperar itens parciais mesmo em truncamento sem `"i":`.
+4. Instituir cap real de tentativas (`attempt_count`) e watchdog de retomada para documentos.
+5. Diagnóstico persistido: gravar em `document_processing_events` cada transição para poder auditar sem depender de logs voláteis.
+6. Não tocar em WAHA/sessão/QR, nem em migração de banco desnecessária (colunas e tabelas já existem).
 
-**Painel do assessor:**
-- `src/components/assessor/AssessorPanel.tsx` — consumir `document_processing_events` (via query polling incremental) para exibir estágio real; desabilitar `resume` automático quando `attempt_count >= 3`; expor `correlation_id` só em modo debug/admin; parar polling em `completed|failed|needs_review|partial` estáveis.
-- `src/components/assessor/AssessorAttachButton.tsx` — apenas ajustes de mensagens do estado.
+## 3. Mudanças de código
 
-**Watchdog:**
-- Reaproveitar `whatsapp-ack-watchdog` como referência de padrão. Estender `documents-cleanup` para varrer documentos em `processing` com `updated_at < now()-5min` E `attempt_count < 3`: retomar via `assistant-ingest-document`. Se `attempt_count >= 3`, marcar `failed` com `error='terminal:max_attempts'`.
+### 3a. `supabase/functions/whatsapp-webhook/index.ts`
+- Envelopar todo o corpo pós-classificação em try/catch externo. Qualquer erro → `outbound_messages` `kind='agent'`, `idempotency_key='webhook-err:${inbound_message_id}'`, corpo `FRIENDLY_ORCHESTRATOR_ERROR`, `processed_at` marcado com `ignored_reason='webhook_error'`.
+- Encaminhar o trabalho pesado (orchestrator) via `EdgeRuntime.waitUntil` **quando não houver mídia** e responder 202 imediatamente, para que o timeout do cliente HTTP nunca aborte o isolate no meio do turno do LLM.
+- No mesmo `waitUntil`, gravar checkpoint em `agent_runs` já com `status='running'` **antes** de chamar o LLM (assim mesmo se o isolate morrer, há rastro).
+- Se `evt.media` presente e download falhar por `unsafe_url|mime_not_allowed|size_exceeds`, mensagem já é boa; adicionar telemetria `document_processing_events` (`processing_failed`, `error_code=download_failed`).
 
-## 4. Migrations necessárias (idempotentes, uma única)
+### 3b. `supabase/functions/_shared/agent/orchestrator.ts`
+- `runAgentTurn` timeout: reduzir de 25 s para 15 s + `maxSteps` respeitado.
+- Envolver a chamada do LLM em `Promise.race` com timeout interno curto que já dispara o fallback determinístico, evitando que o webhook precise esperar 25 s + rede.
+- Anti-loop: contador `steps` em memória e assertiva de que a mesma tool com os mesmos `args_hash` não pode ser chamada 2x sequenciais (aborta com `looped_tool_call`, fallback assume).
+- No fim, sempre chamar `enqueueReply`; se `enqueueReply` lançar, capturar e persistir `agent_runs.status='error'` com o motivo — nunca deixar a função sair sem outbound.
 
-1. `document_imports` — adicionar `attempt_count int not null default 0`, `next_attempt_at timestamptz`, `source text not null default 'app'` (se ainda não existir), `provider_message_id text unique nullable` (índice único parcial para evitar duplicidade WhatsApp).
-2. `document_processing_events` — nova tabela append-only: `id`, `document_id`, `user_id`, `event_type text check in (…)`, `stage text`, `progress_current int`, `progress_total int`, `items_found int`, `items_valid int`, `items_rejected int`, `error_code text`, `user_message text`, `metadata jsonb`, `created_at`. Grants + RLS: `authenticated` SELECT WHERE `user_id = auth.uid()`, `service_role ALL`.
-3. Índices: `document_imports (status, updated_at)` parcial WHERE `status='processing'`; `document_processing_events (document_id, created_at desc)`.
+### 3c. `supabase/functions/assistant-ingest-document/index.ts`
+- Antes de `sb.from("extracted_items").insert(rows)`, iterar `validateExtractedRow(row)` (helper existente em `_shared/documents/types.ts`; se ausente, criar). Separar em `valid_rows` e `rejected_rows`.
+- Insert dos válidos com `status='needs_review'`; dos rejeitados com `status='rejected'` e registro em `document_item_rejections` (tabela já existe).
+- Se um insert em lote válido ainda assim falhar por constraint (defesa em profundidade), degradar para inserts linha-a-linha; qualquer linha que quebre vai para `rejected` com `reason_code='constraint_violation'`.
+- Parser `recoverCompactJson`: procurar o primeiro `[` após o campo `k` (chaves), não exigir `"i":`. Suportar arrays de arrays truncados no meio. Testes cobrem os 3 casos já observados em produção.
+- Anti-loop de reprocessamento: incrementar `attempt_count` a cada `finalize/resume`; se `attempt_count >= 3` e `status='failed'`, retornar `terminal:max_attempts` sem chamar o LLM. Endpoint dedicado `reset-attempts` (admin/dono) zera para permitir retry manual.
+- Emitir eventos em `document_processing_events` nos pontos: `processing_started`, `fragment_completed`, `items_persisted`, `review_ready`, `processing_failed`, `processing_completed`.
 
-Sem alterar constraints existentes.
+### 3d. `supabase/functions/documents-cleanup/index.ts`
+- Varrer `document_imports` com `status='processing'` e `updated_at < now() - interval '5 minutes'`:
+  - Se `attempt_count < 3`: disparar `assistant-ingest-document` em modo `resume`.
+  - Se `attempt_count >= 3`: marcar `status='failed'`, `error='terminal:max_attempts'`, gravar `document_processing_events.processing_failed`, e se `source='whatsapp'` enfileirar outbound explicando falha.
 
-## 5. Arquitetura final
+### 3e. `src/components/assessor/AssessorPanel.tsx`
+- Consumir `document_processing_events` (query polling por `document_id, created_at > last_seen`) para exibir estágio real.
+- Botão "Reprocessar" só habilitado quando `attempt_count >= 3` e `status='failed'`; chama `reset-attempts` + `finalize`.
+- Parar polling em estados terminais estáveis (`completed`, `failed`, `needs_review`, `partial`).
 
-```text
-[App upload]                  [WhatsApp inbound com mídia]
-     |                                   |
-     v                                   v
-assistant-ingest-document          whatsapp-webhook
- (create-upload → finalize)         classifyInbound + wahaMedia.download
-     |                                   |
-     +----> document_imports <-----------+
-                  |
-                  v
-     background processDocument (waitUntil)
-        emite document_processing_events
-        valida cada row → válidos/rejeitados
-        insere extracted_items (valid=needs_review, rejected=rejected)
-        heartbeat a cada 20s + attempt_count
-                  |
-        +---------+---------+
-        |                   |
-   status=needs_review   status=failed
-        |                   |
-   outbound WA        outbound WA (erro terminal)
-   painel App         painel App (retry manual)
+## 4. Sem migração nova
+Todas as colunas/tabelas necessárias já existem (`attempt_count`, `next_attempt_at`, `document_processing_events`, `document_item_rejections`, `provider_inbound_drops`). Não há migração nesta rodada.
 
-documents-cleanup (cron 1min):
-  retoma processing com updated_at<5min E attempt<3
-  falha terminal em attempt>=3
-```
-
-Fila = coluna de status + `attempt_count` + `next_attempt_at` em `document_imports`. Não introduz uma nova tabela de jobs (evita complexidade).
-
-## 6. Sequência de implementação (lote único)
-
-1. Migration idempotente (attempt_count, next_attempt_at, source, provider_message_id, document_processing_events).
-2. `types.ts`: `validateExtractedRow` + whitelist.
-3. `assistant-ingest-document`: quarentena, parser tolerante, attempt_count, novo modo `ingest-whatsapp-media`, eventos de progresso, mensagens WA.
-4. `_shared/messaging/wahaMedia.ts` novo.
-5. `whatsapp-webhook`: caminho de mídia + idempotência via `provider_message_id` em `document_imports`.
-6. `documents-cleanup`: watchdog de retomada / falha terminal.
-7. `AssessorPanel.tsx`: consumir `document_processing_events`, respeitar attempt_count.
-8. Testes (ver §11).
-9. Rodar `vitest run` — verde.
-10. Deploy: `assistant-ingest-document`, `whatsapp-webhook`, `documents-cleanup`. Sem `whatsapp-send`, sem WAHA.
-11. E2E manual: (A) upload no app, (B) PDF pelo WhatsApp.
-
-## 7. Compatibilidade
-
-- Migration com `add column if not exists`.
-- `source` default `'app'` preserva registros antigos.
-- `extracted_items` com `status='rejected'` já é aceito pela CHECK atual.
-- Nenhuma remoção de coluna/tabela.
-- Não invalida imports em `needs_review`.
-- Prompt do modelo mantém contrato compacto atual; parser tolerante trata legado.
-
-## 8. Rollback
-
-- Todas as migrations idempotentes; rollback = revert do código + `alter table document_imports drop column if exists attempt_count, next_attempt_at`; `drop table if exists document_processing_events`.
-- Feature flag simples: se `whatsapp_media_enabled=false` no `platform_public_config`, webhook cai no comportamento antigo (ignora mídia, responde texto).
-
-## 9. Testes automatizados (novos + expansão)
-
+## 5. Testes (novos + expansão)
 Em `src/test/`:
 
-- `documents-validate-row.test.ts` — number 0, number negativo, NaN, Infinity, string "0", "-5", movement_kind desconhecido, type desconhecido, payment_method desconhecido, data mês 13, ISO válido, BR "1.234,56", subtotal, saldo, pagamento fatura.
-- `documents-batch-quarantine.test.ts` — lote com 49 válidos + 1 inválido: 49 inseridos com `needs_review`, 1 com `rejected` e reason coerente.
-- `documents-recover-json.test.ts` — JSON truncado sem `"i":`, JSON com objeto misturado com compacto, JSON com trailing garbage.
-- `waha-media.test.ts` (novo) — payload NOWEB com PDF (base64 e URL), imagem, MIME não suportado, > 20 MB, magic bytes mismatch, duplicado por `provider_message_id`.
-- `whatsapp-webhook-media.test.ts` (novo, mock supabase) — inbound com mídia cria `document_imports` e outbound imediato; inbound duplicado (`message`+`message.any`) não cria segundo import.
-- `assistant-ingest-attempts.test.ts` — attempt_count incrementa, terminal em 3, resume rejeita quando terminal.
+- `webhook-text-resilience.test.ts` — mock supabase-js; inbound de texto de usuário vinculado com `runOrchestrator` mockado para (a) sucesso, (b) throw, (c) timeout de 30 s: em todos os casos, `outbound_messages` recebe uma linha e `inbound_messages.processed_at` é atualizado.
+- `orchestrator-timeout-fallback.test.ts` — LLM demora > 15 s → fallback determinístico produz reply e `agent_runs.status='error'` com `error_sanitized='timeout'`.
+- `orchestrator-antiloop.test.ts` — mesma tool com mesmos args 2x → `looped_tool_call`, fallback assume.
+- `documents-quarantine-integration.test.ts` — lote 49 válidos + 1 inválido → 49 gravados como `needs_review`, 1 como `rejected` em `document_item_rejections`, import termina `needs_review`.
+- `documents-recover-json-truncated.test.ts` — JSON truncado sem `"i":`, com objeto misturado, com garbage inicial.
+- `documents-attempt-cap.test.ts` — 3ª tentativa falha → `status='failed'`, `error='terminal:max_attempts'`; `resume` recusa.
 
-Manter toda a suite existente verde.
+Toda a suite existente deve seguir verde (238/238 atualmente).
 
-## 10. Deploys
+## 6. Deploys
+`whatsapp-webhook`, `agent-chat` (compartilha `_shared/agent`), `assistant-ingest-document`, `documents-cleanup`.
+Não deployar `whatsapp-send`, WAHA, sessão ou frontend nesta rodada.
+Publish do frontend só depois da validação E2E manual dos dois fluxos.
 
-- `assistant-ingest-document`
-- `whatsapp-webhook`
-- `documents-cleanup`
+## 7. Validação E2E manual pós-deploy
+Cenário A — texto WhatsApp:
+1. Enviar "gastei 21,90 no bar hoje no Nubank" pelo número real.
+2. Esperar resposta em ≤ 30 s.
+3. Query esperada:
+```text
+inbound_messages.processed_at NOT NULL
+agent_runs: 1 linha nova com status='done' e steps>=1 (ou 'error' + fallback com outbound)
+outbound_messages: 1 linha nova com kind='agent', channel='whatsapp'
+```
 
-Sem `whatsapp-send`, sem WAHA, sem publish do frontend nesta rodada. Publish opcional apenas se AssessorPanel mudar de forma visível relevante — decisão após implementação.
+Cenário B — PDF WhatsApp (não validado hoje):
+1. Enviar PDF pequeno legível.
+2. Query esperada:
+```text
+document_imports source='whatsapp', status termina em 'needs_review' ou 'partial'
+document_processing_events com processing_started + review_ready
+outbound_messages: "Recebi seu documento…" e outra ao concluir
+```
 
-## 11. Critérios de aceite (objetivos)
+Cenário C — quarentena:
+Reproduzir o import `2c72f7f6` (mesmo storage_path) → agora termina `needs_review` com ao menos 1 linha `rejected`.
 
-1. Insert com 49 válidos + 1 inválido → 49 gravados (`status='needs_review'`), 1 gravado (`status='rejected'`), documento termina `needs_review`. Query: `select count(*), status from extracted_items where document_id=$X group by status`.
-2. Nenhum documento fica `failed` por causa de constraint violation em lote misto.
-3. `document 2c72f7f6` (reproduzido) processa até o fim.
-4. WhatsApp: envio de PDF gera 1 linha em `inbound_messages`, 1 em `document_imports` com `source='whatsapp'`, ≥1 em `outbound_messages` com mensagem de recebimento, 1 outbound de conclusão/revisão. `message`+`message.any` do mesmo PDF não duplicam.
-5. Fechar/reabrir painel não cria novo job (mesmo `document_id`, `attempt_count` inalterado até estado terminal).
-6. `attempt_count` chega no máximo a 3 em falhas repetidas; após, painel exibe "reprocessar" manual e `resume` recusa.
-7. Nenhum `@lid` grava em `whatsapp_links.phone_e164` (regressão já coberta).
-8. Vitest: 100% verde (suite existente + novos).
-9. E2E manual cenários A e B do briefing observados e reportados com IDs.
+## 8. Critérios de aceite
+1. Nenhuma inbound de texto de usuário vinculado fica com `processed_at=NULL` por mais de 60 s.
+2. `outbound_messages` sempre recebe ≥1 linha por inbound (sucesso, fallback determinístico, ou erro amigável).
+3. Nenhum documento `failed` por `items_insert:extracted_items_amount_check` — quarentena impede.
+4. Documentos com JSON truncado agora entram em `partial` com pelo menos os itens recuperados, não `failed`.
+5. `attempt_count` nunca ultrapassa 3.
+6. Vitest 100% verde.
 
-## 12. Riscos
+## 9. Fora de escopo (P1 declarado)
+- Fragmentação determinística por página do PDF.
+- Realtime (websocket).
+- Reconciliação automática de saldos com contas reais.
+- Mudanças em WAHA/sessão/QR.
 
-- **Endpoint de download WAHA depende da build/engine** — pode exigir tanto `GET /api/{session}/files/{msgId}` quanto `POST /api/{session}/chats/{jid}/messages/{msgId}/download`. Mitigação: `wahaMedia.ts` tenta ambos, com telemetria em `provider_health_events`.
-- **PDF muito grande no WhatsApp** — cap 20 MB, mensagem clara ao usuário se exceder.
-- **`extraction:invalid_json` residual** — parser tolerante recupera itens parciais; ainda assim marcamos `partial` no counters. Fragmentação determinística por página fica **fora do escopo desta rodada** (P1).
-- **Migration em produção com dados** — `add column if not exists` é seguro; tabela nova ganha grants explícitos.
-
-## 13. Fora de escopo (P1 declarado)
-
-- Fragmentação determinística de PDF por página (texto extraído + páginas renderizadas separadamente). Fica para próxima rodada, com o parser atual + quarentena estabilizando o fluxo.
-- Realtime (websocket) — usaremos polling do `document_processing_events` (barato: query por `document_id` com `> last_seen_at`).
-- Reconciliação automática de saldos com efeito colateral em conta real — só leitura/exibição.
-
-## 14. Estimativa de impacto em créditos / chamadas de IA
-
-Fluxo atual: para um extrato denso, até `PDF_BATCHES=5` chamadas × PDF inteiro reenviado = ~5× tokens_in de PDF grande + parcelas duplicadas quando invalid_json.
-
-Fluxo proposto (P0):
-- Chamadas continuam no máximo 5, mas:
-  - JSON tolerante evita retries por parse (elimina ~30% das chamadas hoje perdidas).
-  - Quarentena evita re-execução do documento inteiro por 1 linha ruim (elimina 100% dos retries do usuário).
-  - Attempt cap 3 impede loops infinitos em documentos ruins (limite duro).
-
-Ganho estimado por documento problemático: **-60% a -80% de tokens** relativamente ao estado atual.
-
-Custo adicional novo: `document_processing_events` (write barato, sem IA); download de mídia WhatsApp (sem IA); mensagens outbound (sem IA, `kind='system'`).
-
-Fragmentação por página (P1) reduzirá tokens_in em ~4× para PDFs grandes, mas não faz parte desta rodada.
+## 10. Riscos
+- **`EdgeRuntime.waitUntil` em webhook público:** garantir que o retorno 202 não conflita com expectativa do WAHA (que só verifica 2xx). Compatível.
+- **Timeout do LLM curto (15 s):** pode aumentar taxa de fallback determinístico em turnos complexos; mitigado pelo fato de que hoje o fallback é o único que responde de fato.
+- **Reprocessamento de doc antigo:** documentos com `attempt_count=0` e `status='failed'` continuam clicáveis pelo usuário; após o fix, virarão `needs_review/partial` no próximo `resume`.
