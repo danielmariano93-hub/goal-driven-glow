@@ -250,7 +250,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   if (rawDesc && METHOD_ONLY_TERMS.has(normDesc)) {
     return { ok: false, error: "needs_description", hint: "A descrição não pode ser apenas o meio de pagamento (crédito, débito, pix, cartão…). Pergunte ao usuário 'em quê foi essa compra?' antes de criar o rascunho." } as any;
   }
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
   const cat = await resolveCategoryId(ctx, args.category, args.type);
 
   if (args.credit_card && args.type === "expense") {
