@@ -91,7 +91,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
   days?: number; from?: string; to?: string; payment_method?: "account" | "credit_card";
 }): Promise<ToolResult> {
   const iso = /^\d{4}-\d{2}-\d{2}$/;
-  const to = iso.test(args?.to ?? "") ? args.to! : new Date().toISOString().slice(0, 10);
+  const to = iso.test(args?.to ?? "") ? args.to! : todaySaoPaulo();
   const days = Math.max(1, Math.min(366, Number(args?.days ?? 30)));
   const start = new Date(`${to}T12:00:00Z`);
   start.setUTCDate(start.getUTCDate() - days + 1);
