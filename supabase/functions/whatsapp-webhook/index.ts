@@ -20,7 +20,10 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { getProvider, getSessionName, getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
 import { downloadInboundMedia } from "../_shared/messaging/wahaMedia.ts";
-import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
+import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
+
+// deno-lint-ignore no-explicit-any
+declare const EdgeRuntime: any;
 
 type DropCtx = {
   reason: string;
