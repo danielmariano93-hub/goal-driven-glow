@@ -334,7 +334,7 @@ export async function add_goal_contribution_draft(ctx: ToolContext, args: {
   }
   if (!goalId) return { ok: false, error: "goal_not_found" };
   const acc = args.account ? await resolveAccountId(ctx, args.account) : null;
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
   const summary = `Aporte de ${BRL.format(amount)} para “${goalName}”${acc ? ` de ${acc.name}` : ""} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "goal_contribution", { goal_id: goalId, amount, account_id: acc?.id ?? null, occurred_at }, summary);
   if (!id) return { ok: false, error: "draft_failed" };
