@@ -94,7 +94,7 @@ export async function downloadInboundMedia(opts: {
     const res = await fetchWithLimits(opts.media.url, {});
     if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
     // Do NOT fall through if the failure was a hard safety violation
-    if (!res.ok && res.code !== "download_failed") return { ok: false, code: res.code, detail: res.detail };
+    if (res.code !== "download_failed") return { ok: false, code: res.code, detail: res.detail };
   }
 
   // Path 3: WAHA-hosted authenticated URL
