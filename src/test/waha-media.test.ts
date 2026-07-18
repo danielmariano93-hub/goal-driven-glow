@@ -31,7 +31,7 @@ describe("downloadInboundMedia", () => {
     const html = new TextEncoder().encode("<html>hi</html>");
     const r = await downloadInboundMedia({ media: { base64: b64(html), mime_type: "text/html" } });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("magic_mismatch");
+    if (r.ok === false) expect(r.code).toBe("magic_mismatch");
   });
 
   it("rejects unsafe (http/localhost) URLs before any network call", async () => {
@@ -39,14 +39,14 @@ describe("downloadInboundMedia", () => {
     globalThis.fetch = vi.fn(async () => { called = true; return new Response("nope"); }) as unknown as typeof fetch;
     const r = await downloadInboundMedia({ media: { url: "http://127.0.0.1/x.pdf", mime_type: "application/pdf" } });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("unsafe_url");
+    if (r.ok === false) expect(r.code).toBe("unsafe_url");
     expect(called).toBe(false);
   });
 
   it("returns no_url when nothing is provided", async () => {
     const r = await downloadInboundMedia({ media: {} });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("no_url");
+    if (r.ok === false) expect(r.code).toBe("no_url");
   });
 
   it("downloads via WAHA-authenticated endpoint when payload has no URL", async () => {
@@ -73,12 +73,12 @@ describe("downloadInboundMedia", () => {
     })) as unknown as typeof fetch;
     const r = await downloadInboundMedia({ media: { url: "https://example.com/big.pdf", mime_type: "application/pdf" } });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("size_exceeds");
+    if (r.ok === false) expect(r.code).toBe("size_exceeds");
   });
 
   it("rejects non-https URLs", async () => {
     const r = await downloadInboundMedia({ media: { url: "http://example.com/x.pdf", mime_type: "application/pdf" } });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("unsafe_url");
+    if (r.ok === false) expect(r.code).toBe("unsafe_url");
   });
 });
