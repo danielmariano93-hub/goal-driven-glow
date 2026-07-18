@@ -290,7 +290,7 @@ export async function create_transfer_draft(ctx: ToolContext, args: {
   const to = await resolveAccountId(ctx, args.to_account);
   if (!from || !to) return { ok: false, error: "account_not_found" };
   if (from.id === to.id) return { ok: false, error: "same_account" };
-  const occurred_at = /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at ?? "") ? args.occurred_at! : new Date().toISOString().slice(0, 10);
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
   const summary = `Transferência de ${BRL.format(amount)} de ${from.name} para ${to.name} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transfer", { amount, from_account_id: from.id, to_account_id: to.id, occurred_at, description: args.description ?? null }, summary);
   if (!id) return { ok: false, error: "draft_failed" };
