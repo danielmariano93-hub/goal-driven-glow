@@ -264,7 +264,7 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
         .filter((r): r is { role: "user" | "assistant"; content: string } => r !== null);
 
       const turn = await runAgentTurn(
-        { sb, user_id: input.user_id, conversation_id: input.conversation_id },
+        { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text },
         input.text,
         { model: prompt.model, maxSteps: prompt.max_steps, temperature: prompt.temperature, systemPrompt: prompt.system_prompt, timeoutMs: 25_000, history },
       );
