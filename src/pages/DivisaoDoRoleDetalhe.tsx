@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bell, CheckCircle2, Copy, Loader2, Pencil, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +11,7 @@ const messageLabels:Record<string,string>={queued:"Aguardando envio",processing:
 
 export default function DivisaoDoRoleDetalhe() {
   const { id }=useParams(); const nav=useNavigate();
+  const queryClient = useQueryClient();
   const [split,setSplit]=useState<any>(null); const [parts,setParts]=useState<any[]>([]); const [events,setEvents]=useState<any[]>([]);
   const [messages,setMessages]=useState<Record<string,any>>({}); const [busy,setBusy]=useState(false);
   const load=async()=>{
@@ -28,7 +30,8 @@ export default function DivisaoDoRoleDetalhe() {
   const received=external.reduce((s,p)=>s+Number(p.amount_paid),0), pending=external.reduce((s,p)=>s+Math.max(0,Number(p.amount_due)-Number(p.amount_paid)),0);
   const externalTotal=received+pending,progress=externalTotal?Math.min(100,Math.round(received/externalTotal*100)):100;
   const overdue=split?.due_date&&split.status==="active"&&split.due_date<new Date().toISOString().slice(0,10);
-  const act=async(fn:()=>PromiseLike<{error?:any}>,ok:string)=>{setBusy(true);try{const r=await fn();if(r.error)throw r.error;toast.success(ok);await load();}catch(e:any){toast.error(e.message||"Não consegui concluir");}finally{setBusy(false)}};
+  const refreshFinance=()=>{queryClient.invalidateQueries({queryKey:["shared_expenses"]});queryClient.invalidateQueries({queryKey:["transactions"]});queryClient.invalidateQueries({queryKey:["accounts"]});queryClient.invalidateQueries({queryKey:["credit_cards"]});queryClient.invalidateQueries({queryKey:["dashboard"]});};
+  const act=async(fn:()=>PromiseLike<{error?:any}>,ok:string)=>{setBusy(true);try{const r=await fn();if(r.error)throw r.error;refreshFinance();toast.success(ok);await load();}catch(e:any){toast.error(friendlyError(e));}finally{setBusy(false)}};
   const payment=(pid:string,amount:number)=>act(()=>supabase.rpc("split_add_payment_v2" as never,{p_participant_id:pid,p_amount:amount} as never),"Pagamento registrado");
   const retry=(pid:string)=>act(()=>supabase.rpc("split_enqueue_message" as never,{p_expense_id:id,p_participant_id:pid,p_kind:"reminder",p_when:new Date().toISOString()} as never),"Mensagem preparada para envio");
   const cancel=async()=>{const reason=prompt("Motivo do cancelamento (opcional):")??"";const hasReceived=received>0;if(!confirm(hasReceived?"Esta divisão já recebeu pagamentos. Ela será cancelada, mas os lançamentos serão preservados. Continuar?":"Cancelar esta divisão e remover o gasto vinculado?"))return;await act(()=>supabase.rpc("split_cancel" as never,{p_id:id,p_reason:reason||null,p_remove_transaction:!hasReceived} as never),"Divisão cancelada");};
@@ -47,3 +50,4 @@ export default function DivisaoDoRoleDetalhe() {
 }
 function Metric({label,value,tone=""}:{label:string;value:string;tone?:string}){return <div><p className="text-[10px] text-muted-foreground">{label}</p><p className={`text-sm font-bold ${tone}`}>{value}</p></div>}
 function eventLabel(v:string){return ({created:"Divisão criada",updated:"Divisão editada",payment:"Pagamento registrado",reverse_payment:"Pagamento desfeito",message_queued:"Mensagem agendada",message_enqueued:"Mensagem enviada para a fila",cancelled:"Divisão cancelada",reminders_scheduled:"Lembretes agendados"} as Record<string,string>)[v]??v.replace(/_/g," ")}
+function friendlyError(error: unknown){const message=error instanceof Error?error.message:typeof error==="string"?error:"";if(message.includes("Há pagamentos recebidos"))return "Esta divisão já recebeu pagamentos. Para preservar o histórico, cancele sem remover o lançamento.";if(message.includes("Divisão encerrada"))return "Esta divisão já foi encerrada.";if(message.includes("reminders_disabled"))return "Os lembretes estão desativados nesta divisão.";return message||"Não consegui concluir";}
