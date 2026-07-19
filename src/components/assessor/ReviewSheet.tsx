@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Check, Loader2, AlertTriangle, Ban, Trash2 } from "lucide-react";
+import { X, Check, Loader2, AlertTriangle, Ban, Trash2, RotateCcw, Copy, FileWarning } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAccounts, useCategories } from "@/lib/db/finance";
@@ -33,6 +33,8 @@ type Item = {
   duplicate_of: string | null;
   transaction_id: string | null;
   raw_description?: string | null;
+  bank_description?: string | null;
+  friendly_description?: string | null;
   normalized_description?: string | null;
   duplicate_reason?: string | null;
   category_source?: string | null;
@@ -51,6 +53,28 @@ type DocumentInfo = {
   counters: Record<string, number> | null;
   user_instructions: string | null;
   status: string;
+  source_account_id?: string | null;
+  source_credit_card_id?: string | null;
+  source_context_method?: string | null;
+};
+
+type Fragment = {
+  fragment_index: number;
+  total_fragments: number;
+  page_start: number;
+  page_end: number;
+  status: string;
+  attempts: number;
+  items_found: number;
+  duplicates_found: number;
+  error_code: string | null;
+};
+
+type Rejection = {
+  id: string;
+  item_index: number;
+  reason_code: string;
+  description_excerpt: string | null;
 };
 
 function parseBRLInput(raw: string): number | null {
@@ -87,6 +111,9 @@ export function ReviewSheet({
   const [reconciling, setReconciling] = useState(false);
   const [bulkTarget, setBulkTarget] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [fragments, setFragments] = useState<Fragment[]>([]);
+  const [rejections, setRejections] = useState<Rejection[]>([]);
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,8 +129,10 @@ export function ReviewSheet({
         setLoading(false);
         return;
       }
-      const d = data as { document: DocumentInfo; items: Item[] };
+      const d = data as { document: DocumentInfo; items: Item[]; fragments?: Fragment[]; rejections?: Rejection[] };
       setItems(d.items);
+      setFragments(d.fragments ?? []);
+      setRejections(d.rejections ?? []);
       setDocumentInfo(d.document);
       setDocKind(d.document?.document_kind ?? null);
       const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review").map((i) => i.id));
@@ -181,6 +210,36 @@ export function ReviewSheet({
       body: { action: "ignore", item_id: id },
     });
     if (error) toast.error("Falha", { description: error.message });
+  }
+
+  async function recoverRejected() {
+    if (rejections.length === 0) return;
+    setRecovering(true);
+    try {
+      const { error } = await supabase.functions.invoke("assistant-review-actions", {
+        body: { action: "reprocess-rejected", document_id: documentId },
+      });
+      if (error) throw error;
+      const { data } = await supabase.functions.invoke("assistant-review-actions", { body: { action: "list", document_id: documentId } });
+      const refreshed = data as { items?: Item[]; rejections?: Rejection[] };
+      setItems(refreshed.items ?? []);
+      setRejections(refreshed.rejections ?? []);
+      toast.success("Itens recuperáveis voltaram para revisão.");
+    } catch (error) {
+      console.error("[ReviewSheet] recover rejected", error);
+      toast.error("Não consegui recuperar os itens rejeitados.");
+    } finally { setRecovering(false); }
+  }
+
+  async function copyDiagnostic() {
+    const completed = fragments.filter((fragment) => fragment.status === "completed").length;
+    await navigator.clipboard.writeText([
+      `document_id=${documentId}`,
+      `status=${documentInfo?.status ?? "unknown"}`,
+      `fragments=${completed}/${fragments.length}`,
+      `rejections=${rejections.length}`,
+    ].join("\n"));
+    toast.success("Diagnóstico copiado.");
   }
 
   async function confirmSelection() {
@@ -294,6 +353,26 @@ export function ReviewSheet({
           <>
             {documentInfo && (
               <div className="space-y-2 border-b border-border bg-secondary/30 px-4 py-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold">{documentInfo.statement_bank ?? "Instituição não identificada"}</p>
+                    <p className="text-muted-foreground">{fragments.filter(f => f.status === "completed").length}/{fragments.length || 1} fragmento(s) concluído(s)</p>
+                  </div>
+                  <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
+                </div>
+                {fragments.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {fragments.map((fragment) => <span key={fragment.fragment_index} className={`whitespace-nowrap rounded-full border px-2 py-1 text-[10px] ${fragment.status === "completed" ? "border-success/40 bg-success/10" : fragment.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border bg-card"}`}>p. {fragment.page_start}-{fragment.page_end}: {fragment.status}</span>)}
+                  </div>
+                )}
+                {rejections.length > 0 && (
+                  <div className="rounded-xl border border-warning/40 bg-warning/5 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="inline-flex items-center gap-1 font-semibold"><FileWarning size={12}/> {rejections.length} rejeitado(s)</p>
+                      <button type="button" onClick={recoverRejected} disabled={recovering} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 disabled:opacity-50">{recovering ? <Loader2 className="h-3 w-3 animate-spin"/> : <RotateCcw size={11}/>} Recuperar</button>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <span>Período<br/><strong>{documentInfo.period_start ?? "—"} a {documentInfo.period_end ?? "—"}</strong></span>
                   <span>Duplicatas<br/><strong>{documentInfo.counters?.duplicate_strong ?? 0} fortes · {documentInfo.counters?.duplicate_ambiguous ?? 0} possíveis</strong></span>
@@ -360,7 +439,7 @@ export function ReviewSheet({
                       <div className="min-w-0 flex-1 space-y-2">
                         {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">Possível duplicata: {it.duplicate_reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.</p>}
                         {it.movement_kind && it.movement_kind !== "transaction" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
-                        {it.raw_description && it.raw_description !== it.description && <p className="text-[10px] text-muted-foreground">No banco: {it.raw_description}</p>}
+                        {(it.bank_description ?? it.raw_description) && (it.bank_description ?? it.raw_description) !== (it.friendly_description ?? it.description) && <p className="text-[10px] text-muted-foreground">No banco: {it.bank_description ?? it.raw_description}</p>}
                         <div className="flex items-center justify-between gap-2">
                           <input
                             value={it.description ?? ""}
@@ -488,7 +567,7 @@ export function ReviewSheet({
                 );
               })}
             </div>
-            <footer className="flex items-center gap-2 border-t border-border p-3">
+            <footer className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-card p-3">
               <button
                 onClick={cancelImport}
                 disabled={confirming}

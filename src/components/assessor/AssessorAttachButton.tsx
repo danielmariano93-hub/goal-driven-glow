@@ -112,12 +112,21 @@ export async function resumeIngestion(documentId: string): Promise<IngestResult>
   return current;
 }
 
+export type DocumentSourceContext = {
+  sourceAccountId?: string | null;
+  sourceCreditCardId?: string | null;
+};
+
 export async function ingestDocument(
   file: File,
   conversationId: string | null,
   guidance: string,
   onProgress?: (progress: IngestProgress) => void,
+  sourceContext: DocumentSourceContext = {},
 ): Promise<IngestResult> {
+  if (sourceContext.sourceAccountId && sourceContext.sourceCreditCardId) {
+    throw new Error("Escolha uma conta ou um cartão, não os dois.");
+  }
   onProgress?.({ stage: "preparing" });
   const isPdf = file.type === "application/pdf";
   const blob = isPdf ? file : await stripExifAndCompress(file).catch(() => file);
@@ -132,6 +141,8 @@ export async function ingestDocument(
       size_bytes: bytes.length,
       conversation_id: conversationId,
       guidance: guidance.trim() || null,
+      source_account_id: sourceContext.sourceAccountId ?? null,
+      source_credit_card_id: sourceContext.sourceCreditCardId ?? null,
     },
   });
   if (create.error) throw create.error;

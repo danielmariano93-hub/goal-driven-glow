@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
       .select("id,hits").eq("user_id", user.id).eq("alias_key", key).maybeSingle();
     if (existing) {
       const { data, error } = await sb.from("merchant_aliases").update({
-        friendly_name, category_id, hits: (existing as { hits?: number }).hits ?? 1 + 1,
+        friendly_name, category_id, hits: ((existing as { hits?: number }).hits ?? 1) + 1,
         last_used_at: new Date().toISOString(), learned_from: "confirmation",
       }).eq("id", existing.id).select().maybeSingle();
       if (error) return json({ error: "update_failed", details: error.message }, 400);

@@ -13,6 +13,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
+import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -127,12 +128,14 @@ Use null para campo desconhecido. Não use objetos dentro de "i".
 REGRAS ESTRITAS:
 - Valores em real brasileiro: aceite formatos 1.234,56 e 1234.56.
 - Datas em português brasileiro dd/mm/aaaa OU ISO YYYY-MM-DD.
-- A data atual é informada na mensagem do usuário. Se a linha não tiver data completa, use a data atual.
-- Nunca invente ano. Data parcial (apenas hora, dia/mês ou dia da semana) usa o ano da data atual.
+- Preserve a data literal da linha. Para dd/mm sem ano, use o ano do período do extrato.
+- Só use a data atual quando não existir data na linha nem período confiável no documento.
+- Nunca transforme uma data documental legítima em hoje e nunca aceite data futura sem evidência.
 - Elementos da interface do celular e datas de referência do extrato não são, por si só, a data da compra.
 - Nunca invente texto ilegível — melhor devolver i=[] e k="illegible".
 - Se for imagem não financeira (meme, foto, screenshot de conversa sem valores), devolva k="non_financial" e i=[].
 - EXCLUA todas as linhas informativas: SALDO DO DIA, saldo atual/em conta/anterior/disponível/total, limites, cabeçalhos, período, emissão, subtotais e totais.
+- Se precisar representar uma linha informativa no JSON intermediário, use movimento "informational"; ela será descartada antes da persistência.
 - RESGATE CDB é resgate de investimento, não receita. Aplicação é investimento, não despesa.
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
@@ -749,8 +752,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
       fragmentByIdx.set(Number(r.fragment_index), { status: String(r.status), attempts: Number(r.attempts ?? 0) });
     }
 
-    // Resolve contexto de origem (uma vez por documento) e persiste.
-    const srcCtx = await resolveSourceContext(sb, userId, doc, null);
+    // Contexto inicial respeita seleção explícita/guidance; após o metadata do
+    // extrato ele é recalculado para considerar o banco realmente detectado.
+    let srcCtx = await resolveSourceContext(sb, userId, doc, null);
     await sb.from("document_imports").update(srcCtx).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
 
 
@@ -832,10 +836,38 @@ async function processDocument(documentId: string, userId: string, guidance: str
       counters.batches_completed = batchIndex;
       counters.partial = counters.partial || out.partial;
       if (out.result.notes) notes.push(`Lote ${batchIndex}: ${out.result.notes}`);
-      if (out.statement && !statement) statement = out.statement;
+      if (out.statement && !statement) {
+        statement = out.statement;
+        const statementPatch = {
+          statement_bank: statement.bank,
+          statement_opening_balance: statement.opening_balance,
+          statement_closing_balance: statement.closing_balance,
+          statement_balance_date: statement.balance_date,
+          statement_period_start: statement.period_start,
+          statement_period_end: statement.period_end,
+          period_start: statement.period_start,
+          period_end: statement.period_end,
+        };
+        await sb.from("document_imports").update(statementPatch).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+        const afterMetadata = await resolveSourceContext(sb, userId, { ...doc, ...statementPatch }, statement);
+        if ((afterMetadata.source_context_confidence ?? 0) > (srcCtx.source_context_confidence ?? 0)) {
+          srcCtx = afterMetadata;
+          await sb.from("document_imports").update(srcCtx).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+        }
+      }
       if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
 
-      let extraction = out.result;
+      const periodStart = out.statement?.period_start ?? statement?.period_start ?? doc.statement_period_start ?? doc.period_start ?? null;
+      const periodEnd = out.statement?.period_end ?? statement?.period_end ?? doc.statement_period_end ?? doc.period_end ?? null;
+      let extraction = {
+        ...out.result,
+        items: out.result.items.map((item) => ({
+          ...item,
+          occurred_at: resolveDocumentDate(item.occurred_at, { statement_period_start: periodStart, statement_period_end: periodEnd, today: todaySaoPaulo() }).date,
+          purchase_date: item.purchase_date ? resolveDocumentDate(item.purchase_date, { statement_period_start: periodStart, statement_period_end: periodEnd, today: todaySaoPaulo() }).date : null,
+          competence_date: item.competence_date ? resolveDocumentDate(item.competence_date, { statement_period_start: periodStart, statement_period_end: periodEnd, today: todaySaoPaulo() }).date : null,
+        })),
+      };
       if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance ?? "")) {
         const today = todaySaoPaulo();
         extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
@@ -928,8 +960,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
             category_confidence: it.category_confidence,
             movement_kind: it.movement_kind ?? "transaction",
             // Contexto de origem propaga: só preenche se o item não tem já um match forte por hint
-            account_id: it.account_id ?? (srcCtx.source_account_id && !it.credit_card_id ? srcCtx.source_account_id : null),
-            credit_card_id: it.credit_card_id ?? (srcCtx.source_credit_card_id && !it.account_id ? srcCtx.source_credit_card_id : null),
+            account_id: it.credit_card_id ? null : (it.account_id ?? srcCtx.source_account_id ?? null),
+            credit_card_id: it.account_id ? null : (it.credit_card_id ?? srcCtx.source_credit_card_id ?? null),
             installments_total: it.installments_total,
             installment_number: it.installment_number,
             purchase_date: it.purchase_date,
@@ -1046,6 +1078,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
       await sb.from("document_fragments").update({
         status: "completed",
         items_found: (out.result.items ?? []).length,
+        duplicates_found: batchDupStrong + batchDupAmbiguous,
         extraction_ms: Date.now() - fragmentStart,
         tokens_in: out.tokens_in,
         tokens_out: out.tokens_out,
@@ -1071,6 +1104,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
       statement_balance_date: statement?.balance_date ?? null,
       period_start: statement?.period_start ?? null,
       period_end: statement?.period_end ?? null,
+      statement_period_start: statement?.period_start ?? null,
+      statement_period_end: statement?.period_end ?? null,
       statement_bank: statement?.bank ?? null,
       counters: { ...counters, notes: notes.slice(0, 6), stopped_after_error: lastErrorTag ?? null },
       error: finalStatus === "failed" && lastErrorTag ? encodeError(lastErrorTag, correlationId) : null,
