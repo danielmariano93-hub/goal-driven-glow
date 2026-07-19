@@ -1,14 +1,18 @@
-import { useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageCircle } from "lucide-react";
-import { AssessorPanel } from "./AssessorPanel";
+import { useAssessor } from "@/context/AssessorContext";
 
+/**
+ * Botão flutuante que apenas dispara `openAssessor()`. O painel em si é
+ * renderizado pelo `AppLayout` (uma única instância global), evitando
+ * duplicação com a rota `/app/assessor`.
+ */
 export function AssessorFab() {
-  const [open, setOpen] = useState(false);
+  const { openAssessor } = useAssessor();
 
   const fab = (
     <button
-      onClick={() => setOpen(true)}
+      onClick={() => openAssessor("fab")}
       aria-label="Falar com meu assessor"
       className="fixed right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-gradient-brand text-white shadow-brand transition-transform active:scale-95 md:h-14 md:w-14"
       style={{
@@ -20,10 +24,5 @@ export function AssessorFab() {
     </button>
   );
 
-  return (
-    <>
-      {typeof document !== "undefined" ? createPortal(fab, document.body) : null}
-      {open ? <AssessorPanel onClose={() => setOpen(false)} /> : null}
-    </>
-  );
+  return typeof document !== "undefined" ? createPortal(fab, document.body) : null;
 }

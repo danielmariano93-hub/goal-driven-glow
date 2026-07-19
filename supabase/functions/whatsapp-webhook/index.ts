@@ -17,9 +17,10 @@
 //    a cron worker.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { getProvider, getSessionName, getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
+import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
-import { downloadInboundMedia } from "../_shared/messaging/wahaMedia.ts";
+import { buildAssessorLink } from "../_shared/messaging/appUrl.ts";
+import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/mediaFallback.ts";
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -299,34 +300,55 @@ Deno.serve(async (req) => {
   });
 
   // === MEDIA PATH: fallback com link direto para o Assessor ===
-  // Decisão de produto: a leitura de mídias (imagens/PDFs) acontece
-  // exclusivamente no Assessor dentro do app, onde o usuário revisa e
-  // confirma antes de gravar. No WhatsApp respondemos com um link
-  // absoluto e amigável — sem baixar bytes, sem criar document_imports.
-  if (evt.media) {
+  // Decisão de produto: a leitura de mídias processáveis (imagem, PDF,
+  // planilha) acontece exclusivamente no Assessor dentro do app, onde o
+  // usuário revisa e confirma antes de gravar. Áudio, vídeo e stickers
+  // NÃO caem aqui — seguem para o orquestrador textual normal.
+  if (evt.media && shouldFallbackForMedia(evt.media)) {
+    const mime = String(evt.media.mime_type ?? evt.media.mimeType ?? "").toLowerCase();
     console.info("[webhook] media_fallback", JSON.stringify({
       via: evt.media.via,
-      mime: evt.media.mime_type ?? evt.media.mimeType ?? null,
+      mime: mime || null,
       filename_ext: evt.media.filename?.split(".").pop()?.toLowerCase().slice(0, 8) ?? null,
     }));
-    const appUrl = (Deno.env.get("APP_PUBLIC_URL") ?? "https://app.nocontrole.ia").replace(/\/$/, "");
-    const assessorLink = `${appUrl}/app/assessor?source=whatsapp_media`;
+    const assessorLink = buildAssessorLink(
+      { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") },
+      "whatsapp_media",
+    );
+    if (!assessorLink) {
+      // Sem URL válida configurada: não enviar link quebrado. Registramos
+      // o descarte de forma sanitizada e orientamos o usuário em texto.
+      console.warn("[webhook] media_fallback_no_link", JSON.stringify({ mime: mime || null }));
+    }
     const idem = `media-fallback:${evt.provider_message_id}`;
     const first = await firstNameFor(sb, link.user_id as string);
     const salutation = first ? `Recebi seu arquivo, ${first} 💛` : "Recebi seu arquivo por aqui 💛";
-    const body =
-      `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app, onde você revisa cada lançamento antes de salvar. Toque no link abaixo para abrir agora:\n\n${assessorLink}\n\nSe preferir, também dá para me contar em texto o que você gastou.`;
-    await sb.from("outbound_messages").insert({
+    const body = assessorLink
+      ? `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app, onde você revisa cada lançamento antes de salvar. Toque no link abaixo para abrir agora:\n\n${assessorLink}\n\nSe preferir, também dá para me contar em texto o que você gastou.`
+      : `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app. Abra o NoControle.ia no seu aparelho e toque em "Falar com meu assessor" para revisar este arquivo antes de salvar.\n\nSe preferir, também dá para me contar em texto o que você gastou.`;
+    // Idempotência real: se a reentrega chegar antes do worker despachar,
+    // a UNIQUE(idempotency_key) devolve 23505 — tratamos como sucesso e
+    // NÃO disparamos worker de novo. Outros erros são registrados.
+    const { error: insErr } = await sb.from("outbound_messages").insert({
       user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
       channel: "whatsapp", inbound_message_id,
       idempotency_key: idem, status: "queued", body,
-    }).then(() => {}, () => {});
-    triggerDispatcher();
+    });
+    let duplicate = false;
+    if (insErr) {
+      if (isUniqueViolation(insErr)) {
+        duplicate = true;
+      } else {
+        console.error("[webhook] media_fallback_enqueue_failed", String(insErr.message ?? "").slice(0, 200));
+      }
+    }
+    if (!duplicate) triggerDispatcher();
     await sb.from("inbound_messages")
       .update({ processed_at: new Date().toISOString(), ignored_reason: "media_fallback_link" })
-      .eq("id", inbound_message_id);
-    return json({ ok: true, media: "fallback_link" });
+      .eq("id", inbound_message_id).then(() => {}, () => {});
+    return json({ ok: true, media: "fallback_link", duplicate });
   }
+
 
 
 
