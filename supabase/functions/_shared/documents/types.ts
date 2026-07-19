@@ -92,18 +92,26 @@ export function todaySaoPaulo(now = new Date()): string {
   }).format(now);
 }
 
+/**
+ * Preserva `informational` como estágio intermediário. sanitize() é quem
+ * remove informational da lista final — nunca vira transação persistida.
+ */
 export function normalizeMovementKind(
   raw: unknown,
   _type: "income" | "expense",
-): MovementKind {
+): MovementKind | "informational" {
   const value = String(raw ?? "transaction").trim().toLowerCase();
-  const aliases: Record<string, MovementKind> = {
+  const aliases: Record<string, MovementKind | "informational"> = {
     transaction: "transaction", purchase: "transaction", debit: "transaction", credit: "transaction",
     pix: "transaction", pix_in: "transaction", pix_out: "transaction",
     refund: "refund", reimbursement: "refund", estorno: "refund",
     internal_transfer: "internal_transfer", transfer: "internal_transfer",
     investment_application: "investment_application", investment_apply: "investment_application",
     investment_redemption: "investment_redemption", investment_redeem: "investment_redemption", redeem: "investment_redemption",
+    informational: "informational", info: "informational",
+    saldo: "informational", balance: "informational", limit: "informational", limite: "informational",
+    subtotal: "informational", total: "informational", header: "informational", cabecalho: "informational",
+    resumo: "informational", summary: "informational", periodo: "informational", period: "informational",
   };
   return aliases[value] ?? "transaction";
 }
