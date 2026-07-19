@@ -9,6 +9,15 @@ ALTER TABLE public.shared_expenses
   ADD COLUMN IF NOT EXISTS cancelled_at timestamptz,
   ADD COLUMN IF NOT EXISTS cancellation_reason text;
 
+-- Registros antigos podem continuar sem origem até serem editados. Toda nova
+-- divisão (ou divisão atualizada) precisa apontar para exatamente uma origem.
+ALTER TABLE public.shared_expenses
+  DROP CONSTRAINT IF EXISTS shared_expenses_exactly_one_financial_source,
+  ADD CONSTRAINT shared_expenses_exactly_one_financial_source CHECK (
+    (source_account_id IS NOT NULL)::integer +
+    (source_credit_card_id IS NOT NULL)::integer = 1
+  ) NOT VALID;
+
 ALTER TABLE public.transactions
   ADD COLUMN IF NOT EXISTS shared_expense_id uuid REFERENCES public.shared_expenses(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS split_transaction_role text
@@ -130,7 +139,7 @@ BEGIN
   IF uid IS NULL THEN RAISE EXCEPTION 'Sessão expirada'; END IF;
   IF p_total IS NULL OR p_total<=0 OR btrim(coalesce(p_title,''))='' THEN RAISE EXCEPTION 'Preencha título e valor'; END IF;
   PERFORM public.split_assert_financial_source(uid,p_source_account_id,p_source_credit_card_id,p_category_id,p_reimbursement_account_id);
-  IF p_register_transaction AND p_source_account_id IS NULL AND p_source_credit_card_id IS NULL THEN
+  IF p_source_account_id IS NULL AND p_source_credit_card_id IS NULL THEN
     RAISE EXCEPTION 'Escolha de onde saiu o pagamento';
   END IF;
   n:=jsonb_array_length(coalesce(p_participants,'[]'))+CASE WHEN p_include_owner THEN 1 ELSE 0 END;
@@ -170,7 +179,7 @@ BEGIN
       PERFORM public.split_enqueue_message(new_id,participant_id,'invite',now());
     END IF;
   END LOOP;
-  IF p_register_transaction THEN PERFORM public.split_upsert_original_transaction(new_id); END IF;
+  PERFORM public.split_upsert_original_transaction(new_id);
   INSERT INTO public.shared_expense_events(shared_expense_id,owner_user_id,event_type,payload)
   VALUES(new_id,uid,'created',jsonb_build_object('total',p_total,'mode',p_split_mode,'transaction_registered',p_register_transaction));
   RETURN new_id;
@@ -190,6 +199,9 @@ BEGIN
   IF se.id IS NULL THEN RAISE EXCEPTION 'Divisão não encontrada'; END IF;
   IF se.status='cancelled' THEN RAISE EXCEPTION 'Divisão cancelada'; END IF;
   PERFORM public.split_assert_financial_source(uid,p_source_account_id,p_source_credit_card_id,p_category_id,p_reimbursement_account_id);
+  IF p_source_account_id IS NULL AND p_source_credit_card_id IS NULL THEN
+    RAISE EXCEPTION 'Escolha de onde saiu o pagamento';
+  END IF;
   FOR it IN SELECT * FROM jsonb_array_elements(coalesce(p_participants,'[]')) LOOP
     pid:=nullif(it->>'id','')::uuid; due:=coalesce((it->>'amount_due')::numeric,0);
     IF due<0 THEN RAISE EXCEPTION 'Valor individual inválido'; END IF;
@@ -225,16 +237,7 @@ BEGIN
       WHERE id=pid AND shared_expense_id=p_id;
     END IF;
   END LOOP;
-  IF p_register_transaction THEN
-    IF p_source_account_id IS NULL AND p_source_credit_card_id IS NULL THEN RAISE EXCEPTION 'Escolha de onde saiu o pagamento'; END IF;
-    PERFORM public.split_upsert_original_transaction(p_id);
-  ELSIF se.linked_transaction_id IS NOT NULL THEN
-    IF EXISTS(SELECT 1 FROM public.shared_expense_participants WHERE shared_expense_id=p_id AND phone_e164 IS NOT NULL AND amount_paid>0) THEN
-      RAISE EXCEPTION 'Não remova o gasto depois de receber pagamentos; cancele a divisão preservando o histórico';
-    END IF;
-    UPDATE public.shared_expenses SET linked_transaction_id=NULL WHERE id=p_id;
-    DELETE FROM public.transactions WHERE id=se.linked_transaction_id AND user_id=uid AND split_transaction_role='original_expense';
-  END IF;
+  PERFORM public.split_upsert_original_transaction(p_id);
   INSERT INTO public.shared_expense_events(shared_expense_id,owner_user_id,event_type,payload)
   VALUES(p_id,uid,'updated',jsonb_build_object('previous_total',se.total_amount,'new_total',p_total));
 END $$;

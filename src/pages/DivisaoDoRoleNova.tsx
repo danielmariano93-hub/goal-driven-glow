@@ -8,7 +8,7 @@ import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/split/math";
 
 type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
-type Source = "account" | "credit_card" | "none";
+type Source = "account" | "credit_card";
 const money = (value: string) => Number(value.replace(/\./g, "").replace(",", "."));
 
 export default function DivisaoDoRoleNova() {
@@ -34,7 +34,6 @@ export default function DivisaoDoRoleNova() {
   const [sourceId, setSourceId] = useState("");
   const [reimbursementAccountId, setReimbursementAccountId] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [registerTransaction, setRegisterTransaction] = useState(true);
   const [people, setPeople] = useState<Person[]>([{ name: "", phone_e164: "", amount_due: "" }]);
   const totalNum = money(total || "0");
 
@@ -50,8 +49,8 @@ export default function DivisaoDoRoleNova() {
       setTitle(s.title); setTotal(String(s.total_amount).replace(".", ",")); setOccurredAt(s.occurred_at);
       setDueDate(s.due_date ?? ""); setMode(s.split_mode); setReminders(s.reminder_enabled);
       setPixKey(s.pix_key ?? ""); setCategoryId(s.category_id ?? "");
-      setReimbursementAccountId(s.reimbursement_account_id ?? ""); setRegisterTransaction(Boolean(s.linked_transaction_id));
-      setSource(s.source_credit_card_id ? "credit_card" : s.source_account_id ? "account" : "none");
+      setReimbursementAccountId(s.reimbursement_account_id ?? "");
+      setSource(s.source_credit_card_id ? "credit_card" : "account");
       setSourceId(s.source_credit_card_id ?? s.source_account_id ?? "");
       const owner = rows.find((p) => !p.phone_e164 && Number(p.amount_paid) === Number(p.amount_due));
       setIncludeOwner(Boolean(owner)); setOwnerAmount(owner ? String(owner.amount_due).replace(".", ",") : "");
@@ -78,7 +77,7 @@ export default function DivisaoDoRoleNova() {
   }, [includeOwner, mode, ownerAmount, people, totalNum]);
   const sharesTotal = shares.reduce((sum,p)=>sum+p.amount,0);
   const valid = title.trim() && totalNum>0 && shares.length>0 && Math.round(sharesTotal*100)===Math.round(totalNum*100)
-    && (!registerTransaction || source!=="none") && (source==="none" || sourceId);
+    && Boolean(sourceId);
 
   const save = async () => {
     if (!valid) { toast.error("Revise os valores e a origem do pagamento"); return; }
@@ -99,7 +98,7 @@ export default function DivisaoDoRoleNova() {
           p_id:id,p_title:title.trim(),p_total:totalNum,p_occurred_at:occurredAt,p_due_date:dueDate||null,
           p_split_mode:mode,p_reminder_enabled:reminders,p_pix_key:pixKey||null,
           p_participants:[...ownerExisting,...participantPayload],p_source_account_id:source==="account"?sourceId:null,
-          p_source_credit_card_id:source==="credit_card"?sourceId:null,p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:registerTransaction,
+          p_source_credit_card_id:source==="credit_card"?sourceId:null,p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
         } as never);
         if (error) throw error;
         toast.success("Divisão atualizada"); nav(`/app/divisao-do-role/${id}`);
@@ -109,7 +108,7 @@ export default function DivisaoDoRoleNova() {
           p_include_owner:includeOwner,p_reminder_enabled:reminders,p_pix_key:pixKey||null,p_participants:participantPayload,
           p_owner_amount:includeOwner?(shares.find((s)=>s.name==="Você")?.amount??null):null,
           p_source_account_id:source==="account"?sourceId:null,p_source_credit_card_id:source==="credit_card"?sourceId:null,
-          p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:registerTransaction,
+          p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
         } as never);
         if (error) throw error;
         toast.success("Divisão criada e convites preparados"); nav(`/app/divisao-do-role/${data}`);
@@ -131,8 +130,8 @@ export default function DivisaoDoRoleNova() {
       <div className="surface-card space-y-3 p-4">{people.map((p,i)=><div key={p.id??i} className="grid grid-cols-[1fr_8rem_auto] gap-2"><input value={p.name} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Nome" className="input"/><input value={p.phone_e164} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,phone_e164:e.target.value}:x))} placeholder="+55…" className="input"/><button disabled={Boolean(p.amount_paid)} onClick={()=>setPeople(people.filter((_,j)=>j!==i))} className="text-destructive disabled:opacity-30"><Trash2 size={15}/></button>{mode==="custom"&&<input value={p.amount_due} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,amount_due:e.target.value}:x))} placeholder="Parte em R$" inputMode="decimal" className="input col-span-2"/>}</div>)}<button onClick={()=>setPeople([...people,{name:"",phone_e164:"",amount_due:""}])} className="inline-flex items-center gap-1 text-xs text-primary"><Plus size={13}/> Adicionar pessoa</button><div className="border-t pt-3 text-xs">{shares.map((s,i)=><p key={i} className="flex justify-between"><span>{s.name}</span><strong>{formatBRL(s.amount)}</strong></p>)}<p className={`mt-2 flex justify-between ${Math.round(sharesTotal*100)===Math.round(totalNum*100)?"text-success":"text-destructive"}`}><span>Soma</span><strong>{formatBRL(sharesTotal)}</strong></p></div></div>
     </section>}
     {(editing||step===3)&&<section className="surface-card space-y-3 p-4">
-      <label className="flex gap-2 text-xs"><input type="checkbox" checked={registerTransaction} onChange={(e)=>setRegisterTransaction(e.target.checked)}/> Registrar o gasto nas minhas finanças</label>
-      {registerTransaction&&<><Field label="De onde saiu"><select value={source} onChange={(e)=>{setSource(e.target.value as Source);setSourceId("")}} className="input"><option value="account">Conta</option><option value="credit_card">Cartão de crédito</option><option value="none">Não informar agora</option></select></Field>{source!=="none"&&<Field label={source==="account"?"Conta":"Cartão"}><select value={sourceId} onChange={(e)=>setSourceId(e.target.value)} className="input"><option value="">Selecione</option>{(source==="account"?accounts:cards).filter((x:any)=>x.active).map((x:any)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>}<Field label="Categoria"><select value={categoryId} onChange={(e)=>setCategoryId(e.target.value)} className="input"><option value="">Sem categoria</option>{categories.filter((c)=>c.type==="expense").map((c)=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Conta para receber os reembolsos"><select value={reimbursementAccountId} onChange={(e)=>setReimbursementAccountId(e.target.value)} className="input"><option value="">Registrar baixa sem lançamento</option>{accounts.filter((a)=>a.active).map((a)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field></>}
+      <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">Para manter seu saldo correto, toda divisão registra o gasto na conta ou no cartão usado no pagamento.</div>
+      <Field label="De onde saiu o pagamento? *"><select value={source} onChange={(e)=>{setSource(e.target.value as Source);setSourceId("")}} className="input"><option value="account">Conta bancária</option><option value="credit_card">Cartão de crédito</option></select></Field><Field label={source==="account"?"Qual conta? *":"Qual cartão? *"}><select value={sourceId} onChange={(e)=>setSourceId(e.target.value)} className="input"><option value="">Selecione</option>{(source==="account"?accounts:cards).filter((x:any)=>x.active).map((x:any)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field label="Categoria"><select value={categoryId} onChange={(e)=>setCategoryId(e.target.value)} className="input"><option value="">Sem categoria</option>{categories.filter((c)=>c.type==="expense").map((c)=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Conta para receber os reembolsos"><select value={reimbursementAccountId} onChange={(e)=>setReimbursementAccountId(e.target.value)} className="input"><option value="">Registrar baixa sem lançamento</option>{accounts.filter((a)=>a.active).map((a)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
       <label className="flex gap-2 text-xs"><input type="checkbox" checked={reminders} onChange={(e)=>setReminders(e.target.checked)}/> Ativar lembretes amigáveis</label><Field label="Chave Pix"><input value={pixKey} onChange={(e)=>setPixKey(e.target.value)} className="input"/></Field>
     </section>}
     <div className="flex gap-2">{!editing&&step>1&&<button onClick={()=>setStep(step-1)} className="rounded-full border px-4 py-2 text-sm">Voltar</button>}{!editing&&step<3?<button disabled={step===1?!(title&&totalNum>0):shares.length===0} onClick={()=>setStep(step+1)} className="ml-auto rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">Continuar</button>:<button disabled={!valid||saving} onClick={save} className="ml-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground disabled:opacity-40">{saving&&<Loader2 size={14} className="animate-spin"/>}{editing?"Salvar alterações":"Criar e avisar"}</button>}</div>

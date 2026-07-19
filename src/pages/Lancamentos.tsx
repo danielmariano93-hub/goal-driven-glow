@@ -199,6 +199,11 @@ export default function Lancamentos() {
                         }
                       };
                       const doDelete = () => {
+                        if (t.shared_expense_id) {
+                          nav(`/app/divisao-do-role/${t.shared_expense_id}`);
+                          toast.message("Cancele ou ajuste este gasto pela Divisão do Rolê para manter os valores sincronizados.");
+                          return;
+                        }
                         if (!confirm(isTransfer ? "Excluir esta transferência (ambas as pernas)?" : "Excluir este lançamento?")) return;
                         del.mutate(t, {
                           onSuccess: () => toast.success("Excluído"),
