@@ -178,7 +178,12 @@ Deno.serve(async (req) => {
         : { account_id: null, credit_card_id: null };
       const { data: updated, error: upErr } = await sb.from("extracted_items").update(itemPatch)
         .eq("document_id", document_id).eq("user_id", user.id)
-        .in("status", ["needs_review", "duplicate_suspect"]).select("id");
+        .in("status", ["needs_review", "duplicate_suspect"])
+        // Guarda anti-destrutiva: nunca sobrescrever itens já editados
+        // manualmente. Se o usuário fixou conta/cartão em uma linha,
+        // essa escolha vence a propagação em lote.
+        .is("user_edited_at", null)
+        .select("id");
       if (upErr) return json({ error: "propagate_failed", details: upErr.message }, 400);
       propagated = (updated ?? []).length;
     }
