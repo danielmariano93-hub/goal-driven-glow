@@ -896,10 +896,12 @@ async function processDocument(documentId: string, userId: string, guidance: str
             occurred_at: it.occurred_at,
             description: it.description,
             raw_description: it.raw_description,
+            bank_description: it.raw_description ?? it.description,
+            friendly_description: it.description,
             normalized_description: it.normalized_description,
             bank_reference: it.bank_reference,
             dedupe_fingerprint: it.dedupe_fingerprint,
-            payment_method: it.payment_method,
+            payment_method: it.account_id ? "account" : it.credit_card_id ? "credit_card" : it.payment_method,
             account_hint: it.account_hint,
             card_hint: it.card_hint,
             category_hint: it.category_hint,
@@ -907,8 +909,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
             category_source: it.category_source,
             category_confidence: it.category_confidence,
             movement_kind: it.movement_kind ?? "transaction",
-            account_id: it.account_id,
-            credit_card_id: it.credit_card_id,
+            // Contexto de origem propaga: só preenche se o item não tem já um match forte por hint
+            account_id: it.account_id ?? (srcCtx.source_account_id && !it.credit_card_id ? srcCtx.source_account_id : null),
+            credit_card_id: it.credit_card_id ?? (srcCtx.source_credit_card_id && !it.account_id ? srcCtx.source_credit_card_id : null),
             installments_total: it.installments_total,
             installment_number: it.installment_number,
             purchase_date: it.purchase_date,
@@ -920,6 +923,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
             duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
           };
         });
+
 
         // Quarantine: validate each row against DB whitelists BEFORE insert.
         // Valid → needs_review/duplicate_suspect. Invalid → NEVER hits extracted_items;
