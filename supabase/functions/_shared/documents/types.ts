@@ -208,10 +208,11 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
     if (!description) continue;
-    if (isNonTransactionLine(description)) { non_transaction_dropped++; continue; }
     const type = it.type === "income" ? "income" : "expense";
     const movementKind = normalizeMovementKind(it.movement_kind, type);
     if (movementKind === "informational") { informational_dropped++; continue; }
+    if (isNonTransactionLine(description)) { informational_dropped++; continue; }
+
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
     const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
