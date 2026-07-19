@@ -125,7 +125,10 @@ export default function DivisaoDoRoleNova() {
         } as never);
         if (error) throw error;
         refreshFinance();
-        toast.success("Divisão criada e convites preparados"); nav(`/app/divisao-do-role/${data}`);
+        // Best effort: dispara imediatamente apenas os jobs deste usuário.
+        // O agendador de retaguarda continua sendo a garantia de entrega.
+        supabase.functions.invoke("split-reminders-dispatch", { body: { owner_only: true } }).catch(() => undefined);
+        toast.success("Divisão criada. Já estamos enviando os convites."); nav(`/app/divisao-do-role/${data}`);
       }
     } catch (e:any) { toast.error(friendlyError(e)); } finally { setSaving(false); }
   };

@@ -13,17 +13,17 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 
-async function requireAdmin(auth: string) {
-  if (!auth.startsWith("Bearer ")) return false;
+async function authenticatedCaller(auth: string) {
+  if (!auth.startsWith("Bearer ")) return { userId: null, admin: false };
   const sb = createClient(
     SUPABASE_URL,
     Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
     { global: { headers: { Authorization: auth } } },
   );
   const { data: userRes } = await sb.auth.getUser();
-  if (!userRes.user) return false;
+  if (!userRes.user) return { userId: null, admin: false };
   const { data } = await sb.rpc("is_current_user_admin");
-  return data === true;
+  return { userId: userRes.user.id, admin: data === true };
 }
 
 function maskPhone(p?: string | null): string {
@@ -61,15 +61,21 @@ Deno.serve(async (req) => {
   const cronHdr = req.headers.get("x-cron-secret") ?? "";
   const authHdr = req.headers.get("Authorization") ?? "";
   const okCron = CRON_SECRET.length > 0 && cronHdr === CRON_SECRET;
-  const okAdmin = !okCron ? await requireAdmin(authHdr) : false;
-  if (!okCron && !okAdmin) return json({ error: "unauthorized" }, 401);
+  const okService = authHdr === `Bearer ${SERVICE_ROLE}`;
+  const caller = (!okCron && !okService) ? await authenticatedCaller(authHdr) : { userId: null, admin: false };
+  if (!okCron && !okService && !caller.userId) return json({ error: "unauthorized" }, 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   // Claim atomically; respects quiet hours (SP 08–22) and attempt limits.
-  const { data: claimed, error: claimErr } = await sb.rpc("claim_reminder_jobs", { p_limit: 20 });
+  // Usuários autenticados podem adiantar somente a própria fila logo após
+  // criar/repetir um convite. Cron, service role e admin processam a fila global.
+  const globalWorker = okCron || okService || caller.admin;
+  const { data: claimed, error: claimErr } = globalWorker
+    ? await sb.rpc("claim_reminder_jobs", { p_limit: 20 })
+    : await sb.rpc("claim_reminder_jobs_for_owner", { p_owner_user_id: caller.userId, p_limit: 20 });
   if (claimErr) return json({ error: claimErr.message }, 500);
   const jobs = (claimed as Array<any> | null) ?? [];
 
@@ -170,5 +176,22 @@ Deno.serve(async (req) => {
     processed: enqueued,
     failed,
   });
-  return json({ claimed: jobs.length, enqueued, skipped, failed });
+
+  // Um único tick conclui o caminho reminder_jobs → outbound_messages → WAHA.
+  // Se o envio falhar, whatsapp-send preserva retry/backoff na fila.
+  let outboundProcessed = 0;
+  if (enqueued > 0) {
+    try {
+      const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-send`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_ROLE}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "split-reminders-dispatch" }),
+      });
+      const sendResult = await sendResponse.json().catch(() => ({}));
+      outboundProcessed = Number(sendResult?.processed ?? 0);
+    } catch (error) {
+      console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: String((error as Error).message).slice(0, 160) }));
+    }
+  }
+  return json({ claimed: jobs.length, enqueued, skipped, failed, outbound_processed: outboundProcessed });
 });
