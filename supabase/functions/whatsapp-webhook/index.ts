@@ -312,9 +312,8 @@ Deno.serve(async (req) => {
     const appUrl = (Deno.env.get("APP_PUBLIC_URL") ?? "https://app.nocontrole.ia").replace(/\/$/, "");
     const link = `${appUrl}/app/assessor?source=whatsapp_media`;
     const idem = `media-fallback:${evt.provider_message_id}`;
-    const first = await firstNameFor(sb, link_user_id_placeholder(link.user_id));
-    // Nota: firstNameFor recebe user_id; a linha acima é ilustrativa se refatoramos.
-    const salutation = "Recebi seu arquivo por aqui 💛";
+    const first = await firstNameFor(sb, link.user_id);
+    const salutation = first ? `Recebi seu arquivo, ${first} 💛` : "Recebi seu arquivo por aqui 💛";
     const body =
       `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app, onde você revisa cada lançamento antes de salvar. Toque no link abaixo para abrir agora:\n\n${link}\n\nSe preferir, também dá para me contar em texto o que você gastou.`;
     await sb.from("outbound_messages").insert({
