@@ -114,16 +114,19 @@ function endpointCandidates(apiUrl: string, session: string, messageId: string, 
   return [...new Set(candidates)];
 }
 
-async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint) {
+type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
+
+async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint): Promise<FetchResult> {
   const guard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
-  if (!guard.ok) return { ok: false as const, code: "unsafe_url" as DownloadCode, detail: guard.code };
-  let last = { ok: false as const, code: "download_failed" as DownloadCode, detail: "all_candidates_failed" };
+  if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
+  let last: FetchResult = { ok: false, code: "download_failed", detail: "all_candidates_failed" };
   for (const url of endpointCandidates(apiUrl, session, messageId, media)) {
     for (const headers of authHeaderCandidates(apiKey)) {
       const result = await fetchWithLimits(url, headers);
-      if (result.ok) return result;
-      last = result;
-      if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed"].includes(result.code)) return result;
+      if (result.ok === true) return result;
+      const fail: Extract<FetchResult, { ok: false }> = result;
+      last = fail;
+      if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed"].includes(fail.code)) return fail;
     }
   }
   return last;
@@ -150,19 +153,21 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
         headerSets.unshift(...authHeaderCandidates(opts.apiKey));
       }
     } catch { /* URLs já foram validadas */ }
-    let last: DownloadResult = { ok: false, code: "download_failed" };
+    let last: Extract<FetchResult, { ok: false }> = { ok: false, code: "download_failed" };
     for (const headers of headerSets) {
       const result = await fetchWithLimits(directUrl, headers);
-      if (result.ok) return finalize(result.bytes, declaredMime, filename);
-      last = result;
-      if (result.code !== "download_failed") return result;
+      if (result.ok === true) return finalize(result.bytes, declaredMime, filename);
+      const fail: Extract<FetchResult, { ok: false }> = result;
+      last = fail;
+      if (fail.code !== "download_failed") return { ok: false, code: fail.code, detail: fail.detail };
     }
-    if (last.ok === false && last.code !== "download_failed") return last;
+    if (last.code !== "download_failed") return { ok: false, code: last.code, detail: last.detail };
   }
   if (opts.apiUrl && opts.apiKey && opts.session && messageId) {
     const result = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, messageId, opts.media);
-    if (result.ok) return finalize(result.bytes, declaredMime, filename);
-    return result;
+    if (result.ok === true) return finalize(result.bytes, declaredMime, filename);
+    const fail: Extract<FetchResult, { ok: false }> = result;
+    return { ok: false, code: fail.code, detail: fail.detail };
   }
   return { ok: false, code: "no_url" };
 }

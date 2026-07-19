@@ -298,99 +298,36 @@ Deno.serve(async (req) => {
     body_masked: evt.body.slice(0, 500),
   });
 
-  // === MEDIA PATH: document ingestion ===
-  // Any media descriptor triggers the download flow; URL is optional because
-  // NOWEB frequently omits it and we must download via the WAHA files endpoint.
+  // === MEDIA PATH: fallback com link direto para o Assessor ===
+  // Decisão de produto: a leitura de mídias (imagens/PDFs) acontece
+  // exclusivamente no Assessor dentro do app, onde o usuário revisa e
+  // confirma antes de gravar. No WhatsApp respondemos com um link
+  // absoluto e amigável — sem baixar bytes, sem criar document_imports.
   if (evt.media) {
-    // Telemetria estrutural sanitizada: nunca inclui URL, telefone ou conteúdo.
-    console.info("[webhook] inbound_media_shape", JSON.stringify({
+    console.info("[webhook] media_fallback", JSON.stringify({
       via: evt.media.via,
-      mime: evt.media.mime_type,
-      has_url: Boolean(evt.media.url || (evt.media as { mediaUrl?: string }).mediaUrl),
-      has_base64: Boolean(evt.media.base64 || (evt.media as { data?: string }).data),
-      has_id: Boolean((evt.media as { id?: unknown }).id || evt.provider_message_id),
+      mime: evt.media.mime_type ?? evt.media.mimeType ?? null,
       filename_ext: evt.media.filename?.split(".").pop()?.toLowerCase().slice(0, 8) ?? null,
     }));
-    // Idempotency: same provider_message_id must never create two document_imports.
-    const { data: existing } = await sb.from("document_imports")
-      .select("id, status").eq("provider_message_id", evt.provider_message_id).maybeSingle();
-    if (existing) {
-      await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
-      return json({ ok: true, media: "duplicate", document_id: existing.id });
-    }
-    const access = getWahaAccess();
-    const dl = await downloadInboundMedia({
-      media: evt.media,
-      apiUrl: access.api_url,
-      apiKey: access.api_key,
-      session: access.session,
-      messageId: evt.provider_message_id,
-    });
-    if (!dl.ok) {
-      const body = dl.code === "size_exceeds"
-        ? "Esse arquivo é maior que 20 MB e não consegui processar. Envie um documento menor ou peça extrato em partes."
-        : dl.code === "mime_not_allowed"
-        ? "Esse formato de arquivo eu ainda não consigo ler. Envie PDF, JPG, PNG ou WEBP, por favor."
-        : dl.code === "unsafe_url"
-        ? "Não consegui baixar esse arquivo com segurança. Reenvie diretamente pelo WhatsApp, por favor."
-        : dl.code === "timeout"
-        ? "A leitura demorou demais para baixar. Tente enviar novamente em instantes."
-        : "Recebi seu arquivo, mas não consegui baixá-lo por aqui. Reenvie, por favor.";
-      await sb.from("outbound_messages").insert({ user_id: link.user_id, to_phone: evt.from_phone, kind: "system", body });
-      triggerDispatcher();
-      await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
-      return json({ ok: true, media: "download_failed", code: dl.code });
-    }
-    const doc_id = crypto.randomUUID();
-    const ext = dl.mime_type === "application/pdf" ? "pdf" : dl.mime_type.split("/")[1];
-    const storage_path = `${link.user_id}/${doc_id}.${ext}`;
-    const up = await sb.storage.from("documents").upload(storage_path, dl.bytes, { contentType: dl.mime_type, upsert: false });
-    if (up.error) {
-      await sb.from("outbound_messages").insert({
-        user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
-        body: "Recebi seu arquivo mas tive problemas para armazená-lo. Tente novamente em instantes.",
-      });
-      triggerDispatcher();
-      return json({ ok: true, media: "storage_failed" });
-    }
-    const shaBuf = await crypto.subtle.digest("SHA-256", dl.bytes);
-    const sha = Array.from(new Uint8Array(shaBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const { error: insErrDoc } = await sb.from("document_imports").insert({
-      id: doc_id,
-      user_id: link.user_id,
-      source: "whatsapp",
-      provider_message_id: evt.provider_message_id,
-      conversation_id: conversationId,
-      storage_path,
-      mime_type: dl.mime_type,
-      size_bytes: dl.bytes.length,
-      sha256: sha,
-      status: "uploaded",
-      user_instructions: evt.body ? evt.body.slice(0, 500) : null,
-    });
-    if (insErrDoc) {
-      console.error("[webhook] document_imports insert failed", insErrDoc.message);
-      return json({ ok: true, media: "insert_failed" });
-    }
-    await sb.from("document_processing_events").insert({
-      document_id: doc_id, user_id: link.user_id,
-      event_type: "document_received",
-      metadata: { source: "whatsapp", mime: dl.mime_type, size: dl.bytes.length },
-    }).then(() => {}, () => {});
+    const appUrl = (Deno.env.get("APP_PUBLIC_URL") ?? "https://app.nocontrole.ia").replace(/\/$/, "");
+    const assessorLink = `${appUrl}/app/assessor?source=whatsapp_media`;
+    const idem = `media-fallback:${evt.provider_message_id}`;
+    const first = await firstNameFor(sb, link.user_id as string);
+    const salutation = first ? `Recebi seu arquivo, ${first} 💛` : "Recebi seu arquivo por aqui 💛";
+    const body =
+      `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app, onde você revisa cada lançamento antes de salvar. Toque no link abaixo para abrir agora:\n\n${assessorLink}\n\nSe preferir, também dá para me contar em texto o que você gastou.`;
     await sb.from("outbound_messages").insert({
       user_id: link.user_id, to_phone: evt.from_phone, kind: "system",
-      body: "Recebi seu documento e já estou lendo para você. Volto em instantes com os lançamentos para você conferir. 📄",
-    });
-    // Fire-and-forget the ingestion trigger. `process-inbound-media` handles auth.
-    fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
-      body: JSON.stringify({ mode: "process-inbound-media", document_id: doc_id, user_id: link.user_id, guidance: evt.body ?? "" }),
-    }).catch(() => {});
+      channel: "whatsapp", inbound_message_id,
+      idempotency_key: idem, status: "queued", body,
+    }).then(() => {}, () => {});
     triggerDispatcher();
-    await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
-    return json({ ok: true, media: "queued", document_id: doc_id });
+    await sb.from("inbound_messages")
+      .update({ processed_at: new Date().toISOString(), ignored_reason: "media_fallback_link" })
+      .eq("id", inbound_message_id);
+    return json({ ok: true, media: "fallback_link" });
   }
+
 
 
   // Detach the orchestrator from the HTTP response. WAHA only needs a 200 to
