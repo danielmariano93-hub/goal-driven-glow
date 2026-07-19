@@ -92,18 +92,26 @@ export function todaySaoPaulo(now = new Date()): string {
   }).format(now);
 }
 
+/**
+ * Preserva `informational` como estágio intermediário. sanitize() é quem
+ * remove informational da lista final — nunca vira transação persistida.
+ */
 export function normalizeMovementKind(
   raw: unknown,
   _type: "income" | "expense",
-): MovementKind {
+): MovementKind | "informational" {
   const value = String(raw ?? "transaction").trim().toLowerCase();
-  const aliases: Record<string, MovementKind> = {
+  const aliases: Record<string, MovementKind | "informational"> = {
     transaction: "transaction", purchase: "transaction", debit: "transaction", credit: "transaction",
     pix: "transaction", pix_in: "transaction", pix_out: "transaction",
     refund: "refund", reimbursement: "refund", estorno: "refund",
     internal_transfer: "internal_transfer", transfer: "internal_transfer",
     investment_application: "investment_application", investment_apply: "investment_application",
     investment_redemption: "investment_redemption", investment_redeem: "investment_redemption", redeem: "investment_redemption",
+    informational: "informational", info: "informational",
+    saldo: "informational", balance: "informational", limit: "informational", limite: "informational",
+    subtotal: "informational", total: "informational", header: "informational", cabecalho: "informational",
+    resumo: "informational", summary: "informational", periodo: "informational", period: "informational",
   };
   return aliases[value] ?? "transaction";
 }
@@ -145,9 +153,12 @@ export function isNonTransactionLine(description: string): boolean {
   return NON_TX_KEYWORDS.some((k) => d.includes(k));
 }
 
-export function sanitize(result: unknown, fallbackDate: string): ExtractionResult {
+export type SanitizeCounters = { informational_dropped: number; non_transaction_dropped: number };
+export type SanitizeResult = ExtractionResult & { informational_dropped?: number; non_transaction_dropped?: number };
+
+export function sanitize(result: unknown, fallbackDate: string): SanitizeResult {
   if (!result || typeof result !== "object") {
-    return { document_kind: "unknown", items: [], notes: "unparseable" };
+    return { document_kind: "unknown", items: [], notes: "unparseable", informational_dropped: 0, non_transaction_dropped: 0 };
   }
   const r = result as Record<string, unknown>;
   const compactKind = typeof r.k === "string" ? r.k : null;
@@ -157,15 +168,20 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
       ? kind : "unknown";
   const rawItems = Array.isArray(r.items) ? r.items : Array.isArray(r.i) ? r.i : [];
   const items: ExtractedItem[] = [];
+  let informational_dropped = 0;
+  let non_transaction_dropped = 0;
   for (const raw of rawItems) {
     if (Array.isArray(raw)) {
       const row = raw as CompactRow;
       const type = row[0] === "income" ? "income" : "expense";
       const description = String(row[3] ?? "").trim();
-      if (!description || isNonTransactionLine(description)) continue;
+      if (!description) continue;
+      const movementKind = normalizeMovementKind(row[7], type);
+      if (movementKind === "informational") { informational_dropped++; continue; }
+      if (isNonTransactionLine(description)) { informational_dropped++; continue; }
+
       const amount = normalizeAmountBR(row[2]);
       if (amount == null) continue;
-      const movementKind = normalizeMovementKind(row[7], type);
       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
       const paymentRaw = row[4];
       const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
@@ -191,12 +207,12 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     if (!raw || typeof raw !== "object") continue;
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
-    if (!description || isNonTransactionLine(description)) continue;
+    if (!description) continue;
     const type = it.type === "income" ? "income" : "expense";
     const movementKind = normalizeMovementKind(it.movement_kind, type);
-    // Linhas informativas não entram no livro. Transferências e movimentos de
-    // investimento, porém, alteram o caixa da conta e precisam chegar à revisão.
-    // Eles serão excluídos apenas dos indicadores de renda/consumo, nunca do saldo.
+    if (movementKind === "informational") { informational_dropped++; continue; }
+    if (isNonTransactionLine(description)) { informational_dropped++; continue; }
+
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
     const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
@@ -222,7 +238,13 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
       source_span: it.source_span,
     });
   }
-  return { document_kind: validKind, items, notes: (r.notes as string | null) ?? (r.n as string | null) ?? null };
+  return {
+    document_kind: validKind,
+    items,
+    notes: (r.notes as string | null) ?? (r.n as string | null) ?? null,
+    informational_dropped,
+    non_transaction_dropped,
+  };
 }
 
 // ---------- Whitelists (must mirror extracted_items CHECK constraints) ----------

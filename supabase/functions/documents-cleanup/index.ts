@@ -2,9 +2,9 @@
 // Responsibilities:
 //   1. Expire long-idle blobs (>7d terminal) and raw_text.
 //   2. Expire docs past expires_at.
-//   3. Watchdog: resume `processing` jobs whose heartbeat is stale (>5min),
-//      up to 3 attempts total. Preserve any extracted_items already saved.
-//      After 3 attempts, mark terminal 'failed'.
+//   3. Watchdog: resume `processing`/`uploaded` jobs whose heartbeat is stale (>5min).
+//   4. Fragment-aware: individual document_fragments stuck in processing >5min
+//      are flipped back to pending (if attempts<3) or marked failed.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
@@ -27,9 +27,9 @@ Deno.serve(async (req) => {
   if (!authorized) return json({ error: "unauthorized" }, 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-  let processed = 0, failed = 0, resumed = 0, terminated = 0;
+  let processed = 0, failed = 0, resumed = 0, terminated = 0, fragments_recovered = 0, fragments_failed = 0;
 
-  // 1) Remove storage blob + raw_text for docs terminal >= 7 days
+  // 1) Storage retention (>=7d terminal)
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: terminals } = await sb.from("document_imports")
     .select("id, storage_path")
@@ -45,18 +45,35 @@ Deno.serve(async (req) => {
     } catch { failed++; }
   }
 
-  // 2) Expire docs past expires_at
+  // 2) Expire past expires_at
   await sb.from("document_imports").update({ status: "expired" })
     .lt("expires_at", new Date().toISOString())
     .in("status", ["uploaded", "processing", "needs_review", "partial", "partially_confirmed"]);
 
-  // 3) Watchdog: resume stale `processing` OR requeue stale `uploaded` jobs.
-  // Heartbeat is `updated_at`; if it's fresh, the worker is still owning the job.
-  const staleCutoff = new Date(Date.now() - HEARTBEAT_STALE_MS).toISOString();
+  // 3) Fragment-level watchdog (executes before document-level, so stuck
+  //    fragments are resurrected while their parent doc is still processing).
+  const staleISO = new Date(Date.now() - HEARTBEAT_STALE_MS).toISOString();
+  const { data: stuckFragments } = await sb.from("document_fragments")
+    .select("id,document_id,attempts,fragment_index")
+    .eq("status", "processing")
+    .lt("updated_at", staleISO)
+    .limit(50);
+  for (const f of stuckFragments ?? []) {
+    const attempts = Number(f.attempts ?? 0);
+    if (attempts >= MAX_ATTEMPTS) {
+      await sb.from("document_fragments").update({ status: "failed", error_code: "watchdog:max_attempts" }).eq("id", f.id);
+      fragments_failed++;
+    } else {
+      await sb.from("document_fragments").update({ status: "pending", error_code: null }).eq("id", f.id);
+      fragments_recovered++;
+    }
+  }
+
+  // 4) Document-level watchdog
   const { data: stalled } = await sb.from("document_imports")
     .select("id, user_id, status, attempt_count, user_instructions, source, conversation_id")
     .in("status", ["processing", "uploaded"])
-    .lt("updated_at", staleCutoff)
+    .lt("updated_at", staleISO)
     .limit(20);
   for (const d of stalled ?? []) {
     const attempts = Number(d.attempt_count ?? 0);
@@ -68,7 +85,6 @@ Deno.serve(async (req) => {
         document_id: d.id, user_id: d.user_id, event_type: "processing_failed",
         error_code: "watchdog:max_attempts",
       }).then(() => {}, () => {});
-      // Notify WhatsApp user if applicable (dedup by prior event lookup)
       if (d.source === "whatsapp" && d.conversation_id) {
         const { data: conv } = await sb.from("conversations")
           .select("phone_e164").eq("id", d.conversation_id).maybeSingle();
@@ -83,17 +99,15 @@ Deno.serve(async (req) => {
       terminated++;
       continue;
     }
-    // Retry: reset to uploaded, worker will bump attempt_count when acquiring lock.
     const { error: reErr } = await sb.from("document_imports")
       .update({ status: "uploaded", error: null })
       .eq("id", d.id).eq("status", d.status);
     if (reErr) { failed++; continue; }
-    // Fire-and-forget internal call to re-drive the ingestion.
     fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
       body: JSON.stringify({
-        mode: "process-inbound-media",
+        mode: d.source === "whatsapp" ? "process-inbound-media" : "resume",
         document_id: d.id,
         user_id: d.user_id,
         guidance: String(d.user_instructions ?? "").slice(0, 500),
@@ -106,11 +120,11 @@ Deno.serve(async (req) => {
   await writeJobHeartbeat({
     jobKey: "documents-cleanup",
     ok: true,
-    processed: processed + resumed + terminated,
+    processed: processed + resumed + terminated + fragments_recovered + fragments_failed,
     failed,
     nextRunAt: nextRun,
     sb,
   });
 
-  return json({ ok: true, processed, failed, resumed, terminated });
+  return json({ ok: true, processed, failed, resumed, terminated, fragments_recovered, fragments_failed });
 });

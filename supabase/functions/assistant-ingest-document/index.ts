@@ -21,11 +21,85 @@ const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
-const MAX_ITEMS_PER_DOCUMENT = 240;
+const DEFAULT_MAX_ITEMS_PER_DOCUMENT = 240;
+const MAX_ITEMS_HARD_CAP = 800;
 const BATCH_ITEMS_LIMIT = 80;
 const PDF_PAGES_PER_FRAGMENT = 4;
 const IMAGE_BATCHES = 1;
 const BATCH_MAX_TOKENS = 3600;
+
+async function resolveDocMaxItems(sb: ReturnType<typeof createClient>, userId: string): Promise<number> {
+  try {
+    const { data } = await sb.from("user_financial_settings").select("doc_max_items").eq("user_id", userId).maybeSingle();
+    const n = Number((data as { doc_max_items?: number } | null)?.doc_max_items ?? DEFAULT_MAX_ITEMS_PER_DOCUMENT);
+    if (!Number.isFinite(n) || n < 40) return DEFAULT_MAX_ITEMS_PER_DOCUMENT;
+    return Math.min(MAX_ITEMS_HARD_CAP, Math.max(40, Math.floor(n)));
+  } catch { return DEFAULT_MAX_ITEMS_PER_DOCUMENT; }
+}
+
+type SourceContext = {
+  source_account_id: string | null;
+  source_credit_card_id: string | null;
+  source_context_method: string | null;
+  source_context_confidence: number | null;
+  source_context_reason: string | null;
+};
+
+async function resolveSourceContext(
+  sb: ReturnType<typeof createClient>,
+  userId: string,
+  doc: Record<string, unknown>,
+  statement: { bank: string | null } | null,
+): Promise<SourceContext> {
+  // 1) Usuário já selecionou: mantém.
+  const preAcc = (doc.source_account_id as string | null) ?? null;
+  const preCard = (doc.source_credit_card_id as string | null) ?? null;
+  if (preAcc || preCard) {
+    return {
+      source_account_id: preAcc,
+      source_credit_card_id: preCard,
+      source_context_method: (doc.source_context_method as string | null) ?? "user_selected",
+      source_context_confidence: Number(doc.source_context_confidence ?? 1),
+      source_context_reason: (doc.source_context_reason as string | null) ?? "user_selected",
+    };
+  }
+  const [{ data: accounts }, { data: cards }] = await Promise.all([
+    sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
+    sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
+  ]);
+  // 2) Banco identificado pelo extrato bate com institution/name.
+  const bank = (statement?.bank ?? doc.statement_bank ?? null) as string | null;
+  if (bank && (accounts ?? []).length > 0) {
+    const norm = bank.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const matches = (accounts ?? []).filter((a) => {
+      const hay = `${a.name ?? ""} ${a.institution ?? ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      return hay.includes(norm) || norm.split(/\s+/).some((tok) => tok.length >= 4 && hay.includes(tok));
+    });
+    if (matches.length === 1) {
+      return { source_account_id: matches[0].id as string, source_credit_card_id: null,
+        source_context_method: "statement_bank", source_context_confidence: 0.9,
+        source_context_reason: `bank_match:${bank.slice(0, 40)}` };
+    }
+  }
+  // 3) Orientação do usuário na conversa.
+  const guidance = String(doc.user_instructions ?? "").toLowerCase();
+  if (guidance) {
+    const acc = (accounts ?? []).find((a) => guidance.includes(String(a.name ?? "").toLowerCase()));
+    if (acc) return { source_account_id: acc.id as string, source_credit_card_id: null,
+      source_context_method: "guidance", source_context_confidence: 0.75, source_context_reason: "guidance_account" };
+    const card = (cards ?? []).find((c) => guidance.includes(String(c.name ?? "").toLowerCase()));
+    if (card) return { source_account_id: null, source_credit_card_id: card.id as string,
+      source_context_method: "guidance", source_context_confidence: 0.75, source_context_reason: "guidance_card" };
+  }
+  // 4) Único ativo.
+  if ((accounts ?? []).length === 1 && (cards ?? []).length === 0) {
+    return { source_account_id: (accounts ?? [])[0].id as string, source_credit_card_id: null,
+      source_context_method: "single_account", source_context_confidence: 0.6, source_context_reason: "only_active_account" };
+  }
+  return { source_account_id: null, source_credit_card_id: null,
+    source_context_method: "none", source_context_confidence: 0, source_context_reason: "ambiguous" };
+}
+
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -331,9 +405,10 @@ async function enrichItems(
     };
   });
   const uniqueDescriptions = [...new Set(normalized.map((n) => n.friendly).filter(Boolean))].slice(0, 200);
+  const uniqueRawKeys = [...new Set(normalized.map((n) => n.rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean))].slice(0, 200);
 
   // 2) Uma única leva de queries.
-  const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
+  const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }, aliasResp] = await Promise.all([
     sb.from("categories").select("id, name, type").eq("user_id", userId),
     uniqueDescriptions.length > 0
       ? sb.from("transactions").select("description, raw_description, category_id, type")
@@ -343,7 +418,13 @@ async function enrichItems(
       : Promise.resolve({ data: [] as Array<{ description: string; raw_description: string | null; category_id: string; type: string }> }),
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
+    uniqueRawKeys.length > 0
+      ? sb.from("merchant_aliases").select("alias_key, friendly_name, category_id").eq("user_id", userId).in("alias_key", uniqueRawKeys)
+      : Promise.resolve({ data: [] as Array<{ alias_key: string; friendly_name: string | null; category_id: string | null }> }),
   ]);
+  const aliasByKey = new Map<string, { friendly_name: string | null; category_id: string | null }>();
+  for (const a of (aliasResp.data ?? [])) aliasByKey.set(a.alias_key, { friendly_name: a.friendly_name, category_id: a.category_id });
+
 
   // 3) Índice de histórico por chave normalizada — normaliza cada linha do histórico UMA vez.
   const historyByKey = new Map<string, Map<string, number>>(); // key -> categoryId -> count
@@ -374,7 +455,16 @@ async function enrichItems(
     let categorySource: string | null = null;
     let categoryConfidence: number | null = null;
 
-    if (ruleCategory) {
+    // Aliases do usuário têm precedência máxima (aprendizado explícito).
+    const aliasKey = rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+    const aliasHit = aliasByKey.get(aliasKey);
+    let aliasFriendly: string | null = null;
+    if (aliasHit) {
+      if (aliasHit.friendly_name) aliasFriendly = aliasHit.friendly_name;
+      if (aliasHit.category_id) { categoryId = aliasHit.category_id; categorySource = "alias"; categoryConfidence = 0.98; }
+    }
+
+    if (!categoryId && ruleCategory) {
       const c = findCatByName(ruleCategory);
       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
     }
@@ -385,6 +475,7 @@ async function enrichItems(
         if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
       }
     }
+
     if (!categoryId && item.category_hint) {
       const c = findCatByName(item.category_hint);
       if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
@@ -419,7 +510,7 @@ async function enrichItems(
       ...item,
       raw_description: rawDesc,
       normalized_description: friendly,
-      description: friendly || rawDesc,
+      description: aliasFriendly || friendly || rawDesc,
       bank_reference: bankRef,
       dedupe_fingerprint: fingerprint,
       category_id: categoryId,
@@ -428,6 +519,7 @@ async function enrichItems(
       account_id,
       credit_card_id,
     });
+
   }
   return enriched;
 }
@@ -636,6 +728,32 @@ async function processDocument(documentId: string, userId: string, guidance: str
       return;
     }
 
+    // Configurável por usuário (default 240, hard cap 800).
+    const MAX_ITEMS_PER_DOCUMENT = await resolveDocMaxItems(sb, userId);
+
+    // Persiste/idempotência de fragmentos. Fragmentos completed nunca são refeitos.
+    const fragmentRows = fragments.map((f) => ({
+      document_id: documentId,
+      user_id: userId,
+      fragment_index: f.index,
+      total_fragments: f.total,
+      page_start: f.page_start,
+      page_end: f.page_end,
+      status: "pending" as const,
+    }));
+    await sb.from("document_fragments").upsert(fragmentRows, { onConflict: "document_id,fragment_index", ignoreDuplicates: true }).then(() => {}, () => {});
+    const { data: fragmentState } = await sb.from("document_fragments")
+      .select("fragment_index,status,attempts").eq("document_id", documentId).eq("user_id", userId);
+    const fragmentByIdx = new Map<number, { status: string; attempts: number }>();
+    for (const r of fragmentState ?? []) {
+      fragmentByIdx.set(Number(r.fragment_index), { status: String(r.status), attempts: Number(r.attempts ?? 0) });
+    }
+
+    // Resolve contexto de origem (uma vez por documento) e persiste.
+    const srcCtx = await resolveSourceContext(sb, userId, doc, null);
+    await sb.from("document_imports").update(srcCtx).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+
+
     let documentKind: ExtractionResult["document_kind"] = "unknown";
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
@@ -666,12 +784,31 @@ async function processDocument(documentId: string, userId: string, guidance: str
     counters.uncategorized = counters.total_items - counters.categorized_auto;
     counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
 
-    for (let batchIndex = 1; batchIndex <= maxBatches && counters.total_items < MAX_ITEMS_PER_DOCUMENT; batchIndex++) {
+    for (let batchIndex = 1; batchIndex <= maxBatches; batchIndex++) {
       const fragment = fragments[batchIndex - 1];
+      const fState = fragmentByIdx.get(batchIndex) ?? { status: "pending", attempts: 0 };
+      // Skip fragmentos já concluídos ou skipped.
+      if (fState.status === "completed" || fState.status === "skipped") continue;
+      // Cap de itens: marca restantes como skipped.
+      if (counters.total_items >= MAX_ITEMS_PER_DOCUMENT) {
+        await sb.from("document_fragments").update({ status: "skipped", error_code: "max_items_reached" })
+          .eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
+        continue;
+      }
+      // Attempt cap por fragmento (3 tentativas).
+      if (fState.attempts >= 3 && fState.status === "failed") continue;
+      const fragmentStart = Date.now();
+      await sb.from("document_fragments").update({
+        status: "processing", attempts: fState.attempts + 1, heartbeat_at: new Date().toISOString(),
+      }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
       await heartbeat();
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
-      const beat = setInterval(() => { void heartbeat(); }, 20_000);
+      const beat = setInterval(() => {
+        void heartbeat();
+        void sb.from("document_fragments").update({ heartbeat_at: new Date().toISOString() })
+          .eq("document_id", documentId).eq("fragment_index", batchIndex);
+      }, 20_000);
       let out: MultimodalOutcome;
       try {
         out = await callMultimodal(
@@ -687,6 +824,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         clearInterval(beat);
       }
       await heartbeat();
+
 
       tokens_in += out.tokens_in;
       tokens_out += out.tokens_out;
@@ -705,10 +843,15 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
       if (out.errorTag) {
         lastErrorTag = out.errorTag;
+        await sb.from("document_fragments").update({
+          status: "failed", error_code: out.errorTag.slice(0, 80), extraction_ms: Date.now() - fragmentStart,
+          tokens_in: out.tokens_in, tokens_out: out.tokens_out,
+        }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
         if (counters.total_items > 0) break;
         await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
         return;
       }
+
 
       if ((extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") && counters.total_items === 0 && extraction.items.length === 0) {
         await finish({
@@ -771,10 +914,12 @@ async function processDocument(documentId: string, userId: string, guidance: str
             occurred_at: it.occurred_at,
             description: it.description,
             raw_description: it.raw_description,
+            bank_description: it.raw_description ?? it.description,
+            friendly_description: it.description,
             normalized_description: it.normalized_description,
             bank_reference: it.bank_reference,
             dedupe_fingerprint: it.dedupe_fingerprint,
-            payment_method: it.payment_method,
+            payment_method: it.account_id ? "account" : it.credit_card_id ? "credit_card" : it.payment_method,
             account_hint: it.account_hint,
             card_hint: it.card_hint,
             category_hint: it.category_hint,
@@ -782,8 +927,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
             category_source: it.category_source,
             category_confidence: it.category_confidence,
             movement_kind: it.movement_kind ?? "transaction",
-            account_id: it.account_id,
-            credit_card_id: it.credit_card_id,
+            // Contexto de origem propaga: só preenche se o item não tem já um match forte por hint
+            account_id: it.account_id ?? (srcCtx.source_account_id && !it.credit_card_id ? srcCtx.source_account_id : null),
+            credit_card_id: it.credit_card_id ?? (srcCtx.source_credit_card_id && !it.account_id ? srcCtx.source_credit_card_id : null),
             installments_total: it.installments_total,
             installment_number: it.installment_number,
             purchase_date: it.purchase_date,
@@ -795,6 +941,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
             duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
           };
         });
+
 
         // Quarantine: validate each row against DB whitelists BEFORE insert.
         // Valid → needs_review/duplicate_suspect. Invalid → NEVER hits extracted_items;
@@ -895,9 +1042,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
         });
       }
 
-      // Every deterministic fragment is processed independently. An empty
-      // fragment must never stop the rest of the document.
+      // Fragmento processado (com ou sem itens): marca completed com métricas.
+      await sb.from("document_fragments").update({
+        status: "completed",
+        items_found: (out.result.items ?? []).length,
+        extraction_ms: Date.now() - fragmentStart,
+        tokens_in: out.tokens_in,
+        tokens_out: out.tokens_out,
+        partial: out.partial,
+        heartbeat_at: new Date().toISOString(),
+      }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
     }
+
 
     const finalStatus = counters.total_items === 0
       ? (lastErrorTag ? "failed" : "needs_review")
@@ -1015,6 +1171,11 @@ Deno.serve(async (req) => {
     const { data: signed, error: signErr } = await sb.storage.from(BUCKET).createSignedUploadUrl(storage_path);
     if (signErr || !signed) return json({ error: "signed_url_failed", details: signErr?.message }, 500);
 
+    // Contexto de origem opcional. Usuário e cartão são mutuamente exclusivos.
+    const bodySrcAcc = typeof body.source_account_id === "string" && body.source_account_id ? String(body.source_account_id) : null;
+    const bodySrcCard = typeof body.source_credit_card_id === "string" && body.source_credit_card_id ? String(body.source_credit_card_id) : null;
+    if (bodySrcAcc && bodySrcCard) return json({ error: "conflicting_source" }, 400);
+
     const { error: insErr } = await sb.from("document_imports").insert({
       id: doc_id,
       user_id: user.id,
@@ -1026,8 +1187,14 @@ Deno.serve(async (req) => {
       status: "uploaded",
       conversation_id,
       user_instructions: String(body.guidance ?? "").trim().slice(0, 2000) || null,
+      source_account_id: bodySrcAcc,
+      source_credit_card_id: bodySrcCard,
+      source_context_method: bodySrcAcc || bodySrcCard ? "user_selected" : null,
+      source_context_confidence: bodySrcAcc || bodySrcCard ? 1 : null,
+      source_context_reason: bodySrcAcc || bodySrcCard ? "user_selected_on_upload" : null,
     });
     if (insErr) return json({ error: "insert_failed", details: insErr.message }, 500);
+
 
     // O envio de documento também é uma mensagem da conversa. Persista após o
     // job existir, para que fechar/reabrir o painel nunca apague essa interação.
