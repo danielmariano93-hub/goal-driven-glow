@@ -8,6 +8,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AssessorProvider, useAssessor } from "@/context/AssessorContext";
+import { AssessorPanel } from "@/components/assessor/AssessorPanel";
 import AssessorPage from "@/pages/Assessor";
 
 // Painel mock: renderiza um marcador estável para contagem via testing-library.
@@ -22,8 +23,6 @@ vi.mock("@/components/assessor/AssessorPanel", () => ({
 function GlobalPanel() {
   const { isOpen, closeAssessor } = useAssessor();
   if (!isOpen) return null;
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { AssessorPanel } = require("@/components/assessor/AssessorPanel");
   return <AssessorPanel onClose={closeAssessor} />;
 }
 
