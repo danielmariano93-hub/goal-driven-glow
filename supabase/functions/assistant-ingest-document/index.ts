@@ -21,11 +21,85 @@ const MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
-const MAX_ITEMS_PER_DOCUMENT = 240;
+const DEFAULT_MAX_ITEMS_PER_DOCUMENT = 240;
+const MAX_ITEMS_HARD_CAP = 800;
 const BATCH_ITEMS_LIMIT = 80;
 const PDF_PAGES_PER_FRAGMENT = 4;
 const IMAGE_BATCHES = 1;
 const BATCH_MAX_TOKENS = 3600;
+
+async function resolveDocMaxItems(sb: ReturnType<typeof createClient>, userId: string): Promise<number> {
+  try {
+    const { data } = await sb.from("user_financial_settings").select("doc_max_items").eq("user_id", userId).maybeSingle();
+    const n = Number((data as { doc_max_items?: number } | null)?.doc_max_items ?? DEFAULT_MAX_ITEMS_PER_DOCUMENT);
+    if (!Number.isFinite(n) || n < 40) return DEFAULT_MAX_ITEMS_PER_DOCUMENT;
+    return Math.min(MAX_ITEMS_HARD_CAP, Math.max(40, Math.floor(n)));
+  } catch { return DEFAULT_MAX_ITEMS_PER_DOCUMENT; }
+}
+
+type SourceContext = {
+  source_account_id: string | null;
+  source_credit_card_id: string | null;
+  source_context_method: string | null;
+  source_context_confidence: number | null;
+  source_context_reason: string | null;
+};
+
+async function resolveSourceContext(
+  sb: ReturnType<typeof createClient>,
+  userId: string,
+  doc: Record<string, unknown>,
+  statement: { bank: string | null } | null,
+): Promise<SourceContext> {
+  // 1) Usuário já selecionou: mantém.
+  const preAcc = (doc.source_account_id as string | null) ?? null;
+  const preCard = (doc.source_credit_card_id as string | null) ?? null;
+  if (preAcc || preCard) {
+    return {
+      source_account_id: preAcc,
+      source_credit_card_id: preCard,
+      source_context_method: (doc.source_context_method as string | null) ?? "user_selected",
+      source_context_confidence: Number(doc.source_context_confidence ?? 1),
+      source_context_reason: (doc.source_context_reason as string | null) ?? "user_selected",
+    };
+  }
+  const [{ data: accounts }, { data: cards }] = await Promise.all([
+    sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
+    sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
+  ]);
+  // 2) Banco identificado pelo extrato bate com institution/name.
+  const bank = (statement?.bank ?? doc.statement_bank ?? null) as string | null;
+  if (bank && (accounts ?? []).length > 0) {
+    const norm = bank.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const matches = (accounts ?? []).filter((a) => {
+      const hay = `${a.name ?? ""} ${a.institution ?? ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      return hay.includes(norm) || norm.split(/\s+/).some((tok) => tok.length >= 4 && hay.includes(tok));
+    });
+    if (matches.length === 1) {
+      return { source_account_id: matches[0].id as string, source_credit_card_id: null,
+        source_context_method: "statement_bank", source_context_confidence: 0.9,
+        source_context_reason: `bank_match:${bank.slice(0, 40)}` };
+    }
+  }
+  // 3) Orientação do usuário na conversa.
+  const guidance = String(doc.user_instructions ?? "").toLowerCase();
+  if (guidance) {
+    const acc = (accounts ?? []).find((a) => guidance.includes(String(a.name ?? "").toLowerCase()));
+    if (acc) return { source_account_id: acc.id as string, source_credit_card_id: null,
+      source_context_method: "guidance", source_context_confidence: 0.75, source_context_reason: "guidance_account" };
+    const card = (cards ?? []).find((c) => guidance.includes(String(c.name ?? "").toLowerCase()));
+    if (card) return { source_account_id: null, source_credit_card_id: card.id as string,
+      source_context_method: "guidance", source_context_confidence: 0.75, source_context_reason: "guidance_card" };
+  }
+  // 4) Único ativo.
+  if ((accounts ?? []).length === 1 && (cards ?? []).length === 0) {
+    return { source_account_id: (accounts ?? [])[0].id as string, source_credit_card_id: null,
+      source_context_method: "single_account", source_context_confidence: 0.6, source_context_reason: "only_active_account" };
+  }
+  return { source_account_id: null, source_credit_card_id: null,
+    source_context_method: "none", source_context_confidence: 0, source_context_reason: "ambiguous" };
+}
+
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
