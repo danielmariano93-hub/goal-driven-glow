@@ -510,7 +510,7 @@ async function enrichItems(
       ...item,
       raw_description: rawDesc,
       normalized_description: friendly,
-      description: friendly || rawDesc,
+      description: aliasFriendly || friendly || rawDesc,
       bank_reference: bankRef,
       dedupe_fingerprint: fingerprint,
       category_id: categoryId,
@@ -519,6 +519,7 @@ async function enrichItems(
       account_id,
       credit_card_id,
     });
+
   }
   return enriched;
 }
