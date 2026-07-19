@@ -1024,9 +1024,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
         });
       }
 
-      // Every deterministic fragment is processed independently. An empty
-      // fragment must never stop the rest of the document.
+      // Fragmento processado (com ou sem itens): marca completed com métricas.
+      await sb.from("document_fragments").update({
+        status: "completed",
+        items_found: (out.result.items ?? []).length,
+        extraction_ms: Date.now() - fragmentStart,
+        tokens_in: out.tokens_in,
+        tokens_out: out.tokens_out,
+        partial: out.partial,
+        heartbeat_at: new Date().toISOString(),
+      }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
     }
+
 
     const finalStatus = counters.total_items === 0
       ? (lastErrorTag ? "failed" : "needs_review")
