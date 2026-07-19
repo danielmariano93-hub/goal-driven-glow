@@ -176,9 +176,10 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
       const type = row[0] === "income" ? "income" : "expense";
       const description = String(row[3] ?? "").trim();
       if (!description) continue;
-      if (isNonTransactionLine(description)) { non_transaction_dropped++; continue; }
       const movementKind = normalizeMovementKind(row[7], type);
       if (movementKind === "informational") { informational_dropped++; continue; }
+      if (isNonTransactionLine(description)) { informational_dropped++; continue; }
+
       const amount = normalizeAmountBR(row[2]);
       if (amount == null) continue;
       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
