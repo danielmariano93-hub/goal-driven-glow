@@ -2736,6 +2736,7 @@ export type Database = {
           cancelled_at: string | null
           category_id: string | null
           created_at: string
+          deleted_at: string | null
           description: string | null
           due_date: string | null
           id: string
@@ -2758,6 +2759,7 @@ export type Database = {
           cancelled_at?: string | null
           category_id?: string | null
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
@@ -2780,6 +2782,7 @@ export type Database = {
           cancelled_at?: string | null
           category_id?: string | null
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
           due_date?: string | null
           id?: string
@@ -3484,6 +3487,31 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_reminder_jobs_for_owner: {
+        Args: { p_limit?: number; p_owner_user_id: string }
+        Returns: {
+          attempts: number
+          created_at: string
+          id: string
+          idempotency_key: string | null
+          kind: string
+          last_error: string | null
+          lease_expires_at: string | null
+          outbound_message_id: string | null
+          owner_user_id: string
+          participant_id: string
+          scheduled_for: string
+          shared_expense_id: string
+          status: Database["public"]["Enums"]["reminder_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "reminder_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       complete_onboarding: {
         Args: {
           p_display_name: string
@@ -3655,6 +3683,7 @@ export type Database = {
         }
         Returns: string
       }
+      split_delete: { Args: { p_id: string }; Returns: undefined }
       split_enqueue_message: {
         Args: {
           p_expense_id: string
@@ -3664,15 +3693,18 @@ export type Database = {
         }
         Returns: string
       }
+      split_message_pipeline_tick: { Args: never; Returns: number }
       split_message_status: {
         Args: { p_id: string }
         Returns: {
+          attempts: number
           job_id: string
           job_status: string
           kind: string
           last_error: string
           outbound_status: string
           participant_id: string
+          scheduled_for: string
           updated_at: string
         }[]
       }
