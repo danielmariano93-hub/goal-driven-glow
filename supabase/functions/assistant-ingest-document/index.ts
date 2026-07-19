@@ -766,12 +766,31 @@ async function processDocument(documentId: string, userId: string, guidance: str
     counters.uncategorized = counters.total_items - counters.categorized_auto;
     counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
 
-    for (let batchIndex = 1; batchIndex <= maxBatches && counters.total_items < MAX_ITEMS_PER_DOCUMENT; batchIndex++) {
+    for (let batchIndex = 1; batchIndex <= maxBatches; batchIndex++) {
       const fragment = fragments[batchIndex - 1];
+      const fState = fragmentByIdx.get(batchIndex) ?? { status: "pending", attempts: 0 };
+      // Skip fragmentos já concluídos ou skipped.
+      if (fState.status === "completed" || fState.status === "skipped") continue;
+      // Cap de itens: marca restantes como skipped.
+      if (counters.total_items >= MAX_ITEMS_PER_DOCUMENT) {
+        await sb.from("document_fragments").update({ status: "skipped", error_code: "max_items_reached" })
+          .eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
+        continue;
+      }
+      // Attempt cap por fragmento (3 tentativas).
+      if (fState.attempts >= 3 && fState.status === "failed") continue;
+      const fragmentStart = Date.now();
+      await sb.from("document_fragments").update({
+        status: "processing", attempts: fState.attempts + 1, heartbeat_at: new Date().toISOString(),
+      }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
       await heartbeat();
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
-      const beat = setInterval(() => { void heartbeat(); }, 20_000);
+      const beat = setInterval(() => {
+        void heartbeat();
+        void sb.from("document_fragments").update({ heartbeat_at: new Date().toISOString() })
+          .eq("document_id", documentId).eq("fragment_index", batchIndex);
+      }, 20_000);
       let out: MultimodalOutcome;
       try {
         out = await callMultimodal(
@@ -787,6 +806,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         clearInterval(beat);
       }
       await heartbeat();
+
 
       tokens_in += out.tokens_in;
       tokens_out += out.tokens_out;
