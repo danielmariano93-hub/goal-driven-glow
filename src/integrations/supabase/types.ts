@@ -1347,6 +1347,7 @@ export type Database = {
           transaction_id: string | null
           type: string
           updated_at: string
+          user_edited_at: string | null
           user_id: string
         }
         Insert: {
@@ -1386,6 +1387,7 @@ export type Database = {
           transaction_id?: string | null
           type: string
           updated_at?: string
+          user_edited_at?: string | null
           user_id: string
         }
         Update: {
@@ -1425,6 +1427,7 @@ export type Database = {
           transaction_id?: string | null
           type?: string
           updated_at?: string
+          user_edited_at?: string | null
           user_id?: string
         }
         Relationships: [
@@ -2528,6 +2531,7 @@ export type Database = {
           created_at: string
           id: string
           idempotency_key: string | null
+          kind: string
           last_error: string | null
           lease_expires_at: string | null
           outbound_message_id: string | null
@@ -2543,6 +2547,7 @@ export type Database = {
           created_at?: string
           id?: string
           idempotency_key?: string | null
+          kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
           outbound_message_id?: string | null
@@ -2558,6 +2563,7 @@ export type Database = {
           created_at?: string
           id?: string
           idempotency_key?: string | null
+          kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
           outbound_message_id?: string | null
@@ -2726,6 +2732,9 @@ export type Database = {
       }
       shared_expenses: {
         Row: {
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          category_id: string | null
           created_at: string
           description: string | null
           due_date: string | null
@@ -2734,7 +2743,10 @@ export type Database = {
           occurred_at: string
           owner_user_id: string
           pix_key: string | null
+          reimbursement_account_id: string | null
           reminder_enabled: boolean
+          source_account_id: string | null
+          source_credit_card_id: string | null
           split_mode: Database["public"]["Enums"]["split_mode"]
           status: Database["public"]["Enums"]["split_status"]
           title: string
@@ -2742,6 +2754,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          category_id?: string | null
           created_at?: string
           description?: string | null
           due_date?: string | null
@@ -2750,7 +2765,10 @@ export type Database = {
           occurred_at?: string
           owner_user_id: string
           pix_key?: string | null
+          reimbursement_account_id?: string | null
           reminder_enabled?: boolean
+          source_account_id?: string | null
+          source_credit_card_id?: string | null
           split_mode?: Database["public"]["Enums"]["split_mode"]
           status?: Database["public"]["Enums"]["split_status"]
           title: string
@@ -2758,6 +2776,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          category_id?: string | null
           created_at?: string
           description?: string | null
           due_date?: string | null
@@ -2766,7 +2787,10 @@ export type Database = {
           occurred_at?: string
           owner_user_id?: string
           pix_key?: string | null
+          reimbursement_account_id?: string | null
           reminder_enabled?: boolean
+          source_account_id?: string | null
+          source_credit_card_id?: string | null
           split_mode?: Database["public"]["Enums"]["split_mode"]
           status?: Database["public"]["Enums"]["split_status"]
           title?: string
@@ -2775,10 +2799,38 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "shared_expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "shared_expenses_linked_transaction_id_fkey"
             columns: ["linked_transaction_id"]
             isOneToOne: false
             referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expenses_reimbursement_account_id_fkey"
+            columns: ["reimbursement_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expenses_source_account_id_fkey"
+            columns: ["source_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expenses_source_credit_card_id_fkey"
+            columns: ["source_credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
             referencedColumns: ["id"]
           },
         ]
@@ -2812,6 +2864,8 @@ export type Database = {
           purchase_group_id: string | null
           raw_description: string | null
           settles_card_id: string | null
+          shared_expense_id: string | null
+          split_transaction_role: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -2847,6 +2901,8 @@ export type Database = {
           purchase_group_id?: string | null
           raw_description?: string | null
           settles_card_id?: string | null
+          shared_expense_id?: string | null
+          split_transaction_role?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
@@ -2882,6 +2938,8 @@ export type Database = {
           purchase_group_id?: string | null
           raw_description?: string | null
           settles_card_id?: string | null
+          shared_expense_id?: string | null
+          split_transaction_role?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
@@ -2916,6 +2974,13 @@ export type Database = {
             columns: ["settles_card_id"]
             isOneToOne: false
             referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
             referencedColumns: ["id"]
           },
         ]
@@ -3401,6 +3466,7 @@ export type Database = {
           created_at: string
           id: string
           idempotency_key: string | null
+          kind: string
           last_error: string | null
           lease_expires_at: string | null
           outbound_message_id: string | null
@@ -3531,6 +3597,28 @@ export type Database = {
         Args: { p_amount: number; p_participant_id: string }
         Returns: undefined
       }
+      split_add_payment_v2: {
+        Args: { p_amount: number; p_participant_id: string }
+        Returns: undefined
+      }
+      split_assert_financial_source: {
+        Args: {
+          p_account_id: string
+          p_card_id: string
+          p_category_id: string
+          p_reimbursement_account_id: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      split_cancel: {
+        Args: {
+          p_id: string
+          p_reason?: string
+          p_remove_transaction?: boolean
+        }
+        Returns: undefined
+      }
       split_claim_pending: { Args: never; Returns: number }
       split_create: {
         Args: {
@@ -3547,6 +3635,47 @@ export type Database = {
         }
         Returns: string
       }
+      split_create_v2: {
+        Args: {
+          p_category_id?: string
+          p_due_date: string
+          p_include_owner: boolean
+          p_occurred_at: string
+          p_owner_amount?: number
+          p_participants: Json
+          p_pix_key: string
+          p_register_transaction?: boolean
+          p_reimbursement_account_id?: string
+          p_reminder_enabled: boolean
+          p_source_account_id?: string
+          p_source_credit_card_id?: string
+          p_split_mode: Database["public"]["Enums"]["split_mode"]
+          p_title: string
+          p_total: number
+        }
+        Returns: string
+      }
+      split_enqueue_message: {
+        Args: {
+          p_expense_id: string
+          p_kind: string
+          p_participant_id: string
+          p_when?: string
+        }
+        Returns: string
+      }
+      split_message_status: {
+        Args: { p_id: string }
+        Returns: {
+          job_id: string
+          job_status: string
+          kind: string
+          last_error: string
+          outbound_status: string
+          participant_id: string
+          updated_at: string
+        }[]
+      }
       split_participant_report: {
         Args: { p_action: string; p_participant_id: string }
         Returns: undefined
@@ -3555,9 +3684,46 @@ export type Database = {
         Args: { p_participant_id: string }
         Returns: undefined
       }
+      split_reverse_payment_v2: {
+        Args: { p_participant_id: string }
+        Returns: undefined
+      }
       split_send_reminders: {
         Args: { p_shared_expense_id: string }
         Returns: number
+      }
+      split_summary: {
+        Args: never
+        Returns: {
+          active_splits: number
+          pending_people: number
+          total_pending: number
+          total_received: number
+        }[]
+      }
+      split_token: { Args: never; Returns: string }
+      split_update: {
+        Args: {
+          p_category_id: string
+          p_due_date: string
+          p_id: string
+          p_occurred_at: string
+          p_participants: Json
+          p_pix_key: string
+          p_register_transaction?: boolean
+          p_reimbursement_account_id: string
+          p_reminder_enabled: boolean
+          p_source_account_id: string
+          p_source_credit_card_id: string
+          p_split_mode: Database["public"]["Enums"]["split_mode"]
+          p_title: string
+          p_total: number
+        }
+        Returns: undefined
+      }
+      split_upsert_original_transaction: {
+        Args: { p_expense_id: string }
+        Returns: string
       }
       transaction_delete_direct: {
         Args: { p_expected_version: number; p_id: string; p_scope?: string }
