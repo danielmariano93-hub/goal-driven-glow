@@ -18,9 +18,18 @@ export type DropReason =
 
 export type MediaHint = {
   url?: string;
+  mediaUrl?: string;
   base64?: string;
+  data?: string;
+  body?: string;
   mime_type: string;
+  mimetype?: string;
+  mimeType?: string;
   filename?: string;
+  directPath?: string;
+  chatId?: string;
+  id?: string | { serialized?: string; _serialized?: string };
+  messageTimestamp?: number | string;
   /** Where the parser found the media descriptor. Purely diagnostic. */
   via: "root_media" | "message_image" | "message_document" | "message_video" | "data_message";
 };
@@ -182,12 +191,19 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
   const rootMedia = get(pl, "media");
   if (rootMedia && typeof rootMedia === "object") {
     const url = asStr(get(rootMedia, "url"));
+    const mediaUrl = asStr(get(rootMedia, "mediaUrl")) ?? asStr(get(rootMedia, "media_url"));
     const b64 = asStr(get(rootMedia, "data")) ?? asStr(get(rootMedia, "base64"));
     const mime = asStr(get(rootMedia, "mimetype")) ?? asStr(get(rootMedia, "mime_type"))
       ?? asStr(get(pl, "mimetype")) ?? "application/octet-stream";
     const filename = asStr(get(rootMedia, "filename")) ?? asStr(get(rootMedia, "name"));
-    if (url || b64 || mime !== "application/octet-stream") {
-      return { url, base64: b64, mime_type: mime, filename, via: "root_media" };
+    if (url || mediaUrl || b64 || mime !== "application/octet-stream") {
+      return {
+        url, mediaUrl, base64: b64, data: b64, mime_type: mime, mimetype: mime,
+        filename, directPath: asStr(get(rootMedia, "directPath")),
+        chatId: asStr(get(pl, "from")), id: get(pl, "id") as MediaHint["id"],
+        messageTimestamp: get(pl, "timestamp") as number | string | undefined,
+        via: "root_media",
+      };
     }
   }
 
@@ -202,8 +218,11 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
     if (doc && typeof doc === "object") {
       return {
         url: asStr(get(doc, "url")),
+        mediaUrl: asStr(get(doc, "mediaUrl")),
+        directPath: asStr(get(doc, "directPath")),
         mime_type: asStr(get(doc, "mimetype")) ?? "application/pdf",
         filename: asStr(get(doc, "fileName")) ?? asStr(get(doc, "filename")),
+        chatId: asStr(get(pl, "from")), id: get(pl, "id") as MediaHint["id"], messageTimestamp: get(pl, "timestamp") as number | string | undefined,
         via: m === messages[1] ? "data_message" : "message_document",
       };
     }
@@ -211,8 +230,12 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
     if (img && typeof img === "object") {
       return {
         url: asStr(get(img, "url")),
+        mediaUrl: asStr(get(img, "mediaUrl")),
+        directPath: asStr(get(img, "directPath")),
+        base64: asStr(get(img, "base64")) ?? asStr(get(img, "data")),
         mime_type: asStr(get(img, "mimetype")) ?? "image/jpeg",
         filename: asStr(get(img, "fileName")) ?? asStr(get(img, "filename")),
+        chatId: asStr(get(pl, "from")), id: get(pl, "id") as MediaHint["id"], messageTimestamp: get(pl, "timestamp") as number | string | undefined,
         via: m === messages[1] ? "data_message" : "message_image",
       };
     }

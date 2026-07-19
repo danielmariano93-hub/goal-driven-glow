@@ -302,6 +302,15 @@ Deno.serve(async (req) => {
   // Any media descriptor triggers the download flow; URL is optional because
   // NOWEB frequently omits it and we must download via the WAHA files endpoint.
   if (evt.media) {
+    // Telemetria estrutural sanitizada: nunca inclui URL, telefone ou conteúdo.
+    console.info("[webhook] inbound_media_shape", JSON.stringify({
+      via: evt.media.via,
+      mime: evt.media.mime_type,
+      has_url: Boolean(evt.media.url || (evt.media as { mediaUrl?: string }).mediaUrl),
+      has_base64: Boolean(evt.media.base64 || (evt.media as { data?: string }).data),
+      has_id: Boolean((evt.media as { id?: unknown }).id || evt.provider_message_id),
+      filename_ext: evt.media.filename?.split(".").pop()?.toLowerCase().slice(0, 8) ?? null,
+    }));
     // Idempotency: same provider_message_id must never create two document_imports.
     const { data: existing } = await sb.from("document_imports")
       .select("id, status").eq("provider_message_id", evt.provider_message_id).maybeSingle();

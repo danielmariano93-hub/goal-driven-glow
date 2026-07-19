@@ -93,19 +93,20 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         }));
       }
 
-      const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+      // Ao abrir o assessor, apenas recupere rascunhos úteis e jobs realmente
+      // recentes. Nunca retome automaticamente documentos antigos ou falhos.
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
       const { data: documents } = await supabase
         .from("document_imports")
         .select("id, status, document_kind, error, created_at, updated_at")
-        .in("status", ["uploaded", "processing", "needs_review", "partial", "failed", "rolled_back"])
+        .in("status", ["uploaded", "processing", "needs_review", "partial"])
         .gte("created_at", since)
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(5);
       if (cancelled) return;
       setMessages(history);
       setLoadingHistory(false);
 
-      const ORPHAN_THRESHOLD_MS = 5 * 60 * 1000;
       for (const doc of documents ?? []) {
         try {
           let result: IngestResult;
@@ -116,21 +117,14 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               .eq("document_id", doc.id)
               .in("status", ["needs_review", "duplicate_suspect"]);
             result = { document_id: doc.id, status: doc.status, document_kind: doc.document_kind, items_count: count ?? 0 };
-          } else if (doc.status === "uploaded" || doc.status === "processing") {
-            // Só reprocessar se o job estiver realmente órfão (>5 min sem heartbeat).
-            // Caso contrário, apenas exibir status atual — o worker segue rodando.
-            const updatedAt = doc.updated_at ? new Date(doc.updated_at).getTime() : 0;
-            const isOrphan = Date.now() - updatedAt > ORPHAN_THRESHOLD_MS;
-            result = isOrphan
-              ? await resumeIngestion(doc.id)
-              : await getIngestionStatus(doc.id);
           } else {
+            // Status somente leitura. Retomada exige ação explícita do usuário.
             result = await getIngestionStatus(doc.id);
           }
           if (cancelled) return;
           onExtracted(result);
         } catch {
-          // O documento permanece salvo e será tentado novamente na próxima abertura.
+          // Não transforme falha de leitura em nova tentativa automática.
         }
       }
     })();
@@ -149,10 +143,16 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     const activeIds = activeDocumentKey ? activeDocumentKey.split(",") : [];
     if (activeIds.length === 0) return;
     let cancelled = false;
+    let polls = 0;
+    const maxPolls = 24; // até 2 minutos; depois o usuário pode atualizar manualmente.
     const tick = async () => {
+      if (cancelled || polls >= maxPolls) return;
+      polls += 1;
       const results = await Promise.all(activeIds.map((id) => getIngestionStatus(id).catch(() => null)));
       if (cancelled) return;
       results.forEach((result) => { if (result) onExtracted(result); });
+      const stillActive = results.some((result) => result && ["uploaded", "processing"].includes(result.status));
+      if (!stillActive || polls >= maxPolls) window.clearInterval(timer);
     };
     const timer = window.setInterval(() => { void tick(); }, 5000);
     void tick();

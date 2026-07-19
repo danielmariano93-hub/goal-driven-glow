@@ -68,7 +68,7 @@ export function resolveDocumentDate(raw: string | null | undefined, ctx: DateRes
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) {
     const cand = `${iso[1]}-${iso[2]}-${iso[3]}`;
-    if (isValidCalendarDate(cand) && !isFuture(cand, today, 1) && inPeriodWindow(cand, periodStart, periodEnd))
+    if (isValidCalendarDate(cand) && !isFuture(cand, today, 0) && inPeriodWindow(cand, periodStart, periodEnd))
       return { date: cand, confidence: 0.95, source: "iso" };
   }
 
@@ -77,7 +77,7 @@ export function resolveDocumentDate(raw: string | null | undefined, ctx: DateRes
     let y = brFull[3];
     if (y.length === 2) y = (Number(y) >= 70 ? "19" : "20") + y;
     const cand = `${y}-${brFull[2].padStart(2, "0")}-${brFull[1].padStart(2, "0")}`;
-    if (isValidCalendarDate(cand) && !isFuture(cand, today, 1) && inPeriodWindow(cand, periodStart, periodEnd))
+    if (isValidCalendarDate(cand) && !isFuture(cand, today, 0) && inPeriodWindow(cand, periodStart, periodEnd))
       return { date: cand, confidence: 0.9, source: "br_full" };
   }
 
@@ -87,7 +87,7 @@ export function resolveDocumentDate(raw: string | null | undefined, ctx: DateRes
     const year = inferYearFromPeriod(md, { start: periodStart, end: periodEnd });
     if (year) {
       const cand = `${year}-${md}`;
-      if (isValidCalendarDate(cand) && !isFuture(cand, today, 1))
+      if (isValidCalendarDate(cand) && !isFuture(cand, today, 0))
         return { date: cand, confidence: 0.8, source: "period_inferred" };
     }
   }

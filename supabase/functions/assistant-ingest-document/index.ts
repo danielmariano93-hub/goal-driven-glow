@@ -68,31 +68,45 @@ async function resolveSourceContext(
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
   ]);
-  // 2) Banco identificado pelo extrato bate com institution/name.
+  const normText = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const documentKind = String(doc.document_kind ?? "unknown");
+  // 2) Banco identificado pelo documento bate com institution/name. Extrato
+  // prioriza contas; fatura prioriza cartões, evitando falsa ambiguidade Itaú.
   const bank = (statement?.bank ?? doc.statement_bank ?? null) as string | null;
-  if (bank && (accounts ?? []).length > 0) {
-    const norm = bank.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    const matches = (accounts ?? []).filter((a) => {
-      const hay = `${a.name ?? ""} ${a.institution ?? ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-      return hay.includes(norm) || norm.split(/\s+/).some((tok) => tok.length >= 4 && hay.includes(tok));
-    });
-    if (matches.length === 1) {
-      return { source_account_id: matches[0].id as string, source_credit_card_id: null,
-        source_context_method: "statement_bank", source_context_confidence: 0.9,
-        source_context_reason: `bank_match:${bank.slice(0, 40)}` };
+  if (bank) {
+    const norm = normText(bank);
+    const tokenMatch = (hay: string) => hay.includes(norm) || norm.split(/\s+/).some((tok) => tok.length >= 3 && hay.includes(tok));
+    if (documentKind !== "invoice") {
+      const matches = (accounts ?? []).filter((a) => tokenMatch(normText(`${a.name ?? ""} ${a.institution ?? ""}`)));
+      if (matches.length === 1) return { source_account_id: matches[0].id as string, source_credit_card_id: null,
+        source_context_method: "statement_bank", source_context_confidence: 0.92, source_context_reason: `bank_match:${bank.slice(0, 40)}` };
+    }
+    if (documentKind === "invoice") {
+      const matches = (cards ?? []).filter((c) => tokenMatch(normText(c.name)));
+      if (matches.length === 1) return { source_account_id: null, source_credit_card_id: matches[0].id as string,
+        source_context_method: "invoice_bank", source_context_confidence: 0.92, source_context_reason: `card_match:${bank.slice(0, 40)}` };
     }
   }
-  // 3) Orientação do usuário na conversa.
-  const guidance = String(doc.user_instructions ?? "").toLowerCase();
+  // 3) Orientação do usuário na conversa, com comparação tolerante a acentos.
+  const guidance = normText(doc.user_instructions ?? "");
   if (guidance) {
-    const acc = (accounts ?? []).find((a) => guidance.includes(String(a.name ?? "").toLowerCase()));
+    const acc = (accounts ?? []).find((a) => guidance.includes(normText(a.name)) || guidance.includes(normText(a.institution)));
     if (acc) return { source_account_id: acc.id as string, source_credit_card_id: null,
       source_context_method: "guidance", source_context_confidence: 0.75, source_context_reason: "guidance_account" };
-    const card = (cards ?? []).find((c) => guidance.includes(String(c.name ?? "").toLowerCase()));
+    const card = (cards ?? []).find((c) => guidance.includes(normText(c.name)));
     if (card) return { source_account_id: null, source_credit_card_id: card.id as string,
       source_context_method: "guidance", source_context_confidence: 0.75, source_context_reason: "guidance_card" };
   }
-  // 4) Único ativo.
+  // 4) Natureza do documento elimina ambiguidade entre conta e cartão.
+  if (documentKind === "statement" && (accounts ?? []).length === 1) {
+    return { source_account_id: (accounts ?? [])[0].id as string, source_credit_card_id: null,
+      source_context_method: "single_statement_account", source_context_confidence: 0.7, source_context_reason: "single_account_for_statement" };
+  }
+  if (documentKind === "invoice" && (cards ?? []).length === 1) {
+    return { source_account_id: null, source_credit_card_id: (cards ?? [])[0].id as string,
+      source_context_method: "single_invoice_card", source_context_confidence: 0.7, source_context_reason: "single_card_for_invoice" };
+  }
+  // 5) Único ativo.
   if ((accounts ?? []).length === 1 && (cards ?? []).length === 0) {
     return { source_account_id: (accounts ?? [])[0].id as string, source_credit_card_id: null,
       source_context_method: "single_account", source_context_confidence: 0.6, source_context_reason: "only_active_account" };
@@ -412,7 +426,7 @@ async function enrichItems(
 
   // 2) Uma única leva de queries.
   const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }, aliasResp] = await Promise.all([
-    sb.from("categories").select("id, name, type").eq("user_id", userId),
+    sb.from("categories").select("id, name, type, user_id").or(`user_id.eq.${userId},user_id.is.null`),
     uniqueDescriptions.length > 0
       ? sb.from("transactions").select("description, raw_description, category_id, type")
           .eq("user_id", userId).not("category_id", "is", null)

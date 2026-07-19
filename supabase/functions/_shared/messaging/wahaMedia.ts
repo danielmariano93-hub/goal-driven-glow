@@ -1,5 +1,5 @@
 // Downloader seguro de mídia inbound do WAHA. Não registra URLs nem bytes.
-// Ordem: base64 inline -> mediaUrl HTTPS -> endpoint WAHA configurado -> fallbacks.
+// Ordem prioritária para imagens: base64 inline -> mediaUrl HTTPS autenticada -> endpoint WAHA -> fallbacks.
 
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
 
@@ -144,9 +144,20 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
   if (directUrl) {
     const guard = assertPublicHttpsUrl(directUrl);
     if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
-    const result = await fetchWithLimits(directUrl, {});
-    if (result.ok) return finalize(result.bytes, declaredMime, filename);
-    if (result.code !== "download_failed") return result;
+    const headerSets: Array<Record<string, string>> = [{}];
+    try {
+      if (opts.apiUrl && opts.apiKey && new URL(directUrl).origin === new URL(opts.apiUrl).origin) {
+        headerSets.unshift(...authHeaderCandidates(opts.apiKey));
+      }
+    } catch { /* URLs já foram validadas */ }
+    let last: DownloadResult = { ok: false, code: "download_failed" };
+    for (const headers of headerSets) {
+      const result = await fetchWithLimits(directUrl, headers);
+      if (result.ok) return finalize(result.bytes, declaredMime, filename);
+      last = result;
+      if (result.code !== "download_failed") return result;
+    }
+    if (last.ok === false && last.code !== "download_failed") return last;
   }
   if (opts.apiUrl && opts.apiKey && opts.session && messageId) {
     const result = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, messageId, opts.media);
