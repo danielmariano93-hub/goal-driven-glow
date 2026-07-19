@@ -1153,6 +1153,11 @@ Deno.serve(async (req) => {
     const { data: signed, error: signErr } = await sb.storage.from(BUCKET).createSignedUploadUrl(storage_path);
     if (signErr || !signed) return json({ error: "signed_url_failed", details: signErr?.message }, 500);
 
+    // Contexto de origem opcional. Usuário e cartão são mutuamente exclusivos.
+    const bodySrcAcc = typeof body.source_account_id === "string" && body.source_account_id ? String(body.source_account_id) : null;
+    const bodySrcCard = typeof body.source_credit_card_id === "string" && body.source_credit_card_id ? String(body.source_credit_card_id) : null;
+    if (bodySrcAcc && bodySrcCard) return json({ error: "conflicting_source" }, 400);
+
     const { error: insErr } = await sb.from("document_imports").insert({
       id: doc_id,
       user_id: user.id,
@@ -1164,8 +1169,14 @@ Deno.serve(async (req) => {
       status: "uploaded",
       conversation_id,
       user_instructions: String(body.guidance ?? "").trim().slice(0, 2000) || null,
+      source_account_id: bodySrcAcc,
+      source_credit_card_id: bodySrcCard,
+      source_context_method: bodySrcAcc || bodySrcCard ? "user_selected" : null,
+      source_context_confidence: bodySrcAcc || bodySrcCard ? 1 : null,
+      source_context_reason: bodySrcAcc || bodySrcCard ? "user_selected_on_upload" : null,
     });
     if (insErr) return json({ error: "insert_failed", details: insErr.message }, 500);
+
 
     // O envio de documento também é uma mensagem da conversa. Persista após o
     // job existir, para que fechar/reabrir o painel nunca apague essa interação.
