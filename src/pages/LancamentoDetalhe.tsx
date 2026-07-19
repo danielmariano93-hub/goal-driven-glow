@@ -27,6 +27,8 @@ type Tx = {
   notes: string | null;
   purchase_date?: string | null;
   competence_date?: string | null;
+  shared_expense_id?: string | null;
+  split_transaction_role?: "original_expense" | "reimbursement" | null;
 };
 
 export default function LancamentoDetalhe() {
@@ -96,6 +98,10 @@ export default function LancamentoDetalhe() {
 
   async function save() {
     if (!tx) return;
+    if (tx.shared_expense_id) {
+      nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`);
+      return;
+    }
     if (!isTransfer) {
       // Validate coherence before roundtrip
       if (paymentMethod === "account" && !accountId) {
@@ -166,6 +172,11 @@ export default function LancamentoDetalhe() {
 
   async function del() {
     if (!tx) return;
+    if (tx.shared_expense_id) {
+      nav(`/app/divisao-do-role/${tx.shared_expense_id}`);
+      toast.message("Cancele ou ajuste o lançamento pela Divisão do Rolê para manter os valores sincronizados.");
+      return;
+    }
     if (!confirm(isTransfer ? "Excluir esta transferência (par completo)?" : `Excluir (${scope === "one" ? "esta parcela" : scope === "future" ? "esta e futuras" : "todas as parcelas"})?`)) return;
     setSaving(true);
     const { data, error } = await supabase.rpc("transaction_delete_direct" as any, {
@@ -201,6 +212,13 @@ export default function LancamentoDetalhe() {
       </header>
 
       <section className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        {tx.shared_expense_id && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
+            <p className="font-semibold">Este lançamento faz parte de uma Divisão do Rolê.</p>
+            <p className="mt-1 text-muted-foreground">Edite ou cancele pela divisão para atualizar participantes, reembolsos e indicadores juntos.</p>
+            <button onClick={() => nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`)} className="mt-2 font-semibold text-primary">Abrir a divisão →</button>
+          </div>
+        )}
         {isTransfer && (
           <p className="rounded-lg bg-secondary p-2 text-xs text-muted-foreground">
             Transferências não podem ser editadas parcialmente. Você pode apenas excluir o par completo.

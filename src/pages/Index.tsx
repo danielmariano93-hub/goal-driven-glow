@@ -11,6 +11,7 @@ import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { PulseHero } from "@/components/home/PulseHero";
 import { PatrimonioCard } from "@/components/home/PatrimonioCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
+import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
 
 type Period = "month" | "30d" | "90d" | "custom";
 
@@ -78,6 +79,8 @@ export default function Index() {
       <WhatsAppCta />
 
       <ParaPagarResumo />
+
+      <AReceberRoleResumo />
 
       {loading ? (
         <div className="grid place-items-center py-8">

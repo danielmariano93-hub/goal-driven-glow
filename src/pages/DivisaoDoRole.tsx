@@ -1,85 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Users, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, Plus, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/split/math";
 
-type Split = {
-  id: string;
-  title: string;
-  total_amount: number;
-  occurred_at: string;
-  due_date: string | null;
-  status: string;
-};
-
-export default function DivisaoDoRole() {
-  const nav = useNavigate();
-  const [items, setItems] = useState<Split[] | null>(null);
-  const [filter, setFilter] = useState<"all" | "active" | "settled">("all");
-
-  useEffect(() => {
-    (async () => {
-      let q = supabase
-        .from("shared_expenses" as any)
-        .select("id,title,total_amount,occurred_at,due_date,status")
-        .order("created_at", { ascending: false });
-      if (filter !== "all") q = q.eq("status", filter);
-      const { data } = await q;
-      setItems((data as any) ?? []);
-    })();
-  }, [filter]);
-
-  return (
-    <div className="space-y-5 pt-2">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight">Divisão do Rolê</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Divida contas com clareza e sem constrangimento</p>
-        </div>
-        <button
-          onClick={() => nav("/app/divisao-do-role/nova")}
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm font-medium"
-        >
-          <Plus size={14} /> Nova
-        </button>
-      </div>
-
-      <div className="flex gap-2">
-        {(["all", "active", "settled"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`text-xs px-3 py-1.5 rounded-full border ${filter === f ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
-          >
-            {f === "all" ? "Todas" : f === "active" ? "Ativas" : "Quitadas"}
-          </button>
-        ))}
-      </div>
-
-      {items === null ? (
-        <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>
-      ) : items.length === 0 ? (
-        <div className="surface-card p-8 text-center">
-          <Users className="mx-auto mb-3 text-muted-foreground" />
-          <p className="text-sm font-medium">Nenhuma divisão ainda</p>
-          <p className="text-xs text-muted-foreground mt-1">Crie uma para dividir uma conta com amigos.</p>
-        </div>
-      ) : (
-        <div className="surface-card divide-y divide-border overflow-hidden">
-          {items.map((s) => (
-            <Link key={s.id} to={`/app/divisao-do-role/${s.id}`} className="block px-4 py-3 hover:bg-secondary/40">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{s.title}</p>
-                  <p className="text-[11px] text-muted-foreground">{new Date(s.occurred_at).toLocaleDateString("pt-BR")} · {s.status}</p>
-                </div>
-                <span className="text-sm font-semibold">{formatBRL(Number(s.total_amount))}</span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+type Item={id:string;title:string;total_amount:number;occurred_at:string;due_date:string|null;status:string;shared_expense_participants:Array<{amount_due:number;amount_paid:number;phone_e164:string|null}>};
+export default function DivisaoDoRole(){
+ const nav=useNavigate();const [items,setItems]=useState<Item[]|null>(null);const [filter,setFilter]=useState<"all"|"active"|"settled"|"cancelled">("all");
+ useEffect(()=>{(async()=>{let q=supabase.from("shared_expenses" as never).select("id,title,total_amount,occurred_at,due_date,status,shared_expense_participants(amount_due,amount_paid,phone_e164)").order("created_at" as never,{ascending:false});if(filter!=="all")q=q.eq("status" as never,filter as never);const{data}=await q;setItems((data??[]) as unknown as Item[])})()},[filter]);
+ return <div className="space-y-5 pt-2"><header className="flex items-center justify-between"><div><h1 className="font-display text-2xl font-bold">Divisão do Rolê</h1><p className="text-xs text-muted-foreground">Clareza para dividir, leveza para cobrar</p></div><button onClick={()=>nav("/app/divisao-do-role/nova")} className="btn-primary px-4 py-2"><Plus size={14}/> Nova</button></header>
+ <div className="flex gap-2 overflow-x-auto pb-1">{(["all","active","settled","cancelled"] as const).map((f)=><button key={f} onClick={()=>setFilter(f)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs ${filter===f?"border-primary bg-primary text-primary-foreground":"border-border"}`}>{({all:"Todas",active:"Em andamento",settled:"Concluídas",cancelled:"Canceladas"} as const)[f]}</button>)}</div>
+ {items===null?<div className="grid place-items-center py-10"><Loader2 className="animate-spin"/></div>:items.length===0?<div className="surface-card p-8 text-center"><Users className="mx-auto text-muted-foreground"/><p className="mt-3 text-sm font-semibold">Nenhuma divisão por aqui</p></div>:<div className="space-y-3">{items.map((s)=>{const ext=s.shared_expense_participants.filter((p)=>p.phone_e164);const received=ext.reduce((a,p)=>a+Number(p.amount_paid),0);const pending=ext.reduce((a,p)=>a+Math.max(0,Number(p.amount_due)-Number(p.amount_paid)),0);const count=ext.filter((p)=>Number(p.amount_paid)<Number(p.amount_due)).length;const overdue=Boolean(s.due_date&&s.status==="active"&&s.due_date<new Date().toISOString().slice(0,10));const pct=received+pending?Math.round(received/(received+pending)*100):100;return <Link key={s.id} to={`/app/divisao-do-role/${s.id}`} className="surface-card block p-4"><div className="flex justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{s.title}</p><p className={`mt-0.5 text-[11px] ${overdue?"text-destructive":"text-muted-foreground"}`}>{overdue&&<AlertCircle size={11} className="mr-1 inline"/>}{overdue?"Pagamento atrasado":s.status==="settled"?"Tudo recebido":s.status==="cancelled"?"Cancelada":`${count} pessoa${count===1?"":"s"} pendente${count===1?"":"s"}`}</p></div><p className="text-sm font-bold">{formatBRL(Number(s.total_amount))}</p></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"><div className="h-full bg-success" style={{width:`${pct}%`}}/></div><div className="mt-2 flex justify-between text-[11px] text-muted-foreground"><span>Recebido {formatBRL(received)}</span><span>Falta {formatBRL(pending)}</span></div></Link>})}</div>}
+ </div>
 }

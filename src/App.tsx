@@ -112,6 +112,7 @@ const App = () => (
                 <Route path="divisao-do-role" element={<DivisaoDoRole />} />
                 <Route path="divisao-do-role/nova" element={<DivisaoDoRoleNova />} />
                 <Route path="divisao-do-role/:id" element={<DivisaoDoRoleDetalhe />} />
+                <Route path="divisao-do-role/:id/editar" element={<DivisaoDoRoleNova />} />
                 <Route path="recorrencias" element={<Recorrencias />} />
                 <Route path="desafios" element={<Desafios />} />
                 <Route path="notificacoes" element={<Notificacoes />} />

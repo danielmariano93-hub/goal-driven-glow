@@ -1,137 +1,49 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bell, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bell, CheckCircle2, Copy, Loader2, Pencil, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/split/math";
 
+const labels:Record<string,string>={active:"Aguardando pagamentos",settled:"Tudo recebido",cancelled:"Cancelada",pending:"Pendente",partial:"Recebido em parte",paid:"Pago",notified:"Avisado"};
+const messageLabels:Record<string,string>={queued:"Aguardando envio",processing:"Enviando",enqueued:"Na fila",sent:"Enviada",delivered:"Entregue",read:"Lida",failed:"Falhou",dead:"Não entregue",skipped:"Não enviada"};
+
 export default function DivisaoDoRoleDetalhe() {
-  const { id } = useParams();
-  const nav = useNavigate();
-  const [se, setSe] = useState<any>(null);
-  const [parts, setParts] = useState<any[] | null>(null);
-  const [events, setEvents] = useState<any[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  const load = async () => {
-    const [{ data: expense }, { data: participants }, { data: evs }] = await Promise.all([
-      supabase.from("shared_expenses" as any).select("*").eq("id", id).single(),
-      supabase.from("shared_expense_participants" as any).select("*").eq("shared_expense_id", id).order("created_at"),
-      supabase.from("shared_expense_events" as any).select("*").eq("shared_expense_id", id).order("created_at", { ascending: false }).limit(20),
+  const { id }=useParams(); const nav=useNavigate();
+  const [split,setSplit]=useState<any>(null); const [parts,setParts]=useState<any[]>([]); const [events,setEvents]=useState<any[]>([]);
+  const [messages,setMessages]=useState<Record<string,any>>({}); const [busy,setBusy]=useState(false);
+  const load=async()=>{
+    const [{data:s,error},{data:p},{data:e},{data:m}]=await Promise.all([
+      supabase.from("shared_expenses" as never).select("*").eq("id" as never,id as never).single(),
+      supabase.from("shared_expense_participants" as never).select("*").eq("shared_expense_id" as never,id as never).order("created_at" as never),
+      supabase.from("shared_expense_events" as never).select("*").eq("shared_expense_id" as never,id as never).order("created_at" as never,{ascending:false}).limit(30),
+      supabase.rpc("split_message_status" as never,{p_id:id} as never),
     ]);
-    setSe(expense); setParts(participants ?? []); setEvents(evs ?? []);
+    if(error){toast.error("Divisão não encontrada");nav("/app/divisao-do-role");return;}
+    setSplit(s);setParts((p??[]) as any[]);setEvents((e??[]) as any[]);
+    setMessages(Object.fromEntries(((m??[]) as any[]).map((x)=>[x.participant_id,x])));
   };
-
-  useEffect(() => { load(); }, [id]);
-
-  const totalPaid = parts?.reduce((s, p) => s + Number(p.amount_paid), 0) ?? 0;
-  const totalDue = parts?.reduce((s, p) => s + Number(p.amount_due), 0) ?? 0;
-  const pending = totalDue - totalPaid;
-
-  const registerPayment = async (participantId: string, amount: number) => {
-    setBusy(true);
-    try {
-      const { error } = await supabase.rpc("split_add_payment" as any, { p_participant_id: participantId, p_amount: amount });
-      if (error) throw error;
-      toast.success("Pagamento registrado");
-      await load();
-    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
-  };
-
-  const reverse = async (participantId: string) => {
-    if (!confirm("Desfazer todos os pagamentos deste participante?")) return;
-    setBusy(true);
-    try {
-      const { error } = await supabase.rpc("split_reverse_payment" as any, { p_participant_id: participantId });
-      if (error) throw error;
-      toast.success("Pagamento revertido");
-      await load();
-    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
-  };
-
-  const sendReminders = async () => {
-    if (!confirm("Enviar lembretes agora aos participantes pendentes?")) return;
-    setBusy(true);
-    try {
-      const { data, error } = await supabase.rpc("split_send_reminders" as any, { p_shared_expense_id: id });
-      if (error) throw error;
-      toast.success(`${data} lembrete(s) agendado(s)`);
-      await load();
-    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
-  };
-
-  if (!se) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
-
-  return (
-    <div className="space-y-5 pt-2">
-      <button onClick={() => nav(-1)} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-        <ArrowLeft size={14} /> Voltar
-      </button>
-      <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight">{se.title}</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">{new Date(se.occurred_at).toLocaleDateString("pt-BR")} · Status: {se.status}</p>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Total</p><p className="text-sm font-bold">{formatBRL(Number(se.total_amount))}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Recebido</p><p className="text-sm font-bold text-success">{formatBRL(totalPaid)}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Pendente</p><p className="text-sm font-bold text-destructive">{formatBRL(pending)}</p></div>
-      </div>
-
-      {se.reminder_enabled && (
-        <button onClick={sendReminders} disabled={busy} className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2 text-sm disabled:opacity-50">
-          <Bell size={14} /> Enviar lembretes agora
-        </button>
-      )}
-
-      <div className="surface-card divide-y divide-border overflow-hidden">
-        {parts?.map((p: any) => {
-          const remaining = Number(p.amount_due) - Number(p.amount_paid);
-          return (
-            <div key={p.id} className="px-4 py-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{p.name}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {p.phone_masked ?? "sem telefone"} · pagou {formatBRL(Number(p.amount_paid))} de {formatBRL(Number(p.amount_due))}
-                  </p>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.status === "paid" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}>
-                  {p.status}
-                </span>
-              </div>
-              {p.status !== "paid" && (
-                <div className="flex gap-2">
-                  <button disabled={busy} onClick={() => registerPayment(p.id, remaining)} className="text-xs inline-flex items-center gap-1 rounded-full bg-success/15 text-success px-3 py-1">
-                    <CheckCircle2 size={12} /> Marcar como pago ({formatBRL(remaining)})
-                  </button>
-                  <button disabled={busy} onClick={() => {
-                    const v = prompt("Valor parcial (R$):"); if (!v) return;
-                    const num = Number(v.replace(",", ".")); if (!(num > 0)) return;
-                    registerPayment(p.id, num);
-                  }} className="text-xs rounded-full border border-border px-3 py-1">Pagamento parcial</button>
-                </div>
-              )}
-              {Number(p.amount_paid) > 0 && (
-                <button disabled={busy} onClick={() => reverse(p.id)} className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                  <RotateCcw size={11} /> desfazer pagamentos
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {events.length > 0 && (
-        <div className="surface-card p-4">
-          <p className="text-xs font-medium mb-2">Histórico</p>
-          <ul className="space-y-1 text-[11px] text-muted-foreground">
-            {events.map((e: any) => (
-              <li key={e.id}>{new Date(e.created_at).toLocaleString("pt-BR")} — {e.event_type}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
+  useEffect(()=>{load();},[id]);
+  const external=useMemo(()=>parts.filter((p)=>p.phone_e164),[parts]);
+  const received=external.reduce((s,p)=>s+Number(p.amount_paid),0), pending=external.reduce((s,p)=>s+Math.max(0,Number(p.amount_due)-Number(p.amount_paid)),0);
+  const externalTotal=received+pending,progress=externalTotal?Math.min(100,Math.round(received/externalTotal*100)):100;
+  const overdue=split?.due_date&&split.status==="active"&&split.due_date<new Date().toISOString().slice(0,10);
+  const act=async(fn:()=>PromiseLike<{error?:any}>,ok:string)=>{setBusy(true);try{const r=await fn();if(r.error)throw r.error;toast.success(ok);await load();}catch(e:any){toast.error(e.message||"Não consegui concluir");}finally{setBusy(false)}};
+  const payment=(pid:string,amount:number)=>act(()=>supabase.rpc("split_add_payment_v2" as never,{p_participant_id:pid,p_amount:amount} as never),"Pagamento registrado");
+  const retry=(pid:string)=>act(()=>supabase.rpc("split_enqueue_message" as never,{p_expense_id:id,p_participant_id:pid,p_kind:"reminder",p_when:new Date().toISOString()} as never),"Mensagem preparada para envio");
+  const cancel=async()=>{const reason=prompt("Motivo do cancelamento (opcional):")??"";const hasReceived=received>0;if(!confirm(hasReceived?"Esta divisão já recebeu pagamentos. Ela será cancelada, mas os lançamentos serão preservados. Continuar?":"Cancelar esta divisão e remover o gasto vinculado?"))return;await act(()=>supabase.rpc("split_cancel" as never,{p_id:id,p_reason:reason||null,p_remove_transaction:!hasReceived} as never),"Divisão cancelada");};
+  const sendAll=()=>act(()=>supabase.rpc("split_send_reminders" as never,{p_shared_expense_id:id} as never),"Lembretes preparados");
+  if(!split)return <div className="grid place-items-center py-12"><Loader2 className="animate-spin"/></div>;
+  return <div className="space-y-5 pb-8 pt-2">
+    <button onClick={()=>nav(-1)} className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ArrowLeft size={14}/> Voltar</button>
+    <header className="flex items-start justify-between gap-3"><div><h1 className="font-display text-2xl font-bold">{split.title}</h1><p className="text-xs text-muted-foreground">{new Date(`${split.occurred_at}T12:00:00`).toLocaleDateString("pt-BR")} · <span className={overdue?"font-semibold text-destructive":""}>{overdue?"Vencida":labels[split.status]??split.status}</span></p></div>{split.status!=="cancelled"&&<button onClick={()=>nav(`/app/divisao-do-role/${id}/editar`)} className="rounded-full border p-2" aria-label="Editar"><Pencil size={16}/></button>}</header>
+    <section className="surface-card p-4"><div className="grid grid-cols-3 gap-3"><Metric label="Total" value={formatBRL(Number(split.total_amount))}/><Metric label="Recebido" value={formatBRL(received)} tone="text-success"/><Metric label="Falta" value={formatBRL(pending)} tone={pending?"text-destructive":"text-success"}/></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gradient-to-r from-primary to-brand-coral transition-all" style={{width:`${progress}%`}}/></div><p className="mt-1 text-right text-[11px] text-muted-foreground">{progress}% recebido</p></section>
+    {overdue&&<div className="flex gap-2 rounded-2xl border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive"><AlertTriangle size={16}/> Há pessoas com pagamento atrasado.</div>}
+    {split.status==="active"&&<button disabled={busy} onClick={sendAll} className="btn-primary w-full"><Bell size={14}/> Lembrar quem ainda não pagou</button>}
+    <section className="surface-card divide-y divide-border overflow-hidden">{parts.map((p)=>{const left=Math.max(0,Number(p.amount_due)-Number(p.amount_paid));const msg=messages[p.id];const isOwner=!p.phone_e164;return <article key={p.id} className="space-y-2 p-4"><div className="flex justify-between gap-2"><div><p className="text-sm font-semibold">{isOwner?`${p.name} (você)`:p.name}</p><p className="text-[11px] text-muted-foreground">{isOwner?"Sua parte":p.phone_masked??"Sem WhatsApp"} · {formatBRL(Number(p.amount_paid))} de {formatBRL(Number(p.amount_due))}</p></div><span className={`h-fit rounded-full px-2 py-1 text-[10px] ${p.status==="paid"?"bg-success/15 text-success":"bg-secondary text-muted-foreground"}`}>{labels[p.status]??p.status}</span></div>{!isOwner&&msg&&<div className="flex items-center justify-between rounded-xl bg-secondary/60 px-3 py-2 text-[11px]"><span>Mensagem: {messageLabels[msg.outbound_status??msg.job_status]??msg.outbound_status??msg.job_status}</span>{msg.last_error&&<span className="text-destructive" title={msg.last_error}>Erro no envio</span>}</div>}{left>0&&split.status==="active"&&<div className="flex flex-wrap gap-2"><button disabled={busy} onClick={()=>payment(p.id,left)} className="rounded-full bg-success/15 px-3 py-1 text-xs text-success"><CheckCircle2 size={12} className="inline"/> Marcar {formatBRL(left)}</button><button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido?");const n=Number((v??"").replace(",","."));if(n>0)payment(p.id,n)}} className="rounded-full border px-3 py-1 text-xs">Valor parcial</button>{!isOwner&&<button disabled={busy} onClick={()=>retry(p.id)} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Reenviar</button>}</div>}{Number(p.amount_paid)>0&&!isOwner&&<button disabled={busy} onClick={()=>act(()=>supabase.rpc("split_reverse_payment_v2" as never,{p_participant_id:p.id} as never),"Pagamento desfeito")} className="text-xs text-muted-foreground"><RotateCcw size={11} className="inline"/> Desfazer</button>}</article>})}</section>
+    <div className="grid grid-cols-2 gap-2"><button onClick={()=>navigator.clipboard.writeText(`${split.title} · ${formatBRL(pending)} pendente${split.pix_key?` · Pix ${split.pix_key}`:""}`).then(()=>toast.success("Dados copiados"))} className="btn-ghost-brand"><Copy size={14}/> Copiar dados</button>{split.status!=="cancelled"&&<button onClick={cancel} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2 text-sm text-destructive"><XCircle size={14}/> Cancelar</button>}</div>
+    {events.length>0&&<details className="surface-card p-4"><summary className="cursor-pointer text-xs font-semibold">Histórico da divisão</summary><ul className="mt-3 space-y-2 text-[11px] text-muted-foreground">{events.map((e)=><li key={e.id}>{new Date(e.created_at).toLocaleString("pt-BR")} · {eventLabel(e.event_type)}</li>)}</ul></details>}
+  </div>;
 }
+function Metric({label,value,tone=""}:{label:string;value:string;tone?:string}){return <div><p className="text-[10px] text-muted-foreground">{label}</p><p className={`text-sm font-bold ${tone}`}>{value}</p></div>}
+function eventLabel(v:string){return ({created:"Divisão criada",updated:"Divisão editada",payment:"Pagamento registrado",reverse_payment:"Pagamento desfeito",message_queued:"Mensagem agendada",message_enqueued:"Mensagem enviada para a fila",cancelled:"Divisão cancelada",reminders_scheduled:"Lembretes agendados"} as Record<string,string>)[v]??v.replace(/_/g," ")}

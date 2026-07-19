@@ -31,6 +31,28 @@ function maskPhone(p?: string | null): string {
   return p.replace(/^(\+\d{2})\d+(\d{4})$/, "$1****$2");
 }
 
+function messageFor(kind: string, p: any, se: any, remaining: number): string {
+  const amount = `R$ ${remaining.toFixed(2).replace(".", ",")}`;
+  const due = se?.due_date ? new Date(`${se.due_date}T12:00:00`).toLocaleDateString("pt-BR") : null;
+  const pix = se?.pix_key ? `\nPix: ${se.pix_key}` : "";
+  switch (kind) {
+    case "invite":
+      return `Oi, ${p.name}! 👋 O Lucas aqui. Você entrou na divisão “${se.title}” e sua parte ficou em ${amount}.` +
+        `${due ? ` O combinado é pagar até ${due}.` : ""}${pix}\nQuando acertar, avise quem criou o rolê para dar baixa por lá.`;
+    case "due_soon":
+      return `Passando de leve, ${p.name}: a sua parte de ${amount} em “${se.title}” vence${due ? ` em ${due}` : " em breve"}.${pix}`;
+    case "overdue":
+      return `Oi, ${p.name}. A sua parte de ${amount} em “${se.title}” ainda aparece em aberto. Se você já pagou, é só avisar quem criou o rolê 💛${pix}`;
+    case "payment_confirmation":
+      return `Tudo certo, ${p.name}! Seu pagamento em “${se.title}” foi registrado. Obrigado por organizar esse rolê com a gente 🙌`;
+    case "completed":
+      return `Rolê fechado! 🎉 Todo mundo acertou a divisão “${se.title}”.`;
+    case "reminder":
+    default:
+      return `Oi, ${p.name}! Lembrete amigável do Lucas: ainda faltam ${amount} da sua parte em “${se.title}”.${due ? ` Vencimento: ${due}.` : ""}${pix}`;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -54,12 +76,14 @@ Deno.serve(async (req) => {
   let enqueued = 0, skipped = 0, failed = 0;
   for (const j of jobs) {
     try {
+      const kind = String(j.kind ?? "reminder");
+      const terminalNotice = kind === "payment_confirmation" || kind === "completed";
       const { data: p } = await sb
         .from("shared_expense_participants")
         .select("id,name,phone_e164,amount_due,amount_paid,opt_out_at,status")
         .eq("id", j.participant_id)
         .single();
-      if (!p || p.opt_out_at || !p.phone_e164 || !["pending","partial","notified"].includes(p.status)) {
+      if (!p || p.opt_out_at || !p.phone_e164 || (!terminalNotice && !["pending","partial","notified"].includes(p.status))) {
         await sb.from("reminder_jobs").update({
           status: "skipped", last_error: p?.opt_out_at ? "opted_out" : !p?.phone_e164 ? "no_phone" : "bad_state",
           lease_expires_at: null,
@@ -70,25 +94,30 @@ Deno.serve(async (req) => {
 
       const { data: se } = await sb
         .from("shared_expenses")
-        .select("title,due_date,pix_key,owner_user_id")
+        .select("title,due_date,pix_key,owner_user_id,status")
         .eq("id", j.shared_expense_id)
         .single();
 
       const remaining = Number(p.amount_due) - Number(p.amount_paid);
-      const msg = `Oi ${p.name}! Sobre ${se?.title}: você deve R$ ${remaining.toFixed(2).replace(".", ",")}` +
-                  `${se?.due_date ? ` (venc. ${se.due_date})` : ""}` +
-                  `${se?.pix_key ? ` Pix: ${se.pix_key}` : ""}`;
+      if (!se || se.status === "cancelled") {
+        await sb.from("reminder_jobs").update({ status: "skipped", last_error: "split_cancelled", lease_expires_at: null }).eq("id", j.id);
+        skipped++;
+        continue;
+      }
+      const msg = messageFor(kind, p, se, remaining);
 
       const dedupDay = new Date(j.scheduled_for).toISOString().slice(0, 10);
-      const idem = `reminder:${j.participant_id}:${dedupDay}`;
+      const idem = `split:${kind}:${j.participant_id}:${dedupDay}`;
 
       const { data: om, error: omErr } = await sb
         .from("outbound_messages")
         .insert({
           channel: "whatsapp",
+          user_id: se.owner_user_id,
           to_phone: p.phone_e164,
           body: msg,
           status: "queued",
+          kind: `split_${kind}`,
           idempotency_key: idem,
         })
         .select("id")
@@ -109,6 +138,13 @@ Deno.serve(async (req) => {
           outbound_message_id: om.id,
           lease_expires_at: null,
         }).eq("id", j.id);
+        await sb.from("shared_expense_events").insert({
+          shared_expense_id: j.shared_expense_id,
+          owner_user_id: se.owner_user_id,
+          participant_id: j.participant_id,
+          event_type: "message_enqueued",
+          payload: { kind, job_id: j.id, outbound_message_id: om.id },
+        });
         enqueued++;
       }
     } catch (e) {
@@ -136,4 +172,3 @@ Deno.serve(async (req) => {
   });
   return json({ claimed: jobs.length, enqueued, skipped, failed });
 });
-

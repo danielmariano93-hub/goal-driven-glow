@@ -192,6 +192,10 @@
     @apply w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30;
   }
 
+  .split-form .input {
+    @apply w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30;
+  }
+
   .text-gradient-brand {
     background: var(--gradient-brand);
     -webkit-background-clip: text;
