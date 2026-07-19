@@ -166,7 +166,6 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
       const amount = normalizeAmountBR(row[2]);
       if (amount == null) continue;
       const movementKind = normalizeMovementKind(row[7], type);
-      if (movementKind === "informational") continue;
       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
       const paymentRaw = row[4];
       const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
@@ -198,7 +197,6 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     // Linhas informativas não entram no livro. Transferências e movimentos de
     // investimento, porém, alteram o caixa da conta e precisam chegar à revisão.
     // Eles serão excluídos apenas dos indicadores de renda/consumo, nunca do saldo.
-    if (movementKind === "informational") continue;
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
     const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
@@ -229,7 +227,7 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
 
 // ---------- Whitelists (must mirror extracted_items CHECK constraints) ----------
 export const ALLOWED_TYPES = new Set(["income", "expense"]);
-export const ALLOWED_MOVEMENT_KINDS = new Set(CANONICAL_MOVEMENT_KINDS);
+export const ALLOWED_MOVEMENT_KINDS: Set<string> = new Set(CANONICAL_MOVEMENT_KINDS);
 export const ALLOWED_PAYMENT_METHODS = new Set(["account", "credit_card"]);
 export const ALLOWED_STATUSES = new Set([
   "needs_review", "ignored", "confirmed",
