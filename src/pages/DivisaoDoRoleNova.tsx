@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccounts, useCategories } from "@/lib/db/finance";
@@ -15,6 +16,7 @@ export default function DivisaoDoRoleNova() {
   const { id } = useParams();
   const editing = Boolean(id);
   const nav = useNavigate();
+  const queryClient = useQueryClient();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: cards = [] } = useCreditCards();
@@ -35,7 +37,16 @@ export default function DivisaoDoRoleNova() {
   const [reimbursementAccountId, setReimbursementAccountId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [people, setPeople] = useState<Person[]>([{ name: "", phone_e164: "", amount_due: "" }]);
+  const [missingFinancialSource, setMissingFinancialSource] = useState(false);
   const totalNum = money(total || "0");
+
+  const refreshFinance = () => {
+    queryClient.invalidateQueries({ queryKey: ["shared_expenses"] });
+    queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["credit_cards"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  };
 
   useEffect(() => {
     if (!editing) return;
@@ -50,6 +61,7 @@ export default function DivisaoDoRoleNova() {
       setDueDate(s.due_date ?? ""); setMode(s.split_mode); setReminders(s.reminder_enabled);
       setPixKey(s.pix_key ?? ""); setCategoryId(s.category_id ?? "");
       setReimbursementAccountId(s.reimbursement_account_id ?? "");
+      setMissingFinancialSource(!s.source_account_id && !s.source_credit_card_id);
       setSource(s.source_credit_card_id ? "credit_card" : "account");
       setSourceId(s.source_credit_card_id ?? s.source_account_id ?? "");
       const owner = rows.find((p) => !p.phone_e164 && Number(p.amount_paid) === Number(p.amount_due));
@@ -101,6 +113,7 @@ export default function DivisaoDoRoleNova() {
           p_source_credit_card_id:source==="credit_card"?sourceId:null,p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
         } as never);
         if (error) throw error;
+        refreshFinance();
         toast.success("Divisão atualizada"); nav(`/app/divisao-do-role/${id}`);
       } else {
         const { data, error } = await supabase.rpc("split_create_v2" as never, {
@@ -111,9 +124,10 @@ export default function DivisaoDoRoleNova() {
           p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
         } as never);
         if (error) throw error;
+        refreshFinance();
         toast.success("Divisão criada e convites preparados"); nav(`/app/divisao-do-role/${data}`);
       }
-    } catch (e:any) { toast.error(e.message||"Não consegui salvar"); } finally { setSaving(false); }
+    } catch (e:any) { toast.error(friendlyError(e)); } finally { setSaving(false); }
   };
 
   if (loading) return <div className="grid place-items-center py-12"><Loader2 className="animate-spin" /></div>;
@@ -131,11 +145,21 @@ export default function DivisaoDoRoleNova() {
     </section>}
     {(editing||step===3)&&<section className="surface-card space-y-3 p-4">
       <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">Para manter seu saldo correto, toda divisão registra o gasto na conta ou no cartão usado no pagamento.</div>
+      {missingFinancialSource&&<div className="flex gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground"><AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning"/> Esta divisão foi criada antes do vínculo financeiro. Escolha a conta ou o cartão usado para salvar e refletir nos movimentos.</div>}
       <Field label="De onde saiu o pagamento? *"><select value={source} onChange={(e)=>{setSource(e.target.value as Source);setSourceId("")}} className="input"><option value="account">Conta bancária</option><option value="credit_card">Cartão de crédito</option></select></Field><Field label={source==="account"?"Qual conta? *":"Qual cartão? *"}><select value={sourceId} onChange={(e)=>setSourceId(e.target.value)} className="input"><option value="">Selecione</option>{(source==="account"?accounts:cards).filter((x:any)=>x.active).map((x:any)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field label="Categoria"><select value={categoryId} onChange={(e)=>setCategoryId(e.target.value)} className="input"><option value="">Sem categoria</option>{categories.filter((c)=>c.type==="expense").map((c)=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Conta para receber os reembolsos"><select value={reimbursementAccountId} onChange={(e)=>setReimbursementAccountId(e.target.value)} className="input"><option value="">Registrar baixa sem lançamento</option>{accounts.filter((a)=>a.active).map((a)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
       <label className="flex gap-2 text-xs"><input type="checkbox" checked={reminders} onChange={(e)=>setReminders(e.target.checked)}/> Ativar lembretes amigáveis</label><Field label="Chave Pix"><input value={pixKey} onChange={(e)=>setPixKey(e.target.value)} className="input"/></Field>
     </section>}
     <div className="flex gap-2">{!editing&&step>1&&<button onClick={()=>setStep(step-1)} className="rounded-full border px-4 py-2 text-sm">Voltar</button>}{!editing&&step<3?<button disabled={step===1?!(title&&totalNum>0):shares.length===0} onClick={()=>setStep(step+1)} className="ml-auto rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">Continuar</button>:<button disabled={!valid||saving} onClick={save} className="ml-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground disabled:opacity-40">{saving&&<Loader2 size={14} className="animate-spin"/>}{editing?"Salvar alterações":"Criar e avisar"}</button>}</div>
   </div>;
+}
+
+function friendlyError(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (message.includes("Escolha de onde saiu")) return "Escolha a conta ou o cartão usado no pagamento para salvar a divisão.";
+  if (message.includes("menor que o valor já recebido")) return "Uma pessoa já pagou mais do que a nova parte dela. Ajuste os valores antes de salvar.";
+  if (message.includes("remover alguém que já pagou")) return "Não dá para remover quem já pagou. Desfaça o pagamento antes, se for o caso.";
+  if (message.includes("soma das partes")) return "A soma das partes precisa bater exatamente com o valor total.";
+  return message || "Não consegui salvar";
 }
 
 function Field({label,children}:{label:string;children:React.ReactNode}) { return <label className="block space-y-1 text-xs font-medium"><span>{label}</span>{children}</label>; }
