@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const migration = readFileSync(`${process.cwd()}/supabase/migrations/20260719230000_complete_split_expense_flow.sql`, "utf8");
 const repairMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719214538_858fe9fa-6493-496c-9140-d5de3f142e45.sql`, "utf8");
+const deleteMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719231937_7985b419-f354-47cb-94cc-48bda3aef9cc.sql`, "utf8");
 const dispatcher = readFileSync(`${process.cwd()}/supabase/functions/split-reminders-dispatch/index.ts`, "utf8");
 
 describe("Divisão do Rolê — contrato integrado", () => {
@@ -28,6 +29,7 @@ describe("Divisão do Rolê — contrato integrado", () => {
     expect(repairMigration).toContain("linked_transaction_id IS DISTINCT FROM tx_id");
     expect(repairMigration).toContain("t.shared_expense_id = p_id");
     expect(repairMigration).toContain("DELETE FROM public.transactions");
+    expect(deleteMigration).toContain("shared_expense_id = p_id OR id = tx_id OR id = se.linked_transaction_id");
   });
 
   it("usa split_enqueue_message para lembretes idempotentes", () => {
@@ -44,5 +46,11 @@ describe("Divisão do Rolê — contrato integrado", () => {
     for (const kind of ["invite", "reminder", "due_soon", "overdue", "payment_confirmation", "completed"]) {
       expect(dispatcher).toContain(`case "${kind}"`);
     }
+  });
+
+  it("processa a fila outbound continuamente mesmo sem novos lembretes", () => {
+    expect(dispatcher).toContain("Todo tick autorizado também processa outbound_messages já existentes");
+    expect(dispatcher).toContain("outbound_kicked");
+    expect(dispatcher).not.toContain("if (enqueued > 0)");
   });
 });
