@@ -123,9 +123,11 @@ async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, m
   for (const url of endpointCandidates(apiUrl, session, messageId, media)) {
     for (const headers of authHeaderCandidates(apiKey)) {
       const result = await fetchWithLimits(url, headers);
-      if (result.ok) return result;
+      if (result.ok) { return result; }
       last = result;
-      if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed"].includes(result.code)) return result;
+      if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed"].includes(result.code)) {
+        return result;
+      }
     }
   }
   return last;
