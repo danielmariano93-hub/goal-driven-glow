@@ -710,6 +710,32 @@ async function processDocument(documentId: string, userId: string, guidance: str
       return;
     }
 
+    // Configurável por usuário (default 240, hard cap 800).
+    const MAX_ITEMS_PER_DOCUMENT = await resolveDocMaxItems(sb, userId);
+
+    // Persiste/idempotência de fragmentos. Fragmentos completed nunca são refeitos.
+    const fragmentRows = fragments.map((f) => ({
+      document_id: documentId,
+      user_id: userId,
+      fragment_index: f.index,
+      total_fragments: f.total,
+      page_start: f.page_start,
+      page_end: f.page_end,
+      status: "pending" as const,
+    }));
+    await sb.from("document_fragments").upsert(fragmentRows, { onConflict: "document_id,fragment_index", ignoreDuplicates: true }).then(() => {}, () => {});
+    const { data: fragmentState } = await sb.from("document_fragments")
+      .select("fragment_index,status,attempts").eq("document_id", documentId).eq("user_id", userId);
+    const fragmentByIdx = new Map<number, { status: string; attempts: number }>();
+    for (const r of fragmentState ?? []) {
+      fragmentByIdx.set(Number(r.fragment_index), { status: String(r.status), attempts: Number(r.attempts ?? 0) });
+    }
+
+    // Resolve contexto de origem (uma vez por documento) e persiste.
+    const srcCtx = await resolveSourceContext(sb, userId, doc, null);
+    await sb.from("document_imports").update(srcCtx).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+
+
     let documentKind: ExtractionResult["document_kind"] = "unknown";
     let statement: StatementMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
