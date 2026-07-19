@@ -914,6 +914,83 @@ export type Database = {
         }
         Relationships: []
       }
+      document_fragments: {
+        Row: {
+          attempts: number
+          created_at: string
+          document_id: string
+          duplicates_found: number
+          error: string | null
+          error_code: string | null
+          extraction_ms: number
+          fragment_index: number
+          heartbeat_at: string | null
+          id: string
+          items_found: number
+          page_end: number
+          page_start: number
+          partial: boolean
+          status: string
+          tokens_in: number
+          tokens_out: number
+          total_fragments: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          document_id: string
+          duplicates_found?: number
+          error?: string | null
+          error_code?: string | null
+          extraction_ms?: number
+          fragment_index: number
+          heartbeat_at?: string | null
+          id?: string
+          items_found?: number
+          page_end: number
+          page_start: number
+          partial?: boolean
+          status?: string
+          tokens_in?: number
+          tokens_out?: number
+          total_fragments: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          document_id?: string
+          duplicates_found?: number
+          error?: string | null
+          error_code?: string | null
+          extraction_ms?: number
+          fragment_index?: number
+          heartbeat_at?: string | null
+          id?: string
+          items_found?: number
+          page_end?: number
+          page_start?: number
+          partial?: boolean
+          status?: string
+          tokens_in?: number
+          tokens_out?: number
+          total_fragments?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_fragments_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_import_audit: {
         Row: {
           action: string
@@ -965,10 +1042,17 @@ export type Database = {
           sha256: string
           size_bytes: number
           source: string
+          source_account_id: string | null
+          source_context_confidence: number | null
+          source_context_method: string | null
+          source_context_reason: string | null
+          source_credit_card_id: string | null
           statement_balance_date: string | null
           statement_bank: string | null
           statement_closing_balance: number | null
           statement_opening_balance: number | null
+          statement_period_end: string | null
+          statement_period_start: string | null
           status: string
           storage_path: string
           tokens_in: number | null
@@ -1000,10 +1084,17 @@ export type Database = {
           sha256: string
           size_bytes: number
           source: string
+          source_account_id?: string | null
+          source_context_confidence?: number | null
+          source_context_method?: string | null
+          source_context_reason?: string | null
+          source_credit_card_id?: string | null
           statement_balance_date?: string | null
           statement_bank?: string | null
           statement_closing_balance?: number | null
           statement_opening_balance?: number | null
+          statement_period_end?: string | null
+          statement_period_start?: string | null
           status?: string
           storage_path: string
           tokens_in?: number | null
@@ -1035,10 +1126,17 @@ export type Database = {
           sha256?: string
           size_bytes?: number
           source?: string
+          source_account_id?: string | null
+          source_context_confidence?: number | null
+          source_context_method?: string | null
+          source_context_reason?: string | null
+          source_credit_card_id?: string | null
           statement_balance_date?: string | null
           statement_bank?: string | null
           statement_closing_balance?: number | null
           statement_opening_balance?: number | null
+          statement_period_end?: string | null
+          statement_period_start?: string | null
           status?: string
           storage_path?: string
           tokens_in?: number | null
@@ -1047,7 +1145,22 @@ export type Database = {
           user_id?: string
           user_instructions?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "document_imports_source_account_id_fkey"
+            columns: ["source_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_imports_source_credit_card_id_fkey"
+            columns: ["source_credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       document_item_rejections: {
         Row: {
@@ -1201,6 +1314,7 @@ export type Database = {
           account_hint: string | null
           account_id: string | null
           amount: number
+          bank_description: string | null
           bank_reference: string | null
           card_hint: string | null
           category_confidence: number | null
@@ -1216,6 +1330,7 @@ export type Database = {
           document_id: string
           duplicate_of: string | null
           duplicate_reason: string | null
+          friendly_description: string | null
           id: string
           idx: number
           installment_number: number | null
@@ -1238,6 +1353,7 @@ export type Database = {
           account_hint?: string | null
           account_id?: string | null
           amount: number
+          bank_description?: string | null
           bank_reference?: string | null
           card_hint?: string | null
           category_confidence?: number | null
@@ -1253,6 +1369,7 @@ export type Database = {
           document_id: string
           duplicate_of?: string | null
           duplicate_reason?: string | null
+          friendly_description?: string | null
           id?: string
           idx: number
           installment_number?: number | null
@@ -1275,6 +1392,7 @@ export type Database = {
           account_hint?: string | null
           account_id?: string | null
           amount?: number
+          bank_description?: string | null
           bank_reference?: string | null
           card_hint?: string | null
           category_confidence?: number | null
@@ -1290,6 +1408,7 @@ export type Database = {
           document_id?: string
           duplicate_of?: string | null
           duplicate_reason?: string | null
+          friendly_description?: string | null
           id?: string
           idx?: number
           installment_number?: number | null
@@ -1686,6 +1805,53 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      merchant_aliases: {
+        Row: {
+          alias_key: string
+          category_id: string | null
+          created_at: string
+          friendly_name: string
+          hits: number
+          id: string
+          last_used_at: string
+          learned_from: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          alias_key: string
+          category_id?: string | null
+          created_at?: string
+          friendly_name: string
+          hits?: number
+          id?: string
+          last_used_at?: string
+          learned_from?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          alias_key?: string
+          category_id?: string | null
+          created_at?: string
+          friendly_name?: string
+          hits?: number
+          id?: string
+          last_used_at?: string
+          learned_from?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_aliases_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       message_delivery_events: {
         Row: {
@@ -2621,6 +2787,7 @@ export type Database = {
         Row: {
           account_id: string | null
           amount: number
+          bank_description: string | null
           bank_reference: string | null
           category_id: string | null
           competence_date: string | null
@@ -2630,6 +2797,7 @@ export type Database = {
           description: string | null
           direction: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger: string | null
+          friendly_description: string | null
           id: string
           import_source_id: string | null
           installment_number: number | null
@@ -2654,6 +2822,7 @@ export type Database = {
         Insert: {
           account_id?: string | null
           amount: number
+          bank_description?: string | null
           bank_reference?: string | null
           category_id?: string | null
           competence_date?: string | null
@@ -2663,6 +2832,7 @@ export type Database = {
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
+          friendly_description?: string | null
           id?: string
           import_source_id?: string | null
           installment_number?: number | null
@@ -2687,6 +2857,7 @@ export type Database = {
         Update: {
           account_id?: string | null
           amount?: number
+          bank_description?: string | null
           bank_reference?: string | null
           category_id?: string | null
           competence_date?: string | null
@@ -2696,6 +2867,7 @@ export type Database = {
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
+          friendly_description?: string | null
           id?: string
           import_source_id?: string | null
           installment_number?: number | null
@@ -2791,6 +2963,7 @@ export type Database = {
           approximate_monthly_income: number | null
           created_at: string
           currency: string
+          doc_max_items: number
           income_day: number | null
           income_frequency:
             | Database["public"]["Enums"]["income_frequency"]
@@ -2803,6 +2976,7 @@ export type Database = {
           approximate_monthly_income?: number | null
           created_at?: string
           currency?: string
+          doc_max_items?: number
           income_day?: number | null
           income_frequency?:
             | Database["public"]["Enums"]["income_frequency"]
@@ -2815,6 +2989,7 @@ export type Database = {
           approximate_monthly_income?: number | null
           created_at?: string
           currency?: string
+          doc_max_items?: number
           income_day?: number | null
           income_frequency?:
             | Database["public"]["Enums"]["income_frequency"]
@@ -3341,6 +3516,10 @@ export type Database = {
         Returns: number
       }
       recurring_skip: { Args: { p_occurrence_id: string }; Returns: undefined }
+      reprocess_rejected_items: {
+        Args: { p_document_id: string; p_reason_codes?: string[] }
+        Returns: Json
+      }
       revoke_platform_admin: { Args: { _target: string }; Returns: undefined }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
       rollback_document_import: {
