@@ -405,9 +405,10 @@ async function enrichItems(
     };
   });
   const uniqueDescriptions = [...new Set(normalized.map((n) => n.friendly).filter(Boolean))].slice(0, 200);
+  const uniqueRawKeys = [...new Set(normalized.map((n) => n.rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean))].slice(0, 200);
 
   // 2) Uma única leva de queries.
-  const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }] = await Promise.all([
+  const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }, aliasResp] = await Promise.all([
     sb.from("categories").select("id, name, type").eq("user_id", userId),
     uniqueDescriptions.length > 0
       ? sb.from("transactions").select("description, raw_description, category_id, type")
@@ -417,7 +418,13 @@ async function enrichItems(
       : Promise.resolve({ data: [] as Array<{ description: string; raw_description: string | null; category_id: string; type: string }> }),
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
+    uniqueRawKeys.length > 0
+      ? sb.from("merchant_aliases").select("alias_key, friendly_name, category_id").eq("user_id", userId).in("alias_key", uniqueRawKeys)
+      : Promise.resolve({ data: [] as Array<{ alias_key: string; friendly_name: string | null; category_id: string | null }> }),
   ]);
+  const aliasByKey = new Map<string, { friendly_name: string | null; category_id: string | null }>();
+  for (const a of (aliasResp.data ?? [])) aliasByKey.set(a.alias_key, { friendly_name: a.friendly_name, category_id: a.category_id });
+
 
   // 3) Índice de histórico por chave normalizada — normaliza cada linha do histórico UMA vez.
   const historyByKey = new Map<string, Map<string, number>>(); // key -> categoryId -> count
