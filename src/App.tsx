@@ -43,6 +43,7 @@ const Desafios = lazy(() => import("./pages/Desafios"));
 const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
+const Assessor = lazy(() => import("./pages/Assessor"));
 
 // Platform admin (lazy)
 const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
@@ -116,6 +117,7 @@ const App = () => (
                 <Route path="notificacoes" element={<Notificacoes />} />
                 <Route path="cobrancas" element={<CobrancasRecebidas />} />
                 <Route path="cartoes" element={<Cartoes />} />
+                <Route path="assessor" element={<Assessor />} />
               </Route>
 
               {/* Platform admin — separate application */}
