@@ -455,7 +455,16 @@ async function enrichItems(
     let categorySource: string | null = null;
     let categoryConfidence: number | null = null;
 
-    if (ruleCategory) {
+    // Aliases do usuário têm precedência máxima (aprendizado explícito).
+    const aliasKey = rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+    const aliasHit = aliasByKey.get(aliasKey);
+    let aliasFriendly: string | null = null;
+    if (aliasHit) {
+      if (aliasHit.friendly_name) aliasFriendly = aliasHit.friendly_name;
+      if (aliasHit.category_id) { categoryId = aliasHit.category_id; categorySource = "alias"; categoryConfidence = 0.98; }
+    }
+
+    if (!categoryId && ruleCategory) {
       const c = findCatByName(ruleCategory);
       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
     }
@@ -466,6 +475,7 @@ async function enrichItems(
         if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
       }
     }
+
     if (!categoryId && item.category_hint) {
       const c = findCatByName(item.category_hint);
       if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
