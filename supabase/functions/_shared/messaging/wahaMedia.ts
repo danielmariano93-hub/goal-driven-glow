@@ -50,7 +50,7 @@ export type DownloadResult =
   | { ok: true; bytes: Uint8Array; mime_type: string; filename: string }
   | { ok: false; code: DownloadCode; detail?: string };
 
-async function fetchWithLimits(url: string, headers: Record<string, string>): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string }> {
+async function fetchWithLimits(url: string, headers: Record<string, string>): Promise<FetchResult> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
@@ -114,7 +114,7 @@ function endpointCandidates(apiUrl: string, session: string, messageId: string, 
   return [...new Set(candidates)];
 }
 
-type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
+export type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
 
 async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint): Promise<FetchResult> {
   const guard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
