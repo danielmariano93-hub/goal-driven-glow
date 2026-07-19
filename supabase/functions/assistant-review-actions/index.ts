@@ -83,6 +83,10 @@ Deno.serve(async (req) => {
       clean.description = clean.friendly_description;
     }
     if (Object.keys(clean).length === 0) return json({ error: "empty_patch" }, 400);
+    // Marca a edição manual: essa flag é a fonte de verdade para o pipeline
+    // de reprocessamento — categoria/valor/descrição escolhidos pelo usuário
+    // nunca são sobrescritos por regras, aliases, LLM ou reenriquecimento.
+    (clean as Record<string, unknown>).user_edited_at = new Date().toISOString();
     const { data, error } = await sb.from("extracted_items").update(clean).eq("id", item_id).eq("user_id", user.id).select().maybeSingle();
     if (error) return json({ error: "update_failed", details: error.message }, 400);
     if (!data) return json({ error: "not_found" }, 404);
