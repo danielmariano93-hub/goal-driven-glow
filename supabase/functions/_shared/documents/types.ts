@@ -1,4 +1,10 @@
 // Contrato canônico da extração multimodal.
+export const CANONICAL_MOVEMENT_KINDS = [
+  "transaction", "refund", "internal_transfer",
+  "investment_application", "investment_redemption",
+] as const;
+export type MovementKind = typeof CANONICAL_MOVEMENT_KINDS[number];
+
 export type ExtractedItem = {
   type: "income" | "expense";
   description: string;
@@ -13,7 +19,7 @@ export type ExtractedItem = {
   purchase_date: string | null;
   competence_date: string | null;
   confidence: Record<string, number>;
-  movement_kind?: "transaction" | "refund" | "internal_transfer" | "investment_application" | "investment_redemption" | "informational";
+  movement_kind?: MovementKind | "informational";
   source_span?: unknown;
 };
 
@@ -77,6 +83,31 @@ export function normalizeAmountBR(raw: string | number): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
 
+export function todaySaoPaulo(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+export function normalizeMovementKind(
+  raw: unknown,
+  _type: "income" | "expense",
+): MovementKind {
+  const value = String(raw ?? "transaction").trim().toLowerCase();
+  const aliases: Record<string, MovementKind> = {
+    transaction: "transaction", purchase: "transaction", debit: "transaction", credit: "transaction",
+    pix: "transaction", pix_in: "transaction", pix_out: "transaction",
+    refund: "refund", reimbursement: "refund", estorno: "refund",
+    internal_transfer: "internal_transfer", transfer: "internal_transfer",
+    investment_application: "investment_application", investment_apply: "investment_application",
+    investment_redemption: "investment_redemption", investment_redeem: "investment_redemption", redeem: "investment_redemption",
+  };
+  return aliases[value] ?? "transaction";
+}
+
 export function normalizeDateBR(raw: string, fallback: string, confidence = 0): string {
   if (!raw) return fallback;
   let candidate: string | null = null;
@@ -93,6 +124,8 @@ export function normalizeDateBR(raw: string, fallback: string, confidence = 0): 
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate) return fallback;
   const reference = new Date(`${fallback}T12:00:00Z`);
   const distanceDays = Math.abs(parsed.getTime() - reference.getTime()) / 86_400_000;
+  const futureDays = (parsed.getTime() - reference.getTime()) / 86_400_000;
+  if (futureDays > 1) return fallback;
   // A distant date is accepted only when the model is exceptionally certain.
   // This prevents UI years and statement references from becoming transaction dates.
   if (distanceDays > 370 && confidence < 0.9) return fallback;
@@ -132,7 +165,7 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
       if (!description || isNonTransactionLine(description)) continue;
       const amount = normalizeAmountBR(row[2]);
       if (amount == null) continue;
-      const movementKind = (typeof row[7] === "string" ? row[7] : "transaction") as ExtractedItem["movement_kind"];
+      const movementKind = normalizeMovementKind(row[7], type);
       if (movementKind === "informational") continue;
       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
       const paymentRaw = row[4];
@@ -160,14 +193,14 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
     if (!description || isNonTransactionLine(description)) continue;
-    const movementKind = String(it.movement_kind ?? "transaction") as ExtractedItem["movement_kind"];
+    const type = it.type === "income" ? "income" : "expense";
+    const movementKind = normalizeMovementKind(it.movement_kind, type);
     // Linhas informativas não entram no livro. Transferências e movimentos de
     // investimento, porém, alteram o caixa da conta e precisam chegar à revisão.
     // Eles serão excluídos apenas dos indicadores de renda/consumo, nunca do saldo.
     if (movementKind === "informational") continue;
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
-    const type = it.type === "income" ? "income" : "expense";
     const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
     const dateConfidence = Number(conf.occurred_at ?? 0);
     const occurred_at = normalizeDateBR(String(it.occurred_at ?? ""), fallbackDate, dateConfidence);
@@ -196,10 +229,7 @@ export function sanitize(result: unknown, fallbackDate: string): ExtractionResul
 
 // ---------- Whitelists (must mirror extracted_items CHECK constraints) ----------
 export const ALLOWED_TYPES = new Set(["income", "expense"]);
-export const ALLOWED_MOVEMENT_KINDS = new Set([
-  "transaction", "refund", "internal_transfer",
-  "investment_application", "investment_redemption",
-]);
+export const ALLOWED_MOVEMENT_KINDS = new Set(CANONICAL_MOVEMENT_KINDS);
 export const ALLOWED_PAYMENT_METHODS = new Set(["account", "credit_card"]);
 export const ALLOWED_STATUSES = new Set([
   "needs_review", "ignored", "confirmed",

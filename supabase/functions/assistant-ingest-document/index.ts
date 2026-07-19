@@ -10,8 +10,9 @@
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
+import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
+import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -21,8 +22,8 @@ const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
 const MAX_ITEMS_PER_DOCUMENT = 240;
-const BATCH_ITEMS_LIMIT = 50;
-const PDF_BATCHES = 5;
+const BATCH_ITEMS_LIMIT = 80;
+const PDF_PAGES_PER_FRAGMENT = 4;
 const IMAGE_BATCHES = 1;
 const BATCH_MAX_TOKENS = 3600;
 
@@ -188,7 +189,7 @@ async function callMultimodal(
           {
             role: "user",
             content: [
-              { type: "text", text: `Data atual: ${new Date().toISOString().slice(0, 10)}. Orientação do usuário: ${guidance || "nenhuma"}.
+              { type: "text", text: `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
 Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos ainda não extraídos, do mais recente ao mais antigo.
 Não repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.length ? batch.exclude.join("; ") : "nenhum"}.
 Se este for o lote 1, comece pelos lançamentos mais recentes do documento. Se for lote >1, continue com lançamentos mais antigos ou diferentes dos já listados.
@@ -225,7 +226,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
       parsed = recovered.parsed;
       partial = recovered.partial;
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todaySaoPaulo();
     return {
       result: sanitize(parsed, today),
       statement: extractStatementMetadata(parsed, today),
@@ -310,7 +311,12 @@ async function classifyDuplicates(
  * regras determinísticas → histórico do usuário → hint do modelo. Sinaliza a fonte
  * da categoria para transparência no ReviewSheet.
  */
-async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, items: ExtractionResult["items"]) {
+async function enrichItems(
+  sb: ReturnType<typeof createClient>,
+  userId: string,
+  items: ExtractionResult["items"],
+  sourceContext: { statementBank?: string | null; guidance?: string | null } = {},
+) {
   // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
   const normalized = items.map((item) => {
     const rawDesc = String(item.description ?? "");
@@ -384,8 +390,15 @@ async function enrichItems(sb: ReturnType<typeof createClient>, userId: string, 
       if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
     }
 
-    const accountHint = (item.account_hint ?? "").toLowerCase();
-    const matchedAccount = accountHint ? (accounts ?? []).find((a) => `${a.name} ${a.institution ?? ""}`.toLowerCase().includes(accountHint) || accountHint.includes(a.name.toLowerCase())) : null;
+    const normalizeBankText = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const accountContext = normalizeBankText([item.account_hint, sourceContext.statementBank, sourceContext.guidance].filter(Boolean).join(" "));
+    const accountCandidates = (accounts ?? []).filter((a) => {
+      const haystack = normalizeBankText(`${a.name} ${a.institution ?? ""}`);
+      return accountContext && haystack.split(/\s+/).some((token) => token.length >= 4 && accountContext.includes(token));
+    });
+    const matchedAccount = accountCandidates.length === 1
+      ? accountCandidates[0]
+      : ((accounts ?? []).length === 1 && item.payment_method === "account" ? (accounts ?? [])[0] : null);
     const cardHint = (item.card_hint ?? "").toLowerCase();
     const matchedCard = cardHint ? (cards ?? []).find((c) => c.name.toLowerCase().includes(cardHint) || cardHint.includes(c.name.toLowerCase())) : null;
 
@@ -615,14 +628,13 @@ async function processDocument(documentId: string, userId: string, guidance: str
       return;
     }
 
-    // Base64 in chunks (avoid stack overflow on large binaries).
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)) as unknown as number[]);
+    const fragments = doc.mime_type === "application/pdf"
+      ? await splitPdfIntoFragments(bytes, PDF_PAGES_PER_FRAGMENT)
+      : [{ index: 1, total: 1, page_start: 1, page_end: 1, bytes }];
+    if (fragments.length === 0) {
+      await finish({ status: "failed", error: encodeError("extraction:empty_pdf", correlationId) });
+      return;
     }
-    const b64 = btoa(bin);
-    const dataUrl = `data:${doc.mime_type};base64,${b64}`;
 
     let documentKind: ExtractionResult["document_kind"] = "unknown";
     let statement: StatementMetadata | null = null;
@@ -633,7 +645,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const seenSignatures = new Set<string>();
     const seenInDocument = new Map<string, number>();
     let idxOffset = 0;
-    const maxBatches = doc.mime_type === "application/pdf" ? PDF_BATCHES : IMAGE_BATCHES;
+    const maxBatches = fragments.length;
 
     const { data: existingItems } = await sb.from("extracted_items")
       .select("idx,type,amount,occurred_at,description,normalized_description,status,category_id")
@@ -655,6 +667,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
     counters.needs_review = counters.total_items - counters.duplicate_strong - counters.duplicate_ambiguous;
 
     for (let batchIndex = 1; batchIndex <= maxBatches && counters.total_items < MAX_ITEMS_PER_DOCUMENT; batchIndex++) {
+      const fragment = fragments[batchIndex - 1];
       await heartbeat();
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), EXTRACTION_TIMEOUT_MS);
@@ -662,7 +675,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
       let out: MultimodalOutcome;
       try {
         out = await callMultimodal(
-          dataUrl,
+          bytesToDataUrl(fragment.bytes, doc.mime_type),
           doc.mime_type,
           doc.storage_path?.split("/").pop() ?? "documento",
           (guidance ?? "").slice(0, 500),
@@ -686,7 +699,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
       let extraction = out.result;
       if (/\b(hoje|de hoje|foram hoje|s[ãa]o de hoje)\b/i.test(guidance ?? "")) {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todaySaoPaulo();
         extraction = { ...extraction, items: extraction.items.map((item) => ({ ...item, occurred_at: today })) };
       }
 
@@ -722,7 +735,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
         .slice(0, Math.min(BATCH_ITEMS_LIMIT, remaining));
 
       if (freshItems.length > 0) {
-        const enriched = await enrichItems(sb, userId, freshItems);
+        const enriched = await enrichItems(sb, userId, freshItems, {
+          statementBank: out.statement?.bank ?? statement?.bank ?? doc.statement_bank ?? null,
+          guidance,
+        });
         const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
           type: it.type,
           amount: Number(it.amount),
@@ -879,8 +895,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
         });
       }
 
-      if (!out.has_more && freshItems.length < BATCH_ITEMS_LIMIT) break;
-      if (freshItems.length === 0 && batchIndex > 1) break;
+      // Every deterministic fragment is processed independently. An empty
+      // fragment must never stop the rest of the document.
     }
 
     const finalStatus = counters.total_items === 0

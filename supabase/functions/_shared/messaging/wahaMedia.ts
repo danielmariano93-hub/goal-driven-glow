@@ -66,6 +66,42 @@ export type DownloadResult =
   | { ok: true; bytes: Uint8Array; mime_type: string; filename: string }
   | { ok: false; code: DownloadCode; detail?: string };
 
+function authHeaderCandidates(apiKey: string): Array<Record<string, string>> {
+  return [
+    { "X-Api-Key": apiKey },
+    { "X-API-Key": apiKey },
+    { Authorization: `Bearer ${apiKey}` },
+  ];
+}
+
+function endpointCandidates(apiUrl: string, session: string, messageId: string): string[] {
+  const base = apiUrl.replace(/\/$/, "");
+  const s = encodeURIComponent(session);
+  const id = encodeURIComponent(messageId);
+  return [
+    `${base}/api/${s}/files/${id}`,
+    `${base}/api/${s}/messages/${id}/download`,
+    `${base}/api/files/${s}/${id}`,
+  ];
+}
+
+async function fetchWahaMedia(
+  apiUrl: string, apiKey: string, session: string, messageId: string,
+): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string }> {
+  const baseGuard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
+  if (!baseGuard.ok) return { ok: false, code: "unsafe_url", detail: baseGuard.code };
+  let last: { ok: false; code: DownloadCode; detail?: string } = { ok: false, code: "download_failed", detail: "all_candidates_failed" };
+  for (const url of endpointCandidates(apiUrl, session, messageId)) {
+    for (const headers of authHeaderCandidates(apiKey)) {
+      const result = await fetchWithLimits(url, headers);
+      if (result.ok) return result;
+      last = result;
+      if (result.code === "size_exceeds" || result.code === "unsafe_url" || result.code === "timeout") return result;
+    }
+  }
+  return last;
+}
+
 /** Download inbound media in this order: inline base64 → direct https URL
  *  (SSRF-guarded) → WAHA-hosted authenticated files endpoint. Enforces MIME
  *  whitelist, size cap, magic bytes, timeout, and never returns raw bytes
@@ -97,13 +133,11 @@ export async function downloadInboundMedia(opts: {
     if (res.code !== "download_failed") return { ok: false, code: res.code, detail: res.detail };
   }
 
-  // Path 3: WAHA-hosted authenticated URL
+  // Path 3: WAHA-hosted authenticated URL. Different WAHA editions expose
+  // different routes and authentication headers, so try a controlled matrix.
   if (opts.apiUrl && opts.apiKey && opts.session && opts.messageId) {
-    const baseGuard = assertPublicHttpsUrl(`${opts.apiUrl.replace(/\/$/, "")}/api/`);
-    if (!baseGuard.ok) return { ok: false, code: "unsafe_url", detail: baseGuard.code };
-    const url = `${opts.apiUrl.replace(/\/$/, "")}/api/${encodeURIComponent(opts.session)}/files/${encodeURIComponent(opts.messageId)}`;
-    const res = await fetchWithLimits(url, { "X-Api-Key": opts.apiKey });
-    if (res.ok === true) return finalize(res.bytes, declaredMime, filenameHint);
+    const res = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, opts.messageId);
+    if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
     return { ok: false, code: res.code, detail: res.detail };
   }
 
