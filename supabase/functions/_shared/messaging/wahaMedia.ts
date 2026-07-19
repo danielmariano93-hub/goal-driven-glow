@@ -94,9 +94,10 @@ async function fetchWahaMedia(
   for (const url of endpointCandidates(apiUrl, session, messageId)) {
     for (const headers of authHeaderCandidates(apiKey)) {
       const result = await fetchWithLimits(url, headers);
-      if (result.ok) return result;
-      last = result;
-      if (result.code === "size_exceeds" || result.code === "unsafe_url" || result.code === "timeout") return result;
+      if (result.ok === true) return result;
+      const failure: { ok: false; code: DownloadCode; detail?: string } = result;
+      last = failure;
+      if (failure.code === "size_exceeds" || failure.code === "unsafe_url" || failure.code === "timeout") return failure;
     }
   }
   return last;
@@ -137,8 +138,9 @@ export async function downloadInboundMedia(opts: {
   // different routes and authentication headers, so try a controlled matrix.
   if (opts.apiUrl && opts.apiKey && opts.session && opts.messageId) {
     const res = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, opts.messageId);
-    if (res.ok) return finalize(res.bytes, declaredMime, filenameHint);
-    return { ok: false, code: res.code, detail: res.detail };
+    if (res.ok === true) return finalize(res.bytes, declaredMime, filenameHint);
+    const failure: { ok: false; code: DownloadCode; detail?: string } = res;
+    return { ok: false, code: failure.code, detail: failure.detail };
   }
 
   return { ok: false, code: "no_url" };
