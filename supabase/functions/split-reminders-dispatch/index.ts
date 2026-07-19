@@ -177,21 +177,24 @@ Deno.serve(async (req) => {
     failed,
   });
 
-  // Um único tick conclui o caminho reminder_jobs → outbound_messages → WAHA.
-  // Se o envio falhar, whatsapp-send preserva retry/backoff na fila.
+  // Todo tick autorizado também processa outbound_messages já existentes.
+  // Isso evita que mensagens queued fiquem presas quando nenhum job novo foi criado.
   let outboundProcessed = 0;
-  if (enqueued > 0) {
-    try {
-      const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-send`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${SERVICE_ROLE}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "split-reminders-dispatch" }),
-      });
-      const sendResult = await sendResponse.json().catch(() => ({}));
-      outboundProcessed = Number(sendResult?.processed ?? 0);
-    } catch (error) {
-      console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: String((error as Error).message).slice(0, 160) }));
+  let outboundKicked = false;
+  try {
+    const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_ROLE}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "split-reminders-dispatch", enqueued }),
+    });
+    const sendResult = await sendResponse.json().catch(() => ({}));
+    outboundProcessed = Number(sendResult?.processed ?? 0);
+    outboundKicked = sendResponse.ok;
+    if (!sendResponse.ok) {
+      console.error(JSON.stringify({ event: "split_outbound_kick_failed", status: sendResponse.status }));
     }
+  } catch (error) {
+    console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: String((error as Error).message).slice(0, 160) }));
   }
-  return json({ claimed: jobs.length, enqueued, skipped, failed, outbound_processed: outboundProcessed });
+  return json({ claimed: jobs.length, enqueued, skipped, failed, outbound_processed: outboundProcessed, outbound_kicked: outboundKicked });
 });
