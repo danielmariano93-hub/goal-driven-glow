@@ -41,12 +41,18 @@ const MERCHANT_DICT: Array<{ pattern: RegExp; canonical: string; category?: stri
 
 const NOISE_PATTERNS: RegExp[] = [
   /\b(?:on|electron|compra|pag|pagamento|pgto|debito|d[eé]bito|credito|cr[eé]dito|par[cç]?|parc(?:ela)?)\b/gi,
-  /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, // dates dd/mm or dd/mm/yy
-  /\b\d{4,}\b/g, // long codes
+  /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g,
+  /\b\d{4,}\b/g,
   /\btrip\b/gi,
   /\*+/g,
   /[·•]+/g,
 ];
+
+/** Chave canônica para busca em merchant_aliases (mesma normalização do RPC). */
+export function aliasKeyFrom(raw: string): string {
+  return raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
 
 /** Extrai referência bancária (código de autorização, id de transação) se detectável. */
 export function extractBankReference(raw: string): string | null {
