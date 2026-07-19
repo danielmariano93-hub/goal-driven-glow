@@ -3701,7 +3701,9 @@ export type Database = {
           job_id: string
           job_status: string
           kind: string
+          last_attempt_at: string
           last_error: string
+          outbound_attempts: number
           outbound_status: string
           participant_id: string
           scheduled_for: string
