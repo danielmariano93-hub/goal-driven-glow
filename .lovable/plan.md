@@ -1,143 +1,275 @@
 
-# Plano — Correção definitiva: WhatsApp texto + Assessor de documentos
+# Plano definitivo — Pipeline Documental (Assessor) e Ingestão WhatsApp
 
-## 1. Evidências reais do banco (não hipóteses)
+Objetivo: fechar simultaneamente todas as lacunas remanescentes de ingestão, extração, revisão, conciliação, WhatsApp e segurança. Nada será deixado como backlog aberto.
 
-### 1a. WhatsApp: silêncio total pós-vinculação
-Após a última vinculação bem-sucedida em `2026-07-17 22:43` (Daniel, `+5511977992569`, link `234901cf` ativo), **nenhuma** mensagem de texto do usuário produziu resposta:
+## 0. Estado real hoje (verificado nesta investigação)
 
-| inbound_id | corpo | received_at | processed_at | outbound? | agent_run? | drop? |
-|---|---|---|---|---|---|---|
-| `32a101f5` | "Analise os gastos do meu extrato…" | 22:11 | **NULL** | não | não | não |
-| `71b12893` | "Você está analisando?" | 22:12 | NULL | não | não | não |
-| `38b77ce6` | "Olá, ainda está aí?" | 22:40 | NULL | não | não | não |
-| `9ea7147f` | "Acabei de gastar 21,90 no Mc Donalds" | 23:39 | NULL | não | não | não |
-| `d8a2f6e9` | "Oi" | 23:45 | NULL | não | não | não |
-| `c8696f78` | "Acabei de gastar 21,90…" | 07-18 20:31 | NULL | não | não | não |
-| `45502f2e` | "Acabei de gastar 21,90…" | 07-18 20:32 | NULL | não | não | não |
+- `document_imports`, `extracted_items`, `document_item_rejections`, `document_processing_events`, `account_balance_snapshots`, `document_import_audit` **existem**. Colunas úteis já presentes: `attempt_count`, `counters` (jsonb), `statement_bank`, `statement_opening_balance`, `statement_closing_balance`, `statement_balance_date`, `expires_at`, `raw_text`, `conversation_id`, `source`, `user_instructions`, `sha256`.
+- `extracted_items.movement_kind` com CHECK que **não inclui `informational`**. Regressão real: `sanitize()` em `_shared/documents/types.ts` chama `normalizeMovementKind` que colapsa qualquer valor desconhecido em `"transaction"` — linhas "informational" viram transações se escaparem do filtro por palavra-chave. O contrato não preserva `informational` até o filtro determinístico.
+- `pdfFragments.ts` divide o PDF em memória, mas **nenhuma tabela persiste fragmentos**. Se o worker cai no meio, o próximo `resume` reexecuta o LLM em tudo, contando apenas com `extracted_items` já salvos como âncora de dedupe.
+- `document_imports` não tem `source_account_id`, `source_credit_card_id`, `source_context_method`, `source_context_confidence`. Contexto é reinferido item a item por matching de string em `enrichItems`.
+- `extracted_items` guarda `raw_description` e `normalized_description`, mas não `bank_description` (linha bruta reformatada pelo banco) nem `friendly_description` como campo próprio; o "friendly" fica em `description`. Não há tabela de aliases aprendidos.
+- `AssessorPanel` mostra contagem simples. Não expõe fragmentos (não existem), motivos de rejeição, total por status, conta de origem nem soma reconciliada.
+- Bucket `documents` no arquivo `20260716220000_document_import_hardening.sql` está restrito a imagens/10MB. A liberação de PDF/20MB citada em histórico foi feita fora do repositório e precisa ser reafirmada por migration versionada.
+- `wahaMedia.ts` tenta 3 endpoints × 3 esquemas de auth cegamente. Não usa metadados reais do payload (`mediaKey`, `mediaUrl`, `directPath`, `messageTimestamp`), não distingue `chatId`/`id.serialized`, não expõe `correlation_id`.
+- `documents-cleanup` só disparava `assistant-ingest-document` com `mode: "process-inbound-media"` para stale — modo errado para docs criados pelo app (esses vêm de `finalize`). Bug de retomada silenciosa: docs do app nunca eram reprocessados corretamente pelo watchdog.
+- `whatsapp-webhook` chama `assistant-ingest-document` diretamente com mode `process-inbound-media`, criando `document_imports.source='whatsapp'`, mas o corpo do pipeline usado é o mesmo — a paridade existe conceitualmente mas o `process-inbound-media` **não** entra no lock/retomada do finalize (branch separado).
+- Limite `MAX_ITEMS_PER_DOCUMENT=240` é constante fixa. Não configurável, não sobre-escrito por preferência do usuário nem por tamanho do documento.
 
-`agent_runs` mais recente é `8dd5ccee` de `2026-07-17 17:23` (antes de tudo isso). Existem 2 runs órfãos com `status='running'` desde 07-16.
-`outbound_messages` mais recente é `2bc7b208` de `2026-07-17 22:43` (a saudação da vinculação). Zero outbounds após.
-`provider_inbound_drops` só registra `session.status` e `message.ack` — nenhum drop para essas inbounds.
-`provider_message_id` das falhas: `false_11746853019855@lid_...` — engine NOWEB com `@lid`.
+## 1. Persistência durável de fragmentos
 
-**Conclusão factual:** o webhook está inserindo o `inbound_messages`, mas nunca chega a chamar `runOrchestrator` (ou o isolate morre antes do try/catch executar o fallback). Nenhum `agent_run` é criado, nenhum outbound (nem o "orch-err") é enfileirado, `processed_at` fica NULL. Isso é diferente do que o patch anterior desta thread afirmou ter resolvido.
+Nova tabela `public.document_fragments`:
 
-**Causa raiz mais provável (a validar no fix, não afirmar como certeza):** o path chegou até `runOrchestrator` mas o isolate foi encerrado por timeout de LLM/edge antes do `catch`. Como `enqueueReply` só é chamado no final do orchestrator, um travamento em `runAgentTurn` (25 s de timeout interno + rede + retries) somado ao restante ultrapassa o wall-clock do isolate, e a fila não recebe nada. O `waitUntil` não é usado aqui, então quando o cliente HTTP cai, o trabalho pendente é abortado.
+- Colunas: `id uuid pk`, `document_id uuid fk`, `user_id uuid`, `fragment_index int`, `total_fragments int`, `page_start int`, `page_end int`, `status text check in ('pending','processing','completed','failed','skipped')`, `attempts int default 0`, `heartbeat_at timestamptz`, `items_found int default 0`, `duplicates_found int default 0`, `error text`, `error_code text`, `tokens_in int`, `tokens_out int`, `extraction_ms int`, `partial bool default false`, `created_at`, `updated_at`.
+- Índice único `(document_id, fragment_index)` para idempotência.
+- RLS: `authenticated` lê próprios (`document_id` do próprio user); apenas `service_role` escreve.
+- Trigger `updated_at`.
 
-### 1b. Assessor de documentos: falhas em cadeia
-Últimos `document_imports` (excluindo o único `confirmed` em 07-16 22:22):
+Fluxo:
 
-- `2c72f7f6` (07-17 21:51) — `failed` — `items_insert: extracted_items_amount_check`. Zero linhas em `extracted_items` para esse `document_id` (batch inteiro perdido).
-- `910e5d1a`, `f36e4728`, `31e950a0` (07-17 20:56–21:22) — `failed` — `extraction:invalid_json`.
-- `703108bb` (07-17 20:34) — `canceled` com 235 itens (usuário desistiu; sinal de UX ruim).
-- `0252fd7f` (07-17 17:20) — `failed` — `timeout:aborted`.
-- 6 imports (07-17 14:42–16:30) — `failed` — `upload_missing`.
+- No `processDocument`, gerar/atualizar linhas de fragmento **antes** de chamar o LLM (idempotente via `ON CONFLICT DO NOTHING`).
+- Marcar `processing` + `heartbeat_at=now()` ao começar cada fragmento; `completed` com métricas ao terminar; `failed` (com `error_code` estável) se o batch quebrar.
+- `resume` só processa fragmentos com status `pending|failed(attempts<3)|processing(heartbeat>5min)`. Fragmentos `completed` nunca são reprocessados — o loop os pula.
+- `MAX_ITEMS_PER_DOCUMENT` continua funcionando: se o limite for atingido, fragmentos restantes ficam `skipped` com motivo `max_items_reached`.
+- Watchdog em `documents-cleanup` também respeita fragmentos: só reenfileira o documento se algum fragmento estiver reprocessável.
 
-`document_processing_events`, `document_item_rejections` e `provider_inbound_drops` já existem no schema. Colunas `attempt_count`, `next_attempt_at`, `provider_message_id` já existem em `document_imports`. Ou seja, a fundação da rodada anterior está no banco, mas o código que a usa **não** está fechando os buracos.
+## 2. Contexto de origem no nível do documento
 
-### 1c. Mídia do WhatsApp
-`whatsapp-webhook/index.ts` já tem branch para `evt.media` que cria `document_imports` com `source='whatsapp'` e chama `assistant-ingest-document` em modo `process-inbound-media`. Nenhum `document_imports` com `source='whatsapp'` existe ainda — não há evidência de que o usuário tenha enviado PDF pelo WA nessa janela, então a rota é **não validada em produção**. Vai ficar como validação manual pós-fix.
+Adicionar em `document_imports`:
 
-## 2. Objetivos desta rodada
+- `source_account_id uuid null references public.accounts(id) on delete set null`
+- `source_credit_card_id uuid null references public.credit_cards(id) on delete set null`
+- `source_context_method text check in ('user_selected','statement_bank','guidance','single_account','none')`
+- `source_context_confidence numeric(3,2)`
+- `source_context_reason text` (livre, para UI)
+- Regra: apenas UM entre `source_account_id`/`source_credit_card_id`.
 
-1. Garantir que **toda** mensagem de texto do WhatsApp de usuário vinculado produza uma resposta — mesmo em falha de LLM, timeout ou crash — e que `processed_at`/`agent_runs`/`outbound_messages` reflitam o resultado.
-2. Impedir que uma única linha inválida em `extracted_items` derrube o import inteiro (quarentena real).
-3. Endurecer o parser de JSON do Gemini para recuperar itens parciais mesmo em truncamento sem `"i":`.
-4. Instituir cap real de tentativas (`attempt_count`) e watchdog de retomada para documentos.
-5. Diagnóstico persistido: gravar em `document_processing_events` cada transição para poder auditar sem depender de logs voláteis.
-6. Não tocar em WAHA/sessão/QR, nem em migração de banco desnecessária (colunas e tabelas já existem).
+Resolução server-side no início de `processDocument`, na ordem:
 
-## 3. Mudanças de código
+1. Valor já preenchido pelo cliente/WhatsApp (user_selected, confidence 1.0).
+2. `statement_bank` do metadata + match único em `accounts.institution`/`name` (confidence 0.9).
+3. `guidance` textual com nome inequívoco de conta/cartão (confidence 0.7).
+4. Usuário tem exatamente uma conta ativa E o documento parece extrato de conta (confidence 0.6).
+5. Caso contrário `none`, `source_context_confidence=0`.
 
-### 3a. `supabase/functions/whatsapp-webhook/index.ts`
-- Envelopar todo o corpo pós-classificação em try/catch externo. Qualquer erro → `outbound_messages` `kind='agent'`, `idempotency_key='webhook-err:${inbound_message_id}'`, corpo `FRIENDLY_ORCHESTRATOR_ERROR`, `processed_at` marcado com `ignored_reason='webhook_error'`.
-- Encaminhar o trabalho pesado (orchestrator) via `EdgeRuntime.waitUntil` **quando não houver mídia** e responder 202 imediatamente, para que o timeout do cliente HTTP nunca aborte o isolate no meio do turno do LLM.
-- No mesmo `waitUntil`, gravar checkpoint em `agent_runs` já com `status='running'` **antes** de chamar o LLM (assim mesmo se o isolate morrer, há rastro).
-- Se `evt.media` presente e download falhar por `unsafe_url|mime_not_allowed|size_exceeds`, mensagem já é boa; adicionar telemetria `document_processing_events` (`processing_failed`, `error_code=download_failed`).
+Propagação:
 
-### 3b. `supabase/functions/_shared/agent/orchestrator.ts`
-- `runAgentTurn` timeout: reduzir de 25 s para 15 s + `maxSteps` respeitado.
-- Envolver a chamada do LLM em `Promise.race` com timeout interno curto que já dispara o fallback determinístico, evitando que o webhook precise esperar 25 s + rede.
-- Anti-loop: contador `steps` em memória e assertiva de que a mesma tool com os mesmos `args_hash` não pode ser chamada 2x sequenciais (aborta com `looped_tool_call`, fallback assume).
-- No fim, sempre chamar `enqueueReply`; se `enqueueReply` lançar, capturar e persistir `agent_runs.status='error'` com o motivo — nunca deixar a função sair sem outbound.
+- `enrichItems` passa a preferir o contexto do documento sobre matching por item, mas ainda permite override quando um item tem `card_hint` explícito e claro (cartão diferente aparecendo dentro da fatura).
+- Itens sem contexto herdado ficam com `account_id`/`credit_card_id` `null` e são exibidos com badge "conta a definir" na revisão. O usuário pode atribuir a todos de uma vez.
 
-### 3c. `supabase/functions/assistant-ingest-document/index.ts`
-- Antes de `sb.from("extracted_items").insert(rows)`, iterar `validateExtractedRow(row)` (helper existente em `_shared/documents/types.ts`; se ausente, criar). Separar em `valid_rows` e `rejected_rows`.
-- Insert dos válidos com `status='needs_review'`; dos rejeitados com `status='rejected'` e registro em `document_item_rejections` (tabela já existe).
-- Se um insert em lote válido ainda assim falhar por constraint (defesa em profundidade), degradar para inserts linha-a-linha; qualquer linha que quebre vai para `rejected` com `reason_code='constraint_violation'`.
-- Parser `recoverCompactJson`: procurar o primeiro `[` após o campo `k` (chaves), não exigir `"i":`. Suportar arrays de arrays truncados no meio. Testes cobrem os 3 casos já observados em produção.
-- Anti-loop de reprocessamento: incrementar `attempt_count` a cada `finalize/resume`; se `attempt_count >= 3` e `status='failed'`, retornar `terminal:max_attempts` sem chamar o LLM. Endpoint dedicado `reset-attempts` (admin/dono) zera para permitir retry manual.
-- Emitir eventos em `document_processing_events` nos pontos: `processing_started`, `fragment_completed`, `items_persisted`, `review_ready`, `processing_failed`, `processing_completed`.
+Frontend `AssessorAttachButton`: novo passo opcional "Qual conta ou cartão?" (dropdown das contas ativas + cartões) antes do upload; se selecionado, cria o `document_imports` já com `source_account_id`/`source_credit_card_id` e `source_context_method='user_selected'`.
 
-### 3d. `supabase/functions/documents-cleanup/index.ts`
-- Varrer `document_imports` com `status='processing'` e `updated_at < now() - interval '5 minutes'`:
-  - Se `attempt_count < 3`: disparar `assistant-ingest-document` em modo `resume`.
-  - Se `attempt_count >= 3`: marcar `status='failed'`, `error='terminal:max_attempts'`, gravar `document_processing_events.processing_failed`, e se `source='whatsapp'` enfileirar outbound explicando falha.
+## 3. Descrição em camadas
 
-### 3e. `src/components/assessor/AssessorPanel.tsx`
-- Consumir `document_processing_events` (query polling por `document_id, created_at > last_seen`) para exibir estágio real.
-- Botão "Reprocessar" só habilitado quando `attempt_count >= 3` e `status='failed'`; chama `reset-attempts` + `finalize`.
-- Parar polling em estados terminais estáveis (`completed`, `failed`, `needs_review`, `partial`).
+Em `extracted_items` e `transactions`:
 
-## 4. Sem migração nova
-Todas as colunas/tabelas necessárias já existem (`attempt_count`, `next_attempt_at`, `document_processing_events`, `document_item_rejections`, `provider_inbound_drops`). Não há migração nesta rodada.
+- `raw_description` (já existe): texto literal capturado, nunca alterado.
+- Renomear conceitualmente: reutilizar `raw_description` como o único armazenamento do texto literal.
+- Nova coluna `bank_description text null` em ambas: linha bruta pós-limpeza mínima do banco (sem prefixos ruidosos como "COMPRA APROV"), preservando conteúdo semântico.
+- `normalized_description` (já existe): chave estável para categoria e dedupe.
+- Nova coluna `friendly_description text null`: rótulo curto exibido; se null, cai para `normalized_description`, depois `raw_description`.
+- Migration preenche `bank_description=raw_description` e `friendly_description=description` para linhas existentes.
 
-## 5. Testes (novos + expansão)
-Em `src/test/`:
+Nova tabela `public.merchant_aliases`:
 
-- `webhook-text-resilience.test.ts` — mock supabase-js; inbound de texto de usuário vinculado com `runOrchestrator` mockado para (a) sucesso, (b) throw, (c) timeout de 30 s: em todos os casos, `outbound_messages` recebe uma linha e `inbound_messages.processed_at` é atualizado.
-- `orchestrator-timeout-fallback.test.ts` — LLM demora > 15 s → fallback determinístico produz reply e `agent_runs.status='error'` com `error_sanitized='timeout'`.
-- `orchestrator-antiloop.test.ts` — mesma tool com mesmos args 2x → `looped_tool_call`, fallback assume.
-- `documents-quarantine-integration.test.ts` — lote 49 válidos + 1 inválido → 49 gravados como `needs_review`, 1 como `rejected` em `document_item_rejections`, import termina `needs_review`.
-- `documents-recover-json-truncated.test.ts` — JSON truncado sem `"i":`, com objeto misturado, com garbage inicial.
-- `documents-attempt-cap.test.ts` — 3ª tentativa falha → `status='failed'`, `error='terminal:max_attempts'`; `resume` recusa.
+- `id`, `user_id`, `alias_key text` (normalizado), `friendly_name text`, `category_id uuid null`, `learned_from text check in ('manual','confirmation')`, `hits int default 1`, `last_used_at`, `created_at`, `updated_at`.
+- Unique `(user_id, alias_key)`.
+- RLS: usuário gerencia próprios.
+- Ao usuário editar `friendly_description` ou `category_id` de um item na revisão e confirmar, gravar/atualizar alias.
+- `enrichItems` consulta `merchant_aliases` antes de `MERCHANT_DICT` interno; após dicionário, ainda usa histórico.
 
-Toda a suite existente deve seguir verde (238/238 atualmente).
+## 4. Tela de revisão reconciliada (mobile-first)
 
-## 6. Deploys
-`whatsapp-webhook`, `agent-chat` (compartilha `_shared/agent`), `assistant-ingest-document`, `documents-cleanup`.
-Não deployar `whatsapp-send`, WAHA, sessão ou frontend nesta rodada.
-Publish do frontend só depois da validação E2E manual dos dois fluxos.
+Refatorar `ReviewSheet`:
 
-## 7. Validação E2E manual pós-deploy
-Cenário A — texto WhatsApp:
-1. Enviar "gastei 21,90 no bar hoje no Nubank" pelo número real.
-2. Esperar resposta em ≤ 30 s.
-3. Query esperada:
-```text
-inbound_messages.processed_at NOT NULL
-agent_runs: 1 linha nova com status='done' e steps>=1 (ou 'error' + fallback com outbound)
-outbound_messages: 1 linha nova com kind='agent', channel='whatsapp'
-```
+- Cabeçalho com: `document_kind` humanizado, banco detectado, período, conta/cartão de origem (editável), botão de conciliação.
+- Barra de métricas: encontrados / válidos / duplicados / corrigíveis / rejeitados / ignorados. Chips clicáveis filtram a lista.
+- Bloco "Extração": fragmentos concluídos/pendentes/falhos com barra de progresso; motivos de fragmentos falhos com botão "reprocessar fragmento" (chama `assistant-ingest-document` mode `resume-fragment`).
+- Bloco "Reconciliação": saldo do banco vs. calculado (soma dos itens ativos + saldo inicial), diferença destacada em cor. Botão "conciliar" chama RPC existente `reconcile_document_balance`.
+- Lista de itens agrupada por dia (data), cada item com: friendly editável inline, valor, categoria, conta/cartão herdada com badge de origem ("do documento", "definido por você", "aprendido"), motivo (para rejeitados/duplicados).
+- Aba "Rejeitados" mostra linhas de `document_item_rejections` com `reason_code`, permite "recuperar" (converte rejeição em item `needs_review` se o motivo for reciclável).
+- Rodapé sticky: "Salvar N lançamentos" (só ativos e revisados), "Cancelar tudo", "Reverter importação" (se já confirmada).
 
-Cenário B — PDF WhatsApp (não validado hoje):
-1. Enviar PDF pequeno legível.
-2. Query esperada:
-```text
-document_imports source='whatsapp', status termina em 'needs_review' ou 'partial'
-document_processing_events com processing_started + review_ready
-outbound_messages: "Recebi seu documento…" e outra ao concluir
-```
+Mobile-first: `ReviewSheet` já é sheet full-screen no mobile — reforçar padding seguro, evitar tabelas horizontais, chips com scroll horizontal.
 
-Cenário C — quarentena:
-Reproduzir o import `2c72f7f6` (mesmo storage_path) → agora termina `needs_review` com ao menos 1 linha `rejected`.
+## 5. Reprocessamento seguro de rejeições antigas
 
-## 8. Critérios de aceite
-1. Nenhuma inbound de texto de usuário vinculado fica com `processed_at=NULL` por mais de 60 s.
-2. `outbound_messages` sempre recebe ≥1 linha por inbound (sucesso, fallback determinístico, ou erro amigável).
-3. Nenhum documento `failed` por `items_insert:extracted_items_amount_check` — quarentena impede.
-4. Documentos com JSON truncado agora entram em `partial` com pelo menos os itens recuperados, não `failed`.
-5. `attempt_count` nunca ultrapassa 3.
-6. Vitest 100% verde.
+- Nova RPC `reprocess_rejected_items(p_document_id uuid, p_reason_codes text[])`:
+  - Busca `document_item_rejections` do doc com códigos alvo (`invalid_movement_kind`, `invalid_payment_method`, `empty_description`, `invalid_date`).
+  - Para cada uma, tenta normalização determinística (movement_kind → `transaction`; payment_method → null; date inválida → data do extrato). Se conseguir, cria `extracted_items` `needs_review` com o mesmo `source_span` e apaga a rejeição correspondente.
+  - Skip se já existe `extracted_items` com mesma `fingerprint` naquele documento.
+- Botão "recuperar" na aba Rejeitados chama a RPC.
+- Nenhuma transação existente é tocada — só rejeições viram itens para revisão.
 
-## 9. Fora de escopo (P1 declarado)
-- Fragmentação determinística por página do PDF.
-- Realtime (websocket).
-- Reconciliação automática de saldos com contas reais.
-- Mudanças em WAHA/sessão/QR.
+## 6. Preservar `informational` até o filtro determinístico
 
-## 10. Riscos
-- **`EdgeRuntime.waitUntil` em webhook público:** garantir que o retorno 202 não conflita com expectativa do WAHA (que só verifica 2xx). Compatível.
-- **Timeout do LLM curto (15 s):** pode aumentar taxa de fallback determinístico em turnos complexos; mitigado pelo fato de que hoje o fallback é o único que responde de fato.
-- **Reprocessamento de doc antigo:** documentos com `attempt_count=0` e `status='failed'` continuam clicáveis pelo usuário; após o fix, virarão `needs_review/partial` no próximo `resume`.
+- Ampliar `MovementKind` no contrato em `_shared/documents/types.ts` para incluir `"informational"` **apenas no tipo TS**, sem alterar CHECK do banco.
+- `normalizeMovementKind`: adicionar aliases `saldo|balance|limit|limite|subtotal|total|header|periodo|resumo → 'informational'`.
+- `sanitize`: se `movement_kind === 'informational'` OU `isNonTransactionLine(description)` OU descrição casa com regex de saldo/limite/total, o item é excluído e contabilizado em `counters.informational_dropped`.
+- Nenhuma linha `informational` chega a `enrichItems`/`validateExtractedRow` — portanto nunca vira `extracted_items` (CHECK do banco continua rejeitando, mas nunca é acionado).
+- Reforçar `SYSTEM_PROMPT` para permitir e recomendar `"informational"` no campo movimento; deixa de depender apenas do filtro por palavra-chave.
+
+## 7. Datas documentais robustas
+
+Utilitário compartilhado `_shared/documents/dates.ts` (novo):
+
+- `resolveDocumentDates({ text, statement_period_start, statement_period_end, today })` retorna `{ occurred_at, confidence, reason }` para cada linha.
+- Regras:
+  - Se linha tem data completa `dd/mm/aaaa` válida no calendário → aceita quando cai dentro de `[period_start - 7d, period_end + 7d]`.
+  - Se linha tem só `dd/mm` → inferir ano a partir do `period_end` (não do `today`).
+  - Se linha só tem dia da semana → usar a data mais próxima do período, nunca `today`.
+  - Datas > `today + 1d` em fluxo de extrato: rejeitar (queda para fallback = period_end).
+  - Datas > 400 dias antes de `today`: exigir confidence>=0.9 explícita.
+  - Datas com virada de ano: se dia 31/12 aparece antes de 01/01 no mesmo doc, o segundo é `year+1`.
+- `normalizeDateBR` fica como fallback para itens sem contexto de período.
+- Migration adiciona `document_imports.statement_period_start`, `statement_period_end` (já não existiam — adicionar) com defaults null.
+
+Confirmar: essas colunas ainda não existem no schema atual (não vistas em migrations). Já existem `statement_balance_date`, `statement_bank`, `statement_opening_balance`, `statement_closing_balance`. Adicionar as duas de período.
+
+## 8. Observabilidade ponta a ponta
+
+- `correlation_id` já é gerado; expor no retorno de `finalize`/`status` (já parcial) e no botão "copiar diagnóstico" da revisão.
+- Nova função `emitEvent(sb, doc, event_type, extras)` em `assistant-ingest-document` que grava `document_processing_events` **sem dedup** por `event_type` — dedup atual bloqueia eventos legítimos repetidos (ex.: `fragment_completed` de fragmentos diferentes).
+- Eventos padronizados: `document_uploaded`, `processing_started`, `fragment_started`, `fragment_completed`, `fragment_failed`, `items_persisted`, `reconciliation_ready`, `review_ready`, `processing_completed`, `processing_failed`, `resumed`, `watchdog_terminated`, `user_confirmed`, `user_canceled`, `user_rolled_back`.
+- Códigos de erro estáveis (whitelist): `upload_missing`, `mime_mismatch`, `pdf_encrypted`, `size_exceeds`, `gateway_error`, `gateway_no_api_key`, `extraction_invalid_json`, `extraction_empty`, `fragment_timeout`, `items_insert_failed`, `download_failed`, `unsafe_url`, `watchdog_max_attempts`.
+- Sanitização de logs: nunca gravar `raw_text`, `description`, `amount`, `friendly_description`, `bank_description` em eventos ou em `document_imports.error`. Só código + hash truncado quando útil.
+- Notificações amigáveis: `notifyDocumentTransition` passa a considerar eventos por documento inteiro (não só primeira ocorrência) mas com throttle de 60s entre outbound do mesmo tipo.
+- Painel admin `admin_document_metrics` recebe drill-down por `event_type` e `error_code` (nova função `admin_document_error_breakdown`).
+
+## 9. Download WAHA compatível com a versão real
+
+Reescrever `_shared/messaging/wahaMedia.ts` para:
+
+- Aceitar payload rico: `{ id, chatId, mediaKey, mediaUrl, directPath, filename, mimeType, mediaSize, mediaType, messageTimestamp }`.
+- Path 1 (preferido): se `mediaUrl` HTTPS público → SSRF-guard + download direto + magic bytes.
+- Path 2: base64 inline (já existente).
+- Path 3: endpoint autenticado da WAHA usando **o path exato configurado** — ler `WAHA_MEDIA_ENDPOINT_TEMPLATE` (novo secret opcional, ex.: `/api/{session}/files/{id}` ou `/api/files/{session}/{id}`). Se ausente, tentar matriz atual como fallback com telemetria `download_failed_endpoint`.
+- Cabeçalhos: `X-Api-Key` (o WAHA docs oficial usa esse nome), com fallback `Authorization: Bearer`.
+- Aceitar tanto `id` quanto `id.serialized` (limpar `@lid`/`@c.us` sufixos antes de encodar).
+- Validar `content-type` de resposta contra whitelist antes de gastar tempo com o buffer.
+- Toda falha registra `document_processing_events.processing_failed` com `error_code` estável (`download_failed`, `size_exceeds`, `mime_not_allowed`, `unsafe_url`, `timeout`) — e enfileira outbound amigável específica ("não consegui baixar seu arquivo, reenvie por favor").
+
+## 10. Paridade app ↔ WhatsApp
+
+- Unificar os dois branches em um único helper `runIngestion(document_id, options)` chamado tanto por `finalize` quanto por `process-inbound-media` e pelo watchdog.
+- `process-inbound-media` passa a usar o mesmo `acquireProcessingLock`, os mesmos fragmentos e o mesmo emitEvent — hoje é um branch curto.
+- Bucket `documents` recebe migration versionada reafirmando `allowed_mime_types = {jpeg,png,webp,application/pdf}` e `file_size_limit = 20971520`. Documento vindo do WhatsApp passa a ser salvo no bucket (hoje `storage_path` existe e é criado pelo webhook; garantir MIME liberado).
+- `document_imports.source in ('app','whatsapp')` fica canônico. Frontend AssessorPanel exibe origem.
+
+## 11. Testes automatizados
+
+Adicionar em `src/test/` (Vitest) e casos correspondentes de edge functions:
+
+- `documents-informational-drop.test.ts`: linhas "Saldo do dia", "Limite disponível", "SUBTOTAL" nunca viram transações mesmo se modelo retornar `movement_kind` inválido.
+- `documents-fragment-persistence.test.ts`: mock supabase → após 2 fragmentos completed e 1 failed, `resume` só reexecuta o failed.
+- `documents-source-context.test.ts`: precedência das 5 estratégias e nunca preencher dois campos ao mesmo tempo.
+- `documents-dates-period.test.ts`: `dd/mm` inferido pelo período, virada de ano, data futura rejeitada, `today` como fallback só quando não há período.
+- `documents-reject-recovery.test.ts`: `reprocess_rejected_items` cria itens `needs_review` e apaga rejeições com códigos elegíveis; não duplica transações confirmadas.
+- `documents-large-100items.test.ts`: fixture de 120 itens em 3 fragmentos → contagem, dedupe intra-doc, e respeito ao `MAX_ITEMS_PER_DOCUMENT`.
+- `waha-media-download.test.ts`: matriz de endpoints, sucesso path 1, fallback path 3, size_exceeds e unsafe_url produzem outbound específico.
+- `whatsapp-webhook-media-parity.test.ts`: mídia entrante cria `document_imports.source='whatsapp'` com mesmo shape que app.
+- `documents-cleanup-fragment-aware.test.ts`: watchdog reenfileira só quando há fragmento pendente/failed e nunca depois de `attempts>=3`.
+- `merchant-aliases-learning.test.ts`: editar friendly + confirmar aprende alias; próxima extração usa alias.
+- Manter os 252 testes atuais verdes.
+
+Fixtures reais anonimizadas: 1 extrato Itaú corrente, 1 fatura Nubank, 1 recibo simples, 1 print de PIX, 1 lista textual, 1 PDF vazio/1 página, 1 PDF grande (>= 12 páginas).
+
+## 12. Segurança
+
+- Confirmar que a migration recente que revogou `EXECUTE` de PUBLIC/anon nas funções `SECURITY DEFINER` não removeu grants a `authenticated` de RPCs usadas pelo cliente (`confirm_document_import`, `cancel_document_import`, `reconcile_document_balance`, `rollback_document_import`, `reprocess_rejected_items`). Auditar e reafirmar `GRANT EXECUTE ... TO authenticated` para cada uma explicitamente.
+- `document_fragments`: sem acesso `anon`, sem `INSERT/UPDATE/DELETE` para `authenticated` (só leitura), tudo via service role dentro da edge.
+- `merchant_aliases`: `authenticated` gerencia próprios via RLS.
+- Storage `documents`: reafirmar policy — path prefix `user_id/` obrigatório, `authenticated` lê/escreve só o próprio prefixo, `service_role` acessa tudo.
+- `wahaMedia`: `assertPublicHttpsUrl` já bloqueia SSRF; adicionar teste explícito para `169.254.*`, `10.*`, `127.*`, `localhost`, `metadata.google.internal`.
+- Secrets tocados: nenhum novo obrigatório. `WAHA_MEDIA_ENDPOINT_TEMPLATE` opcional. `INTERNAL_CRON_SECRET` já existe.
+- Logs: passar por sanitização final que remove campos com nomes `description|body|raw_text|content|payload|masked` antes de qualquer `console.log`.
+
+## 13. Compatibilidade Lovable Cloud
+
+- Toda mudança de schema via `supabase--migration` (fluxo Lovable). Sem `supabase db push` manual.
+- Sem `ALTER DATABASE`. Sem tocar `auth`/`storage`/`supabase_functions`/`vault` além do `UPDATE storage.buckets` já suportado.
+- Deploy das Edge Functions só após aprovação do plano, uma a uma, com verificação individual.
+
+## 14. Limite de 240 itens
+
+Decisão: **transformar em configurável, default 240**.
+
+- Adicionar em `user_financial_settings.doc_max_items int default 240 check (between 40 and 800)`.
+- `MAX_ITEMS_PER_DOCUMENT` passa a ler esse valor por usuário.
+- Justificativa: extratos de conta corrente com alta movimentação em Itaú/Nubank passam de 240 facilmente; a rigidez atual gera `skipped` silencioso. 240 permanece bom default para reduzir custo LLM em usuários casuais.
+
+## 15. Sequência de implementação (uma rodada de aprovação, execução progressiva)
+
+1. Migration única "doc-pipeline-v2":
+   - Bucket `documents` → mime {jpeg,png,webp,pdf}, 20MB.
+   - `document_imports`: colunas source_* + statement_period_start/end.
+   - `document_fragments` (tabela + índices + RLS + trigger).
+   - `extracted_items` + `transactions`: `bank_description`, `friendly_description`.
+   - `merchant_aliases` (tabela + RLS).
+   - `user_financial_settings.doc_max_items`.
+   - RPCs: `reprocess_rejected_items`, atualização de `enrichment` triggers, GRANTs reafirmados.
+2. Edge functions:
+   - `_shared/documents/types.ts` (informational preservado + dropped).
+   - `_shared/documents/dates.ts` (novo).
+   - `_shared/documents/normalize.ts` (consulta aliases).
+   - `_shared/messaging/wahaMedia.ts` (reescrito).
+   - `assistant-ingest-document/index.ts` (fragmentos persistidos, source context, emitEvent sem dedup, resume-fragment mode, paridade).
+   - `documents-cleanup/index.ts` (fragment-aware).
+   - `whatsapp-webhook/index.ts` (payload rico WAHA, correlation_id).
+   - `assistant-review-actions/index.ts` (rota `reprocess-rejected`, `set-source-context`, `learn-alias`).
+3. Frontend:
+   - `AssessorAttachButton` (passo opcional conta/cartão).
+   - `ReviewSheet` (métricas, fragmentos, reconciliação, rejeitados, aliases).
+   - `AssessorPanel` (badge origem, correlation_id no diagnóstico).
+4. Testes (todos verdes) e typecheck.
+5. Deploy incremental: `assistant-ingest-document`, `assistant-review-actions`, `documents-cleanup`, `whatsapp-webhook`. Verificar individualmente.
+6. Publicar frontend somente após validação E2E manual.
+
+## 16. Critérios de aceite mensuráveis
+
+- 0 linhas em `extracted_items` com `movement_kind='transaction'` originadas de descrição `saldo|limite|total|subtotal` em fixtures + amostra real.
+- 100% dos `resume` após crash não reexecutam fragmentos `completed` (validado por métrica `tokens_in` no segundo run == 0 para os concluídos).
+- 100% dos documentos com `source_context_confidence>=0.9` chegam à revisão com conta/cartão preenchida em todos os itens elegíveis.
+- Taxa de `document_imports.status='failed'` por `error_code='items_insert_failed'` cai a 0 (quarentena + recuperação).
+- `documents-cleanup` nunca marca `watchdog:max_attempts` em documento com fragmento `completed>0` sem antes tentar reprocessar os `failed` restantes.
+- Todo item confirmado tem `friendly_description` estável; segunda importação da mesma linha detecta duplicata forte por `fingerprint`.
+- WhatsApp: 100% dos uploads de PDF/imagem em fixtures resultam em `document_imports.source='whatsapp'` com `correlation_id` e pelo menos um evento `processing_started`.
+- Testes: `vitest` 100% verde; typecheck limpo; linter Supabase sem novos WARN.
+
+## 17. Plano de rollback
+
+- Migration escrita em blocos idempotentes (`IF NOT EXISTS`, `DROP ... IF EXISTS`). Rollback manual: `DROP TABLE document_fragments`, `DROP TABLE merchant_aliases`, `ALTER TABLE ... DROP COLUMN` para as novas colunas; RPCs novas com `DROP FUNCTION IF EXISTS`.
+- Edge functions: manter tag/backup do commit anterior (`f0d1b6c5...`). Redeploy da versão anterior via CLI Lovable em caso de regressão.
+- Frontend: publish anterior fica disponível para revert.
+- Dados: nenhuma alteração destrutiva em `transactions`/`extracted_items` existentes. Só adição de coluna. Rollback não perde histórico.
+
+## 18. Checklist fechada
+
+Implementação:
+- [ ] Migration doc-pipeline-v2 aplicada (bucket, colunas, tabelas, RPCs, GRANTs).
+- [ ] `_shared/documents/types.ts` preserva `informational` e conta drop.
+- [ ] `_shared/documents/dates.ts` novo + integrado.
+- [ ] `_shared/documents/normalize.ts` consulta `merchant_aliases`.
+- [ ] `_shared/messaging/wahaMedia.ts` reescrito com payload rico + template.
+- [ ] `assistant-ingest-document` usa `document_fragments`, `resume-fragment`, source_context, emitEvent sem dedup, `MAX_ITEMS_PER_DOCUMENT` do settings.
+- [ ] `assistant-review-actions` com `reprocess-rejected`, `set-source-context`, `learn-alias`.
+- [ ] `documents-cleanup` fragment-aware.
+- [ ] `whatsapp-webhook` unificado + correlation_id.
+- [ ] `AssessorAttachButton` com passo conta/cartão.
+- [ ] `ReviewSheet` novo com métricas, fragmentos, reconciliação, rejeitados.
+- [ ] `AssessorPanel` badge origem + diagnóstico.
+
+Publicação (Lovable Cloud):
+- [ ] Deploy `assistant-ingest-document` verificado.
+- [ ] Deploy `assistant-review-actions` verificado.
+- [ ] Deploy `documents-cleanup` verificado.
+- [ ] Deploy `whatsapp-webhook` verificado.
+- [ ] Frontend publicado.
+
+Testes:
+- [ ] Vitest 100% verde (novos + antigos).
+- [ ] Typecheck limpo.
+- [ ] Supabase linter sem novos WARN de segurança.
+- [ ] Suite de fixtures reais: Itaú, Nubank, PIX, recibo, lista, PDF vazio, PDF grande — todas terminam em `needs_review`/`partial` com métricas coerentes.
+- [ ] E2E manual: (a) upload PDF pelo app com seleção de conta; (b) envio de PDF pelo WhatsApp; (c) confirmar 5 itens; (d) editar friendly e aprender alias; (e) reconciliar saldo; (f) reprocessar rejeitados; (g) rollback.
