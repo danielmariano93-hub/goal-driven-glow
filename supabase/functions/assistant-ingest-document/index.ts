@@ -825,10 +825,15 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
       if (out.errorTag) {
         lastErrorTag = out.errorTag;
+        await sb.from("document_fragments").update({
+          status: "failed", error_code: out.errorTag.slice(0, 80), extraction_ms: Date.now() - fragmentStart,
+          tokens_in: out.tokens_in, tokens_out: out.tokens_out,
+        }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
         if (counters.total_items > 0) break;
         await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
         return;
       }
+
 
       if ((extraction.document_kind === "illegible" || extraction.document_kind === "non_financial") && counters.total_items === 0 && extraction.items.length === 0) {
         await finish({
