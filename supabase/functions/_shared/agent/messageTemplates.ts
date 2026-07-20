@@ -1,11 +1,13 @@
 export type MessagePersona = {
-  name?: string;
+  name?: string | null;
   tone?: string;
   formality?: string;
   emoji_style?: string;
   address_style?: string;
-  signature?: string;
+  signature?: string | null;
   templates?: Record<string, string>;
+  // Novo contrato administrável por contexto (tem precedência sobre templates).
+  contexts?: Record<string, { template?: string; tone_override?: string | null }>;
 };
 
 const DEFAULTS: Record<string, string> = {
@@ -17,12 +19,31 @@ const DEFAULTS: Record<string, string> = {
   completed: "Rolê fechado! 🎉 Todo mundo acertou a divisão “{{title}}”.",
 };
 
+// Mapeia o kind curto para as chaves de contexts.* administráveis.
+const CONTEXT_KEYS: Record<string, string> = {
+  invite: "split_invite",
+  reminder: "split_reminder",
+  due_soon: "split_due_soon",
+  overdue: "split_overdue",
+  payment_confirmation: "split_payment_confirmation",
+  completed: "split_completed",
+};
+
+function pickTemplate(kind: string, persona: MessagePersona | null | undefined): string {
+  const contextKey = CONTEXT_KEYS[kind] ?? kind;
+  const fromContexts = persona?.contexts?.[contextKey]?.template?.trim();
+  if (fromContexts) return fromContexts;
+  const fromTemplates = persona?.templates?.[kind]?.trim();
+  if (fromTemplates) return fromTemplates;
+  return DEFAULTS[kind] || DEFAULTS.reminder;
+}
+
 export function renderMessageTemplate(
   kind: string,
   persona: MessagePersona | null | undefined,
   values: Record<string, string>,
 ): string {
-  const raw = persona?.templates?.[kind]?.trim() || DEFAULTS[kind] || DEFAULTS.reminder;
+  const raw = pickTemplate(kind, persona);
   let rendered = raw.replace(/\{\{([a-z_]+)\}\}/g, (_match, key: string) => values[key] ?? "");
   rendered = rendered.replace(/[ \t]+\n/g, "\n").replace(/ {2,}/g, " ").trim();
   const signature = persona?.signature?.trim();
