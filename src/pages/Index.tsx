@@ -116,7 +116,7 @@ export default function Index() {
         <p className="-mt-2 text-center text-[11px] text-muted-foreground">
           Consumo no cartão {periodLabel}: <strong className="text-foreground">{formatBRL(periodSummary.cardExpense)}</strong> (não entra na ponte de caixa).
         </p>
-      
+      )}
 
       <EmotionalCheckinCard />
 
