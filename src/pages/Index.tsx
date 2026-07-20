@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { Loader2, ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
+import { Loader2, CalendarDays } from "lucide-react";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
 import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
