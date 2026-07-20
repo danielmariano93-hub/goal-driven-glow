@@ -1969,6 +1969,8 @@ export type Database = {
           body: string
           channel: string
           claimed_at: string | null
+          context_id: string | null
+          context_type: string | null
           created_at: string
           id: string
           idempotency_key: string | null
@@ -1976,8 +1978,6 @@ export type Database = {
           kind: string
           last_error: string | null
           lease_expires_at: string | null
-          context_id: string | null
-          context_type: string | null
           metadata: Json
           next_attempt_at: string
           participant_id: string | null
@@ -1994,6 +1994,8 @@ export type Database = {
           body: string
           channel?: string
           claimed_at?: string | null
+          context_id?: string | null
+          context_type?: string | null
           created_at?: string
           id?: string
           idempotency_key?: string | null
@@ -2001,8 +2003,6 @@ export type Database = {
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
-          context_id?: string | null
-          context_type?: string | null
           metadata?: Json
           next_attempt_at?: string
           participant_id?: string | null
@@ -2019,6 +2019,8 @@ export type Database = {
           body?: string
           channel?: string
           claimed_at?: string | null
+          context_id?: string | null
+          context_type?: string | null
           created_at?: string
           id?: string
           idempotency_key?: string | null
@@ -2026,8 +2028,6 @@ export type Database = {
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
-          context_id?: string | null
-          context_type?: string | null
           metadata?: Json
           next_attempt_at?: string
           participant_id?: string | null
@@ -3307,6 +3307,10 @@ export type Database = {
           user_id: string
         }[]
       }
+      admin_conversation_activity: {
+        Args: { p_from?: string; p_limit?: number; p_to?: string }
+        Returns: Json
+      }
       admin_dashboard_stats: { Args: never; Returns: Json }
       admin_document_metrics: {
         Args: { p_days?: number }
@@ -3332,6 +3336,21 @@ export type Database = {
           role: Database["public"]["Enums"]["platform_role"]
           user_id: string
         }[]
+      }
+      admin_message_activity: {
+        Args: {
+          p_from?: string
+          p_kind?: string
+          p_limit?: number
+          p_offset?: number
+          p_status?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      admin_message_metrics: {
+        Args: { p_from?: string; p_to?: string }
+        Returns: Json
       }
       admin_ops_health: { Args: never; Returns: Json }
       admin_platform_status: { Args: never; Returns: Json }
@@ -3451,6 +3470,8 @@ export type Database = {
           body: string
           channel: string
           claimed_at: string | null
+          context_id: string | null
+          context_type: string | null
           created_at: string
           id: string
           idempotency_key: string | null
@@ -3458,7 +3479,9 @@ export type Database = {
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          metadata: Json
           next_attempt_at: string
+          participant_id: string | null
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string | null
           sent_at: string | null
