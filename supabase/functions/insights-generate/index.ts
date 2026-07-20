@@ -90,12 +90,11 @@ Deno.serve(async (req) => {
     supa.from("goals").select("id,name,target_amount,status").eq("user_id", uid).eq("status", "active"),
     supa
       .from("transactions")
-      .select("type,amount,category_id,occurred_at")
+      .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
       .eq("user_id", uid)
       .eq("status", "confirmed")
       .gte("occurred_at", `${ym}-01`)
-      .order("occurred_at", { ascending: false })
-      .limit(300),
+      .order("occurred_at", { ascending: false }),
     supa.from("credit_cards").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("active", true),
     supa.from("recurring_entries").select("id,next_due_date,active").eq("user_id", uid).eq("active", true),
     // Lançamento sem categoria (últimos 30 dias, prioridade máxima)
@@ -111,9 +110,11 @@ Deno.serve(async (req) => {
       .limit(1),
   ]);
 
-  const txs = (recentTx ?? []) as Array<{ type: string; amount: number | string }>;
-  const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + Number(t.amount), 0);
-  const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + Number(t.amount), 0);
+  // Regra canônica única (compartilhada com Home/Relatórios): exclui transferências,
+  // movimentações internas de investimento, pagamento de fatura e trata refund como reversão.
+  const monthly = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
+  const income = monthly.income;
+  const expense = monthly.expense;
   const totalCount = txCount ?? 0;
 
   const in7 = Date.now() + 7 * 86400_000;
