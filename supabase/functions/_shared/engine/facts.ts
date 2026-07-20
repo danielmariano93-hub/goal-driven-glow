@@ -116,6 +116,7 @@ export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
+export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
   const result: { id: string; name: string; type: "income" | "expense"; amount: number; date: string }[] = [];
   const t0 = new Date(today); t0.setHours(0, 0, 0, 0);
   const t1 = new Date(t0); t1.setDate(t1.getDate() + horizonDays);
