@@ -37,6 +37,8 @@ export interface TransactionRow {
   competence_date?: string | null;
   /** Se preenchido, esta transação é um pagamento de fatura do cartão indicado. */
   settles_card_id?: string | null;
+  /** Kind of movement — usado para excluir transferências internas e movimentações de investimento dos totais mensais. */
+  movement_kind?: string | null;
 }
 
 export interface CreditCardRow {
@@ -201,17 +203,60 @@ export function isInMonth(dateStr: string, ym: string): boolean {
   return dateStr.startsWith(ym);
 }
 
+/** Kinds que NÃO representam entrada/saída real de dinheiro no mês (transferência entre contas próprias,
+ *  aplicação/resgate de investimento). Devem ser filtrados de totais e insights. */
+export const EXCLUDED_MOVEMENT_KINDS = new Set([
+  "internal_transfer",
+  "investment_application",
+  "investment_redemption",
+]);
+
+/** Regra canônica única para totais mensais reais — usada em Home, relatórios e insights.
+ *  - exclui transferências (type='transfer') e movimentações internas/investimento;
+ *  - exclui pagamento de fatura (settles_card_id) para não contar duas vezes;
+ *  - trata refund como reversão da despesa (subtrai) em vez de nova entrada. */
+export function isRealMonthlyMovement(t: TransactionRow): boolean {
+  if (t.status !== "confirmed") return false;
+  if (t.type === "transfer") return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (EXCLUDED_MOVEMENT_KINDS.has(mk)) return false;
+  if (t.settles_card_id) return false;
+  return true;
+}
+
+export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
+  let income = 0, expense = 0;
+  for (const t of txs) {
+    if (!isInMonth(t.occurred_at, ym)) continue;
+    if (!isRealMonthlyMovement(t)) continue;
+    const amt = Number(t.amount || 0);
+    const mk = (t.movement_kind ?? "transaction").toString();
+    if (mk === "refund") { expense -= amt; continue; }
+    if (t.type === "income") income += amt;
+    else if (t.type === "expense") expense += amt;
+  }
+  expense = Math.max(0, expense);
+  return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
+}
+
 export function computeMonthlyIncomeExpense(
   txs: TransactionRow[],
   ym: string,
   filter?: { origin?: "account" | "credit_card" | "all" },
 ) {
   const origin = filter?.origin ?? "all";
-  const inMonth = txs.filter((t) => isInMonth(t.occurred_at, ym) && t.status === "confirmed" && t.type !== "transfer");
+  const inMonth = txs.filter((t) => isInMonth(t.occurred_at, ym) && isRealMonthlyMovement(t));
   const scoped = origin === "all" ? inMonth : inMonth.filter((t) => txOrigin(t) === origin);
-  const income = sumBy(scoped.filter((t) => t.type === "income"), (t) => Number(t.amount));
-  const expense = sumBy(scoped.filter((t) => t.type === "expense"), (t) => Number(t.amount));
-  return { income, expense, net: round2(income - expense) };
+  let income = 0, expense = 0;
+  for (const t of scoped) {
+    const amt = Number(t.amount || 0);
+    const mk = (t.movement_kind ?? "transaction").toString();
+    if (mk === "refund") { expense -= amt; continue; }
+    if (t.type === "income") income += amt;
+    else if (t.type === "expense") expense += amt;
+  }
+  expense = Math.max(0, expense);
+  return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
 export function computeCategoryBreakdown(

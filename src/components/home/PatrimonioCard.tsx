@@ -9,9 +9,15 @@ interface Props {
   otherDebts: number;
   net: number;
   loading?: boolean;
+  cashAnchor?: { date: string; source: "statement" | "manual" } | null;
 }
 
-export function PatrimonioCard({ cash, cardsOwed, invested, otherDebts, net, loading }: Props) {
+function fmtBrDate(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
+export function PatrimonioCard({ cash, cardsOwed, invested, otherDebts, net, loading, cashAnchor }: Props) {
   const fmt = (n: number) => (loading ? "…" : formatBRL(n));
 
   return (
@@ -27,8 +33,18 @@ export function PatrimonioCard({ cash, cardsOwed, invested, otherDebts, net, loa
         </p>
 
         <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/20 pt-4">
-          <HeroMetric icon={<Wallet size={13} />} label="Em conta" value={fmt(cash)} />
-          <HeroMetric icon={<CreditCard size={13} />} label="Na fatura" value={fmt(cardsOwed)} />
+          <HeroMetric
+            icon={<Wallet size={13} />}
+            label="Em conta"
+            value={fmt(cash)}
+            hint={cashAnchor ? `Saldo conciliado em ${fmtBrDate(cashAnchor.date)}` : undefined}
+          />
+          <HeroMetric
+            icon={<CreditCard size={13} />}
+            label="Na fatura"
+            value={fmt(cardsOwed)}
+            hint="Estimativa até o fechamento"
+          />
           <HeroMetric icon={<LineChart size={13} />} label="Investido" value={fmt(invested)} />
         </div>
 
@@ -45,13 +61,14 @@ export function PatrimonioCard({ cash, cardsOwed, invested, otherDebts, net, loa
   );
 }
 
-function HeroMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function HeroMetric({ icon, label, value, hint }: { icon: React.ReactNode; label: string; value: string; hint?: string }) {
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-1 text-[10px] text-white/70">
         {icon}<span className="truncate">{label}</span>
       </div>
       <p className="mt-1 truncate text-sm font-semibold tabular-nums text-white sm:text-base">{value}</p>
+      {hint ? <p className="mt-0.5 truncate text-[9px] text-white/55" title={hint}>{hint}</p> : null}
     </div>
   );
 }

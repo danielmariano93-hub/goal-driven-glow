@@ -16,6 +16,7 @@ export interface TransactionRow {
   payment_method?: string | null;
   credit_card_id?: string | null;
   settles_card_id?: string | null;
+  movement_kind?: string | null;
 }
 
 export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
@@ -83,6 +84,36 @@ export function computeCreditCardOutstanding(txs: TransactionRow[]): number {
     if (t.settles_card_id) total -= Number(t.amount || 0);
   }
   return round2(Math.max(0, total));
+}
+
+export const EXCLUDED_MOVEMENT_KINDS = new Set([
+  "internal_transfer",
+  "investment_application",
+  "investment_redemption",
+]);
+
+export function isRealMonthlyMovement(t: TransactionRow): boolean {
+  if (t.status !== "confirmed") return false;
+  if (t.type === "transfer") return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (EXCLUDED_MOVEMENT_KINDS.has(mk)) return false;
+  if (t.settles_card_id) return false;
+  return true;
+}
+
+export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
+  let income = 0, expense = 0;
+  for (const t of txs) {
+    if (!t.occurred_at.startsWith(ym)) continue;
+    if (!isRealMonthlyMovement(t)) continue;
+    const amt = Number(t.amount || 0);
+    const mk = (t.movement_kind ?? "transaction").toString();
+    if (mk === "refund") { expense -= amt; continue; }
+    if (t.type === "income") income += amt;
+    else if (t.type === "expense") expense += amt;
+  }
+  expense = Math.max(0, expense);
+  return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {

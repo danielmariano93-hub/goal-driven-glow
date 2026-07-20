@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { Loader2, ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
-import { computeNetWorth, formatBRL, round2, txOrigin } from "@/lib/engine/facts";
+import { computeNetWorth, formatBRL, round2, txOrigin, isRealMonthlyMovement } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { WhatsAppCta } from "@/components/home/WhatsAppCta";
@@ -42,6 +42,15 @@ export default function Index() {
     (balanceSnapshots ?? []).map((s) => ({ ...s, balance: Number(s.balance) }))
   );
 
+  // Âncora de saldo: mais recente snapshot confirmado (informativa, discreta).
+  const cashAnchor = useMemo(() => {
+    const confirmed = (balanceSnapshots ?? []).filter((s) => (s as { status?: string }).status === "confirmed");
+    if (confirmed.length === 0) return null;
+    const latest = [...confirmed].sort((a, b) => String(b.balance_date).localeCompare(String(a.balance_date)))[0];
+    const source = ((latest as { source?: string }).source === "manual" ? "manual" : "statement") as "manual" | "statement";
+    return { date: String(latest.balance_date), source };
+  }, [balanceSnapshots]);
+
   const periodSummary = useMemo(() => {
     const end = period === "custom" ? customEnd : isoDate(new Date());
     const startDate = new Date();
@@ -49,13 +58,28 @@ export default function Index() {
     if (period === "30d") startDate.setDate(startDate.getDate() - 29);
     if (period === "90d") startDate.setDate(startDate.getDate() - 89);
     const start = period === "custom" ? customStart : isoDate(startDate);
-    const filtered = tx.filter((item) => item.status === "confirmed" && item.type !== "transfer" &&
-      !["internal_transfer","investment_application","investment_redemption"].includes((item as { movement_kind?: string }).movement_kind ?? "transaction") &&
-      item.occurred_at >= start && item.occurred_at <= end);
-    const accountIncome = filtered.filter((item) => item.type === "income" && txOrigin(item as never) === "account").reduce((sum, item) => sum + Number(item.amount), 0);
-    const accountExpense = filtered.filter((item) => item.type === "expense" && txOrigin(item as never) === "account").reduce((sum, item) => sum + Number(item.amount), 0);
-    const cardExpense = filtered.filter((item) => item.type === "expense" && txOrigin(item as never) === "credit_card").reduce((sum, item) => sum + Number(item.amount), 0);
-    return { income: round2(accountIncome), expense: round2(accountExpense), cardExpense: round2(cardExpense), start, end };
+    // Regra canônica: mesma função usada pela Home, relatórios e insights.
+    const filtered = tx.filter((item) => isRealMonthlyMovement(item as never) && item.occurred_at >= start && item.occurred_at <= end);
+    let accountIncome = 0, accountExpense = 0, cardExpense = 0;
+    for (const item of filtered) {
+      const amt = Number(item.amount);
+      const mk = String((item as { movement_kind?: string }).movement_kind ?? "transaction");
+      const origin = txOrigin(item as never);
+      if (mk === "refund") {
+        if (origin === "credit_card") cardExpense -= amt; else accountExpense -= amt;
+        continue;
+      }
+      if (item.type === "income" && origin === "account") accountIncome += amt;
+      else if (item.type === "expense" && origin === "account") accountExpense += amt;
+      else if (item.type === "expense" && origin === "credit_card") cardExpense += amt;
+    }
+    return {
+      income: round2(accountIncome),
+      expense: round2(Math.max(0, accountExpense)),
+      cardExpense: round2(Math.max(0, cardExpense)),
+      start,
+      end,
+    };
   }, [tx, period, customStart, customEnd]);
 
   const periodLabel = period === "month" ? "este mês" : period === "30d" ? "nos últimos 30 dias" : period === "90d" ? "nos últimos 90 dias" : "no período";
@@ -68,7 +92,7 @@ export default function Index() {
   return (
     <div className="space-y-5">
       <PeriodFilter period={period} setPeriod={setPeriod} customStart={customStart} customEnd={customEnd} setCustomStart={setCustomStart} setCustomEnd={setCustomEnd} />
-      <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} />
+      <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} cashAnchor={cashAnchor} />
 
       <PulseHero />
 
