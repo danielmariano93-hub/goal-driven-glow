@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
       .insert({
         user_id: uid, type: fb.type, title: fb.title, body: fb.body,
         cta_label: fb.cta_label, cta_route: fb.cta_route, model: fb.model,
-        evidence: { ...facts, transaction_id: uncategorized_tx.id },
+        evidence: { ...facts, ...evidenceExtra, transaction_id: uncategorized_tx.id },
         prompt_version: PROMPT_VERSION,
         generated_at: now.toISOString(),
         expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
