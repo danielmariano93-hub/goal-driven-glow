@@ -154,15 +154,3 @@ function PeriodFilter({ period, setPeriod, customStart, customEnd, setCustomStar
   </section>;
 }
 
-function Kpi({ label, value, icon, accent, sub }: { label: string; value: string; icon: React.ReactNode; accent: string; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-card min-w-0">
-      <div className={`flex items-center gap-2 text-[11px] ${accent}`}>
-        <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
-        <span className="font-medium truncate">{label}</span>
-      </div>
-      <p className="mt-1 truncate text-lg font-semibold tabular-nums">{value}</p>
-      {sub ? <p className="mt-0.5 text-[10px] text-muted-foreground leading-tight">{sub}</p> : null}
-    </div>
-  );
-}
