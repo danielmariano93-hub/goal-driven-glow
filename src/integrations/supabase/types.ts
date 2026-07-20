@@ -3570,6 +3570,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      confirm_balance_snapshot: {
+        Args: { p_snapshot_id: string }
+        Returns: Json
+      }
       confirm_document_import: {
         Args: { p_document_id: string; p_item_ids: string[] }
         Returns: Json
