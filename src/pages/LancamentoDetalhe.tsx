@@ -7,6 +7,7 @@ import { useCreditCards } from "@/lib/db/creditCards";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft, Trash2, Save } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { CategorySelect } from "@/components/CategorySelect";
 
 type Tx = {
   id: string;
@@ -255,10 +256,12 @@ export default function LancamentoDetalhe() {
         {!isTransfer && (
           <div>
             <label className="text-xs font-medium text-muted-foreground">Categoria</label>
-            <select id="field-category" className="input-base w-full" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
-              <option value="">Sem categoria</option>
-              {catsForType.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <CategorySelect
+              id="field-category"
+              value={categoryId || null}
+              onChange={(id) => setCategoryId(id ?? "")}
+              type={(tx?.type === "income" ? "income" : "expense") as "income" | "expense"}
+            />
           </div>
         )}
 

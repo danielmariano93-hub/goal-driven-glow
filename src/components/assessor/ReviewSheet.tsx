@@ -517,17 +517,14 @@ export function ReviewSheet({
                           </div>
                           <div>
                             <label className="text-[10px] text-muted-foreground">Categoria</label>
-                            <select
-                              value={it.category_id ?? ""}
-                              onChange={(e) => patchItem(it.id, { category_id: e.target.value || null })}
+                            <CategorySelect
+                              value={it.category_id}
+                              onChange={(id) => patchItem(it.id, { category_id: id })}
+                              type={it.type}
                               disabled={disabled}
                               className="input-base text-xs"
-                            >
-                              <option value="">Sem categoria</option>
-                              {catForType(it.type).map((c) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
-                            </select>
+                              showManageLink={false}
+                            />
                           </div>
                           {it.payment_method === "account" && (
                             <div className="col-span-2">

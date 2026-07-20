@@ -23,6 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CategorySelect } from "@/components/CategorySelect";
 
 export default function Lancamentos() {
   const nav = useNavigate();
