@@ -6,13 +6,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { InsightSchema, pickFallback, parseInsightResponse, type InsightFacts } from "../_shared/insights/fallbacks.ts";
-import { computeAccountStatementTotals, type TransactionRow } from "../_shared/engine/facts.ts";
+import { computeAccountStatementTotals, computeMonthlyTotals, type TransactionRow } from "../_shared/engine/facts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
-const PROMPT_VERSION = "v2";
+const PROMPT_VERSION = "v3-behavioral";
+const ACCOUNTING_SCOPE = "behavioral_v1";
 const MODEL = "google/gemini-2.5-flash";
 const AI_TIMEOUT_MS = 8000;
 
@@ -110,16 +111,17 @@ Deno.serve(async (req) => {
       .limit(1),
   ]);
 
-  // Fluxo bancário literal (extrato): mesmas regras dos KPIs da Home — inclui
-  // resgate/aplicação/estorno como movimento bruto da conta e mantém a fatura
-  // do cartão separada. Consistente entre Home, relatórios e insights.
+  // Comportamental (regra canônica): exclui transferências internas, aplicação/
+  // resgate/rendimento de investimento, pagamento de fatura e proceeds de
+  // empréstimo. Refund abate despesa. É a base para "sobrou/faltou".
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10);
-  const totals = computeAccountStatementTotals(
+  const behavioral = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
+  const gross = computeAccountStatementTotals(
     (recentTx ?? []) as unknown as TransactionRow[],
     { start: `${ym}-01`, end: monthEnd },
   );
-  const income = totals.accountIn;
-  const expense = totals.accountOut;
+  const income = behavioral.income;
+  const expense = behavioral.expense;
   const totalCount = txCount ?? 0;
 
   const in7 = Date.now() + 7 * 86400_000;
@@ -138,13 +140,24 @@ Deno.serve(async (req) => {
     month: ym,
     income_month: Number(income.toFixed(2)),
     expense_month: Number(expense.toFixed(2)),
-    balance_month: Number((income - expense).toFixed(2)),
+    balance_month: Number(behavioral.net.toFixed(2)),
     active_goals: (goals ?? []).length,
     goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name).filter(Boolean),
     has_credit_card: (cardCount ?? 0) > 0,
     upcoming_recurring_7d: upcoming7,
     top_expense_category: null,
     uncategorized_tx,
+  };
+
+  // Evidence extra (auditoria): mantém fluxo bruto separado para observabilidade.
+  const evidenceExtra = {
+    accounting_scope: ACCOUNTING_SCOPE,
+    behavioral_income: behavioral.income,
+    behavioral_expense: behavioral.expense,
+    behavioral_net: behavioral.net,
+    gross_account_in: gross.accountIn,
+    gross_account_out: gross.accountOut,
+    gross_card_out: gross.cardOut,
   };
 
   // Deep-link determinístico: sempre que existir uncategorized_tx, priorizamos
@@ -157,7 +170,7 @@ Deno.serve(async (req) => {
       .insert({
         user_id: uid, type: fb.type, title: fb.title, body: fb.body,
         cta_label: fb.cta_label, cta_route: fb.cta_route, model: fb.model,
-        evidence: { ...facts, transaction_id: uncategorized_tx.id },
+        evidence: { ...facts, ...evidenceExtra, transaction_id: uncategorized_tx.id },
         prompt_version: PROMPT_VERSION,
         generated_at: now.toISOString(),
         expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
@@ -180,6 +193,7 @@ Deno.serve(async (req) => {
 
   if (LOVABLE_API_KEY) {
     const system = `Você é o assistente do NoControle.ia. Escreva UMA dica curta em português brasileiro baseada estritamente nos dados fornecidos. Regras rígidas:
+- Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos de investimento, pagamento de fatura e crédito de empréstimo. NUNCA diga "gastou mais do que recebeu" comparando com fluxo bancário bruto. Se balance_month >= 0, não é déficit.
 - title: 4 a 80 caracteres, não vazio, sem "null"/"undefined".
 - body: 10 a 240 caracteres, não vazio.
 - type: um de habit, alert, celebration, onboarding, opportunity.
@@ -259,7 +273,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
       cta_label: insight.cta_label,
       cta_route: insight.cta_route,
       model: insight.model,
-      evidence: facts,
+      evidence: { ...facts, ...evidenceExtra },
       prompt_version: PROMPT_VERSION,
       generated_at: now.toISOString(),
       expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),

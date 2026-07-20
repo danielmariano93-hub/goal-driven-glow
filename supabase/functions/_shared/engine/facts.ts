@@ -90,6 +90,8 @@ export const EXCLUDED_MOVEMENT_KINDS = new Set([
   "internal_transfer",
   "investment_application",
   "investment_redemption",
+  "investment_yield",
+  "loan_proceeds",
 ]);
 
 export function isRealMonthlyMovement(t: TransactionRow): boolean {

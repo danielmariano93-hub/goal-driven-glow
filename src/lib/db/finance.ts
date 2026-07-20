@@ -108,6 +108,7 @@ export function useCategories() {
       const { data, error } = await supabase
         .from("categories")
         .select("*")
+        .is("archived_at", null)
         .order("type", { ascending: true })
         .order("name", { ascending: true });
       if (error) throw error;
@@ -156,12 +157,37 @@ export function useDeleteCategory() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      // Global (user_id NULL) não pode ser removida.
+      const { data: cat, error: catErr } = await supabase
+        .from("categories")
+        .select("id,user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (catErr) throw catErr;
+      if (!cat) throw new Error("Categoria não encontrada");
+      if (cat.user_id === null) throw new Error("Categoria padrão não pode ser removida");
+
+      // Se há transações vinculadas, arquiva (preserva histórico); caso contrário, apaga.
+      const { count } = await supabase
+        .from("transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("category_id", id);
+      if ((count ?? 0) > 0) {
+        const { error } = await supabase
+          .from("categories")
+          .update({ archived_at: new Date().toISOString() })
+          .eq("id", id);
+        if (error) throw error;
+        return { archived: true, count: count ?? 0 };
+      }
       const { error } = await supabase.from("categories").delete().eq("id", id);
       if (error) throw error;
+      return { archived: false, count: 0 };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

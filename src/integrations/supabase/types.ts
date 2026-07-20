@@ -461,6 +461,7 @@ export type Database = {
       }
       categories: {
         Row: {
+          archived_at: string | null
           color: string | null
           created_at: string
           icon: string | null
@@ -472,6 +473,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          archived_at?: string | null
           color?: string | null
           created_at?: string
           icon?: string | null
@@ -483,6 +485,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          archived_at?: string | null
           color?: string | null
           created_at?: string
           icon?: string | null

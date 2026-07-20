@@ -2,6 +2,7 @@
 export const CANONICAL_MOVEMENT_KINDS = [
   "transaction", "refund", "internal_transfer",
   "investment_application", "investment_redemption",
+  "investment_yield", "loan_proceeds",
 ] as const;
 export type MovementKind = typeof CANONICAL_MOVEMENT_KINDS[number];
 
