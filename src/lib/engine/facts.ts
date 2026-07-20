@@ -259,6 +259,94 @@ export function computeMonthlyIncomeExpense(
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Fluxo bancário LITERAL (extrato) — usado nos KPIs da Home.
+// Diferente de `isRealMonthlyMovement`, aqui incluímos resgates/aplicações de
+// investimento e refunds como movimentos brutos da conta. Não deve ser usado
+// para métricas comportamentais de "gastos de consumo".
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface AccountStatementTotals {
+  accountIn: number;
+  accountOut: number;
+  cardOut: number;
+  net: number;
+}
+
+export function isGrossAccountMovement(
+  t: TransactionRow,
+  opts?: { scopeAccountId?: string },
+): boolean {
+  if (t.status !== "confirmed") return false;
+  if (t.type === "transfer") return false;
+  if (txOrigin(t) !== "account") return false;
+  if (t.settles_card_id) return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  // No consolidado, transferências internas se cancelam entre contas próprias.
+  if (mk === "internal_transfer" && !opts?.scopeAccountId) return false;
+  return true;
+}
+
+export function isGrossCardMovement(t: TransactionRow): boolean {
+  if (t.status !== "confirmed") return false;
+  if (t.type !== "expense") return false;
+  if (txOrigin(t) !== "credit_card") return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (mk === "internal_transfer") return false;
+  return true;
+}
+
+/**
+ * Totais brutos para os KPIs "Entrou / Saiu / Fatura" da Home.
+ * - Refund entra em accountIn (crédito real na conta), nunca abate accountOut.
+ * - Aplicação em investimento → accountOut. Resgate → accountIn.
+ * - Fatura do cartão fica separada em cardOut.
+ */
+export function computeAccountStatementTotals(
+  txs: TransactionRow[],
+  range: { start: string; end: string },
+  opts?: { scopeAccountId?: string },
+): AccountStatementTotals {
+  const scope = opts?.scopeAccountId ?? null;
+  let accountIn = 0;
+  let accountOut = 0;
+  let cardOut = 0;
+  for (const t of txs) {
+    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    if (scope && t.account_id !== scope) {
+      // Para transferências internas (par), inclui apenas se a perna é da conta escopada.
+      // Caso contrário, ignora — mas para as demais movimentações permanece o filtro de conta.
+      if (t.type !== "transfer") continue;
+    }
+    if (t.type === "transfer") {
+      // Perna do transfer só aparece no filtro por conta específica.
+      if (!scope || t.account_id !== scope) continue;
+      const amt = Number(t.amount || 0);
+      // Sem sinal explícito: usamos o par (transfer_group_id) — a perna com id menor é a origem.
+      // Heurística mínima: se houver contraparte no mesmo grupo, decidimos pelo ordering; senão, ignora.
+      const peers = txs.filter((x) => x.transfer_group_id && x.transfer_group_id === t.transfer_group_id);
+      if (peers.length < 2) continue;
+      const sorted = [...peers].sort((a, b) => a.id.localeCompare(b.id));
+      const isSource = sorted[0].id === t.id;
+      if (isSource) accountOut += amt; else accountIn += amt;
+      continue;
+    }
+    if (isGrossAccountMovement(t, { scopeAccountId: scope ?? undefined })) {
+      const amt = Number(t.amount || 0);
+      if (t.type === "income") accountIn += amt;
+      else if (t.type === "expense") accountOut += amt;
+      continue;
+    }
+    if (isGrossCardMovement(t)) {
+      cardOut += Number(t.amount || 0);
+    }
+  }
+  const rIn = round2(accountIn);
+  const rOut = round2(Math.max(0, accountOut));
+  const rCard = round2(Math.max(0, cardOut));
+  return { accountIn: rIn, accountOut: rOut, cardOut: rCard, net: round2(rIn - rOut - rCard) };
+}
+
 export function computeCategoryBreakdown(
   txs: TransactionRow[],
   categories: CategoryRow[],

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { Loader2, ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
-import { computeNetWorth, formatBRL, round2, txOrigin, isRealMonthlyMovement } from "@/lib/engine/facts";
+import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { WhatsAppCta } from "@/components/home/WhatsAppCta";
@@ -58,25 +58,16 @@ export default function Index() {
     if (period === "30d") startDate.setDate(startDate.getDate() - 29);
     if (period === "90d") startDate.setDate(startDate.getDate() - 89);
     const start = period === "custom" ? customStart : isoDate(startDate);
-    // Regra canônica: mesma função usada pela Home, relatórios e insights.
-    const filtered = tx.filter((item) => isRealMonthlyMovement(item as never) && item.occurred_at >= start && item.occurred_at <= end);
-    let accountIncome = 0, accountExpense = 0, cardExpense = 0;
-    for (const item of filtered) {
-      const amt = Number(item.amount);
-      const mk = String((item as { movement_kind?: string }).movement_kind ?? "transaction");
-      const origin = txOrigin(item as never);
-      if (mk === "refund") {
-        if (origin === "credit_card") cardExpense -= amt; else accountExpense -= amt;
-        continue;
-      }
-      if (item.type === "income" && origin === "account") accountIncome += amt;
-      else if (item.type === "expense" && origin === "account") accountExpense += amt;
-      else if (item.type === "expense" && origin === "credit_card") cardExpense += amt;
-    }
+    // Fluxo bancário literal: entradas/saídas brutas (inclui resgate/aplicação/estorno)
+    // e fatura do cartão separada. Ver computeAccountStatementTotals.
+    const totals = computeAccountStatementTotals(
+      tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never,
+      { start, end },
+    );
     return {
-      income: round2(accountIncome),
-      expense: round2(Math.max(0, accountExpense)),
-      cardExpense: round2(Math.max(0, cardExpense)),
+      income: round2(totals.accountIn),
+      expense: round2(totals.accountOut),
+      cardExpense: round2(totals.cardOut),
       start,
       end,
     };

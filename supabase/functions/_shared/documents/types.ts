@@ -99,6 +99,7 @@ export function todaySaoPaulo(now = new Date()): string {
 export function normalizeMovementKind(
   raw: unknown,
   _type: "income" | "expense",
+  description?: string,
 ): MovementKind | "informational" {
   const value = String(raw ?? "transaction").trim().toLowerCase();
   const aliases: Record<string, MovementKind | "informational"> = {
@@ -113,7 +114,15 @@ export function normalizeMovementKind(
     subtotal: "informational", total: "informational", header: "informational", cabecalho: "informational",
     resumo: "informational", summary: "informational", periodo: "informational", period: "informational",
   };
-  return aliases[value] ?? "transaction";
+  let kind: MovementKind | "informational" = aliases[value] ?? "transaction";
+  // Override determinístico por descrição (endurecimento) — só promove, nunca rebaixa informational.
+  if (description && kind !== "informational") {
+    const d = description.trim();
+    if (/^APLICACAO\s+CDB/i.test(d) || /^APLICA[ÇC][ÃA]O\s+CDB/i.test(d)) kind = "investment_application";
+    else if (/^RESGATE\s+CDB/i.test(d)) kind = "investment_redemption";
+    else if (/^(EST|ESTORNO)\b/i.test(d)) kind = "refund";
+  }
+  return kind;
 }
 
 export function normalizeDateBR(raw: string, fallback: string, confidence = 0): string {
@@ -176,7 +185,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
       const type = row[0] === "income" ? "income" : "expense";
       const description = String(row[3] ?? "").trim();
       if (!description) continue;
-      const movementKind = normalizeMovementKind(row[7], type);
+      const movementKind = normalizeMovementKind(row[7], type, description);
       if (movementKind === "informational") { informational_dropped++; continue; }
       if (isNonTransactionLine(description)) { informational_dropped++; continue; }
 
@@ -209,7 +218,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
     const description = String(it.description ?? "").trim();
     if (!description) continue;
     const type = it.type === "income" ? "income" : "expense";
-    const movementKind = normalizeMovementKind(it.movement_kind, type);
+    const movementKind = normalizeMovementKind(it.movement_kind, type, description);
     if (movementKind === "informational") { informational_dropped++; continue; }
     if (isNonTransactionLine(description)) { informational_dropped++; continue; }
 

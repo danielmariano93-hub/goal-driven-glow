@@ -6,7 +6,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { InsightSchema, pickFallback, parseInsightResponse, type InsightFacts } from "../_shared/insights/fallbacks.ts";
-import { computeMonthlyTotals, type TransactionRow } from "../_shared/engine/facts.ts";
+import { computeAccountStatementTotals, type TransactionRow } from "../_shared/engine/facts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -110,11 +110,16 @@ Deno.serve(async (req) => {
       .limit(1),
   ]);
 
-  // Regra canônica única (compartilhada com Home/Relatórios): exclui transferências,
-  // movimentações internas de investimento, pagamento de fatura e trata refund como reversão.
-  const monthly = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
-  const income = monthly.income;
-  const expense = monthly.expense;
+  // Fluxo bancário literal (extrato): mesmas regras dos KPIs da Home — inclui
+  // resgate/aplicação/estorno como movimento bruto da conta e mantém a fatura
+  // do cartão separada. Consistente entre Home, relatórios e insights.
+  const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10);
+  const totals = computeAccountStatementTotals(
+    (recentTx ?? []) as unknown as TransactionRow[],
+    { start: `${ym}-01`, end: monthEnd },
+  );
+  const income = totals.accountIn;
+  const expense = totals.accountOut;
   const totalCount = txCount ?? 0;
 
   const in7 = Date.now() + 7 * 86400_000;
