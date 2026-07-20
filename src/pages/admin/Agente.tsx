@@ -44,6 +44,8 @@ type StructuredCfg = {
   emoji_style: string;
   address_style: string;
   signature: string;
+  preferred_words: string[];
+  forbidden_words: string[];
   templates: Record<string, string>;
 };
 
@@ -60,6 +62,8 @@ const DEFAULT_CFG: StructuredCfg = {
   emoji_style: "moderado",
   address_style: "você",
   signature: "",
+  preferred_words: [],
+  forbidden_words: [],
   templates: {},
 };
 
@@ -78,8 +82,32 @@ function normalize(cfg: unknown): StructuredCfg {
     emoji_style: String(c.emoji_style ?? DEFAULT_CFG.emoji_style),
     address_style: String(c.address_style ?? DEFAULT_CFG.address_style),
     signature: String(c.signature ?? DEFAULT_CFG.signature),
+    preferred_words: Array.isArray(c.preferred_words) ? (c.preferred_words as unknown[]).map(String) : [],
+    forbidden_words: Array.isArray(c.forbidden_words) ? (c.forbidden_words as unknown[]).map(String) : [],
     templates: typeof c.templates === "object" && c.templates ? c.templates as Record<string, string> : {},
   };
+}
+
+const PREVIEW_VARS: Record<string, string> = {
+  participant_name: "Lucas",
+  owner_name: "Daniel",
+  title: "Fakku",
+  amount: "R$ 19,95",
+  due_date: "22/07",
+  due_sentence: " O combinado é pagar até 22/07.",
+  pix_key: "daniel@nocontrole.ia",
+  pix_sentence: " Pix: daniel@nocontrole.ia.",
+};
+
+function renderPreview(template: string, cfg: StructuredCfg): string {
+  const raw = template?.trim() || "(usando texto padrão do NoControle.ia)";
+  let out = raw.replace(/\{\{([a-z_]+)\}\}/g, (_m, k: string) => PREVIEW_VARS[k] ?? "");
+  out = out.replace(/[ \t]+\n/g, "\n").replace(/ {2,}/g, " ").trim();
+  const sig = cfg.signature?.trim();
+  const name = cfg.name?.trim();
+  if (sig) out += `\n\n${sig}`;
+  else if (name) out += `\n\n— ${name}`;
+  return out;
 }
 
 export default function AgenteAdmin() {
@@ -350,23 +378,45 @@ function BehaviorEditor({ row, onClose, onSaved }: {
           <ListField label="O que nunca deve fazer" items={cfg.dont} disabled={readOnly}
             onChange={setList("dont")} onAdd={() => addItem("dont")} onRemove={(i) => removeItem("dont", i)} />
 
+          <ListField label="Palavras/expressões preferidas" items={cfg.preferred_words} disabled={readOnly}
+            onChange={(i, v) => { const a = [...cfg.preferred_words]; a[i] = v; setCfg({ ...cfg, preferred_words: a }); }}
+            onAdd={() => setCfg({ ...cfg, preferred_words: [...cfg.preferred_words, ""] })}
+            onRemove={(i) => setCfg({ ...cfg, preferred_words: cfg.preferred_words.filter((_, x) => x !== i) })} />
+          <ListField label="Palavras/expressões proibidas" items={cfg.forbidden_words} disabled={readOnly}
+            onChange={(i, v) => { const a = [...cfg.forbidden_words]; a[i] = v; setCfg({ ...cfg, forbidden_words: a }); }}
+            onAdd={() => setCfg({ ...cfg, forbidden_words: [...cfg.forbidden_words, ""] })}
+            onRemove={(i) => setCfg({ ...cfg, forbidden_words: cfg.forbidden_words.filter((_, x) => x !== i) })} />
+
           <Field label="Mensagem de boas-vindas" value={cfg.welcome} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, welcome: v })} textarea />
           <Field label="Quando não entender" value={cfg.fallback} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, fallback: v })} textarea />
 
-          <div className="space-y-3 rounded-2xl border border-border p-4">
+          <div className="space-y-4 rounded-2xl border border-border p-4">
             <div>
-              <p className="text-sm font-semibold">Mensagens da Divisão do Rolê</p>
-              <p className="text-xs text-muted-foreground">Use variáveis como {"{{participant_name}}"}, {"{{title}}"}, {"{{amount}}"}, {"{{due_sentence}}"} e {"{{pix_sentence}}"}. Em branco usa o texto amigável padrão.</p>
+              <p className="text-sm font-semibold">Mensagens automáticas (por contexto)</p>
+              <p className="text-xs text-muted-foreground">
+                Variáveis disponíveis: <code>{"{{participant_name}}"}</code>, <code>{"{{owner_name}}"}</code>,{" "}
+                <code>{"{{title}}"}</code>, <code>{"{{amount}}"}</code>, <code>{"{{due_date}}"}</code>,{" "}
+                <code>{"{{due_sentence}}"}</code>, <code>{"{{pix_key}}"}</code>, <code>{"{{pix_sentence}}"}</code>.
+                Em branco, o NoControle.ia usa o texto amigável padrão.
+              </p>
             </div>
             {([
-              ["invite", "Convite inicial"], ["reminder", "Lembrete"],
-              ["due_soon", "Vencimento próximo"], ["overdue", "Em atraso"],
-              ["payment_confirmation", "Pagamento confirmado"], ["completed", "Rolê concluído"],
+              ["invite", "Divisão do Rolê · Convite inicial"],
+              ["reminder", "Divisão do Rolê · Lembrete"],
+              ["due_soon", "Divisão do Rolê · Vencimento próximo"],
+              ["overdue", "Divisão do Rolê · Em atraso"],
+              ["payment_confirmation", "Divisão do Rolê · Pagamento confirmado"],
+              ["completed", "Divisão do Rolê · Rolê concluído"],
+              ["financial_chat", "Conversa financeira geral (assessor)"],
+              ["insights", "Insights e relatórios"],
+              ["platform_support", "Suporte da plataforma"],
             ] as const).map(([key, label]) => (
-              <Field key={key} label={label} value={cfg.templates[key] ?? ""} disabled={readOnly}
-                onChange={(v) => setCfg({ ...cfg, templates: { ...cfg.templates, [key]: v } })} textarea />
+              <TemplateField key={key} label={label} value={cfg.templates[key] ?? ""} disabled={readOnly}
+                cfg={cfg}
+                onChange={(v) => setCfg({ ...cfg, templates: { ...cfg.templates, [key]: v } })} />
             ))}
           </div>
+
 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={cfg.proactive} disabled={readOnly}
@@ -418,6 +468,25 @@ function Field({ label, value, onChange, textarea, disabled }: {
           className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm disabled:opacity-70" />
       )}
     </label>
+  );
+}
+
+function TemplateField({ label, value, onChange, disabled, cfg }: {
+  label: string; value: string; onChange: (v: string) => void; disabled: boolean; cfg: StructuredCfg;
+}) {
+  return (
+    <div className="grid gap-2 md:grid-cols-2">
+      <label className="block">
+        <span className="text-xs font-medium">{label}</span>
+        <textarea value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}
+          rows={4}
+          className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm font-mono disabled:opacity-70" />
+      </label>
+      <div className="rounded-xl border border-dashed border-border/70 bg-muted/30 p-3">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prévia</p>
+        <p className="whitespace-pre-wrap text-xs text-foreground/90">{renderPreview(value, cfg)}</p>
+      </div>
+    </div>
   );
 }
 

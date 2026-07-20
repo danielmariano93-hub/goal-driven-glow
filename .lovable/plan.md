@@ -1,134 +1,173 @@
-## Plano de correção definitiva — Divisão do Rolê
 
-### Evidências confirmadas antes do plano
-| Ponto | Evidência objetiva |
-|---|---|
-| Fakku está cancelado, não excluído | `status=cancelled`, `deleted_at=false`, `linked_transaction_id=true` |
-| Fakku ainda impacta patrimônio | existe `1` transação confirmada vinculada, soma `39.90`, origem financeira preservada |
-| Não há pagamentos recebidos | `received_external=0.00`, portanto `split_delete` pode concluir a exclusão |
-| Bebidas está excluído e sem lançamento | `status=cancelled`, `deleted_at=true`, `tx_count=0` |
-| Mensagem de Bebidas está presa na fila | `reminder_jobs.status=enqueued`, `outbound_messages.status=queued`, `outbound_attempts=0`, sem erro |
-| Causa no código do dispatcher | `whatsapp-send` só é chamado quando `enqueued > 0`; mensagens já existentes em `queued` não disparam novo envio |
-| Causa no frontend de exclusão | `DivisaoDoRoleDetalhe.tsx` condiciona Cancelar e Excluir por `split.status !== "cancelled"`, escondendo a exclusão pós-cancelamento |
+# Central de Mensagens + Configuração do Agente (Admin)
 
-## Objetivo
-Corrigir em um único bloco o fluxo real de exclusão financeira e o processamento contínuo da mensageria da Divisão do Rolê, sem mexer em WAHA, QR, sessão, documentos ou frontend fora das telas da própria Divisão do Rolê.
+Dois blocos independentes, entregues no mesmo patch. Sem alterar WAHA, webhook ou sessão de infraestrutura — apenas persistência, RPCs de leitura, UI admin e camada de templates/personas.
 
-## 1. Exclusão de rolê já cancelado sem pagamentos
+---
 
-### Backend
-- Manter a RPC existente `split_delete(p_id)` como operação canônica de exclusão lógica + remoção financeira.
-- Validar se a RPC já remove também o lançamento indicado por `linked_transaction_id` quando `shared_expense_id` não estiver preenchido; se necessário, ajustar cirurgicamente para apagar por ambos os vínculos:
-  - `transactions.shared_expense_id = p_id`; ou
-  - `transactions.id = shared_expenses.linked_transaction_id`.
-- Garantir que a exclusão:
-  - preenche `deleted_at`;
-  - limpa `linked_transaction_id`;
-  - remove a despesa original confirmada;
-  - marca jobs pendentes como interrompidos;
-  - registra evento `deleted` no histórico.
+## Diagnóstico confirmado
 
-### Frontend
-- Alterar `DivisaoDoRoleDetalhe.tsx` para exibir `Excluir rolê e remover lançamento` quando:
-  - `deleted_at` está vazio;
-  - não há pagamentos recebidos;
-  - existe lançamento financeiro vinculado ou o rolê está cancelado sem exclusão.
-- Não depender de `split.status !== "cancelled"` para mostrar o botão de exclusão.
-- Ao confirmar:
-  - chamar `split_delete`;
-  - invalidar queries de divisões, movimentações, contas, cartões e dashboard;
-  - redirecionar para `/app/divisao-do-role`;
-  - exibir confirmação clara: “Rolê excluído e lançamento removido”.
+- `src/pages/admin/Mensagens.tsx` chama três RPCs (`admin_message_activity`, `admin_message_metrics`, `admin_conversation_activity`) que **não existem no banco** (`\df` retorna 0 linhas). A página exibe o toast de erro "Verifique se a migration deste patch foi implantada" para qualquer admin hoje.
+- `outbound_messages` já tem `kind`, `context_type/id`, `participant_id`, `idempotency_key`, `attempts`, `last_error`, `provider_message_id`, `sent_at` — base sólida. Falta apenas garantir que TODAS as origens (assessor no app, insights, régua, notificações que viram WhatsApp) gravem lá antes do envio.
+- `notifications` (in-app) e `conversation_messages` (assessor no app) vivem em silos separados de `outbound_messages` (WhatsApp) e `inbound_messages` (webhook). Não há hoje uma visão unificada.
+- Templates de mensagens da Divisão do Rolê estão hardcoded em `supabase/functions/_shared/agent/messageTemplates.ts` (`DEFAULTS`). `renderMessageTemplate` já lê `persona.templates[kind]` — só falta um editor administrável.
+- `agent_prompt_versions.structured_config jsonb` já existe (persona: name, tone, signature, templates). Falta UI para editar persona por contexto e falta a separação de "prompt geral / regras invioláveis / templates / canais".
+- Referências a "Lucas" no código estão apenas na migration histórica; a UI atual (`Agente.tsx`) ainda trata identidade de forma monolítica, sem personas por contexto.
 
-### Listagem
-- Manter a aba “Todas” filtrando `deleted_at IS NULL`.
-- Ajustar a aba “Canceladas” para incluir canceladas excluídas e mostrar rótulo “Excluído · mantido apenas no histórico”.
-- Assim, Fakku deve sair de “Todas” após exclusão e permanecer rastreável em “Canceladas”.
+---
 
-## 2. Atualização imediata de movimentações, conta e patrimônio
-- Após `split_delete`, invalidar explicitamente:
-  - `shared_expenses`;
-  - `transactions`;
-  - `accounts`;
-  - `credit_cards`;
-  - `dashboard`;
-  - qualquer chave usada pelos cards de patrimônio/saldo se houver chave específica.
-- Como a despesa confirmada será removida do banco, o patrimônio deixará de considerar os R$ 39,90 por consequência do ledger real, não por ajuste visual.
+## Bloco A — Central de Mensagens (Admin)
 
-## 3. Processamento contínuo da fila `outbound_messages`
+### A1. Migration — unificação e RPCs de leitura
 
-### Dispatcher `split-reminders-dispatch`
-- Alterar o final do dispatcher para acionar `whatsapp-send` em todo ciclo autorizado, mesmo quando `enqueued = 0`.
-- Preservar segurança atual: chamada interna com service role, sem expor segredo no frontend.
-- Retornar no JSON do dispatcher:
-  - `claimed`;
-  - `enqueued`;
-  - `skipped`;
-  - `failed`;
-  - `outbound_processed`;
-  - `outbound_kicked: true/false`.
-- Registrar log sanitizado se o kick falhar.
+Nova migration `20260720_admin_message_center.sql`:
 
-### Worker `whatsapp-send`
-- Confirmar que o worker já faz:
-  - recuperação de leases expirados via `recover_expired_outbound_leases`;
-  - claim de mensagens `queued`;
-  - tentativas/backoff;
-  - status `dead` após limite;
-  - gravação de `last_error`.
-- Só alterar se algum desses pontos estiver ausente.
+1. **Extensão de `outbound_messages`**: adicionar colunas opcionais `surface text` (`whatsapp` | `app_assessor` | `app_notification` | `app_insight` | `system`) e `feature text` (`agent_chat`, `split_reminder`, `split_invite`, `financial_ruler`, `insight`, `notification`, `document_status`, `manual`). Default `surface='whatsapp'`, `feature=kind`. Backfill a partir de `kind` e `channel`.
+2. **Trigger espelho `notifications → outbound_messages`**: quando uma notificação in-app é criada com `channel_hint='app'`, inserir uma linha em `outbound_messages` com `surface='app_notification'`, `channel='inapp'`, `status='delivered'`, `to_phone=''`. Garante que o admin veja tudo num só lugar sem duplicar dado autoritativo.
+3. **Espelho `conversation_messages → outbound_messages`**: para mensagens `direction='outbound'` do assessor no app, inserir linha em `outbound_messages` com `surface='app_assessor'`, `channel='inapp'`, `status='delivered'`. Idempotência via `idempotency_key = 'app_assessor:' || conversation_messages.id`.
+4. **RPCs SECURITY DEFINER, `EXECUTE TO authenticated`, com `is_current_user_admin()` no corpo**:
+   - `admin_message_activity(p_from, p_to, p_status, p_kind, p_surface, p_feature, p_user_id, p_search, p_limit, p_offset)` — retorna linhas mascaradas (telefone, corpo já mascarado por `mask_message_body`) + join opcional com `message_delivery_events` para timeline.
+   - `admin_message_metrics(p_from, p_to)` — total, enfileiradas, enviadas, entregues, lidas, falhas, mortas, taxa de entrega, contagem por canal, por feature, tempo médio queued→sent, tempo médio sent→delivered.
+   - `admin_conversation_activity(p_from, p_to, p_limit)` — mantém formato atual.
+   - `admin_message_timeline(p_message_id)` — devolve criação, envio, ACKs (`message_delivery_events`), erros, tentativas.
+   - `admin_message_reprocess(p_message_id)` — apenas admin: valida que status ∈ {failed, dead}, reseta `status='queued'`, zera `next_attempt_at`, incrementa contador de reprocess em `metadata.reprocessed_count`, insere linha de auditoria em `platform_admin_audit`. Não altera `idempotency_key`.
+5. Índices: `outbound_messages(surface, created_at DESC)`, `outbound_messages(feature, created_at DESC)`, `outbound_messages(user_id, created_at DESC)`.
 
-## 4. Botão “Retomar envio” realmente efetivo
-- Em `DivisaoDoRoleDetalhe.tsx`, manter o botão chamando `split-reminders-dispatch`, mas agora ele também processará `outbound_messages.queued` por causa da mudança do dispatcher.
-- Exibir feedback mais preciso:
-  - “Preparando” para job em `queued/processing` sem outbound;
-  - “Na fila do WhatsApp” para outbound `queued`;
-  - “Enviando” para outbound `processing`;
-  - “Enviada ao WhatsApp”, “Entregue”, “Lida”, “Falhou” ou “Não entregue” conforme status.
-- Mostrar tentativas e última tentativa quando disponíveis.
-- Se uma mensagem ficar muito tempo em fila/processamento, mostrar explicação e ação “Retomar envio”.
+Segurança: nenhuma RPC devolve payload cru; corpo passa por `mask_message_body` (já usada hoje). GRANT explícito para `authenticated`; funções bloqueiam não-admin com `raise exception 'forbidden'`.
 
-## 5. Cancelamento, exclusão e comunicação com participantes
+### A2. Instrumentação — gravar antes de enviar
 
-### Sem expandir escopo além do necessário
-- Ao excluir rolê:
-  - interromper definitivamente `reminder_jobs` pendentes;
-  - impedir criação de novos lembretes;
-  - registrar evento `deleted`.
-- Ao cancelar rolê:
-  - manter comportamento financeiro atual de cancelamento sem remover lançamento;
-  - registrar no histórico que cobranças pendentes foram interrompidas.
-- Mensagem de cancelamento para participantes só deve ser adicionada se já existir base segura no modelo atual; caso contrário, deixar como gap explícito para uma próxima migration/feature, para não criar envio isolado incorreto ou duplicado.
+- **Assessor no app** (`agent-chat`): já persiste `conversation_messages`. O trigger de A1.3 cuida do espelho — nenhuma mudança de código necessária.
+- **Notificações in-app** (`insights-generate`, régua financeira, `notifications` inserts): trigger de A1.2 cuida.
+- **WhatsApp / Divisão do Rolê / lembretes**: já usam `outbound_messages`. Apenas normalizar `surface` e `feature` no insert. Ajustar `split-reminders-dispatch/index.ts` e `whatsapp-send/index.ts` para preencher `surface='whatsapp'` e `feature=split_<kind>|agent_chat|…`.
+- **Enfileiramento vs. envio**: reforçar convenção — todo envio de saída insere em `outbound_messages` com `status='queued'` **antes** de chamar o provider; ACKs do WAHA continuam atualizando via webhook (`message_delivery_events`).
 
-## 6. Correção do caso real Fakku
-- Depois do patch, executar a RPC `split_delete` para o rolê Fakku real, pois ele atende aos critérios confirmados:
-  - cancelado;
-  - sem `deleted_at`;
-  - sem pagamento recebido;
-  - com lançamento confirmado ainda existente.
-- Validar no banco que:
-  - `deleted_at IS NOT NULL`;
-  - `linked_transaction_id IS NULL`;
-  - não existe mais transação original confirmada vinculada;
-  - o evento `deleted` foi registrado.
+### A3. UI `src/pages/admin/Mensagens.tsx`
 
-## 7. Validações obrigatórias
-- Testes unitários/contratuais cobrindo:
-  - botão de exclusão aparece para cancelado sem pagamentos;
-  - botão não aparece quando há pagamento recebido;
-  - listagem “Todas” exclui `deleted_at`; “Canceladas” mostra “Excluído”;
-  - dispatcher chama `whatsapp-send` mesmo com `enqueued = 0`;
-  - status de mensagem diferencia fila, envio, falha e tentativas.
-- Rodar:
-  - testes focados da Divisão do Rolê;
-  - typecheck;
-  - build.
-- Validação real no banco para Fakku e Bebidas, sem expor telefone ou conteúdo de mensagem.
+Reescrita mobile-first, mantendo o layout Itaú-like já usado:
 
-## Entrega esperada após aprovação
-Uma correção única contendo:
-- patch mínimo nas telas da Divisão do Rolê;
-- patch mínimo no dispatcher de lembretes;
-- se necessário, migration/RPC pequena para endurecer `split_delete`;
-- reparo controlado do registro Fakku real;
-- evidências finais em tabela com item, status e prova objetiva.
+- Filtros: período (7/30/90/custom), status, canal, superfície, feature, usuário (autocomplete), busca por telefone/corpo mascarado, evento (`context_type`).
+- Métricas: cards existentes + novos ("Taxa de entrega", "Por canal", "Por funcionalidade", "Tempo médio de resposta"). Gráfico simples (Recharts, já no projeto) por dia.
+- Tabela: linha expansível → timeline (`admin_message_timeline`) com criação, tentativas, envio, ACKs.
+- Ação **Reprocessar** para mensagens `failed`/`dead` (chama `admin_message_reprocess`, com confirmação e toast). Auditada.
+- Vínculo clicável: quando `context_type='shared_expense'`, link para `/app/divisao-do-role/:id` (abre em nova aba). Quando `feature='insight'`, link para a notificação.
+- Painel "Conversas do assessor" mantém, agora unificado com filtro por superfície `app_assessor`.
+
+### A4. Custo/consumo de IA e tempo de resposta
+
+- Métricas de IA lidas de `agent_runs` (`tokens_input`, `tokens_output`, `cost_credits`, `duration_ms` — já existentes). Painel novo dentro de Mensagens ou reaproveitando card de FinOps: custo total, custo por feature (via `agent_runs.context`), tempo médio.
+
+---
+
+## Bloco B — Configuração flexível do Agente (Admin)
+
+### B1. Modelo de dados (mesma migration)
+
+Estender `agent_prompt_versions.structured_config jsonb` com contrato explícito (sem nova tabela — mantém o versionamento único que já temos):
+
+```jsonc
+{
+  "identity": {
+    "name": null,                    // opcional: sem nome por padrão
+    "role": "Assessor financeiro",
+    "presentation": "…",
+    "personality": "…",
+    "signature": null
+  },
+  "voice": {
+    "tone": "humano",
+    "formality": "informal",
+    "emoji_style": "moderado",
+    "address_style": "voce",
+    "preferred_words": [],
+    "forbidden_words": []
+  },
+  "contexts": {
+    "financial_chat":       { "tone_override": null, "template": "…" },
+    "transaction_capture":  { "template": "…" },
+    "insights":             { "template": "…" },
+    "split_invite":         { "template": "Oi, {{participant_name}}! …" },
+    "split_reminder":       { "template": "…" },
+    "split_due_soon":       { "template": "…" },
+    "split_overdue":        { "template": "…" },
+    "split_payment_confirmation": { "template": "…" },
+    "split_completed":      { "template": "…" },
+    "platform_support":     { "template": "…" }
+  },
+  "autonomy": {
+    "can_answer": ["consulta","analise","registro_com_confirmacao"],
+    "can_execute": ["create_transaction_draft","update_transaction_draft"],
+    "requires_confirmation": ["delete_transaction","split_delete"],
+    "escalate_to_human": ["reclamacao","erro_financeiro_grave"]
+  },
+  "features": { "assessor_documents": true, "split": true, "insights": true }
+}
+```
+
+Regras invioláveis (privacidade, confirmação, não-invenção) **permanecem no `system_prompt`** e são concatenadas ao final pelo servidor — a UI de identidade/voz não consegue removê-las.
+
+### B2. Camada de renderização
+
+- `renderMessageTemplate` (já existente) ganha suporte a `contexts.<kind>.template` além de `templates.<kind>` (compat retroativa).
+- Novo helper `resolvePersonaFor(context, activePrompt)` — devolve persona efetiva por contexto, aplicando overrides de `contexts[kind]` sobre `identity`+`voice`.
+- Se `identity.name` for `null`, prompt e templates **omitem** qualquer nome ("Sou o assessor financeiro do NoControle.ia…"). Remove qualquer resíduo de "Lucas".
+
+### B3. UI `src/pages/admin/Agente.tsx` (refactor)
+
+Abas dentro da página atual:
+
+1. **Identidade & voz** — formulário para `identity` + `voice`. Nome opcional com placeholder "Sem nome (padrão)".
+2. **Prompt geral** — editor do `system_prompt` (como hoje).
+3. **Regras invioláveis** — bloco somente leitura, exibindo o rodapé que o servidor concatena (segurança, privacidade, confirmação, não-invenção). Marcada como "protegida".
+4. **Templates por contexto** — lista os 10 contextos de B1, cada um com:
+   - editor com highlight das variáveis (`{{participant_name}}`, `{{owner_name}}`, `{{title}}`, `{{amount}}`, `{{due_date}}`, `{{pix_key}}`, `{{pending_amount}}`);
+   - **pré-visualização** ao lado (renderiza com dados fictícios);
+   - **enviar teste** (chama `whatsapp-send` com `feature='template_test'` para o telefone do admin logado, se vinculado).
+5. **Autonomia & funcionalidades** — toggles do bloco `autonomy` e `features`.
+6. **Versões** — lista com quem alterou, quando, status (rascunho/ativa/arquivada), diff resumido, botões **Publicar**, **Salvar rascunho**, **Restaurar**. Reaproveita `parent_version_id` / `restored_from_id` já existentes.
+
+Publicar cria nova versão (parent = ativa atual), marca a antiga como `archived`, promove a nova para `active` (respeita o índice único parcial `apv_active_uniq`).
+
+### B4. Divisão do Rolê usa o template administrável
+
+`split-reminders-dispatch/index.ts` já lê `structured_config` do prompt ativo. Ajuste: buscar `contexts.split_<kind>.template` antes de `templates.<kind>`; se ambos vazios, cai no `DEFAULTS` do arquivo. Nenhuma cópia de texto nova no código — apenas melhoria da chave lida.
+
+---
+
+## Testes
+
+- Unit: `renderMessageTemplate` com `contexts` + fallback; `resolvePersonaFor` para persona sem nome; mascaramento (`mask_message_body`).
+- Integração (vitest com fixtures): RPCs `admin_message_activity`/`metrics`/`timeline`/`reprocess` — cobertura de gate admin e formatos.
+- Contrato: dispatch de Divisão do Rolê renderiza usando `contexts.split_invite.template` quando definido, e sem nome quando `identity.name=null`.
+- Regressão: nenhum vazamento de telefone/corpo cru nas respostas das RPCs.
+
+---
+
+## Arquivos afetados (previsão)
+
+- `supabase/migrations/20260720_admin_message_center.sql` (novo)
+- `supabase/functions/_shared/agent/messageTemplates.ts` (leitura de `contexts.*`)
+- `supabase/functions/_shared/agent/prompt.ts` (helper `resolvePersonaFor`)
+- `supabase/functions/split-reminders-dispatch/index.ts` (usa `contexts.*`, seta `surface`/`feature`)
+- `supabase/functions/whatsapp-send/index.ts` (seta `surface`/`feature` no insert quando ausente)
+- `src/pages/admin/Mensagens.tsx` (reescrita com filtros, timeline, reprocess)
+- `src/pages/admin/Agente.tsx` (abas de identidade, templates, autonomia, versões)
+- `src/lib/admin/messageCenter.ts` (novo helper de leitura das RPCs)
+
+## Fora de escopo
+
+- WAHA / whatsapp-webhook / whatsapp-session / infra de sessão — não tocar.
+- Modelo/preço da IA e novos providers.
+- Feature flags fora de `agent_prompt_versions.structured_config.features`.
+
+## Riscos
+
+- Trigger de espelho pode inflar `outbound_messages` — mitigado com `idempotency_key` e índice parcial; retenção em rotina separada (fora deste patch).
+- Publicação de nova persona sem regras invioláveis: mitigado por concatenação server-side obrigatória.
+
+## Validação após implantação
+
+1. Rodar migration, checar `\df admin_message_*` — devem existir.
+2. Enviar convite de Divisão do Rolê de teste; confirmar aparição imediata em `/admin/mensagens` com `feature=split_invite`.
+3. Editar template `split_invite`, publicar, disparar novo convite — texto novo aplicado; regras invioláveis intactas no prompt do agente.
+4. Reprocessar uma mensagem `failed` — status volta a `queued`, auditoria registrada.
