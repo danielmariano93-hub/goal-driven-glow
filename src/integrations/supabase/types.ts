@@ -1723,6 +1723,63 @@ export type Database = {
         }
         Relationships: []
       }
+      investment_movements: {
+        Row: {
+          amount: number
+          applied: boolean
+          created_at: string
+          id: string
+          investment_id: string
+          kind: string
+          notes: string | null
+          occurred_at: string
+          transaction_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          applied?: boolean
+          created_at?: string
+          id?: string
+          investment_id: string
+          kind: string
+          notes?: string | null
+          occurred_at: string
+          transaction_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          applied?: boolean
+          created_at?: string
+          id?: string
+          investment_id?: string
+          kind?: string
+          notes?: string | null
+          occurred_at?: string
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "investment_movements_investment_id_fkey"
+            columns: ["investment_id"]
+            isOneToOne: false
+            referencedRelation: "investments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "investment_movements_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: true
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       investments: {
         Row: {
           category: string
