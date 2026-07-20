@@ -460,7 +460,7 @@ async function enrichItems(
 
   const enriched = [];
   for (const n of normalized) {
-    const { item, rawDesc, friendly, normalizedKey, ruleCategory, bankRef } = n;
+    const { item, rawDesc, friendly, normalizedKey, ruleCategory, ruleMovementKind, bankRef } = n;
     const findCatByName = (name: string) => {
       const wanted = catKey(name);
       return (categories ?? []).find((c) =>
@@ -524,6 +524,10 @@ async function enrichItems(
       normalized_description: friendly,
     });
 
+    // movement_kind: se o extractor não classificou (default "transaction"), aplique o hint determinístico.
+    const currentKind = (item.movement_kind ?? "transaction").toString();
+    const effectiveKind = currentKind === "transaction" && ruleMovementKind ? ruleMovementKind : currentKind;
+
     enriched.push({
       ...item,
       raw_description: rawDesc,
@@ -536,6 +540,7 @@ async function enrichItems(
       category_confidence: categoryConfidence,
       account_id,
       credit_card_id,
+      movement_kind: effectiveKind,
     });
 
   }
