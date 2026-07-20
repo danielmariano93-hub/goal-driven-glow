@@ -1,42 +1,66 @@
 // Normalização amigável de descrições bancárias e fingerprint de dedupe.
 // Uso: raw = texto original do banco; friendly = descrição apresentada ao usuário.
+// Também emite `movement_kind` quando a assinatura da descrição é inequívoca
+// (aplicação/resgate/rendimento/crédito de empréstimo/estorno). Nunca inferir
+// estabelecimentos ambíguos (PIX genérico, códigos opacos).
 
-const MERCHANT_DICT: Array<{ pattern: RegExp; canonical: string; category?: string }> = [
+type Rule = { pattern: RegExp; canonical: string; category?: string; movement_kind?: string };
+
+const MERCHANT_DICT: Array<Rule> = [
+  // Delivery / apps
   { pattern: /\bubereats\b|\buber\s*eats\b/i, canonical: "Uber Eats", category: "Alimentação" },
+  { pattern: /\bestorno\s+uber\b|\buber\s+estorno\b/i, canonical: "Estorno Uber", category: "Transporte", movement_kind: "refund" },
   { pattern: /\buber(?!\s*eats)\b|\buber\s*trip\b|\buber\s*br\b/i, canonical: "Uber", category: "Transporte" },
   { pattern: /\b99\s*(?:app|pop|taxi)?\b/i, canonical: "99", category: "Transporte" },
-  { pattern: /\bifood\b|\bi[- ]?food\b/i, canonical: "iFood", category: "Alimentação" },
+  { pattern: /\bifood\b|\bi[- ]?food\b|\bpay\s*ifd\b|\bpay\s*if\b/i, canonical: "iFood", category: "Alimentação" },
   { pattern: /\brappi\b/i, canonical: "Rappi", category: "Alimentação" },
-  { pattern: /\bnetflix\b/i, canonical: "Netflix", category: "Assinaturas" },
+  // Streaming / assinaturas
+  { pattern: /\bnetflix\b|\bnetfl\b/i, canonical: "Netflix", category: "Assinaturas" },
   { pattern: /\bspotify\b/i, canonical: "Spotify", category: "Assinaturas" },
   { pattern: /\bamazon\s*prime\b/i, canonical: "Amazon Prime", category: "Assinaturas" },
   { pattern: /\bamazon\b/i, canonical: "Amazon", category: "Compras" },
+  // Marketplaces
   { pattern: /\bmercado\s*livre\b|\bmercadolivre\b/i, canonical: "Mercado Livre", category: "Compras" },
   { pattern: /\bshopee\b/i, canonical: "Shopee", category: "Compras" },
   { pattern: /\baliexpress\b/i, canonical: "AliExpress", category: "Compras" },
   { pattern: /\bpicpay\b/i, canonical: "PicPay" },
   { pattern: /\bmercadopago\b|\bmercado\s*pago\b/i, canonical: "Mercado Pago" },
-  { pattern: /\bposto\b|\bshell\b|\bipiranga\b|\bpetrobr[aá]s?\b|\bipiranga\b/i, canonical: "Combustível", category: "Transporte" },
+  // Combustível
+  { pattern: /\bposto\b|\bshell\b|\bipiranga\b|\bpetrobr[aá]s?\b/i, canonical: "Combustível", category: "Transporte" },
   { pattern: /\bfarma(?:cia)?\b|\bdrogar?ia\b|\bdrogasil\b|\bpacheco\b|\braia\b/i, canonical: "Farmácia", category: "Saúde" },
+  // Fast food
   { pattern: /\bmc\s*donalds?\b|\bmcdonalds?\b/i, canonical: "McDonald's", category: "Alimentação" },
   { pattern: /\bburger\s*king\b|\bbk\b/i, canonical: "Burger King", category: "Alimentação" },
   { pattern: /\bstarbucks\b/i, canonical: "Starbucks", category: "Alimentação" },
+  { pattern: /\bpay\s*lanch\w*\b|\blanchonete\b/i, canonical: "Lanche", category: "Alimentação" },
+  // Mercado
   { pattern: /\bcarrefour\b/i, canonical: "Carrefour", category: "Mercado" },
   { pattern: /\bp[aã]o\s*de\s*a[çc][uú]car\b/i, canonical: "Pão de Açúcar", category: "Mercado" },
   { pattern: /\bassa[íi]\b/i, canonical: "Assaí", category: "Mercado" },
   { pattern: /\bextra\b/i, canonical: "Extra", category: "Mercado" },
+  { pattern: /\bpay\s*souk4\b|\bmarket\s*4\s*you\b|\bmarket4you\b/i, canonical: "Market4you", category: "Mercado" },
+  { pattern: /\bpay\s*oxxo\b|\boxxo\b/i, canonical: "OXXO", category: "Mercado" },
+  // Nutri / restaurantes locais
+  { pattern: /\bnutricar\b|\bnutri\b(?!\w)/i, canonical: "Nutricar", category: "Alimentação" },
+  // Lazer / eventos
+  { pattern: /\bpay\s*mep\b|\bmep\s*eventos?\b/i, canonical: "MEP Eventos", category: "Lazer" },
+  { pattern: /\bsympla\b/i, canonical: "Sympla", category: "Lazer" },
+  // Transporte urbano
   { pattern: /\bautopass\b|\bautop\b/i, canonical: "Autopass", category: "Transporte" },
+  // Moradia / contas
   { pattern: /\benel\b/i, canonical: "Enel", category: "Moradia" },
   { pattern: /\bclaro\b/i, canonical: "Claro", category: "Moradia" },
   { pattern: /\btotal\s*pass\b/i, canonical: "TotalPass", category: "Saúde" },
   { pattern: /\bcobasi\b/i, canonical: "Cobasi", category: "Pets" },
-  { pattern: /\bsympla\b/i, canonical: "Sympla", category: "Lazer" },
-  { pattern: /\bseguro\s+cart[aã]o\b/i, canonical: "Seguro do cartão", category: "Financeiro" },
-  { pattern: /\bnetfl\b/i, canonical: "Netflix", category: "Assinaturas" },
+  // Financeiro / seguros
+  { pattern: /\bseguro\s+(?:cart[aã]o|do\s+cart[aã]o)\b/i, canonical: "Seguro do cartão", category: "Seguros" },
   { pattern: /\b99\s*food\b/i, canonical: "99Food", category: "Alimentação" },
-  { pattern: /\baplica[cç][aã]o\s+cdb\b/i, canonical: "Aplicação em CDB" },
-  { pattern: /\bresgate\s+cdb\b/i, canonical: "Resgate de CDB" },
-  { pattern: /\brend\s+pago\s+aplic\b/i, canonical: "Rendimento de aplicação" },
+  // Investimentos e crédito — inferências patrimoniais seguras (definem movement_kind).
+  { pattern: /\baplica[cç][aã]o\s+(?:cdb|autom[aá]tica)\b|\baplic\s+autom/i, canonical: "Aplicação em CDB", movement_kind: "investment_application" },
+  { pattern: /\bresgate\s+(?:cdb|autom[aá]tico)\b|\bresg\s+autom/i, canonical: "Resgate de CDB", movement_kind: "investment_redemption" },
+  { pattern: /\brend\s+pago\s+aplic\b|\brendimento\s+(?:pago|aplic)/i, canonical: "Rendimento de aplicação", movement_kind: "investment_yield" },
+  { pattern: /\bbanco\s+pan\b.*\breneg/i, canonical: "Pagamento de renegociação — Banco PAN", category: "Dívidas e empréstimos" },
+  { pattern: /\brecebimento\s+reneg\b|\bempr[eé]stimo\s+creditado\b|\bconsignado\s+creditad/i, canonical: "Crédito de empréstimo", category: "Dívidas e empréstimos", movement_kind: "loan_proceeds" },
 ];
 
 const NOISE_PATTERNS: RegExp[] = [
