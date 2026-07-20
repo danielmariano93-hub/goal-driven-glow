@@ -13,6 +13,7 @@ import {
   type InsightPayload,
 } from "@/lib/insights/fallbacks";
 import { useAllTransactions, useGoals } from "@/lib/db/finance";
+import { computeMonthlyTotals, type TransactionRow } from "@/lib/engine/facts";
 
 type Insight = {
   id: string;
@@ -42,6 +43,46 @@ function deepLinkForInsight(i: Insight): string | null {
   return null;
 }
 
+export function buildAssistantFacts(
+  txs: TransactionRow[],
+  goals: Array<{ name?: string | null }>,
+  ym = new Date().toISOString().slice(0, 7),
+): InsightFacts {
+  const arr = txs ?? [];
+  const totals = computeMonthlyTotals(arr, ym);
+  // Maior despesa confirmada do mês sem categoria — para dica de calibração/categorização.
+  let uncategorized: InsightFacts["uncategorized_tx"] = null;
+  let bestAmt = 0;
+  for (const t of arr) {
+    if (!t.occurred_at?.startsWith(ym)) continue;
+    if (t.status !== "confirmed") continue;
+    if (t.type !== "expense") continue;
+    if (t.category_id) continue;
+    const mk = (t.movement_kind ?? "transaction").toString();
+    if (mk !== "transaction") continue;
+    const amt = Number(t.amount || 0);
+    if (amt > bestAmt) {
+      bestAmt = amt;
+      uncategorized = {
+        id: t.id,
+        description: t.description ?? null,
+        amount: amt,
+        occurred_at: t.occurred_at,
+      };
+    }
+  }
+  return {
+    total_tx_ever: arr.length,
+    month: ym,
+    income_month: totals.income,
+    expense_month: totals.expense,
+    balance_month: totals.net,
+    active_goals: (goals ?? []).length,
+    goal_names: (goals ?? []).slice(0, 3).map((g) => g?.name ?? "").filter(Boolean) as string[],
+    uncategorized_tx: uncategorized,
+  };
+}
+
 export function AssistantTipCard() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -51,24 +92,10 @@ export function AssistantTipCard() {
   const { data: txs } = useAllTransactions();
   const { data: goals } = useGoals();
 
-  const facts: InsightFacts = useMemo(() => {
-    const ym = new Date().toISOString().slice(0, 7);
-    const arr = (txs ?? []) as Array<{ type: string; amount: number | string; occurred_at: string; status?: string }>;
-    const monthTxs = arr.filter(
-      (t) => (t.status ?? "confirmed") === "confirmed" && t.occurred_at?.startsWith(ym),
-    );
-    const income = monthTxs.filter((t) => t.type === "income").reduce((s, t) => s + Number(t.amount), 0);
-    const expense = monthTxs.filter((t) => t.type === "expense").reduce((s, t) => s + Number(t.amount), 0);
-    return {
-      total_tx_ever: arr.length,
-      month: ym,
-      income_month: income,
-      expense_month: expense,
-      balance_month: income - expense,
-      active_goals: (goals ?? []).length,
-      goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name).filter(Boolean),
-    };
-  }, [txs, goals]);
+  const facts: InsightFacts = useMemo(
+    () => buildAssistantFacts((txs ?? []) as TransactionRow[], (goals ?? []) as Array<{ name?: string | null }>),
+    [txs, goals],
+  );
 
   const { data, isLoading, refetch } = useQuery<Insight | null>({
     queryKey: ["assistant-tip", user?.id],
