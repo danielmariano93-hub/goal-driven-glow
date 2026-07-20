@@ -9,6 +9,7 @@ import { formatBRL } from "@/lib/engine/facts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
+import { CategorySelect } from "@/components/CategorySelect";
 
 type Item = {
   id: string;
