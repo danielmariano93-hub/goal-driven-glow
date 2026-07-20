@@ -623,15 +623,22 @@ async function notifyDocumentTransition(
     const { data: prior } = await sb.from("document_processing_events")
       .select("id").eq("document_id", doc.id).eq("event_type", eventType).limit(1).maybeSingle();
     if (prior) return; // dedup by (document_id, event_type)
+    const { correlation_id, ...eventColumns } = eventExtras;
     await sb.from("document_processing_events").insert({
-      document_id: doc.id, user_id: doc.user_id, event_type: eventType, ...eventExtras,
+      document_id: doc.id, user_id: doc.user_id, event_type: eventType,
+      user_message: waMessage ?? null,
+      metadata: { correlation_id: correlation_id ?? null },
+      ...eventColumns,
     });
     if (doc.source === "whatsapp" && waMessage && doc.conversation_id) {
       const { data: conv } = await sb.from("conversations").select("phone_e164").eq("id", doc.conversation_id).maybeSingle();
       const phone = (conv as { phone_e164?: string } | null)?.phone_e164;
       if (phone) {
         await sb.from("outbound_messages").insert({
-          user_id: doc.user_id, to_phone: phone, kind: "system", body: waMessage,
+          user_id: doc.user_id, to_phone: phone, kind: "document_status", body: waMessage,
+          channel: "whatsapp", context_type: "document_import", context_id: doc.id,
+          metadata: { event_type: eventType, origin: "document_processing" },
+          idempotency_key: `document:${doc.id}:${eventType}`,
         });
       }
     }
@@ -816,6 +823,11 @@ async function processDocument(documentId: string, userId: string, guidance: str
       // Attempt cap por fragmento (3 tentativas).
       if (fState.attempts >= 3 && fState.status === "failed") continue;
       const fragmentStart = Date.now();
+      // These counters belong to the fragment, not to the optional insertion
+      // branch below. Keeping them in fragment scope is important because an
+      // empty/fully-deduplicated fragment is still finalized and persisted.
+      let batchDupStrong = 0;
+      let batchDupAmbiguous = 0;
       await sb.from("document_fragments").update({
         status: "processing", attempts: fState.attempts + 1, heartbeat_at: new Date().toISOString(),
       }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
@@ -938,8 +950,6 @@ async function processDocument(documentId: string, userId: string, guidance: str
         })));
 
         let batchCategorized = 0;
-        let batchDupStrong = 0;
-        let batchDupAmbiguous = 0;
         const rows = enriched.map((it, idx) => {
           const globalIdx = idxOffset + idx;
           const hit = dupes.get(idx);
@@ -1141,11 +1151,32 @@ async function processDocument(documentId: string, userId: string, guidance: str
     }
   } catch (e) {
     console.error(`[assistant-ingest cid=${correlationId}] processDocument crashed`, e);
-    await finish({ status: "failed", error: encodeError(`fetch_error:${(e as Error).message?.slice(0, 160) ?? "unknown"}`, correlationId) });
+    const safeError = `fetch_error:${(e as Error).message?.slice(0, 160) ?? "unknown"}`;
+    // A late failure must not hide items that were already durably extracted.
+    // Expose them for review instead of forcing the user to upload the same
+    // document again (which also creates duplicate candidates).
+    const { count: persistedCount } = await sb.from("extracted_items")
+      .select("id", { count: "exact", head: true })
+      .eq("document_id", documentId)
+      .eq("user_id", userId)
+      .in("status", ["needs_review", "duplicate_suspect"]);
+    const recoverable = Number(persistedCount ?? 0) > 0;
+    await finish({
+      status: recoverable ? "partial" : "failed",
+      error: encodeError(safeError, correlationId),
+      counters: { recovered_items: Number(persistedCount ?? 0), partial: recoverable },
+    });
     try {
       const { data: doc2 } = await sb.from("document_imports").select("id,user_id,source,conversation_id").eq("id", documentId).maybeSingle();
-      if (doc2) await notifyDocumentTransition(sb, doc2 as { id: string; user_id: string; source: string | null; conversation_id: string | null }, "processing_failed",
-        "Tive dificuldade para concluir a leitura desse documento. Você pode reenviar ou tentar por partes.");
+      if (doc2) await notifyDocumentTransition(
+        sb,
+        doc2 as { id: string; user_id: string; source: string | null; conversation_id: string | null },
+        recoverable ? "partial_result_available" : "processing_failed",
+        recoverable
+          ? `A leitura parou antes do fim, mas preservei ${Number(persistedCount ?? 0)} lançamento(s). Você já pode revisar o que foi encontrado.`
+          : "Tive dificuldade para concluir a leitura desse documento. Você pode reenviar ou tentar por partes.",
+        { error_code: safeError.split(":")[0], correlation_id: correlationId },
+      );
     } catch { /* ignore */ }
   }
 }

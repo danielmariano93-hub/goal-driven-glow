@@ -1976,7 +1976,11 @@ export type Database = {
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          context_id: string | null
+          context_type: string | null
+          metadata: Json
           next_attempt_at: string
+          participant_id: string | null
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string | null
           sent_at: string | null
@@ -1997,7 +2001,11 @@ export type Database = {
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
+          context_id?: string | null
+          context_type?: string | null
+          metadata?: Json
           next_attempt_at?: string
+          participant_id?: string | null
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string | null
           sent_at?: string | null
@@ -2018,7 +2026,11 @@ export type Database = {
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
+          context_id?: string | null
+          context_type?: string | null
+          metadata?: Json
           next_attempt_at?: string
+          participant_id?: string | null
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string | null
           sent_at?: string | null

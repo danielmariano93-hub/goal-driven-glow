@@ -40,10 +40,15 @@ type StructuredCfg = {
   welcome: string;
   fallback: string;
   proactive: boolean;
+  formality: string;
+  emoji_style: string;
+  address_style: string;
+  signature: string;
+  templates: Record<string, string>;
 };
 
 const DEFAULT_CFG: StructuredCfg = {
-  name: "Assistente NoControle",
+  name: "",
   objective: "Ajudar o usuário a organizar a vida financeira com respeito e clareza.",
   tone: "humano, encorajador, direto",
   do: ["Confirmar antes de gravar qualquer alteração financeira"],
@@ -51,6 +56,11 @@ const DEFAULT_CFG: StructuredCfg = {
   welcome: "Oi! Sou o assistente do NoControle.ia. Como posso ajudar?",
   fallback: "Não entendi ainda. Pode reformular?",
   proactive: false,
+  formality: "informal e respeitoso",
+  emoji_style: "moderado",
+  address_style: "você",
+  signature: "",
+  templates: {},
 };
 
 function normalize(cfg: unknown): StructuredCfg {
@@ -64,6 +74,11 @@ function normalize(cfg: unknown): StructuredCfg {
     welcome: String(c.welcome ?? DEFAULT_CFG.welcome),
     fallback: String(c.fallback ?? DEFAULT_CFG.fallback),
     proactive: Boolean(c.proactive ?? false),
+    formality: String(c.formality ?? DEFAULT_CFG.formality),
+    emoji_style: String(c.emoji_style ?? DEFAULT_CFG.emoji_style),
+    address_style: String(c.address_style ?? DEFAULT_CFG.address_style),
+    signature: String(c.signature ?? DEFAULT_CFG.signature),
+    templates: typeof c.templates === "object" && c.templates ? c.templates as Record<string, string> : {},
   };
 }
 
@@ -320,9 +335,15 @@ function BehaviorEditor({ row, onClose, onSaved }: {
         </div>
 
         <div className="p-6 space-y-5">
-          <Field label="Nome do assistente" value={cfg.name} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, name: v })} />
+          <Field label="Nome do assistente (opcional)" value={cfg.name} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, name: v })} />
           <Field label="Objetivo" value={cfg.objective} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, objective: v })} textarea />
           <Field label="Tom de voz" value={cfg.tone} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, tone: v })} />
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Formalidade" value={cfg.formality} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, formality: v })} />
+            <Field label="Uso de emojis" value={cfg.emoji_style} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, emoji_style: v })} />
+            <Field label="Como chamar a pessoa" value={cfg.address_style} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, address_style: v })} />
+          </div>
+          <Field label="Assinatura (opcional)" value={cfg.signature} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, signature: v })} />
 
           <ListField label="O que deve fazer" items={cfg.do} disabled={readOnly}
             onChange={setList("do")} onAdd={() => addItem("do")} onRemove={(i) => removeItem("do", i)} />
@@ -331,6 +352,21 @@ function BehaviorEditor({ row, onClose, onSaved }: {
 
           <Field label="Mensagem de boas-vindas" value={cfg.welcome} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, welcome: v })} textarea />
           <Field label="Quando não entender" value={cfg.fallback} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, fallback: v })} textarea />
+
+          <div className="space-y-3 rounded-2xl border border-border p-4">
+            <div>
+              <p className="text-sm font-semibold">Mensagens da Divisão do Rolê</p>
+              <p className="text-xs text-muted-foreground">Use variáveis como {"{{participant_name}}"}, {"{{title}}"}, {"{{amount}}"}, {"{{due_sentence}}"} e {"{{pix_sentence}}"}. Em branco usa o texto amigável padrão.</p>
+            </div>
+            {([
+              ["invite", "Convite inicial"], ["reminder", "Lembrete"],
+              ["due_soon", "Vencimento próximo"], ["overdue", "Em atraso"],
+              ["payment_confirmation", "Pagamento confirmado"], ["completed", "Rolê concluído"],
+            ] as const).map(([key, label]) => (
+              <Field key={key} label={label} value={cfg.templates[key] ?? ""} disabled={readOnly}
+                onChange={(v) => setCfg({ ...cfg, templates: { ...cfg.templates, [key]: v } })} textarea />
+            ))}
+          </div>
 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={cfg.proactive} disabled={readOnly}

@@ -5,6 +5,7 @@ const migration = readFileSync(`${process.cwd()}/supabase/migrations/20260719230
 const repairMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719214538_858fe9fa-6493-496c-9140-d5de3f142e45.sql`, "utf8");
 const deleteMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719231937_7985b419-f354-47cb-94cc-48bda3aef9cc.sql`, "utf8");
 const dispatcher = readFileSync(`${process.cwd()}/supabase/functions/split-reminders-dispatch/index.ts`, "utf8");
+const templates = readFileSync(`${process.cwd()}/supabase/functions/_shared/agent/messageTemplates.ts`, "utf8");
 
 describe("Divisão do Rolê — contrato integrado", () => {
   it("cria, edita e cancela por RPC transacional", () => {
@@ -42,10 +43,14 @@ describe("Divisão do Rolê — contrato integrado", () => {
     expect(migration).not.toMatch(/(?<!extensions\.)gen_random_bytes\s*\(/);
   });
 
-  it("possui mensagens do Lucas para todo o ciclo", () => {
+  it("possui templates configuráveis, sem persona hardcoded, para todo o ciclo", () => {
     for (const kind of ["invite", "reminder", "due_soon", "overdue", "payment_confirmation", "completed"]) {
-      expect(dispatcher).toContain(`case "${kind}"`);
+      expect(templates).toContain(`${kind}:`);
     }
+    expect(dispatcher).toContain("structured_config");
+    expect(dispatcher).toContain("renderMessageTemplate");
+    expect(dispatcher).not.toContain("O Lucas aqui");
+    expect(dispatcher).not.toContain("Lembrete amigável do Lucas");
   });
 
   it("processa a fila outbound continuamente mesmo sem novos lembretes", () => {

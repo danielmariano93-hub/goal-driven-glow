@@ -61,6 +61,27 @@ async function sha256Hex(text: string) {
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function readAckEvent(payload: unknown): { providerMessageId: string; status: "sent" | "delivered" | "read" } | null {
+  const root = (payload ?? {}) as Record<string, any>;
+  const event = String(root.event ?? root.type ?? "").toLowerCase();
+  if (event !== "message.ack") return null;
+  const p = (root.payload ?? root.data ?? {}) as Record<string, any>;
+  const key = (p.key ?? p._data?.key ?? {}) as Record<string, any>;
+  const providerMessageId = String(
+    p.id ?? p.messageId ?? p.message_id ?? key.id ?? p._data?.id ?? "",
+  ).trim();
+  if (!providerMessageId) return null;
+  const rawAck = p.ack ?? p.status ?? p.ackName ?? p._data?.ack ?? root.ack;
+  const numeric = Number(rawAck);
+  const normalized = String(rawAck ?? "").toLowerCase();
+  const status = numeric >= 3 || normalized.includes("read") || normalized.includes("played")
+    ? "read" as const
+    : numeric >= 2 || normalized.includes("deliver")
+    ? "delivered" as const
+    : "sent" as const;
+  return { providerMessageId, status };
+}
+
 /** Extract a 6-digit verification code from either the legacy `VINCULAR NNNN`
  *  format or a friendlier phrasing that anchors on "código de verificação".
  *  Never matches loose numbers in ordinary conversation. */
@@ -173,6 +194,22 @@ Deno.serve(async (req) => {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // ACKs are delivery telemetry, not inbound user messages. Process them
+  // before the inbound classifier (which intentionally drops message.ack).
+  const ack = readAckEvent(payload);
+  if (ack) {
+    const { data: outbound } = await sb.from("outbound_messages")
+      .select("id,status")
+      .eq("provider_message_id", ack.providerMessageId)
+      .maybeSingle();
+    if (!outbound) return json({ ok: true, ack: "unmatched" });
+    const rank: Record<string, number> = { queued: 0, processing: 0, sent: 1, delivered: 2, read: 3, failed: -1, dead: -1 };
+    if ((rank[ack.status] ?? 0) > (rank[String(outbound.status)] ?? 0)) {
+      await sb.from("outbound_messages").update({ status: ack.status }).eq("id", outbound.id);
+    }
+    return json({ ok: true, ack: ack.status });
+  }
 
   const expected = getSessionName();
   const classified = classifyInbound(payload, expected);

@@ -8,6 +8,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { renderMessageTemplate, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -31,26 +32,19 @@ function maskPhone(p?: string | null): string {
   return p.replace(/^(\+\d{2})\d+(\d{4})$/, "$1****$2");
 }
 
-function messageFor(kind: string, p: any, se: any, remaining: number): string {
+function messageFor(kind: string, p: any, se: any, remaining: number, persona: MessagePersona): string {
   const amount = `R$ ${remaining.toFixed(2).replace(".", ",")}`;
   const due = se?.due_date ? new Date(`${se.due_date}T12:00:00`).toLocaleDateString("pt-BR") : null;
-  const pix = se?.pix_key ? `\nPix: ${se.pix_key}` : "";
-  switch (kind) {
-    case "invite":
-      return `Oi, ${p.name}! 👋 O Lucas aqui. Você entrou na divisão “${se.title}” e sua parte ficou em ${amount}.` +
-        `${due ? ` O combinado é pagar até ${due}.` : ""}${pix}\nQuando acertar, avise quem criou o rolê para dar baixa por lá.`;
-    case "due_soon":
-      return `Passando de leve, ${p.name}: a sua parte de ${amount} em “${se.title}” vence${due ? ` em ${due}` : " em breve"}.${pix}`;
-    case "overdue":
-      return `Oi, ${p.name}. A sua parte de ${amount} em “${se.title}” ainda aparece em aberto. Se você já pagou, é só avisar quem criou o rolê 💛${pix}`;
-    case "payment_confirmation":
-      return `Tudo certo, ${p.name}! Seu pagamento em “${se.title}” foi registrado. Obrigado por organizar esse rolê com a gente 🙌`;
-    case "completed":
-      return `Rolê fechado! 🎉 Todo mundo acertou a divisão “${se.title}”.`;
-    case "reminder":
-    default:
-      return `Oi, ${p.name}! Lembrete amigável do Lucas: ainda faltam ${amount} da sua parte em “${se.title}”.${due ? ` Vencimento: ${due}.` : ""}${pix}`;
-  }
+  return renderMessageTemplate(kind, persona, {
+    participant_name: String(p.name ?? "").trim() || "tudo bem",
+    owner_name: String(se.owner_name ?? "A pessoa responsável pelo rolê"),
+    title: String(se.title ?? "seu rolê"),
+    amount,
+    due_date: due ?? "",
+    due_sentence: due ? ` O combinado é pagar até ${due}.` : "",
+    pix_key: String(se.pix_key ?? ""),
+    pix_sentence: se.pix_key ? ` Pix: ${se.pix_key}.` : "",
+  });
 }
 
 Deno.serve(async (req) => {
@@ -79,6 +73,15 @@ Deno.serve(async (req) => {
   if (claimErr) return json({ error: claimErr.message }, 500);
   const jobs = (claimed as Array<any> | null) ?? [];
 
+  const { data: activePrompt } = await sb.from("agent_prompt_versions")
+    .select("structured_config")
+    .eq("status", "active")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const persona = ((activePrompt?.structured_config ?? {}) as MessagePersona);
+  const ownerNames = new Map<string, string>();
+
   let enqueued = 0, skipped = 0, failed = 0;
   for (const j of jobs) {
     try {
@@ -104,13 +107,22 @@ Deno.serve(async (req) => {
         .eq("id", j.shared_expense_id)
         .single();
 
+      if (se?.owner_user_id && !ownerNames.has(se.owner_user_id)) {
+        const { data: owner } = await sb.from("profiles")
+          .select("display_name")
+          .eq("id", se.owner_user_id)
+          .maybeSingle();
+        ownerNames.set(se.owner_user_id, String(owner?.display_name ?? "").trim());
+      }
+      if (se) se.owner_name = ownerNames.get(se.owner_user_id) || "A pessoa responsável pelo rolê";
+
       const remaining = Number(p.amount_due) - Number(p.amount_paid);
       if (!se || se.status === "cancelled") {
         await sb.from("reminder_jobs").update({ status: "skipped", last_error: "split_cancelled", lease_expires_at: null }).eq("id", j.id);
         skipped++;
         continue;
       }
-      const msg = messageFor(kind, p, se, remaining);
+      const msg = messageFor(kind, p, se, remaining, persona);
 
       const dedupDay = new Date(j.scheduled_for).toISOString().slice(0, 10);
       const idem = `split:${kind}:${j.participant_id}:${dedupDay}`;
@@ -125,6 +137,10 @@ Deno.serve(async (req) => {
           status: "queued",
           kind: `split_${kind}`,
           idempotency_key: idem,
+          context_type: "shared_expense",
+          context_id: j.shared_expense_id,
+          participant_id: j.participant_id,
+          metadata: { job_id: j.id, origin: "split_reminder", template: kind },
         })
         .select("id")
         .single();

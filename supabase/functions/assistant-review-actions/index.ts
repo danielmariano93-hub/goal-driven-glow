@@ -118,6 +118,9 @@ Deno.serve(async (req) => {
     if (!document_id) return json({ error: "missing_document_id" }, 400);
     const { data, error } = await userClient.rpc("cancel_document_import", { p_document_id: document_id });
     if (error) return json({ error: "rpc_failed", details: error.message }, 400);
+    if (!(data as { ok?: boolean } | null)?.ok) {
+      return json({ error: "cancel_rejected", result: data }, 409);
+    }
     return json({ ok: true, result: data });
   }
 

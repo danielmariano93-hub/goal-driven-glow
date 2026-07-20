@@ -22,6 +22,7 @@ const NAV: Item[] = [
   { to: "/admin/engajamento", label: "Engajamento", icon: TrendingUp, action: "overview.read" },
   { to: "/admin/financeiro", label: "Financeiro", icon: Wallet, action: "company_finance.read" },
   { to: "/admin/agente", label: "Agente", icon: Bot, action: "agent.read" },
+  { to: "/admin/mensagens", label: "Mensagens", icon: MessageCircle, action: "agent.read" },
   { to: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle, action: "whatsapp.read" },
   { to: "/admin/operacao", label: "Operação", icon: Activity, action: "ops.read" },
   { to: "/admin/produto", label: "Produto", icon: Package, action: "product.read" },

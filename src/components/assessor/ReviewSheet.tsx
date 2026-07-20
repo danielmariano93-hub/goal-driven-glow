@@ -301,10 +301,22 @@ export function ReviewSheet({
 
   async function cancelImport() {
     if (!confirm("Cancelar essa importação? Nada será registrado.")) return;
-    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+    const { data, error } = await supabase.functions.invoke("assistant-review-actions", {
       body: { action: "cancel", document_id: documentId },
     });
     if (error) return toast.error("Falha ao cancelar", { description: error.message });
+    const payload = data as { ok?: boolean; error?: string; result?: { ok?: boolean; error?: string; discarded_items?: number } } | null;
+    if (!payload?.ok || !payload.result?.ok) {
+      return toast.error("Não consegui cancelar esta importação", {
+        description: payload?.result?.error ?? payload?.error ?? "Tente novamente em instantes.",
+      });
+    }
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["document_imports"] }),
+      qc.invalidateQueries({ queryKey: ["assessor_documents"] }),
+      qc.invalidateQueries({ queryKey: ["transactions"] }),
+      qc.invalidateQueries({ queryKey: ["home"] }),
+    ]);
     toast.message("Importação cancelada.");
     onClose();
   }
