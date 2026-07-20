@@ -71,7 +71,15 @@ export default function Categorias() {
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm("Excluir esta categoria?")) del.mutate(c.id, { onSuccess: () => toast.success("Excluída") });
+                          if (confirm("Remover esta categoria? Se houver histórico, ela será arquivada.")) {
+                            del.mutate(c.id, {
+                              onSuccess: (r) => {
+                                if (r?.archived) toast.success("Arquivada", { description: `Mantida no histórico (${r.count} lançamento${r.count === 1 ? "" : "s"}).` });
+                                else toast.success("Excluída");
+                              },
+                              onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+                            });
+                          }
                         }}
                         className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
                       >
