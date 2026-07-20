@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/split/math";
 import { nextOccurrences } from "@/lib/recurring/schedule";
+import { CategorySelect } from "@/components/CategorySelect";
 
 export default function Recorrencias() {
   const [rules, setRules] = useState<any[] | null>(null);
@@ -118,10 +119,11 @@ export default function Recorrencias() {
             <option value="">Selecione a conta</option>
             {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-          <select value={form.category_id} onChange={e => setForm({...form, category_id: e.target.value})} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-            <option value="">Sem categoria</option>
-            {cats.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <CategorySelect
+            value={form.category_id || null}
+            onChange={(id) => setForm({ ...form, category_id: id ?? "" })}
+            type={form.kind}
+          />
           <div className="flex gap-2">
             {(["daily","weekly","monthly","yearly"] as const).map(f => (
               <button key={f} onClick={() => setForm({...form, frequency: f})} className={`text-xs px-3 py-1 rounded-full border ${form.frequency===f?"bg-primary text-primary-foreground border-primary":"bg-card border-border"}`}>

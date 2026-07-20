@@ -9,6 +9,7 @@ import { formatBRL } from "@/lib/engine/facts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
+import { CategorySelect } from "@/components/CategorySelect";
 
 type Item = {
   id: string;
@@ -321,9 +322,7 @@ export function ReviewSheet({
     onClose();
   }
 
-  const catForType = (t: "income" | "expense") =>
-    (categories as { id: string; name: string; type: string }[])
-      .filter((c) => c.type === t || c.type === "both");
+  void categories; // Preservado apenas para invalidação/cache; opções vêm do CategorySelect.
 
   const panel = (
     <div className="fixed inset-0 z-[140] flex flex-col bg-background md:items-center md:justify-center md:bg-black/50" onClick={onClose}>
@@ -517,17 +516,14 @@ export function ReviewSheet({
                           </div>
                           <div>
                             <label className="text-[10px] text-muted-foreground">Categoria</label>
-                            <select
-                              value={it.category_id ?? ""}
-                              onChange={(e) => patchItem(it.id, { category_id: e.target.value || null })}
+                            <CategorySelect
+                              value={it.category_id}
+                              onChange={(id) => patchItem(it.id, { category_id: id })}
+                              type={it.type}
                               disabled={disabled}
                               className="input-base text-xs"
-                            >
-                              <option value="">Sem categoria</option>
-                              {catForType(it.type).map((c) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
-                            </select>
+                              showManageLink={false}
+                            />
                           </div>
                           {it.payment_method === "account" && (
                             <div className="col-span-2">

@@ -117,11 +117,32 @@ export function useCategories() {
   });
 }
 
+/**
+ * Retorna categorias ativas + arquivadas. Útil para renderizar lançamentos
+ * históricos sem perder o rótulo de categorias já arquivadas pelo usuário.
+ */
+export function useAllCategories() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["categories", user?.id, "all"],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .order("type", { ascending: true })
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data as CategoryRow[];
+    },
+  });
+}
+
 export function useSaveCategory() {
   const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CategoryInput & { id?: string }) => {
+    mutationFn: async (input: CategoryInput & { id?: string }): Promise<CategoryRow> => {
       if (!user) throw new Error("not authenticated");
       const slug =
         input.name
@@ -139,17 +160,26 @@ export function useSaveCategory() {
         icon: input.icon || null,
       };
       if (input.id) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("categories")
           .update({ name: payload.name, type: payload.type, color: payload.color, icon: payload.icon })
-          .eq("id", input.id);
+          .eq("id", input.id)
+          .select("*")
+          .single();
         if (error) throw error;
-      } else {
-        const { error } = await supabase.from("categories").insert(payload as never);
-        if (error) throw error;
+        return data as CategoryRow;
       }
+      const { data, error } = await supabase
+        .from("categories")
+        .insert(payload as never)
+        .select("*")
+        .single();
+      if (error) throw error;
+      return data as CategoryRow;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["categories"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["categories"] });
+    },
   });
 }
 

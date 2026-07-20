@@ -23,6 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CategorySelect } from "@/components/CategorySelect";
 
 export default function Lancamentos() {
   const nav = useNavigate();
@@ -424,14 +425,7 @@ function TxModal({
           </div>}
           <div>
             <label className="mb-1 block text-xs font-medium">Categoria</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-base">
-              <option value="">Sem categoria</option>
-              {filteredCats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <CategorySelect value={categoryId || null} onChange={(id) => setCategoryId(id ?? "")} type={type} />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
