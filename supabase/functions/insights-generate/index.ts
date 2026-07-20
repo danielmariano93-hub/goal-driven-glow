@@ -6,13 +6,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { InsightSchema, pickFallback, parseInsightResponse, type InsightFacts } from "../_shared/insights/fallbacks.ts";
-import { computeAccountStatementTotals, type TransactionRow } from "../_shared/engine/facts.ts";
+import { computeAccountStatementTotals, computeMonthlyTotals, type TransactionRow } from "../_shared/engine/facts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
-const PROMPT_VERSION = "v2";
+const PROMPT_VERSION = "v3-behavioral";
+const ACCOUNTING_SCOPE = "behavioral_v1";
 const MODEL = "google/gemini-2.5-flash";
 const AI_TIMEOUT_MS = 8000;
 
