@@ -10,6 +10,7 @@ import { ParaPagarResumo } from "@/components/home/ParaPagarResumo";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { PulseHero } from "@/components/home/PulseHero";
 import { PatrimonioCard } from "@/components/home/PatrimonioCard";
+import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
 
