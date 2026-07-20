@@ -108,18 +108,18 @@ function extractPixCounterparty(raw: string): string | null {
  * Estratégia: 1) merchant dictionary; 2) PIX contraparte; 3) limpeza de ruído; 4) fallback = texto do banco limpo.
  * Nunca inventa: se o banco não deu nada útil, retorna raw sanitizado.
  */
-export function normalizeDescription(raw: string): { friendly: string; category_hint: string | null } {
+export function normalizeDescription(raw: string): { friendly: string; category_hint: string | null; movement_kind: string | null } {
   const cleanRaw = (raw ?? "").trim();
-  if (!cleanRaw) return { friendly: "", category_hint: null };
+  if (!cleanRaw) return { friendly: "", category_hint: null, movement_kind: null };
 
   for (const entry of MERCHANT_DICT) {
     if (entry.pattern.test(cleanRaw)) {
-      return { friendly: entry.canonical, category_hint: entry.category ?? null };
+      return { friendly: entry.canonical, category_hint: entry.category ?? null, movement_kind: entry.movement_kind ?? null };
     }
   }
 
   const pix = extractPixCounterparty(cleanRaw);
-  if (pix) return { friendly: `PIX ${pix}`, category_hint: null };
+  if (pix) return { friendly: `PIX ${pix}`, category_hint: null, movement_kind: null };
 
   let cleaned = cleanRaw;
   for (const p of NOISE_PATTERNS) cleaned = cleaned.replace(p, " ");
@@ -128,7 +128,7 @@ export function normalizeDescription(raw: string): { friendly: string; category_
   if (cleaned === cleaned.toUpperCase() && cleaned.length > 3) {
     cleaned = cleaned.toLowerCase().split(" ").filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
   }
-  return { friendly: cleaned || cleanRaw, category_hint: null };
+  return { friendly: cleaned || cleanRaw, category_hint: null, movement_kind: null };
 }
 
 /** Chave estável para dedupe. Usa referência bancária quando disponível (chave forte). */
