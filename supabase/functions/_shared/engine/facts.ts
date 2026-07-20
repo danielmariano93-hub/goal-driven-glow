@@ -116,6 +116,61 @@ export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
+// ── Fluxo bancário LITERAL (extrato) — espelho da engine cliente. ─────────
+export interface AccountStatementTotals {
+  accountIn: number; accountOut: number; cardOut: number; net: number;
+}
+
+export function isGrossAccountMovement(t: TransactionRow, opts?: { scopeAccountId?: string }): boolean {
+  if (t.status !== "confirmed") return false;
+  if (t.type === "transfer") return false;
+  if (txOrigin(t) !== "account") return false;
+  if (t.settles_card_id) return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (mk === "internal_transfer" && !opts?.scopeAccountId) return false;
+  return true;
+}
+
+export function isGrossCardMovement(t: TransactionRow): boolean {
+  if (t.status !== "confirmed") return false;
+  if (t.type !== "expense") return false;
+  if (txOrigin(t) !== "credit_card") return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (mk === "internal_transfer") return false;
+  return true;
+}
+
+export function computeAccountStatementTotals(
+  txs: TransactionRow[],
+  range: { start: string; end: string },
+  opts?: { scopeAccountId?: string },
+): AccountStatementTotals {
+  const scope = opts?.scopeAccountId ?? null;
+  let accountIn = 0, accountOut = 0, cardOut = 0;
+  for (const t of txs) {
+    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    if (scope && t.account_id !== scope && t.type !== "transfer") continue;
+    if (t.type === "transfer") {
+      if (!scope || t.account_id !== scope) continue;
+      const peers = txs.filter((x) => x.transfer_group_id && x.transfer_group_id === t.transfer_group_id);
+      if (peers.length < 2) continue;
+      const sorted = [...peers].sort((a, b) => a.id.localeCompare(b.id));
+      const amt = Number(t.amount || 0);
+      if (sorted[0].id === t.id) accountOut += amt; else accountIn += amt;
+      continue;
+    }
+    if (isGrossAccountMovement(t, { scopeAccountId: scope ?? undefined })) {
+      const amt = Number(t.amount || 0);
+      if (t.type === "income") accountIn += amt;
+      else if (t.type === "expense") accountOut += amt;
+      continue;
+    }
+    if (isGrossCardMovement(t)) cardOut += Number(t.amount || 0);
+  }
+  const rIn = round2(accountIn), rOut = round2(Math.max(0, accountOut)), rCard = round2(Math.max(0, cardOut));
+  return { accountIn: rIn, accountOut: rOut, cardOut: rCard, net: round2(rIn - rOut - rCard) };
+}
+
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {
   const result: { id: string; name: string; type: "income" | "expense"; amount: number; date: string }[] = [];
   const t0 = new Date(today); t0.setHours(0, 0, 0, 0);
