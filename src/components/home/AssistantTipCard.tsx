@@ -124,6 +124,7 @@ export function AssistantTipCard() {
     if (force) setLastForceAt(Date.now());
     try {
       await supabase.functions.invoke("insights-generate", { body: force ? { force: true } : {} });
+      await qc.invalidateQueries({ queryKey: ["assistant-tip", user?.id] });
       await refetch();
     } catch {
       /* silencioso, usaremos fallback local */
