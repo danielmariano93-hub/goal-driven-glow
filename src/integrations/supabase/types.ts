@@ -1972,6 +1972,7 @@ export type Database = {
           context_id: string | null
           context_type: string | null
           created_at: string
+          feature: string | null
           id: string
           idempotency_key: string | null
           inbound_message_id: string | null
@@ -1985,6 +1986,7 @@ export type Database = {
           provider_message_id: string | null
           sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
+          surface: string | null
           to_phone: string
           updated_at: string
           user_id: string | null
@@ -1997,6 +1999,7 @@ export type Database = {
           context_id?: string | null
           context_type?: string | null
           created_at?: string
+          feature?: string | null
           id?: string
           idempotency_key?: string | null
           inbound_message_id?: string | null
@@ -2010,6 +2013,7 @@ export type Database = {
           provider_message_id?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
+          surface?: string | null
           to_phone: string
           updated_at?: string
           user_id?: string | null
@@ -2022,6 +2026,7 @@ export type Database = {
           context_id?: string | null
           context_type?: string | null
           created_at?: string
+          feature?: string | null
           id?: string
           idempotency_key?: string | null
           inbound_message_id?: string | null
@@ -2035,6 +2040,7 @@ export type Database = {
           provider_message_id?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
+          surface?: string | null
           to_phone?: string
           updated_at?: string
           user_id?: string | null
@@ -3339,12 +3345,16 @@ export type Database = {
       }
       admin_message_activity: {
         Args: {
+          p_feature?: string
           p_from?: string
           p_kind?: string
           p_limit?: number
           p_offset?: number
+          p_search?: string
           p_status?: string
+          p_surface?: string
           p_to?: string
+          p_user_id?: string
         }
         Returns: Json
       }
@@ -3352,6 +3362,8 @@ export type Database = {
         Args: { p_from?: string; p_to?: string }
         Returns: Json
       }
+      admin_message_reprocess: { Args: { p_id: string }; Returns: Json }
+      admin_message_timeline: { Args: { p_id: string }; Returns: Json }
       admin_ops_health: { Args: never; Returns: Json }
       admin_platform_status: { Args: never; Returns: Json }
       admin_process_deletion_request: {
@@ -3473,6 +3485,7 @@ export type Database = {
           context_id: string | null
           context_type: string | null
           created_at: string
+          feature: string | null
           id: string
           idempotency_key: string | null
           inbound_message_id: string | null
@@ -3486,6 +3499,7 @@ export type Database = {
           provider_message_id: string | null
           sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
+          surface: string | null
           to_phone: string
           updated_at: string
           user_id: string | null
