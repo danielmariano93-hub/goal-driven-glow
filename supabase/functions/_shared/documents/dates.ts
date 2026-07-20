@@ -54,22 +54,27 @@ export type DateResolution = {
   date: string;
   confidence: number;
   source: "iso" | "br_full" | "period_inferred" | "today_fallback" | "period_end_fallback";
+  needs_review?: boolean;
 };
 
-/** Preferência: ISO explícito > dd/mm/yyyy > dd/mm inferido pelo período > período > hoje. */
+/** Preferência: ISO explícito > dd/mm/yyyy > dd/mm inferido pelo período > período > hoje.
+ *  Datas completas válidas e não-futuras são SEMPRE preservadas; se caírem fora do período do
+ *  extrato, retornam com confiança reduzida (o pipeline pode marcar para revisão). */
 export function resolveDocumentDate(raw: string | null | undefined, ctx: DateResolutionContext = {}): DateResolution {
   const today = ctx.today ?? todaySaoPaulo();
   const periodStart = ctx.statement_period_start && isValidCalendarDate(ctx.statement_period_start) ? ctx.statement_period_start : null;
   const periodEnd = ctx.statement_period_end && isValidCalendarDate(ctx.statement_period_end) ? ctx.statement_period_end : null;
   const fallback = periodEnd ?? today;
   const s = String(raw ?? "").trim();
-  if (!s) return { date: fallback, confidence: 0.2, source: periodEnd ? "period_end_fallback" : "today_fallback" };
+  if (!s) return { date: fallback, confidence: 0.2, source: periodEnd ? "period_end_fallback" : "today_fallback", needs_review: true };
 
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) {
     const cand = `${iso[1]}-${iso[2]}-${iso[3]}`;
-    if (isValidCalendarDate(cand) && !isFuture(cand, today, 0) && inPeriodWindow(cand, periodStart, periodEnd))
-      return { date: cand, confidence: 0.95, source: "iso" };
+    if (isValidCalendarDate(cand) && !isFuture(cand, today, 0)) {
+      const inWindow = inPeriodWindow(cand, periodStart, periodEnd);
+      return { date: cand, confidence: inWindow ? 0.95 : 0.6, source: "iso", needs_review: !inWindow && !!(periodStart || periodEnd) };
+    }
   }
 
   const brFull = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -77,8 +82,10 @@ export function resolveDocumentDate(raw: string | null | undefined, ctx: DateRes
     let y = brFull[3];
     if (y.length === 2) y = (Number(y) >= 70 ? "19" : "20") + y;
     const cand = `${y}-${brFull[2].padStart(2, "0")}-${brFull[1].padStart(2, "0")}`;
-    if (isValidCalendarDate(cand) && !isFuture(cand, today, 0) && inPeriodWindow(cand, periodStart, periodEnd))
-      return { date: cand, confidence: 0.9, source: "br_full" };
+    if (isValidCalendarDate(cand) && !isFuture(cand, today, 0)) {
+      const inWindow = inPeriodWindow(cand, periodStart, periodEnd);
+      return { date: cand, confidence: inWindow ? 0.9 : 0.6, source: "br_full", needs_review: !inWindow && !!(periodStart || periodEnd) };
+    }
   }
 
   const brPartial = s.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
@@ -92,5 +99,5 @@ export function resolveDocumentDate(raw: string | null | undefined, ctx: DateRes
     }
   }
 
-  return { date: fallback, confidence: 0.3, source: periodEnd ? "period_end_fallback" : "today_fallback" };
+  return { date: fallback, confidence: 0.3, source: periodEnd ? "period_end_fallback" : "today_fallback", needs_review: true };
 }
