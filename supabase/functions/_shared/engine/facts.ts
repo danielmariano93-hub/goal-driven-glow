@@ -16,6 +16,7 @@ export interface TransactionRow {
   payment_method?: string | null;
   credit_card_id?: string | null;
   settles_card_id?: string | null;
+  movement_kind?: string | null;
 }
 
 export function txOrigin(t: Pick<TransactionRow, "payment_method" | "credit_card_id">):
