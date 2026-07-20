@@ -378,23 +378,45 @@ function BehaviorEditor({ row, onClose, onSaved }: {
           <ListField label="O que nunca deve fazer" items={cfg.dont} disabled={readOnly}
             onChange={setList("dont")} onAdd={() => addItem("dont")} onRemove={(i) => removeItem("dont", i)} />
 
+          <ListField label="Palavras/expressões preferidas" items={cfg.preferred_words} disabled={readOnly}
+            onChange={(i, v) => { const a = [...cfg.preferred_words]; a[i] = v; setCfg({ ...cfg, preferred_words: a }); }}
+            onAdd={() => setCfg({ ...cfg, preferred_words: [...cfg.preferred_words, ""] })}
+            onRemove={(i) => setCfg({ ...cfg, preferred_words: cfg.preferred_words.filter((_, x) => x !== i) })} />
+          <ListField label="Palavras/expressões proibidas" items={cfg.forbidden_words} disabled={readOnly}
+            onChange={(i, v) => { const a = [...cfg.forbidden_words]; a[i] = v; setCfg({ ...cfg, forbidden_words: a }); }}
+            onAdd={() => setCfg({ ...cfg, forbidden_words: [...cfg.forbidden_words, ""] })}
+            onRemove={(i) => setCfg({ ...cfg, forbidden_words: cfg.forbidden_words.filter((_, x) => x !== i) })} />
+
           <Field label="Mensagem de boas-vindas" value={cfg.welcome} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, welcome: v })} textarea />
           <Field label="Quando não entender" value={cfg.fallback} disabled={readOnly} onChange={(v) => setCfg({ ...cfg, fallback: v })} textarea />
 
-          <div className="space-y-3 rounded-2xl border border-border p-4">
+          <div className="space-y-4 rounded-2xl border border-border p-4">
             <div>
-              <p className="text-sm font-semibold">Mensagens da Divisão do Rolê</p>
-              <p className="text-xs text-muted-foreground">Use variáveis como {"{{participant_name}}"}, {"{{title}}"}, {"{{amount}}"}, {"{{due_sentence}}"} e {"{{pix_sentence}}"}. Em branco usa o texto amigável padrão.</p>
+              <p className="text-sm font-semibold">Mensagens automáticas (por contexto)</p>
+              <p className="text-xs text-muted-foreground">
+                Variáveis disponíveis: <code>{"{{participant_name}}"}</code>, <code>{"{{owner_name}}"}</code>,{" "}
+                <code>{"{{title}}"}</code>, <code>{"{{amount}}"}</code>, <code>{"{{due_date}}"}</code>,{" "}
+                <code>{"{{due_sentence}}"}</code>, <code>{"{{pix_key}}"}</code>, <code>{"{{pix_sentence}}"}</code>.
+                Em branco, o NoControle.ia usa o texto amigável padrão.
+              </p>
             </div>
             {([
-              ["invite", "Convite inicial"], ["reminder", "Lembrete"],
-              ["due_soon", "Vencimento próximo"], ["overdue", "Em atraso"],
-              ["payment_confirmation", "Pagamento confirmado"], ["completed", "Rolê concluído"],
+              ["invite", "Divisão do Rolê · Convite inicial"],
+              ["reminder", "Divisão do Rolê · Lembrete"],
+              ["due_soon", "Divisão do Rolê · Vencimento próximo"],
+              ["overdue", "Divisão do Rolê · Em atraso"],
+              ["payment_confirmation", "Divisão do Rolê · Pagamento confirmado"],
+              ["completed", "Divisão do Rolê · Rolê concluído"],
+              ["financial_chat", "Conversa financeira geral (assessor)"],
+              ["insights", "Insights e relatórios"],
+              ["platform_support", "Suporte da plataforma"],
             ] as const).map(([key, label]) => (
-              <Field key={key} label={label} value={cfg.templates[key] ?? ""} disabled={readOnly}
-                onChange={(v) => setCfg({ ...cfg, templates: { ...cfg.templates, [key]: v } })} textarea />
+              <TemplateField key={key} label={label} value={cfg.templates[key] ?? ""} disabled={readOnly}
+                cfg={cfg}
+                onChange={(v) => setCfg({ ...cfg, templates: { ...cfg.templates, [key]: v } })} />
             ))}
           </div>
+
 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={cfg.proactive} disabled={readOnly}
