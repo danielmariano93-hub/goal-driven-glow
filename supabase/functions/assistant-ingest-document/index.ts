@@ -411,13 +411,14 @@ async function enrichItems(
   // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
   const normalized = items.map((item) => {
     const rawDesc = String(item.description ?? "");
-    const { friendly, category_hint: ruleCategory } = normalizeDescription(rawDesc);
+    const { friendly, category_hint: ruleCategory, movement_kind: ruleMovementKind } = normalizeDescription(rawDesc);
     return {
       item,
       rawDesc,
       friendly,
       normalizedKey: friendly.toLowerCase().trim(),
       ruleCategory,
+      ruleMovementKind,
       bankRef: extractBankReference(rawDesc),
     };
   });
