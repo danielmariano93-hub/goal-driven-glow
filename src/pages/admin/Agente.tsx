@@ -471,6 +471,25 @@ function Field({ label, value, onChange, textarea, disabled }: {
   );
 }
 
+function TemplateField({ label, value, onChange, disabled, cfg }: {
+  label: string; value: string; onChange: (v: string) => void; disabled: boolean; cfg: StructuredCfg;
+}) {
+  return (
+    <div className="grid gap-2 md:grid-cols-2">
+      <label className="block">
+        <span className="text-xs font-medium">{label}</span>
+        <textarea value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}
+          rows={4}
+          className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm font-mono disabled:opacity-70" />
+      </label>
+      <div className="rounded-xl border border-dashed border-border/70 bg-muted/30 p-3">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prévia</p>
+        <p className="whitespace-pre-wrap text-xs text-foreground/90">{renderPreview(value, cfg)}</p>
+      </div>
+    </div>
+  );
+}
+
 function ListField({ label, items, onChange, onAdd, onRemove, disabled }: {
   label: string; items: string[]; disabled: boolean;
   onChange: (idx: number, v: string) => void; onAdd: () => void; onRemove: (idx: number) => void;
