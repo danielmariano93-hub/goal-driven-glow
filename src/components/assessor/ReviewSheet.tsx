@@ -322,9 +322,7 @@ export function ReviewSheet({
     onClose();
   }
 
-  const catForType = (t: "income" | "expense") =>
-    (categories as { id: string; name: string; type: string }[])
-      .filter((c) => c.type === t || c.type === "both");
+  void categories; // Preservado apenas para invalidação/cache; opções vêm do CategorySelect.
 
   const panel = (
     <div className="fixed inset-0 z-[140] flex flex-col bg-background md:items-center md:justify-center md:bg-black/50" onClick={onClose}>
