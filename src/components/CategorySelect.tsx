@@ -4,6 +4,22 @@ import { Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAllCategories, useSaveCategory, type CategoryRow } from "@/lib/db/finance";
 
+/**
+ * Filtra categorias para o seletor: ativas + globais do tipo pedido, mais a
+ * arquivada correspondente ao valor atual (para não perder rótulo em edição de
+ * lançamentos históricos).
+ */
+export function filterCategoryOptions(all: CategoryRow[], type: "expense" | "income", selectedId: string | null) {
+  const active = all.filter(
+    (c) => c.archived_at == null && (c.type === type || (c.type as string) === "both")
+  );
+  const selectedArchived = selectedId && !active.some((c) => c.id === selectedId)
+    ? all.find((c) => c.id === selectedId) ?? null
+    : null;
+  return { active, selectedArchived };
+}
+
+
 const CREATE_TOKEN = "__create__";
 
 type Props = {
@@ -37,14 +53,7 @@ export function CategorySelect({
   const { data: all = [], isLoading } = useAllCategories();
   const [creating, setCreating] = useState(false);
 
-  const options = useMemo(() => {
-    const active = all.filter((c) => c.archived_at == null && (c.type === type || (c.type as string) === "both"));
-    // Preserva rótulo do valor selecionado mesmo se estiver arquivado.
-    const selectedArchived = value && !active.some((c) => c.id === value)
-      ? all.find((c) => c.id === value) ?? null
-      : null;
-    return { active, selectedArchived };
-  }, [all, type, value]);
+  const options = useMemo(() => filterCategoryOptions(all, type, value ?? null), [all, type, value]);
 
   const handleChange = (val: string) => {
     if (val === CREATE_TOKEN) {
