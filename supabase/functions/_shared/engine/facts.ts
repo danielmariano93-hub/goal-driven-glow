@@ -122,10 +122,11 @@ export interface AccountStatementTotals {
 }
 
 export function isGrossAccountMovement(t: TransactionRow, opts?: { scopeAccountId?: string }): boolean {
+  // status !== "confirmed" cobre planned/cancelled/deleted (nunca regredir).
   if (t.status !== "confirmed") return false;
   if (t.type === "transfer") return false;
   if (txOrigin(t) !== "account") return false;
-  if (t.settles_card_id) return false;
+  // Pagamento de fatura (settles_card_id) É um débito bancário real e conta em accountOut.
   const mk = (t.movement_kind ?? "transaction").toString();
   if (mk === "internal_transfer" && !opts?.scopeAccountId) return false;
   return true;
