@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { Loader2, ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
+import { Loader2, CalendarDays } from "lucide-react";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
 import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
@@ -10,6 +10,7 @@ import { ParaPagarResumo } from "@/components/home/ParaPagarResumo";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { PulseHero } from "@/components/home/PulseHero";
 import { PatrimonioCard } from "@/components/home/PatrimonioCard";
+import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
 
@@ -104,21 +105,17 @@ export default function Index() {
       ) : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <Kpi
-            label={`Entrou ${periodLabel}`}
-            value={formatBRL(periodSummary.income)}
-            icon={<ArrowUpRight />}
-            accent="text-success"
-          />
-          <Kpi
-            label={`Saiu da conta ${periodLabel}`}
-            value={formatBRL(periodSummary.expense)}
-            icon={<ArrowDownRight />}
-            accent="text-destructive"
-            sub={periodSummary.cardExpense > 0 ? `+ ${formatBRL(periodSummary.cardExpense)} em compras no cartão` : undefined}
-          />
-        </div>
+        <PonteCaixaCard
+          income={periodSummary.income}
+          expense={periodSummary.expense}
+          closing={nw.cash}
+          periodLabel={periodLabel}
+        />
+      )}
+      {!isFresh && !loading && periodSummary.cardExpense > 0 && (
+        <p className="-mt-2 text-center text-[11px] text-muted-foreground">
+          Consumo no cartão {periodLabel}: <strong className="text-foreground">{formatBRL(periodSummary.cardExpense)}</strong> (não entra na ponte de caixa).
+        </p>
       )}
 
       <EmotionalCheckinCard />
@@ -157,15 +154,3 @@ function PeriodFilter({ period, setPeriod, customStart, customEnd, setCustomStar
   </section>;
 }
 
-function Kpi({ label, value, icon, accent, sub }: { label: string; value: string; icon: React.ReactNode; accent: string; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-card min-w-0">
-      <div className={`flex items-center gap-2 text-[11px] ${accent}`}>
-        <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
-        <span className="font-medium truncate">{label}</span>
-      </div>
-      <p className="mt-1 truncate text-lg font-semibold tabular-nums">{value}</p>
-      {sub ? <p className="mt-0.5 text-[10px] text-muted-foreground leading-tight">{sub}</p> : null}
-    </div>
-  );
-}

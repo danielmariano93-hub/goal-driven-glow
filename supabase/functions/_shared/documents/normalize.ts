@@ -117,6 +117,7 @@ export async function computeFingerprint(input: {
   credit_card_id?: string | null;
   bank_reference?: string | null;
   normalized_description?: string | null;
+  ordinal?: number | null;
 }): Promise<string> {
   const parts = [
     input.user_id,
@@ -126,6 +127,10 @@ export async function computeFingerprint(input: {
     input.account_id ?? input.credit_card_id ?? "",
     input.bank_reference ?? "",
     (input.normalized_description ?? "").toLowerCase().replace(/\s+/g, " ").trim(),
+    // Preserva multiplicidade legítima: duas linhas idênticas no mesmo doc ganham
+    // ordinais diferentes e portanto fingerprints distintos. Ignorado quando há
+    // referência bancária (essa já é única por natureza).
+    input.ordinal != null && !input.bank_reference ? `#${input.ordinal}` : "",
   ];
   const raw = parts.join("|");
   const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(raw));

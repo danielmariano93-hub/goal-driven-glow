@@ -950,17 +950,39 @@ async function processDocument(documentId: string, userId: string, guidance: str
         })));
 
         let batchCategorized = 0;
-        const rows = enriched.map((it, idx) => {
+        const isStatement = documentKind === "statement";
+        const rows = await Promise.all(enriched.map(async (it, idx) => {
           const globalIdx = idxOffset + idx;
           const hit = dupes.get(idx);
           const localKey = `${it.type}|${it.occurred_at}|${Number(it.amount).toFixed(2)}|${it.normalized_description ?? ""}`;
           const priorIdx = seenInDocument.get(localKey);
           seenInDocument.set(localKey, globalIdx);
-          const localDuplicate = priorIdx == null ? null : { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` };
+          // Em extratos bancários, linhas idênticas (mesma data/valor/descrição) são
+          // legítimas (ex.: duas cobranças Uber iguais no mesmo dia). NÃO marcamos
+          // como suspeita local — o ordinal garante fingerprint único.
+          const localDuplicate = (!isStatement && priorIdx != null)
+            ? { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` }
+            : null;
           const effectiveHit = hit ?? localDuplicate;
           if (effectiveHit?.strength === "strong") batchDupStrong++;
           else if (effectiveHit?.strength === "ambiguous") batchDupAmbiguous++;
           if (it.category_id) batchCategorized++;
+
+          // Recomputa fingerprint com ordinal para preservar multiplicidade dentro do doc.
+          // Sem isso, duas linhas idênticas colidem no fingerprint e podem ser tratadas
+          // como o mesmo lançamento na próxima etapa (constraints, aprendizado etc.).
+          const fingerprintWithOrdinal = await computeFingerprint({
+            user_id: userId,
+            type: it.type,
+            occurred_at: it.occurred_at,
+            amount: Number(it.amount),
+            account_id: it.account_id,
+            credit_card_id: it.credit_card_id,
+            bank_reference: it.bank_reference,
+            normalized_description: it.normalized_description,
+            ordinal: globalIdx,
+          });
+
           return {
             document_id: documentId,
             user_id: userId,
@@ -974,7 +996,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
             friendly_description: it.description,
             normalized_description: it.normalized_description,
             bank_reference: it.bank_reference,
-            dedupe_fingerprint: it.dedupe_fingerprint,
+            dedupe_fingerprint: fingerprintWithOrdinal,
             payment_method: it.account_id ? "account" : it.credit_card_id ? "credit_card" : it.payment_method,
             account_hint: it.account_hint,
             card_hint: it.card_hint,
@@ -996,7 +1018,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
             duplicate_of: hit?.transaction_id ?? null,
             duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
           };
-        });
+        }));
 
 
         // Quarantine: validate each row against DB whitelists BEFORE insert.
