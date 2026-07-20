@@ -1,173 +1,118 @@
 
-# Central de Mensagens + Configuração do Agente (Admin)
+# Correção de Conciliação Financeira — plano mínimo
 
-Dois blocos independentes, entregues no mesmo patch. Sem alterar WAHA, webhook ou sessão de infraestrutura — apenas persistência, RPCs de leitura, UI admin e camada de templates/personas.
+Escopo: 4 arquivos de código + 1 migration + testes. Nada de novos módulos, nada de reimportação, nada de alteração no snapshot manual já criado (`380b5a34…`) nem na fatura de R$ 271,88.
 
----
+## 1. Snapshot de saldo idempotente vindo do extrato
 
-## Diagnóstico confirmado
+**Arquivo**: `supabase/migrations/<novo>_reconciliation_hardening.sql`
 
-- `src/pages/admin/Mensagens.tsx` chama três RPCs (`admin_message_activity`, `admin_message_metrics`, `admin_conversation_activity`) que **não existem no banco** (`\df` retorna 0 linhas). A página exibe o toast de erro "Verifique se a migration deste patch foi implantada" para qualquer admin hoje.
-- `outbound_messages` já tem `kind`, `context_type/id`, `participant_id`, `idempotency_key`, `attempts`, `last_error`, `provider_message_id`, `sent_at` — base sólida. Falta apenas garantir que TODAS as origens (assessor no app, insights, régua, notificações que viram WhatsApp) gravem lá antes do envio.
-- `notifications` (in-app) e `conversation_messages` (assessor no app) vivem em silos separados de `outbound_messages` (WhatsApp) e `inbound_messages` (webhook). Não há hoje uma visão unificada.
-- Templates de mensagens da Divisão do Rolê estão hardcoded em `supabase/functions/_shared/agent/messageTemplates.ts` (`DEFAULTS`). `renderMessageTemplate` já lê `persona.templates[kind]` — só falta um editor administrável.
-- `agent_prompt_versions.structured_config jsonb` já existe (persona: name, tone, signature, templates). Falta UI para editar persona por contexto e falta a separação de "prompt geral / regras invioláveis / templates / canais".
-- Referências a "Lucas" no código estão apenas na migration histórica; a UI atual (`Agente.tsx`) ainda trata identidade de forma monolítica, sem personas por contexto.
+- `CREATE UNIQUE INDEX IF NOT EXISTS account_balance_snapshots_unique_doc_idx ON public.account_balance_snapshots(source_document_id, account_id) WHERE source_document_id IS NOT NULL;` — impede duplicidade em reprocessamento.
+- Substituir `public.confirm_document_import` para, quando `v_doc.statement_closing_balance` e `statement_balance_date` estiverem presentes, executar `INSERT ... ON CONFLICT (source_document_id, account_id) DO UPDATE SET balance = EXCLUDED.balance, balance_date = EXCLUDED.balance_date, reconciliation = EXCLUDED.reconciliation, status = 'pending_review', updated_at = now()`.
+- Snapshot criado pelo import fica sempre com `status='pending_review'`; só passa a `confirmed` via ação explícita do usuário (função `public.confirm_balance_snapshot(p_snapshot_id uuid)` já existente é reutilizada — sem alteração).
+- `source='statement'`, `source_document_id` = documento importado, `account_id` obrigatório (resolver via `document_imports.account_id`; se nulo, `RAISE EXCEPTION 'account_required_for_snapshot'`).
+- Reforçar CHECK: `balance_date` = `statement_balance_date` (não pode ser deslocada).
+- Nenhuma linha de `transactions` deve ser criada a partir de saldo (garantido pela quarentena `informational` já existente em `_shared/documents/types.ts` — apenas adicionar teste de contrato).
 
----
+**Sem backfill de dados**: o snapshot manual `380b5a34…` fica intocado (índice único é `WHERE source_document_id IS NOT NULL`; snapshot manual tem `source='manual'`, `source_document_id NULL`).
 
-## Bloco A — Central de Mensagens (Admin)
+## 2. Datas preservadas no extrato
 
-### A1. Migration — unificação e RPCs de leitura
+**Arquivo**: `supabase/functions/_shared/documents/dates.ts`
 
-Nova migration `20260720_admin_message_center.sql`:
+Ajuste único em `resolveDocumentDate`:
+- Quando `raw` for uma data completa válida (ISO ou dd/mm/yyyy) dentro do calendário e não futura, **retornar a data mesmo se cair fora da `inPeriodWindow`**, apenas rebaixando `confidence` para 0.6 e marcando `source: 'iso'|'br_full'`. Hoje `iso`/`br_full` só retorna se `inPeriodWindow` — isso é o que empurra datas legítimas para o `period_end_fallback`.
+- Datas ambíguas (`brPartial` sem `year` inferível) permanecem indo para `period_end_fallback`, mas passamos `needs_review: true` no retorno para o pipeline sinalizar no `extracted_items.needs_review`.
 
-1. **Extensão de `outbound_messages`**: adicionar colunas opcionais `surface text` (`whatsapp` | `app_assessor` | `app_notification` | `app_insight` | `system`) e `feature text` (`agent_chat`, `split_reminder`, `split_invite`, `financial_ruler`, `insight`, `notification`, `document_status`, `manual`). Default `surface='whatsapp'`, `feature=kind`. Backfill a partir de `kind` e `channel`.
-2. **Trigger espelho `notifications → outbound_messages`**: quando uma notificação in-app é criada com `channel_hint='app'`, inserir uma linha em `outbound_messages` com `surface='app_notification'`, `channel='inapp'`, `status='delivered'`, `to_phone=''`. Garante que o admin veja tudo num só lugar sem duplicar dado autoritativo.
-3. **Espelho `conversation_messages → outbound_messages`**: para mensagens `direction='outbound'` do assessor no app, inserir linha em `outbound_messages` com `surface='app_assessor'`, `channel='inapp'`, `status='delivered'`. Idempotência via `idempotency_key = 'app_assessor:' || conversation_messages.id`.
-4. **RPCs SECURITY DEFINER, `EXECUTE TO authenticated`, com `is_current_user_admin()` no corpo**:
-   - `admin_message_activity(p_from, p_to, p_status, p_kind, p_surface, p_feature, p_user_id, p_search, p_limit, p_offset)` — retorna linhas mascaradas (telefone, corpo já mascarado por `mask_message_body`) + join opcional com `message_delivery_events` para timeline.
-   - `admin_message_metrics(p_from, p_to)` — total, enfileiradas, enviadas, entregues, lidas, falhas, mortas, taxa de entrega, contagem por canal, por feature, tempo médio queued→sent, tempo médio sent→delivered.
-   - `admin_conversation_activity(p_from, p_to, p_limit)` — mantém formato atual.
-   - `admin_message_timeline(p_message_id)` — devolve criação, envio, ACKs (`message_delivery_events`), erros, tentativas.
-   - `admin_message_reprocess(p_message_id)` — apenas admin: valida que status ∈ {failed, dead}, reseta `status='queued'`, zera `next_attempt_at`, incrementa contador de reprocess em `metadata.reprocessed_count`, insere linha de auditoria em `platform_admin_audit`. Não altera `idempotency_key`.
-5. Índices: `outbound_messages(surface, created_at DESC)`, `outbound_messages(feature, created_at DESC)`, `outbound_messages(user_id, created_at DESC)`.
+**Arquivo**: `supabase/functions/assistant-ingest-document/index.ts`
+- Ao mapear `occurred_at`, se `resolveDocumentDate` retornar `needs_review`, marcar `extracted_items.needs_review=true` e `notes` explicando ambiguidade. Nenhuma outra mudança.
 
-Segurança: nenhuma RPC devolve payload cru; corpo passa por `mask_message_body` (já usada hoje). GRANT explícito para `authenticated`; funções bloqueiam não-admin com `raise exception 'forbidden'`.
+Nenhuma correção de fuso — `resolveDocumentDate` já opera em `America/Sao_Paulo` via string ISO e não usa `new Date(local)`.
 
-### A2. Instrumentação — gravar antes de enviar
+## 3. Patrimônio ancorado no snapshot mais recente
 
-- **Assessor no app** (`agent-chat`): já persiste `conversation_messages`. O trigger de A1.3 cuida do espelho — nenhuma mudança de código necessária.
-- **Notificações in-app** (`insights-generate`, régua financeira, `notifications` inserts): trigger de A1.2 cuida.
-- **WhatsApp / Divisão do Rolê / lembretes**: já usam `outbound_messages`. Apenas normalizar `surface` e `feature` no insert. Ajustar `split-reminders-dispatch/index.ts` e `whatsapp-send/index.ts` para preencher `surface='whatsapp'` e `feature=split_<kind>|agent_chat|…`.
-- **Enfileiramento vs. envio**: reforçar convenção — todo envio de saída insere em `outbound_messages` com `status='queued'` **antes** de chamar o provider; ACKs do WAHA continuam atualizando via webhook (`message_delivery_events`).
+`src/lib/engine/facts.ts` e `supabase/functions/_shared/engine/facts.ts` já implementam corretamente:
+- snapshot confirmado vira âncora (`map[account_id] = balance`);
+- só transações posteriores a `cutoff` entram;
+- despesas de cartão não afetam `cash` (via `txOrigin`);
+- fatura é subtraída separadamente em `computeNetWorth`;
+- cancelados/rejeitados/duplicados já excluídos (status ≠ 'confirmed').
 
-### A3. UI `src/pages/admin/Mensagens.tsx`
+**Única mudança**: `computeAccountBalances` hoje inclui `snapshots.filter((x) => !x.status || x.status === "confirmed")`. Adicionar teste de contrato dedicado ao cenário Itaú/danielmariano93:
+- opening_balance = 0, snapshot confirmado `2026-07-18` = 139.95, sem tx posteriores;
+- fatura em aberto = 271.88 (dois itens);
+- `computeNetWorth` deve retornar `cash=139.95`, `cardsOwed=271.88`, `net=-131.93`.
 
-Reescrita mobile-first, mantendo o layout Itaú-like já usado:
+**Arquivo**: `src/test/facts-networth-scenario.test.ts` — adicionar `describe` "cenário Itaú julho/26 (danielmariano93)".
 
-- Filtros: período (7/30/90/custom), status, canal, superfície, feature, usuário (autocomplete), busca por telefone/corpo mascarado, evento (`context_type`).
-- Métricas: cards existentes + novos ("Taxa de entrega", "Por canal", "Por funcionalidade", "Tempo médio de resposta"). Gráfico simples (Recharts, já no projeto) por dia.
-- Tabela: linha expansível → timeline (`admin_message_timeline`) com criação, tentativas, envio, ACKs.
-- Ação **Reprocessar** para mensagens `failed`/`dead` (chama `admin_message_reprocess`, com confirmação e toast). Auditada.
-- Vínculo clicável: quando `context_type='shared_expense'`, link para `/app/divisao-do-role/:id` (abre em nova aba). Quando `feature='insight'`, link para a notificação.
-- Painel "Conversas do assessor" mantém, agora unificado com filtro por superfície `app_assessor`.
+Espelhar cobertura no shared se relevante.
 
-### A4. Custo/consumo de IA e tempo de resposta
+## 4. Insight "Este mês tá apertado" alinhado à regra oficial
 
-- Métricas de IA lidas de `agent_runs` (`tokens_input`, `tokens_output`, `cost_credits`, `duration_ms` — já existentes). Painel novo dentro de Mensagens ou reaproveitando card de FinOps: custo total, custo por feature (via `agent_runs.context`), tempo médio.
+**Arquivo**: `supabase/functions/insights-generate/index.ts` (linhas ~80-134)
 
----
+Reescrever a query `recentTx` e o cálculo `income`/`expense`:
+- **Remover** `.limit(300)` — usar `.range()` paginado ou `head:false` sem limite artificial (a query já é filtrada por `status=confirmed` e mês corrente; volume é pequeno).
+- Adicionar filtros equivalentes aos relatórios:
+  - `.neq('type','transfer')`
+  - `.not('movement_kind','in','(internal_transfer,investment_application,investment_redemption,informational)')`
+  - `.is('settles_card_id', null)` na soma de despesa (pagamento de fatura já é contabilizado pelas compras do cartão — evita double-count);
+  - estorno (`type='income'` com `reversal_of` populado) subtrai da despesa em vez de somar à renda.
+- Extrair helper `computeMonthlyTotals(txs, ym)` em `supabase/functions/_shared/engine/facts.ts` (já existe `computeMonthlyIncomeExpense` — estender para aplicar os filtros acima) e usá-lo tanto no insights quanto no relatório e no `PeriodFilter` da Home (`src/pages/Index.tsx` linhas 45-59). Uma única fonte de verdade.
+- Espelhar no client `src/lib/engine/facts.ts`.
 
-## Bloco B — Configuração flexível do Agente (Admin)
+## 5. Transparência de UI
 
-### B1. Modelo de dados (mesma migration)
+**Arquivo**: `src/components/home/PatrimonioCard.tsx`
+- Adicionar prop opcional `cashAnchor?: { date: string; source: 'statement'|'manual' }`.
+- Sob "Em conta", exibir chip discreto: `Saldo conciliado em {dd/mm/yyyy}` (visual: `text-[10px] text-white/60`). Se nulo, não renderiza.
 
-Estender `agent_prompt_versions.structured_config jsonb` com contrato explícito (sem nova tabela — mantém o versionamento único que já temos):
+**Arquivo**: `src/pages/Index.tsx`
+- Selecionar snapshot confirmado mais recente por conta e passar `cashAnchor` (a maior `balance_date` entre snapshots confirmados; se múltiplas contas, mostrar do total agregado ou omitir — MVP: exibe quando houver **exatamente 1** conta com snapshot).
+- Manter "Na fatura" com sufixo já existente. Adicionar `title` (tooltip) "estimativa até o fechamento".
+- Copy do `PeriodFilter` (linha 141) já esclarece que o filtro não altera patrimônio — manter.
 
-```jsonc
-{
-  "identity": {
-    "name": null,                    // opcional: sem nome por padrão
-    "role": "Assessor financeiro",
-    "presentation": "…",
-    "personality": "…",
-    "signature": null
-  },
-  "voice": {
-    "tone": "humano",
-    "formality": "informal",
-    "emoji_style": "moderado",
-    "address_style": "voce",
-    "preferred_words": [],
-    "forbidden_words": []
-  },
-  "contexts": {
-    "financial_chat":       { "tone_override": null, "template": "…" },
-    "transaction_capture":  { "template": "…" },
-    "insights":             { "template": "…" },
-    "split_invite":         { "template": "Oi, {{participant_name}}! …" },
-    "split_reminder":       { "template": "…" },
-    "split_due_soon":       { "template": "…" },
-    "split_overdue":        { "template": "…" },
-    "split_payment_confirmation": { "template": "…" },
-    "split_completed":      { "template": "…" },
-    "platform_support":     { "template": "…" }
-  },
-  "autonomy": {
-    "can_answer": ["consulta","analise","registro_com_confirmacao"],
-    "can_execute": ["create_transaction_draft","update_transaction_draft"],
-    "requires_confirmation": ["delete_transaction","split_delete"],
-    "escalate_to_human": ["reclamacao","erro_financeiro_grave"]
-  },
-  "features": { "assessor_documents": true, "split": true, "insights": true }
-}
-```
+Sem mensagens técnicas: nenhum novo texto expõe termos como `snapshot`, `RPC`, etc.
 
-Regras invioláveis (privacidade, confirmação, não-invenção) **permanecem no `system_prompt`** e são concatenadas ao final pelo servidor — a UI de identidade/voz não consegue removê-las.
+## 6. Backfill / validação (sem migration de dados)
 
-### B2. Camada de renderização
+Nenhuma alteração em dados reais. Após deploy:
+- SQL de validação (executado manualmente via `supabase--read_query`):
+  ```sql
+  select balance, balance_date, status, source from account_balance_snapshots
+   where account_id='6c1cf814-2a25-4b3d-980d-c6454ccd35e0' order by balance_date desc;
+  -- esperado: 139.95 / 2026-07-18 / confirmed / manual
+  ```
+- Rodar `bunx vitest run src/test/facts-networth-scenario.test.ts` e ver os 3 asserts do novo cenário Itaú verdes.
+- Consulta de sanidade do insight (após deploy da function) — validar que `expense_month` do usuário reflete a nova regra (transfer/internal/pagamento de fatura excluídos).
 
-- `renderMessageTemplate` (já existente) ganha suporte a `contexts.<kind>.template` além de `templates.<kind>` (compat retroativa).
-- Novo helper `resolvePersonaFor(context, activePrompt)` — devolve persona efetiva por contexto, aplicando overrides de `contexts[kind]` sobre `identity`+`voice`.
-- Se `identity.name` for `null`, prompt e templates **omitem** qualquer nome ("Sou o assessor financeiro do NoControle.ia…"). Remove qualquer resíduo de "Lucas".
+## Arquivos afetados (resumo)
 
-### B3. UI `src/pages/admin/Agente.tsx` (refactor)
+| Arquivo | Mudança |
+|---|---|
+| `supabase/migrations/<novo>_reconciliation_hardening.sql` | índice único + `confirm_document_import` idempotente + snapshot `pending_review` |
+| `supabase/functions/_shared/documents/dates.ts` | preservar datas completas fora do período; sinalizar `needs_review` |
+| `supabase/functions/assistant-ingest-document/index.ts` | propagar `needs_review` para `extracted_items` |
+| `supabase/functions/_shared/engine/facts.ts` | estender `computeMonthlyIncomeExpense` (filtros movement_kind, settles_card_id, estorno) |
+| `src/lib/engine/facts.ts` | espelhar |
+| `supabase/functions/insights-generate/index.ts` | usar helper compartilhado; remover `.limit(300)` |
+| `src/components/home/PatrimonioCard.tsx` | prop `cashAnchor` + chip |
+| `src/pages/Index.tsx` | passar `cashAnchor`; consumir helper compartilhado no `periodSummary` |
+| `src/test/facts-networth-scenario.test.ts` | cenário Itaú julho/26 |
+| `src/test/documents-dates.test.ts` | data completa fora do período preservada |
+| `src/test/insights-monthly-rule.test.ts` (novo) | regra oficial (transfer, internal, settles_card_id, estorno) |
 
-Abas dentro da página atual:
+## Ordem de implantação
 
-1. **Identidade & voz** — formulário para `identity` + `voice`. Nome opcional com placeholder "Sem nome (padrão)".
-2. **Prompt geral** — editor do `system_prompt` (como hoje).
-3. **Regras invioláveis** — bloco somente leitura, exibindo o rodapé que o servidor concatena (segurança, privacidade, confirmação, não-invenção). Marcada como "protegida".
-4. **Templates por contexto** — lista os 10 contextos de B1, cada um com:
-   - editor com highlight das variáveis (`{{participant_name}}`, `{{owner_name}}`, `{{title}}`, `{{amount}}`, `{{due_date}}`, `{{pix_key}}`, `{{pending_amount}}`);
-   - **pré-visualização** ao lado (renderiza com dados fictícios);
-   - **enviar teste** (chama `whatsapp-send` com `feature='template_test'` para o telefone do admin logado, se vinculado).
-5. **Autonomia & funcionalidades** — toggles do bloco `autonomy` e `features`.
-6. **Versões** — lista com quem alterou, quando, status (rascunho/ativa/arquivada), diff resumido, botões **Publicar**, **Salvar rascunho**, **Restaurar**. Reaproveita `parent_version_id` / `restored_from_id` já existentes.
-
-Publicar cria nova versão (parent = ativa atual), marca a antiga como `archived`, promove a nova para `active` (respeita o índice único parcial `apv_active_uniq`).
-
-### B4. Divisão do Rolê usa o template administrável
-
-`split-reminders-dispatch/index.ts` já lê `structured_config` do prompt ativo. Ajuste: buscar `contexts.split_<kind>.template` antes de `templates.<kind>`; se ambos vazios, cai no `DEFAULTS` do arquivo. Nenhuma cópia de texto nova no código — apenas melhoria da chave lida.
-
----
-
-## Testes
-
-- Unit: `renderMessageTemplate` com `contexts` + fallback; `resolvePersonaFor` para persona sem nome; mascaramento (`mask_message_body`).
-- Integração (vitest com fixtures): RPCs `admin_message_activity`/`metrics`/`timeline`/`reprocess` — cobertura de gate admin e formatos.
-- Contrato: dispatch de Divisão do Rolê renderiza usando `contexts.split_invite.template` quando definido, e sem nome quando `identity.name=null`.
-- Regressão: nenhum vazamento de telefone/corpo cru nas respostas das RPCs.
-
----
-
-## Arquivos afetados (previsão)
-
-- `supabase/migrations/20260720_admin_message_center.sql` (novo)
-- `supabase/functions/_shared/agent/messageTemplates.ts` (leitura de `contexts.*`)
-- `supabase/functions/_shared/agent/prompt.ts` (helper `resolvePersonaFor`)
-- `supabase/functions/split-reminders-dispatch/index.ts` (usa `contexts.*`, seta `surface`/`feature`)
-- `supabase/functions/whatsapp-send/index.ts` (seta `surface`/`feature` no insert quando ausente)
-- `src/pages/admin/Mensagens.tsx` (reescrita com filtros, timeline, reprocess)
-- `src/pages/admin/Agente.tsx` (abas de identidade, templates, autonomia, versões)
-- `src/lib/admin/messageCenter.ts` (novo helper de leitura das RPCs)
-
-## Fora de escopo
-
-- WAHA / whatsapp-webhook / whatsapp-session / infra de sessão — não tocar.
-- Modelo/preço da IA e novos providers.
-- Feature flags fora de `agent_prompt_versions.structured_config.features`.
+1. Migration (`reconciliation_hardening`) → aprovação → aplicar.
+2. Editar helpers puros (`dates.ts`, `_shared/engine/facts.ts`, `src/lib/engine/facts.ts`) + testes → `bunx vitest run`.
+3. Editar `insights-generate` + `assistant-ingest-document` → deploy das duas edge functions.
+4. Editar UI (`PatrimonioCard`, `Index`) → build.
+5. Validar via SQL o snapshot Itaú intacto e Home retornando `-R$ 131,93`.
 
 ## Riscos
 
-- Trigger de espelho pode inflar `outbound_messages` — mitigado com `idempotency_key` e índice parcial; retenção em rotina separada (fora deste patch).
-- Publicação de nova persona sem regras invioláveis: mitigado por concatenação server-side obrigatória.
-
-## Validação após implantação
-
-1. Rodar migration, checar `\df admin_message_*` — devem existir.
-2. Enviar convite de Divisão do Rolê de teste; confirmar aparição imediata em `/admin/mensagens` com `feature=split_invite`.
-3. Editar template `split_invite`, publicar, disparar novo convite — texto novo aplicado; regras invioláveis intactas no prompt do agente.
-4. Reprocessar uma mensagem `failed` — status volta a `queued`, auditoria registrada.
+- **Índice único** em `source_document_id` pode conflitar se já existirem 2 snapshots do mesmo doc — verificar antes de aplicar (`select source_document_id, account_id, count(*) from account_balance_snapshots where source_document_id is not null group by 1,2 having count(*)>1`); se houver, migration marca duplicatas como `status='canceled'` antes de criar o índice.
+- Alteração em `computeMonthlyIncomeExpense` muda números exibidos em Home/Relatórios/Insights simultaneamente — desejado, mas o usuário verá totais diferentes dos anteriores. É o comportamento correto pedido no plano.
+- `needs_review` na tabela `extracted_items` já existe (usado pela quarentena). Reusar o mesmo campo — nenhuma migration adicional.
+- Nada muda no fluxo WhatsApp/assessor além do sinal `needs_review`.
