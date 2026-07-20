@@ -108,6 +108,7 @@ export function useCategories() {
       const { data, error } = await supabase
         .from("categories")
         .select("*")
+        .is("archived_at", null)
         .order("type", { ascending: true })
         .order("name", { ascending: true });
       if (error) throw error;
