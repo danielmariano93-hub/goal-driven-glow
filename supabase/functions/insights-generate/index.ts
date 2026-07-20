@@ -193,6 +193,7 @@ Deno.serve(async (req) => {
 
   if (LOVABLE_API_KEY) {
     const system = `Você é o assistente do NoControle.ia. Escreva UMA dica curta em português brasileiro baseada estritamente nos dados fornecidos. Regras rígidas:
+- Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos de investimento, pagamento de fatura e crédito de empréstimo. NUNCA diga "gastou mais do que recebeu" comparando com fluxo bancário bruto. Se balance_month >= 0, não é déficit.
 - title: 4 a 80 caracteres, não vazio, sem "null"/"undefined".
 - body: 10 a 240 caracteres, não vazio.
 - type: um de habit, alert, celebration, onboarding, opportunity.
