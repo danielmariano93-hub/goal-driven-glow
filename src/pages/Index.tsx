@@ -105,22 +105,18 @@ export default function Index() {
       ) : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <Kpi
-            label={`Entrou ${periodLabel}`}
-            value={formatBRL(periodSummary.income)}
-            icon={<ArrowUpRight />}
-            accent="text-success"
-          />
-          <Kpi
-            label={`Saiu da conta ${periodLabel}`}
-            value={formatBRL(periodSummary.expense)}
-            icon={<ArrowDownRight />}
-            accent="text-destructive"
-            sub={periodSummary.cardExpense > 0 ? `+ ${formatBRL(periodSummary.cardExpense)} em compras no cartão` : undefined}
-          />
-        </div>
+        <PonteCaixaCard
+          income={periodSummary.income}
+          expense={periodSummary.expense}
+          closing={nw.cash}
+          periodLabel={periodLabel}
+        />
       )}
+      {!isFresh && !loading && periodSummary.cardExpense > 0 && (
+        <p className="-mt-2 text-center text-[11px] text-muted-foreground">
+          Consumo no cartão {periodLabel}: <strong className="text-foreground">{formatBRL(periodSummary.cardExpense)}</strong> (não entra na ponte de caixa).
+        </p>
+      
 
       <EmotionalCheckinCard />
 
