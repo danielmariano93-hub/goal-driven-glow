@@ -44,6 +44,8 @@ type StructuredCfg = {
   emoji_style: string;
   address_style: string;
   signature: string;
+  preferred_words: string[];
+  forbidden_words: string[];
   templates: Record<string, string>;
 };
 
@@ -60,6 +62,8 @@ const DEFAULT_CFG: StructuredCfg = {
   emoji_style: "moderado",
   address_style: "você",
   signature: "",
+  preferred_words: [],
+  forbidden_words: [],
   templates: {},
 };
 
@@ -78,8 +82,32 @@ function normalize(cfg: unknown): StructuredCfg {
     emoji_style: String(c.emoji_style ?? DEFAULT_CFG.emoji_style),
     address_style: String(c.address_style ?? DEFAULT_CFG.address_style),
     signature: String(c.signature ?? DEFAULT_CFG.signature),
+    preferred_words: Array.isArray(c.preferred_words) ? (c.preferred_words as unknown[]).map(String) : [],
+    forbidden_words: Array.isArray(c.forbidden_words) ? (c.forbidden_words as unknown[]).map(String) : [],
     templates: typeof c.templates === "object" && c.templates ? c.templates as Record<string, string> : {},
   };
+}
+
+const PREVIEW_VARS: Record<string, string> = {
+  participant_name: "Lucas",
+  owner_name: "Daniel",
+  title: "Fakku",
+  amount: "R$ 19,95",
+  due_date: "22/07",
+  due_sentence: " O combinado é pagar até 22/07.",
+  pix_key: "daniel@nocontrole.ia",
+  pix_sentence: " Pix: daniel@nocontrole.ia.",
+};
+
+function renderPreview(template: string, cfg: StructuredCfg): string {
+  const raw = template?.trim() || "(usando texto padrão do NoControle.ia)";
+  let out = raw.replace(/\{\{([a-z_]+)\}\}/g, (_m, k: string) => PREVIEW_VARS[k] ?? "");
+  out = out.replace(/[ \t]+\n/g, "\n").replace(/ {2,}/g, " ").trim();
+  const sig = cfg.signature?.trim();
+  const name = cfg.name?.trim();
+  if (sig) out += `\n\n${sig}`;
+  else if (name) out += `\n\n— ${name}`;
+  return out;
 }
 
 export default function AgenteAdmin() {
