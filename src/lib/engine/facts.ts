@@ -37,6 +37,8 @@ export interface TransactionRow {
   competence_date?: string | null;
   /** Se preenchido, esta transação é um pagamento de fatura do cartão indicado. */
   settles_card_id?: string | null;
+  /** Kind of movement — usado para excluir transferências internas e movimentações de investimento dos totais mensais. */
+  movement_kind?: string | null;
 }
 
 export interface CreditCardRow {
