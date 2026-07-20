@@ -116,7 +116,7 @@ export default function Index() {
             value={formatBRL(periodSummary.expense)}
             icon={<ArrowDownRight />}
             accent="text-destructive"
-            sub={periodSummary.cardExpense > 0 ? `+ ${formatBRL(periodSummary.cardExpense)} foi para a fatura do cartão` : undefined}
+            sub={periodSummary.cardExpense > 0 ? `+ ${formatBRL(periodSummary.cardExpense)} em compras no cartão` : undefined}
           />
         </div>
       )}

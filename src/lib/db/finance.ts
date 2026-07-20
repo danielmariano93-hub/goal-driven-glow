@@ -181,15 +181,31 @@ export function useTransactions(filters: TxFilters = {}) {
     queryKey: ["transactions", user?.id, filters],
     enabled: !!user,
     queryFn: async () => {
-      let q = supabase.from("transactions").select("*").order("occurred_at", { ascending: false }).order("created_at", { ascending: false });
-      if (filters.from) q = q.gte("occurred_at", filters.from);
-      if (filters.to) q = q.lte("occurred_at", filters.to);
-      if (filters.type && filters.type !== "all") q = q.eq("type", filters.type);
-      if (filters.accountId) q = q.eq("account_id", filters.accountId);
-      if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data as TransactionRow[];
+      // Paginação obrigatória: o PostgREST corta em 1000 linhas silenciosamente,
+      // e os KPIs brutos da Home (computeAccountStatementTotals) exigem a amostra
+      // completa do período. Iteramos em páginas de 1000 até esgotar o resultado.
+      const PAGE = 1000;
+      const rows: TransactionRow[] = [];
+      let offset = 0;
+      // Guarda de segurança: até 100k linhas por conta (100 páginas).
+      for (let i = 0; i < 100; i++) {
+        let q = supabase.from("transactions").select("*")
+          .order("occurred_at", { ascending: false })
+          .order("created_at", { ascending: false })
+          .range(offset, offset + PAGE - 1);
+        if (filters.from) q = q.gte("occurred_at", filters.from);
+        if (filters.to) q = q.lte("occurred_at", filters.to);
+        if (filters.type && filters.type !== "all") q = q.eq("type", filters.type);
+        if (filters.accountId) q = q.eq("account_id", filters.accountId);
+        if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+        const { data, error } = await q;
+        if (error) throw error;
+        const chunk = (data ?? []) as TransactionRow[];
+        rows.push(...chunk);
+        if (chunk.length < PAGE) break;
+        offset += PAGE;
+      }
+      return rows;
     },
   });
 }
