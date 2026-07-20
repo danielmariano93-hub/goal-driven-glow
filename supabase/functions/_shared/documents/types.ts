@@ -185,7 +185,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
       const type = row[0] === "income" ? "income" : "expense";
       const description = String(row[3] ?? "").trim();
       if (!description) continue;
-      const movementKind = normalizeMovementKind(row[7], type);
+      const movementKind = normalizeMovementKind(row[7], type, description);
       if (movementKind === "informational") { informational_dropped++; continue; }
       if (isNonTransactionLine(description)) { informational_dropped++; continue; }
 
@@ -218,7 +218,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
     const description = String(it.description ?? "").trim();
     if (!description) continue;
     const type = it.type === "income" ? "income" : "expense";
-    const movementKind = normalizeMovementKind(it.movement_kind, type);
+    const movementKind = normalizeMovementKind(it.movement_kind, type, description);
     if (movementKind === "informational") { informational_dropped++; continue; }
     if (isNonTransactionLine(description)) { informational_dropped++; continue; }
 
