@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Loader2, ArrowLeftRight, MoreHorizontal, Pencil, Copy, Trash2 } from "lucide-react";
+import { Plus, Loader2, ArrowLeftRight, MoreHorizontal, Pencil, Copy, Trash2, Search, WandSparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import {
@@ -38,6 +38,7 @@ export default function Lancamentos() {
   const [openTx, setOpenTx] = useState(false);
   const [openTransfer, setOpenTransfer] = useState(false);
   const [editing, setEditing] = useState<TransactionRow | null>(null);
+  const [categorizing, setCategorizing] = useState(false);
 
   const { data: cards } = useCreditCards();
   const catName = (id: string | null) =>
@@ -90,6 +91,17 @@ export default function Lancamentos() {
         <EmptyMessage title="Cadastre uma conta antes" description="Você precisa de pelo menos uma conta para registrar lançamentos." />
       ) : (
         <>
+          <div className="mb-3 flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2">
+            <Search size={15} className="shrink-0 text-muted-foreground" />
+            <input
+              value={filters.search ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value || undefined }))}
+              placeholder="Buscar por nome ou descrição"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              aria-label="Buscar lançamentos"
+            />
+            {filters.search ? <button type="button" onClick={() => setFilters((f) => ({ ...f, search: undefined }))} aria-label="Limpar busca"><X size={14} /></button> : null}
+          </div>
           <div className="mb-4 flex flex-wrap gap-2">
             <select
               value={filters.type ?? "all"}
@@ -114,17 +126,45 @@ export default function Lancamentos() {
               ))}
             </select>
             <select
-              value={filters.categoryId ?? ""}
-              onChange={(e) => setFilters((f) => ({ ...f, categoryId: e.target.value || undefined }))}
+              value={filters.uncategorized ? "__uncategorized__" : filters.categoryId ?? ""}
+              onChange={(e) => setFilters((f) => ({
+                ...f,
+                categoryId: e.target.value && e.target.value !== "__uncategorized__" ? e.target.value : undefined,
+                uncategorized: e.target.value === "__uncategorized__" || undefined,
+              }))}
               className="rounded-full border border-border bg-card px-3 py-1.5 text-xs"
             >
               <option value="">Todas as categorias</option>
+              <option value="__uncategorized__">Sem categoria</option>
               {categories?.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
             </select>
+            {filters.uncategorized ? (
+              <button
+                type="button"
+                disabled={categorizing}
+                onClick={async () => {
+                  setCategorizing(true);
+                  try {
+                    const { data, error } = await (supabase.rpc as any)("apply_safe_category_suggestions");
+                    if (error) throw error;
+                    const count = Number((data as any)?.updated ?? 0);
+                    toast.success(count ? `${count} lançamento${count === 1 ? "" : "s"} categorizado${count === 1 ? "" : "s"}` : "Nenhuma sugestão segura encontrada", {
+                      description: count ? "Aplicamos apenas correspondências de alta confiança." : "Os demais continuam para sua revisão.",
+                    });
+                    await qc.invalidateQueries({ queryKey: ["transactions"] });
+                  } catch (e) {
+                    toast.error("Não consegui aplicar as sugestões", { description: String((e as Error).message) });
+                  } finally { setCategorizing(false); }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50"
+              >
+                {categorizing ? <Loader2 size={13} className="animate-spin" /> : <WandSparkles size={13} />} Categorizar com segurança
+              </button>
+            ) : null}
             <input
               type="date"
               value={filters.from ?? ""}

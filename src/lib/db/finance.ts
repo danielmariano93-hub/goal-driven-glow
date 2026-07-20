@@ -229,6 +229,8 @@ export type TxFilters = {
   type?: "all" | "income" | "expense" | "transfer";
   accountId?: string;
   categoryId?: string;
+  uncategorized?: boolean;
+  search?: string;
 };
 
 export function useTransactions(filters: TxFilters = {}) {
@@ -254,6 +256,13 @@ export function useTransactions(filters: TxFilters = {}) {
         if (filters.type && filters.type !== "all") q = q.eq("type", filters.type);
         if (filters.accountId) q = q.eq("account_id", filters.accountId);
         if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+        if (filters.uncategorized) q = q.is("category_id", null);
+        if (filters.search?.trim()) {
+          // Remove os caracteres que alteram a gramática do filtro `or` do
+          // PostgREST; a busca continua livre para nomes com espaços/acentos.
+          const term = filters.search.trim().replace(/[%_,()'\"]/g, " ").replace(/\s+/g, " ").slice(0, 80);
+          q = q.or(`description.ilike.%${term}%,friendly_description.ilike.%${term}%,raw_description.ilike.%${term}%`);
+        }
         const { data, error } = await q;
         if (error) throw error;
         const chunk = (data ?? []) as TransactionRow[];
@@ -292,6 +301,13 @@ export function useSaveTransaction() {
       if (input.id) {
         const { error } = await supabase.from("transactions").update(payload).eq("id", input.id);
         if (error) throw error;
+        if (input.category_id) {
+          const { error: learnError } = await (supabase.rpc as any)("learn_transaction_category", {
+            p_transaction_id: input.id,
+            p_category_id: input.category_id,
+          });
+          if (learnError) console.warn("[category-learning]", learnError.message);
+        }
       } else {
         const { error } = await supabase.from("transactions").insert(payload);
         if (error) throw error;

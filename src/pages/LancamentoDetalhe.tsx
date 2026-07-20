@@ -165,6 +165,13 @@ export default function LancamentoDetalhe() {
       if (r?.error === "invalid_payment_method") return toast.error("Método de pagamento inválido.");
       return toast.error("Não consegui salvar agora. Tente novamente em instantes.");
     }
+    if (categoryId && categoryId !== (tx.category_id ?? "")) {
+      const { error: learnError } = await (supabase.rpc as any)("learn_transaction_category", {
+        p_transaction_id: tx.id,
+        p_category_id: categoryId,
+      });
+      if (learnError) console.warn("[category-learning]", learnError.message);
+    }
     toast.success("Lançamento atualizado ✅");
     qc.invalidateQueries({ queryKey: ["transactions"] });
     qc.invalidateQueries({ queryKey: ["assistant-tip"] });

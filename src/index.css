@@ -120,6 +120,16 @@
     overflow-x: hidden;
   }
 
+  #root, main, form, section {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  input, select, textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   /* Global safety: prevent images/media from causing horizontal overflow */
   img, video, canvas, svg, iframe {
     max-width: 100%;

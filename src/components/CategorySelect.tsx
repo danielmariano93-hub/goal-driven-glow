@@ -65,13 +65,13 @@ export function CategorySelect({
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full items-center gap-2">
         <select
           id={id}
           value={value ?? ""}
           onChange={(e) => handleChange(e.target.value)}
           disabled={disabled || isLoading}
-          className={className ?? "input-base"}
+          className={`${className ?? "input-base"} min-w-0 max-w-full`}
           aria-label="Categoria"
         >
           {allowEmpty && <option value="">{emptyLabel}</option>}

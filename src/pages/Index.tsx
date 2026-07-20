@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { Loader2, CalendarDays } from "lucide-react";
-import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
+import { Loader2, CalendarDays, Users, FileBarChart, ChevronRight, Landmark } from "lucide-react";
+import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts, useCategories } from "@/lib/db/finance";
 import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
@@ -30,6 +30,7 @@ export default function Index() {
   const { data: goals } = useGoals();
   const { data: investments } = useInvestments();
   const { data: debts } = useDebts();
+  const { data: categories } = useCategories();
 
   const loading = la || lt || lbs;
   const acc = accounts ?? [];
@@ -80,6 +81,10 @@ export default function Index() {
   const hasTransaction = tx.length > 0;
   const hasGoal = (goals ?? []).length > 0;
   const isFresh = !hasAccount && !hasTransaction && !hasGoal;
+  const debtCategoryId = categories?.find((c) => c.name === "Dívidas e empréstimos")?.id;
+  const hasDebtPaymentsWithoutDebt = (debts ?? []).filter((d) => d.status === "active").length === 0
+    && !!debtCategoryId
+    && tx.some((t) => t.type === "expense" && t.category_id === debtCategoryId && t.status === "confirmed");
 
   return (
     <div className="space-y-5">
@@ -92,9 +97,16 @@ export default function Index() {
 
       <QuickActions />
 
+      <div className="grid grid-cols-2 gap-2" aria-label="Atalhos importantes">
+        <HomeShortcut to="/app/divisao-do-role" icon={<Users size={16} />} title="Divisão do Rolê" subtitle="Acompanhar cobranças" />
+        <HomeShortcut to="/app/relatorios" icon={<FileBarChart size={16} />} title="Relatórios" subtitle="Entender seus números" />
+      </div>
+
       <WhatsAppCta />
 
       <ParaPagarResumo />
+
+      {hasDebtPaymentsWithoutDebt ? <Link to="/app/dividas" className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-3 text-sm"><Landmark size={18} className="text-warning"/><span className="min-w-0 flex-1"><strong className="block">Falta informar o saldo da dívida</strong><span className="text-xs text-muted-foreground">Pagamentos categorizados não dizem quanto ainda falta pagar.</span></span><ChevronRight size={15}/></Link> : null}
 
       <AReceberRoleResumo />
 
@@ -138,11 +150,11 @@ function PeriodFilter({ period, setPeriod, customStart, customEnd, setCustomStar
   period: Period; setPeriod: (value: Period) => void; customStart: string; customEnd: string;
   setCustomStart: (value: string) => void; setCustomEnd: (value: string) => void;
 }) {
-  return <section className="rounded-2xl border border-border bg-card p-3 shadow-sm" aria-label="Período das movimentações">
+  return <section className="rounded-xl border border-border/70 bg-card px-3 py-2 shadow-sm" aria-label="Período das movimentações">
     <div className="flex items-center gap-2">
       <CalendarDays size={15} className="text-primary" />
-      <label htmlFor="home-period" className="text-xs font-semibold">Período das movimentações</label>
-      <select id="home-period" value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="ml-auto rounded-full border border-border bg-background px-3 py-1.5 text-xs">
+      <label htmlFor="home-period" className="text-xs font-medium text-muted-foreground">Movimentações</label>
+      <select id="home-period" value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="ml-auto rounded-full border border-border bg-background px-3 py-1 text-xs font-medium">
         <option value="month">Este mês</option><option value="30d">Últimos 30 dias</option><option value="90d">Últimos 90 dias</option><option value="custom">Personalizado</option>
       </select>
     </div>
@@ -150,7 +162,12 @@ function PeriodFilter({ period, setPeriod, customStart, customEnd, setCustomStar
       <label className="text-[11px] text-muted-foreground">De<input type="date" value={customStart} max={customEnd} onChange={(e) => setCustomStart(e.target.value)} className="input-base mt-1" /></label>
       <label className="text-[11px] text-muted-foreground">Até<input type="date" value={customEnd} min={customStart} onChange={(e) => setCustomEnd(e.target.value)} className="input-base mt-1" /></label>
     </div> : null}
-    <p className="mt-2 text-[10px] text-muted-foreground">O filtro ajusta entradas e gastos. Seu patrimônio continua mostrando a posição de hoje.</p>
   </section>;
 }
 
+function HomeShortcut({to,icon,title,subtitle}:{to:string;icon:React.ReactNode;title:string;subtitle:string}) {
+  return <Link to={to} className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-card">
+    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">{icon}</span>
+    <span className="min-w-0"><strong className="block truncate text-xs">{title}</strong><span className="block truncate text-[10px] text-muted-foreground">{subtitle}</span></span>
+  </Link>;
+}

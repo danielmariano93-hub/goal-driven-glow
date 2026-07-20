@@ -123,11 +123,16 @@ export function AssistantTipCard() {
     setGenerating(true);
     if (force) setLastForceAt(Date.now());
     try {
-      await supabase.functions.invoke("insights-generate", { body: force ? { force: true } : {} });
+      const { data: generated, error } = await supabase.functions.invoke("insights-generate", { body: force ? { force: true } : {} });
+      if (error) throw error;
+      if (generated?.insight && isRenderable(generated.insight)) {
+        qc.setQueryData(["assistant-tip", user?.id], generated.insight);
+      }
       await qc.invalidateQueries({ queryKey: ["assistant-tip", user?.id] });
       await refetch();
-    } catch {
-      /* silencioso, usaremos fallback local */
+    } catch (e) {
+      if (force) toast.error("Não consegui criar uma nova dica agora", { description: "Sua dica atual continua disponível. Tente novamente em instantes." });
+      console.warn("[insights-generate]", (e as Error).message);
     } finally {
       setGenerating(false);
     }

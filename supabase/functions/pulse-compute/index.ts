@@ -44,11 +44,16 @@ Deno.serve(async (req) => {
       sb.from("credit_cards").select("id,total_limit,active").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
       sb.from("debts").select("id,outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
-      sb.from("goal_contributions").select("goal_id,amount"),
+      sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
       sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", iso(cutoff30)),
       sb.from("recurring_rules").select("id,active,amount").eq("user_id", userId).eq("active", true),
       sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
     ]);
+
+    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR]
+      .map((r, index) => ({ index, error: r.error }))
+      .find((r) => r.error);
+    if (failedRead?.error) throw new Error(`pulse_read_${failedRead.index}: ${failedRead.error.message}`);
 
     const txs = (txsR.data ?? []) as Array<{ id: string; type: string; status: string; amount: number | string; occurred_at: string; category_id: string | null; credit_card_id: string | null; payment_method: string | null; settles_card_id?: string | null }>;
     const accounts = (accountsR.data ?? []) as Array<{ opening_balance: number | string; active: boolean }>;
@@ -186,11 +191,10 @@ Deno.serve(async (req) => {
       computed_at: nowIso,
       snapshot_date: todayLocal,
     };
-    if (existing?.id) {
-      await sb.from("pulse_snapshots").update(payload).eq("id", existing.id);
-    } else {
-      await sb.from("pulse_snapshots").insert(payload);
-    }
+    const snapshotWrite = existing?.id
+      ? await sb.from("pulse_snapshots").update(payload).eq("id", existing.id)
+      : await sb.from("pulse_snapshots").insert(payload);
+    if (snapshotWrite.error) throw new Error(`pulse_snapshot_write: ${snapshotWrite.error.message}`);
 
     return json({
       score: pulse.score,

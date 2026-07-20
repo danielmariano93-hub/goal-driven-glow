@@ -1,22 +1,23 @@
-import { Sparkles, TrendingUp, TrendingDown, Minus, ChevronRight, Loader2 } from "lucide-react";
+import { Sparkles, TrendingUp, TrendingDown, Minus, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { usePulse } from "@/lib/pulse/usePulse";
 
 export function PulseHero() {
-  const { data, isLoading } = usePulse();
+  const { data, isLoading, isError, refetch, isFetching } = usePulse();
   const [open, setOpen] = useState(false);
 
-  if (isLoading || !data) {
+  if (isLoading || isError || !data) {
     return (
       <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
         <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           <Sparkles size={12} /> Pulso Financeiro
         </div>
         <div className="mt-2 flex items-center gap-3">
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : <div className="h-4 w-10 animate-pulse rounded bg-muted" />}
+          {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : isError ? <RefreshCw className="h-4 w-4 text-destructive" /> : <div className="h-4 w-10 animate-pulse rounded bg-muted" />}
           <p className="text-xs text-muted-foreground">
-            {isLoading ? "Calibrando seu Pulso…" : "Vamos entender seus hábitos primeiro. Anote alguns lançamentos e o Pulso começa a se calibrar."}
+            {isLoading ? "Calibrando seu Pulso…" : isError ? "Não consegui atualizar seu Pulso agora." : "Vamos entender seus hábitos primeiro. Anote alguns lançamentos e o Pulso começa a se calibrar."}
           </p>
+          {isError ? <button type="button" disabled={isFetching} onClick={() => void refetch()} className="ml-auto text-xs font-semibold text-primary">Tentar de novo</button> : null}
         </div>
       </section>
     );

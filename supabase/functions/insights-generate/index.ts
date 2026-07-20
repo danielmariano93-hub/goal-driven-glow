@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
     .limit(1);
   if (veryRecent && veryRecent.length > 0 && force) {
     logEvent({ uid_len: uid.length, event: "throttled" });
-    // fall through to cache read below
+    return json({ error: "rate_limited", retry_after_seconds: 60 }, 429);
   }
 
   // Cache reuse (6h) — only real content.
@@ -108,8 +108,14 @@ Deno.serve(async (req) => {
       .is("category_id", null)
       .gte("occurred_at", new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10))
       .order("occurred_at", { ascending: false })
-      .limit(1),
+      .limit(20),
   ]);
+
+  const { data: previousActive } = await supa.from("user_insights")
+    .select("id,evidence,title").eq("user_id",uid).eq("status","active")
+    .order("generated_at",{ascending:false}).limit(1).maybeSingle();
+  const previousTxId = (previousActive?.evidence as any)?.transaction_id as string | undefined;
+  const chosenUncategorized = (uncategorized ?? []).find((row: any) => row.id !== previousTxId) ?? (uncategorized ?? [])[0] ?? null;
 
   // Comportamental (regra canônica): exclui transferências internas, aplicação/
   // resgate/rendimento de investimento, pagamento de fatura e proceeds de
@@ -131,9 +137,13 @@ Deno.serve(async (req) => {
     return d >= Date.now() - 86400_000 && d <= in7;
   }).length;
 
-  const uncategorized_tx = (uncategorized && uncategorized.length > 0)
-    ? { id: uncategorized[0].id as string, description: (uncategorized[0].description as string) ?? null, amount: Number(uncategorized[0].amount), occurred_at: uncategorized[0].occurred_at as string }
+  const uncategorized_tx = chosenUncategorized
+    ? { id: chosenUncategorized.id as string, description: (chosenUncategorized.description as string) ?? null, amount: Number(chosenUncategorized.amount), occurred_at: chosenUncategorized.occurred_at as string }
     : null;
+
+  if (force && previousActive?.id) {
+    await supa.from("user_insights").update({ status: "dismissed" }).eq("id", previousActive.id).eq("user_id", uid);
+  }
 
   const facts: InsightFacts = {
     total_tx_ever: totalCount,

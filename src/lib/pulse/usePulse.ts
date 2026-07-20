@@ -20,14 +20,10 @@ export function usePulse() {
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<PulseData | null> => {
-      try {
-        const { data, error } = await supabase.functions.invoke("pulse-compute", { body: {} });
-        if (error) throw error;
-        return data as PulseData;
-      } catch (e) {
-        console.warn("[pulse] fallback:", (e as Error).message);
-        return null;
-      }
+      const { data, error } = await supabase.functions.invoke("pulse-compute", { body: {} });
+      if (error) throw error;
+      if (!data || typeof data.score !== "number") throw new Error("invalid_pulse_response");
+      return data as PulseData;
     },
   });
 }
