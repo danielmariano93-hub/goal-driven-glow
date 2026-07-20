@@ -37,7 +37,7 @@ describe("computeMonthlyTotals — escopo comportamental v1", () => {
     expect(totals.income).toBe(5000);
   });
 
-  it("balance é diferença simples", () => {
-    expect(totals.balance).toBe(4750);
+  it("net é diferença simples", () => {
+    expect(totals.net).toBe(4750);
   });
 });
