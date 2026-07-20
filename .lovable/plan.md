@@ -1,118 +1,137 @@
+## Objetivo
+Corrigir os KPIs "Entrou / Saiu / Fatura" da Home para refletirem **fluxo bancário literal** (bruto), mantendo `isRealMonthlyMovement` intocado para uso comportamental. Reclassificar 1 lançamento mal categorizado ("APLICACAO CDB DI" R$ 5.000,00 em 03/07/2026), sem reimportar documentos nem duplicar dados.
 
-# Correção de Conciliação Financeira — plano mínimo
+Acceptance numérico obrigatório (usuário/conta Banco Itaú, julho/2026):
+- Entrou na conta = **R$ 11.193,82**
+- Saiu da conta = **R$ 14.893,54**
+- Fatura do cartão = **R$ 271,88**
+- Resultado geral = **-R$ 3.971,60**
+- Patrimônio inalterado: Em conta R$ 139,95 · Fatura R$ 271,88 · Patrimônio -R$ 131,93.
 
-Escopo: 4 arquivos de código + 1 migration + testes. Nada de novos módulos, nada de reimportação, nada de alteração no snapshot manual já criado (`380b5a34…`) nem na fatura de R$ 271,88.
+## Alterações
 
-## 1. Snapshot de saldo idempotente vindo do extrato
+### 1. `src/lib/engine/facts.ts` — novas funções puras (aditivas)
+Adicionar, sem tocar em `isRealMonthlyMovement` / `computeMonthlyTotals` / `computeMonthlyIncomeExpense`:
 
-**Arquivo**: `supabase/migrations/<novo>_reconciliation_hardening.sql`
+```ts
+// Movimento bruto de EXTRATO da conta (fluxo literal).
+// Inclui: transaction, investment_application, investment_redemption, refund.
+// Exclui: type='transfer' (usa lógica de pares), planned/cancelled, settles_card_id
+//         (evita dupla contagem com card), movement_kind='internal_transfer'
+//         (transferência entre contas próprias no consolidado).
+export function isGrossAccountMovement(t: TransactionRow, opts?: { scopeAccountId?: string }): boolean
 
-- `CREATE UNIQUE INDEX IF NOT EXISTS account_balance_snapshots_unique_doc_idx ON public.account_balance_snapshots(source_document_id, account_id) WHERE source_document_id IS NOT NULL;` — impede duplicidade em reprocessamento.
-- Substituir `public.confirm_document_import` para, quando `v_doc.statement_closing_balance` e `statement_balance_date` estiverem presentes, executar `INSERT ... ON CONFLICT (source_document_id, account_id) DO UPDATE SET balance = EXCLUDED.balance, balance_date = EXCLUDED.balance_date, reconciliation = EXCLUDED.reconciliation, status = 'pending_review', updated_at = now()`.
-- Snapshot criado pelo import fica sempre com `status='pending_review'`; só passa a `confirmed` via ação explícita do usuário (função `public.confirm_balance_snapshot(p_snapshot_id uuid)` já existente é reutilizada — sem alteração).
-- `source='statement'`, `source_document_id` = documento importado, `account_id` obrigatório (resolver via `document_imports.account_id`; se nulo, `RAISE EXCEPTION 'account_required_for_snapshot'`).
-- Reforçar CHECK: `balance_date` = `statement_balance_date` (não pode ser deslocada).
-- Nenhuma linha de `transactions` deve ser criada a partir de saldo (garantido pela quarentena `informational` já existente em `_shared/documents/types.ts` — apenas adicionar teste de contrato).
+// Movimento bruto de CARTÃO — despesas confirmadas com origem credit_card,
+// exceto internal_transfer/planned. Não subtrai refund do cartão do total de conta.
+export function isGrossCardMovement(t: TransactionRow): boolean
 
-**Sem backfill de dados**: o snapshot manual `380b5a34…` fica intocado (índice único é `WHERE source_document_id IS NOT NULL`; snapshot manual tem `source='manual'`, `source_document_id NULL`).
+// Totaliza: { accountIn, accountOut, cardOut } em BRL arredondado.
+// Refund entra em accountIn (é crédito real na conta), NUNCA abate accountOut.
+// Aplicação em investimento entra em accountOut. Resgate entra em accountIn.
+export function computeAccountStatementTotals(
+  txs: TransactionRow[],
+  range: { start: string; end: string },
+  opts?: { scopeAccountId?: string }
+): { accountIn: number; accountOut: number; cardOut: number; net: number }
+```
 
-## 2. Datas preservadas no extrato
+Regras internas:
+- `range` = intervalo ISO fechado (dd usa `occurred_at >= start && <= end`).
+- Filtro base: `status === 'confirmed'`.
+- Transferências (`type='transfer'`): quando `scopeAccountId` é passado, entra na perna correspondente (in/out); quando ausente (consolidado), ambas as pernas se cancelam → **ignoradas**.
+- `movement_kind='internal_transfer'` no consolidado é ignorado; com `scopeAccountId`, entra normalmente.
+- `settles_card_id` presente → ignora nos totais de conta (para evitar dupla contagem com fatura).
+- Sem limite de linhas.
 
-**Arquivo**: `supabase/functions/_shared/documents/dates.ts`
+### 2. `src/pages/Index.tsx` — trocar consumidor dos KPIs
+Substituir o `useMemo(periodSummary)` (linhas 54–83) para chamar `computeAccountStatementTotals(tx, { start, end })` e mapear:
+- `income = accountIn`
+- `expense = accountOut`
+- `cardExpense = cardOut`
 
-Ajuste único em `resolveDocumentDate`:
-- Quando `raw` for uma data completa válida (ISO ou dd/mm/yyyy) dentro do calendário e não futura, **retornar a data mesmo se cair fora da `inPeriodWindow`**, apenas rebaixando `confidence` para 0.6 e marcando `source: 'iso'|'br_full'`. Hoje `iso`/`br_full` só retorna se `inPeriodWindow` — isso é o que empurra datas legítimas para o `period_end_fallback`.
-- Datas ambíguas (`brPartial` sem `year` inferível) permanecem indo para `period_end_fallback`, mas passamos `needs_review: true` no retorno para o pipeline sinalizar no `extracted_items.needs_review`.
+Manter o subtítulo do card de saída ("+ R$ X foi para a fatura do cartão"). Nenhum outro componente mexido.
 
-**Arquivo**: `supabase/functions/assistant-ingest-document/index.ts`
-- Ao mapear `occurred_at`, se `resolveDocumentDate` retornar `needs_review`, marcar `extracted_items.needs_review=true` e `notes` explicando ambiguidade. Nenhuma outra mudança.
+### 3. `supabase/functions/_shared/engine/facts.ts` — espelhar
+Adicionar exatamente as mesmas 3 funções (`isGrossAccountMovement`, `isGrossCardMovement`, `computeAccountStatementTotals`) para uso server-side (insights, agent). `isRealMonthlyMovement` fica como está — continua sendo a métrica comportamental "gastos de consumo".
 
-Nenhuma correção de fuso — `resolveDocumentDate` já opera em `America/Sao_Paulo` via string ISO e não usa `new Date(local)`.
+### 4. `supabase/functions/insights-generate/index.ts` — usar helper correto
+- Onde o insight comunica **fluxo do mês** ("entrou / saiu / resultado"), passar a usar `computeAccountStatementTotals`.
+- Onde ele comunica **gastos de consumo** (ex: "esse mês tá apertado"), manter `isRealMonthlyMovement` mas rotular como "gastos de consumo" no texto (ajuste de string somente).
+- Nenhum limite silencioso de 300/1000 (auditar e remover se presente).
 
-## 3. Patrimônio ancorado no snapshot mais recente
+### 5. Migration idempotente — reclassificar APLICACAO CDB DI
+`supabase/migrations/<ts>_reclassify_cdb_di_application.sql`:
 
-`src/lib/engine/facts.ts` e `supabase/functions/_shared/engine/facts.ts` já implementam corretamente:
-- snapshot confirmado vira âncora (`map[account_id] = balance`);
-- só transações posteriores a `cutoff` entram;
-- despesas de cartão não afetam `cash` (via `txOrigin`);
-- fatura é subtraída separadamente em `computeNetWorth`;
-- cancelados/rejeitados/duplicados já excluídos (status ≠ 'confirmed').
+```sql
+-- Corrige movement_kind do único registro APLICACAO CDB DI de 5.000,00
+-- em 03/07/2026 para a conta Itaú (idempotente, escopo estrito).
+UPDATE public.transactions
+   SET movement_kind = 'investment_application'
+ WHERE id = '59fb2920-a328-4f10-abbf-0cad2b9941a9'
+   AND account_id = '6c1cf814-2a25-4b3d-980d-c6454ccd35e0'
+   AND occurred_at = '2026-07-03'
+   AND amount = 5000.00
+   AND raw_description ILIKE 'APLICACAO CDB DI%'
+   AND movement_kind = 'transaction';
+```
 
-**Única mudança**: `computeAccountBalances` hoje inclui `snapshots.filter((x) => !x.status || x.status === "confirmed")`. Adicionar teste de contrato dedicado ao cenário Itaú/danielmariano93:
-- opening_balance = 0, snapshot confirmado `2026-07-18` = 139.95, sem tx posteriores;
-- fatura em aberto = 271.88 (dois itens);
-- `computeNetWorth` deve retornar `cash=139.95`, `cardsOwed=271.88`, `net=-131.93`.
+Sem outros updates. RESGATE CDB DI e ESTORNO já estão corretamente marcados (verificado).
 
-**Arquivo**: `src/test/facts-networth-scenario.test.ts` — adicionar `describe` "cenário Itaú julho/26 (danielmariano93)".
+### 6. Classificador de importação — endurecer regras
+`supabase/functions/_shared/documents/normalize.ts` (ou onde `movement_kind` é atribuído no `assistant-ingest-document`): garantir mapeamento determinístico por regex sobre `raw_description`:
+- `/^APLICACAO\s+CDB/i` → `investment_application` (expense)
+- `/^RESGATE\s+CDB/i` → `investment_redemption` (income)
+- `/^(EST|ESTORNO)\b/i` → `refund`
 
-Espelhar cobertura no shared se relevante.
+Estas regras aplicam-se apenas a novos itens; **não** re-executam sobre `transactions` já persistidas.
 
-## 4. Insight "Este mês tá apertado" alinhado à regra oficial
+## Testes
 
-**Arquivo**: `supabase/functions/insights-generate/index.ts` (linhas ~80-134)
+### 7. `src/test/facts-statement-totals.test.ts` (novo)
+- Resgate contabiliza como `accountIn`.
+- Estorno contabiliza como `accountIn` (não abate `accountOut`).
+- Aplicação contabiliza como `accountOut`.
+- Cartão separado em `cardOut`.
+- Transferência entre contas próprias (par) no consolidado → cancela.
+- Filtrando por `scopeAccountId`, a perna aparece.
+- `settles_card_id` ignorado nos totais de conta.
+- Contrato numérico julho/danielmariano93: fixture reduzida (ou dataset sintético) que produza exatamente `{accountIn: 11193.82, accountOut: 14893.54, cardOut: 271.88}` e `net = -3971.60`.
 
-Reescrever a query `recentTx` e o cálculo `income`/`expense`:
-- **Remover** `.limit(300)` — usar `.range()` paginado ou `head:false` sem limite artificial (a query já é filtrada por `status=confirmed` e mês corrente; volume é pequeno).
-- Adicionar filtros equivalentes aos relatórios:
-  - `.neq('type','transfer')`
-  - `.not('movement_kind','in','(internal_transfer,investment_application,investment_redemption,informational)')`
-  - `.is('settles_card_id', null)` na soma de despesa (pagamento de fatura já é contabilizado pelas compras do cartão — evita double-count);
-  - estorno (`type='income'` com `reversal_of` populado) subtrai da despesa em vez de somar à renda.
-- Extrair helper `computeMonthlyTotals(txs, ym)` em `supabase/functions/_shared/engine/facts.ts` (já existe `computeMonthlyIncomeExpense` — estender para aplicar os filtros acima) e usá-lo tanto no insights quanto no relatório e no `PeriodFilter` da Home (`src/pages/Index.tsx` linhas 45-59). Uma única fonte de verdade.
-- Espelhar no client `src/lib/engine/facts.ts`.
-
-## 5. Transparência de UI
-
-**Arquivo**: `src/components/home/PatrimonioCard.tsx`
-- Adicionar prop opcional `cashAnchor?: { date: string; source: 'statement'|'manual' }`.
-- Sob "Em conta", exibir chip discreto: `Saldo conciliado em {dd/mm/yyyy}` (visual: `text-[10px] text-white/60`). Se nulo, não renderiza.
-
-**Arquivo**: `src/pages/Index.tsx`
-- Selecionar snapshot confirmado mais recente por conta e passar `cashAnchor` (a maior `balance_date` entre snapshots confirmados; se múltiplas contas, mostrar do total agregado ou omitir — MVP: exibe quando houver **exatamente 1** conta com snapshot).
-- Manter "Na fatura" com sufixo já existente. Adicionar `title` (tooltip) "estimativa até o fechamento".
-- Copy do `PeriodFilter` (linha 141) já esclarece que o filtro não altera patrimônio — manter.
-
-Sem mensagens técnicas: nenhum novo texto expõe termos como `snapshot`, `RPC`, etc.
-
-## 6. Backfill / validação (sem migration de dados)
-
-Nenhuma alteração em dados reais. Após deploy:
-- SQL de validação (executado manualmente via `supabase--read_query`):
-  ```sql
-  select balance, balance_date, status, source from account_balance_snapshots
-   where account_id='6c1cf814-2a25-4b3d-980d-c6454ccd35e0' order by balance_date desc;
-  -- esperado: 139.95 / 2026-07-18 / confirmed / manual
-  ```
-- Rodar `bunx vitest run src/test/facts-networth-scenario.test.ts` e ver os 3 asserts do novo cenário Itaú verdes.
-- Consulta de sanidade do insight (após deploy da function) — validar que `expense_month` do usuário reflete a nova regra (transfer/internal/pagamento de fatura excluídos).
-
-## Arquivos afetados (resumo)
-
-| Arquivo | Mudança |
-|---|---|
-| `supabase/migrations/<novo>_reconciliation_hardening.sql` | índice único + `confirm_document_import` idempotente + snapshot `pending_review` |
-| `supabase/functions/_shared/documents/dates.ts` | preservar datas completas fora do período; sinalizar `needs_review` |
-| `supabase/functions/assistant-ingest-document/index.ts` | propagar `needs_review` para `extracted_items` |
-| `supabase/functions/_shared/engine/facts.ts` | estender `computeMonthlyIncomeExpense` (filtros movement_kind, settles_card_id, estorno) |
-| `src/lib/engine/facts.ts` | espelhar |
-| `supabase/functions/insights-generate/index.ts` | usar helper compartilhado; remover `.limit(300)` |
-| `src/components/home/PatrimonioCard.tsx` | prop `cashAnchor` + chip |
-| `src/pages/Index.tsx` | passar `cashAnchor`; consumir helper compartilhado no `periodSummary` |
-| `src/test/facts-networth-scenario.test.ts` | cenário Itaú julho/26 |
-| `src/test/documents-dates.test.ts` | data completa fora do período preservada |
-| `src/test/insights-monthly-rule.test.ts` (novo) | regra oficial (transfer, internal, settles_card_id, estorno) |
+### 8. Testes existentes
+`isRealMonthlyMovement` / `computeMonthlyTotals` inalterados — suíte atual deve continuar 100% verde.
 
 ## Ordem de implantação
+1. Migration de reclassificação (isolada, reversível manualmente).
+2. Novas funções em `src/lib/engine/facts.ts` + espelho no server.
+3. Trocar consumidor em `Index.tsx`.
+4. Atualizar `insights-generate` + rótulos.
+5. Endurecer classificador de importação.
+6. Testes (unitários + contrato numérico).
+7. `bun test` + `bun run build` — publicar somente se 100% verde.
 
-1. Migration (`reconciliation_hardening`) → aprovação → aplicar.
-2. Editar helpers puros (`dates.ts`, `_shared/engine/facts.ts`, `src/lib/engine/facts.ts`) + testes → `bunx vitest run`.
-3. Editar `insights-generate` + `assistant-ingest-document` → deploy das duas edge functions.
-4. Editar UI (`PatrimonioCard`, `Index`) → build.
-5. Validar via SQL o snapshot Itaú intacto e Home retornando `-R$ 131,93`.
+## Validações SQL pós-implantação
+```sql
+-- Deve retornar 1 linha com movement_kind='investment_application'
+SELECT id, movement_kind FROM transactions
+ WHERE id='59fb2920-a328-4f10-abbf-0cad2b9941a9';
+
+-- Recomputação de sanidade (sem código):
+SELECT
+  SUM(amount) FILTER (WHERE type='income'  AND settles_card_id IS NULL
+                       AND (movement_kind IS NULL OR movement_kind NOT IN ('internal_transfer'))
+                       AND credit_card_id IS NULL) AS account_in,
+  SUM(amount) FILTER (WHERE type='expense' AND settles_card_id IS NULL
+                       AND (movement_kind IS NULL OR movement_kind NOT IN ('internal_transfer'))
+                       AND credit_card_id IS NULL) AS account_out,
+  SUM(amount) FILTER (WHERE type='expense' AND credit_card_id IS NOT NULL) AS card_out
+FROM transactions
+WHERE account_id='6c1cf814-2a25-4b3d-980d-c6454ccd35e0'
+  AND status='confirmed'
+  AND occurred_at BETWEEN '2026-07-01' AND '2026-07-31';
+-- Esperado: 11193.82 | 14893.54 | 271.88 (após migration).
+```
 
 ## Riscos
-
-- **Índice único** em `source_document_id` pode conflitar se já existirem 2 snapshots do mesmo doc — verificar antes de aplicar (`select source_document_id, account_id, count(*) from account_balance_snapshots where source_document_id is not null group by 1,2 having count(*)>1`); se houver, migration marca duplicatas como `status='canceled'` antes de criar o índice.
-- Alteração em `computeMonthlyIncomeExpense` muda números exibidos em Home/Relatórios/Insights simultaneamente — desejado, mas o usuário verá totais diferentes dos anteriores. É o comportamento correto pedido no plano.
-- `needs_review` na tabela `extracted_items` já existe (usado pela quarentena). Reusar o mesmo campo — nenhuma migration adicional.
-- Nada muda no fluxo WhatsApp/assessor além do sinal `needs_review`.
+- Insights antigos que reciclam `isRealMonthlyMovement` para narrar "entrada/saída": mitigado renomeando rótulos e trocando cálculo onde a semântica é "extrato".
+- Reclassificação afeta a saída de `computeAccountBalances`? **Não** — a função ignora `movement_kind` e opera por `type`/`origin`. Saldo conciliado permanece R$ 139,95.
+- Nenhuma alteração em fatura, snapshot ou dados históricos além da 1 linha citada.
