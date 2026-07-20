@@ -85,12 +85,38 @@ describe("computeAccountStatementTotals", () => {
     expect(t2.accountIn).toBe(200);
   });
 
-  it("settles_card_id ignorado nos totais de conta", () => {
+  it("pagamento de fatura (settles_card_id) entra em accountOut e não duplica em cardOut", () => {
     const t = computeAccountStatementTotals(
-      [tx({ id: "1", type: "expense", amount: 271.88, occurred_at: "2026-07-20", settles_card_id: "card1" })],
+      [
+        tx({ id: "1", type: "expense", amount: 271.88, occurred_at: "2026-07-20", settles_card_id: "card1" }),
+        tx({ id: "2", type: "expense", amount: 50, occurred_at: "2026-07-21", payment_method: "credit_card", credit_card_id: "card1" }),
+      ],
       range,
     );
+    expect(t.accountOut).toBe(271.88);
+    expect(t.cardOut).toBe(50);
+  });
+
+  it("status planned/cancelled/deleted são ignorados", () => {
+    const t = computeAccountStatementTotals(
+      [
+        tx({ id: "p", type: "income", amount: 999, occurred_at: "2026-07-01", status: "planned" }),
+        tx({ id: "c", type: "expense", amount: 888, occurred_at: "2026-07-02", status: "cancelled" as never }),
+        tx({ id: "d", type: "expense", amount: 777, occurred_at: "2026-07-03", status: "deleted" as never }),
+      ],
+      range,
+    );
+    expect(t.accountIn).toBe(0);
     expect(t.accountOut).toBe(0);
+  });
+
+  it("refund em cartão (crédito na fatura) não entra em accountIn", () => {
+    const t = computeAccountStatementTotals(
+      [tx({ id: "1", type: "income", amount: 40, occurred_at: "2026-07-15", movement_kind: "refund", payment_method: "credit_card", credit_card_id: "cc1" })],
+      range,
+    );
+    expect(t.accountIn).toBe(0);
+    expect(t.cardOut).toBe(0);
   });
 
   it("contrato numérico: julho danielmariano93 — 11193.82 / 14893.54 / 271.88", () => {
