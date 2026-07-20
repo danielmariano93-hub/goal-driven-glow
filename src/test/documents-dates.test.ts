@@ -35,6 +35,7 @@ describe("resolveDocumentDate", () => {
   it("valida calendário (31/02 é inválido)", () => {
     expect(isValidCalendarDate("2026-02-31")).toBe(false);
     expect(isValidCalendarDate("2026-02-28")).toBe(true);
+  });
   it("preserva data completa válida fora do período (marca para revisão)", () => {
     const r = resolveDocumentDate("2026-05-10", {
       today: "2026-07-17",
