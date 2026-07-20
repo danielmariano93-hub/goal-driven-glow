@@ -56,9 +56,10 @@ const MERCHANT_DICT: Array<Rule> = [
   { pattern: /\bseguro\s+(?:cart[aã]o|do\s+cart[aã]o)\b/i, canonical: "Seguro do cartão", category: "Seguros" },
   { pattern: /\b99\s*food\b/i, canonical: "99Food", category: "Alimentação" },
   // Investimentos e crédito — inferências patrimoniais seguras (definem movement_kind).
+  // Ordem importa: rendimento deve casar antes de "aplic" para não ser sobrescrito.
+  { pattern: /\brend\w*\s+(?:pago\s+)?aplic\w*|\brendimento\s+(?:pago|de\s+aplic)/i, canonical: "Rendimento de aplicação", movement_kind: "investment_yield" },
   { pattern: /\baplica[cç][aã]o\s+(?:cdb|autom[aá]tica)\b|\baplic\s+autom/i, canonical: "Aplicação em CDB", movement_kind: "investment_application" },
   { pattern: /\bresgate\s+(?:cdb|autom[aá]tico)\b|\bresg\s+autom/i, canonical: "Resgate de CDB", movement_kind: "investment_redemption" },
-  { pattern: /\brend\s+pago\s+aplic\b|\brendimento\s+(?:pago|aplic)/i, canonical: "Rendimento de aplicação", movement_kind: "investment_yield" },
   { pattern: /\bbanco\s+pan\b.*\breneg/i, canonical: "Pagamento de renegociação — Banco PAN", category: "Dívidas e empréstimos" },
   { pattern: /\brecebimento\s+reneg\b|\bempr[eé]stimo\s+creditado\b|\bconsignado\s+creditad/i, canonical: "Crédito de empréstimo", category: "Dívidas e empréstimos", movement_kind: "loan_proceeds" },
 ];
