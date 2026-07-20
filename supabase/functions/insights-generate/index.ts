@@ -111,16 +111,17 @@ Deno.serve(async (req) => {
       .limit(1),
   ]);
 
-  // Fluxo bancário literal (extrato): mesmas regras dos KPIs da Home — inclui
-  // resgate/aplicação/estorno como movimento bruto da conta e mantém a fatura
-  // do cartão separada. Consistente entre Home, relatórios e insights.
+  // Comportamental (regra canônica): exclui transferências internas, aplicação/
+  // resgate/rendimento de investimento, pagamento de fatura e proceeds de
+  // empréstimo. Refund abate despesa. É a base para "sobrou/faltou".
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10);
-  const totals = computeAccountStatementTotals(
+  const behavioral = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
+  const gross = computeAccountStatementTotals(
     (recentTx ?? []) as unknown as TransactionRow[],
     { start: `${ym}-01`, end: monthEnd },
   );
-  const income = totals.accountIn;
-  const expense = totals.accountOut;
+  const income = behavioral.income;
+  const expense = behavioral.expense;
   const totalCount = txCount ?? 0;
 
   const in7 = Date.now() + 7 * 86400_000;
@@ -139,13 +140,24 @@ Deno.serve(async (req) => {
     month: ym,
     income_month: Number(income.toFixed(2)),
     expense_month: Number(expense.toFixed(2)),
-    balance_month: Number((income - expense).toFixed(2)),
+    balance_month: Number(behavioral.net.toFixed(2)),
     active_goals: (goals ?? []).length,
     goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name).filter(Boolean),
     has_credit_card: (cardCount ?? 0) > 0,
     upcoming_recurring_7d: upcoming7,
     top_expense_category: null,
     uncategorized_tx,
+  };
+
+  // Evidence extra (auditoria): mantém fluxo bruto separado para observabilidade.
+  const evidenceExtra = {
+    accounting_scope: ACCOUNTING_SCOPE,
+    behavioral_income: behavioral.income,
+    behavioral_expense: behavioral.expense,
+    behavioral_net: behavioral.net,
+    gross_account_in: gross.accountIn,
+    gross_account_out: gross.accountOut,
+    gross_card_out: gross.cardOut,
   };
 
   // Deep-link determinístico: sempre que existir uncategorized_tx, priorizamos
