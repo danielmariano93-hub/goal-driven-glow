@@ -35,5 +35,15 @@ describe("resolveDocumentDate", () => {
   it("valida calendário (31/02 é inválido)", () => {
     expect(isValidCalendarDate("2026-02-31")).toBe(false);
     expect(isValidCalendarDate("2026-02-28")).toBe(true);
+  it("preserva data completa válida fora do período (marca para revisão)", () => {
+    const r = resolveDocumentDate("2026-05-10", {
+      today: "2026-07-17",
+      statement_period_start: "2026-07-01",
+      statement_period_end: "2026-07-31",
+    });
+    expect(r.date).toBe("2026-05-10");
+    expect(r.source).toBe("iso");
+    expect(r.needs_review).toBe(true);
+    expect(r.confidence).toBeLessThan(0.95);
   });
 });
