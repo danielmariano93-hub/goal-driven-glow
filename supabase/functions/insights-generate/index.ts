@@ -273,7 +273,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
       cta_label: insight.cta_label,
       cta_route: insight.cta_route,
       model: insight.model,
-      evidence: facts,
+      evidence: { ...facts, ...evidenceExtra },
       prompt_version: PROMPT_VERSION,
       generated_at: now.toISOString(),
       expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
