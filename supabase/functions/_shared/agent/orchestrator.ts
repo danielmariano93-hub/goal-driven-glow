@@ -9,7 +9,7 @@
 // Every run is recorded in agent_runs; every tool call in agent_tool_calls.
 //
 // deno-lint-ignore-file no-explicit-any
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { interpret, type ParsedIntent, todaySaoPaulo } from "./parser.ts";
 import { isLLMConfigured, runAgentTurn, sanitizeError } from "./llm.ts";
 import { loadActivePrompt } from "./prompt.ts";
@@ -19,6 +19,13 @@ import {
   run_before_spending, get_financial_summary, list_recent_transactions,
   type ToolContext,
 } from "./tools.ts";
+import {
+  service as _service,
+  findPending as _findPending,
+  enqueueReply as _enqueueReply,
+  buildReceipt as _buildReceipt,
+  mapConversationRow as _mapConversationRow,
+} from "./core/index.ts";
 
 export type OrchestratorInput = {
   user_id: string;
@@ -40,70 +47,15 @@ export type OrchestratorResult = {
 
 const NUM_BR = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-export function service(): SupabaseClient {
-  return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
-async function findPending(sb: SupabaseClient, conversation_id: string, user_id: string) {
-  const { data } = await sb.from("pending_confirmations")
-    .select("id, kind, payload, summary_text, status, expires_at, user_id, conversation_id")
-    .eq("conversation_id", conversation_id)
-    .eq("user_id", user_id)
-    .eq("status", "pending")
-    .maybeSingle();
-  return data ?? null;
-}
-
-async function enqueueReply(
-  sb: SupabaseClient,
-  args: { user_id: string; to_phone: string; body: string; idempotency_key: string; inbound_message_id: string; source: "whatsapp"|"simulator" }
-) {
-  const { error } = await sb.from("outbound_messages").insert({
-    user_id: args.user_id,
-    to_phone: args.to_phone,
-    body: args.body,
-    kind: "agent",
-    channel: args.source === "simulator" ? "simulator" : "whatsapp",
-    idempotency_key: args.idempotency_key,
-    inbound_message_id: args.inbound_message_id,
-    status: args.source === "simulator" ? "sent" : "queued",
-  });
-  if (error) {
-    // Duplicate idempotency_key is safe to ignore (retry path).
-    const msg = String(error.message ?? "");
-    if (!/duplicate|unique/i.test(msg)) {
-      console.error("[orchestrator] enqueueReply failed", msg.slice(0, 200));
-      throw new Error("outbound_insert_failed");
-    }
-  }
-}
+// Re-exports (mantêm compatibilidade com testes e call-sites existentes).
+export const service = _service;
+export const findPending = _findPending;
+export const enqueueReply = _enqueueReply;
+export const mapConversationRow = _mapConversationRow;
+const buildReceipt = _buildReceipt;
 
 export const FRIENDLY_ORCHESTRATOR_ERROR =
   "Tive um problema para responder agora. Pode tentar novamente em instantes? 💛";
-
-/** Map a conversation_messages row (real schema: direction/body_masked) to
- *  the {role, content} shape the LLM expects. Exported for unit tests. */
-export function mapConversationRow(row: { direction?: string | null; body_masked?: string | null }): { role: "user" | "assistant"; content: string } | null {
-  const dir = String(row?.direction ?? "");
-  if (dir !== "inbound" && dir !== "outbound") return null;
-  const content = String(row?.body_masked ?? "").trim();
-  if (!content) return null;
-  return { role: dir === "inbound" ? "user" : "assistant", content };
-}
-
-function buildReceipt(kind: string, result: any): string {
-  if (kind === "transaction") {
-    const t = result?.type === "income" ? "Receita" : "Despesa";
-    return `${t} registrada: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
-  }
-  if (kind === "transfer") return `Transferência registrada: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
-  if (kind === "goal") return `Meta criada: ${result?.name}. ✅`;
-  if (kind === "goal_contribution") return `Aporte registrado: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
-  if (kind === "debt") return `Dívida registrada: ${result?.name}. ✅`;
-  return "Pronto, registrei. ✅";
-}
 
 // ---------- Deterministic fallback (uses tools for uniformity) ----------
 
