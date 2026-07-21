@@ -165,11 +165,13 @@ const COLORS = ["#8B5CF6", "#6D3BFF", "#FF6B4A", "#FF9F1C", "#16A37A", "#0EA5E9"
 
 function CatModal({
   initial,
+  overrideNotice,
   saving,
   onClose,
   onSubmit,
 }: {
   initial: CategoryRow | null;
+  overrideNotice?: boolean;
   saving: boolean;
   onClose: () => void;
   onSubmit: (v: ReturnType<typeof categorySchema.parse>) => void;
@@ -192,7 +194,10 @@ function CatModal({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-card">
-        <h2 className="font-display text-lg font-bold">{initial ? "Editar categoria" : "Nova categoria"}</h2>
+        <h2 className="font-display text-lg font-bold">{overrideNotice ? "Personalizar padrão" : initial ? "Editar categoria" : "Nova categoria"}</h2>
+        {overrideNotice && (
+          <p className="mt-1 text-xs text-muted-foreground">Vamos criar uma cópia pessoal desta padrão. Ela substitui a original só na sua conta.</p>
+        )}
         <div className="mt-4 space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium">Nome</label>
