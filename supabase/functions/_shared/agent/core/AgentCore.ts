@@ -191,6 +191,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     else if (turn.toolCalls.some(c => c.tool_name === "confirm_pending_action" && c.ok)) {
       const confirmCall = turn.toolCalls.find(c => c.tool_name === "confirm_pending_action" && c.ok);
       draft_id = (confirmCall?.result as any)?.draft_id;
+      reply = String((confirmCall?.result as any)?.receipt ?? reply);
       kind = "receipt";
     }
     else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) kind = "cancelled";
