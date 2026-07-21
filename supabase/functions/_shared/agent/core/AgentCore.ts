@@ -19,10 +19,12 @@ import { evaluate as evaluatePolicy, decideTurn } from "./PolicyEngine.ts";
 import { plan as planAction } from "./ActionPlanner.ts";
 import { deterministicFallback } from "./DeterministicFallback.ts";
 import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
+import { personalizeSystemPrompt } from "./ResponseGenerator.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { createMetrics, estimateCost, timeStage, summarize } from "./Observability.ts";
 import { buildRecord, logDecision } from "./DecisionLogger.ts";
 import { guard } from "./ErrorRecovery.ts";
+import { learnFromTurn } from "./LearningLoop.ts";
 import { isLLMConfigured } from "../llm.ts";
 
 export type HandleTurnInput = {
@@ -135,6 +137,10 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
 
   const history = await tctx.history(12, input.channel === "app" ? input.inbound_message_id : null);
 
+  // Fase 3 — personalize the system prompt with user preferences (best-effort).
+  const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
+  const systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+
   // ---- Planner (LLM loop or fallback) ------------------------------------
   const planner = await timeStage(metrics, "plan", () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
@@ -143,7 +149,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     model: prompt?.model ?? "google/gemini-2.5-flash",
     maxSteps: prompt?.max_steps ?? 6,
     temperature: prompt?.temperature ?? 0.2,
-    systemPrompt: prompt?.system_prompt ?? "",
+    systemPrompt,
     timeoutMs: 25_000,
     history,
   }));
@@ -249,6 +255,13 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     metrics, error: errorSanitized,
   }));
   console.log("[agent-core] turn", JSON.stringify(summarize(metrics)));
+
+  // ---- Learning loop (Fase 3, best-effort) ------------------------------
+  await guard(() => learnFromTurn(sb, {
+    user_id: input.user_id, intent: routed.intent.kind,
+    policy_decision: decision.label, reply_kind: kind,
+    tool_calls: toolCallLog, user_text: input.text,
+  }), (m) => metrics.errors.push("learn:" + m), undefined);
 
   return { reply: body, reply_kind: kind, path, draft_id, run_id, session_id };
 }
