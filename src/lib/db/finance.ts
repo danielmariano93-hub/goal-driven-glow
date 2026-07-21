@@ -138,22 +138,31 @@ export function useAllCategories() {
   });
 }
 
+/**
+ * Regra "override pessoal de padrão": ao editar uma categoria global
+ * (user_id === null), a UI passa `sourceSlug` para criar um clone pessoal
+ * herdando o mesmo slug. Isso permite que `resolveVisibleCategories` oculte a
+ * global para esse usuário sem tocar em outros.
+ */
 export function useSaveCategory() {
   const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CategoryInput & { id?: string }): Promise<CategoryRow> => {
+    mutationFn: async (
+      input: CategoryInput & { id?: string; sourceSlug?: string }
+    ): Promise<CategoryRow> => {
       if (!user) throw new Error("not authenticated");
-      const slug =
+      const autoSlug =
         input.name
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-|-$/g, "") + "-" + user.id.slice(0, 6);
+      const insertSlug = input.sourceSlug?.trim() || autoSlug;
       const payload = {
         user_id: user.id,
-        slug: input.id ? undefined : slug,
+        slug: input.id ? undefined : insertSlug,
         name: input.name,
         type: input.type,
         color: input.color || null,
@@ -180,6 +189,24 @@ export function useSaveCategory() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
     },
+  });
+}
+
+/**
+ * Aplica a regra de override pessoal: quando existe uma categoria pessoal ativa
+ * do usuário com o mesmo slug de uma global, a global é ocultada apenas para
+ * esse usuário. Pura, testável, não muda dados no banco.
+ */
+export function resolveVisibleCategories(rows: CategoryRow[], userId: string | null | undefined): CategoryRow[] {
+  if (!userId) return rows;
+  const overriddenSlugs = new Set(
+    rows
+      .filter((c) => c.user_id === userId && c.archived_at == null && c.slug)
+      .map((c) => c.slug as string)
+  );
+  return rows.filter((c) => {
+    if (c.user_id === null && overriddenSlugs.has(c.slug as string)) return false;
+    return true;
   });
 }
 
