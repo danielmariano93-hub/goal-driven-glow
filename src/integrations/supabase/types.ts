@@ -191,6 +191,68 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_decisions: {
+        Row: {
+          channel: string | null
+          conversation_id: string | null
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          fallback_used: boolean
+          id: string
+          intent: string | null
+          metrics: Json
+          planned_steps: Json
+          policy_decision: string | null
+          run_id: string | null
+          tool_calls: Json
+          user_id: string
+          validations: Json
+        }
+        Insert: {
+          channel?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          fallback_used?: boolean
+          id?: string
+          intent?: string | null
+          metrics?: Json
+          planned_steps?: Json
+          policy_decision?: string | null
+          run_id?: string | null
+          tool_calls?: Json
+          user_id: string
+          validations?: Json
+        }
+        Update: {
+          channel?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          fallback_used?: boolean
+          id?: string
+          intent?: string | null
+          metrics?: Json
+          planned_steps?: Json
+          policy_decision?: string | null
+          run_id?: string | null
+          tool_calls?: Json
+          user_id?: string
+          validations?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_decisions_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_prompt_versions: {
         Row: {
           created_at: string

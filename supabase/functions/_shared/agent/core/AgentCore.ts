@@ -1,21 +1,29 @@
 // AgentCore.handleTurn — single entry point shared by App and WhatsApp.
-// Pipeline: SessionManager → IntentRouter → PolicyEngine → ActionPlanner
-//           → ToolRuntime (or DeterministicFallback) → ResponseValidator
-//           → Persistence.
-// Behavior is intentionally the same as the previous runOrchestrator; the
-// only channel-dependent step is whether the reply is enqueued into
-// outbound_messages (WhatsApp/simulator) or returned to the caller (App).
+//
+// Fase 2 pipeline:
+//   SessionManager → IntentRouter → PolicyEngine
+//                → ActionPlanner (LLM loop OR deterministic fallback)
+//                → ResponseValidator
+//                → Persistence + DecisionLogger + Observability
+//
+// External behaviour matches Fase 1: reply text, reply_kind, draft_id and
+// outbound queueing are all preserved. New signals (DecisionLogger,
+// Observability) are additive and best-effort.
 // deno-lint-ignore-file no-explicit-any
 import { service } from "./service.ts";
 import { loadActivePrompt } from "../prompt.ts";
-import { loadHistory } from "./ConversationHistory.ts";
+import { createTurnContext } from "./ContextPipeline.ts";
 import { resolveSession, type Channel } from "./SessionManager.ts";
 import { routeIntent } from "./IntentRouter.ts";
-import { evaluate as evaluatePolicy } from "./PolicyEngine.ts";
+import { evaluate as evaluatePolicy, decideTurn } from "./PolicyEngine.ts";
 import { plan as planAction } from "./ActionPlanner.ts";
 import { deterministicFallback } from "./DeterministicFallback.ts";
-import { validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
+import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
+import { createMetrics, estimateCost, timeStage, summarize } from "./Observability.ts";
+import { buildRecord, logDecision } from "./DecisionLogger.ts";
+import { guard } from "./ErrorRecovery.ts";
+import { isLLMConfigured } from "../llm.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -38,6 +46,8 @@ export type HandleTurnResult = {
 
 export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const sb = service();
+  const metrics = createMetrics(input.channel);
+  const t0 = Date.now();
 
   // Dedupe by inbound_message_id (WhatsApp retries hit here first)
   if (input.channel !== "app") {
@@ -50,26 +60,36 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
 
   const idem = `run:${input.inbound_message_id}`;
 
-  // SessionManager — best-effort; failures don't block the turn.
-  let session_id: string | undefined;
-  try {
-    const s = await resolveSession(sb, {
-      user_id: input.user_id, channel: input.channel, conversation_id: input.conversation_id,
-    });
-    session_id = s.id;
-  } catch (_e) { /* stay stateless */ }
-
-  // IntentRouter + PolicyEngine (confirm/cancel interception)
-  const routed = routeIntent(input.text);
-  const decision = await evaluatePolicy(sb, {
-    user_id: input.user_id,
-    conversation_id: input.conversation_id,
-    inbound_message_id: input.inbound_message_id,
-    intent: routed.intent,
+  // ---- SessionManager (best-effort) --------------------------------------
+  const session_id = await timeStage(metrics, "session", async () => {
+    return await guard(async () => {
+      const s = await resolveSession(sb, {
+        user_id: input.user_id, channel: input.channel, conversation_id: input.conversation_id,
+      });
+      return s.id as string | undefined;
+    }, (msg) => metrics.errors.push("session:" + msg), undefined);
   });
 
-  if (decision.kind === "reply") {
-    const body = validateReply(decision.body);
+  const tctx = createTurnContext({ sb, user_id: input.user_id, conversation_id: input.conversation_id, session_id: session_id ?? null });
+
+  // ---- IntentRouter -------------------------------------------------------
+  const routed = await timeStage(metrics, "intent", async () => routeIntent(input.text));
+
+  // ---- PolicyEngine (confirm/cancel interception) -------------------------
+  const policyReply = await timeStage(metrics, "policy", async () => {
+    return await evaluatePolicy(sb, {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      inbound_message_id: input.inbound_message_id,
+      intent: routed.intent,
+    });
+  });
+
+  if (policyReply.kind === "reply") {
+    metrics.path = "policy";
+    const v = validate(policyReply.body, { expectedKind: policyReply.replyKind, hasDraft: !!policyReply.draft_id });
+    metrics.validations = v.reasons.length;
+    const body = v.body;
     if (input.channel !== "app" && input.to_phone) {
       await enqueueReply(sb, {
         user_id: input.user_id, to_phone: input.to_phone, body,
@@ -77,40 +97,46 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
         source: input.channel === "simulator" ? "simulator" : "whatsapp",
       });
     }
+    metrics.stages.total = Date.now() - t0;
+    await logDecision(sb, buildRecord({
+      run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+      channel: input.channel, intent: routed.intent.kind,
+      policy_decision: policyReply.replyKind, metrics,
+      validations: v.reasons,
+    }));
     return {
-      reply: body,
-      reply_kind: decision.replyKind,
-      path: "deterministic_fallback",
-      draft_id: decision.draft_id,
-      result: decision.result,
-      session_id,
+      reply: body, reply_kind: policyReply.replyKind, path: "deterministic_fallback",
+      draft_id: policyReply.draft_id, result: policyReply.result, session_id,
     };
   }
 
-  // ----- Guarded LLM/fallback run -----
+  // Extra decision (for observability + telemetry)
+  const decision = decideTurn(routed.intent, {
+    hasPendingConfirmation: !!(await tctx.pending()),
+    llmConfigured: isLLMConfigured(),
+    hasPromptVersion: false, // filled after prompt load
+    lastIntent: null,
+  });
+
+  // ---- Prompt + agent_runs row -------------------------------------------
   const startedAt = Date.now();
-  let prompt: Awaited<ReturnType<typeof loadActivePrompt>> | null = null;
-  try { prompt = await loadActivePrompt(sb); }
-  catch (e) { console.error("[core] loadActivePrompt failed", String((e as Error).message).slice(0, 200)); }
+  const prompt = await guard(() => loadActivePrompt(sb),
+    (m) => metrics.errors.push("prompt:" + m), null as any);
 
   let run_id: string | undefined;
-  try {
+  await guard(async () => {
     const { data: run } = await sb.from("agent_runs").insert({
       user_id: input.user_id, conversation_id: input.conversation_id,
       prompt_version_id: prompt?.id ?? null, model: prompt?.model ?? "unknown",
       status: "running", started_at: new Date().toISOString(),
     }).select("id").maybeSingle();
     run_id = (run as any)?.id as string | undefined;
-  } catch (e) {
-    console.error("[core] agent_runs insert failed", String((e as Error).message).slice(0, 200));
-  }
+  }, (m) => metrics.errors.push("runs_insert:" + m), null);
 
-  const history = await loadHistory(sb, input.conversation_id, {
-    limit: 12,
-    excludeMessageId: input.channel === "app" ? input.inbound_message_id : null,
-  });
+  const history = await tctx.history(12, input.channel === "app" ? input.inbound_message_id : null);
 
-  const planner = await planAction(sb, {
+  // ---- Planner (LLM loop or fallback) ------------------------------------
+  const planner = await timeStage(metrics, "plan", () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: input.text, hasPrompt: !!prompt,
   }, {
@@ -120,21 +146,23 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     systemPrompt: prompt?.system_prompt ?? "",
     timeoutMs: 25_000,
     history,
-  });
+  }));
 
   let path: "llm" | "deterministic_fallback" = planner.path;
   let reply = "";
   let draft_id: string | undefined;
   let kind: HandleTurnResult["reply_kind"] = "info";
-  let tokensIn = 0, tokensOut = 0, steps = 0;
   let errorSanitized: string | null = planner.errorSanitized ?? null;
   const toolCallLog: any[] = [];
 
   if (planner.path === "llm" && planner.turn) {
     const turn = planner.turn;
     reply = turn.reply;
-    tokensIn = turn.tokensIn; tokensOut = turn.tokensOut; steps = turn.steps;
+    metrics.tokens_in = turn.tokensIn;
+    metrics.tokens_out = turn.tokensOut;
+    metrics.tool_call_count = turn.toolCalls.length;
     toolCallLog.push(...turn.toolCalls);
+    for (const c of turn.toolCalls) metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
     const draftCall = turn.toolCalls.find(c => c.ok && c.tool_name.endsWith("_draft"));
     if (draftCall) { draft_id = (draftCall.result as any)?.draft_id; kind = "draft"; }
     else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) kind = "cancelled";
@@ -142,25 +170,49 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   }
 
   if (path === "deterministic_fallback") {
+    metrics.fallback_used = true;
     try {
-      const fb = await deterministicFallback(sb, input);
+      const fb = await timeStage(metrics, "tools", () => deterministicFallback(sb, input));
       reply = fb.reply; draft_id = fb.draft_id;
       kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
     } catch (e) {
       errorSanitized = errorSanitized ?? String((e as Error).message ?? "fallback_error").slice(0, 200);
+      metrics.errors.push("fallback:" + errorSanitized);
       reply = FRIENDLY_ORCHESTRATOR_ERROR; kind = "info";
     }
   }
 
-  const latency = Date.now() - startedAt;
+  metrics.path = path;
+  metrics.estimated_cost_usd = estimateCost(prompt?.model ?? "unknown", metrics.tokens_in, metrics.tokens_out);
 
-  if (run_id) {
+  // ---- ResponseValidator -------------------------------------------------
+  const validated = await timeStage(metrics, "validate", async () => validate(reply, {
+    expectedKind: kind, hasDraft: !!draft_id,
+    toolCallErrors: toolCallLog.filter(c => !c.ok).length,
+  }));
+  metrics.validations = validated.reasons.length;
+  if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {
+    // If validator rejects an LLM reply, drop to deterministic fallback once.
     try {
+      const fb = await deterministicFallback(sb, input);
+      reply = fb.reply; draft_id = fb.draft_id;
+      kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
+      metrics.fallback_used = true;
+      path = "deterministic_fallback";
+    } catch { reply = validated.body; }
+  } else {
+    reply = validated.body;
+  }
+
+  // ---- Persist run + tool calls -----------------------------------------
+  const latency = Date.now() - startedAt;
+  if (run_id) {
+    await guard(async () => {
       await sb.from("agent_runs").update({
         status: errorSanitized ? "error" : "done",
         ended_at: new Date().toISOString(),
-        path, steps,
-        tokens_in: tokensIn || null, tokens_out: tokensOut || null,
+        path, steps: toolCallLog.length,
+        tokens_in: metrics.tokens_in || null, tokens_out: metrics.tokens_out || null,
         latency_ms: latency,
         error_sanitized: errorSanitized, error_masked: errorSanitized,
       }).eq("id", run_id);
@@ -171,19 +223,32 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
           ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
         })));
       }
-    } catch (e) {
-      console.error("[core] run persistence failed", String((e as Error).message).slice(0, 200));
-    }
+    }, (m) => metrics.errors.push("persist:" + m), null);
   }
 
   const body = validateReply(reply);
-  if (input.channel !== "app" && input.to_phone) {
-    await enqueueReply(sb, {
-      user_id: input.user_id, to_phone: input.to_phone, body,
-      idempotency_key: idem, inbound_message_id: input.inbound_message_id,
-      source: input.channel === "simulator" ? "simulator" : "whatsapp",
-    });
-  }
+  await timeStage(metrics, "persist", async () => {
+    if (input.channel !== "app" && input.to_phone) {
+      await enqueueReply(sb, {
+        user_id: input.user_id, to_phone: input.to_phone, body,
+        idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+        source: input.channel === "simulator" ? "simulator" : "whatsapp",
+      });
+    }
+  });
+  metrics.stages.total = Date.now() - t0;
+
+  // ---- Decision log (best-effort) ---------------------------------------
+  await logDecision(sb, buildRecord({
+    run_id: run_id ?? null,
+    user_id: input.user_id, conversation_id: input.conversation_id,
+    channel: input.channel, intent: routed.intent.kind,
+    policy_decision: decision.label,
+    tool_calls: toolCallLog,
+    validations: validated.reasons,
+    metrics, error: errorSanitized,
+  }));
+  console.log("[agent-core] turn", JSON.stringify(summarize(metrics)));
 
   return { reply: body, reply_kind: kind, path, draft_id, run_id, session_id };
 }

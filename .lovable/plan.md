@@ -1,95 +1,93 @@
-## Fase 1 — Conclusão do Agent Core unificado
+# Fase 2 — Agent Core: Policy, Planner, Validator, Observabilidade
 
-Objetivo: eliminar a duplicação entre `agent-chat` (App) e `whatsapp-webhook` (WhatsApp), colocando ambos atrás de um único `AgentCore.handleTurn`, com SessionManager, IntentRouter, StateManager, FinancialContext360 e Channel Adapters compartilhados. Sem mudar comportamento externo.
+Entrega única. Preserva arquitetura da Fase 1 (`AgentCore.handleTurn` + adapters + módulos em `_shared/agent/core/`). Reaproveita todo o código atual; nada de duplicação nem mudança de comportamento externo. Aplicado em um único patch, seguido de deploy e suíte completa.
 
-### Pipeline final (idêntico nos dois canais)
+## 1. Policy Engine completo (`core/PolicyEngine.ts`)
+Único ponto de decisão. Expande o atual (hoje só confirm/cancel) para retornar uma `Decision` explícita a cada turno:
+- `direct_reply` | `run_tools` | `ask_confirmation` | `block` | `need_context` | `reuse_context` | `create_draft` | `cancel` | `interrupt` | `fallback`.
+Entradas: intenção roteada, snapshot do `StateManager`, `PendingConfirmations`, guardrails (ownership, limite de passos, plausibilidade temporal já existente). Saída consumida por `AgentCore` — nenhum `if` de negócio permanece fora do PolicyEngine.
 
-```text
-Channel Adapter (in)
-  → SessionManager (resolve/renew session + expiração)
-  → IntentRouter (classifica intenção determinística)
-  → StateManager (carrega estado estruturado da conversa)
-  → FinancialContext360 (snapshot: contas, cartões, metas, lançamentos, recorrências, indicadores)
-  → Policy Engine (confirmações pendentes, cancelamentos, guardrails)
-  → Action Planner (LLM + tools ou fast-path determinístico)
-  → Tool Runtime (loop de tools já existente)
-  → Response Generator (mensagem + recibo)
-  → Response Validator (sanitização, tamanho, PII)
-  → Persistência (conversation_messages, agent_runs, session_state, outbound)
-Channel Adapter (out)
-```
+## 2. Action Planner (`core/ActionPlanner.ts`)
+Reescrito para planejar antes de executar:
+- Interpreta intenção + slots do `IntentRouter`.
+- Decompõe em `Step[]` (tool calls ordenadas + dependências).
+- Deduplica chamadas (chave = tool_name+args normalizados) e reusa resultados via `ContextPipeline`.
+- Escolhe fast-path determinístico quando plano é trivial (evita LLM).
+- Só invoca `ToolRuntime` — nenhuma ferramenta é chamada diretamente em outro lugar.
 
-### Etapas de execução (subetapas 12.3 → 12.9)
+## 3. Response Validator (`core/ResponseValidator.ts`)
+Expande além do trim/cap atual:
+- Valida presença/tipo de campos, JSON de tool results, coerência com estado (ex.: recibo sem draft), tool calls inválidas, respostas vazias, confirmações inconsistentes.
+- Ações: `accept` | `regenerate` (uma tentativa) | `fallback_deterministic`.
 
-**12.3 — `AgentCore.handleTurn`**
-- Criar `supabase/functions/_shared/agent/core/AgentCore.ts` exportando `handleTurn(input, deps)`.
-- Input: `{ user_id, conversation_id, inbound_message_id, text, channel: "whatsapp" | "app", to_phone? }`.
-- Compor os módulos abaixo em uma única função; retornar `{ reply, receipt?, toolCalls, runId }`.
-- Reaproveitar integralmente o corpo atual de `runOrchestrator` como implementação inicial, apenas fatiado por seção.
+## 4. Decision Logger (`core/DecisionLogger.ts` + tabela `agent_decisions`)
+Migration nova cria `public.agent_decisions(run_id, step_index, intent, policy_decision, planned_steps jsonb, tool_calls jsonb, validations jsonb, fallback bool, error text, duration_ms, created_at)` com RLS (service_role total, authenticated select do próprio user via join em agent_runs). GRANTs completos. Logger grava um registro por turno permitindo reconstruir o fluxo.
 
-**12.4 — Módulos do Core (arquivos novos, extraídos sem mudar comportamento)**
-- `core/SessionManager.ts`: resolve `session_id` por `(user_id, channel)`, aplica TTL (padrão 30 min de inatividade) e limpa contexto expirado. Persistência: nova tabela `agent_sessions(id, user_id, channel, conversation_id, last_activity_at, expires_at, state jsonb)` (migration incluída). Sem GRANTS para anon.
-- `core/IntentRouter.ts`: move a classificação determinística hoje espalhada em `parser.ts` + fast-paths do `agent-chat` (cartões, analytics, confirmação, cancelamento, ajuda). Retorna `{ intent, confidence, slots }`.
-- `core/StateManager.ts`: leitura/escrita do `state jsonb` da sessão (draft atual, slots coletados, última tool, cursor de fluxo). API `get/patch/clear`.
-- `core/FinancialContext360.ts`: monta snapshot sob demanda por intenção (evita puxar tudo sempre). Usa loaders já existentes em `_shared/engine/facts.ts` e `tools.ts`.
-- `core/PolicyEngine.ts`: encapsula as regras hoje inline no orchestrator — interceptação de confirmação/cancelamento via `PendingConfirmations`, ownership, limite de passos.
-- `core/ActionPlanner.ts` + `core/ToolRuntime.ts`: wrappers finos sobre o loop LLM+tools atual (`llm.ts` + `tools.ts`); nenhuma mudança de prompt ou de contrato de tool.
-- `core/ResponseGenerator.ts` + `core/ResponseValidator.ts`: extraem a montagem final de texto/recibo e a sanitização/truncagem já existentes.
+## 5. Tool Runtime consolidado (`core/ToolRuntime.ts`)
+Wrapper único com contrato uniforme `{ ok, result, error, duration_ms, retries }`:
+- timeout (por tool, default 10s), retry exponencial em erros transitórios, isolamento (try/catch por call), rollback via callback opcional declarado na tool, métricas emitidas ao Observability.
 
-**12.5 — Channel Adapters**
-- `core/adapters/WhatsAppAdapter.ts`: mapeia payload WAHA já normalizado → `AgentCore.handleTurn` input; escreve saída via `OutboundQueue.enqueueReply` + `triggerDispatcher`.
-- `core/adapters/AppAdapter.ts`: mapeia request do `agent-chat` → input; devolve resposta síncrona no HTTP.
-- Ambos ficam com <80 linhas: só tradução de entrada/saída e autenticação.
+## 6. Context Pipeline (`core/ContextPipeline.ts`)
+Fachada única. Consolida `FinancialContext360`, `StateManager`, `ConversationHistory`, `PendingConfirmations`. Cache por turno (memo por chave). Nenhuma tool/planner acessa Supabase direto para contexto — só através daqui.
 
-**12.6 — Corte do WhatsApp**
-- `whatsapp-webhook/index.ts`: substituir a chamada a `runOrchestrator` por `WhatsAppAdapter.handle(...)`. Manter dedupe, ACK, media fallback, vinculação e `EdgeRuntime.waitUntil` intactos.
+## 7. Error Recovery (`core/ErrorRecovery.ts`)
+Centraliza: retry inteligente (classifica erro → retryable/não), fallback determinístico via `DeterministicFallback`, recuperação de contexto (reload sob demanda), mensagens amigáveis reutilizando `FRIENDLY_ORCHESTRATOR_ERROR` e templates de `messageTemplates.ts`.
 
-**12.7 — Corte do App**
-- `agent-chat/index.ts`: remover fast-paths, loops de tools e montagem de histórico duplicados; passar a chamar `AppAdapter.handle(...)`. Manter contrato HTTP/response inalterado para o frontend (`AssessorPanel` não muda).
+## 8. Observabilidade (`core/Observability.ts`)
+Coleta por turno: tempo por etapa (session/intent/policy/plan/tools/validate/persist), tempo por tool, contagem de tool calls, taxa fallback/confirmação/erro, tokens in/out (já disponíveis em `agent_runs`), custo estimado via `ai_model_prices` (se existir; senão null). Persiste em `agent_runs` (colunas já existentes) + `agent_decisions`.
 
-**12.8 — Limpeza controlada**
-- `_shared/agent/orchestrator.ts` vira um shim fino que chama `AgentCore.handleTurn` com `channel: "whatsapp"` para preservar `agent-run` e testes atuais; funções auxiliares já reexportadas do core permanecem.
-- Remover código morto em `agent-chat` (apenas o que ficou sem referência).
+## 9. Performance
+- Cache de contexto por turno no `ContextPipeline`.
+- Deduplicação de tool calls no `ActionPlanner`.
+- Lazy load do `FinancialContext360` (só o slice pedido pela intenção).
+- Reuso de `loadActivePrompt` cached em memória por 60s (Edge Function scope).
+- Evita chamada LLM quando fast-path determinístico resolve.
 
-**12.9 — Testes de paridade**
-- Novo `src/test/agent-core-parity.test.ts`: para um conjunto de mensagens (gasto simples, confirmação, cancelamento, consulta de saldo, analytics, ajuda), roda `AgentCore.handleTurn` uma vez como `channel: "app"` e outra como `channel: "whatsapp"` com mocks de service, e verifica: mesmas tools chamadas, mesmo texto final (mod. saudação de canal), mesmo estado persistido.
-- Rodar suíte completa (`bunx vitest run`) e `tsgo` — meta: 0 regressões nos 339 testes existentes.
+## 10. Refatoração final
+- Remove código morto residual de `orchestrator.ts` (mantém apenas shim mínimo).
+- Consolida imports via `core/index.ts`.
+- Padroniza nomenclatura (`Decision`, `Plan`, `Step`, `ToolResult`, `TurnMetrics`).
+- Move helpers órfãos para módulos apropriados; deleta os sem uso.
 
-### Regras não-negociáveis
-- Sem alterar prompts, tools, schemas de banco de negócio, RLS, RPCs financeiras ou UI.
-- Nenhuma mudança em `pending_confirmations`, `outbound_messages`, `conversation_messages`, `agent_runs`.
-- Migration nova só cria `agent_sessions` (+ índice + RLS + GRANTs para `authenticated`/`service_role`).
-- Toda extração é *move + reexport*: se um teste quebrar, o move está errado.
+## Restrições e compatibilidade
+- Comportamento externo idêntico: WhatsApp, App, Simulador, Admin, Prompt Versioning, Confirmações e Analytics continuam funcionando com os mesmos contratos HTTP/DB.
+- Nenhuma mudança em prompts, tools de negócio, RLS existente, RPCs financeiras, UI.
+- Única migration nova: `agent_decisions` (+ índice + RLS + GRANT authenticated/service_role).
 
-### Arquivos previstos
+## Testes
+Novos em `src/test/`:
+- `agent-policy-engine.test.ts` — matriz de decisões.
+- `agent-action-planner.test.ts` — decomposição, dedupe, reuse.
+- `agent-response-validator.test.ts` — accept/regenerate/fallback.
+- `agent-tool-runtime.test.ts` — timeout, retry, rollback.
+- `agent-context-pipeline.test.ts` — cache e lazy load.
+- `agent-error-recovery.test.ts` — classificação e mensagens.
+- `agent-decision-logger.test.ts` — payload persistido.
+- `agent-core-phase2-parity.test.ts` — paridade App↔WhatsApp para gasto, confirmação, cancelamento, consulta, analytics, ajuda.
+Meta: 0 regressões nos 347 existentes + todos os novos verdes. Roda `bunx vitest run` e `tsgo`.
 
-Novos:
-- `supabase/functions/_shared/agent/core/AgentCore.ts`
-- `supabase/functions/_shared/agent/core/SessionManager.ts`
-- `supabase/functions/_shared/agent/core/IntentRouter.ts`
-- `supabase/functions/_shared/agent/core/StateManager.ts`
-- `supabase/functions/_shared/agent/core/FinancialContext360.ts`
-- `supabase/functions/_shared/agent/core/PolicyEngine.ts`
-- `supabase/functions/_shared/agent/core/ActionPlanner.ts`
-- `supabase/functions/_shared/agent/core/ToolRuntime.ts`
-- `supabase/functions/_shared/agent/core/ResponseGenerator.ts`
-- `supabase/functions/_shared/agent/core/ResponseValidator.ts`
-- `supabase/functions/_shared/agent/core/adapters/WhatsAppAdapter.ts`
-- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts`
-- `supabase/migrations/<timestamp>_agent_sessions.sql`
-- `src/test/agent-core-parity.test.ts`
+## Arquivos
 
-Editados:
-- `supabase/functions/_shared/agent/orchestrator.ts` (vira shim)
-- `supabase/functions/_shared/agent/core/index.ts` (barrel expandido)
-- `supabase/functions/whatsapp-webhook/index.ts` (usa WhatsAppAdapter)
-- `supabase/functions/agent-chat/index.ts` (usa AppAdapter; remove duplicação)
+**Novos**
+- `supabase/functions/_shared/agent/core/ContextPipeline.ts`
+- `supabase/functions/_shared/agent/core/DecisionLogger.ts`
+- `supabase/functions/_shared/agent/core/ErrorRecovery.ts`
+- `supabase/functions/_shared/agent/core/Observability.ts`
+- `supabase/migrations/<ts>_agent_decisions.sql`
+- 8 arquivos de teste acima.
 
-### Deploy ao final
+**Editados**
+- `core/PolicyEngine.ts`, `core/ActionPlanner.ts`, `core/ResponseValidator.ts`, `core/ToolRuntime.ts`
+- `core/AgentCore.ts` (nova composição do pipeline)
+- `core/index.ts` (barrel)
+- `core/adapters/WhatsAppAdapter.ts`, `core/adapters/AppAdapter.ts` (apenas se contrato de retorno mudar)
+- `_shared/agent/orchestrator.ts` (limpeza do shim)
+
+## Deploy final
+- Aplica migration `agent_decisions`.
 - Deploy: `whatsapp-webhook`, `agent-chat`, `agent-run`.
-- Aplicar migration `agent_sessions`.
-- Rodar suíte + typecheck + build.
-- Entregar checklist item-a-item com arquivos alterados.
+- Roda suíte + typecheck + build.
+- Relatório: arquivos alterados, testes rodados, total aprovado, bloqueios (se houver).
 
-### Fora de escopo desta fase
-- Reescrita de prompts, novo modelo, novas tools, novas telas, mudanças em recibos ou em fluxos financeiros. Ficam para Fase 2.
+## Fora de escopo
+Novos modelos, novas tools de negócio, mudanças de UI, novas telas de admin. Fica para Fase 3.
