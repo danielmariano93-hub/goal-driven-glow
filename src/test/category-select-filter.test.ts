@@ -5,7 +5,7 @@ import { resolveVisibleCategories } from "@/lib/db/finance";
 const now = new Date().toISOString();
 const mk = (over: Partial<any> = {}) => ({
   id: over.id ?? crypto.randomUUID(),
-  user_id: over.user_id ?? "u1",
+  user_id: "user_id" in over ? over.user_id : "u1",
   name: over.name ?? "Cat",
   slug: over.slug ?? "cat",
   type: over.type ?? "expense",
