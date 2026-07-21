@@ -59,9 +59,10 @@ export function CategorySelect({
   showManageLink = true,
 }: Props) {
   const { data: all = [], isLoading } = useAllCategories();
+  const { user } = useAuth();
   const [creating, setCreating] = useState(false);
 
-  const options = useMemo(() => filterCategoryOptions(all, type, value ?? null), [all, type, value]);
+  const options = useMemo(() => filterCategoryOptions(all, type, value ?? null, user?.id), [all, type, value, user?.id]);
 
   const handleChange = (val: string) => {
     if (val === CREATE_TOKEN) {
