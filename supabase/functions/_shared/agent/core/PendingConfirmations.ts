@@ -24,6 +24,23 @@ export async function findPending(
     .eq("conversation_id", conversation_id)
     .eq("user_id", user_id)
     .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  return (data as PendingRow | null) ?? null;
+}
+
+export async function findLatestPendingOrExpired(
+  sb: SupabaseClient,
+  conversation_id: string,
+  user_id: string,
+): Promise<PendingRow | null> {
+  const { data } = await sb.from("pending_confirmations")
+    .select("id, kind, payload, summary_text, status, expires_at, user_id, conversation_id")
+    .eq("conversation_id", conversation_id)
+    .eq("user_id", user_id)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   return (data as PendingRow | null) ?? null;
 }

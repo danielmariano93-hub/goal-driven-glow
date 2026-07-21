@@ -5,6 +5,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 
 export type EnqueueReplyArgs = {
   user_id: string;
+  conversation_id: string;
   to_phone: string;
   body: string;
   idempotency_key: string;
@@ -13,6 +14,7 @@ export type EnqueueReplyArgs = {
 };
 
 export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): Promise<void> {
+  const messageRef = `outbound:${args.inbound_message_id}`;
   const { error } = await sb.from("outbound_messages").insert({
     user_id: args.user_id,
     to_phone: args.to_phone,
@@ -22,6 +24,7 @@ export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): 
     idempotency_key: args.idempotency_key,
     inbound_message_id: args.inbound_message_id,
     status: args.source === "simulator" ? "sent" : "queued",
+    metadata: { conversation_id: args.conversation_id, conversation_message_ref: messageRef },
   });
   if (error) {
     // Duplicate idempotency_key is safe to ignore (retry path).
@@ -31,4 +34,12 @@ export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): 
       throw new Error("outbound_insert_failed");
     }
   }
+  await sb.from("conversation_messages").insert({
+    conversation_id: args.conversation_id,
+    user_id: args.user_id,
+    direction: "outbound",
+    body_masked: args.body.slice(0, 500),
+  } as any).then(() => {}, (e) => {
+    console.warn("[core/OutboundQueue] conversation mirror failed", String(e?.message ?? e).slice(0, 160));
+  });
 }
