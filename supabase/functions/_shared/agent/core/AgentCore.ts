@@ -139,7 +139,24 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
 
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
-  const systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+  let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+
+  // Safety net: if there's a pending confirmation and the parser did not
+  // intercept (loose "sim pode" / "manda" wasn't detected), prepend an
+  // explicit block so the LLM confirms instead of restarting the flow.
+  const pendingForPrompt = await guard(() => tctx.pending(),
+    (m) => metrics.errors.push("pending_prompt:" + m), null);
+  if (pendingForPrompt) {
+    const summary = String((pendingForPrompt as any).summary_text ?? "operação pendente");
+    systemPrompt =
+      `[PENDÊNCIA ATIVA]\n` +
+      `Existe um rascunho aguardando confirmação: ${summary}\n` +
+      `Se o usuário confirmar (inclusive frases como "sim pode", "pode criar", "manda ver", "ok"), ` +
+      `chame a tool confirm_pending_action com id="${(pendingForPrompt as any).id}".\n` +
+      `Se cancelar, chame cancel_pending_action.\n` +
+      `Não crie novo rascunho nem inicie nova conversa enquanto houver pendência.\n\n` +
+      systemPrompt;
+  }
 
   // ---- Planner (LLM loop or fallback) ------------------------------------
   const planner = await timeStage(metrics, "plan", () => planAction(sb, {

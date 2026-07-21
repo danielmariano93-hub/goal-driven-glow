@@ -119,6 +119,12 @@ function relativeDate(text: string, now: Date = new Date()): string {
 const CONFIRM_WORDS = /^\s*(confirmar|confirma|sim|ok|okay|yes|👍)\s*[.!]?\s*$/i;
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 
+// Loose confirm/cancel: short phrases starting with an affirmation/negation
+// token, without a monetary amount. Catches "sim pode", "pode criar",
+// "manda ver", "ok pode confirmar", "isso mesmo", "não cancela".
+const CONFIRM_LOOSE = /^\s*(sim|pode|confirma|confirmar|ok|okay|beleza|blz|manda|vai|isso|positivo|claro|tá|ta|👍|yes)\b/i;
+const CANCEL_LOOSE  = /^\s*(não|nao|cancela|cancelar|para|negativo|deixa|esquece|❌|no)\b/i;
+
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
 export function interpret(text: string, now: Date = new Date()): ParsedIntent {
@@ -126,6 +132,14 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (!raw) return { kind: "unknown", text: "" };
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
+
+  // Loose confirm/cancel: only when there's no amount and phrase is short
+  // (≤6 words). Preserves "sim, gastei 50 no mercado" → transaction.
+  const wordCount = raw.split(/\s+/).length;
+  if (wordCount <= 6 && !AMOUNT_RE.test(raw)) {
+    if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
+    if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
+  }
 
   const lower = raw.toLowerCase();
   const occurred_at = relativeDate(lower, now);
