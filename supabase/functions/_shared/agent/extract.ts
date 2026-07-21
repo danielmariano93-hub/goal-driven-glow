@@ -22,6 +22,13 @@ const INSTALLMENT_RX = /\b(?:em\s+)?(\d{1,2})\s*x\b/i;
 const CARD_METHOD_RX = /\bno\s+cart[aã]o(?:\s+de\s+cr[eé]dito)?\b|\bcart[aã]o\s+de\s+cr[eé]dito\b|\bno\s+cr[eé]dito\b/i;
 const DEBIT_METHOD_RX = /\b(?:no\s+d[eé]bito|na\s+conta(?:\s+corrente)?|em\s+dinheiro|no\s+dinheiro|no\s+pix)\b/i;
 const RELATIVE_DATE_RX = /\b(hoje|ontem|anteontem)\b/i;
+const ISO_DATE_RX = /\b(20\d{2})-(\d{2})-(\d{2})\b/;
+const PT_DATE_RX = /\b(\d{1,2})\s+de\s+(jan\.?|janeiro|fev\.?|fevereiro|mar\.?|março|marco|abr\.?|abril|mai\.?|maio|jun\.?|junho|jul\.?|julho|ago\.?|agosto|set\.?|setembro|out\.?|outubro|nov\.?|novembro|dez\.?|dezembro)\s+de\s+(20\d{2})\b/i;
+const LABELED_AMOUNT_RX = /(?:^|\n)\s*valor\s*:\s*(?:r\$\s*)?([^\n]+)/i;
+const LABELED_DESC_RX = /(?:^|\n)\s*(?:estabelecimento|descri[cç][aã]o|descricao|local|finalidade)\s*:\s*([^\n]+)/i;
+const LABELED_CARD_RX = /(?:^|\n)\s*cart[aã]o\s*:\s*([^\n]+)/i;
+const LABELED_ACCOUNT_RX = /(?:^|\n)\s*(?:conta|conta corrente|origem)\s*:\s*([^\n]+)/i;
+const LABELED_DATE_RX = /(?:^|\n)\s*data\s*:\s*([^\n]+)/i;
 // Marcas: sem \b trailing para funcionar com acentos (ú, é). Início: início-de-string ou espaço.
 const CARD_BRAND_RX = /(?:^|\s)(itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa|banco do brasil|bb|next)(?=$|[\s.,;!?])/i;
 
@@ -54,6 +61,35 @@ function toISO(datePhrase: string): string {
   return today;
 }
 
+function monthPt(value: string): number | null {
+  const t = value.toLowerCase().replace(/\./g, "").normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const months: Record<string, number> = {
+    jan: 1, janeiro: 1, fev: 2, fevereiro: 2, mar: 3, marco: 3, abril: 4, abr: 4,
+    maio: 5, mai: 5, junho: 6, jun: 6, julho: 7, jul: 7, agosto: 8, ago: 8,
+    setembro: 9, set: 9, outubro: 10, out: 10, novembro: 11, nov: 11, dezembro: 12, dez: 12,
+  };
+  return months[t] ?? null;
+}
+
+function parseDateLabel(raw: string): string | null {
+  const value = String(raw ?? "").trim();
+  const iso = value.match(ISO_DATE_RX);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const pt = value.match(PT_DATE_RX);
+  if (pt) {
+    const month = monthPt(pt[2]);
+    if (!month) return null;
+    return `${pt[3]}-${String(month).padStart(2, "0")}-${String(Number(pt[1])).padStart(2, "0")}`;
+  }
+  const rel = value.match(RELATIVE_DATE_RX);
+  return rel ? toISO(rel[1]) : null;
+}
+
+function cleanLabelValue(value: string | null | undefined): string | null {
+  const v = String(value ?? "").replace(/\s+/g, " ").trim();
+  return v ? v : null;
+}
+
 export function extractSpans(raw: string): ExtractedSpans {
   const original = String(raw ?? "").trim();
   let remaining = original;
@@ -68,6 +104,29 @@ export function extractSpans(raw: string): ExtractedSpans {
     description: "",
     raw: original,
   };
+
+  // 0) Mensagens bancárias/WhatsApp costumam vir em linhas rotuladas.
+  // Esses rótulos são mais confiáveis que inferência livre e evitam o LLM
+  // "confirmar verbalmente" sem criar rascunho real.
+  const labeledAmount = original.match(LABELED_AMOUNT_RX)?.[1];
+  const labeledDesc = cleanLabelValue(original.match(LABELED_DESC_RX)?.[1]);
+  const labeledCard = cleanLabelValue(original.match(LABELED_CARD_RX)?.[1]);
+  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1]);
+  const labeledDate = cleanLabelValue(original.match(LABELED_DATE_RX)?.[1]);
+  if (labeledAmount) {
+    const parsed = parseBrAmount(labeledAmount);
+    if (parsed != null && parsed > 0) out.amount = parsed;
+  }
+  if (labeledDesc) out.description = labeledDesc;
+  if (labeledCard) {
+    out.payment_method = "credit_card";
+    out.card_hint = labeledCard;
+  }
+  if (labeledAccount) out.account_hint = labeledAccount;
+  if (labeledDate) out.occurred_at = parseDateLabel(labeledDate);
+  if (out.amount !== null && out.description && (out.card_hint || out.account_hint)) {
+    return out;
+  }
 
   // 1) amount
   const amt = remaining.match(AMOUNT_RX);

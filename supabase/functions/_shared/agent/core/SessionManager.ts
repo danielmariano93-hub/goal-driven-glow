@@ -65,10 +65,16 @@ export async function resolveSession(
   const { data: created } = await sb.from("agent_sessions")
     .insert(row).select("id, user_id, channel, conversation_id, state, last_activity_at, expires_at")
     .maybeSingle();
-  // If insert failed (race), fall back to a synthetic in-memory session so
-  // the turn still runs. Persistence is best-effort by design.
   if (!created) {
-    return { id: crypto.randomUUID(), ...row } as AgentSession;
+    const retryPatch = { conversation_id: args.conversation_id, last_activity_at: nowIso, expires_at: isoIn(ttl) };
+    const { data: winner } = await sb.from("agent_sessions")
+      .update(retryPatch)
+      .eq("user_id", args.user_id)
+      .eq("channel", args.channel)
+      .select("id, user_id, channel, conversation_id, state, last_activity_at, expires_at")
+      .maybeSingle();
+    if (winner) return winner as AgentSession;
+    throw new Error("agent_session_create_failed");
   }
   return created as AgentSession;
 }

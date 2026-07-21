@@ -59,4 +59,13 @@ describe("extractSpans — sem blacklist, preserva literal", () => {
     expect(r.card_hint).toBe("");
     expect(r.description).toBe("");
   });
+
+  it("mensagem rotulada do banco vira extração estrutural sem LLM", () => {
+    const r = extractSpans("Compra aprovada\nValor: R$ 11,89\nEstabelecimento: Souk4u\nCartão: Nubank\nData: 21 de julho de 2026");
+    expect(r.amount).toBe(11.89);
+    expect(r.payment_method).toBe("credit_card");
+    expect(r.card_hint).toBe("Nubank");
+    expect(r.description).toBe("Souk4u");
+    expect(r.occurred_at).toBe("2026-07-21");
+  });
 });

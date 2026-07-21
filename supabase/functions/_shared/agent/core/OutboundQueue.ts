@@ -5,6 +5,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 
 export type EnqueueReplyArgs = {
   user_id: string;
+  conversation_id: string;
   to_phone: string;
   body: string;
   idempotency_key: string;
@@ -22,6 +23,7 @@ export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): 
     idempotency_key: args.idempotency_key,
     inbound_message_id: args.inbound_message_id,
     status: args.source === "simulator" ? "sent" : "queued",
+    metadata: { conversation_id: args.conversation_id },
   });
   if (error) {
     // Duplicate idempotency_key is safe to ignore (retry path).

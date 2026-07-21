@@ -29,6 +29,8 @@ export type ValidationContext = {
   toolCallErrors?: number;
 };
 
+const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
+
 export function validate(raw: string, ctx: ValidationContext = {}): ValidationResult {
   const reasons: string[] = [];
   const trimmed = String(raw ?? "").trim();
@@ -45,6 +47,10 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
   // Receipt without a draft is inconsistent
   if (ctx.expectedKind === "receipt" && ctx.hasDraft === false) {
     reasons.push("receipt_without_draft");
+    return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
+  }
+  if (ctx.hasDraft === false && DRAFT_LANGUAGE_RX.test(trimmed)) {
+    reasons.push("draft_language_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
   }
   // Too many tool failures — mistrust the reply and fall back

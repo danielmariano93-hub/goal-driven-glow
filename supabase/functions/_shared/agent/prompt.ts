@@ -42,9 +42,13 @@ export async function loadActivePrompt(sb: SupabaseClient): Promise<ActivePrompt
   if (!data) {
     return { id: null, system_prompt: DEFAULT_SYSTEM_PROMPT, model: DEFAULT_MODEL, temperature: 0.2, max_steps: 6 };
   }
+  const adminPrompt = String(data.system_prompt ?? "").trim();
+  const composedPrompt = adminPrompt && adminPrompt !== DEFAULT_SYSTEM_PROMPT.trim()
+    ? `${DEFAULT_SYSTEM_PROMPT}\n\nPERSONA E CONFIGURAÇÃO ADMINISTRATIVA:\n${adminPrompt}`
+    : DEFAULT_SYSTEM_PROMPT;
   return {
     id: data.id as string,
-    system_prompt: (data.system_prompt as string) || DEFAULT_SYSTEM_PROMPT,
+    system_prompt: composedPrompt,
     model: (data.model as string) || DEFAULT_MODEL,
     temperature: Number(data.temperature ?? 0.2),
     max_steps: Number(data.max_steps ?? 6),

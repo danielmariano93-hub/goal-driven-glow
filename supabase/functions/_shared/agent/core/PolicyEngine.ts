@@ -12,7 +12,7 @@
 //     logic lives in one place instead of leaking into adapters.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { findPending, type PendingRow } from "./PendingConfirmations.ts";
+import { findLatestPendingOrExpired, findPending, type PendingRow } from "./PendingConfirmations.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import type { ParsedIntent } from "../parser.ts";
 
@@ -32,6 +32,11 @@ export async function evaluate(
 
   if (args.intent.kind === "confirm") {
     if (!pending) {
+      const latest = await findLatestPendingOrExpired(sb, args.conversation_id, args.user_id);
+      if (latest && new Date(latest.expires_at).getTime() <= Date.now()) {
+        await sb.from("pending_confirmations").update({ status: "expired" }).eq("id", latest.id).eq("status", "pending");
+        return { kind: "reply", replyKind: "expired", body: "Este pedido expirou. Envie de novo, por favor." };
+      }
       return { kind: "reply", replyKind: "info",
         body: "Não encontrei nada pendente para confirmar. Me conte a operação primeiro (ex.: “gastei 42,90 no almoço hoje”)." };
     }

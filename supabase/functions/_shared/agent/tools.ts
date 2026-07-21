@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { computeBeforeSpending } from "../engine/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
+import { buildReceipt } from "./core/ReceiptBuilder.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -371,6 +372,39 @@ export async function cancel_pending_action(ctx: ToolContext): Promise<ToolResul
   return { ok: true, result: { cancelled: true } };
 }
 
+export async function confirm_pending_action(ctx: ToolContext, args: { id?: string }): Promise<ToolResult> {
+  let q = ctx.sb.from("pending_confirmations")
+    .select("id, kind, expires_at")
+    .eq("conversation_id", ctx.conversation_id)
+    .eq("user_id", ctx.user_id)
+    .eq("status", "pending");
+  if (args?.id) q = q.eq("id", args.id);
+  const { data: pending } = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!pending) return { ok: false, error: "no_pending_confirmation" };
+  if (new Date((pending as any).expires_at).getTime() <= Date.now()) {
+    await ctx.sb.from("pending_confirmations").update({ status: "expired" }).eq("id", (pending as any).id).eq("status", "pending");
+    return { ok: false, error: "expired" };
+  }
+  const { data: exec } = await ctx.sb.rpc("agent_execute_confirmation", {
+    p_confirmation_id: (pending as any).id,
+    p_source_message_id: null,
+  });
+  const result = exec as { ok?: boolean; result?: any; error?: string; idempotent?: boolean } | null;
+  if (!result?.ok) return { ok: false, error: result?.error ?? "confirmation_failed" };
+  return {
+    ok: true,
+    result: {
+      draft_id: (pending as any).id,
+      kind: (pending as any).kind,
+      idempotent: !!result.idempotent,
+      receipt: result.idempotent
+        ? "Essa operação já havia sido confirmada. Está tudo certo por aqui. ✅"
+        : buildReceipt((pending as any).kind, result.result),
+      result: result.result,
+    },
+  };
+}
+
 // ---------- Read/edit tools (novas) ----------
 
 export async function search_transactions(ctx: ToolContext, args: {
@@ -661,6 +695,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["name", "original_amount"], additionalProperties: false,
     },
     execute: create_debt_draft,
+  },
+  {
+    name: "confirm_pending_action",
+    description: "Confirma e executa o rascunho pendente na conversa atual. Use quando o usuário responder sim/ok/pode/confirmar a uma pendência ativa.",
+    parameters: { type: "object", properties: { id: optionalStr }, additionalProperties: false },
+    execute: confirm_pending_action,
   },
   {
     name: "cancel_pending_action",

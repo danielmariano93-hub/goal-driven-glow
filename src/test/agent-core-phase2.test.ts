@@ -12,6 +12,7 @@ type ValidationContext = {
   expectedKind?: "receipt" | "draft" | "question" | "info" | "cancelled" | "expired";
   toolCallErrors?: number;
 };
+const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
 function validate(raw: string, ctx: ValidationContext = {}) {
   const reasons: string[] = [];
   const trimmed = String(raw ?? "").trim();
@@ -22,6 +23,10 @@ function validate(raw: string, ctx: ValidationContext = {}) {
   }
   if (ctx.expectedKind === "receipt" && ctx.hasDraft === false) {
     reasons.push("receipt_without_draft");
+    return { action: "fallback_deterministic", body: FRIENDLY, reasons };
+  }
+  if (ctx.hasDraft === false && DRAFT_LANGUAGE_RX.test(trimmed)) {
+    reasons.push("draft_language_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY, reasons };
   }
   if ((ctx.toolCallErrors ?? 0) >= 2) {
@@ -96,6 +101,11 @@ describe("Fase 2 — ResponseValidator.validate", () => {
   it("receipt without draft → fallback", () => {
     const r = validate("✅ Registrado", { expectedKind: "receipt", hasDraft: false });
     expect(r.action).toBe("fallback_deterministic");
+  });
+  it("draft language without persisted draft → fallback", () => {
+    const r = validate("Posso criar um rascunho de R$ 11,89 para você confirmar?", { expectedKind: "info", hasDraft: false });
+    expect(r.action).toBe("fallback_deterministic");
+    expect(r.reasons).toContain("draft_language_without_draft");
   });
   it("too many tool errors → fallback", () => {
     const r = validate("Feito!", { toolCallErrors: 3 });

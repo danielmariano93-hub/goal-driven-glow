@@ -94,7 +94,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     const body = v.body;
     if (input.channel !== "app" && input.to_phone) {
       await enqueueReply(sb, {
-        user_id: input.user_id, to_phone: input.to_phone, body,
+        user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body,
         idempotency_key: idem, inbound_message_id: input.inbound_message_id,
         source: input.channel === "simulator" ? "simulator" : "whatsapp",
       });
@@ -188,6 +188,12 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     for (const c of turn.toolCalls) metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
     const draftCall = turn.toolCalls.find(c => c.ok && c.tool_name.endsWith("_draft"));
     if (draftCall) { draft_id = (draftCall.result as any)?.draft_id; kind = "draft"; }
+    else if (turn.toolCalls.some(c => c.tool_name === "confirm_pending_action" && c.ok)) {
+      const confirmCall = turn.toolCalls.find(c => c.tool_name === "confirm_pending_action" && c.ok);
+      draft_id = (confirmCall?.result as any)?.draft_id;
+      reply = String((confirmCall?.result as any)?.receipt ?? reply);
+      kind = "receipt";
+    }
     else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) kind = "cancelled";
     else kind = "info";
   }
@@ -253,7 +259,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   await timeStage(metrics, "persist", async () => {
     if (input.channel !== "app" && input.to_phone) {
       await enqueueReply(sb, {
-        user_id: input.user_id, to_phone: input.to_phone, body,
+        user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body,
         idempotency_key: idem, inbound_message_id: input.inbound_message_id,
         source: input.channel === "simulator" ? "simulator" : "whatsapp",
       });

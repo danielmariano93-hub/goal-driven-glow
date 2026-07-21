@@ -5,6 +5,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { interpret, type ParsedIntent } from "../parser.ts";
+import { extractSpans } from "../extract.ts";
 import {
   create_transaction_draft, create_transfer_draft,
   add_goal_contribution_draft,
@@ -26,6 +27,23 @@ export async function deterministicFallback(
 ): Promise<FallbackOutcome> {
   const intent: ParsedIntent = interpret(input.text);
   const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text };
+
+  const spans = extractSpans(input.text);
+  if (spans.amount != null && spans.amount > 0 && spans.description && (spans.payment_method || spans.card_hint || spans.account_hint)) {
+    const r = await create_transaction_draft(ctx, {
+      type: "expense",
+      amount: spans.amount,
+      account: spans.payment_method === "account" ? (spans.account_hint ?? "") : undefined,
+      credit_card: spans.payment_method === "credit_card" ? (spans.card_hint ?? "") : undefined,
+      installments_total: spans.installments_total ?? undefined,
+      category: spans.category_hint ?? undefined,
+      occurred_at: spans.occurred_at ?? undefined,
+      description: spans.description,
+    });
+    if (r.ok) return { reply: `${(r.result as any).summary}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.`, draft_id: (r.result as any).draft_id, kind: "draft" };
+    if (r.error === "account_not_found") return { reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", kind: "question" };
+    if (r.error === "card_not_found") return { reply: "Em qual cartão eu registro?", kind: "question" };
+  }
 
   if (intent.kind === "query") {
     if (intent.topic === "summary") {
