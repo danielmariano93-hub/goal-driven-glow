@@ -1,15 +1,14 @@
 import { WhatsAppSessionPanel } from "./WhatsAppSessionPanel";
 import { WhatsAppValidateCard } from "@/components/admin/WhatsAppValidateCard";
+import { PageHeader } from "@/components/admin/PageHeader";
 
 export default function WhatsAppAdmin() {
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">WhatsApp</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Canal oficial de mensageria do NoControle.ia. Ações críticas exigem confirmação e ficam auditadas.
-        </p>
-      </header>
+      <PageHeader
+        title="WhatsApp"
+        description="Canal oficial de mensageria do NoControle.ia. Ações críticas exigem confirmação e ficam auditadas."
+      />
       <WhatsAppValidateCard />
       <WhatsAppSessionPanel />
     </div>

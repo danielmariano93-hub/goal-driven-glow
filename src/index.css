@@ -228,6 +228,12 @@
   }
 }
 
+/* Admin — modo denso (Configurações → Preferências do painel) */
+.admin-dense .surface-card { @apply p-3; }
+.admin-dense .surface-card.p-5 { padding: 0.85rem; }
+.admin-dense .space-y-6 > * + * { margin-top: 1rem; }
+.admin-dense .space-y-8 > * + * { margin-top: 1.25rem; }
+
 @layer utilities {
   .bg-gradient-brand {
     background: var(--gradient-brand);
