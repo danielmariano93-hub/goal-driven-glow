@@ -1,10 +1,24 @@
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Shield, UserPlus, UserMinus } from "lucide-react";
-import { toast } from "sonner";
+import { Shield, UserPlus, UserMinus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { can, roleLabel, type PlatformRole } from "@/lib/admin/permissions";
-import { useState } from "react";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { Section } from "@/components/admin/Section";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { SkeletonTable } from "@/components/admin/AdminSkeleton";
+import { DataTable, type Column } from "@/components/admin/DataTable";
+import { adminToast } from "@/components/admin/adminToast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type Admin = {
   user_id: string;
@@ -14,6 +28,8 @@ type Admin = {
   active: boolean;
   created_at: string;
 };
+
+type AuditRow = { id: string; created_at: string; action: string; meta: unknown };
 
 export default function Seguranca() {
   const { platformRole } = useAuth();
@@ -37,21 +53,20 @@ export default function Seguranca() {
     queryFn: async () => {
       const { data, error } = await supabase.from("platform_admin_audit").select("*").order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as AuditRow[];
     },
   });
 
   async function onGrant(e: React.FormEvent) {
     e.preventDefault();
     if (!canManage) return;
-    // resolver user_id via admin_users_list por e-mail
     const { data, error } = await supabase.rpc("admin_users_list", { p_search: targetEmail, p_limit: 5, p_offset: 0 });
-    if (error) { toast.error(error.message); return; }
-    const match = (data as any[])?.find((r) => r.email?.toLowerCase() === targetEmail.toLowerCase());
-    if (!match) { toast.error("Usuário não encontrado"); return; }
+    if (error) { adminToast.fromError(error, "Não foi possível concluir a busca"); return; }
+    const match = (data as Array<{ user_id: string; email: string }>)?.find((r) => r.email?.toLowerCase() === targetEmail.toLowerCase());
+    if (!match) { adminToast.warn("Usuário não encontrado", { description: "Confira o e-mail exatamente como está cadastrado." }); return; }
     const { error: gErr } = await supabase.rpc("grant_platform_admin", { _target: match.user_id, _role: role });
-    if (gErr) { toast.error(gErr.message); return; }
-    toast.success(`Concedido ${roleLabel(role)}`);
+    if (gErr) { adminToast.fromError(gErr, "Não foi possível conceder acesso"); return; }
+    adminToast.success(`Concedido: ${roleLabel(role)}`);
     setTargetEmail("");
     qc.invalidateQueries({ queryKey: ["platform_admins"] });
     qc.invalidateQueries({ queryKey: ["platform_audit"] });
@@ -59,103 +74,98 @@ export default function Seguranca() {
 
   async function onRevoke(userId: string) {
     if (!canManage) return;
-    if (!confirm("Revogar acesso administrativo deste usuário?")) return;
     const { error } = await supabase.rpc("revoke_platform_admin", { _target: userId });
-    if (error) { toast.error(error.message); return; }
-    toast.success("Acesso revogado");
+    if (error) { adminToast.fromError(error, "Não foi possível revogar"); return; }
+    adminToast.success("Acesso revogado");
     qc.invalidateQueries({ queryKey: ["platform_admins"] });
     qc.invalidateQueries({ queryKey: ["platform_audit"] });
   }
 
+  const adminCols: Column<Admin>[] = [
+    { key: "name", header: "Nome", cell: (a) => a.display_name ?? "—" },
+    { key: "email", header: "E-mail", cell: (a) => <span className="font-mono text-xs text-muted-foreground">{a.email}</span> },
+    { key: "role", header: "Papel", cell: (a) => <Badge variant="secondary">{roleLabel(a.role)}</Badge> },
+    {
+      key: "status",
+      header: "Status",
+      cell: (a) => a.active
+        ? <Badge className="bg-success/15 text-success border-success/30">Ativo</Badge>
+        : <Badge variant="secondary">Inativo</Badge>,
+    },
+    {
+      key: "actions",
+      header: "Ações",
+      align: "right",
+      cell: (a) => canManage && a.active ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+              <UserMinus size={12} /> Revogar
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revogar acesso administrativo?</AlertDialogTitle>
+              <AlertDialogDescription>Este usuário perde acesso ao painel imediatamente.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => onRevoke(a.user_id)}>Revogar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null,
+    },
+  ];
+
+  const auditCols: Column<AuditRow>[] = [
+    { key: "date", header: "Data", cell: (r) => <span className="text-muted-foreground">{new Date(r.created_at).toLocaleString("pt-BR")}</span> },
+    { key: "action", header: "Ação", cell: (r) => r.action },
+    { key: "meta", header: "Detalhes", hideOnMobile: true, cell: (r) => <span className="font-mono text-[11px] text-muted-foreground break-words">{JSON.stringify(r.meta)}</span> },
+  ];
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Segurança</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Administradores da plataforma, auditoria e permissões. Apenas Platform Owner concede/revoga.
-        </p>
-      </header>
+      <PageHeader
+        title="Segurança"
+        description="Administradores da plataforma, auditoria e permissões. Apenas Platform Owner concede ou revoga."
+      />
 
       {canManage && (
-        <div className="surface-card p-5">
-          <h2 className="text-sm font-semibold flex items-center gap-2"><UserPlus size={14} /> Conceder acesso</h2>
-          <form onSubmit={onGrant} className="mt-3 grid gap-3 md:grid-cols-[1fr_180px_120px]">
-            <input value={targetEmail} onChange={(e) => setTargetEmail(e.target.value)} placeholder="E-mail exato do usuário" className="rounded-xl border border-border bg-background px-3 py-2 text-sm" required />
-            <select value={role} onChange={(e) => setRole(e.target.value as PlatformRole)} className="rounded-xl border border-border bg-background px-3 py-2 text-sm">
-              <option value="platform_admin">Platform Admin</option>
-              <option value="support">Suporte</option>
-              <option value="analyst">Analista</option>
-              <option value="platform_owner">Platform Owner</option>
-            </select>
-            <button className="rounded-xl bg-primary text-primary-foreground text-sm font-medium py-2.5">Conceder</button>
+        <Section title="Conceder acesso" icon={UserPlus} description="A busca é feita por e-mail exato do cadastro.">
+          <form onSubmit={onGrant} className="surface-card p-4 grid gap-3 md:grid-cols-[1fr_200px_140px] md:items-end">
+            <div className="space-y-1.5">
+              <Label htmlFor="grant-email">E-mail do usuário</Label>
+              <Input id="grant-email" type="email" autoComplete="off" required value={targetEmail} onChange={(e) => setTargetEmail(e.target.value)} placeholder="pessoa@empresa.com" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="grant-role">Papel</Label>
+              <Select value={role} onValueChange={(v) => setRole(v as PlatformRole)}>
+                <SelectTrigger id="grant-role"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="platform_owner">Platform Owner</SelectItem>
+                  <SelectItem value="platform_admin">Platform Admin</SelectItem>
+                  <SelectItem value="support">Suporte</SelectItem>
+                  <SelectItem value="analyst">Analista</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit">Conceder</Button>
           </form>
-        </div>
+        </Section>
       )}
 
-      <section>
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Shield size={14} className="text-primary" /> Administradores</h2>
-        {q.isLoading ? <Spinner /> : !q.data?.length ? <Empty msg="Nenhum admin cadastrado." /> : (
-          <div className="surface-card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3 text-left">Nome</th>
-                  <th className="px-4 py-3 text-left">E-mail</th>
-                  <th className="px-4 py-3 text-left">Papel</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {q.data.map((a) => (
-                  <tr key={a.user_id}>
-                    <td className="px-4 py-3">{a.display_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{a.email}</td>
-                    <td className="px-4 py-3">{roleLabel(a.role)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] rounded-full px-2 py-0.5 ${a.active ? "bg-success/10 text-success" : "bg-muted"}`}>
-                        {a.active ? "Ativo" : "Inativo"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {canManage && a.active && (
-                        <button onClick={() => onRevoke(a.user_id)} className="inline-flex items-center gap-1 text-xs text-destructive hover:underline">
-                          <UserMinus size={12} /> Revogar
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <Section title="Administradores" icon={Shield}>
+        {q.isLoading ? <SkeletonTable rows={4} /> : !q.data?.length
+          ? <EmptyState icon={Shield} title="Nenhum admin cadastrado" />
+          : <DataTable rows={q.data} columns={adminCols} rowKey={(a) => a.user_id} ariaLabel="Administradores" />}
+      </Section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold">Auditoria (últimas 50 ações)</h2>
-        {audit.isLoading ? <Spinner /> : !audit.data?.length ? <Empty msg="Sem eventos de auditoria." /> : (
-          <div className="surface-card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/50 text-xs text-muted-foreground">
-                <tr><th className="px-4 py-3 text-left">Data</th><th className="px-4 py-3 text-left">Ação</th><th className="px-4 py-3 text-left">Detalhes</th></tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {audit.data.map((row: any) => (
-                  <tr key={row.id}>
-                    <td className="px-4 py-3 text-muted-foreground">{new Date(row.created_at).toLocaleString("pt-BR")}</td>
-                    <td className="px-4 py-3">{row.action}</td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground">{JSON.stringify(row.meta)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <Section title="Auditoria (últimas 50)" description="Cada ação administrativa fica registrada.">
+        {audit.isLoading ? <SkeletonTable rows={4} /> : !audit.data?.length
+          ? <EmptyState title="Sem eventos de auditoria" />
+          : <DataTable rows={audit.data} columns={auditCols} rowKey={(r) => r.id} ariaLabel="Auditoria" />}
+      </Section>
     </div>
   );
 }
-
-function Spinner() { return <div className="grid place-items-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>; }
-function Empty({ msg }: { msg: string }) { return <div className="surface-card p-8 text-center"><p className="text-sm text-muted-foreground">{msg}</p></div>; }

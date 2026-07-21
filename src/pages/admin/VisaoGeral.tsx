@@ -1,9 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Users, Activity, Bot, Wallet } from "lucide-react";
+import { Users, Activity, Bot, Wallet, TrendingUp, MessageCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { StatusChip } from "@/components/admin/StatusChip";
 import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
 import { mapWhatsAppStatus, mapAgentStatus } from "@/lib/admin/statusMapper";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { Section } from "@/components/admin/Section";
+import { StatCard, StatGrid } from "@/components/admin/StatCard";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 
 type Stats = {
   total_users: number;
@@ -31,7 +36,7 @@ export default function VisaoGeral() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("admin_engagement_stats");
       if (error) throw error;
-      return data as any;
+      return data as Record<string, number>;
     },
   });
   const agent = useQuery({
@@ -39,7 +44,7 @@ export default function VisaoGeral() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("admin_agent_stats");
       if (error) throw error;
-      return data as any;
+      return data as Record<string, number>;
     },
   });
   const ops = useQuery({
@@ -47,7 +52,7 @@ export default function VisaoGeral() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("admin_ops_health");
       if (error) throw error;
-      return data as any;
+      return data as Record<string, number>;
     },
   });
 
@@ -58,126 +63,99 @@ export default function VisaoGeral() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Visão Geral</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Métricas agregadas do negócio NoControle.ia — sem exposição de dados pessoais dos usuários.
-        </p>
-      </header>
-
-      {(wa || ag) && (
-        <section className="surface-card p-4 flex flex-wrap items-center gap-3">
-          {ag && <StatusChip view={mapAgentStatus(ag.status)} size="sm" />}
-          {wa && <StatusChip view={mapWhatsAppStatus(wa.status)} size="sm" />}
-          <span className="text-xs text-muted-foreground">
-            {mapAgentStatus(ag?.status).impact}
-          </span>
-        </section>
-      )}
+      <PageHeader
+        title="Visão Geral"
+        description="Métricas agregadas do negócio NoControle.ia — sem exposição de dados pessoais dos usuários."
+        status={
+          <>
+            {ag && <StatusChip view={mapAgentStatus(ag.status)} size="sm" />}
+            {wa && <StatusChip view={mapWhatsAppStatus(wa.status)} size="sm" />}
+          </>
+        }
+      />
 
       <Section title="Usuários" icon={Users}>
-        {base.isLoading ? <Spinner /> : base.data ? (
-          total === 0 ? (
-            <div className="surface-card p-8 text-center">
-              <p className="text-sm font-semibold">Nenhum usuário por aqui ainda</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece nesta lista.
-              </p>
-            </div>
-          ) : (
-            <Grid>
-              <Stat label="Total" value={base.data.total_users} />
-              <Stat label="Novos 7d" value={base.data.new_users_7d} />
-              <Stat label="Novos 30d" value={base.data.new_users_30d} />
-              <Stat label="Onboarding concluído" value={base.data.onboarded_users} />
-            </Grid>
-          )
-        ) : <Empty />}
+        {base.isLoading ? (
+          <SkeletonStats />
+        ) : base.data && total > 0 ? (
+          <StatGrid>
+            <StatCard label="Total" value={base.data.total_users} icon={Users} />
+            <StatCard label="Novos 7 dias" value={base.data.new_users_7d} tone="primary" />
+            <StatCard label="Novos 30 dias" value={base.data.new_users_30d} tone="primary" />
+            <StatCard label="Onboarding concluído" value={base.data.onboarded_users} tone="success" />
+          </StatGrid>
+        ) : (
+          <EmptyState
+            icon={Users}
+            title="Nenhum usuário por aqui ainda"
+            description="Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece aqui."
+          />
+        )}
       </Section>
 
-
-      <Section title="Engajamento (últimos períodos)" icon={Activity}>
-        {engagement.isLoading ? <Spinner /> : engagement.data ? (
-          <Grid>
-            <Stat label="Ativos 1d" value={engagement.data.dau ?? 0} />
-            <Stat label="Ativos 7d" value={engagement.data.wau ?? 0} />
-            <Stat label="Ativos 30d" value={engagement.data.mau ?? 0} />
-            <Stat label="Ativação: primeiro lançamento" value={engagement.data.activation_first_transaction ?? 0} />
-            <Stat label="Ativação: primeira meta" value={engagement.data.activation_first_goal ?? 0} />
-            <Stat label="WhatsApp vinculado" value={engagement.data.activation_whatsapp ?? 0} />
-            <Stat label="Divisão do Rolê criadas" value={engagement.data.total_splits ?? 0} />
-            <Stat label="Recorrências criadas" value={engagement.data.total_recurring_rules ?? 0} />
-          </Grid>
-        ) : <Empty />}
+      <Section title="Engajamento" icon={Activity} description="Uso do produto nos últimos períodos.">
+        {engagement.isLoading ? (
+          <SkeletonStats count={6} />
+        ) : engagement.data ? (
+          <StatGrid cols={4}>
+            <StatCard label="Ativos 1 dia" value={engagement.data.dau ?? 0} />
+            <StatCard label="Ativos 7 dias" value={engagement.data.wau ?? 0} />
+            <StatCard label="Ativos 30 dias" value={engagement.data.mau ?? 0} />
+            <StatCard label="Primeiro lançamento" value={engagement.data.activation_first_transaction ?? 0} tone="success" />
+            <StatCard label="Primeira meta" value={engagement.data.activation_first_goal ?? 0} tone="success" />
+            <StatCard label="WhatsApp vinculado" value={engagement.data.activation_whatsapp ?? 0} icon={MessageCircle} />
+            <StatCard label="Divisão do Rolê criadas" value={engagement.data.total_splits ?? 0} />
+            <StatCard label="Recorrências criadas" value={engagement.data.total_recurring_rules ?? 0} />
+          </StatGrid>
+        ) : (
+          <EmptyState title="Sem dados suficientes ainda" compact />
+        )}
       </Section>
 
-      <Section title="Volume agregado (sem PII)" icon={Wallet}>
+      <Section title="Volume agregado" icon={Wallet} description="Contagens totais — nunca exibimos dados individuais.">
         {base.data ? (
-          <Grid>
-            <Stat label="Contas" value={base.data.total_accounts} />
-            <Stat label="Lançamentos" value={base.data.total_transactions} />
-            <Stat label="Metas" value={base.data.total_goals} />
-            <Stat label="Investimentos" value={base.data.total_investments} />
-            <Stat label="Dívidas" value={base.data.total_debts} />
-          </Grid>
+          <StatGrid>
+            <StatCard label="Contas" value={base.data.total_accounts} />
+            <StatCard label="Lançamentos" value={base.data.total_transactions} />
+            <StatCard label="Metas" value={base.data.total_goals} />
+            <StatCard label="Investimentos" value={base.data.total_investments} />
+            <StatCard label="Dívidas" value={base.data.total_debts} />
+          </StatGrid>
         ) : null}
       </Section>
 
       <Section title="Agente (7 dias)" icon={Bot}>
-        {agent.isLoading ? <Spinner /> : agent.data ? (
-          <Grid>
-            <Stat label="Runs totais" value={agent.data.runs_total ?? 0} />
-            <Stat label="Runs 7d" value={agent.data.runs_7d ?? 0} />
-            <Stat label="Falhas 7d" value={agent.data.runs_failed_7d ?? 0} />
-            <Stat label="Tokens 7d" value={agent.data.tokens_7d ?? 0} />
-            <Stat label="Custo USD 7d" value={Number(agent.data.cost_usd_7d ?? 0).toFixed(2)} />
-          </Grid>
-        ) : <Empty />}
+        {agent.isLoading ? (
+          <SkeletonStats count={5} />
+        ) : agent.data ? (
+          <StatGrid>
+            <StatCard label="Runs totais" value={agent.data.runs_total ?? 0} />
+            <StatCard label="Runs 7 dias" value={agent.data.runs_7d ?? 0} tone="primary" />
+            <StatCard label="Falhas 7 dias" value={agent.data.runs_failed_7d ?? 0} tone="destructive" />
+            <StatCard label="Tokens 7 dias" value={Number(agent.data.tokens_7d ?? 0).toLocaleString("pt-BR")} />
+            <StatCard label="Custo (USD) 7d" value={`$${Number(agent.data.cost_usd_7d ?? 0).toFixed(2)}`} />
+          </StatGrid>
+        ) : (
+          <EmptyState title="Sem execuções ainda" compact />
+        )}
       </Section>
 
-      <Section title="Saúde da operação" icon={Activity}>
-        {ops.isLoading ? <Spinner /> : ops.data ? (
-          <Grid>
-            <Stat label="Outbox pendentes" value={ops.data.outbox_queued ?? 0} />
-            <Stat label="Outbox falhas" value={ops.data.outbox_failed ?? 0} />
-            <Stat label="Outbox dead" value={ops.data.outbox_dead ?? 0} />
-            <Stat label="Lembretes pendentes" value={ops.data.reminders_queued ?? 0} />
-            <Stat label="Importações 7d" value={ops.data.imports_recent ?? 0} />
-            <Stat label="Exclusões em análise" value={ops.data.deletion_pending ?? 0} />
-          </Grid>
-        ) : <Empty />}
+      <Section title="Saúde da operação" icon={TrendingUp}>
+        {ops.isLoading ? (
+          <SkeletonStats count={6} />
+        ) : ops.data ? (
+          <StatGrid>
+            <StatCard label="Outbox pendentes" value={ops.data.outbox_queued ?? 0} />
+            <StatCard label="Outbox falhas" value={ops.data.outbox_failed ?? 0} tone={ops.data.outbox_failed > 0 ? "warning" : "default"} />
+            <StatCard label="Outbox dead" value={ops.data.outbox_dead ?? 0} tone={ops.data.outbox_dead > 0 ? "destructive" : "default"} />
+            <StatCard label="Lembretes pendentes" value={ops.data.reminders_queued ?? 0} />
+            <StatCard label="Importações 7 dias" value={ops.data.imports_recent ?? 0} />
+            <StatCard label="Exclusões em análise" value={ops.data.deletion_pending ?? 0} />
+          </StatGrid>
+        ) : (
+          <EmptyState title="Sem dados de operação" compact />
+        )}
       </Section>
     </div>
   );
-}
-
-function Section({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-        <Icon size={14} className="text-primary" /> {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-function Grid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{children}</div>;
-}
-
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="surface-card p-4">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-1 font-display text-xl font-bold">{value}</p>
-    </div>
-  );
-}
-
-function Spinner() {
-  return <div className="grid place-items-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
-}
-function Empty() {
-  return <p className="text-sm text-muted-foreground">Sem dados suficientes ainda.</p>;
 }

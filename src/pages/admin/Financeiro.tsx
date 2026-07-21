@@ -1,8 +1,19 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileScan, Loader2, Plus } from "lucide-react";
-import { toast } from "sonner";
+import { FileScan, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { Section } from "@/components/admin/Section";
+import { StatCard, StatGrid } from "@/components/admin/StatCard";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { SkeletonStats, SkeletonTable } from "@/components/admin/AdminSkeleton";
+import { DataTable, type Column } from "@/components/admin/DataTable";
+import { adminToast } from "@/components/admin/adminToast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type CompanyTx = {
   id: string;
@@ -13,14 +24,8 @@ type CompanyTx = {
 };
 
 type DocumentMetrics = {
-  total: number;
-  succeeded: number;
-  failed: number;
-  pending: number;
-  success_rate: number;
-  tokens_in: number;
-  tokens_out: number;
-  avg_latency_ms: number;
+  total: number; succeeded: number; failed: number; pending: number;
+  success_rate: number; tokens_in: number; tokens_out: number; avg_latency_ms: number;
 };
 
 const brl = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
@@ -33,7 +38,7 @@ export default function Financeiro() {
   const q = useQuery({
     queryKey: ["company_transactions"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("company_transactions" as any).select("*").order("occurred_at", { ascending: false }).limit(200);
+      const { data, error } = await supabase.from("company_transactions" as never).select("*").order("occurred_at", { ascending: false }).limit(200);
       if (error) throw error;
       return (data as unknown as CompanyTx[]) ?? [];
     },
@@ -54,135 +59,116 @@ export default function Financeiro() {
       else acc.expense += Number(t.amount);
       return acc;
     },
-    { income: 0, expense: 0 }
+    { income: 0, expense: 0 },
   );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const amount = Number(form.amount);
-    if (!Number.isFinite(amount) || amount <= 0) { toast.error("Valor inválido"); return; }
+    if (!Number.isFinite(amount) || amount <= 0) { adminToast.warn("Valor inválido"); return; }
     setSaving(true);
-    const { error } = await supabase.from("company_transactions" as any).insert({
+    const { error } = await supabase.from("company_transactions" as never).insert({
       type: form.type,
       amount,
       occurred_at: form.occurred_at,
       description: form.description || null,
-    });
+    } as never);
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success("Lançamento salvo");
+    if (error) { adminToast.fromError(error, "Não foi possível salvar o lançamento"); return; }
+    adminToast.success("Lançamento salvo");
     setForm({ ...form, amount: "", description: "" });
     qc.invalidateQueries({ queryKey: ["company_transactions"] });
   }
 
+  const cols: Column<CompanyTx>[] = [
+    { key: "date", header: "Data", cell: (t) => <span className="text-muted-foreground">{new Date(t.occurred_at).toLocaleDateString("pt-BR")}</span> },
+    {
+      key: "type",
+      header: "Tipo",
+      cell: (t) => t.type === "income"
+        ? <Badge className="bg-success/15 text-success border-success/30">Receita</Badge>
+        : <Badge className="bg-destructive/15 text-destructive border-destructive/30">Despesa</Badge>,
+    },
+    { key: "desc", header: "Descrição", cell: (t) => t.description ?? "—" },
+    { key: "amount", header: "Valor", align: "right", cell: (t) => <span className="font-medium font-numeric tabular-nums">{brl(Number(t.amount))}</span> },
+  ];
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Finanças da NoControle.ia</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gestão financeira do negócio. Este módulo é totalmente separado das finanças pessoais dos usuários.
-        </p>
-      </header>
+      <PageHeader
+        title="Finanças da NoControle.ia"
+        description="Gestão financeira do negócio. Este módulo é totalmente separado das finanças pessoais dos usuários."
+      />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Kpi label="Receitas" value={brl(totals.income)} tone="success" />
-        <Kpi label="Despesas" value={brl(totals.expense)} tone="destructive" />
-        <Kpi label="Saldo" value={brl(totals.income - totals.expense)} tone="primary" />
-      </div>
+      <StatGrid cols={3}>
+        <StatCard label="Receitas" value={brl(totals.income)} tone="success" />
+        <StatCard label="Despesas" value={brl(totals.expense)} tone="destructive" />
+        <StatCard label="Saldo" value={brl(totals.income - totals.expense)} tone="primary" />
+      </StatGrid>
 
-      <section className="surface-card p-5">
-        <div className="mb-4 flex min-w-0 items-center gap-2">
-          <FileScan size={16} className="shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold">Leitura de documentos por IA</h2>
-            <p className="text-xs text-muted-foreground">Últimos 30 dias, sem expor dados financeiros dos usuários.</p>
-          </div>
-        </div>
+      <Section title="Leitura de documentos por IA" icon={FileScan} description="Últimos 30 dias — sem expor dados financeiros dos usuários.">
         {documents.isLoading ? (
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <SkeletonStats count={4} />
         ) : documents.isError ? (
-          <p className="text-sm text-muted-foreground">Não foi possível carregar estes indicadores agora.</p>
+          <EmptyState title="Não foi possível carregar" />
         ) : (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Documentos" value={String(documents.data?.total ?? 0)} tone="primary" />
-            <Kpi label="Sucesso" value={`${documents.data?.success_rate ?? 0}%`} tone="success" />
-            <Kpi label="Falhas" value={String(documents.data?.failed ?? 0)} tone="destructive" />
-            <Kpi label="Latência média" value={`${documents.data?.avg_latency_ms ?? 0} ms`} tone="primary" />
-            <div className="col-span-2 rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground lg:col-span-4">
+          <div className="space-y-3">
+            <StatGrid cols={4}>
+              <StatCard label="Documentos" value={documents.data?.total ?? 0} />
+              <StatCard label="Sucesso" value={`${documents.data?.success_rate ?? 0}%`} tone="success" />
+              <StatCard label="Falhas" value={documents.data?.failed ?? 0} tone="destructive" />
+              <StatCard label="Latência média" value={`${documents.data?.avg_latency_ms ?? 0} ms`} />
+            </StatGrid>
+            <div className="rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
               Tokens processados: {Number(documents.data?.tokens_in ?? 0).toLocaleString("pt-BR")} entrada · {Number(documents.data?.tokens_out ?? 0).toLocaleString("pt-BR")} saída · {documents.data?.pending ?? 0} pendente(s)
             </div>
           </div>
         )}
-      </section>
+      </Section>
 
-      <div className="surface-card p-5 space-y-4">
-        <h2 className="text-sm font-semibold flex items-center gap-2"><Plus size={14} /> Novo lançamento</h2>
-        <form onSubmit={submit} className="grid gap-3 md:grid-cols-4">
-          <select className="rounded-xl border border-border bg-background px-3 py-2 text-sm" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })}>
-            <option value="expense">Despesa</option>
-            <option value="income">Receita</option>
-          </select>
-          <input type="date" className="rounded-xl border border-border bg-background px-3 py-2 text-sm" value={form.occurred_at} onChange={(e) => setForm({ ...form, occurred_at: e.target.value })} />
-          <input inputMode="decimal" placeholder="Valor" className="rounded-xl border border-border bg-background px-3 py-2 text-sm" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(",", ".") })} />
-          <input placeholder="Descrição" className="rounded-xl border border-border bg-background px-3 py-2 text-sm md:col-span-1" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <button disabled={saving} className="md:col-span-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium py-2.5 disabled:opacity-60">
+      <Section title="Novo lançamento" icon={Plus}>
+        <form onSubmit={submit} className="surface-card p-5 grid gap-3 md:grid-cols-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="fin-type">Tipo</Label>
+            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "income" | "expense" })}>
+              <SelectTrigger id="fin-type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="expense">Despesa</SelectItem>
+                <SelectItem value="income">Receita</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="fin-date">Data</Label>
+            <Input id="fin-date" type="date" value={form.occurred_at} onChange={(e) => setForm({ ...form, occurred_at: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="fin-amount">Valor</Label>
+            <Input id="fin-amount" inputMode="decimal" placeholder="0,00" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(",", ".") })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="fin-desc">Descrição</Label>
+            <Input id="fin-desc" placeholder="Opcional" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+          <Button type="submit" disabled={saving} className="md:col-span-4">
             {saving ? "Salvando…" : "Registrar"}
-          </button>
+          </Button>
         </form>
-      </div>
+      </Section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold">Lançamentos recentes</h2>
+      <Section title="Lançamentos recentes">
         {q.isLoading ? (
-          <div className="grid place-items-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+          <SkeletonTable />
         ) : !q.data || q.data.length === 0 ? (
-          <div className="surface-card p-8 text-center">
-            <p className="text-sm text-muted-foreground">Nenhum lançamento empresarial ainda.</p>
-          </div>
+          <EmptyState title="Nenhum lançamento empresarial ainda" />
         ) : (
-          <div className="surface-card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/50 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3 text-left">Data</th>
-                  <th className="px-4 py-3 text-left">Tipo</th>
-                  <th className="px-4 py-3 text-left">Descrição</th>
-                  <th className="px-4 py-3 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {q.data.map((t) => (
-                  <tr key={t.id}>
-                    <td className="px-4 py-3 text-muted-foreground">{new Date(t.occurred_at).toLocaleDateString("pt-BR")}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full text-[10px] px-2 py-0.5 ${t.type === "income" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-                        {t.type === "income" ? "Receita" : "Despesa"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">{t.description ?? "—"}</td>
-                    <td className="px-4 py-3 text-right font-medium">{brl(Number(t.amount))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable rows={q.data} columns={cols} rowKey={(r) => r.id} ariaLabel="Lançamentos empresariais" />
         )}
-      </section>
+      </Section>
 
-      <div className="surface-card p-4">
-        <h3 className="text-sm font-semibold">MRR / ARR</h3>
-        <p className="text-xs text-muted-foreground mt-1">Não configurado — depende de módulo de assinaturas.</p>
-      </div>
-    </div>
-  );
-}
-
-function Kpi({ label, value, tone }: { label: string; value: string; tone: "success" | "destructive" | "primary" }) {
-  const t = tone === "success" ? "text-success" : tone === "destructive" ? "text-destructive" : "text-primary";
-  return (
-    <div className="surface-card p-4">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-display text-xl font-bold ${t}`}>{value}</p>
+      <Section title="MRR / ARR">
+        <EmptyState title="Não configurado" description="Depende do módulo de assinaturas." compact />
+      </Section>
     </div>
   );
 }

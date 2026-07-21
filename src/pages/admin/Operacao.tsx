@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { Loader2, RefreshCcw, Play, RotateCw } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2, RefreshCcw, Play, RotateCw, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { StatusChip } from "@/components/admin/StatusChip";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { SkeletonList } from "@/components/admin/AdminSkeleton";
+import { adminToast } from "@/components/admin/adminToast";
 import { useAdminPlatformStatus, type JobKey } from "@/hooks/useAdminPlatformStatus";
 import { mapJobStatus, humanizeRelative } from "@/lib/admin/statusMapper";
-import { mapAdminActionError } from "@/lib/admin/errorMapper";
 
 const JOBS: { key: JobKey; label: string; desc: string; canReprocess: boolean }[] = [
   { key: "whatsapp-send", label: "Envio de mensagens", desc: "Entrega o que o assistente responde aos usuários.", canReprocess: true },
@@ -27,11 +29,10 @@ export default function Operacao() {
     try {
       const { error } = await supabase.rpc("admin_run_check", { p_job_key: jobKey });
       if (error) throw error;
-      toast.success("Verificação registrada.");
+      adminToast.success("Verificação registrada");
       q.refetch();
     } catch (e) {
-      const fe = mapAdminActionError(e);
-      toast.error(`${fe.title} · ${fe.code}`);
+      adminToast.fromError(e, "Não foi possível verificar");
     } finally { setBusy(null); }
   };
 
@@ -41,82 +42,82 @@ export default function Operacao() {
       const { data, error } = await supabase.rpc("admin_reprocess_failed", { p_job_key: jobKey });
       if (error) throw error;
       const count = (data as { requeued?: number } | null)?.requeued ?? 0;
-      toast.success(count > 0 ? `${count} itens recolocados na fila.` : "Nada em falha no momento.");
+      adminToast.success(count > 0 ? `${count} itens recolocados na fila` : "Nada em falha no momento");
       q.refetch();
     } catch (e) {
-      const fe = mapAdminActionError(e);
-      toast.error(`${fe.title} · ${fe.code}`);
+      adminToast.fromError(e, "Não foi possível reprocessar");
     } finally { setBusy(null); }
   };
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Operação</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Saúde das automações que sustentam o produto. Cada card mostra o estado real das últimas execuções.
-          </p>
-        </div>
-        <button onClick={() => q.refetch()} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium inline-flex items-center gap-1">
-          <RefreshCcw size={12} /> Atualizar
-        </button>
-      </header>
+      <PageHeader
+        title="Operação"
+        description="Saúde das automações que sustentam o produto. Cada card mostra o estado real das últimas execuções."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => q.refetch()} aria-label="Atualizar">
+            <RefreshCcw size={12} /> Atualizar
+          </Button>
+        }
+      />
 
       {q.isLoading ? (
-        <div className="grid place-items-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        <SkeletonList rows={4} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {JOBS.map((j) => {
             const info = q.data?.jobs?.[j.key];
             const view = mapJobStatus(info?.status);
+            const isChecking = busy === j.key + ":check";
+            const isReprocessing = busy === j.key + ":reprocess";
             return (
               <div key={j.key} className="surface-card p-5 space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold">{j.label}</p>
                     <p className="text-xs text-muted-foreground">{j.desc}</p>
                   </div>
                   <StatusChip view={view} size="sm" />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
-                  <div>
-                    <p className="uppercase tracking-wider">Última</p>
-                    <p className="text-foreground text-sm mt-0.5">{humanizeRelative(info?.last_run_at ?? null)}</p>
-                  </div>
-                  <div>
-                    <p className="uppercase tracking-wider">Processados</p>
-                    <p className="text-foreground text-sm mt-0.5">{info?.processed ?? 0}</p>
-                  </div>
-                  <div>
-                    <p className="uppercase tracking-wider">Falhas</p>
-                    <p className="text-foreground text-sm mt-0.5">{info?.failed ?? 0}</p>
-                  </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <Metric label="Última" value={humanizeRelative(info?.last_run_at ?? null)} />
+                  <Metric label="Processados" value={String(info?.processed ?? 0)} />
+                  <Metric label="Falhas" value={String(info?.failed ?? 0)} tone={info?.failed ? "warn" : "neutral"} />
                 </div>
 
                 {view.impact && info?.status !== "healthy" && (
-                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">{view.impact}</p>
+                  <p className="flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/30 p-2 text-xs text-warning-foreground">
+                    <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                    {view.impact}
+                  </p>
                 )}
 
                 <div className="flex flex-wrap gap-2 pt-1">
-                  <button
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => runCheck(j.key)}
                     disabled={!!busy}
-                    className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                    aria-label={`Executar verificação de ${j.label}`}
                   >
-                    <Play size={11} /> Executar verificação
-                  </button>
+                    {isChecking ? <Loader2 className="animate-spin" size={12} /> : <Play size={12} />}
+                    Executar verificação
+                  </Button>
 
                   {j.canReprocess && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           disabled={!!busy || (info?.failed ?? 0) === 0}
-                          className="inline-flex items-center gap-1 rounded-full border border-amber-200 text-amber-800 px-3 py-1.5 text-xs hover:bg-amber-50 disabled:opacity-40"
+                          className="border-warning/40 text-warning-foreground hover:bg-warning/10"
+                          aria-label={`Reprocessar falhas de ${j.label}`}
                         >
-                          <RotateCw size={11} /> Reprocessar falhas
-                        </button>
+                          {isReprocessing ? <Loader2 className="animate-spin" size={12} /> : <RotateCw size={12} />}
+                          Reprocessar falhas
+                        </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
@@ -138,6 +139,16 @@ export default function Operacao() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function Metric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "warn" }) {
+  const toneCls = tone === "warn" ? "text-warning-foreground" : "text-foreground";
+  return (
+    <div>
+      <p className="uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={`text-sm mt-0.5 ${toneCls}`}>{value}</p>
     </div>
   );
 }

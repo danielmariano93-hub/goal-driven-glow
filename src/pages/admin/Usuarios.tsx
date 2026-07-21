@@ -1,7 +1,13 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Search } from "lucide-react";
+import { Search, Users, ShieldCheck, MessageCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { SkeletonTable } from "@/components/admin/AdminSkeleton";
+import { DataTable, type Column } from "@/components/admin/DataTable";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 type Row = {
   user_id: string;
@@ -21,13 +27,24 @@ function mask(email: string): string {
   return `${short}@${d}`;
 }
 
+function useDebounced<T>(value: T, delay = 250): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return v;
+}
+
 export default function Usuarios() {
   const [search, setSearch] = useState("");
+  const debounced = useDebounced(search, 250);
+
   const q = useQuery({
-    queryKey: ["admin_users", search],
+    queryKey: ["admin_users", debounced],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("admin_users_list", {
-        p_search: search || null,
+        p_search: debounced || null,
         p_limit: 100,
         p_offset: 0,
       });
@@ -36,76 +53,78 @@ export default function Usuarios() {
     },
   });
 
+  const columns = useMemo<Column<Row>[]>(() => [
+    {
+      key: "name",
+      header: "Nome",
+      cell: (r) => <span className="font-medium">{r.display_name ?? "—"}</span>,
+    },
+    {
+      key: "email",
+      header: "E-mail",
+      cell: (r) => <span className="font-mono text-xs text-muted-foreground">{mask(r.email)}</span>,
+    },
+    {
+      key: "created",
+      header: "Cadastro",
+      cell: (r) => <span className="text-muted-foreground">{new Date(r.created_at).toLocaleDateString("pt-BR")}</span>,
+    },
+    {
+      key: "onboarding",
+      header: "Onboarding",
+      cell: (r) => r.onboarding_completed_at
+        ? <Badge className="bg-success/15 text-success border-success/30">Concluído</Badge>
+        : <Badge variant="secondary">Pendente</Badge>,
+    },
+    {
+      key: "whatsapp",
+      header: "WhatsApp",
+      hideOnMobile: true,
+      cell: (r) => r.whatsapp_linked
+        ? <span className="inline-flex items-center gap-1 text-xs"><MessageCircle size={12} className="text-success" />Vinculado</span>
+        : <span className="text-xs text-muted-foreground">—</span>,
+    },
+    {
+      key: "role",
+      header: "Papel",
+      cell: (r) => r.is_platform_admin
+        ? <Badge className="bg-primary/15 text-primary border-primary/30 gap-1"><ShieldCheck size={10} />Admin</Badge>
+        : <Badge variant="secondary">Usuário</Badge>,
+    },
+  ], []);
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight">Usuários</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Dados de cadastro e ativação apenas. Nunca exibimos transações, valores ou descrições individuais.
-        </p>
-      </header>
+      <PageHeader
+        title="Usuários"
+        description="Dados de cadastro e ativação apenas. Nunca exibimos transações, valores ou descrições individuais."
+      />
 
       <div className="relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <Input
+          type="search"
+          autoComplete="off"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por e-mail ou nome"
-          className="w-full rounded-xl border border-border bg-card px-9 py-2.5 text-sm"
+          className="pl-9"
+          aria-label="Buscar usuários"
         />
       </div>
 
       {q.isLoading ? (
-        <div className="grid place-items-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        <SkeletonTable rows={6} />
       ) : q.error ? (
-        <p className="text-sm text-destructive">Não foi possível carregar. Verifique suas permissões.</p>
+        <EmptyState title="Não foi possível carregar" description="Verifique suas permissões e tente novamente." />
       ) : !q.data || q.data.length === 0 ? (
-        <div className="surface-card p-8 text-center">
-          <p className="text-sm font-semibold">Nenhum usuário por aqui ainda</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece nesta lista.
-          </p>
-        </div>
-
+        <EmptyState
+          icon={Users}
+          title={debounced ? "Nenhum usuário para esta busca" : "Nenhum usuário por aqui ainda"}
+          description={debounced ? "Confira a grafia ou tente outro termo." : "Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece aqui."}
+        />
       ) : (
-        <div className="surface-card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/50 text-xs text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3 text-left">Nome</th>
-                <th className="px-4 py-3 text-left">E-mail</th>
-                <th className="px-4 py-3 text-left">Cadastro</th>
-                <th className="px-4 py-3 text-left">Onboarding</th>
-                <th className="px-4 py-3 text-left">WhatsApp</th>
-                <th className="px-4 py-3 text-left">Papel</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {q.data.map((row) => (
-                <tr key={row.user_id}>
-                  <td className="px-4 py-3 font-medium">{row.display_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{mask(row.email)}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{new Date(row.created_at).toLocaleDateString("pt-BR")}</td>
-                  <td className="px-4 py-3">
-                    {row.onboarding_completed_at ? (
-                      <span className="rounded-full bg-success/10 text-success text-[10px] px-2 py-0.5">Concluído</span>
-                    ) : (
-                      <span className="rounded-full bg-muted text-[10px] px-2 py-0.5">Pendente</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{row.whatsapp_linked ? "Sim" : "—"}</td>
-                  <td className="px-4 py-3">
-                    {row.is_platform_admin ? (
-                      <span className="rounded-full bg-primary/10 text-primary text-[10px] px-2 py-0.5">Admin</span>
-                    ) : (
-                      <span className="rounded-full bg-muted text-[10px] px-2 py-0.5">Usuário</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable rows={q.data} columns={columns} rowKey={(r) => r.user_id} ariaLabel="Lista de usuários" />
       )}
 
       <p className="text-[11px] text-muted-foreground">
