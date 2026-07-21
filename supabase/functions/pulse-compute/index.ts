@@ -9,7 +9,6 @@ import { computePulse, type PulseInput } from "../_shared/pulse/rules.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -19,14 +18,13 @@ Deno.serve(async (req) => {
 
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
-  const token = auth.slice(7);
-  const sbAuth = createClient(SUPABASE_URL, ANON, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
+  const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
   });
-  const { data: claims, error: cerr } = await sbAuth.auth.getClaims(token);
-  if (cerr || !claims?.claims) return json({ error: "unauthorized" }, 401);
-  const userId = claims.claims.sub as string;
+  const { data: userData, error: userError } = await sbAuth.auth.getUser();
+  const userId = userData?.user?.id;
+  if (userError || !userId) return json({ error: "unauthorized" }, 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
@@ -46,7 +44,7 @@ Deno.serve(async (req) => {
       sb.from("debts").select("id,outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
       sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
       sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", iso(cutoff30)),
-      sb.from("recurring_rules").select("id,active,amount").eq("user_id", userId).eq("active", true),
+      sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
       sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
     ]);
 
@@ -62,7 +60,7 @@ Deno.serve(async (req) => {
     const debts = (debtsR.data ?? []) as Array<{ outstanding_balance: number | string }>;
     const contribs = (contribR.data ?? []) as Array<{ goal_id: string; amount: number | string }>;
     const emos = (emoR.data ?? []) as Array<{ occurred_at: string; transaction_id: string | null }>;
-    const recurring = (recR.data ?? []) as Array<{ id: string; active: boolean; amount: number | string }>;
+    const recurring = (recR.data ?? []) as Array<{ id: string; status: string; amount: number | string }>;
     const timezone = String(profileR.data?.timezone || "America/Sao_Paulo");
 
     const confirmed = txs.filter((t) => t.status === "confirmed" && t.type !== "transfer");

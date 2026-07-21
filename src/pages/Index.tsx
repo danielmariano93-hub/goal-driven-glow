@@ -1,7 +1,11 @@
 import { Link } from "react-router-dom";
-import { useMemo, useState } from "react";
-import { Loader2, CalendarDays, Users, FileBarChart, ChevronRight, Landmark } from "lucide-react";
-import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts, useCategories } from "@/lib/db/finance";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, CalendarDays, Users, FileBarChart, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
+import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
@@ -21,6 +25,9 @@ function isoDate(date: Date) {
 }
 
 export default function Index() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const categorizationStarted = useRef(false);
   const [period, setPeriod] = useState<Period>("month");
   const [customStart, setCustomStart] = useState(isoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [customEnd, setCustomEnd] = useState(isoDate(new Date()));
@@ -30,7 +37,27 @@ export default function Index() {
   const { data: goals } = useGoals();
   const { data: investments } = useInvestments();
   const { data: debts } = useDebts();
-  const { data: categories } = useCategories();
+
+  useEffect(() => {
+    if (!user?.id || categorizationStarted.current) return;
+    categorizationStarted.current = true;
+
+    void (async () => {
+      const { data, error } = await (supabase.rpc as any)("apply_safe_category_suggestions");
+      if (error) {
+        categorizationStarted.current = false;
+        console.warn("[safe-category-bootstrap]", error.message);
+        return;
+      }
+      const updated = Number((data as { updated?: number } | null)?.updated ?? 0);
+      if (updated > 0) {
+        await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+        await queryClient.invalidateQueries({ queryKey: ["assistant-tip"] });
+        await queryClient.invalidateQueries({ queryKey: ["pulse"] });
+        toast.success(`${updated} lançamento${updated === 1 ? " foi organizado" : "s foram organizados"} com segurança.`);
+      }
+    })();
+  }, [queryClient, user?.id]);
 
   const loading = la || lt || lbs;
   const acc = accounts ?? [];
@@ -81,11 +108,6 @@ export default function Index() {
   const hasTransaction = tx.length > 0;
   const hasGoal = (goals ?? []).length > 0;
   const isFresh = !hasAccount && !hasTransaction && !hasGoal;
-  const debtCategoryId = categories?.find((c) => c.name === "Dívidas e empréstimos")?.id;
-  const hasDebtPaymentsWithoutDebt = (debts ?? []).filter((d) => d.status === "active").length === 0
-    && !!debtCategoryId
-    && tx.some((t) => t.type === "expense" && t.category_id === debtCategoryId && t.status === "confirmed");
-
   return (
     <div className="space-y-5">
       <PeriodFilter period={period} setPeriod={setPeriod} customStart={customStart} customEnd={customEnd} setCustomStart={setCustomStart} setCustomEnd={setCustomEnd} />
@@ -105,8 +127,6 @@ export default function Index() {
       <WhatsAppCta />
 
       <ParaPagarResumo />
-
-      {hasDebtPaymentsWithoutDebt ? <Link to="/app/dividas" className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-3 text-sm"><Landmark size={18} className="text-warning"/><span className="min-w-0 flex-1"><strong className="block">Falta informar o saldo da dívida</strong><span className="text-xs text-muted-foreground">Pagamentos categorizados não dizem quanto ainda falta pagar.</span></span><ChevronRight size={15}/></Link> : null}
 
       <AReceberRoleResumo />
 

@@ -97,7 +97,7 @@ export function AssistantTipCard() {
     [txs, goals],
   );
 
-  const { data, isLoading, refetch } = useQuery<Insight | null>({
+  const { data, isLoading } = useQuery<Insight | null>({
     queryKey: ["assistant-tip", user?.id],
     enabled: !!user,
     staleTime: 60_000,
@@ -116,8 +116,8 @@ export function AssistantTipCard() {
 
   const generate = async (force = false) => {
     if (generating) return;
-    if (force && Date.now() - lastForceAt < 60_000) {
-      toast.message("Aguarde alguns segundos antes de gerar outra dica.");
+    if (force && Date.now() - lastForceAt < 3_000) {
+      toast.message("A nova dica já está sendo preparada.");
       return;
     }
     setGenerating(true);
@@ -127,9 +127,9 @@ export function AssistantTipCard() {
       if (error) throw error;
       if (generated?.insight && isRenderable(generated.insight)) {
         qc.setQueryData(["assistant-tip", user?.id], generated.insight);
+      } else {
+        throw new Error("insight_not_returned");
       }
-      await qc.invalidateQueries({ queryKey: ["assistant-tip", user?.id] });
-      await refetch();
     } catch (e) {
       if (force) toast.error("Não consegui criar uma nova dica agora", { description: "Sua dica atual continua disponível. Tente novamente em instantes." });
       console.warn("[insights-generate]", (e as Error).message);

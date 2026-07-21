@@ -42,19 +42,6 @@ Deno.serve(async (req) => {
 
   const supa = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-  // 60s spam guard (per user) even when force=true
-  const { data: veryRecent } = await supa
-    .from("user_insights")
-    .select("id, generated_at")
-    .eq("user_id", uid)
-    .gte("generated_at", new Date(Date.now() - 60_000).toISOString())
-    .order("generated_at", { ascending: false })
-    .limit(1);
-  if (veryRecent && veryRecent.length > 0 && force) {
-    logEvent({ uid_len: uid.length, event: "throttled" });
-    return json({ error: "rate_limited", retry_after_seconds: 60 }, 429);
-  }
-
   // Cache reuse (6h) — only real content.
   if (!force) {
     const cutoff = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
