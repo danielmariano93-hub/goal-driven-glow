@@ -100,16 +100,28 @@ export default function Categorias() {
 
           <section>
             <h2 className="mb-2 text-sm font-semibold">Padrões do sistema</h2>
+            <p className="mb-2 text-[11px] text-muted-foreground">Editar cria uma cópia pessoal e só vale para você — a padrão original fica intacta.</p>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
               {globals.map((c) => (
                 <div key={c.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-2.5">
                   <span className="grid h-7 w-7 place-items-center rounded-md" style={{ backgroundColor: (c.color || "#8B5CF6") + "22", color: c.color || "#8B5CF6" }}>
                     <Tag size={12} />
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium">{c.name}</p>
                     <p className="text-[10px] text-muted-foreground">{c.type === "income" ? "Receita" : "Despesa"}</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      setEditing({ mode: "override", source: c });
+                      setOpen(true);
+                    }}
+                    className="shrink-0 rounded-full border border-border p-1.5 text-muted-foreground hover:text-foreground"
+                    title="Personalizar esta padrão"
+                    aria-label="Personalizar esta padrão"
+                  >
+                    <Pencil size={12} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -119,21 +131,30 @@ export default function Categorias() {
 
       {open && (
         <CatModal
-          initial={editing}
+          initial={editing?.mode === "personal" ? editing.row : editing?.mode === "override" ? editing.source : null}
+          overrideNotice={editing?.mode === "override"}
           saving={save.isPending}
           onClose={() => setOpen(false)}
-          onSubmit={(v) =>
+          onSubmit={(v) => {
+            const isOverride = editing?.mode === "override";
+            const isPersonal = editing?.mode === "personal";
             save.mutate(
-              { ...v, id: editing?.id },
+              {
+                ...v,
+                id: isPersonal ? editing.row.id : undefined,
+                sourceSlug: isOverride ? (editing.source.slug ?? undefined) : undefined,
+              },
               {
                 onSuccess: () => {
-                  toast.success("Salva");
+                  toast.success(isOverride ? "Padrão personalizada" : "Salva", {
+                    description: isOverride ? "A cópia pessoal foi criada e só vale para você." : undefined,
+                  });
                   setOpen(false);
                 },
                 onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
               }
-            )
-          }
+            );
+          }}
         />
       )}
     </div>
