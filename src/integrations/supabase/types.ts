@@ -3524,8 +3524,10 @@ export type Database = {
         }
         Returns: string
       }
+      apply_safe_category_suggestions: { Args: never; Returns: Json }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
+      category_alias_key: { Args: { p_text: string }; Returns: string }
       challenge_progress_add: {
         Args: {
           p_delta: number
@@ -3686,6 +3688,10 @@ export type Database = {
       is_current_user_admin: { Args: never; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       join_challenge: { Args: { p_slug: string }; Returns: string }
+      learn_transaction_category: {
+        Args: { p_category_id: string; p_transaction_id: string }
+        Returns: undefined
+      }
       list_my_whatsapp_link: {
         Args: never
         Returns: {
