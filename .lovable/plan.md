@@ -1,93 +1,135 @@
-# Fase 2 — Agent Core: Policy, Planner, Validator, Observabilidade
+# Fase 3 — Agent Core Inteligente: Memória, Perfil, Insights e Aprendizado
 
-Entrega única. Preserva arquitetura da Fase 1 (`AgentCore.handleTurn` + adapters + módulos em `_shared/agent/core/`). Reaproveita todo o código atual; nada de duplicação nem mudança de comportamento externo. Aplicado em um único patch, seguido de deploy e suíte completa.
+Entrega única, sobre a arquitetura das Fases 1 e 2. Zero regressão nos 361 testes atuais. Todo módulo novo pluga no `ContextPipeline`, `PolicyEngine`, `ActionPlanner` e `Observability` existentes — nenhuma duplicação de responsabilidade.
 
-## 1. Policy Engine completo (`core/PolicyEngine.ts`)
-Único ponto de decisão. Expande o atual (hoje só confirm/cancel) para retornar uma `Decision` explícita a cada turno:
-- `direct_reply` | `run_tools` | `ask_confirmation` | `block` | `need_context` | `reuse_context` | `create_draft` | `cancel` | `interrupt` | `fallback`.
-Entradas: intenção roteada, snapshot do `StateManager`, `PendingConfirmations`, guardrails (ownership, limite de passos, plausibilidade temporal já existente). Saída consumida por `AgentCore` — nenhum `if` de negócio permanece fora do PolicyEngine.
+## 1. Memória Inteligente (`core/MemoryStore.ts`)
+Camada persistente de fatos aprendidos sobre o usuário.
 
-## 2. Action Planner (`core/ActionPlanner.ts`)
-Reescrito para planejar antes de executar:
-- Interpreta intenção + slots do `IntentRouter`.
-- Decompõe em `Step[]` (tool calls ordenadas + dependências).
-- Deduplica chamadas (chave = tool_name+args normalizados) e reusa resultados via `ContextPipeline`.
-- Escolhe fast-path determinístico quando plano é trivial (evita LLM).
-- Só invoca `ToolRuntime` — nenhuma ferramenta é chamada diretamente em outro lugar.
+**Migration `agent_memory`**:
+- `id, user_id, kind, key, value jsonb, confidence numeric, source (user|inferred|correction), last_used_at, use_count, expires_at, created_at, updated_at`.
+- `kind ∈ {favorite_category, frequent_merchant, recurring_bill, preferred_card, favorite_investment, goal, spending_pattern, habit, language, alias, correction, response_preference, context}`.
+- Unique `(user_id, kind, key)`; RLS por `user_id`; GRANTs `authenticated`+`service_role`; índice `(user_id, kind, last_used_at desc)`.
 
-## 3. Response Validator (`core/ResponseValidator.ts`)
-Expande além do trim/cap atual:
-- Valida presença/tipo de campos, JSON de tool results, coerência com estado (ex.: recibo sem draft), tool calls inválidas, respostas vazias, confirmações inconsistentes.
-- Ações: `accept` | `regenerate` (uma tentativa) | `fallback_deterministic`.
+**API**: `remember`, `recall(kind?, key?, limit)`, `forget`, `consolidate` (merge de duplicatas via key normalizada), `decay` (reduz `confidence` de fatos não usados; descarta abaixo de threshold; respeita `expires_at`). Consolidação e decay rodam em cron diário via `agent-memory-maintain`.
 
-## 4. Decision Logger (`core/DecisionLogger.ts` + tabela `agent_decisions`)
-Migration nova cria `public.agent_decisions(run_id, step_index, intent, policy_decision, planned_steps jsonb, tool_calls jsonb, validations jsonb, fallback bool, error text, duration_ms, created_at)` com RLS (service_role total, authenticated select do próprio user via join em agent_runs). GRANTs completos. Logger grava um registro por turno permitindo reconstruir o fluxo.
+Integra no `ContextPipeline.memory(kinds[])` com cache por turno. Nunca sobrescreve fato com `source=correction` por inferência.
 
-## 5. Tool Runtime consolidado (`core/ToolRuntime.ts`)
-Wrapper único com contrato uniforme `{ ok, result, error, duration_ms, retries }`:
-- timeout (por tool, default 10s), retry exponencial em erros transitórios, isolamento (try/catch por call), rollback via callback opcional declarado na tool, métricas emitidas ao Observability.
+## 2. Perfil Financeiro Dinâmico (`core/UserProfile.ts` + tabela `user_profiles_snapshot`)
+Snapshot materializado, recalculado sob demanda com TTL 6h ou após import/edição relevante.
 
-## 6. Context Pipeline (`core/ContextPipeline.ts`)
-Fachada única. Consolida `FinancialContext360`, `StateManager`, `ConversationHistory`, `PendingConfirmations`. Cache por turno (memo por chave). Nenhuma tool/planner acessa Supabase direto para contexto — só através daqui.
+Campos: `estimated_income, spending_pattern jsonb, seasonality jsonb, savings_capacity, net_worth, risk_level, behavior_tags[], monthly_evolution jsonb, top_categories jsonb, indicators jsonb, computed_at`.
 
-## 7. Error Recovery (`core/ErrorRecovery.ts`)
-Centraliza: retry inteligente (classifica erro → retryable/não), fallback determinístico via `DeterministicFallback`, recuperação de contexto (reload sob demanda), mensagens amigáveis reutilizando `FRIENDLY_ORCHESTRATOR_ERROR` e templates de `messageTemplates.ts`.
+`buildProfile(user_id)` usa `computeMonthlyTotals`, `investment_movements`, `debts`, `goals` — reaproveita engine existente. Exposto via `ContextPipeline.profile()` (lazy). Todas as tools de análise passam a receber `profile` como contexto opcional.
 
-## 8. Observabilidade (`core/Observability.ts`)
-Coleta por turno: tempo por etapa (session/intent/policy/plan/tools/validate/persist), tempo por tool, contagem de tool calls, taxa fallback/confirmação/erro, tokens in/out (já disponíveis em `agent_runs`), custo estimado via `ai_model_prices` (se existir; senão null). Persiste em `agent_runs` (colunas já existentes) + `agent_decisions`.
+## 3. Motor de Insights (`core/InsightsEngine.ts`)
+Consolida `insights-generate` existente + novos detectores puros e testáveis:
+- `spike_detector`, `duplicate_expense`, `underused_subscription`, `above_average`, `growing_category`, `saving_opportunity`, `goal_at_risk`, `forgotten_bill`, `investment_opportunity`, `concentration_risk`.
 
-## 9. Performance
-- Cache de contexto por turno no `ContextPipeline`.
-- Deduplicação de tool calls no `ActionPlanner`.
-- Lazy load do `FinancialContext360` (só o slice pedido pela intenção).
-- Reuso de `loadActivePrompt` cached em memória por 60s (Edge Function scope).
-- Evita chamada LLM quando fast-path determinístico resolve.
+Cada detector: `(profile, snapshot360, memory) → Insight[]` com `{ id, kind, severity, score, title, body, action?, evidence }`. `rank()` prioriza por `severity*score*recency` e aplica cooldown (via memória) para não repetir. Persistidos em `user_insights` (já existe) com `kind` estendido. Edge Function `insights-generate` chama o engine unificado. Uma tool `list_relevant_insights` disponível ao agente.
 
-## 10. Refatoração final
-- Remove código morto residual de `orchestrator.ts` (mantém apenas shim mínimo).
-- Consolida imports via `core/index.ts`.
-- Padroniza nomenclatura (`Decision`, `Plan`, `Step`, `ToolResult`, `TurnMetrics`).
-- Move helpers órfãos para módulos apropriados; deleta os sem uso.
+## 4. Planejador Financeiro (`core/FinancialPlanner.ts`)
+Constrói planos completos a partir de objetivo declarado.
 
-## Restrições e compatibilidade
-- Comportamento externo idêntico: WhatsApp, App, Simulador, Admin, Prompt Versioning, Confirmações e Analytics continuam funcionando com os mesmos contratos HTTP/DB.
-- Nenhuma mudança em prompts, tools de negócio, RLS existente, RPCs financeiras, UI.
-- Única migration nova: `agent_decisions` (+ índice + RLS + GRANT authenticated/service_role).
+Input: `{ objective, target_amount?, deadline?, constraints? }`.
+Output: `{ goal, milestones[], schedule, projections, impact, recommendations[] }` — usa `profile.savings_capacity`, `debts`, `goals` existentes.
 
-## Testes
-Novos em `src/test/`:
-- `agent-policy-engine.test.ts` — matriz de decisões.
-- `agent-action-planner.test.ts` — decomposição, dedupe, reuse.
-- `agent-response-validator.test.ts` — accept/regenerate/fallback.
-- `agent-tool-runtime.test.ts` — timeout, retry, rollback.
-- `agent-context-pipeline.test.ts` — cache e lazy load.
-- `agent-error-recovery.test.ts` — classificação e mensagens.
-- `agent-decision-logger.test.ts` — payload persistido.
-- `agent-core-phase2-parity.test.ts` — paridade App↔WhatsApp para gasto, confirmação, cancelamento, consulta, analytics, ajuda.
-Meta: 0 regressões nos 347 existentes + todos os novos verdes. Roda `bunx vitest run` e `tsgo`.
+Tools novas: `create_financial_plan_draft` (rascunho confirmável), `simulate_plan_impact`. Planos aprovados viram `goals` + `recurring_rules` reais.
+
+## 5. Agente Proativo (`core/ProactiveEngine.ts` + cron `agent-proactive-tick`)
+Varre usuários ativos periodicamente e cria `pending_proactive_suggestions` (nova tabela) — não envia mensagens ainda; apenas prepara.
+
+Detectores: vencimentos próximos, metas em risco, desvios de padrão, recorrências prestes a bater, oportunidades de economia.
+
+Cada sugestão tem `channel_ready ∈ {app,whatsapp,both}`, `expires_at`, `dedup_key`. `NotificationDispatcher` (stub) fica pronto para ativação futura sem refatoração. Home consome sugestões via query existente.
+
+## 6. Personalização (`core/PersonalizationEngine.ts` + tabela `user_ai_preferences`)
+Campos: `tone, verbosity, explanation_style, example_style, suggestion_frequency, technical_level, updated_at`.
+
+Aplicado no `ResponseGenerator` como sufixo do system prompt. `PersonalizationEngine.infer()` deriva ajustes a partir de correções e memória (`response_preference`). Persistência via API do app + inferência automática.
+
+## 7. Admin IA
+Novas rotas em `src/pages/admin/`:
+- `IAMemoria.tsx` — busca usuário, lista memória por kind, permite `forget`/`consolidate`/`reprocess`.
+- `IAPerfil.tsx` — perfil consolidado com evolução mensal.
+- `IAInsights.tsx` — insights gerados por usuário, filtros por severidade/kind.
+- `IADecisoes.tsx` — leitura de `agent_decisions` + `agent_runs` com drill-down.
+- `IASessoes.tsx` — inspecionar `agent_sessions` (state, última atividade).
+
+Edge Function `admin-ai-inspect` (verifica `platform_admin`, expõe leituras + ações). Reutiliza `AdminLayout`, `StatusChip`.
+
+## 8. Simulador expandido (`src/pages/admin/AgenteSimulador.tsx`)
+Ao rodar um turno, exibe painéis colapsáveis:
+- Memória carregada (kinds + valores).
+- Contexto enviado ao LLM (system+history+tools).
+- Decisão do PolicyEngine.
+- Plano do ActionPlanner (`Step[]` + dedup).
+- Tool calls executadas com args/result/duração.
+- Validações do ResponseValidator.
+- Métricas por etapa (`TurnMetrics`) + custo estimado.
+
+Backend: `agent-run` retorna `debug` payload quando `X-Debug: 1` + admin.
+
+## 9. Aprendizado Contínuo (`core/LearningLoop.ts`)
+Hook pós-turno no `AgentCore.handleTurn` (best-effort, `guard`ed):
+- Correção detectada (usuário edita item recém-criado, cancela draft, diz "não era isso") → grava `memory.correction` + ajusta `merchant_aliases`/categorias.
+- Confirmação → reforça `confidence` dos fatos usados no turno.
+- Recusa → decrementa e cria cooldown.
+- Padrões (mesmo merchant + categoria 3+ vezes) → promove a `frequent_merchant`.
+
+Alimenta `PersonalizationEngine.infer` e `MemoryStore.consolidate`.
+
+## 10. Configurações IA (`user_ai_preferences` + `agent_settings` extension)
+Colunas novas em `agent_settings` (global admin): `default_proactivity, default_retention_days, default_technical_level`.
+Tabela `user_ai_preferences` (item 6) cobre por-usuário. UI mínima em `Perfil.tsx` (tom + frequência de sugestões + nível técnico). Resto exposto via API para ativação futura.
+
+## 11. Refatoração final
+- Remove código morto restante em `orchestrator.ts` e `insights-generate` legado.
+- Consolida detectores dispersos (`facts.ts`, `insights/fallbacks.ts`) sob `InsightsEngine`.
+- Padroniza tipos em `core/index.ts`: `Memory`, `UserProfile`, `Insight`, `FinancialPlan`, `ProactiveSuggestion`, `Preferences`.
+- Atualiza `docs/` com o mapa arquitetural final (Fases 1+2+3).
+
+## Restrições
+- Comportamento externo idêntico: WhatsApp, App, Simulador, Admin, Prompt Versioning permanecem funcionais.
+- Zero mudança em RLS existente, RPCs financeiras, contratos HTTP atuais.
+- Novos módulos reusam `ContextPipeline`, `PolicyEngine`, `ActionPlanner`, `ToolRuntime`, `ResponseValidator`, `Observability`, `DecisionLogger`.
+
+## Migrations
+1. `agent_memory` (+ índices, RLS, GRANTs).
+2. `user_profiles_snapshot`.
+3. `user_ai_preferences`.
+4. `pending_proactive_suggestions`.
+5. `agent_settings` — colunas de defaults.
+6. `user_insights` — colunas `severity, score, evidence jsonb, dedup_key` se ainda ausentes.
+
+## Testes (`src/test/`)
+- `agent-memory-store.test.ts` — remember/recall/consolidate/decay.
+- `agent-user-profile.test.ts` — cálculo determinístico.
+- `agent-insights-engine.test.ts` — cada detector + ranking + cooldown.
+- `agent-financial-planner.test.ts` — plano end-to-end.
+- `agent-proactive-engine.test.ts` — geração e dedup.
+- `agent-personalization.test.ts` — infer + aplicação no prompt.
+- `agent-learning-loop.test.ts` — correções e reforços.
+- `agent-core-phase3-parity.test.ts` — paridade App↔WhatsApp com memória ativa.
+- `admin-ai-inspect.test.ts` — controle de acesso.
+
+Meta: 361 atuais + ~40 novos, todos verdes. `bunx vitest run` + `tsgo` + build.
 
 ## Arquivos
 
-**Novos**
-- `supabase/functions/_shared/agent/core/ContextPipeline.ts`
-- `supabase/functions/_shared/agent/core/DecisionLogger.ts`
-- `supabase/functions/_shared/agent/core/ErrorRecovery.ts`
-- `supabase/functions/_shared/agent/core/Observability.ts`
-- `supabase/migrations/<ts>_agent_decisions.sql`
-- 8 arquivos de teste acima.
+**Novos (core)**
+`core/MemoryStore.ts`, `core/UserProfile.ts`, `core/InsightsEngine.ts`, `core/FinancialPlanner.ts`, `core/ProactiveEngine.ts`, `core/PersonalizationEngine.ts`, `core/LearningLoop.ts`, `core/NotificationDispatcher.ts` (stub).
+
+**Novos (edge)**
+`supabase/functions/agent-memory-maintain/index.ts`, `supabase/functions/agent-proactive-tick/index.ts`, `supabase/functions/admin-ai-inspect/index.ts`.
+
+**Novos (frontend)**
+`src/pages/admin/IAMemoria.tsx`, `IAPerfil.tsx`, `IAInsights.tsx`, `IADecisoes.tsx`, `IASessoes.tsx`.
 
 **Editados**
-- `core/PolicyEngine.ts`, `core/ActionPlanner.ts`, `core/ResponseValidator.ts`, `core/ToolRuntime.ts`
-- `core/AgentCore.ts` (nova composição do pipeline)
-- `core/index.ts` (barrel)
-- `core/adapters/WhatsAppAdapter.ts`, `core/adapters/AppAdapter.ts` (apenas se contrato de retorno mudar)
-- `_shared/agent/orchestrator.ts` (limpeza do shim)
+`core/AgentCore.ts` (hook LearningLoop + Preferences), `core/ContextPipeline.ts` (memory + profile), `core/ResponseGenerator.ts` (personalização), `core/ActionPlanner.ts` (tools novas), `core/index.ts` (barrel), `insights-generate/index.ts` (delegar), `AgenteSimulador.tsx` (painéis debug), `agent-run/index.ts` (debug payload), `Perfil.tsx` (preferências IA), `AdminLayout.tsx` (navegação IA), `App.tsx` (rotas admin), `orchestrator.ts` (cleanup final), `docs/` (arquitetura).
 
 ## Deploy final
-- Aplica migration `agent_decisions`.
-- Deploy: `whatsapp-webhook`, `agent-chat`, `agent-run`.
-- Roda suíte + typecheck + build.
-- Relatório: arquivos alterados, testes rodados, total aprovado, bloqueios (se houver).
+Migrations acima → deploy `agent-chat`, `agent-run`, `whatsapp-webhook`, `insights-generate`, `agent-memory-maintain`, `agent-proactive-tick`, `admin-ai-inspect` → cron para as duas *-tick → suíte completa + tsgo + build → publica frontend.
 
 ## Fora de escopo
-Novos modelos, novas tools de negócio, mudanças de UI, novas telas de admin. Fica para Fase 3.
+Envio real de notificações proativas (dispatcher fica plugável), UI completa de todas as preferências avançadas (infra pronta, UI mínima entregue), novos modelos LLM.

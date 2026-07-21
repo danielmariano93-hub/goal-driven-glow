@@ -253,6 +253,51 @@ export type Database = {
           },
         ]
       }
+      agent_memory: {
+        Row: {
+          confidence: number
+          created_at: string
+          expires_at: string | null
+          id: string
+          key: string
+          kind: string
+          last_used_at: string | null
+          source: string
+          updated_at: string
+          use_count: number
+          user_id: string
+          value: Json
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          key: string
+          kind: string
+          last_used_at?: string | null
+          source?: string
+          updated_at?: string
+          use_count?: number
+          user_id: string
+          value?: Json
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          key?: string
+          kind?: string
+          last_used_at?: string | null
+          source?: string
+          updated_at?: string
+          use_count?: number
+          user_id?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       agent_prompt_versions: {
         Row: {
           created_at: string
@@ -435,6 +480,9 @@ export type Database = {
       }
       agent_settings: {
         Row: {
+          default_proactivity: string | null
+          default_retention_days: number | null
+          default_technical_level: string | null
           id: number
           max_steps: number
           model: string
@@ -445,6 +493,9 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          default_proactivity?: string | null
+          default_retention_days?: number | null
+          default_technical_level?: string | null
           id?: number
           max_steps?: number
           model?: string
@@ -455,6 +506,9 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          default_proactivity?: string | null
+          default_retention_days?: number | null
+          default_technical_level?: string | null
           id?: number
           max_steps?: number
           model?: string
@@ -2272,6 +2326,60 @@ export type Database = {
           },
         ]
       }
+      pending_proactive_suggestions: {
+        Row: {
+          action: Json | null
+          body: string
+          channel_ready: string
+          created_at: string
+          dedup_key: string
+          dismissed_at: string | null
+          dispatched_at: string | null
+          evidence: Json
+          expires_at: string | null
+          id: string
+          kind: string
+          severity: string
+          status: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          action?: Json | null
+          body: string
+          channel_ready?: string
+          created_at?: string
+          dedup_key: string
+          dismissed_at?: string | null
+          dispatched_at?: string | null
+          evidence?: Json
+          expires_at?: string | null
+          id?: string
+          kind: string
+          severity?: string
+          status?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          action?: Json | null
+          body?: string
+          channel_ready?: string
+          created_at?: string
+          dedup_key?: string
+          dismissed_at?: string | null
+          dispatched_at?: string | null
+          evidence?: Json
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          severity?: string
+          status?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       phone_link_codes: {
         Row: {
           attempts: number
@@ -3164,6 +3272,39 @@ export type Database = {
           },
         ]
       }
+      user_ai_preferences: {
+        Row: {
+          example_style: string
+          explanation_style: string
+          suggestion_frequency: string
+          technical_level: string
+          tone: string
+          updated_at: string
+          user_id: string
+          verbosity: string
+        }
+        Insert: {
+          example_style?: string
+          explanation_style?: string
+          suggestion_frequency?: string
+          technical_level?: string
+          tone?: string
+          updated_at?: string
+          user_id: string
+          verbosity?: string
+        }
+        Update: {
+          example_style?: string
+          explanation_style?: string
+          suggestion_frequency?: string
+          technical_level?: string
+          tone?: string
+          updated_at?: string
+          user_id?: string
+          verbosity?: string
+        }
+        Relationships: []
+      }
       user_challenges: {
         Row: {
           challenge_id: string
@@ -3277,6 +3418,7 @@ export type Database = {
           created_at: string
           cta_label: string | null
           cta_route: string | null
+          dedup_key: string | null
           evidence: Json
           expires_at: string
           feedback: string | null
@@ -3284,6 +3426,8 @@ export type Database = {
           id: string
           model: string | null
           prompt_version: string | null
+          score: number | null
+          severity: string | null
           status: string
           title: string
           type: string
@@ -3295,6 +3439,7 @@ export type Database = {
           created_at?: string
           cta_label?: string | null
           cta_route?: string | null
+          dedup_key?: string | null
           evidence?: Json
           expires_at?: string
           feedback?: string | null
@@ -3302,6 +3447,8 @@ export type Database = {
           id?: string
           model?: string | null
           prompt_version?: string | null
+          score?: number | null
+          severity?: string | null
           status?: string
           title: string
           type: string
@@ -3313,6 +3460,7 @@ export type Database = {
           created_at?: string
           cta_label?: string | null
           cta_route?: string | null
+          dedup_key?: string | null
           evidence?: Json
           expires_at?: string
           feedback?: string | null
@@ -3320,10 +3468,57 @@ export type Database = {
           id?: string
           model?: string | null
           prompt_version?: string | null
+          score?: number | null
+          severity?: string | null
           status?: string
           title?: string
           type?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_profiles_snapshot: {
+        Row: {
+          behavior_tags: string[]
+          computed_at: string
+          estimated_income: number | null
+          indicators: Json
+          monthly_evolution: Json
+          net_worth: number | null
+          risk_level: string | null
+          savings_capacity: number | null
+          seasonality: Json
+          spending_pattern: Json
+          top_categories: Json
+          user_id: string
+        }
+        Insert: {
+          behavior_tags?: string[]
+          computed_at?: string
+          estimated_income?: number | null
+          indicators?: Json
+          monthly_evolution?: Json
+          net_worth?: number | null
+          risk_level?: string | null
+          savings_capacity?: number | null
+          seasonality?: Json
+          spending_pattern?: Json
+          top_categories?: Json
+          user_id: string
+        }
+        Update: {
+          behavior_tags?: string[]
+          computed_at?: string
+          estimated_income?: number | null
+          indicators?: Json
+          monthly_evolution?: Json
+          net_worth?: number | null
+          risk_level?: string | null
+          savings_capacity?: number | null
+          seasonality?: Json
+          spending_pattern?: Json
+          top_categories?: Json
           user_id?: string
         }
         Relationships: []
