@@ -93,15 +93,13 @@ export function decideTurn(intent: ParsedIntent, ctx: DecisionCtx): Decision {
 function classify(intent: ParsedIntent, ctx: DecisionCtx): DecisionLabel {
   if (intent.kind === "confirm") return "confirm";
   if (intent.kind === "cancel")  return "cancel";
-  if (intent.kind === "help" || intent.kind === "greeting") return "direct_reply";
 
   const canUseLLM = ctx.llmConfigured && ctx.hasPromptVersion;
 
   if (intent.kind === "transaction" || intent.kind === "transfer" || intent.kind === "goal_contribution") {
-    // We always have a deterministic draft path for these; prefer LLM when
-    // available so it can catch nuances, otherwise create_draft directly.
     return canUseLLM ? "run_tools" : "create_draft";
   }
-  if (intent.kind === "query") return canUseLLM ? "run_tools" : "fallback";
+  if (intent.kind === "query")   return canUseLLM ? "run_tools" : "fallback";
+  if (intent.kind === "unknown") return canUseLLM ? "run_tools" : "direct_reply";
   return canUseLLM ? "run_tools" : "fallback";
 }
