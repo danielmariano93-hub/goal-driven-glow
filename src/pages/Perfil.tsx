@@ -7,6 +7,7 @@ import { displayNameSchema } from "@/lib/validation/auth";
 import { incomeFrequencyValues, type IncomeFrequency } from "@/lib/validation/onboarding";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { WhatsAppLinkSheet } from "@/components/whatsapp/WhatsAppLinkSheet";
+import { AIPreferencesCard } from "@/components/AIPreferencesCard";
 
 export default function Perfil() {
   const { user, profile, refreshProfile, requestPasswordReset } = useAuth();
@@ -149,6 +150,10 @@ export default function Perfil() {
         >
           {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar link de alteração de senha"}
         </button>
+      </div>
+
+      <div className="mt-6">
+        <AIPreferencesCard />
       </div>
 
       <WhatsAppConnection />
