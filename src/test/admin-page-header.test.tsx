@@ -25,6 +25,6 @@ describe("PageHeader", () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: "Assistente" })).toHaveAttribute("href", "/admin/agente");
-    expect(screen.getByText("Simulador")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Simulador" })).toBeInTheDocument();
   });
 });
