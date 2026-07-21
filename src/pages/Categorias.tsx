@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { Plus, Trash2, Loader2, Pencil, Tag } from "lucide-react";
 import { toast } from "sonner";
-import { useCategories, useSaveCategory, useDeleteCategory, type CategoryRow } from "@/lib/db/finance";
+import { useCategories, useSaveCategory, useDeleteCategory, resolveVisibleCategories, type CategoryRow } from "@/lib/db/finance";
 import { categorySchema } from "@/lib/validation/finance";
 import { useAuth } from "@/context/AuthContext";
+
+type EditingState =
+  | { mode: "personal"; row: CategoryRow }
+  | { mode: "override"; source: CategoryRow }
+  | null;
 
 export default function Categorias() {
   const { user } = useAuth();
@@ -11,10 +16,11 @@ export default function Categorias() {
   const save = useSaveCategory();
   const del = useDeleteCategory();
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<CategoryRow | null>(null);
+  const [editing, setEditing] = useState<EditingState>(null);
 
-  const globals = (cats ?? []).filter((c) => c.user_id === null);
-  const mine = (cats ?? []).filter((c) => c.user_id === user?.id);
+  const visible = resolveVisibleCategories(cats ?? [], user?.id ?? null);
+  const globals = visible.filter((c) => c.user_id === null);
+  const mine = visible.filter((c) => c.user_id === user?.id);
 
   return (
     <div>
@@ -62,7 +68,7 @@ export default function Categorias() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          setEditing(c);
+                          setEditing({ mode: "personal", row: c });
                           setOpen(true);
                         }}
                         className="rounded-full border border-border p-2 text-muted-foreground hover:text-foreground"
@@ -94,16 +100,28 @@ export default function Categorias() {
 
           <section>
             <h2 className="mb-2 text-sm font-semibold">Padrões do sistema</h2>
+            <p className="mb-2 text-[11px] text-muted-foreground">Editar cria uma cópia pessoal e só vale para você — a padrão original fica intacta.</p>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
               {globals.map((c) => (
                 <div key={c.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-2.5">
                   <span className="grid h-7 w-7 place-items-center rounded-md" style={{ backgroundColor: (c.color || "#8B5CF6") + "22", color: c.color || "#8B5CF6" }}>
                     <Tag size={12} />
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-medium">{c.name}</p>
                     <p className="text-[10px] text-muted-foreground">{c.type === "income" ? "Receita" : "Despesa"}</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      setEditing({ mode: "override", source: c });
+                      setOpen(true);
+                    }}
+                    className="shrink-0 rounded-full border border-border p-1.5 text-muted-foreground hover:text-foreground"
+                    title="Personalizar esta padrão"
+                    aria-label="Personalizar esta padrão"
+                  >
+                    <Pencil size={12} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -113,21 +131,30 @@ export default function Categorias() {
 
       {open && (
         <CatModal
-          initial={editing}
+          initial={editing?.mode === "personal" ? editing.row : editing?.mode === "override" ? editing.source : null}
+          overrideNotice={editing?.mode === "override"}
           saving={save.isPending}
           onClose={() => setOpen(false)}
-          onSubmit={(v) =>
+          onSubmit={(v) => {
+            const isOverride = editing?.mode === "override";
+            const isPersonal = editing?.mode === "personal";
             save.mutate(
-              { ...v, id: editing?.id },
+              {
+                ...v,
+                id: isPersonal ? editing.row.id : undefined,
+                sourceSlug: isOverride ? (editing.source.slug ?? undefined) : undefined,
+              },
               {
                 onSuccess: () => {
-                  toast.success("Salva");
+                  toast.success(isOverride ? "Padrão personalizada" : "Salva", {
+                    description: isOverride ? "A cópia pessoal foi criada e só vale para você." : undefined,
+                  });
                   setOpen(false);
                 },
                 onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
               }
-            )
-          }
+            );
+          }}
         />
       )}
     </div>
@@ -138,11 +165,13 @@ const COLORS = ["#8B5CF6", "#6D3BFF", "#FF6B4A", "#FF9F1C", "#16A37A", "#0EA5E9"
 
 function CatModal({
   initial,
+  overrideNotice,
   saving,
   onClose,
   onSubmit,
 }: {
   initial: CategoryRow | null;
+  overrideNotice?: boolean;
   saving: boolean;
   onClose: () => void;
   onSubmit: (v: ReturnType<typeof categorySchema.parse>) => void;
@@ -165,7 +194,10 @@ function CatModal({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-card">
-        <h2 className="font-display text-lg font-bold">{initial ? "Editar categoria" : "Nova categoria"}</h2>
+        <h2 className="font-display text-lg font-bold">{overrideNotice ? "Personalizar padrão" : initial ? "Editar categoria" : "Nova categoria"}</h2>
+        {overrideNotice && (
+          <p className="mt-1 text-xs text-muted-foreground">Vamos criar uma cópia pessoal desta padrão. Ela substitui a original só na sua conta.</p>
+        )}
         <div className="mt-4 space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium">Nome</label>

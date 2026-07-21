@@ -2,15 +2,23 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
-import { useAllCategories, useSaveCategory, type CategoryRow } from "@/lib/db/finance";
+import { useAllCategories, useSaveCategory, resolveVisibleCategories, type CategoryRow } from "@/lib/db/finance";
+import { useAuth } from "@/context/AuthContext";
 
 /**
- * Filtra categorias para o seletor: ativas + globais do tipo pedido, mais a
- * arquivada correspondente ao valor atual (para não perder rótulo em edição de
- * lançamentos históricos).
+ * Filtra categorias para o seletor: aplica override pessoal (pessoal ativa de
+ * mesmo slug oculta a global correspondente), depois mantém ativas do tipo
+ * pedido, mais a arquivada correspondente ao valor atual (para não perder
+ * rótulo em edição de lançamentos históricos).
  */
-export function filterCategoryOptions(all: CategoryRow[], type: "expense" | "income", selectedId: string | null) {
-  const active = all.filter(
+export function filterCategoryOptions(
+  all: CategoryRow[],
+  type: "expense" | "income",
+  selectedId: string | null,
+  userId?: string | null
+) {
+  const visible = resolveVisibleCategories(all, userId ?? null);
+  const active = visible.filter(
     (c) => c.archived_at == null && (c.type === type || (c.type as string) === "both")
   );
   const selectedArchived = selectedId && !active.some((c) => c.id === selectedId)
@@ -51,9 +59,10 @@ export function CategorySelect({
   showManageLink = true,
 }: Props) {
   const { data: all = [], isLoading } = useAllCategories();
+  const { user } = useAuth();
   const [creating, setCreating] = useState(false);
 
-  const options = useMemo(() => filterCategoryOptions(all, type, value ?? null), [all, type, value]);
+  const options = useMemo(() => filterCategoryOptions(all, type, value ?? null, user?.id), [all, type, value, user?.id]);
 
   const handleChange = (val: string) => {
     if (val === CREATE_TOKEN) {
