@@ -335,6 +335,42 @@ export type Database = {
           },
         ]
       }
+      agent_sessions: {
+        Row: {
+          channel: string
+          conversation_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          last_activity_at: string
+          state: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          channel: string
+          conversation_id: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          last_activity_at?: string
+          state?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          channel?: string
+          conversation_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          last_activity_at?: string
+          state?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_settings: {
         Row: {
           id: number
