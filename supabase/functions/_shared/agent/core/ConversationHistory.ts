@@ -25,19 +25,38 @@ export async function loadHistory(
   opts: { limit?: number; excludeMessageId?: string | null } = {},
 ): Promise<HistoryTurn[]> {
   const limit = opts.limit ?? 12;
-  let q = sb.from("conversation_messages")
+  const { data: conv } = await sb.from("conversations")
+    .select("user_id, phone_e164")
+    .eq("id", conversation_id)
+    .maybeSingle();
+
+  const q = sb.from("conversation_messages")
     .select("id, direction, body_masked, created_at")
     .eq("conversation_id", conversation_id)
     .order("created_at", { ascending: false })
     .limit(limit + 1);
-  const { data } = await q;
-  const rows = ((data ?? []) as Array<{ id: string; direction: string; body_masked: string }>);
+
+  const outboundPromise = conv
+    ? sb.from("outbound_messages")
+      .select("id, body, created_at, channel, to_phone")
+      .eq("user_id", (conv as any).user_id)
+      .eq("to_phone", (conv as any).phone_e164)
+      .neq("channel", "inapp")
+      .order("created_at", { ascending: false })
+      .limit(limit + 1)
+    : Promise.resolve({ data: [] as any[] });
+
+  const [{ data }, { data: outbound }] = await Promise.all([q, outboundPromise]);
+  const rows = ((data ?? []) as Array<{ id: string; direction: string; body_masked: string; created_at: string }>)
+    .map(r => ({ id: r.id, role: r.direction === "inbound" ? "user" as const : "assistant" as const, content: r.body_masked, created_at: r.created_at }));
+  const directOutbound = ((outbound ?? []) as Array<{ id: string; body: string; created_at: string }>)
+    .map(r => ({ id: `outbound:${r.id}`, role: "assistant" as const, content: r.body, created_at: r.created_at }));
   const filtered = opts.excludeMessageId
-    ? rows.filter(r => r.id !== opts.excludeMessageId)
-    : rows;
+    ? [...rows, ...directOutbound].filter(r => r.id !== opts.excludeMessageId)
+    : [...rows, ...directOutbound];
   return filtered
-    .slice(0, limit)
-    .reverse()
-    .map(mapConversationRow)
-    .filter((r): r is HistoryTurn => r !== null);
+    .filter(r => String(r.content ?? "").trim())
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .slice(-limit)
+    .map(r => ({ role: r.role, content: String(r.content).trim() }));
 }
