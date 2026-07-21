@@ -1,57 +1,116 @@
-# Correção — "Sim pode" não confirma rascunho pendente
+## Diagnóstico confirmado
 
-## Diagnóstico (confirmado no código)
+O bug do print não é causado por “demora de 10 minutos” nem apenas por interpretação da IA. O fluxo atual permite que o agente fale como se houvesse um rascunho, sem criar nenhuma pendência real.
 
-Duas causas convergentes, ambas na orquestração — não é o LLM:
+Achados objetivos no estado atual:
 
-**1. Regex de confirm/cancel ancorada exige a mensagem inteira** — `supabase/functions/_shared/agent/parser.ts:119-120`
+- A mensagem “Pode sim” foi corretamente classificada como confirmação, mas `pending_confirmations` não tinha nenhum item pendente para essa conversa; por isso o `PolicyEngine` respondeu “Não encontrei nada pendente...”.
+- Nos turnos recentes do WhatsApp, `agent_runs` mostra `steps = 0` e não há `agent_tool_calls`: o modelo respondeu verbalmente, mas não chamou `create_transaction_draft`.
+- O histórico canônico usado pelo Agent Core (`ConversationHistory.ts`) lê apenas `conversation_messages`, mas no WhatsApp os outbound reais estão em `outbound_messages`; na conversa investigada, `conversation_messages` tinha somente mensagens inbound. Resultado: a IA recebe o que o usuário disse, mas não recebe suas próprias respostas anteriores, favorecendo reinícios, alucinação e perda de continuidade.
+- O prompt ativo no banco é mais curto que o `DEFAULT_SYSTEM_PROMPT` técnico e não contém todas as regras rígidas sobre tool-calling. Como `loadActivePrompt` usa o prompt ativo como substituto integral, as regras críticas do código ficam enfraquecidas.
+- O bloco de segurança em `AgentCore` instrui o modelo a chamar `confirm_pending_action`, mas essa tool não existe em `tools.ts`; só existe `cancel_pending_action`. Se o parser não interceptar uma confirmação, o caminho LLM de confirmação fica quebrado.
+- A sessão `agent_sessions` está viva por 30 minutos e não explica o erro do print. Porém a sessão hoje é pouco usada para guardar fluxo operacional; `state` está vazio e não há fallback de continuidade quando uma pendência não foi persistida.
 
-```
-CONFIRM_WORDS = /^\s*(confirmar|confirma|sim|ok|okay|yes|👍)\s*[.!]?\s*$/i
-```
+## Objetivo da correção
 
-"Sim pode", "pode sim", "sim, pode criar", "manda", "vai", "ok pode" **não casam**. `interpret()` cai em `unknown` (sem valor) → `PolicyEngine.evaluate` recebe intent≠confirm e retorna `pass` (`PolicyEngine.ts:30`). Não há interceptação, nem `agent_execute_confirmation`.
+Garantir que o assessor só peça confirmação quando houver uma pendência persistida, recupere contexto real entre mensagens do WhatsApp e App, e nunca reinicie a conversa quando o usuário responder “sim/pode/confirmar” dentro da janela válida.
 
-**2. O LLM não recebe a pendência no contexto** — `AgentCore.ts:117,144-155`
+## Plano de implementação
 
-`hasPendingConfirmation` é usado só para telemetria em `decideTurn`. O `ActionPlanner.plan()` e `personalizeSystemPrompt()` **nunca injetam** o `pending_confirmations` no system prompt nem no histórico. Sem essa dica, o modelo trata "Sim pode" como abertura de conversa e cumprimenta.
+### 1. Corrigir histórico canônico do WhatsApp
 
-Combinação = fluxo reiniciado exatamente como no print. Sessão, adapter e race condition **não são** o culpado (session é por (user_id, channel) e persiste; pendência foi criada em turno anterior e ficou no banco).
+- Ajustar `loadHistory` em `supabase/functions/_shared/agent/core/ConversationHistory.ts` para montar histórico unificado:
+  - inbound: `conversation_messages`;
+  - outbound WhatsApp: `outbound_messages` vinculadas à mesma conversa pelo `inbound_message_id`/eventos recentes e/ou metadados quando disponível.
+- Alternativa mais segura e mínima: quando `enqueueReply` enviar uma resposta do agente no WhatsApp, também gravar um espelho em `conversation_messages` com `direction='outbound'`.
+- Evitar duplicação com chave idempotente baseada no `inbound_message_id`.
+- Resultado esperado: próximos turnos terão pares `user/assistant` reais no histórico enviado ao LLM.
 
-## Correção mínima (arquivo por arquivo)
+### 2. Impedir “rascunho verbal” sem pendência persistida
 
-### 1. `supabase/functions/_shared/agent/parser.ts`
-Ampliar detecção de confirm/cancel para frases curtas com afirmação/negação inicial, sem quebrar transações que começam com "sim" acidentalmente.
+- Em `AgentCore.ts`, depois do LLM:
+  - se a resposta contém linguagem de rascunho/confirmação (“posso criar um rascunho”, “você confirma”, “posso registrar”, “se sim...”) mas não houve tool `_draft`, rejeitar a resposta;
+  - executar fallback determinístico quando a mensagem contém dados suficientes de lançamento;
+  - se faltarem dados, responder pergunta objetiva sem fingir que criou rascunho.
+- Reforçar `ResponseValidator.ts` com uma regra específica: `draft_language_without_draft` gera fallback determinístico.
 
-- Manter o regex estrito atual como fast-path.
-- Adicionar segundo teste: se `raw` tem ≤ 6 palavras, sem valor monetário (`AMOUNT_RE` não casa) e **começa** com `sim|pode|confirma|confirmar|ok|beleza|manda|vai|isso|👍|positivo|claro|tá|ta` → `confirm`. Análogo para `não|nao|cancela|cancelar|para|negativo|❌` → `cancel`.
-- Ordem: fast-path → checagem de valor → checagem por prefixo.
+### 3. Forçar criação determinística de rascunho antes do LLM quando possível
 
-Ganho: "Sim pode", "pode criar", "manda ver", "ok pode confirmar", "isso mesmo", "não, cancela" passam a ser interceptadas por `PolicyEngine.evaluate` e disparam `agent_execute_confirmation` — o caminho já existente e testado.
+- No `AgentCore`, para intents `transaction`, `transfer` e `goal_contribution` detectados pelo parser com dados suficientes:
+  - chamar o plano determinístico/tool de rascunho antes de recorrer ao LLM;
+  - deixar o LLM apenas para casos ambíguos ou analíticos.
+- Isso reduz custo, latência e alucinação.
+- Para o caso do print, a mensagem com valor, estabelecimento, cartão e data deve gerar `pending_confirmations` imediatamente e responder com “Responda CONFIRMAR/CANCELAR”.
 
-### 2. `supabase/functions/_shared/agent/core/AgentCore.ts`
-Rede de segurança: mesmo quando o parser errar, o LLM precisa saber que há um rascunho aguardando.
+### 4. Criar tool real de confirmação para paridade com o prompt
 
-- Ler `pending = await tctx.pending()` **antes** do planner (já feito para `decideTurn`; reaproveitar).
-- Se `pending`, prefixar o `systemPrompt` (após `personalizeSystemPrompt`) com bloco fixo:
-  ```
-  [PENDÊNCIA ATIVA]
-  Existe um rascunho aguardando confirmação: {pending.summary_text}
-  Se o usuário confirmar (mesmo com frases como "sim pode", "manda", "ok"), chame a tool `confirm_pending_action` com id={pending.id}.
-  Se cancelar, chame `cancel_pending_action`.
-  Não crie novo rascunho nem inicie nova conversa.
-  ```
-- Nenhum novo tool: `confirm_pending_action`/`cancel_pending_action` já existem no ToolRuntime (usados hoje pelo caminho LLM).
+- Adicionar `confirm_pending_action` em `tools.ts`:
+  - busca pendência por `conversation_id` + `user_id` + `status='pending'`;
+  - chama `agent_execute_confirmation`;
+  - retorna resultado idempotente.
+- Atualizar `openAIToolDefinitions` para incluir essa tool.
+- Corrigir o bloco `[PENDÊNCIA ATIVA]` para apontar para uma tool existente.
 
-### 3. Teste `src/test/agent-parser.test.ts` (append)
-Casos: "Sim pode", "pode criar sim", "manda ver", "ok pode", "isso", "não cancela", "cancela por favor" → esperar `kind: "confirm"|"cancel"`. E regressão: "sim, gastei 50 no mercado" deve continuar `transaction` (tem valor).
+### 5. Endurecer `findPending` e confirmação
 
-### 4. Teste `src/test/agent-core-phase2.test.ts` (ou novo `agent-core-confirm-loose.test.ts`)
-Cenário end-to-end mockado: pendência existe → chega "Sim pode" → `handleTurn` retorna `reply_kind: "receipt"` e chama `agent_execute_confirmation` com o `pending.id`.
+- Em `PendingConfirmations.ts`, filtrar também `expires_at > now()`.
+- Se existir pendência vencida, expirar e responder “Este pedido expirou...” em vez de “não encontrei”.
+- Em `cancel_pending_action`, filtrar por `user_id` além de `conversation_id`.
 
-## Fora de escopo
-- Não mexer em SessionManager, adapters, race conditions ou schema — nenhuma evidência aponta para eles neste bug.
-- Não alterar Fase 3 (memória, insights, planner financeiro).
+### 6. Usar sessão como fallback operacional, não como fonte única
 
-## Validação
-`bunx vitest run` (esperado: 384 anteriores + novos casos verdes) e typecheck. Sem migrations. Deploy só das Edge Functions afetadas: `agent-chat`, `whatsapp-webhook` (ambas dependem de `_shared/agent`).
+- Ao criar um rascunho, registrar no `agent_sessions.state`:
+  - `last_pending_id`;
+  - `last_draft_summary`;
+  - `last_intent`;
+  - `updated_at`.
+- Ao receber confirmação e não encontrar pendência, verificar `last_pending_id`:
+  - se o id existe e está pendente, confirmar;
+  - se expirou, avisar expiração;
+  - se nunca existiu, não inventar confirmação.
+- Isso cobre pequenas falhas de leitura/ordenação sem permitir gravação sem pendência real.
+
+### 7. Corrigir prompt ativo sem apagar configuração do admin
+
+- Alterar `loadActivePrompt` para sempre compor:
+  - bloco base obrigatório do sistema (`DEFAULT_SYSTEM_PROMPT` com regras de tools e segurança);
+  - depois o prompt/persona ativo do admin como camada de tom e preferências.
+- Assim o admin pode ajustar persona, mas não remove guardrails técnicos.
+
+### 8. Tratar race condition e idempotência
+
+- Em `enqueueReply`, se espelhar outbound em `conversation_messages`, usar idempotência por `inbound_message_id` para não duplicar em retries do webhook.
+- Em `resolveSession`, substituir o fallback sintético silencioso por uma estratégia com `upsert`/releitura quando houver corrida de criação.
+- Manter `conversation_id` estável para WhatsApp, sem recriar sessão se o telefone/conversa já existem.
+
+### 9. Testes de regressão obrigatórios
+
+Adicionar/ajustar testes para:
+
+- WhatsApp: mensagem com dados completos cria `pending_confirmations` e resposta contém confirmação real.
+- WhatsApp: “Pode sim” até 15 minutos depois confirma a pendência, sem reiniciar fluxo.
+- WhatsApp: outbound é incluído no histórico canônico do próximo turno.
+- LLM sem tool `_draft` e com linguagem de rascunho é rejeitado pelo validator.
+- `confirm_pending_action` confirma pendência existente e retorna idempotente quando já confirmado.
+- Pendência expirada responde expiração, não “não encontrei nada”.
+- App e WhatsApp continuam usando o mesmo Agent Core.
+
+### 10. Deploy e validação
+
+- Rodar testes focados do Agent Core/parser/WhatsApp e depois a suíte completa.
+- Fazer deploy das funções afetadas:
+  - `agent-chat`;
+  - `agent-run`;
+  - `whatsapp-webhook`.
+- Validar em banco/logs um fluxo real:
+  1. enviar lançamento completo;
+  2. confirmar após alguns minutos;
+  3. verificar `pending_confirmations.status='confirmed'`;
+  4. verificar transação criada;
+  5. verificar histórico com inbound e outbound.
+
+## Escopo que não será alterado
+
+- Não vou mexer em contabilidade, categorias, documentos, Divisão do Rolê ou UI administrativa.
+- Não vou criar novas tabelas se a correção couber nas tabelas atuais.
+- Não vou remover dados existentes nem apagar histórico.
