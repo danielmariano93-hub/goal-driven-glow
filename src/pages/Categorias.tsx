@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { Plus, Trash2, Loader2, Pencil, Tag } from "lucide-react";
 import { toast } from "sonner";
-import { useCategories, useSaveCategory, useDeleteCategory, type CategoryRow } from "@/lib/db/finance";
+import { useCategories, useSaveCategory, useDeleteCategory, resolveVisibleCategories, type CategoryRow } from "@/lib/db/finance";
 import { categorySchema } from "@/lib/validation/finance";
 import { useAuth } from "@/context/AuthContext";
+
+type EditingState =
+  | { mode: "personal"; row: CategoryRow }
+  | { mode: "override"; source: CategoryRow }
+  | null;
 
 export default function Categorias() {
   const { user } = useAuth();
@@ -11,10 +16,11 @@ export default function Categorias() {
   const save = useSaveCategory();
   const del = useDeleteCategory();
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<CategoryRow | null>(null);
+  const [editing, setEditing] = useState<EditingState>(null);
 
-  const globals = (cats ?? []).filter((c) => c.user_id === null);
-  const mine = (cats ?? []).filter((c) => c.user_id === user?.id);
+  const visible = resolveVisibleCategories(cats ?? [], user?.id ?? null);
+  const globals = visible.filter((c) => c.user_id === null);
+  const mine = visible.filter((c) => c.user_id === user?.id);
 
   return (
     <div>
