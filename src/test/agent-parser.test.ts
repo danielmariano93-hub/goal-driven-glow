@@ -65,4 +65,21 @@ describe("interpret", () => {
   it("no amount ⇒ unknown, not a fabricated transaction", () => {
     expect(interpret("oi tudo bem?").kind).toBe("unknown");
   });
+  it("loose confirm phrases are recognised", () => {
+    expect(interpret("Sim pode").kind).toBe("confirm");
+    expect(interpret("pode criar").kind).toBe("confirm");
+    expect(interpret("manda ver").kind).toBe("confirm");
+    expect(interpret("ok pode confirmar").kind).toBe("confirm");
+    expect(interpret("isso mesmo").kind).toBe("confirm");
+    expect(interpret("beleza").kind).toBe("confirm");
+  });
+  it("loose cancel phrases are recognised", () => {
+    expect(interpret("não, cancela").kind).toBe("cancel");
+    expect(interpret("cancela por favor").kind).toBe("cancel");
+    expect(interpret("deixa pra lá").kind).toBe("cancel");
+  });
+  it("affirmation prefix with amount still parses as transaction", () => {
+    const r = interpret("sim, gastei 50 no mercado hoje");
+    expect(r.kind).toBe("transaction");
+  });
 });
