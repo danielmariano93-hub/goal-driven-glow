@@ -44,9 +44,9 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const [txResp, accResp, invResp, debtResp] = await Promise.all([
     sb.from("transactions").select("amount, type, category_id, occurred_at, movement_kind")
       .eq("user_id", user_id).gte("occurred_at", sixMonthsAgo).limit(5000),
-    sb.from("accounts").select("id, current_balance, type").eq("user_id", user_id),
-    sb.from("investments").select("current_amount").eq("user_id", user_id),
-    sb.from("debts").select("remaining_amount").eq("user_id", user_id),
+    sb.from("accounts").select("id, opening_balance, type").eq("user_id", user_id),
+    sb.from("investments").select("current_value").eq("user_id", user_id),
+    sb.from("debts").select("outstanding_balance").eq("user_id", user_id),
   ]);
 
   const tx = (txResp.data as any[] | null) ?? [];
@@ -85,9 +85,9 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const savings = incomeAvg - expenseAvg;
 
   const netWorth =
-    ((accResp.data as any[] | null) ?? []).reduce((s, a) => s + Number(a.current_balance || 0), 0) +
-    ((invResp.data as any[] | null) ?? []).reduce((s, i) => s + Number(i.current_amount || 0), 0) -
-    ((debtResp.data as any[] | null) ?? []).reduce((s, d) => s + Number(d.remaining_amount || 0), 0);
+    ((accResp.data as any[] | null) ?? []).reduce((s, a) => s + Number(a.opening_balance || 0), 0) +
+    ((invResp.data as any[] | null) ?? []).reduce((s, i) => s + Number(i.current_value || 0), 0) -
+    ((debtResp.data as any[] | null) ?? []).reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
 
   const tags: string[] = [];
   if (savings > incomeAvg * 0.2) tags.push("poupador");

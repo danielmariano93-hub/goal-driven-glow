@@ -27,12 +27,25 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       .eq("user_id", user_id)
       .gte("occurred_at", new Date(Date.now() - 45 * 86400000).toISOString())
       .limit(1000),
-    sb.from("goals").select("id, name, target_amount, current_amount, target_date").eq("user_id", user_id),
-    sb.from("recurring_occurrences").select("id, description, due_date, amount, paid").eq("user_id", user_id)
+    sb.from("goals").select("id, name, target_amount, target_date").eq("user_id", user_id),
+    sb.from("recurring_occurrences")
+      .select("id, due_date, status, recurring_rules(description, amount)")
+      .eq("user_id", user_id)
       .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
       .limit(50),
   ]);
+
+  // Goal contributions (sum per goal)
+  const goalIds = ((goalsResp.data as any[] | null) ?? []).map(g => g.id);
+  let contribByGoal = new Map<string, number>();
+  if (goalIds.length > 0) {
+    const { data: contribs } = await sb.from("goal_contributions")
+      .select("goal_id, amount").in("goal_id", goalIds);
+    for (const c of (contribs as any[] | null) ?? []) {
+      contribByGoal.set(c.goal_id, (contribByGoal.get(c.goal_id) ?? 0) + Number(c.amount || 0));
+    }
+  }
 
   const ctx: DetectorCtx = {
     transactions: ((txResp.data as any[] | null) ?? []).map(t => ({
@@ -41,11 +54,11 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
     })),
     goals: ((goalsResp.data as any[] | null) ?? []).map(g => ({
       id: g.id, name: g.name, target: Number(g.target_amount) || 0,
-      current: Number(g.current_amount) || 0, deadline: g.target_date,
+      current: contribByGoal.get(g.id) ?? 0, deadline: g.target_date,
     })),
     bills: ((recResp.data as any[] | null) ?? []).map(r => ({
-      id: r.id, name: r.description ?? "Conta", due_date: r.due_date,
-      amount: Number(r.amount) || 0, paid: !!r.paid,
+      id: r.id, name: r.recurring_rules?.description ?? "Conta", due_date: r.due_date,
+      amount: Number(r.recurring_rules?.amount) || 0, paid: r.status === "paid",
     })),
   };
 
