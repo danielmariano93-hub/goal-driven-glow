@@ -68,7 +68,7 @@ export default function Categorias() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          setEditing(c);
+                          setEditing({ mode: "personal", row: c });
                           setOpen(true);
                         }}
                         className="rounded-full border border-border p-2 text-muted-foreground hover:text-foreground"
