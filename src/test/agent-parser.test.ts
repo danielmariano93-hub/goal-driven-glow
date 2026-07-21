@@ -67,6 +67,7 @@ describe("interpret", () => {
   });
   it("loose confirm phrases are recognised", () => {
     expect(interpret("Sim pode").kind).toBe("confirm");
+    expect(interpret("Pode sim").kind).toBe("confirm");
     expect(interpret("pode criar").kind).toBe("confirm");
     expect(interpret("manda ver").kind).toBe("confirm");
     expect(interpret("ok pode confirmar").kind).toBe("confirm");
