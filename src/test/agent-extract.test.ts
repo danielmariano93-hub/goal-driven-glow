@@ -69,3 +69,20 @@ describe("extractSpans — sem blacklist, preserva literal", () => {
     expect(r.occurred_at).toBe("2026-07-21");
   });
 });
+
+describe("extractSpans — notificação bancária com 'Conta Corrente <Banco>'", () => {
+  it("detecta account_hint mesmo sem rótulo com dois-pontos", async () => {
+    const { extractSpans } = await import("@/lib/agent/extract");
+    const msg = [
+      "Registre esse novo gasto:",
+      "Valor: R$ 30,00",
+      "Estabelecimento: A Ventana Itau Ceic",
+      "Data: 22/07/2026",
+      "Conta Corrente Itaú",
+    ].join("\n");
+    const r = extractSpans(msg);
+    expect(r.amount).toBe(30);
+    expect(r.payment_method).toBe("account");
+    expect(r.account_hint?.toLowerCase()).toContain("ita");
+  });
+});
