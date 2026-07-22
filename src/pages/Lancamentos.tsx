@@ -680,7 +680,15 @@ export default function Lancamentos() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-2">
-            <CategorySelect value={bulkCategoryId} onChange={setBulkCategoryId} allowEmpty />
+            <CategorySelect
+              value={bulkCategoryId}
+              onChange={setBulkCategoryId}
+              type={(() => {
+                const types = new Set((txs ?? []).filter((t) => selected.has(t.id)).map((t) => t.type));
+                return types.has("income") && !types.has("expense") ? "income" : "expense";
+              })()}
+              allowEmpty
+            />
             <p className="mt-2 text-[11px] text-muted-foreground">Deixe em branco para <strong>remover</strong> a categoria dos selecionados.</p>
           </div>
           <AlertDialogFooter>
