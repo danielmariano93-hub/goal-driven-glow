@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
 
-type Trend = "up" | "down" | "flat";
+type Trend = "up" | "down" | "stable";
 
 type Props = {
   title: string;
