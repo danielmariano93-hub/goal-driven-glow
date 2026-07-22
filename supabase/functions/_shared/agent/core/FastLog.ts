@@ -16,13 +16,39 @@ export const DEFAULT_FAST_LOG_TOKEN = "!ja";
 
 function escapeRx(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+// Palavras que confundiriam com fala natural — proibidas como token.
+// "ja" é intencionalmente permitido: é o default (`!ja`).
+const RESERVED_BARE = new Set([
+  "sim","nao","não","ok","pode","confirma","confirmar","confirmado",
+  "cancela","cancelar","registra","registrar","registro","gasto","gastei",
+  "conta","paguei","comprei","recebi",
+]);
+
+
+/**
+ * Regras de validação de token:
+ *  - obrigatório iniciar com `!`, `#` ou `/`;
+ *  - `bare` (sem o prefixo) precisa ter 2–12 chars em `[a-z0-9]`;
+ *  - `bare` não pode ser palavra reservada nem casar `^\d+[a-z]?$`
+ *    (bloqueia prefixos que sistemas externos costumam antepor, ex. "1908A").
+ */
+export function isValidFastLogToken(tk: unknown): boolean {
+  const s = String(tk ?? "").trim();
+  if (!/^[!#/][A-Za-z0-9]{2,12}$/.test(s)) return false;
+  const bare = s.slice(1).toLowerCase();
+  if (RESERVED_BARE.has(bare)) return false;
+  if (/^\d+[a-z]?$/.test(bare)) return false;
+  return true;
+}
+
 export type FastLogDetection = { triggered: boolean; cleanText: string; token: string };
 
 /** Detecta `!ja` / `#ja` / `/ja` (ou token custom) no começo ou fim do texto. */
 export function detectFastLog(text: string, token: string = DEFAULT_FAST_LOG_TOKEN): FastLogDetection {
   const raw = String(text ?? "");
-  const tk = String(token ?? "").trim() || DEFAULT_FAST_LOG_TOKEN;
-  // Aceita as três variações de prefixo mesmo quando o token custom não as usa.
+  const rawTk = String(token ?? "").trim();
+  // Se o token custom não passar na validação, ignora e usa o padrão.
+  const tk = isValidFastLogToken(rawTk) ? rawTk : DEFAULT_FAST_LOG_TOKEN;
   const bareToken = tk.replace(/^[!#/]/, "");
   const alts = Array.from(new Set([tk, `!${bareToken}`, `#${bareToken}`, `/${bareToken}`]))
     .filter(Boolean).map(escapeRx).join("|");
@@ -37,9 +63,13 @@ export async function loadFastLogToken(sb: SupabaseClient, user_id: string): Pro
     const { data } = await sb.from("user_ai_preferences")
       .select("fast_log_token").eq("user_id", user_id).maybeSingle();
     const v = (data as any)?.fast_log_token;
-    return typeof v === "string" && v.trim() ? v.trim() : DEFAULT_FAST_LOG_TOKEN;
+    // Só retorna o token do banco se for válido — senão usa o default e evita
+    // que valores tóxicos herdados (ex.: prefixo automático do WhatsApp) façam
+    // toda mensagem disparar FastLog.
+    return isValidFastLogToken(v) ? String(v).trim() : DEFAULT_FAST_LOG_TOKEN;
   } catch { return DEFAULT_FAST_LOG_TOKEN; }
 }
+
 
 export type FastLogOutcome = {
   handled: boolean;

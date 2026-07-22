@@ -27,7 +27,11 @@ const PT_DATE_RX = /\b(\d{1,2})\s+de\s+(jan\.?|janeiro|fev\.?|fevereiro|mar\.?|m
 const LABELED_AMOUNT_RX = /(?:^|\n)\s*valor\s*:\s*(?:r\$\s*)?([^\n]+)/i;
 const LABELED_DESC_RX = /(?:^|\n)\s*(?:estabelecimento|descri[cç][aã]o|descricao|local|finalidade)\s*:\s*([^\n]+)/i;
 const LABELED_CARD_RX = /(?:^|\n)\s*cart[aã]o\s*:\s*([^\n]+)/i;
-const LABELED_ACCOUNT_RX = /(?:^|\n)\s*(?:conta|conta corrente|origem)\s*:\s*([^\n]+)/i;
+const LABELED_ACCOUNT_RX = /(?:^|\n)\s*(?:conta(?:\s+corrente|\s+poupan[çc]a)?|origem|banco)\s*:\s*([^\n]+)/i;
+// Notificações bancárias frequentemente terminam com uma linha isolada
+// (sem rótulo `:`) tipo "Conta Corrente Itaú" ou "Conta Poupança Nubank".
+const LINE_ACCOUNT_RX = /(?:^|\n)\s*(conta(?:\s+corrente|\s+poupan[çc]a)?\s+[^\n:]{2,})\s*$/i;
+
 const LABELED_DATE_RX = /(?:^|\n)\s*data\s*:\s*([^\n]+)/i;
 // Marcas: sem \b trailing para funcionar com acentos (ú, é). Início: início-de-string ou espaço.
 const CARD_BRAND_RX = /(?:^|\s)(itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa|banco do brasil|bb|next)(?=$|[\s.,;!?])/i;
@@ -111,7 +115,13 @@ export function extractSpans(raw: string): ExtractedSpans {
   const labeledAmount = original.match(LABELED_AMOUNT_RX)?.[1];
   const labeledDesc = cleanLabelValue(original.match(LABELED_DESC_RX)?.[1]);
   const labeledCard = cleanLabelValue(original.match(LABELED_CARD_RX)?.[1]);
-  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1]);
+  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1])
+    ?? (() => {
+      // Fallback: última linha isolada "Conta Corrente Itaú" — comum em
+      // notificações bancárias encaminhadas pelo WhatsApp.
+      const m = original.match(LINE_ACCOUNT_RX);
+      return cleanLabelValue(m?.[1] ?? null);
+    })();
   const labeledDate = cleanLabelValue(original.match(LABELED_DATE_RX)?.[1]);
   if (labeledAmount) {
     const parsed = parseBrAmount(labeledAmount);
@@ -122,11 +132,15 @@ export function extractSpans(raw: string): ExtractedSpans {
     out.payment_method = "credit_card";
     out.card_hint = labeledCard;
   }
-  if (labeledAccount) out.account_hint = labeledAccount;
+  if (labeledAccount && out.payment_method !== "credit_card") {
+    out.payment_method = "account";
+    out.account_hint = labeledAccount;
+  }
   if (labeledDate) out.occurred_at = parseDateLabel(labeledDate);
   if (out.amount !== null && out.description && (out.card_hint || out.account_hint)) {
     return out;
   }
+
 
   // 1) amount
   const amt = remaining.match(AMOUNT_RX);

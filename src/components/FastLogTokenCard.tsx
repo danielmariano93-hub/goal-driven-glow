@@ -5,6 +5,20 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 
 const DEFAULT_TOKEN = "!ja";
+const RESERVED = new Set([
+  "sim","nao","não","ok","pode","confirma","confirmar","confirmado",
+  "cancela","cancelar","registra","registrar","registro","gasto","gastei",
+  "conta","paguei","comprei","recebi",
+]);
+
+
+function isValidToken(s: string): boolean {
+  if (!/^[!#/][A-Za-z0-9]{2,12}$/.test(s)) return false;
+  const bare = s.slice(1).toLowerCase();
+  if (RESERVED.has(bare)) return false;
+  if (/^\d+[a-z]?$/.test(bare)) return false;
+  return true;
+}
 
 export function FastLogTokenCard() {
   const { user } = useAuth();
@@ -26,8 +40,8 @@ export function FastLogTokenCard() {
   async function save() {
     if (!user) return;
     const clean = token.trim();
-    if (!clean || clean.length > 16 || /\s/.test(clean)) {
-      toast.error("Use até 16 caracteres, sem espaços (ex.: !ja, #ja, /go).");
+    if (!isValidToken(clean)) {
+      toast.error("Use prefixo !, # ou / + 2 a 12 letras/números (ex.: !ja, #go, /grava). Evite palavras comuns.");
       return;
     }
     setSaving(true);
@@ -37,6 +51,7 @@ export function FastLogTokenCard() {
     if (error) toast.error("Não consegui salvar. Tente de novo.");
     else toast.success("Palavra-mágica atualizada");
   }
+
 
   if (loading) {
     return (

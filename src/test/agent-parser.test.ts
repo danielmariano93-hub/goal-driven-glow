@@ -84,3 +84,20 @@ describe("interpret", () => {
     expect(r.kind).toBe("transaction");
   });
 });
+
+describe("interpret — CONFIRM_LOOSE endurecido", () => {
+  it("não confunde 'Ta escrito na mensagem' com confirmação", () => {
+    const r = interpret("Ta escrito na mensagem");
+    expect(r.kind).not.toBe("confirm");
+    expect(r.kind).not.toBe("cancel");
+  });
+  it("ainda aceita 'sim pode' / 'pode confirmar' / 'manda ver'", () => {
+    expect(interpret("sim pode").kind).toBe("confirm");
+    expect(interpret("pode confirmar").kind).toBe("confirm");
+    expect(interpret("manda ver").kind).toBe("confirm");
+  });
+  it("cancela 'não' / 'deixa pra lá'", () => {
+    expect(interpret("não").kind).toBe("cancel");
+    expect(interpret("deixa pra lá").kind).toBe("cancel");
+  });
+});
