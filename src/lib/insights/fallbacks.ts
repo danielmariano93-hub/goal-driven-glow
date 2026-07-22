@@ -180,7 +180,31 @@ function candidates(f: InsightFacts): InsightPayload[] {
     });
   }
 
-  if (f.top_expense_category) {
+  if (f.category_growth && f.category_growth.growth_pct >= 30) {
+    list.push({
+      type: "alert",
+      title: `${f.category_growth.name} cresceu ${f.category_growth.growth_pct}%`,
+      body: `Comparado ao mês passado, ${f.category_growth.name} disparou ${f.category_growth.growth_pct}%. Vale entender o que puxou.`,
+      cta_label: "Ver relatório",
+      cta_route: "/app/relatorios",
+      model: "fallback",
+    });
+  }
+
+  if (f.top_expense_category && (f.top_expense_category_pct ?? 0) >= 20) {
+    const pct = f.top_expense_category_pct ?? 0;
+    const potential = f.expense_month > 0 ? (f.expense_month * (pct / 100) * 0.1) : 0;
+    list.push({
+      type: "opportunity",
+      title: `${pct}% dos seus gastos foram em ${f.top_expense_category}`,
+      body: potential > 20
+        ? `Reduzir 10% em ${f.top_expense_category} já economizaria cerca de ${brl(potential)} no mês.`
+        : `${f.top_expense_category} concentra ${pct}% do que saiu. Um ajuste aqui rende mais que em muita categoria pequena.`,
+      cta_label: "Ver relatório",
+      cta_route: "/app/relatorios",
+      model: "fallback",
+    });
+  } else if (f.top_expense_category) {
     list.push({
       type: "opportunity",
       title: `${f.top_expense_category} lidera seus gastos`,
@@ -190,6 +214,64 @@ function candidates(f: InsightFacts): InsightPayload[] {
       model: "fallback",
     });
   }
+
+  if (f.weekday_hotspot && f.weekday_hotspot.pct >= 30) {
+    list.push({
+      type: "habit",
+      title: `${f.weekday_hotspot.label} é seu dia de gastar mais`,
+      body: `${f.weekday_hotspot.pct}% dos seus gastos acontecem na ${f.weekday_hotspot.label.toLowerCase()}. Saber disso já ajuda a se planejar melhor.`,
+      cta_label: "Ver relatório",
+      cta_route: "/app/relatorios",
+      model: "fallback",
+    });
+  }
+
+  if (f.merchant_repeat && f.merchant_repeat.occurrences >= 3) {
+    list.push({
+      type: "opportunity",
+      title: `${f.merchant_repeat.occurrences}x no mesmo lugar este mês`,
+      body: `Você já gastou ${brl(f.merchant_repeat.total)} em "${f.merchant_repeat.name}". Compensa virar assinatura, cortar ou negociar?`,
+      cta_label: "Ver lançamentos",
+      cta_route: "/app/lancamentos",
+      model: "fallback",
+    });
+  }
+
+  if ((f.days_without_entry ?? 0) >= 3 && (f.total_tx_ever ?? 0) > 5) {
+    list.push({
+      type: "habit",
+      title: `${f.days_without_entry} dias sem anotar nada`,
+      body: "Faz uns dias que nada foi registrado. Um minuto agora evita esquecer o que já passou.",
+      cta_label: "Anotar agora",
+      cta_route: "/app/lancamentos",
+      model: "fallback",
+    });
+  }
+
+  if (f.goal_pace && f.goal_pace.progress_pct > 0) {
+    const gap = f.goal_pace.time_pct - f.goal_pace.progress_pct;
+    if (f.goal_pace.ahead) {
+      list.push({
+        type: "celebration",
+        title: `${f.goal_pace.name}: você tá adiantado`,
+        body: `Já são ${f.goal_pace.progress_pct}% da meta com o tempo ainda a favor. Mantém o ritmo.`,
+        cta_label: "Ver meta",
+        cta_route: "/app/metas",
+        model: "fallback",
+      });
+    } else if (gap >= 15) {
+      list.push({
+        type: "alert",
+        title: `${f.goal_pace.name} tá ficando pra trás`,
+        body: `Você tá em ${f.goal_pace.progress_pct}% da meta, mas já se passou ${f.goal_pace.time_pct}% do prazo. Um aporte agora recupera fôlego.`,
+        cta_label: "Guardar dinheiro",
+        cta_route: "/app/metas",
+        model: "fallback",
+      });
+    }
+  }
+
+
 
   // Mensagem positiva/engajamento — sempre disponível como último recurso.
   list.push({
