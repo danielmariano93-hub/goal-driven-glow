@@ -115,7 +115,13 @@ export function extractSpans(raw: string): ExtractedSpans {
   const labeledAmount = original.match(LABELED_AMOUNT_RX)?.[1];
   const labeledDesc = cleanLabelValue(original.match(LABELED_DESC_RX)?.[1]);
   const labeledCard = cleanLabelValue(original.match(LABELED_CARD_RX)?.[1]);
-  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1]);
+  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1])
+    ?? (() => {
+      // Fallback: última linha isolada "Conta Corrente Itaú" — comum em
+      // notificações bancárias encaminhadas pelo WhatsApp.
+      const m = original.match(LINE_ACCOUNT_RX);
+      return cleanLabelValue(m?.[1] ?? null);
+    })();
   const labeledDate = cleanLabelValue(original.match(LABELED_DATE_RX)?.[1]);
   if (labeledAmount) {
     const parsed = parseBrAmount(labeledAmount);
@@ -126,11 +132,15 @@ export function extractSpans(raw: string): ExtractedSpans {
     out.payment_method = "credit_card";
     out.card_hint = labeledCard;
   }
-  if (labeledAccount) out.account_hint = labeledAccount;
+  if (labeledAccount && out.payment_method !== "credit_card") {
+    out.payment_method = "account";
+    out.account_hint = labeledAccount;
+  }
   if (labeledDate) out.occurred_at = parseDateLabel(labeledDate);
   if (out.amount !== null && out.description && (out.card_hint || out.account_hint)) {
     return out;
   }
+
 
   // 1) amount
   const amt = remaining.match(AMOUNT_RX);
