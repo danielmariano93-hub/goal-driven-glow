@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 // Mirror da função pura em supabase/functions/_shared/agent/core/FastLog.ts.
 // Duplicação intencional para manter o vitest fora do runtime Deno.
 const DEFAULT = "!ja";
-const RESERVED = new Set(["ja","sim","nao","não","ok","pode","confirma","confirmar","confirmado","cancela","cancelar","registra","registrar","registro","gasto","gastei","conta","paguei","comprei","recebi"]);
+const RESERVED = new Set(["sim","nao","não","ok","pode","confirma","confirmar","confirmado","cancela","cancelar","registra","registrar","registro","gasto","gastei","conta","paguei","comprei","recebi"]);
 function escapeRx(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function isValidFastLogToken(tk: unknown): boolean {
   const s = String(tk ?? "").trim();
