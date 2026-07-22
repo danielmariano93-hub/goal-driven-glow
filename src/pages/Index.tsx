@@ -17,6 +17,7 @@ import { PatrimonioCard } from "@/components/home/PatrimonioCard";
 import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
+import { GastoMedioDiarioCard } from "@/components/home/GastoMedioDiarioCard";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 
@@ -117,6 +118,12 @@ export default function Index() {
     <div className="space-y-5">
       <PeriodFilter period={period} setPeriod={setPeriod} customStart={customStart} customEnd={customEnd} setCustomStart={setCustomStart} setCustomEnd={setCustomEnd} />
       <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} cashAnchor={cashAnchor} />
+
+      <GastoMedioDiarioCard
+        txs={tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never}
+        range={{ start: periodSummary.start, end: periodSummary.end }}
+        loading={loading}
+      />
 
       <PulseHero />
 
