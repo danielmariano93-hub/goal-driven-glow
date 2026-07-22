@@ -213,7 +213,7 @@ export default function Index() {
       <div className="grid grid-cols-2 gap-2.5">
         <MetricTile
           title="Gasto médio/dia"
-          value={daily.current.average}
+          value={daily.current.avg}
           trend={daily.trend}
           deltaPct={daily.deltaPct}
           compareLabel={dailyCompare}
