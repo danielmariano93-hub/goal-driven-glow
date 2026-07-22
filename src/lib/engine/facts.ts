@@ -241,6 +241,25 @@ export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
+/** Despesa comportamental em intervalo inclusivo [start,end] (YYYY-MM-DD).
+ *  Mesma regra de `computeMonthlyTotals`: exclui transferências, movimentações
+ *  de investimento, pagamento de fatura; `refund` abate; clamp em 0. */
+export function computeBehavioralExpense(
+  txs: TransactionRow[],
+  range: { start: string; end: string },
+): number {
+  let expense = 0;
+  for (const t of txs) {
+    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    if (!isRealMonthlyMovement(t)) continue;
+    const amt = Number(t.amount || 0);
+    const mk = (t.movement_kind ?? "transaction").toString();
+    if (mk === "refund") { expense -= amt; continue; }
+    if (t.type === "expense") expense += amt;
+  }
+  return round2(Math.max(0, expense));
+}
+
 export function computeMonthlyIncomeExpense(
   txs: TransactionRow[],
   ym: string,
