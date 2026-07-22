@@ -17,11 +17,13 @@ export const DEFAULT_FAST_LOG_TOKEN = "!ja";
 function escapeRx(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 // Palavras que confundiriam com fala natural — proibidas como token.
+// "ja" é intencionalmente permitido: é o default (`!ja`).
 const RESERVED_BARE = new Set([
-  "ja","sim","nao","não","ok","pode","confirma","confirmar","confirmado",
+  "sim","nao","não","ok","pode","confirma","confirmar","confirmado",
   "cancela","cancelar","registra","registrar","registro","gasto","gastei",
   "conta","paguei","comprei","recebi",
 ]);
+
 
 /**
  * Regras de validação de token:
