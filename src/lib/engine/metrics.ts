@@ -314,8 +314,10 @@ export function evaluateCategoryGoal(
     dailyAllowance,
     requiredDailyReduction,
     remainingDays,
+    period.start,
     period.end,
   );
+
 
   const utilClamped = Math.min(1, Math.max(0, percentageUsed));
 
