@@ -1,170 +1,119 @@
-# Plano — Home Comportamental v4 + Metas de Categoria + Paridade Agente
 
-Entrega única, sem etapas futuras. Todos os cálculos determinísticos, testados e centralizados. LLM apenas explica.
+# Correção definitiva — Metas de controle de gasto por categoria
 
-## 1. Fonte única de verdade — `FinancialMetricsService`
+## 1. Causa-raiz confirmada (verificada no banco e no código)
 
-Novo módulo compartilhado em duas cópias sincronizadas (mesmo código, mesmo comportamento):
+Banco (`public.category_spending_goals`) da meta de Transporte do usuário:
+- `start_date = 2026-07-22` (dia da criação), `end_date = NULL`, `baseline_value = 1000`, `computed_limit = 700`, `frequency = monthly`.
 
-- `src/lib/engine/metrics.ts` (frontend / React Query)
-- `supabase/functions/_shared/engine/metrics.ts` (Agent Core / Edge Functions)
+Código (`src/lib/engine/metrics.ts::evaluateCategoryGoal`):
+- Define `period.start = max(goal.start_date, mês corrente início)` → 2026-07-22.
+- Só soma transações com `occurred_at ≥ 2026-07-22`, ignorando os gastos de 01–21/jul.
 
-Ambos re-exportam a partir de um núcleo puro que consome:
-- `accounts` + `account_balance_snapshots` + `transactions` (para saldo atual real)
-- `recurring_rules` + `recurring_occurrences` (compromissos)
-- `investments`, `debts`, `credit_cards`
-- `categories` + novas metas de categoria
+Formulário (`CategoryGoalForm.tsx`): não oferece seletor de período; hook `useSaveCategorySpendingGoal` grava sem `start_date/end_date` explícitos e o insert passa `start_date` implícito = hoje (evidência: registro real). Logo:
+- **R$ 21,60 gasto** = somente movimentações a partir de 22/jul.
+- **Projeção R$ 216,00** = `21,60 / 1 dia × 10 dias`.
+- **Status "No ritmo"** = `utilization 0,03 < daysProgress 0,03` (regra atual não trata `spent > limit` do período real e nem “ultrapassada”).
 
-Assinatura única:
-```ts
-computeFinancialSnapshot(input, { today, period }) => FinancialSnapshot
+## 2. Regra de negócio oficial (nova)
+
+- Meta mensal padrão = **mês civil corrente** (`start = 1º do mês`, `end = último dia`), incluindo gastos retroativos do mês.
+- Meta pode ser: `this_month`, `next_month`, `next_30_days`, `custom`, `monthly_recurring` (com `recurrence_end_date` opcional).
+- Timezone: `America/Sao_Paulo` para todas as comparações de dia (usar helpers civis, sem UTC drift).
+- `actualSpend` = mesma definição de despesa comportamental usada em relatórios/Home: exclui receita, transferência entre contas próprias, aplicação/resgate/aporte de investimento, pagamento de fatura, itens `deleted_at` ou cancelados, e Divisão do Rolê que não seja a parcela do usuário. Usa **sempre `category_id`**.
+- Status obedece prioridade: `paused`/`cancelled` → `scheduled` (hoje<start) → `exceeded` (spent>limit) → `limit_reached` (spent==limit e dias restam) → `completed_ok` / `completed_over` (após end) → `on_risk` (projeção >110% limit) → `attention` (projeção >100%) → `on_track`. Ultrapassada NUNCA vira “No ritmo”.
+- `dailyAllowance = max(limit - spent, 0) / max(remainingDays,1)`; zero quando ultrapassada.
+- `projectedFinalSpend = actualSpend + currentDailyRate × remainingDays`; nunca menor que `actualSpend`.
+
+## 3. Mudanças
+
+### 3.1 Banco (uma migration)
+- `ALTER TABLE public.category_spending_goals` adicionar:
+  - `period_type text NOT NULL DEFAULT 'this_month'` (check: this_month, next_month, next_30_days, custom, monthly_recurring)
+  - `recurrence_end_date date NULL`
+  - `timezone text NOT NULL DEFAULT 'America/Sao_Paulo'`
+  - `paused_at timestamptz NULL`, `cancelled_at timestamptz NULL`
+  - Tornar `end_date` NOT NULL para metas não recorrentes via CHECK condicional.
+- Índice `idx_csg_period (user_id, category_id, start_date, end_date)`.
+- Nova tabela `public.category_spending_goal_cycles` (histórico de ciclos recorrentes) com `goal_id, start_date, end_date, baseline_snapshot, target_snapshot, actual_spend, projected_spend, final_status, closed_at`, GRANTs + RLS por `user_id` via join, trigger de fechamento no fim do ciclo.
+- **Backfill obrigatório**: para toda meta existente com `start_date` != 1º do mês e `end_date IS NULL`, setar `start_date = date_trunc('month', start_date)` e `end_date = (start_date + interval '1 month - 1 day')`, `period_type='this_month'`. Log de linhas afetadas retornado no relatório final.
+
+### 3.2 Camada central de métricas (fonte única)
+`src/lib/engine/metrics.ts` + porta `supabase/functions/_shared/engine/metrics.ts`:
+- Novo `evaluateCategoryGoal(goal, txs, today, tz, categoryName)` retornando **exatamente** o contrato exigido: `baselineAmount, targetAmount, actualSpend, remainingAmount, percentageUsed, elapsedDays, remainingDays, currentDailyRate, projectedFinalSpend, projectedDifference, projectedOverage, currentOverage, dailyAllowance, requiredDailyReduction, status, calculationReferenceDate, includedTransactionCount, projectionMethod`.
+- Filtro de transações reutiliza `isBehavioralExpense` (mesma função usada por relatórios/`computeMonthlyTotals`) — deduplicada entre app e edge.
+- Projeção `weekday_weighted` opcional quando `elapsedDays ≥ 14`, senão `linear`.
+- Nova função `resolveGoalPeriod(goal, today, tz)` — resolve start/end respeitando `period_type` e ciclo corrente para `monthly_recurring`.
+
+### 3.3 Formulário `CategoryGoalForm.tsx`
+Reordenar conforme spec (Categoria → Como definir → Base → Valor base → % ou limite → Limite calculado → **Período da meta** → Frequência → Prévia → Alertas → Ações).
+- Seletor de período com chips: Este mês (default), Próximo mês, Próximos 30 dias, Personalizado, Mensal recorrente.
+- Datas via `Popover + Calendar` do shadcn (com `pointer-events-auto`).
+- Bloco “Prévia da meta” com cálculo em tempo real via `evaluateCategoryGoal` sobre o período selecionado, mostrando quanto já foi gasto e situação.
+- Inputs 16px, altura 48–54, radius 14, modal `max-w-[640px] max-h-[90dvh]` com scroll interno e safe-area.
+
+### 3.4 Card `CategoryGoalCard.tsx`
+- Header: nome categoria + pill de status com cores do design system.
+- Linha secundária: “1–31 jul · Redução de 30%”.
+- Barra: cor por status; permite renderização visual até 100% mas mostra % real ao lado; cor de risco quando > 100%.
+- Bloco principal condicional por status (mensagens da spec 17.x/18).
+- Ações: Editar / Pausar-Retomar / Excluir + link “Ver gastos considerados” → `/app/lancamentos?category=<id>&start=<>&end=<>`.
+
+### 3.5 Página `src/pages/Lancamentos.tsx`
+- Ler query params `category`, `start`, `end` no mount e aplicar como filtros iniciais persistindo em `periodStore` sobreposto.
+
+### 3.6 Home (`EvolucaoFinanceiraCard.tsx`)
+- Consumir `useFinancialSnapshot` já existente que passa a receber os novos contratos.
+- Priorizar meta: ultrapassada > em risco > atenção > mais próxima do limite > progresso positivo > Pulso.
+- Mensagens conforme spec 22.
+
+### 3.7 Agente (`_shared/agent/tools.ts` + `FinancialContext360.ts`)
+- `list_category_spending_goals` retorna o snapshot completo por meta usando a mesma engine.
+- Nova tool opcional `get_category_goal(goal_id | category_name)` para respostas específicas.
+- Prompt do agente ganha bloco `[METAS DE CATEGORIA]` com números formatados; **proibido** recalcular via LLM.
+
+### 3.8 Dicas/Highlights/Próxima ação
+- `_shared/insights/facts.ts` e `src/lib/insights/fallbacks.ts` ganham sinais `goal_exceeded`, `goal_at_risk`, `goal_on_track_finish` com os textos da spec 25.
+- Próxima melhor ação em `AssistantTipCard.tsx` ordenada com meta ultrapassada acima de dicas comportamentais gerais (abaixo de integridade e risco de saldo).
+
+### 3.9 Invalidação
+- `src/lib/db/invalidation.ts::invalidateFinancialQueries` já invalida transações — adicionar chave `category_spending_goals` e `financial_snapshot`. Todas as mutações listadas na spec 27 usam esse helper.
+
+## 4. Testes (obrigatórios)
+
+Novo arquivo `src/test/category-goals-metrics.test.ts` cobrindo cada caso das seções 31/32/33, incluindo o **teste de regressão exato**:
+- Transporte, período 01–31 jul, base R$ 1.000, redução 30%, limite R$ 700, criação em 22/jul, gastos reais R$ 1.042,60 → `actualSpend = 1042.60`, `status = 'exceeded'`, `currentOverage = 342.60`, `dailyAllowance = 0`, projeção ≥ 1042,60, sem “No ritmo”.
+
+Ajustar `src/test/facts-*` e edge tests para novo contrato. Rodar `bunx vitest run` (target ≥ 435 pass, incluindo novos).
+
+## 5. Detalhes técnicos
+
+```text
+DB
+ └─ ALTER category_spending_goals + backfill + cycles
+Engine (app + edge, mesma lógica)
+ └─ resolveGoalPeriod + evaluateCategoryGoal (contrato completo)
+UI
+ ├─ CategoryGoalForm (período + prévia)
+ ├─ CategoryGoalCard (status + deep link)
+ ├─ Metas.tsx (usa novo eval)
+ ├─ Lancamentos.tsx (query params)
+ └─ EvolucaoFinanceiraCard/AssistantTipCard (priorização)
+Agente
+ └─ list_category_spending_goals + prompt block
+Invalidação
+ └─ invalidateFinancialQueries inclui category_spending_goals
 ```
 
-`FinancialSnapshot` expõe exatamente os campos do item 33 do briefing:
-availableToday, availableAccountsBreakdown, netWorth (+breakdown), selectedPeriod,
-currentAverageDailyConsumption, previousAverageDailyConsumption, averageDailyVariation,
-currentCardSpend, previousCardSpend, cardSpendVariation,
-monthToDateAverageConsumption, daysRemainingInMonth, confirmedFutureIncome,
-knownFutureCommitments, projectedRemainingConsumption, projectedMonthEndAvailable,
-projectionBreakdown, activeCategoryGoals[], categoryGoalStatus[],
-categoryGoalProjectedSpend[], categoryGoalDailyAllowance[], categoryGoalRequiredDailyReduction[],
-pulse, relevantHighlights[], nextBestAction.
+Todos os cálculos permanecem determinísticos e no servidor/engine; LLM só narra.
 
-Regras exatas conforme itens 6, 10, 12, 24–31 do briefing (Disponível hoje = saldo líquido atual sem descontar fatura futura; gasto médio exclui aplicações/transferências/pagamento de fatura/estornos; projeção = disponível + entradas futuras − compromissos − consumo projetado sem dupla contagem cartão).
+## 6. Entrega
 
-Componentes React consomem via um único hook `useFinancialSnapshot(period)` (React Query, chave por `user_id + period + today`), invalidado por `invalidateFinancialQueries` já existente (estendido).
-
-Agent Core consome via `TurnContext.snapshot({ metrics: true })` — `FinancialContext360` ganha um branch `metrics` que chama `computeFinancialSnapshot` no server e injeta o objeto estruturado no prompt (nunca texto solto).
-
-## 2. Metas de categoria
-
-Nova tabela `category_spending_goals` (única migration necessária):
-```
-id uuid pk, user_id uuid, category_id uuid,
-mode text check ('percent_reduction','fixed_limit'),
-reduction_pct numeric, fixed_limit numeric,
-baseline_kind text check ('prev_month','avg_3m','custom'),
-baseline_value numeric, computed_limit numeric,
-frequency text check ('once','monthly','custom'),
-start_date date, end_date date, status text ('active','paused','cancelled'),
-alerts jsonb, created_at, updated_at
-```
-Com GRANT completo, RLS por `user_id`, trigger de `updated_at`.
-
-Cálculo em `metrics.ts` seguindo itens 19–21 (T, saldoMeta, %util, limiteDiario, ritmoAtual, projecaoFinal, diferencaProjetada, reducaoNecessariaPorDia; projeção ponderada por dia da semana quando ≥ 8 semanas de histórico, senão linear).
-
-Estados: `on_track | attention | at_risk | exceeded` com mensagens fixas.
-
-## 3. Home — reordenação e refinamento
-
-Ordem final (item 3):
-1. `HomeHeader` (único, botões 40×40 padronizados)
-2. `HeroDisponivelCard` reescrito → **Disponível hoje** (não desconta fatura), rodapé Patrimônio + "Ver composição" → `PatrimonioSheet`
-3. `PeriodPicker` movido para **abaixo** do hero, label "Análise do período"
-4. `RitmoCard` (título "Seu ritmo neste período", divisória, único CTA "Ver análise completa")
-5. `NextBestActionCard` (novo, substitui `AssistantTipCard`, sem reações/badge)
-6. `QuickActions` — Anotar / **Dividir rolê** / Antes de comprar / Mais (remove Guardar)
-7. `EvolucaoFinanceiraCard` (novo, integra meta de categoria mais relevante + Pulso secundário)
-8. `ProjecaoFimMesCard` (renomeia PrevisaoFechamento, usa `monthToDateAverageConsumption × diasRestantes`, sem duplicar cartão)
-9. `EmotionalCheckinCard` (mantém progressive disclosure)
-10. BottomTabBar + FAB
-
-`PonteCaixaCard` desmontado da Home; vira `ProjecaoBreakdownSheet` aberto por "Ver cálculo".
-
-Design tokens do item 4 centralizados em `src/index.css` como variáveis `--home-*` (já parcialmente existentes) + padrões de CTA do item 49.
-
-## 4. Metas UI
-
-`src/pages/Metas.tsx`: novo seletor de tipo (Juntar dinheiro / Controlar gasto por categoria). Formulário de categoria com modo (percent/fixed), baseline (padrão média 3m), frequência, preview do limite calculado editável, alertas.
-
-Detalhe da meta: gasto atual, %util, limite diário restante, projeção, estado, CTA "Ajustar".
-
-## 5. Agente / WhatsApp — paridade
-
-Novas tools read-only em `supabase/functions/_shared/agent/tools.ts`:
-`get_available_today`, `get_net_worth`, `get_average_daily_consumption`, `get_card_spend`, `get_month_end_projection`, `get_projection_breakdown`, `get_category_goals`, `get_category_goal_status`, `get_financial_highlights`.
-
-Tools de mutação com confirmação: `create_category_spending_goal`, `update_category_spending_goal`, `pause_category_spending_goal`, `cancel_category_spending_goal`.
-
-Todas resolvem `user_id` no servidor (RLS + ownership check) e retornam do mesmo `computeFinancialSnapshot`.
-
-`IntentRouter` reconhece intenções do item 34. `ResponseValidator` já bloqueia números não vindos de tools — mantido.
-
-`FinancialContext360` sempre inclui `snapshot.metrics` quando a intent é analítica/consulta financeira.
-
-## 6. Dicas / Highlights / Próxima ação
-
-`_shared/insights/facts.ts` e `src/lib/insights/fallbacks.ts` reescritos para consumir `FinancialSnapshot` (sem fórmulas próprias). Gatilhos determinísticos do item 39. `NextBestActionCard` usa fila priorizada do item 13, registra candidatos/score/regra em `agent_decisions`.
-
-Rotação com anti-repetição via `sessionStorage` já existente é preservada.
-
-## 7. Invalidação
-
-`src/lib/db/invalidation.ts` — `invalidateFinancialQueries` estendido para invalidar também `["financial-snapshot", user, period]`, metas de categoria e highlights. Todos os fluxos do item 41 (create/edit/delete/import/OCR/WhatsApp/draft confirm/meta CRUD) já chamam essa função — auditar e corrigir os que não chamam.
-
-## 8. Testes (mesma rodada)
-
-Unitários novos:
-- `metrics-available-today.test.ts` (contas, fatura não deduzida, ownership)
-- `metrics-average-consumption.test.ts` (exclusões, período inclusivo, comparação)
-- `metrics-card-spend.test.ts`
-- `metrics-projection.test.ts` (dupla contagem cartão, vencimento dentro/fora do mês, negativa/baixa/positiva, ajuste diário)
-- `metrics-category-goal.test.ts` (percent, fixed, baselines, projeção linear e por dia da semana, estados)
-- `metrics-parity.test.ts` (mesmo input → mesmo output no módulo shared do frontend e do edge)
-
-Integração:
-- `agent-metrics-tools.test.ts` — cada tool devolve o mesmo número do snapshot
-- `whatsapp-parity.test.ts` — pergunta gera resposta com número idêntico ao Home
-- `home-snapshot-invalidation.test.ts` — mutação → snapshot muda sem reload
-
-Meta: suíte completa verde (≥ atual 435 + ~30 novos).
-
-## 9. Segurança
-
-RLS + GRANT na nova tabela. Tools verificam `user_id` do ctx contra `auth.uid()` (nunca do LLM). `ResponseValidator` mantém guardrail anti-alucinação.
-
-## 10. Performance
-
-Um único `useFinancialSnapshot` por render de Home. Cache por `[user, periodKey, today]`. Agent Core memoiza via `TurnContext.once`. Nenhum cálculo financeiro em componente React.
-
----
-
-### Detalhes técnicos
-
-**Arquivos novos**
-- `src/lib/engine/metrics.ts`
-- `supabase/functions/_shared/engine/metrics.ts` (mesmo núcleo, imports Deno)
-- `src/lib/hooks/useFinancialSnapshot.ts`
-- `src/components/home/NextBestActionCard.tsx`
-- `src/components/home/EvolucaoFinanceiraCard.tsx`
-- `src/components/home/ProjecaoBreakdownSheet.tsx`
-- `src/components/metas/CategoryGoalForm.tsx`
-- `src/components/metas/CategoryGoalCard.tsx`
-- `supabase/migrations/<ts>_category_spending_goals.sql`
-- ~10 arquivos de teste
-
-**Arquivos modificados**
-- `src/pages/Index.tsx` (nova ordem, hook único)
-- `src/components/home/HomeHeader.tsx` (padronização botões)
-- `src/components/home/HeroDisponivelCard.tsx` (semântica Disponível hoje)
-- `src/components/home/PeriodPicker.tsx` (label + posição)
-- `src/components/home/RitmoCard.tsx` (CTA único)
-- `src/components/home/QuickActions.tsx` (Divisão substitui Guardar)
-- `src/components/home/PrevisaoFechamentoCard.tsx` → renomear para `ProjecaoFimMesCard.tsx`
-- Remover uso de `PonteCaixaCard` da Home (mantido só no sheet)
-- `src/pages/Metas.tsx` + rotas de detalhe
-- `src/lib/db/finance.ts` (CRUD de category_spending_goals + invalidação)
-- `src/lib/db/invalidation.ts`
-- `src/index.css` (tokens do item 4 e CTAs do item 49)
-- `supabase/functions/_shared/agent/tools.ts` (+9 read + 4 write)
-- `supabase/functions/_shared/agent/core/FinancialContext360.ts` (branch metrics)
-- `supabase/functions/_shared/agent/core/IntentRouter.ts` (intenções item 34)
-- `supabase/functions/_shared/insights/facts.ts` (consome snapshot)
-- `src/lib/insights/fallbacks.ts` (consome snapshot)
-
-**Deploy pós-implementação**
-- Migration `category_spending_goals`
-- Edge Functions: `agent-chat`, `agent-run`, `whatsapp-webhook`, `insights-generate`, `pulse-compute`
-- Frontend publish
-
-Ao final, relatório com os 30 pontos do item 52.
+- Migration + backfill;
+- Engine unificada app/edge;
+- UI redesenhada de formulário e card;
+- Deep link em lançamentos;
+- Home, agente App/WhatsApp, dicas, highlights e próxima ação alinhados;
+- Testes unitários + regressão do caso real Transporte;
+- Deploy das edge functions `agent-chat`, `agent-run`, `whatsapp-webhook`, `insights-generate`;
+- Relatório final com causa-raiz, contagem de metas migradas e paridade validada.
