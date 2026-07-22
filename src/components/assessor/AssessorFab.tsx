@@ -1,22 +1,20 @@
 import { createPortal } from "react-dom";
+import { useState } from "react";
 import { MessageCircle } from "lucide-react";
-import { useAssessor } from "@/context/AssessorContext";
+import { AssessorActionSheet } from "@/components/assessor/AssessorActionSheet";
 
 /**
- * Botão flutuante que apenas dispara `openAssessor()`. O painel em si é
- * renderizado pelo `AppLayout` (uma única instância global), evitando
- * duplicação com a rota `/app/assessor`.
+ * FAB do Assessor: abre um sheet com dois caminhos (app ou WhatsApp).
+ * O painel dentro do app segue sendo renderizado uma única vez em `AppLayout`.
  */
 export function AssessorFab() {
-  const { openAssessor } = useAssessor();
-
+  const [open, setOpen] = useState(false);
   const fab = (
     <button
-      onClick={() => openAssessor("fab")}
+      onClick={() => setOpen(true)}
       aria-label="Falar com meu assessor"
       className="fixed right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-gradient-brand text-white shadow-brand transition-transform active:scale-95 md:h-14 md:w-14"
       style={{
-        // Fica acima da BottomTabBar (58px + safe-area no mobile)
         bottom: "calc(58px + env(safe-area-inset-bottom) + 16px)",
       }}
     >
@@ -24,5 +22,10 @@ export function AssessorFab() {
     </button>
   );
 
-  return typeof document !== "undefined" ? createPortal(fab, document.body) : null;
+  return (
+    <>
+      {typeof document !== "undefined" ? createPortal(fab, document.body) : null}
+      <AssessorActionSheet open={open} onClose={() => setOpen(false)} />
+    </>
+  );
 }

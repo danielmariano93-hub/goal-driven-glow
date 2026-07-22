@@ -1,11 +1,9 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, List, Calculator, Target, MoreHorizontal } from "lucide-react";
-import { copy } from "@/lib/copy/strings";
+import { LayoutDashboard, List, Target, MoreHorizontal } from "lucide-react";
 
 const tabs = [
   { path: "/app", label: "Início", icon: LayoutDashboard },
   { path: "/app/lancamentos", label: "Movimentos", icon: List },
-  { path: "/app/planejamento", label: copy.actions.beforeBuying, icon: Calculator },
   { path: "/app/metas", label: "Metas", icon: Target },
   { path: "/app/mais", label: "Mais", icon: MoreHorizontal },
 ];
@@ -18,6 +16,7 @@ export function BottomTabBar() {
     if (path === "/app/mais") {
       return [
         "/app/mais",
+        "/app/planejamento",
         "/app/dividas",
         "/app/emocoes",
         "/app/relatorios",
