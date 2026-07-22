@@ -78,8 +78,29 @@ describe("computeGoalProgress", () => {
     ];
     const p = computeGoalProgress(g, contribs);
     expect(p.contributed).toBe(350.5);
+    expect(p.investedLinked).toBe(0);
+    expect(p.total).toBe(350.5);
     expect(p.remaining).toBe(649.5);
     expect(p.pct).toBeCloseTo(0.3505);
+  });
+
+  it("includes linked investments in progress", () => {
+    const g: GoalRow = { id: "g1", name: "Reserva", target_amount: 1000, target_date: null, status: "active" };
+    const contribs: GoalContributionRow[] = [
+      { goal_id: "g1", amount: 100, occurred_at: "2026-01-01" },
+    ];
+    const investments = [
+      { goal_id: "g1", current_value: 300 },
+      { goal_id: "g1", current_value: 150.5 },
+      { goal_id: "other", current_value: 999 },
+      { goal_id: null, current_value: 500 },
+    ];
+    const p = computeGoalProgress(g, contribs, investments);
+    expect(p.contributed).toBe(100);
+    expect(p.investedLinked).toBe(450.5);
+    expect(p.total).toBe(550.5);
+    expect(p.remaining).toBe(449.5);
+    expect(p.pct).toBeCloseTo(0.5505);
   });
 });
 
