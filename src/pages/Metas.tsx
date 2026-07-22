@@ -25,6 +25,8 @@ import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 
+type GoalTab = "save" | "category";
+
 export default function Metas() {
   const { data: goals, isLoading } = useGoals();
   const { data: contribs } = useContributions();
@@ -34,28 +36,102 @@ export default function Metas() {
   const addC = useAddContribution();
   const delC = useDeleteContribution();
   const { data: accounts } = useAccounts();
+  const { data: categories } = useCategories();
+  const { data: txs } = useAllTransactions();
+  const { data: catGoals } = useCategorySpendingGoals();
+  const saveCatGoal = useSaveCategorySpendingGoal();
+  const delCatGoal = useDeleteCategorySpendingGoal();
+  const toggleCatGoal = useUpdateCategorySpendingGoalStatus();
   const [openGoal, setOpenGoal] = useState(false);
   const [editing, setEditing] = useState<GoalRow | null>(null);
   const [contribFor, setContribFor] = useState<GoalRow | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [tab, setTab] = useState<GoalTab>("save");
+  const [openCatGoal, setOpenCatGoal] = useState(false);
+  const [editingCatGoal, setEditingCatGoal] = useState<CategorySpendingGoalRow | null>(null);
+
+  const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
+  const catNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of categories ?? []) map[c.id] = c.name;
+    return map;
+  }, [categories]);
+  const catGoalEvals = useMemo(
+    () => (catGoals ?? []).map((g) => evaluateCategoryGoal({
+      id: g.id, user_id: g.user_id, category_id: g.category_id,
+      mode: g.mode as "percent_reduction" | "fixed_limit",
+      reduction_pct: g.reduction_pct == null ? null : Number(g.reduction_pct),
+      fixed_limit: g.fixed_limit == null ? null : Number(g.fixed_limit),
+      baseline_kind: g.baseline_kind as "prev_month" | "avg_3m" | "custom",
+      baseline_value: g.baseline_value == null ? null : Number(g.baseline_value),
+      computed_limit: Number(g.computed_limit),
+      frequency: g.frequency as "once" | "monthly" | "custom",
+      start_date: g.start_date,
+      end_date: g.end_date,
+      status: g.status as "active" | "paused" | "cancelled",
+    }, numericTxs, new Date(), catNameById[g.category_id])),
+    [catGoals, numericTxs, catNameById],
+  );
 
   return (
     <div>
-      <header className="mb-6 flex items-center justify-between">
+      <header className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">Metas</h1>
-          <p className="text-sm text-muted-foreground">Cada valor guardado te aproxima do que importa.</p>
+          <p className="text-sm text-muted-foreground">Guarde dinheiro ou controle um gasto por categoria.</p>
         </div>
         <button
           onClick={() => {
-            setEditing(null);
-            setOpenGoal(true);
+            if (tab === "save") { setEditing(null); setOpenGoal(true); }
+            else { setEditingCatGoal(null); setOpenCatGoal(true); }
           }}
           className="btn-brand inline-flex items-center gap-2"
         >
           <Plus size={14} /> Nova meta
         </button>
       </header>
+
+      <div className="mb-4 grid grid-cols-2 gap-2 rounded-full border border-border bg-card p-1">
+        <button
+          onClick={() => setTab("save")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "save" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Juntar dinheiro
+        </button>
+        <button
+          onClick={() => setTab("category")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "category" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Controlar gasto
+        </button>
+      </div>
+
+      {tab === "category" ? (
+        catGoalEvals.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+            <Target className="mx-auto h-8 w-8 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium">Qual categoria você quer controlar?</p>
+            <p className="mt-1 text-xs text-muted-foreground">Defina um teto de gasto e acompanhe seu ritmo em tempo real.</p>
+          </div>
+        ) : (
+          <ul className="space-y-3">
+            {catGoalEvals.map((ev) => (
+              <CategoryGoalCard
+                key={ev.goal.id}
+                evaluation={ev}
+                onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
+                onDelete={() => {
+                  if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") });
+                }}
+                onToggleStatus={() => toggleCatGoal.mutate({
+                  id: ev.goal.id,
+                  status: ev.goal.status === "active" ? "paused" : "active",
+                })}
+              />
+            ))}
+          </ul>
+        )
+      ) : (
 
       {isLoading ? (
         <div className="grid place-items-center py-16">
