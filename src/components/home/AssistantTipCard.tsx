@@ -154,7 +154,17 @@ export function AssistantTipCard() {
   };
 
   // Determine payload: server insight, else local fallback (never empty).
-  const localFallback: InsightPayload = useMemo(() => pickFallback(facts), [facts]);
+  // Anti-repetição: guardamos a chave da última dica local mostrada para
+  // que o fallback rotacione entre cenários elegíveis quando o usuário
+  // pedir "Nova dica" repetidamente sem que o contexto tenha mudado.
+  const [nonce, setNonce] = useState(0);
+  const localFallback: InsightPayload = useMemo(() => {
+    const lastKey = typeof window !== "undefined" ? sessionStorage.getItem("noc:last-tip") : null;
+    const p = pickFallback(facts, { skipKey: lastKey ?? undefined });
+    if (typeof window !== "undefined") sessionStorage.setItem("noc:last-tip", `${p.type}:${p.title}`);
+    return p;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facts, nonce]);
   const usingLocal = !isRenderable(data);
   const title = usingLocal ? localFallback.title : data!.title;
   const body = usingLocal ? localFallback.body : data!.body;
