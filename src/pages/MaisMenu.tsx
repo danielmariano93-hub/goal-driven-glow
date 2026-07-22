@@ -45,6 +45,7 @@ const account: Item[] = [
 
 export default function MaisMenu() {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
 
   return (
     <div className="space-y-6 pt-2 pb-8">
