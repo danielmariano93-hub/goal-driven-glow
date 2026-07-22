@@ -162,7 +162,6 @@ export function AssistantTipCard() {
   // Anti-repetição: guardamos a chave da última dica local mostrada para
   // que o fallback rotacione entre cenários elegíveis quando o usuário
   // pedir "Nova dica" repetidamente sem que o contexto tenha mudado.
-  const [nonce, setNonce] = useState(0);
   const localFallback: InsightPayload = useMemo(() => {
     const lastKey = typeof window !== "undefined" ? sessionStorage.getItem("noc:last-tip") : null;
     const p = pickFallback(facts, { skipKey: lastKey ?? undefined });
