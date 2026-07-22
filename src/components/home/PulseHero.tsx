@@ -52,9 +52,17 @@ export function PulseHero() {
         </button>
       </div>
       {data.state === "insufficient_data" ? (
-        <p className="mt-2 pl-14 text-xs text-muted-foreground">
-          Ainda estamos conhecendo seus hábitos.
-        </p>
+        <div className="mt-2 pl-14">
+          <p className="text-xs text-muted-foreground">
+            Anote alguns lançamentos por 3 dias para o Pulso ficar preciso.
+          </p>
+          <a
+            href="/app/lancamentos"
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+          >
+            Anotar agora →
+          </a>
+        </div>
       ) : (
         <>
           <p className="mt-2 pl-14 text-xs text-muted-foreground">
