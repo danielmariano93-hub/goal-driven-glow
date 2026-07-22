@@ -214,12 +214,14 @@ function statusMessage(
   dailyAllowance: number,
   requiredDailyReduction: number,
   daysRemaining: number,
+  periodStart: string,
   periodEnd: string,
 ): string {
   const brl = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
   switch (status) {
     case "scheduled":
-      return `Começa em ${new Date(periodEnd + "T00:00:00").toLocaleDateString("pt-BR")}.`;
+      return `Começa em ${new Date(periodStart + "T00:00:00").toLocaleDateString("pt-BR")}.`;
+
     case "paused":
       return `Meta de ${name} está pausada.`;
     case "cancelled":
@@ -312,8 +314,10 @@ export function evaluateCategoryGoal(
     dailyAllowance,
     requiredDailyReduction,
     remainingDays,
+    period.start,
     period.end,
   );
+
 
   const utilClamped = Math.min(1, Math.max(0, percentageUsed));
 

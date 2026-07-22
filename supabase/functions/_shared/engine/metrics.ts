@@ -218,7 +218,7 @@ export function evaluateCategoryGoal(
     status === "limit_reached" ? `${name}: limite atingido e ainda faltam ${remainingDays} dia(s).` :
     status === "completed_over" ? `${name}: encerrada ${brl(currentOverage)} acima da meta.` :
     status === "completed_ok" ? `${name}: encerrada dentro do limite.` :
-    status === "scheduled" ? `${name}: meta começa em ${start}.` :
+    status === "scheduled" ? `${name}: meta começa em ${new Date(start + "T00:00:00").toLocaleDateString("pt-BR")}.` :
     status === "paused" ? `${name}: meta pausada.` :
     status === "cancelled" ? `${name}: meta cancelada.` :
     `${name}: no ritmo atual, deve terminar em ${brl(projected)}.`;
