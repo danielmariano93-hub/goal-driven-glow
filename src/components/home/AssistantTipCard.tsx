@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, ThumbsUp, ThumbsDown, ArrowRight, Loader2, RefreshCw } from "lucide-react";
+import { Sparkles, ThumbsUp, ThumbsDown, ArrowRight, Loader2, RefreshCw, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,8 +30,22 @@ type Insight = {
   evidence: Record<string, unknown> | null;
 };
 
+const SEEN_KEY = "noc:insights-seen";
+
 function isRenderable(i: Pick<Insight, "title" | "body"> | null | undefined): boolean {
   return !!i && typeof i.title === "string" && !!i.title.trim() && typeof i.body === "string" && !!i.body.trim();
+}
+
+function loadSeen(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = sessionStorage.getItem(SEEN_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch { return new Set(); }
+}
+function saveSeen(set: Set<string>) {
+  if (typeof window === "undefined") return;
+  try { sessionStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(set).slice(-50))); } catch { /* noop */ }
 }
 
 function deepLinkForInsight(i: Insight): string | null {
@@ -50,7 +64,6 @@ export function buildAssistantFacts(
 ): InsightFacts {
   const arr = txs ?? [];
   const totals = computeMonthlyTotals(arr, ym);
-  // Maior despesa confirmada do mês sem categoria — para dica de calibração/categorização.
   let uncategorized: InsightFacts["uncategorized_tx"] = null;
   let bestAmt = 0;
   for (const t of arr) {
@@ -63,12 +76,7 @@ export function buildAssistantFacts(
     const amt = Number(t.amount || 0);
     if (amt > bestAmt) {
       bestAmt = amt;
-      uncategorized = {
-        id: t.id,
-        description: t.description ?? null,
-        amount: amt,
-        occurred_at: t.occurred_at,
-      };
+      uncategorized = { id: t.id, description: t.description ?? null, amount: amt, occurred_at: t.occurred_at };
     }
   }
   return {
@@ -89,6 +97,8 @@ export function AssistantTipCard() {
   const [generating, setGenerating] = useState(false);
   const [lastForceAt, setLastForceAt] = useState(0);
   const [nonce, setNonce] = useState(0);
+  const [seenVersion, setSeenVersion] = useState(0); // força re-render quando marcamos como visto
+  const [exhausted, setExhausted] = useState(false);
 
   const { data: txs } = useAllTransactions();
   const { data: goals } = useGoals();
@@ -98,7 +108,9 @@ export function AssistantTipCard() {
     [txs, goals],
   );
 
-  const { data, isLoading } = useQuery<Insight | null>({
+  // Puxamos até 5 insights ativos e rotacionamos entre eles no cliente,
+  // pulando os já vistos nesta sessão.
+  const { data: insights, isLoading } = useQuery<Insight[]>({
     queryKey: ["assistant-tip", user?.id],
     enabled: !!user,
     staleTime: 60_000,
@@ -110,10 +122,25 @@ export function AssistantTipCard() {
         .gt("expires_at", new Date().toISOString())
         .order("generated_at", { ascending: false })
         .limit(5);
-      const list = ((data as Insight[] | null) ?? []).filter(isRenderable);
-      return list[0] ?? null;
+      return ((data as Insight[] | null) ?? []).filter(isRenderable);
     },
   });
+
+  const activeList = insights ?? [];
+  const seen = useMemo(() => loadSeen(), [seenVersion]);
+  const current: Insight | null = useMemo(() => {
+    const unseen = activeList.find((i) => !seen.has(i.id));
+    return unseen ?? activeList[0] ?? null;
+  }, [activeList, seen]);
+
+  // Marca como "visto" ao exibir, para que a próxima abertura rotacione.
+  useEffect(() => {
+    if (!current) return;
+    if (seen.has(current.id)) return;
+    const next = new Set(seen); next.add(current.id);
+    saveSeen(next);
+    // não força re-render aqui — só na próxima interação
+  }, [current, seen]);
 
   const generate = async (force = false) => {
     if (generating) return;
@@ -122,16 +149,17 @@ export function AssistantTipCard() {
       return;
     }
     setGenerating(true);
-    if (force) {
-      setLastForceAt(Date.now());
-      // Rotaciona também o fallback local imediatamente para dar sensação de "nova".
-      setNonce((n) => n + 1);
-    }
+    if (force) { setLastForceAt(Date.now()); setNonce((n) => n + 1); setExhausted(false); }
     try {
       const { data: generated, error } = await supabase.functions.invoke("insights-generate", { body: force ? { force: true } : {} });
       if (error) throw error;
       if (generated?.insight && isRenderable(generated.insight)) {
-        qc.setQueryData(["assistant-tip", user?.id], generated.insight);
+        // Adiciona o novo insight ao topo e mantém rotação
+        qc.setQueryData<Insight[]>(["assistant-tip", user?.id], (prev) => {
+          const list = prev ?? [];
+          const withoutDup = list.filter((i) => i.id !== generated.insight.id);
+          return [generated.insight, ...withoutDup].slice(0, 5);
+        });
       } else {
         throw new Error("insight_not_returned");
       }
@@ -144,24 +172,40 @@ export function AssistantTipCard() {
   };
 
   useEffect(() => {
-    if (isLoading || generating || data || !user) return;
+    if (isLoading || generating || (activeList.length > 0) || !user) return;
     void generate(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, data, user]);
+  }, [isLoading, activeList.length, user]);
 
   const sendFeedback = async (value: "useful" | "not_useful") => {
-    if (!data) return;
-    await (supabase.from("user_insights" as never) as any)
-      .update({ feedback: value })
-      .eq("id", data.id);
+    if (!current) return;
+    const patch: Record<string, unknown> = { feedback: value };
+    if (value === "not_useful") patch.status = "dismissed";
+    await (supabase.from("user_insights" as never) as any).update(patch).eq("id", current.id);
     toast.success(copy.tip.thanks);
+    if (value === "not_useful") {
+      // Marca como visto, rotaciona para o próximo, e se acabou tenta gerar outro.
+      const next = new Set(seen); next.add(current.id); saveSeen(next); setSeenVersion((v) => v + 1);
+      const remaining = activeList.filter((i) => i.id !== current.id && !next.has(i.id));
+      if (remaining.length === 0) void generate(true);
+    }
     qc.invalidateQueries({ queryKey: ["assistant-tip"] });
   };
 
-  // Determine payload: server insight, else local fallback (never empty).
-  // Anti-repetição: guardamos a chave da última dica local mostrada para
-  // que o fallback rotacione entre cenários elegíveis quando o usuário
-  // pedir "Nova dica" repetidamente sem que o contexto tenha mudado.
+  const rotateNext = () => {
+    if (!current) return;
+    const next = new Set(seen); next.add(current.id); saveSeen(next); setSeenVersion((v) => v + 1);
+    const remaining = activeList.filter((i) => !next.has(i.id));
+    if (remaining.length === 0) {
+      setExhausted(true);
+      void generate(true);
+    } else {
+      setNonce((n) => n + 1);
+    }
+  };
+
+  // Fallback local (mesmas regras do backend). Usado quando não há insights no servidor
+  // ou como base quando o usuário exauriu todas as dicas ativas.
   const localFallback: InsightPayload = useMemo(() => {
     const lastKey = typeof window !== "undefined" ? sessionStorage.getItem("noc:last-tip") : null;
     const p = pickFallback(facts, { skipKey: lastKey ?? undefined });
@@ -169,19 +213,19 @@ export function AssistantTipCard() {
     return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facts, nonce]);
-  const usingLocal = !isRenderable(data);
-  const title = usingLocal ? localFallback.title : data!.title;
-  const body = usingLocal ? localFallback.body : data!.body;
+
+  const usingLocal = !current;
+  const title = usingLocal ? localFallback.title : current!.title;
+  const body = usingLocal ? localFallback.body : current!.body;
   const ctaLabel = usingLocal
     ? localFallback.cta_label
-    : (data!.cta_label && data!.cta_label.trim()) || localFallback.cta_label;
-  const rawRoute = usingLocal ? localFallback.cta_route : data!.cta_route ?? localFallback.cta_route;
-  // Prioridade: deep-link para o lançamento específico via evidence.transaction_id.
-  const linkFromEvidence = !usingLocal && data ? deepLinkForInsight(data) : null;
+    : (current!.cta_label && current!.cta_label.trim()) || localFallback.cta_label;
+  const rawRoute = usingLocal ? localFallback.cta_route : current!.cta_route ?? localFallback.cta_route;
+  const linkFromEvidence = !usingLocal && current ? deepLinkForInsight(current) : null;
   const ctaRoute = linkFromEvidence ?? (rawRoute && CTA_ROUTE_RX.test(rawRoute) ? rawRoute : "/app/lancamentos");
+  const showFeedback = !usingLocal && current && !current.feedback;
 
-  // Skeleton only on very first load (no data, still loading, no facts yet).
-  if (isLoading && !data) {
+  if (isLoading && activeList.length === 0) {
     return (
       <section
         aria-label={copy.tip.header}
@@ -199,6 +243,44 @@ export function AssistantTipCard() {
     );
   }
 
+  // Estado "exauriu tudo por hoje" — mensagem amigável + botão pra tentar gerar mais.
+  if (exhausted && activeList.every((i) => seen.has(i.id))) {
+    return (
+      <section
+        aria-label={copy.tip.header}
+        className="relative overflow-hidden rounded-3xl border border-primary/15 bg-gradient-to-br from-primary/8 via-card to-accent/10 p-5 shadow-card"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+            <Sparkles className="h-3.5 w-3.5" />
+            {copy.tip.header}
+          </div>
+        </div>
+        <h3 className="mt-2 font-display text-base font-bold leading-snug">Você já viu tudo por aqui hoje 🎉</h3>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+          Continue registrando gastos e entradas — assim eu consigo trazer leituras novas e mais úteis pra você amanhã.
+        </p>
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <Link
+            to="/app/lancamentos"
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95"
+          >
+            Anotar agora <ArrowRight size={12} />
+          </Link>
+          <button
+            type="button"
+            onClick={() => generate(true)}
+            disabled={generating}
+            className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] text-muted-foreground hover:text-primary disabled:opacity-50"
+          >
+            {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            <span>Tentar mais uma</span>
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       aria-label={copy.tip.header}
@@ -209,17 +291,30 @@ export function AssistantTipCard() {
           <Sparkles className="h-3.5 w-3.5" />
           {copy.tip.header}
         </div>
-        <button
-          type="button"
-          onClick={() => generate(true)}
-          disabled={generating}
-          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:text-primary disabled:opacity-50"
-          aria-label="Gerar nova dica"
-          title="Gerar nova dica"
-        >
-          {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          <span>Nova dica</span>
-        </button>
+        <div className="flex items-center gap-1">
+          {activeList.length > 1 && !usingLocal && (
+            <button
+              type="button"
+              onClick={rotateNext}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:text-primary"
+              aria-label="Próxima dica"
+              title="Próxima dica"
+            >
+              Próxima
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => generate(true)}
+            disabled={generating}
+            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:text-primary disabled:opacity-50"
+            aria-label="Gerar nova dica"
+            title="Gerar nova dica"
+          >
+            {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            <span>Nova</span>
+          </button>
+        </div>
       </div>
       <h3 className="mt-2 font-display text-base font-bold leading-snug">{title}</h3>
       <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{body}</p>
@@ -232,7 +327,7 @@ export function AssistantTipCard() {
           {ctaLabel} <ArrowRight size={12} />
         </Link>
 
-        {!usingLocal && data && !data.feedback && (
+        {showFeedback && (
           <div className="flex items-center gap-1 text-muted-foreground">
             <button
               onClick={() => sendFeedback("useful")}
@@ -249,6 +344,14 @@ export function AssistantTipCard() {
               title={copy.tip.feedbackNotUseful}
             >
               <ThumbsDown size={13} />
+            </button>
+            <button
+              onClick={rotateNext}
+              aria-label="Dispensar"
+              className="rounded-full p-1.5 hover:text-muted-foreground"
+              title="Dispensar"
+            >
+              <X size={13} />
             </button>
           </div>
         )}

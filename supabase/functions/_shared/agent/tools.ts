@@ -7,7 +7,8 @@
 
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { computeBeforeSpending } from "../engine/facts.ts";
+import { computeBeforeSpending, type TransactionRow } from "../engine/facts.ts";
+import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
@@ -567,6 +568,55 @@ export async function draft_transaction_delete(ctx: ToolContext, args: {
   return { ok: true, result: { draft_id: draftId, summary: label, transaction_id: id, scope } };
 }
 
+// ---------- Insights & highlights (read-only helpers) ----------
+
+export async function get_daily_insights(ctx: ToolContext, args: { limit?: number }): Promise<ToolResult> {
+  const limit = Math.max(1, Math.min(5, args?.limit ?? 3));
+  const { data, error } = await ctx.sb
+    .from("user_insights")
+    .select("id,type,title,body,cta_label,cta_route,generated_at,evidence")
+    .eq("user_id", ctx.user_id)
+    .eq("status", "active")
+    .gt("expires_at", new Date().toISOString())
+    .order("generated_at", { ascending: false })
+    .limit(limit);
+  if (error) return { ok: false, error: error.message };
+  const items = (data ?? []).map((r: any) => ({
+    id: r.id, type: r.type, title: r.title, body: r.body,
+    cta_label: r.cta_label, cta_route: r.cta_route,
+    generated_at: r.generated_at,
+  }));
+  return { ok: true, result: { items, count: items.length } };
+}
+
+export async function get_spending_highlights(ctx: ToolContext): Promise<ToolResult> {
+  const now0 = new Date();
+  const ym = now0.toISOString().slice(0, 7);
+  const prevYm = new Date(now0.getFullYear(), now0.getMonth() - 1, 1).toISOString().slice(0, 7);
+  const [txsCur, txsPrev, cats, goals, contribs] = await Promise.all([
+    ctx.sb.from("transactions")
+      .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+      .eq("user_id", ctx.user_id).eq("status", "confirmed")
+      .gte("occurred_at", `${ym}-01`),
+    ctx.sb.from("transactions")
+      .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+      .eq("user_id", ctx.user_id).eq("status", "confirmed")
+      .gte("occurred_at", `${prevYm}-01`).lt("occurred_at", `${ym}-01`),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+    ctx.sb.from("goals").select("name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("status", "active"),
+    ctx.sb.from("goal_contributions").select("goal_id,amount").eq("user_id", ctx.user_id),
+  ]);
+  const all = [...((txsCur.data ?? []) as any[]), ...((txsPrev.data ?? []) as any[])] as unknown as TransactionRow[];
+  const catNames = new Map<string, string>();
+  for (const c of (cats.data ?? []) as any[]) catNames.set(c.id, c.name);
+  const signals = computeBehavioralSignals(
+    all, catNames, (goals.data ?? []) as any[], (contribs.data ?? []) as any[], now0,
+  );
+  return { ok: true, result: signals };
+}
+
+
+
 // ---------- Registry (name → executor + JSON Schema) ----------
 
 export type ToolSpec = {
@@ -772,6 +822,18 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["transaction_id"], additionalProperties: false,
     },
     execute: draft_transaction_delete,
+  },
+  {
+    name: "get_daily_insights",
+    description: "Lista as dicas/insights ativos do usuário (as mesmas exibidas na Home). Use quando o usuário pedir 'dicas', 'insights', 'sugestões', 'o que a IA acha' ou similar.",
+    parameters: { type: "object", properties: { limit: { type: "integer" } }, additionalProperties: false },
+    execute: get_daily_insights,
+  },
+  {
+    name: "get_spending_highlights",
+    description: "Retorna sinais comportamentais do mês: categoria líder e %, categoria que mais cresceu vs mês anterior, dia da semana concentrado, estabelecimento repetido, dias sem lançar e ritmo da meta. Use para responder 'o que mudou', 'onde estou gastando mais', 'estou no ritmo da meta', 'me analisa'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_spending_highlights,
   },
 ];
 
