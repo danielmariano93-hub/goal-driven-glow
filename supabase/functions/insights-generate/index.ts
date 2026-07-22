@@ -66,17 +66,24 @@ Deno.serve(async (req) => {
   }
 
   // Aggregate facts
-  const ym = new Date().toISOString().slice(0, 7);
+  const now0 = new Date();
+  const ym = now0.toISOString().slice(0, 7);
+  const prevYm = new Date(now0.getFullYear(), now0.getMonth() - 1, 1).toISOString().slice(0, 7);
   const [
     { count: txCount },
     { data: goals },
+    { data: contribs },
     { data: recentTx },
+    { data: prevMonthTx },
     { count: cardCount },
     { data: recurring },
     { data: uncategorized },
+    { data: categoriesRows },
+    { data: recentInsights },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
-    supa.from("goals").select("id,name,target_amount,status").eq("user_id", uid).eq("status", "active"),
+    supa.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", uid).eq("status", "active"),
+    supa.from("goal_contributions").select("goal_id,amount").eq("user_id", uid),
     supa
       .from("transactions")
       .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
@@ -84,9 +91,15 @@ Deno.serve(async (req) => {
       .eq("status", "confirmed")
       .gte("occurred_at", `${ym}-01`)
       .order("occurred_at", { ascending: false }),
+    supa
+      .from("transactions")
+      .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+      .eq("user_id", uid)
+      .eq("status", "confirmed")
+      .gte("occurred_at", `${prevYm}-01`)
+      .lt("occurred_at", `${ym}-01`),
     supa.from("credit_cards").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("active", true),
     supa.from("recurring_entries").select("id,next_due_date,active").eq("user_id", uid).eq("active", true),
-    // Lançamento sem categoria (últimos 30 dias, prioridade máxima)
     supa
       .from("transactions")
       .select("id,description,amount,occurred_at")
@@ -97,6 +110,10 @@ Deno.serve(async (req) => {
       .gte("occurred_at", new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10))
       .order("occurred_at", { ascending: false })
       .limit(20),
+    supa.from("categories").select("id,name").or(`user_id.eq.${uid},user_id.is.null`),
+    supa.from("user_insights").select("id,title,type")
+      .eq("user_id", uid).eq("status", "active")
+      .order("generated_at", { ascending: false }).limit(10),
   ]);
 
   const { data: previousActive } = await supa.from("user_insights")
@@ -105,10 +122,8 @@ Deno.serve(async (req) => {
   const previousTxId = (previousActive?.evidence as any)?.transaction_id as string | undefined;
   const chosenUncategorized = (uncategorized ?? []).find((row: any) => row.id !== previousTxId) ?? (uncategorized ?? [])[0] ?? null;
 
-  // Comportamental (regra canônica): exclui transferências internas, aplicação/
-  // resgate/rendimento de investimento, pagamento de fatura e proceeds de
-  // empréstimo. Refund abate despesa. É a base para "sobrou/faltou".
-  const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10);
+  const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const allTx = [...((recentTx ?? []) as any[]), ...((prevMonthTx ?? []) as any[])] as unknown as TransactionRow[];
   const behavioral = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
   const gross = computeAccountStatementTotals(
     (recentTx ?? []) as unknown as TransactionRow[],
@@ -129,9 +144,22 @@ Deno.serve(async (req) => {
     ? { id: chosenUncategorized.id as string, description: (chosenUncategorized.description as string) ?? null, amount: Number(chosenUncategorized.amount), occurred_at: chosenUncategorized.occurred_at as string }
     : null;
 
-  if (force && previousActive?.id) {
-    await supa.from("user_insights").update({ status: "dismissed" }).eq("id", previousActive.id).eq("user_id", uid);
+  // Ao forçar nova dica, dispensa TODAS as ativas para evitar rotação estagnada.
+  if (force) {
+    await supa.from("user_insights").update({ status: "dismissed" })
+      .eq("user_id", uid).eq("status", "active");
   }
+
+  const catNames = new Map<string, string>();
+  for (const c of (categoriesRows ?? []) as any[]) catNames.set(c.id, c.name);
+  const signals = computeBehavioralSignals(
+    allTx,
+    catNames,
+    (goals ?? []) as any[],
+    (contribs ?? []) as any[],
+    now0,
+  );
+  const recentTitles = ((recentInsights ?? []) as any[]).map((r) => r.title).filter(Boolean).slice(0, 8);
 
   const facts: InsightFacts = {
     total_tx_ever: totalCount,
@@ -143,7 +171,13 @@ Deno.serve(async (req) => {
     goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name).filter(Boolean),
     has_credit_card: (cardCount ?? 0) > 0,
     upcoming_recurring_7d: upcoming7,
-    top_expense_category: null,
+    top_expense_category: signals.top_expense_category,
+    top_expense_category_pct: signals.top_expense_category_pct,
+    category_growth: signals.category_growth,
+    weekday_hotspot: signals.weekday_hotspot,
+    merchant_repeat: signals.merchant_repeat,
+    days_without_entry: signals.days_without_entry,
+    goal_pace: signals.goal_pace,
     uncategorized_tx,
   };
 
