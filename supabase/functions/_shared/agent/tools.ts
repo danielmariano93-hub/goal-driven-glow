@@ -8,6 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { computeBeforeSpending, type TransactionRow } from "../engine/facts.ts";
+import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
@@ -615,6 +616,24 @@ export async function get_spending_highlights(ctx: ToolContext): Promise<ToolRes
   return { ok: true, result: signals };
 }
 
+export async function get_financial_snapshot(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    return { ok: true, result: snap };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function list_category_spending_goals(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    return { ok: true, result: { items: snap.active_category_goals, top: snap.top_category_goal, count: snap.active_category_goals.length } };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 
 
 // ---------- Registry (name → executor + JSON Schema) ----------
@@ -834,6 +853,18 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Retorna sinais comportamentais do mês: categoria líder e %, categoria que mais cresceu vs mês anterior, dia da semana concentrado, estabelecimento repetido, dias sem lançar e ritmo da meta. Use para responder 'o que mudou', 'onde estou gastando mais', 'estou no ritmo da meta', 'me analisa'.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: get_spending_highlights,
+  },
+  {
+    name: "get_financial_snapshot",
+    description: "Retorna o mesmo painel que a Home mostra: disponível hoje, ritmo de gasto, projeção de fim de mês, entradas e compromissos futuros conhecidos, fatura em aberto e metas de categoria ativas. Use quando o usuário pedir 'como estou?', 'quanto sobra até o fim do mês?', 'projeção', 'ritmo', 'quanto gastei/quanto entrou este mês'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_financial_snapshot,
+  },
+  {
+    name: "list_category_spending_goals",
+    description: "Lista as metas de controle de gasto por categoria, com limite, gasto atual, ritmo diário permitido, projeção de estouro e status (no_ritmo, atencao, em_risco, estourou). Use quando o usuário perguntar por uma meta de gasto específica ou 'minhas metas de categoria'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_category_spending_goals,
   },
 ];
 
