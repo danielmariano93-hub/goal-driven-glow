@@ -338,23 +338,23 @@ export default function Lancamentos() {
               <option value="amount_asc">Menor valor</option>
             </select>
 
-            <label className="flex flex-col text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <label className="flex min-w-0 flex-1 basis-[140px] flex-col text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:flex-none sm:basis-auto">
               De
               <input
                 type="date"
                 value={filters.from ?? ""}
                 onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value || undefined }))}
-                className="mt-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs normal-case tracking-normal text-foreground"
+                className="mt-1 w-full min-w-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs normal-case tracking-normal text-foreground"
                 aria-label="Data inicial"
               />
             </label>
-            <label className="flex flex-col text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <label className="flex min-w-0 flex-1 basis-[140px] flex-col text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:flex-none sm:basis-auto">
               Até
               <input
                 type="date"
                 value={filters.to ?? ""}
                 onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value || undefined }))}
-                className="mt-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs normal-case tracking-normal text-foreground"
+                className="mt-1 w-full min-w-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs normal-case tracking-normal text-foreground"
                 aria-label="Data final"
               />
             </label>
