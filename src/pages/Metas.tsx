@@ -268,6 +268,25 @@ export default function Metas() {
           }
         />
       )}
+
+      {openCatGoal && (
+        <CategoryGoalForm
+          initial={editingCatGoal}
+          categories={categories ?? []}
+          txs={numericTxs}
+          saving={saveCatGoal.isPending}
+          onClose={() => setOpenCatGoal(false)}
+          onSubmit={(v) =>
+            saveCatGoal.mutate(v, {
+              onSuccess: () => {
+                toast.success("Meta salva");
+                setOpenCatGoal(false);
+              },
+              onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+            })
+          }
+        />
+      )}
     </div>
   );
 }
