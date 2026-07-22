@@ -193,6 +193,18 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
 
+  // Reinforcement anti-alucinação: proibir "registrado/salvo/✅" sem tool call.
+  systemPrompt =
+    `[REGRA CRÍTICA]\n` +
+    `Nunca responda como se um lançamento tivesse sido registrado, salvo, anotado ou confirmado ` +
+    `sem ter chamado neste mesmo turno a tool create_transaction_draft (novo) ou ` +
+    `confirm_pending_action (rascunho existente). Se pedir confirmação ao usuário, ` +
+    `chame OBRIGATORIAMENTE create_transaction_draft antes de perguntar.\n` +
+    `Palavra-mágica do usuário: se a mensagem contiver "${fastLogToken}" no início ou fim, ` +
+    `o sistema já registrou direto — não repita o fluxo.\n\n` +
+    systemPrompt;
+
+
   // Safety net: if there's a pending confirmation and the parser did not
   // intercept (loose "sim pode" / "manda" wasn't detected), prepend an
   // explicit block so the LLM confirms instead of restarting the flow.
