@@ -132,7 +132,7 @@ export default function Metas() {
           </ul>
         )
       ) : (
-
+        <>
       {isLoading ? (
         <div className="grid place-items-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -226,6 +226,10 @@ export default function Metas() {
           })}
         </ul>
       )}
+        </>
+      )}
+
+
 
       {openGoal && (
         <GoalModal
