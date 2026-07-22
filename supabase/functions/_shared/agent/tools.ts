@@ -613,6 +613,9 @@ export async function get_spending_highlights(ctx: ToolContext): Promise<ToolRes
     all, catNames, (goals.data ?? []) as any[], (contribs.data ?? []) as any[], now0,
   );
   return { ok: true, result: signals };
+}
+
+
 
 // ---------- Registry (name → executor + JSON Schema) ----------
 
