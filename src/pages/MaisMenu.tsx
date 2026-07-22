@@ -12,8 +12,10 @@ import {
   Repeat,
   Trophy,
   BarChart3,
+  LogOut,
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
+import { useAuth } from "@/context/AuthContext";
 
 type Item = { path: string; label: string; desc: string; icon: any };
 
