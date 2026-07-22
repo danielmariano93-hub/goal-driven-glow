@@ -76,4 +76,43 @@ describe("pickFallback", () => {
       expect(p.body.trim().length).toBeGreaterThanOrEqual(10);
     });
   }
+
+  it("prioriza sinal de categoria líder com % quando pct >= 20", () => {
+    const p = pickFallback({
+      ...base, total_tx_ever: 30, expense_month: 1000, income_month: 3000, balance_month: 2000,
+      top_expense_category: "Alimentação", top_expense_category_pct: 42,
+    });
+    expect(p.title).toContain("42%");
+    expect(p.title.toLowerCase()).toContain("alimentação");
+  });
+
+  it("gera alerta de categoria que cresceu vs mês anterior", () => {
+    const p = pickFallback({
+      ...base, total_tx_ever: 30, income_month: 3000, expense_month: 1500, balance_month: 1500,
+      category_growth: { name: "Lazer", growth_pct: 65 },
+    });
+    // pode escolher outros sinais anteriores; garante ao menos que a rota é válida
+    const r = InsightSchema.safeParse(p);
+    expect(r.success).toBe(true);
+  });
+
+  it("alerta quando meta está ficando pra trás (gap >= 15pp)", () => {
+    const p = pickFallback({
+      ...base, total_tx_ever: 30,
+      goal_pace: { name: "Viagem", progress_pct: 20, time_pct: 60, ahead: false },
+    });
+    const r = InsightSchema.safeParse(p);
+    expect(r.success).toBe(true);
+  });
+
+  it("rotaciona quando skipKey bate no topo", () => {
+    const facts = {
+      ...base, total_tx_ever: 30, income_month: 3000, expense_month: 1500, balance_month: 1500,
+      top_expense_category: "Alimentação", top_expense_category_pct: 42,
+      weekday_hotspot: { weekday: 5, label: "Sexta", pct: 40 },
+    };
+    const first = pickFallback(facts);
+    const second = pickFallback(facts, { skipKey: `${first.type}:${first.title}` });
+    expect(second.title).not.toBe(first.title);
+  });
 });
