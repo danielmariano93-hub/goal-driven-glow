@@ -9,6 +9,7 @@ import {
   useAddContribution,
   useDeleteContribution,
   useAccounts,
+  useInvestments,
   type GoalRow,
 } from "@/lib/db/finance";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
@@ -17,6 +18,7 @@ import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 export default function Metas() {
   const { data: goals, isLoading } = useGoals();
   const { data: contribs } = useContributions();
+  const { data: investments } = useInvestments();
   const save = useSaveGoal();
   const del = useDeleteGoal();
   const addC = useAddContribution();
@@ -58,8 +60,9 @@ export default function Metas() {
       ) : (
         <ul className="space-y-3">
           {goals.map((g) => {
-            const prog = computeGoalProgress(g, contribs ?? []);
+            const prog = computeGoalProgress(g, contribs ?? [], investments ?? []);
             const goalContribs = (contribs ?? []).filter((c) => c.goal_id === g.id);
+            const linkedInvestments = (investments ?? []).filter((i) => i.goal_id === g.id);
             const isOpen = expanded === g.id;
             return (
               <li key={g.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
@@ -74,9 +77,15 @@ export default function Metas() {
                       <div className="h-full rounded-full bg-gradient-brand transition-all" style={{ width: `${Math.round(prog.pct * 100)}%` }} />
                     </div>
                     <p className="mt-1.5 text-xs">
-                      <span className="font-semibold">{formatBRL(prog.contributed)}</span>{" "}
+                      <span className="font-semibold tabular-nums">{formatBRL(prog.total)}</span>{" "}
                       <span className="text-muted-foreground">de {formatBRL(Number(g.target_amount))} · faltam {formatBRL(prog.remaining)}</span>
                     </p>
+                    {prog.investedLinked > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Investido vinculado: <span className="font-medium text-foreground tabular-nums">{formatBRL(prog.investedLinked)}</span>
+                        {prog.contributed > 0 ? ` · Aportes: ${formatBRL(prog.contributed)}` : ""}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
