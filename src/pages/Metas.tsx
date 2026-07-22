@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Trash2, Loader2, Target, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -10,10 +10,20 @@ import {
   useDeleteContribution,
   useAccounts,
   useInvestments,
+  useCategories,
+  useAllTransactions,
+  useCategorySpendingGoals,
+  useSaveCategorySpendingGoal,
+  useDeleteCategorySpendingGoal,
+  useUpdateCategorySpendingGoalStatus,
   type GoalRow,
+  type CategorySpendingGoalRow,
 } from "@/lib/db/finance";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
 import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
+import { evaluateCategoryGoal } from "@/lib/engine/metrics";
+import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
+import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 
 export default function Metas() {
   const { data: goals, isLoading } = useGoals();
