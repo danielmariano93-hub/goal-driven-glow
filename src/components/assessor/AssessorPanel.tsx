@@ -430,7 +430,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Escreva uma mensagem ou anexe um documento…"
+            placeholder="Escreva uma mensagem, anexe um documento ou use !ja para registrar direto…"
             className="input-base min-w-0 flex-1 text-base"
             disabled={sending || loadingHistory}
             onFocus={() => window.setTimeout(() => endRef.current?.scrollIntoView({ block: "end" }), 120)}

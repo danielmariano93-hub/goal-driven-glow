@@ -192,9 +192,10 @@ export default function WhatsApp() {
           <li>• “recebi 3000 salário”</li>
           <li>• “transferir 100 de Nubank para Itaú”</li>
           <li>• “resumo do mês” ou “posso gastar 200 hoje?”</li>
+          <li>• <strong>!ja gastei 42,90 no almoço no Nubank</strong> — registra direto, sem confirmação</li>
         </ul>
         <p className="mt-3 text-xs text-muted-foreground">
-          Toda operação que mexe no seu dinheiro pede um CONFIRMAR antes de gravar.
+          Toda operação que mexe no seu dinheiro pede um CONFIRMAR antes de gravar — exceto quando você usa <code>!ja</code>.
         </p>
       </div>
     </div>

@@ -1,43 +1,77 @@
-## Diagnóstico (verificado nos logs e no código)
+## Diagnóstico — lançamento do WhatsApp que sumiu
 
-Os logs da Edge Function `insights-generate` mostram, em toda geração recente:
+Turno reproduzido no banco (22/07 10:36–10:37, danielmariano93):
 
+1. Inbound "Registre esse novo gasto… R$ 30,00 A Ventana Itau Ceic… Conta Corrente Itaú"
+   → agent_runs `af426755` concluído com **0 tool_calls**
+   → outbound: *"Despesa de R$ 30,00 na sua Conta Corrente Itaú… Você confirma?"*
+   → **nenhum registro em `pending_confirmations`**
+2. Inbound "Confirmo"
+   → agent_runs `50bc3e85` concluído com **0 tool_calls**
+   → outbound: *"Despesa registrada: R$ 30,00. ✅"*
+   → **nenhum `INSERT` em `transactions`**
+
+Causa raiz: o LLM respondeu pedindo confirmação sem chamar `create_transaction_draft`, e no turno seguinte alucinou o recibo sem chamar `confirm_pending_action`. O `ResponseValidator` só bloqueia linguagem de rascunho quando `expectedKind === "receipt"` e `hasDraft === false` — quando o próprio `kind` cai em `"info"` (o que acontece quando nenhuma tool roda), a frase "Despesa registrada ✅" passa direto.
+
+## Correção
+
+Patch único e cirúrgico, sem tocar em fluxos que já funcionam.
+
+### 1) Guardrail anti-alucinação (backend)
+Arquivo: `supabase/functions/_shared/agent/core/ResponseValidator.ts`
+- Adicionar `RECEIPT_LANGUAGE_RX` cobrindo *registrada/registrado/salvo/salva/anotado/confirmado + ✅*.
+- Adicionar `CONFIRM_QUESTION_RX` cobrindo *"você confirma", "confirma?", "posso registrar", "posso lançar"*.
+- Nova validação em `validate()`:
+  - Se `RECEIPT_LANGUAGE_RX` casar e não houver tool call de sucesso (`create_*_draft` ou `confirm_pending_action`) → `fallback_deterministic`.
+  - Se `CONFIRM_QUESTION_RX` casar e `hasDraft === false` → `fallback_deterministic` (força o caminho determinístico que sabe criar o rascunho a partir de mensagens estruturadas).
+- Passar `hasSuccessfulMutation` no `ValidationContext` a partir do `AgentCore` (já temos `toolCallLog`).
+
+### 2) Reforço no system prompt (backend)
+`AgentCore.ts`: acrescentar bloco fixo antes do `personalizeSystemPrompt`:
+> "Nunca responda como se um lançamento tivesse sido registrado sem ter chamado `create_transaction_draft` (novo) ou `confirm_pending_action` (rascunho existente) neste mesmo turno. Se pedir confirmação, obrigatoriamente crie o rascunho antes."
+
+### 3) Modo "registrar direto" (feature nova)
+Palavra-mágica configurável que dispara gravação imediata **sem** rascunho/confirmação, tanto no Assessor do app quanto no WhatsApp.
+
+Token padrão: `!ja` (também aceitos: `#ja`, `/ja`, no início ou no fim da mensagem; case-insensitive). Configurável em `user_ai_preferences.fast_log_token` (nova coluna `text`, default `!ja`).
+
+Novo módulo: `supabase/functions/_shared/agent/core/FastLog.ts`
+- `detectFastLog(text, token)` → remove o token e devolve `{ triggered: boolean, cleanText: string }`.
+- Chamado no início de `handleTurn`, antes do IntentRouter.
+- Se `triggered`:
+  1. Roda o parser + `extractSpans` no `cleanText` (mesma lógica do `DeterministicFallback`).
+  2. Chama `create_transaction_draft` (ou `create_transfer_draft`/`add_goal_contribution_draft`) — que já grava com `status='pending'` em `pending_confirmations`.
+  3. Chama imediatamente `confirm_pending_action` com o id retornado.
+  4. Devolve `reply_kind: "receipt"` com o `receipt` real da tool.
+  5. Se algum dado obrigatório faltar (valor, conta), pergunta uma única coisa em vez de gravar (não inventa dados).
+- Registra tudo em `agent_tool_calls` normalmente (path = `fast_log`), então o guardrail (1) passa.
+
+Frontend (mínimo, para descobribilidade):
+- `src/pages/Perfil.tsx` — nova seção "Registro rápido": input para editar `fast_log_token` + dica com exemplo (*"!ja gastei 42,90 no almoço no Nubank"*).
+- `src/components/assessor/AssessorPanel.tsx` — placeholder do input passa a mencionar `!ja` (uma linha).
+- `src/pages/WhatsApp.tsx` — bloco de dicas ganha 1 item explicando o `!ja`.
+
+### 4) Migração
+`supabase/migrations/2026072300_fast_log_token.sql`:
+```sql
+alter table public.user_ai_preferences
+  add column if not exists fast_log_token text not null default '!ja';
 ```
-insert_error_categorize: new row for relation "user_insights" violates check constraint "user_insights_type_check"
-```
 
-Causa raiz (arquivo por arquivo):
+### 5) Testes (vitest)
+- `src/test/agent-response-validator-hallucination.test.ts` — cobre "Despesa registrada ✅" sem tool + "Você confirma?" sem draft.
+- `src/test/agent-fast-log.test.ts` — cobre `detectFastLog` (prefixo, sufixo, case, sem match) e o fluxo integrado (draft + confirm em um turno).
+- Reaproveitar o fixture do webhook em `whatsapp-orchestrator-flow.test.ts` para garantir regressão zero.
 
-- `supabase/migrations/20260716010625_*.sql` (linha 8) define:
-  `CHECK (type IN ('habit','alert','celebration','onboarding','opportunity'))`.
-- `supabase/functions/_shared/insights/fallbacks.ts` (linha 79) e `src/lib/insights/fallbacks.ts` (linha 84) usam `type: "categorize_transaction"` para o card de categorização, que é justamente o caminho **priorizado** em `insights-generate/index.ts` linhas 197–218 quando existe transação sem categoria.
-- Como esse usuário sempre tem transações não categorizadas recentes, o fluxo entra no ramo priorizado, tenta inserir com `type='categorize_transaction'`, viola a CHECK, retorna `500 insert_failed`, e nada novo é persistido. O front continua exibindo as mesmas dicas antigas — dando a impressão de que "nada foi feito".
+### 6) Correção manual pontual (não retroativa em massa)
+Inserir a transação perdida de R$ 30 / A Ventana Itau Ceic / 22-07 na Conta Corrente Itaú do usuário afetado, para reconciliar a Home. Sem migração — vira uma chamada única `supabase--insert` com `origin='manual_repair'` na descrição.
 
-Ou seja: todo o resto (novos sinais, rotação, exaustão, tools do agente) foi entregue no código, mas a persistência da dica prioritária está bloqueada pela constraint desatualizada.
+### Fora de escopo
+- Reprocessar outras mensagens antigas (não solicitado).
+- Alterar o parser/extract além do necessário para o fast-log reaproveitá-los.
+- Mudanças de UI além dos três pontos acima.
 
-## Correção (mínima e cirúrgica)
-
-1. **Migration** `supabase/migrations/<timestamp>_user_insights_add_categorize_type.sql`
-   - `ALTER TABLE public.user_insights DROP CONSTRAINT IF EXISTS user_insights_type_check;`
-   - Recria a constraint incluindo `categorize_transaction`:
-     `CHECK (type IN ('habit','alert','celebration','onboarding','opportunity','categorize_transaction'));`
-   - Idempotente; não altera dados existentes.
-
-2. **Higienização leve (opcional na mesma migration)**
-   - `UPDATE public.user_insights SET status='expired' WHERE status='active' AND expires_at < now();` para forçar o front a puxar a próxima dica assim que a geração voltar a persistir.
-
-3. **Sem alteração de código**
-   - `insights-generate`, `AssistantTipCard`, fallbacks e schema Zod já tratam `categorize_transaction` corretamente. Não há refatoração necessária.
-
-4. **Deploy**
-   - Aplicar a migration.
-   - Não é necessário redeploy da função (a lógica já está publicada).
-   - Validar chamando `insights-generate` e conferindo nos logs a ausência de `insert_error_categorize` e a presença de `categorize_priority`.
-
-5. **Verificação no app**
-   - Recarregar Home → a dica priorizada de categorização deve aparecer.
-   - Clicar em "gerar nova" → deve rotacionar; sessionStorage `noc:last-tip` é atualizado.
-
-## Fora de escopo
-
-Não mexer em: engine de sinais, rotação, tools do agente, categorias globais, Pulso, Patrimônio, WhatsApp. Não recriar tabelas, políticas RLS, ou grants. Não alterar prompts.
+## Aceite
+- Enviar "Registre esse novo gasto… R$ X…" e responder "Confirmo" cria linha em `transactions` **ou** o agente devolve mensagem de erro amigável (nunca recibo falso).
+- Enviar "!ja gastei 42,90 no almoço no Nubank" cria a transação em um único turno, sem "Você confirma?".
+- Suíte de testes (`npx vitest run`) passa integralmente.

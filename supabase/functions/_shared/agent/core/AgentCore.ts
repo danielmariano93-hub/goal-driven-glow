@@ -26,6 +26,7 @@ import { buildRecord, logDecision } from "./DecisionLogger.ts";
 import { guard } from "./ErrorRecovery.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { isLLMConfigured } from "../llm.ts";
+import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -73,6 +74,57 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   });
 
   const tctx = createTurnContext({ sb, user_id: input.user_id, conversation_id: input.conversation_id, session_id: session_id ?? null });
+
+  // ---- FastLog (palavra-mágica: registra sem confirmação) ---------------
+  const fastLogToken = await loadFastLogToken(sb, input.user_id);
+  const fastLog = detectFastLog(input.text, fastLogToken);
+  if (fastLog.triggered) {
+    let run_id_fl: string | undefined;
+    await guard(async () => {
+      const { data: run } = await sb.from("agent_runs").insert({
+        user_id: input.user_id, conversation_id: input.conversation_id,
+        prompt_version_id: null, model: "fast_log", status: "running",
+        started_at: new Date().toISOString(),
+      }).select("id").maybeSingle();
+      run_id_fl = (run as any)?.id as string | undefined;
+    }, (m) => metrics.errors.push("runs_insert:" + m), null);
+    const started = Date.now();
+    const outcome = await runFastLog(sb, {
+      user_id: input.user_id, conversation_id: input.conversation_id, cleanText: fastLog.cleanText,
+    });
+    metrics.path = "fast_log" as any;
+    metrics.tool_call_count = outcome.tool_calls?.length ?? 0;
+    for (const c of outcome.tool_calls ?? []) metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
+    const body = outcome.reply ?? "";
+    const kind: HandleTurnResult["reply_kind"] = outcome.reply_kind === "receipt" ? "receipt"
+      : outcome.reply_kind === "question" ? "question" : "info";
+    if (run_id_fl) {
+      await guard(async () => {
+        await sb.from("agent_runs").update({
+          status: "done", ended_at: new Date().toISOString(),
+          path: "fast_log", steps: outcome.tool_calls?.length ?? 0,
+          latency_ms: Date.now() - started,
+        }).eq("id", run_id_fl);
+        if ((outcome.tool_calls?.length ?? 0) > 0) {
+          await sb.from("agent_tool_calls").insert(outcome.tool_calls!.map(c => ({
+            run_id: run_id_fl, step_index: c.step_index, tool_name: c.tool_name,
+            args: c.args ?? {}, result: c.result ?? null,
+            ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
+          })));
+        }
+      }, (m) => metrics.errors.push("persist_fast:" + m), null);
+    }
+    if (input.channel !== "app" && input.to_phone) {
+      await enqueueReply(sb, {
+        user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body,
+        idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+        source: input.channel === "simulator" ? "simulator" : "whatsapp",
+      });
+    }
+    metrics.stages.total = Date.now() - t0;
+    console.log("[agent-core] fast_log", JSON.stringify(summarize(metrics)));
+    return { reply: body, reply_kind: kind, path: "deterministic_fallback", draft_id: outcome.draft_id, run_id: run_id_fl, session_id };
+  }
 
   // ---- IntentRouter -------------------------------------------------------
   const routed = await timeStage(metrics, "intent", async () => routeIntent(input.text));
@@ -140,6 +192,18 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+
+  // Reinforcement anti-alucinação: proibir "registrado/salvo/✅" sem tool call.
+  systemPrompt =
+    `[REGRA CRÍTICA]\n` +
+    `Nunca responda como se um lançamento tivesse sido registrado, salvo, anotado ou confirmado ` +
+    `sem ter chamado neste mesmo turno a tool create_transaction_draft (novo) ou ` +
+    `confirm_pending_action (rascunho existente). Se pedir confirmação ao usuário, ` +
+    `chame OBRIGATORIAMENTE create_transaction_draft antes de perguntar.\n` +
+    `Palavra-mágica do usuário: se a mensagem contiver "${fastLogToken}" no início ou fim, ` +
+    `o sistema já registrou direto — não repita o fluxo.\n\n` +
+    systemPrompt;
+
 
   // Safety net: if there's a pending confirmation and the parser did not
   // intercept (loose "sim pode" / "manda" wasn't detected), prepend an
@@ -215,8 +279,12 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   metrics.estimated_cost_usd = estimateCost(prompt?.model ?? "unknown", metrics.tokens_in, metrics.tokens_out);
 
   // ---- ResponseValidator -------------------------------------------------
+  const successfulMutation = toolCallLog.some(c => c.ok && (
+    /_draft$/.test(String(c.tool_name)) || c.tool_name === "confirm_pending_action"
+  ));
   const validated = await timeStage(metrics, "validate", async () => validate(reply, {
     expectedKind: kind, hasDraft: !!draft_id,
+    hasSuccessfulMutation: successfulMutation,
     toolCallErrors: toolCallLog.filter(c => !c.ok).length,
   }));
   metrics.validations = validated.reasons.length;

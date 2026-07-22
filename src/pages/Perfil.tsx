@@ -8,6 +8,7 @@ import { incomeFrequencyValues, type IncomeFrequency } from "@/lib/validation/on
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { WhatsAppLinkSheet } from "@/components/whatsapp/WhatsAppLinkSheet";
 import { AIPreferencesCard } from "@/components/AIPreferencesCard";
+import { FastLogTokenCard } from "@/components/FastLogTokenCard";
 
 export default function Perfil() {
   const { user, profile, refreshProfile, requestPasswordReset } = useAuth();
@@ -155,6 +156,11 @@ export default function Perfil() {
       <div className="mt-6">
         <AIPreferencesCard />
       </div>
+
+      <div className="mt-6">
+        <FastLogTokenCard />
+      </div>
+
 
       <WhatsAppConnection />
       <NotificationPrefs />
