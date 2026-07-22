@@ -1,4 +1,4 @@
-import { computeBehavioralExpense, round2, type TransactionRow } from "./facts";
+import { computeBehavioralExpense, round2, isGrossCardMovement, type TransactionRow } from "./facts";
 
 export interface DateRange { start: string; end: string }
 export interface DailyAverage { total: number; days: number; avg: number }
