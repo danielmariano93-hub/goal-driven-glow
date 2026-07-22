@@ -3,12 +3,13 @@ import { Download, Loader2, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { groupByMonth, byCategory, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
 import { formatBRL } from "@/lib/split/math";
+import { resolvePeriodRange } from "@/lib/ui/periodStore";
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
-  const today = new Date();
-  const [from, setFrom] = useState(new Date(today.getFullYear(), today.getMonth() - 5, 1).toISOString().slice(0, 10));
-  const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const initialRange = resolvePeriodRange();
+  const [from, setFrom] = useState(initialRange.start);
+  const [to, setTo] = useState(initialRange.end);
 
   useEffect(() => {
     (async () => {

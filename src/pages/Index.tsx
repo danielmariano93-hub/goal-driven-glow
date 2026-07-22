@@ -18,7 +18,7 @@ import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
 
-type Period = "month" | "30d" | "90d" | "custom";
+import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 
 function isoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -28,9 +28,14 @@ export default function Index() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const categorizationStarted = useRef(false);
-  const [period, setPeriod] = useState<Period>("month");
-  const [customStart, setCustomStart] = useState(isoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
-  const [customEnd, setCustomEnd] = useState(isoDate(new Date()));
+  const initial = useRef(getPeriod()).current;
+  const [period, setPeriod] = useState<Period>(initial.period);
+  const [customStart, setCustomStart] = useState(initial.customStart);
+  const [customEnd, setCustomEnd] = useState(initial.customEnd);
+
+  useEffect(() => {
+    savePeriod({ period, customStart, customEnd });
+  }, [period, customStart, customEnd]);
   const { data: accounts, isLoading: la } = useAccounts();
   const { data: balanceSnapshots, isLoading: lbs } = useAccountBalanceSnapshots();
   const { data: txs, isLoading: lt } = useAllTransactions();
