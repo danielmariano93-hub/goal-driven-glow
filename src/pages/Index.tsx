@@ -17,6 +17,7 @@ import { PatrimonioCard } from "@/components/home/PatrimonioCard";
 import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
+import { GastoMedioDiarioCard } from "@/components/home/GastoMedioDiarioCard";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 
