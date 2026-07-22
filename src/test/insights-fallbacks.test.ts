@@ -79,7 +79,7 @@ describe("pickFallback", () => {
 
   it("prioriza sinal de categoria líder com % quando pct >= 20", () => {
     const p = pickFallback({
-      ...base, total_tx_ever: 30, expense_month: 1000, income_month: 3000, balance_month: 2000,
+      ...base, total_tx_ever: 30, expense_month: 1000, income_month: 800, balance_month: -200,
       top_expense_category: "Alimentação", top_expense_category_pct: 42,
     });
     expect(p.title).toContain("42%");
