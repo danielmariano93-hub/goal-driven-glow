@@ -27,7 +27,11 @@ const PT_DATE_RX = /\b(\d{1,2})\s+de\s+(jan\.?|janeiro|fev\.?|fevereiro|mar\.?|m
 const LABELED_AMOUNT_RX = /(?:^|\n)\s*valor\s*:\s*(?:r\$\s*)?([^\n]+)/i;
 const LABELED_DESC_RX = /(?:^|\n)\s*(?:estabelecimento|descri[cç][aã]o|descricao|local|finalidade)\s*:\s*([^\n]+)/i;
 const LABELED_CARD_RX = /(?:^|\n)\s*cart[aã]o\s*:\s*([^\n]+)/i;
-const LABELED_ACCOUNT_RX = /(?:^|\n)\s*(?:conta|conta corrente|origem)\s*:\s*([^\n]+)/i;
+const LABELED_ACCOUNT_RX = /(?:^|\n)\s*(?:conta(?:\s+corrente|\s+poupan[çc]a)?|origem|banco)\s*:\s*([^\n]+)/i;
+// Notificações bancárias frequentemente terminam com uma linha isolada
+// (sem rótulo `:`) tipo "Conta Corrente Itaú" ou "Conta Poupança Nubank".
+const LINE_ACCOUNT_RX = /(?:^|\n)\s*(conta(?:\s+corrente|\s+poupan[çc]a)?\s+[^\n:]{2,})\s*$/i;
+
 const LABELED_DATE_RX = /(?:^|\n)\s*data\s*:\s*([^\n]+)/i;
 // Marcas: sem \b trailing para funcionar com acentos (ú, é). Início: início-de-string ou espaço.
 const CARD_BRAND_RX = /(?:^|\s)(itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa|banco do brasil|bb|next)(?=$|[\s.,;!?])/i;
