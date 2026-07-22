@@ -119,6 +119,12 @@ export default function Index() {
       <PeriodFilter period={period} setPeriod={setPeriod} customStart={customStart} customEnd={customEnd} setCustomStart={setCustomStart} setCustomEnd={setCustomEnd} />
       <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} cashAnchor={cashAnchor} />
 
+      <GastoMedioDiarioCard
+        txs={tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never}
+        range={{ start: periodSummary.start, end: periodSummary.end }}
+        loading={loading}
+      />
+
       <PulseHero />
 
       <AssistantTipCard />
