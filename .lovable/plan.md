@@ -1,70 +1,38 @@
-# Ajustes finais de UX/mobile + Dicas + Pulso + Meta vinculada a investimento
+## Correções pontuais de responsividade e filtros
 
-Entrega única, sem tocar em regras de negócio nem no Agent Core.
+Três correções cirúrgicas, sem mudar lógica de negócio.
 
-## 1. Vínculo Investimento ↔ Meta (bug reportado)
+### 1. Zoom automático no iOS ao focar campos (LancamentoDetalhe e afins)
 
-Hoje `investments.goal_id` existe mas o valor investido **não conta** no progresso da meta — `computeGoalProgress` só soma `goal_contributions`. Correção mínima e correta:
+**Causa confirmada.** `src/index.css` já tem a regra `@media (max-width: 767px) { input, select, textarea { font-size: 16px } }` dentro de `@layer base`. Porém `.input-base` (usado em quase todos os campos, incluindo `LancamentoDetalhe.tsx`) está em `@layer components` com `@apply text-sm` (14px). No cascade do Tailwind, `components` vence `base` com mesma especificidade → o input renderiza a 14px no mobile e o Safari aplica o zoom automático mostrado no print.
 
-- `computeGoalProgress(goal, contributions, investments?)` passa a somar também `sum(investments.current_value where goal_id = goal.id)`.
-- Atualizar chamadas: `Metas.tsx`, `facts.ts` (linha 476), `PatrimonioCard`, `usePulse` facts server e client, e qualquer local que use `computeGoalProgress`.
-- Em `Metas.tsx`, quando a meta tem investimento vinculado, mostrar linha "Investido vinculado: R$ X" abaixo da barra, para o usuário entender de onde vem o progresso.
-- Invalidar `["goals"]` e `["contributions"]` sempre que salvar/editar investimento (via `invalidateFinancialQueries`, que já cobre ambos).
+**Correção:** reforçar a regra mobile com maior especificidade/prioridade dentro do próprio `@layer components`, aplicando 16px a `.input-base`, `.split-form .input` e aos `input/select/textarea` nus em ≤767px. Sem `!important` desnecessário; basta declarar depois de `.input-base` no mesmo layer.
 
-Sem migration. Sem mudança de schema.
+### 2. Filtros de data "estourando" a tela em Lançamentos
 
-## 2. Dicas inteligentes realmente úteis
+**Causa.** Os dois `<input type="date">` (linhas 343–359) ficam dentro de um flex-row de filtros; sem `min-w-0` e sem uma largura previsível o campo nativo do iOS empurra o container além dos 100% da viewport (Safari desenha o campo de data com largura intrínseca >= placeholder do formato longo).
 
-Manter a Edge Function `insights-generate` como fonte primária, e reforçar o **fallback local** (`src/lib/insights/fallbacks.ts` e mirror em `supabase/functions/_shared/insights/fallbacks.ts`) para nunca repetir a última dica e cobrir mais cenários acionáveis:
+**Correção:**
+- Envolver o par "De/Até" em um wrapper `flex-1 min-w-0` e dar `w-full min-w-0` aos próprios inputs de data.
+- Garantir `flex-wrap` no container-pai dos filtros (verificar linha ~320) para permitir quebra em telas estreitas.
+- Nenhuma mudança em estado/filtros; apenas classes.
 
-- Anti-repetição: guardar `lastInsightKey` em `sessionStorage` e, no `pickFallback`, pular o primeiro match se for igual ao último (fallback para o próximo cenário elegível).
-- Novos cenários (ordem de prioridade): lançamento sem categoria → gasto acima da média em uma categoria nos últimos 30d → aumento >20% em uma categoria vs mês anterior → aporte pendente em meta com data próxima → cartão >70% do limite → sequência de 3+ dias sem registrar (queda de constância) → celebração quando pulso subir vs semana passada → mensagem positiva quando 7 dias seguidos com registro.
-- Todas as mensagens em pt-BR, tom acolhedor, com CTA que abre a tela relevante (`/app/lancamentos?filter=uncategorized`, `/app/relatorios?cat=...`, `/app/metas`, `/app/cartoes`).
-- Botão "Nova dica" já existe: garantir que ele invalide `["assistant-tip"]` e force a geração ignorando cache do servidor (já faz `force: true`), e que rotacione entre cenários elegíveis quando houver mais de um.
+### 3. Relatórios sempre iniciando em fevereiro, ignorando o filtro da Home
 
-## 3. Pulso Financeiro alimentado corretamente
+**Causa.** `Relatorios.tsx` inicializa `from` como "1º dia de 6 meses atrás" e `to` como hoje, sem consultar o período usado na Home. Home mantém `period` apenas em `useState` local (`Index.tsx`, linhas 21–31), nada é compartilhado.
 
-Auditar `pulse-compute` (Edge) e `usePulse`:
+**Correção mínima:**
+- Criar `src/lib/ui/periodStore.ts`: helper simples (localStorage) com `getPeriod()`/`setPeriod()` guardando `{ period, customStart, customEnd }`.
+- Em `Index.tsx`, hidratar `useState` iniciais a partir de `getPeriod()` e persistir a cada mudança via `useEffect`.
+- Em `Relatorios.tsx`, inicializar `from`/`to` derivando do mesmo store (usa a mesma função `startDate` que a Home já usa: mês corrente / 30d / 90d / custom). Manter os dois `<input type="date">` como override manual, mas com valor inicial vindo do período compartilhado.
+- Sem novas telas nem context providers — persistência local é suficiente e casa com o comportamento por-dispositivo esperado.
 
-- Confirmar que todos os fatores de `PulseInput` estão sendo populados a partir de dados reais (constância, categorização, planejamento, cartão, pagamentos em dia, reserva, metas, dívidas, recorrências, emocional). Onde faltar, alimentar; onde for `neutralIfMissing`, manter neutro.
-- Incluir `goalsProgressPct` com a nova soma (contribuições + investimentos vinculados).
-- Invalidar `["pulse"]` em `invalidateFinancialQueries` (já invalida) — garantir chamada após criar/editar investimento, aporte, meta, cartão, recorrência.
-- Exibir na `PulseHero`, quando `state === "insufficient_data"`, uma mensagem clara "Registre por alguns dias para o Pulso ficar preciso" com CTA para Lançamentos.
+### Escopo explícito
+- Não altero engine, cálculos, RPC, edge functions, ou schema.
+- Não mexo em Home além de persistir seu período atual.
+- Não mudo layout da BottomTabBar nem safe-areas (já corretas).
 
-Sem alterar a fórmula, apenas garantir alimentação e invalidação.
-
-## 4. Responsividade e mobile (varredura completa)
-
-Padrão aplicado a todas as páginas em `src/pages/*` e componentes de home/admin:
-
-- **Zoom automático iOS**: já forçado `font-size: 16px` em inputs globais (index.css). Verificar `<select>`, `<textarea>` e componentes shadcn com `text-sm` — subir para `text-base` no mobile via `md:text-sm`.
-- **Overflow horizontal**: adicionar `overflow-x-hidden` no `<main>` do `AppLayout`; auditar tabelas (Lancamentos, Relatorios, Admin/DataTable) para envolver em `<div className="overflow-x-auto">` e usar `min-w-0` nos flex children que hoje causam estouro.
-- **Teclado deslocando conteúdo**: usar `env(safe-area-inset-bottom)` no `BottomTabBar` e nos FABs; garantir `pb-[calc(env(safe-area-inset-bottom)+4rem)]` no container mobile.
-- **Botões pequenos**: primary buttons/tap targets no mobile passam a `min-h-11 min-w-11`; `size="icon"` do shadcn recebe `min-h-11 min-w-11` quando for ação principal.
-- **Campos cortados**: revisar `Onboarding`, `LancamentoDetalhe`, `Investimentos` (form), `Metas`, `DivisaoDoRoleNova`, `Perfil`, `WhatsApp` — inputs em `w-full`, labels não truncadas, `flex-wrap` em grupos de botões.
-- **Safe area Safari/iPhone**: `viewport-fit=cover` no `index.html` (verificar) e `pt-safe`/`pb-safe` no layout.
-- **Breakpoints**: sanity check em 375 / 414 / 768 / 1024 / 1440 rodando cada tela. Ajustar `grid-cols-*` para começar em 1 coluna no mobile e escalar.
-- **Componentes desalinhados**: padronizar espaçamento com `space-y-4` em conteúdo de página e `gap-3` em listas de cards.
-
-Nenhuma nova biblioteca; usar tokens Tailwind e utilitários shadcn existentes.
-
-## Detalhes técnicos
-
-**Arquivos modificados** (frontend somente, sem migrations, sem Edge Functions novas):
-
-- `src/lib/engine/facts.ts` — assinatura `computeGoalProgress` aceita `investments?`.
-- `src/pages/Metas.tsx`, `src/components/home/PatrimonioCard.tsx`, `src/lib/pulse/*` (client), `src/lib/insights/*` — passar investimentos.
-- `src/pages/Investimentos.tsx` — após salvar, `invalidateFinancialQueries(qc)`.
-- `src/lib/insights/fallbacks.ts` (+ mirror em `supabase/functions/_shared/insights/fallbacks.ts` para deploy futuro, sem redeploy agora) — novos cenários + anti-repetição.
-- `src/components/home/AssistantTipCard.tsx` — sessionStorage de `lastInsightKey` e rotação.
-- `src/components/home/PulseHero.tsx` — CTA no estado `insufficient_data`.
-- `src/components/AppLayout.tsx`, `src/components/BottomTabBar.tsx`, `src/index.css`, `index.html` — safe-area, overflow-x-hidden, viewport-fit.
-- Varredura de páginas para padronizar tap targets e grids responsivos.
-
-**Testes**:
-
-- Ajustar `src/test/assistant-tip-behavioral.test.ts` para o novo comportamento de rotação.
-- Novo teste em `computeGoalProgress` cobrindo soma de investimentos vinculados.
-- Rodar suíte completa (`bunx vitest run`) e `tsgo`.
-
-**Fora de escopo**: Agent Core, admin, regras financeiras, migrations, novas Edge Functions.
+### Aceite
+- Focar qualquer campo de "Detalhes do lançamento" no iPhone não muda mais o zoom da página.
+- Em Lançamentos no mobile, os campos "De" e "Até" cabem na tela e quebram linha se necessário.
+- Selecionar "Últimos 30 dias" na Home e abrir Relatórios: a tela abre já filtrada nos últimos 30 dias.
