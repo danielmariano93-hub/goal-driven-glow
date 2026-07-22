@@ -823,6 +823,18 @@ export const AGENT_TOOLS: ToolSpec[] = [
     },
     execute: draft_transaction_delete,
   },
+  {
+    name: "get_daily_insights",
+    description: "Lista as dicas/insights ativos do usuário (as mesmas exibidas na Home). Use quando o usuário pedir 'dicas', 'insights', 'sugestões', 'o que a IA acha' ou similar.",
+    parameters: { type: "object", properties: { limit: { type: "integer" } }, additionalProperties: false },
+    execute: get_daily_insights,
+  },
+  {
+    name: "get_spending_highlights",
+    description: "Retorna sinais comportamentais do mês: categoria líder e %, categoria que mais cresceu vs mês anterior, dia da semana concentrado, estabelecimento repetido, dias sem lançar e ritmo da meta. Use para responder 'o que mudou', 'onde estou gastando mais', 'estou no ritmo da meta', 'me analisa'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_spending_highlights,
+  },
 ];
 
 export function toolByName(name: string): ToolSpec | null {
