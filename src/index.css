@@ -130,6 +130,15 @@
     max-width: 100%;
   }
 
+  /* iOS: qualquer <input>, <select> ou <textarea> com fonte < 16px provoca
+     zoom automático ao focar. Forçamos 16px em telas ≤ 768px sem afetar o
+     design em desktop (onde o Tailwind `text-sm` continua valendo). */
+  @media (max-width: 767px) {
+    input, select, textarea {
+      font-size: 16px;
+    }
+  }
+
   /* Global safety: prevent images/media from causing horizontal overflow */
   img, video, canvas, svg, iframe {
     max-width: 100%;
