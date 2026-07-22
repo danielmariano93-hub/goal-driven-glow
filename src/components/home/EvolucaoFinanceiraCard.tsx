@@ -1,14 +1,20 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, Target } from "lucide-react";
-import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
+import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
 import { formatBRL } from "@/lib/engine/facts";
 import { PulseHero } from "./PulseHero";
 
-const STATUS_BAR: Record<CategoryGoalEvaluation["status"], string> = {
+const STATUS_BAR: Record<CategoryGoalStatus, string> = {
   on_track: "bg-emerald-500",
   attention: "bg-amber-500",
-  at_risk: "bg-orange-500",
+  at_risk: "bg-red-500",
   exceeded: "bg-red-500",
+  limit_reached: "bg-amber-500",
+  scheduled: "bg-slate-400",
+  completed_ok: "bg-emerald-500",
+  completed_over: "bg-red-500",
+  paused: "bg-slate-400",
+  cancelled: "bg-slate-400",
 };
 
 /**
@@ -16,6 +22,7 @@ const STATUS_BAR: Record<CategoryGoalEvaluation["status"], string> = {
  * destaque; se não houver, exibe apenas o Pulso. Integração leve dos dois sinais.
  */
 export function EvolucaoFinanceiraCard({ topGoal }: { topGoal: CategoryGoalEvaluation | null }) {
+  const barPct = topGoal ? Math.min(1, Math.max(0, topGoal.percentageUsed)) : 0;
   return (
     <section
       aria-label="Evolução financeira"
@@ -40,11 +47,11 @@ export function EvolucaoFinanceiraCard({ topGoal }: { topGoal: CategoryGoalEvalu
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
             <div
               className={`h-full transition-all ${STATUS_BAR[topGoal.status]}`}
-              style={{ width: `${Math.round(Math.min(1, Math.max(0, topGoal.utilizationPct)) * 100)}%` }}
+              style={{ width: `${Math.round(barPct * 100)}%` }}
             />
           </div>
           <p className="mt-1.5 text-[12px] tabular-nums" style={{ color: "var(--home-text-2)" }}>
-            {formatBRL(topGoal.spent)} de {formatBRL(topGoal.limit)}
+            {formatBRL(topGoal.actualSpend)} de {formatBRL(topGoal.targetAmount)}
           </p>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--home-text-3)" }}>{topGoal.message}</p>
         </Link>
