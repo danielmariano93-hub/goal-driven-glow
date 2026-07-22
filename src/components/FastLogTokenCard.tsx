@@ -6,10 +6,11 @@ import { useAuth } from "@/context/AuthContext";
 
 const DEFAULT_TOKEN = "!ja";
 const RESERVED = new Set([
-  "ja","sim","nao","não","ok","pode","confirma","confirmar","confirmado",
+  "sim","nao","não","ok","pode","confirma","confirmar","confirmado",
   "cancela","cancelar","registra","registrar","registro","gasto","gastei",
   "conta","paguei","comprei","recebi",
 ]);
+
 
 function isValidToken(s: string): boolean {
   if (!/^[!#/][A-Za-z0-9]{2,12}$/.test(s)) return false;
