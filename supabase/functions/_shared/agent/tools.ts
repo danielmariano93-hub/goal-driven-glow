@@ -616,6 +616,24 @@ export async function get_spending_highlights(ctx: ToolContext): Promise<ToolRes
   return { ok: true, result: signals };
 }
 
+export async function get_financial_snapshot(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    return { ok: true, result: snap };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function list_category_spending_goals(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    return { ok: true, result: { items: snap.active_category_goals, top: snap.top_category_goal, count: snap.active_category_goals.length } };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 
 
 // ---------- Registry (name → executor + JSON Schema) ----------
