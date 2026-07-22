@@ -82,6 +82,17 @@ export default function Index() {
     <div className="mx-auto w-full max-w-md space-y-5 md:max-w-2xl" data-surface="home">
       <HomeHeader />
 
+      <PeriodPicker
+        period={period}
+        customStart={customStart}
+        customEnd={customEnd}
+        setPeriod={setPeriod}
+        setCustomStart={setCustomStart}
+        setCustomEnd={setCustomEnd}
+        rangeStart={periodRange.start}
+        rangeEnd={periodRange.end}
+      />
+
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
@@ -93,16 +104,6 @@ export default function Index() {
         loading={loading}
       />
 
-      <PeriodPicker
-        period={period}
-        customStart={customStart}
-        customEnd={customEnd}
-        setPeriod={setPeriod}
-        setCustomStart={setCustomStart}
-        setCustomEnd={setCustomEnd}
-        rangeStart={periodRange.start}
-        rangeEnd={periodRange.end}
-      />
 
       <RitmoCard
         daily={{
