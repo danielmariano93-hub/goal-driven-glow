@@ -86,6 +86,7 @@ export function useFinancialSnapshot(period: DateRange): {
         start_date: g.start_date,
         end_date: g.end_date,
         status: g.status as "active" | "paused" | "cancelled",
+        period_type: g.period_type as "this_month" | "next_month" | "next_30_days" | "custom" | "monthly_recurring" | undefined,
       })),
       categoryNameById,
       period,

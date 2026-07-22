@@ -650,11 +650,68 @@ export type Database = {
         }
         Relationships: []
       }
+      category_spending_goal_cycles: {
+        Row: {
+          actual_spend: number
+          baseline_snapshot: number | null
+          closed_at: string | null
+          created_at: string
+          end_date: string
+          final_status: string | null
+          goal_id: string
+          id: string
+          projected_spend: number | null
+          start_date: string
+          target_snapshot: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actual_spend?: number
+          baseline_snapshot?: number | null
+          closed_at?: string | null
+          created_at?: string
+          end_date: string
+          final_status?: string | null
+          goal_id: string
+          id?: string
+          projected_spend?: number | null
+          start_date: string
+          target_snapshot: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actual_spend?: number
+          baseline_snapshot?: number | null
+          closed_at?: string | null
+          created_at?: string
+          end_date?: string
+          final_status?: string | null
+          goal_id?: string
+          id?: string
+          projected_spend?: number | null
+          start_date?: string
+          target_snapshot?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_spending_goal_cycles_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "category_spending_goals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       category_spending_goals: {
         Row: {
           alerts: Json
           baseline_kind: string
           baseline_value: number | null
+          cancelled_at: string | null
           category_id: string
           computed_limit: number
           created_at: string
@@ -663,9 +720,13 @@ export type Database = {
           frequency: string
           id: string
           mode: string
+          paused_at: string | null
+          period_type: string
+          recurrence_end_date: string | null
           reduction_pct: number | null
           start_date: string
           status: string
+          timezone: string
           updated_at: string
           user_id: string
         }
@@ -673,6 +734,7 @@ export type Database = {
           alerts?: Json
           baseline_kind?: string
           baseline_value?: number | null
+          cancelled_at?: string | null
           category_id: string
           computed_limit: number
           created_at?: string
@@ -681,9 +743,13 @@ export type Database = {
           frequency?: string
           id?: string
           mode: string
+          paused_at?: string | null
+          period_type?: string
+          recurrence_end_date?: string | null
           reduction_pct?: number | null
           start_date?: string
           status?: string
+          timezone?: string
           updated_at?: string
           user_id: string
         }
@@ -691,6 +757,7 @@ export type Database = {
           alerts?: Json
           baseline_kind?: string
           baseline_value?: number | null
+          cancelled_at?: string | null
           category_id?: string
           computed_limit?: number
           created_at?: string
@@ -699,9 +766,13 @@ export type Database = {
           frequency?: string
           id?: string
           mode?: string
+          paused_at?: string | null
+          period_type?: string
+          recurrence_end_date?: string | null
           reduction_pct?: number | null
           start_date?: string
           status?: string
+          timezone?: string
           updated_at?: string
           user_id?: string
         }

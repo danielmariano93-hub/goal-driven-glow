@@ -632,10 +632,18 @@ export type CategorySpendingGoalInput = {
   baseline_value?: number | null;
   computed_limit: number;
   frequency?: "once" | "monthly" | "custom";
+  period_type?: "this_month" | "next_month" | "next_30_days" | "custom" | "monthly_recurring";
   start_date?: string;
   end_date?: string | null;
   status?: "active" | "paused" | "cancelled";
 };
+
+function firstOfMonthIso(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+}
+function lastOfMonthIso(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+}
 
 export function useSaveCategorySpendingGoal() {
   const { user } = useAuth();
@@ -643,6 +651,12 @@ export function useSaveCategorySpendingGoal() {
   return useMutation({
     mutationFn: async (input: CategorySpendingGoalInput) => {
       if (!user) throw new Error("not authenticated");
+      // Default seguro: se o formulário não informar período, assumimos mês corrente
+      // completo (nunca a data de criação como start), evitando o bug histórico em
+      // que a meta ignorava gastos anteriores à sua criação.
+      const periodType = input.period_type ?? "this_month";
+      const start = input.start_date ?? firstOfMonthIso();
+      const end = input.end_date ?? lastOfMonthIso();
       const payload: CategorySpendingGoalInsert = {
         user_id: user.id,
         category_id: input.category_id,
@@ -652,9 +666,10 @@ export function useSaveCategorySpendingGoal() {
         baseline_kind: input.baseline_kind,
         baseline_value: input.baseline_value ?? null,
         computed_limit: input.computed_limit,
-        frequency: input.frequency ?? "monthly",
-        start_date: input.start_date ?? new Date().toISOString().slice(0, 10),
-        end_date: input.end_date ?? null,
+        frequency: input.frequency ?? (periodType === "monthly_recurring" ? "monthly" : "once"),
+        period_type: periodType,
+        start_date: start,
+        end_date: end,
         status: input.status ?? "active",
       };
       if (input.id) {

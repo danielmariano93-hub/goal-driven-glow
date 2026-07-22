@@ -59,7 +59,28 @@ export default function Lancamentos() {
   const qc = useQueryClient();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
-  const [filters, setFilters] = useState<PersistedFilters>(() => loadFilters());
+  const [filters, setFilters] = useState<PersistedFilters>(() => {
+    // Deep link vindo de Metas / dicas / highlights: aplica category+start+end
+    // por cima dos filtros persistidos. Ex.: ?category=UUID&start=2026-07-01&end=2026-07-31
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const category = sp.get("category") ?? undefined;
+      const start = sp.get("start") ?? undefined;
+      const end = sp.get("end") ?? undefined;
+      const base = loadFilters();
+      if (category || start || end) {
+        return {
+          ...base,
+          categoryId: category ?? base.categoryId,
+          from: start ?? base.from,
+          to: end ?? base.to,
+        };
+      }
+      return base;
+    } catch {
+      return loadFilters();
+    }
+  });
   // Passa somente a fatia de filtros do backend para o hook (sort é local).
   const backendFilters = useMemo<TxFilters>(() => {
     const { sort: _sort, ...rest } = filters;
@@ -77,6 +98,7 @@ export default function Lancamentos() {
 
   // Persiste filtros para restaurar ao voltar de /lancamentos/:id.
   useEffect(() => { saveFilters(filters); }, [filters]);
+
 
   // === Seleção múltipla ===
   const [selectMode, setSelectMode] = useState(false);
