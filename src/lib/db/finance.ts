@@ -601,3 +601,98 @@ export function useDeleteDebt() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["debts"] }),
   });
 }
+
+// ================ CATEGORY SPENDING GOALS ================
+export type CategorySpendingGoalRow = Database["public"]["Tables"]["category_spending_goals"]["Row"];
+export type CategorySpendingGoalInsert = Database["public"]["Tables"]["category_spending_goals"]["Insert"];
+
+export function useCategorySpendingGoals() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["category_spending_goals", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("category_spending_goals")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CategorySpendingGoalRow[];
+    },
+  });
+}
+
+export type CategorySpendingGoalInput = {
+  id?: string;
+  category_id: string;
+  mode: "percent_reduction" | "fixed_limit";
+  reduction_pct?: number | null;
+  fixed_limit?: number | null;
+  baseline_kind: "prev_month" | "avg_3m" | "custom";
+  baseline_value?: number | null;
+  computed_limit: number;
+  frequency?: "once" | "monthly" | "custom";
+  start_date?: string;
+  end_date?: string | null;
+  status?: "active" | "paused" | "cancelled";
+};
+
+export function useSaveCategorySpendingGoal() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CategorySpendingGoalInput) => {
+      if (!user) throw new Error("not authenticated");
+      const payload: CategorySpendingGoalInsert = {
+        user_id: user.id,
+        category_id: input.category_id,
+        mode: input.mode,
+        reduction_pct: input.reduction_pct ?? null,
+        fixed_limit: input.fixed_limit ?? null,
+        baseline_kind: input.baseline_kind,
+        baseline_value: input.baseline_value ?? null,
+        computed_limit: input.computed_limit,
+        frequency: input.frequency ?? "monthly",
+        start_date: input.start_date ?? new Date().toISOString().slice(0, 10),
+        end_date: input.end_date ?? null,
+        status: input.status ?? "active",
+      };
+      if (input.id) {
+        const { error } = await supabase
+          .from("category_spending_goals")
+          .update(payload)
+          .eq("id", input.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("category_spending_goals").insert(payload);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => invalidateFinancialQueries(qc),
+  });
+}
+
+export function useDeleteCategorySpendingGoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("category_spending_goals").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => invalidateFinancialQueries(qc),
+  });
+}
+
+export function useUpdateCategorySpendingGoalStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: "active" | "paused" | "cancelled" }) => {
+      const { error } = await supabase
+        .from("category_spending_goals")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => invalidateFinancialQueries(qc),
+  });
+}
