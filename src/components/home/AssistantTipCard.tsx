@@ -121,7 +121,11 @@ export function AssistantTipCard() {
       return;
     }
     setGenerating(true);
-    if (force) setLastForceAt(Date.now());
+    if (force) {
+      setLastForceAt(Date.now());
+      // Rotaciona também o fallback local imediatamente para dar sensação de "nova".
+      setNonce((n) => n + 1);
+    }
     try {
       const { data: generated, error } = await supabase.functions.invoke("insights-generate", { body: force ? { force: true } : {} });
       if (error) throw error;
@@ -131,7 +135,7 @@ export function AssistantTipCard() {
         throw new Error("insight_not_returned");
       }
     } catch (e) {
-      if (force) toast.error("Não consegui criar uma nova dica agora", { description: "Sua dica atual continua disponível. Tente novamente em instantes." });
+      if (force) toast.message("Aqui vai outra ideia pra você.");
       console.warn("[insights-generate]", (e as Error).message);
     } finally {
       setGenerating(false);
