@@ -88,6 +88,7 @@ export function AssistantTipCard() {
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [lastForceAt, setLastForceAt] = useState(0);
+  const [nonce, setNonce] = useState(0);
 
   const { data: txs } = useAllTransactions();
   const { data: goals } = useGoals();
