@@ -293,7 +293,7 @@ export async function computeAgentSnapshot(
       .select("id,name,kind,amount,frequency,next_due_date,status")
       .eq("user_id", user_id).eq("status", "active"),
     sb.from("category_spending_goals")
-      .select("id,category_id,mode,computed_limit,start_date,end_date,status")
+      .select("id,category_id,mode,computed_limit,start_date,end_date,status,period_type")
       .eq("user_id", user_id).eq("status", "active"),
     sb.from("categories").select("id,name").or(`user_id.eq.${user_id},user_id.is.null`),
   ]);
