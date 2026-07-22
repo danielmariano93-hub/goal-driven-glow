@@ -149,51 +149,55 @@ export function EmotionalCheckinCard() {
         })}
       </div>
 
-      {(recentTxs?.length ?? 0) > 0 && (
-        <div className="mt-3">
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Link2 size={11} /> Relacionar a um gasto recente <span className="opacity-70">(opcional)</span>
+      {selected && (
+        <>
+          {(recentTxs?.length ?? 0) > 0 && (
+            <div className="mt-3">
+              <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Link2 size={11} /> Relacionar a um gasto recente <span className="opacity-70">(opcional)</span>
+              </label>
+              <select
+                value={txId}
+                onChange={(e) => setTxId(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                <option value="">Sem relação com um gasto</option>
+                {recentTxs!.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.occurred_at} · {t.description ?? "(sem descrição)"} · {formatBRL(Number(t.amount))}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <label className="mt-3 block text-xs text-muted-foreground">
+            Quer contar o que aconteceu? <span className="opacity-70">(opcional)</span>
           </label>
-          <select
-            value={txId}
-            onChange={(e) => setTxId(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
-            <option value="">Sem relação com um gasto</option>
-            {recentTxs!.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.occurred_at} · {t.description ?? "(sem descrição)"} · {formatBRL(Number(t.amount))}
-              </option>
-            ))}
-          </select>
-        </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            className="mt-1 w-full resize-none rounded-xl border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            placeholder="Pode ser algo curto, do jeito que vier."
+          />
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <Link to="/app/emocoes" className="text-xs text-primary underline-offset-2 hover:underline">
+              Ver seu relatório emocional
+            </Link>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving || !selected}
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+              {today ? "Atualizar" : "Registrar"}
+            </button>
+          </div>
+        </>
       )}
-
-      <label className="mt-3 block text-xs text-muted-foreground">
-        Quer contar o que aconteceu? <span className="opacity-70">(opcional)</span>
-      </label>
-      <textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        rows={2}
-        className="mt-1 w-full resize-none rounded-xl border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        placeholder="Pode ser algo curto, do jeito que vier."
-      />
-
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <Link to="/app/emocoes" className="text-xs text-primary underline-offset-2 hover:underline">
-          Ver seu relatório emocional
-        </Link>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving || !selected}
-          className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={12} className="animate-spin" /> : null}
-          {today ? "Atualizar" : "Registrar"}
-        </button>
-      </div>
     </section>
   );
 }

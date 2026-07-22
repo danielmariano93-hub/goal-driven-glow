@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CalendarDays, Users, FileBarChart, ChevronRight } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, CalendarDays, Users, FileBarChart, Calculator } from "lucide-react";
 import { toast } from "sonner";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions, useGoals, useInvestments, useDebts } from "@/lib/db/finance";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals } from "@/lib/engine/facts";
+import { computeNetWorth, formatBRL, round2, computeAccountStatementTotals, type RecurringRow } from "@/lib/engine/facts";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { WhatsAppCta } from "@/components/home/WhatsAppCta";
@@ -18,6 +18,8 @@ import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { AReceberRoleResumo } from "@/components/home/AReceberRoleResumo";
 import { GastoMedioDiarioCard } from "@/components/home/GastoMedioDiarioCard";
+import { GastoCartaoCard } from "@/components/home/GastoCartaoCard";
+import { DisponivelCard } from "@/components/home/DisponivelCard";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 
@@ -44,6 +46,19 @@ export default function Index() {
   const { data: investments } = useInvestments();
   const { data: debts } = useDebts();
 
+  // Recorrências ativas para projeção do "Disponível até o fim do período".
+  const { data: recurring } = useQuery({
+    queryKey: ["recurring_rules_active", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("recurring_rules" as never)
+        .select("id,name,kind,amount,frequency,next_due_date,status");
+      if (error) throw error;
+      return (data as Array<{ id: string; name: string; kind: string; amount: number; frequency: string; next_due_date: string; status: string }> | null) ?? [];
+    },
+  });
+
   useEffect(() => {
     if (!user?.id || categorizationStarted.current) return;
     categorizationStarted.current = true;
@@ -68,16 +83,30 @@ export default function Index() {
   const loading = la || lt || lbs;
   const acc = accounts ?? [];
   const tx = txs ?? [];
+  const numericTxs = useMemo(() => tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never, [tx]);
+
+  const recurringRows: RecurringRow[] = useMemo(() => {
+    return (recurring ?? [])
+      .filter((r) => r.status === "active")
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        type: (r.kind === "income" ? "income" : "expense") as "income" | "expense",
+        amount: Number(r.amount || 0),
+        frequency: (["daily", "weekly", "monthly", "yearly"].includes(r.frequency) ? r.frequency : "monthly") as RecurringRow["frequency"],
+        next_due_date: r.next_due_date,
+        active: true,
+      }));
+  }, [recurring]);
 
   const nw = computeNetWorth(
     acc.map((a) => ({ id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active })),
-    tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never,
+    numericTxs,
     (investments ?? []).map((i) => ({ id: i.id, name: i.name, invested_amount: Number(i.invested_amount), current_value: Number(i.current_value), goal_id: i.goal_id })),
     (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status })),
     (balanceSnapshots ?? []).map((s) => ({ ...s, balance: Number(s.balance) }))
   );
 
-  // Âncora de saldo: mais recente snapshot confirmado (informativa, discreta).
   const cashAnchor = useMemo(() => {
     const confirmed = (balanceSnapshots ?? []).filter((s) => (s as { status?: string }).status === "confirmed");
     if (confirmed.length === 0) return null;
@@ -93,12 +122,7 @@ export default function Index() {
     if (period === "30d") startDate.setDate(startDate.getDate() - 29);
     if (period === "90d") startDate.setDate(startDate.getDate() - 89);
     const start = period === "custom" ? customStart : isoDate(startDate);
-    // Fluxo bancário literal: entradas/saídas brutas (inclui resgate/aplicação/estorno)
-    // e fatura do cartão separada. Ver computeAccountStatementTotals.
-    const totals = computeAccountStatementTotals(
-      tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never,
-      { start, end },
-    );
+    const totals = computeAccountStatementTotals(numericTxs, { start, end });
     return {
       income: round2(totals.accountIn),
       expense: round2(totals.accountOut),
@@ -106,42 +130,73 @@ export default function Index() {
       start,
       end,
     };
-  }, [tx, period, customStart, customEnd]);
+  }, [numericTxs, period, customStart, customEnd]);
 
   const periodLabel = period === "month" ? "este mês" : period === "30d" ? "nos últimos 30 dias" : period === "90d" ? "nos últimos 90 dias" : "no período";
+  const disponivelLabel = period === "month" ? "até o fim do mês" : period === "custom" ? "até o fim do período" : `nos próximos dias`;
 
   const hasAccount = acc.length > 0;
   const hasTransaction = tx.length > 0;
   const hasGoal = (goals ?? []).length > 0;
   const isFresh = !hasAccount && !hasTransaction && !hasGoal;
-  return (
-    <div className="space-y-5">
-      <PeriodFilter period={period} setPeriod={setPeriod} customStart={customStart} customEnd={customEnd} setCustomStart={setCustomStart} setCustomEnd={setCustomEnd} />
-      <PatrimonioCard cash={nw.cash} cardsOwed={nw.cardsOwed} invested={nw.invested} otherDebts={nw.otherDebts} net={nw.net} loading={loading} cashAnchor={cashAnchor} />
 
-      <GastoMedioDiarioCard
-        txs={tx.map((t) => ({ ...t, amount: Number(t.amount) })) as never}
-        range={{ start: periodSummary.start, end: periodSummary.end }}
+  const numericAccounts = useMemo(
+    () => acc.map((a) => ({ id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active })),
+    [acc],
+  );
+  const numericSnapshots = useMemo(
+    () => (balanceSnapshots ?? []).map((s) => ({ ...s, balance: Number(s.balance) })) as never,
+    [balanceSnapshots],
+  );
+
+  return (
+    <div className="space-y-4">
+      <PeriodFilter period={period} setPeriod={setPeriod} customStart={customStart} customEnd={customEnd} setCustomStart={setCustomStart} setCustomEnd={setCustomEnd} />
+
+      {/* Card principal: disponível projetado (não usa média histórica). */}
+      <DisponivelCard
+        accounts={numericAccounts}
+        txs={numericTxs}
+        recurring={recurringRows}
+        snapshots={numericSnapshots}
+        endDate={periodSummary.end}
+        periodLabel={disponivelLabel}
         loading={loading}
       />
 
-      <PulseHero />
-
+      {/* Próxima ação inteligente (dica rotativa). */}
       <AssistantTipCard />
+
+      {/* Grade compacta: gasto médio + cartão. */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <GastoMedioDiarioCard
+          txs={numericTxs}
+          range={{ start: periodSummary.start, end: periodSummary.end }}
+          loading={loading}
+        />
+        <GastoCartaoCard txs={numericTxs} range={{ start: periodSummary.start, end: periodSummary.end }} loading={loading} />
+      </div>
 
       <QuickActions />
 
-      <div className="grid grid-cols-2 gap-2" aria-label="Atalhos importantes">
-        <HomeShortcut to="/app/divisao-do-role" icon={<Users size={16} />} title="Divisão do Rolê" subtitle="Acompanhar cobranças" />
-        <HomeShortcut to="/app/relatorios" icon={<FileBarChart size={16} />} title="Relatórios" subtitle="Entender seus números" />
-      </div>
+      {/* Atalho para o simulador (era uma aba, agora fica aqui). */}
+      <Link
+        to="/app/planejamento"
+        className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left shadow-card hover:border-primary/40"
+      >
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
+          <Calculator size={16} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <strong className="block text-sm">Antes de comprar</strong>
+          <span className="block text-xs text-muted-foreground">Simule o impacto antes de decidir.</span>
+        </span>
+      </Link>
 
-      <WhatsAppCta />
+      {/* Pulso + evolução (visão compacta). */}
+      <PulseHero />
 
-      <ParaPagarResumo />
-
-      <AReceberRoleResumo />
-
+      {/* Ponte de caixa consolidada (histórico do período). */}
       {loading ? (
         <div className="grid place-items-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -149,20 +204,44 @@ export default function Index() {
       ) : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
-        <PonteCaixaCard
-          income={periodSummary.income}
-          expense={periodSummary.expense}
-          closing={nw.cash}
-          periodLabel={periodLabel}
-        />
-      )}
-      {!isFresh && !loading && periodSummary.cardExpense > 0 && (
-        <p className="-mt-2 text-center text-[11px] text-muted-foreground">
-          Consumo no cartão {periodLabel}: <strong className="text-foreground">{formatBRL(periodSummary.cardExpense)}</strong> (não entra na ponte de caixa).
-        </p>
+        <>
+          <PonteCaixaCard
+            income={periodSummary.income}
+            expense={periodSummary.expense}
+            closing={nw.cash}
+            periodLabel={periodLabel}
+          />
+          {periodSummary.cardExpense > 0 && (
+            <p className="-mt-2 text-center text-[11px] text-muted-foreground">
+              Consumo no cartão {periodLabel}: <strong className="text-foreground">{formatBRL(periodSummary.cardExpense)}</strong> (não entra na ponte de caixa).
+            </p>
+          )}
+        </>
       )}
 
+      {/* Patrimônio detalhado — abaixo do fold, quem quiser aprofunda. */}
+      <PatrimonioCard
+        cash={nw.cash}
+        cardsOwed={nw.cardsOwed}
+        invested={nw.invested}
+        otherDebts={nw.otherDebts}
+        net={nw.net}
+        loading={loading}
+        cashAnchor={cashAnchor}
+      />
+
+      <div className="grid grid-cols-2 gap-2" aria-label="Atalhos importantes">
+        <HomeShortcut to="/app/divisao-do-role" icon={<Users size={16} />} title="Divisão do Rolê" subtitle="Acompanhar cobranças" />
+        <HomeShortcut to="/app/relatorios" icon={<FileBarChart size={16} />} title="Relatórios" subtitle="Entender seus números" />
+      </div>
+
+      <ParaPagarResumo />
+      <AReceberRoleResumo />
+
+      {/* Check-in emocional com progressive disclosure. */}
       <EmotionalCheckinCard />
+
+      <WhatsAppCta />
 
       {!isFresh && (
         <div className="flex justify-center pt-1">
@@ -191,8 +270,8 @@ function PeriodFilter({ period, setPeriod, customStart, customEnd, setCustomStar
       </select>
     </div>
     {period === "custom" ? <div className="mt-3 grid grid-cols-2 gap-2">
-      <label className="text-[11px] text-muted-foreground">De<input type="date" value={customStart} max={customEnd} onChange={(e) => setCustomStart(e.target.value)} className="input-base mt-1" /></label>
-      <label className="text-[11px] text-muted-foreground">Até<input type="date" value={customEnd} min={customStart} onChange={(e) => setCustomEnd(e.target.value)} className="input-base mt-1" /></label>
+      <label className="text-[11px] text-muted-foreground">De<input type="date" value={customStart} max={customEnd} onChange={(e) => setCustomStart(e.target.value)} className="input-base mt-1 w-full min-w-0" /></label>
+      <label className="text-[11px] text-muted-foreground">Até<input type="date" value={customEnd} min={customStart} onChange={(e) => setCustomEnd(e.target.value)} className="input-base mt-1 w-full min-w-0" /></label>
     </div> : null}
   </section>;
 }

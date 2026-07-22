@@ -1,4 +1,4 @@
-import { computeBehavioralExpense, round2, type TransactionRow } from "./facts";
+import { computeBehavioralExpense, round2, isGrossCardMovement, type TransactionRow } from "./facts";
 
 export interface DateRange { start: string; end: string }
 export interface DailyAverage { total: number; days: number; avg: number }
@@ -82,6 +82,46 @@ export function computeDailyAverageComparison(
     if (Math.abs(deltaPct) < 1) trend = "stable";
     else trend = deltaPct > 0 ? "up" : "down";
   } else if (current.avg > 0) {
+    trend = "up";
+  }
+  return { current, previous, currentRange: range, prevRange, deltaPct, trend };
+}
+
+/** Total gasto no cartão de crédito no período (data econômica = occurred_at).
+ *  Não desconta pagamento de fatura (isso é fluxo de caixa da conta). */
+export function computeCardSpending(txs: TransactionRow[], range: DateRange): number {
+  let total = 0;
+  for (const t of txs) {
+    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    if (!isGrossCardMovement(t)) continue;
+    total += Number(t.amount || 0);
+  }
+  return round2(Math.max(0, total));
+}
+
+export interface CardSpendingComparison {
+  current: number;
+  previous: number;
+  currentRange: DateRange;
+  prevRange: DateRange;
+  deltaPct: number | null;
+  trend: Trend;
+}
+
+export function computeCardSpendingComparison(
+  txs: TransactionRow[],
+  range: DateRange,
+): CardSpendingComparison {
+  const current = computeCardSpending(txs, range);
+  const prevRange = shiftRangePrevMonth(range);
+  const previous = computeCardSpending(txs, prevRange);
+  let deltaPct: number | null = null;
+  let trend: Trend = "stable";
+  if (previous > 0) {
+    deltaPct = round2(((current - previous) / previous) * 100);
+    if (Math.abs(deltaPct) < 1) trend = "stable";
+    else trend = deltaPct > 0 ? "up" : "down";
+  } else if (current > 0) {
     trend = "up";
   }
   return { current, previous, currentRange: range, prevRange, deltaPct, trend };

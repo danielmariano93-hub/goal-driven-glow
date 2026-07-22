@@ -466,6 +466,62 @@ export function computeUpcomingCommitments(
   return { items: combined, totalIncome, totalExpense };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Disponível até o fim do período — projeção conservadora usada na Home.
+// Fórmula: saldo atual em conta + entradas planejadas − despesas planejadas
+//          − recorrências previstas − fatura em aberto do cartão.
+// Não usa média histórica nem projeção linear.
+// ────────────────────────────────────────────────────────────────────────────
+export interface AvailableUntilInput {
+  accounts: AccountRow[];
+  txs: TransactionRow[];
+  recurring: RecurringRow[];
+  snapshots?: AccountBalanceSnapshotRow[];
+  endDate: string; // inclusive YYYY-MM-DD
+  today?: Date;
+}
+
+export interface AvailableUntilOutput {
+  currentCash: number;
+  plannedIncome: number;
+  plannedExpense: number;
+  recurringOut: number;
+  recurringIn: number;
+  cardsOwed: number;
+  available: number;
+}
+
+export function computeAvailableUntil(input: AvailableUntilInput): AvailableUntilOutput {
+  const today = input.today ?? new Date();
+  const currentCash = computeTotalCash(input.accounts, input.txs, input.snapshots ?? []);
+  const end = new Date(input.endDate + "T23:59:59");
+  const horizonDays = Math.max(0, Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+  let plannedIncome = 0;
+  let plannedExpense = 0;
+  for (const t of input.txs) {
+    if (t.status !== "planned") continue;
+    if (t.type === "transfer") continue;
+    if (t.occurred_at < todayISO(today) || t.occurred_at > input.endDate) continue;
+    const amt = Number(t.amount || 0);
+    if (t.type === "income") plannedIncome += amt;
+    else if (t.type === "expense") plannedExpense += amt;
+  }
+  const next = nextRecurringOccurrences(input.recurring, horizonDays, today);
+  const recurringIn = sumBy(next.filter((r) => r.type === "income"), (r) => r.amount);
+  const recurringOut = sumBy(next.filter((r) => r.type === "expense"), (r) => r.amount);
+  const cardsOwed = computeCreditCardOutstanding(input.txs);
+  const available = round2(currentCash + plannedIncome + recurringIn - plannedExpense - recurringOut - cardsOwed);
+  return {
+    currentCash: round2(currentCash),
+    plannedIncome: round2(plannedIncome),
+    plannedExpense: round2(plannedExpense),
+    recurringIn: round2(recurringIn),
+    recurringOut: round2(recurringOut),
+    cardsOwed: round2(cardsOwed),
+    available,
+  };
+}
+
 export interface BeforeSpendingInput {
   amount: number;
   accountId?: string | null;
