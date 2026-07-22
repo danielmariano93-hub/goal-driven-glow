@@ -119,11 +119,12 @@ function relativeDate(text: string, now: Date = new Date()): string {
 const CONFIRM_WORDS = /^\s*(confirmar|confirma|sim|ok|okay|yes|👍)\s*[.!]?\s*$/i;
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 
-// Loose confirm/cancel: aceita apenas frases inteiramente compostas por
-// palavras de afirmação/negação (≤4 palavras). Evita casar frases naturais
-// como "Ta escrito na mensagem" (contém "ta") ou "isso não é meu".
-const CONFIRM_LOOSE = /^\s*(?:(?:sim|pode|confirma(?:r|do)?|ok|okay|beleza|blz|manda(?:\s+ver)?|vai|isso(?:\s+mesmo)?|positivo|claro|yes|👍)[\s,.!?]*){1,4}$/i;
-const CANCEL_LOOSE  = /^\s*(?:(?:n[aã]o|cancela(?:r)?|negativo|deixa(?:\s+pra\s+l[aá])?|esquece|no|❌)[\s,.!?]*){1,4}$/i;
+// Loose confirm/cancel: exige que a PRIMEIRA palavra seja um marcador
+// forte (sim/pode/cancela/...) e limita a ≤4 palavras. Retiramos gatilhos
+// ambíguos como "ta"/"tá"/"isso" que casavam frases naturais tipo
+// "Ta escrito na mensagem".
+const CONFIRM_LOOSE = /^\s*(sim|pode|confirma(?:r|do)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍)\b/i;
+const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
@@ -133,11 +134,12 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
 
-  // Loose confirm/cancel: só quando não houver valor monetário.
-  if (!AMOUNT_RE.test(raw)) {
+  const wordCount = raw.split(/\s+/).length;
+  if (wordCount <= 4 && !AMOUNT_RE.test(raw)) {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
   }
+
 
 
   const lower = raw.toLowerCase();
