@@ -90,11 +90,13 @@ export default {
         card: "var(--shadow-card)",
         brand: "var(--shadow-brand)",
         lg: "var(--shadow-lg)",
+        hero: "var(--shadow-hero)",
       },
       backgroundImage: {
         "gradient-brand": "var(--gradient-brand)",
         "gradient-brand-soft": "var(--gradient-brand-soft)",
         "gradient-brand-dark": "var(--gradient-brand-dark)",
+        "gradient-hero": "var(--gradient-hero)",
       },
       keyframes: {
         "accordion-down": {

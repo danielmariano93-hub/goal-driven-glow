@@ -1,103 +1,95 @@
-## Objetivo
+# Correção estrutural da Home — hierarquia aprovada
 
-Substituir a Home atual por uma experiência mais compacta, hierarquizada e acionável, seguindo o protótipo aprovado, mas conectada aos dados reais, hooks, engine financeiro (`src/lib/engine/facts.ts`), Pulso, Ponte de Caixa, dicas, check-in emocional, Divisão do Rolê e sistema de ocultação de valores já existentes. Nenhuma regra financeira é reescrita — apenas reorganizada, reutilizada e complementada onde necessário.
+Reescrita cirúrgica de `src/pages/Index.tsx` para eliminar duplicações, aplicar o Design System oficial e cumprir a ordem/altura/hierarquia definidas. Sem novos componentes fora do escopo, sem alterar telas, engines financeiros nem Agent Core.
 
-## Princípios que guiam a entrega
+## 1. Escopo da mudança
 
-- Reutilizar a fonte única de verdade (`computeNetWorth`, `computeAccountStatementTotals`, `isRealMonthlyMovement`, `computeBehavioralExpense`, `computeCreditCardOutstanding`, `usePulse`, `AssistantTipCard`, `PonteCaixaCard`, `EmotionalCheckinCard`).
-- Não alterar Agent Core, agente, WhatsApp, RLS, permissões, migrations financeiras ou fórmula do Pulso.
-- Progressive disclosure: bottom sheets para composição do patrimônio, detalhes do gasto médio, mais ações, Pulso expandido e assessor.
-- `PrivacyModeContext` já ocultará todos os valores via `formatPrivateBRL` — manter.
-- Nenhum dado fictício; nenhum card estático.
+**Arquivo principal reescrito**
+- `src/pages/Index.tsx` — renderização enxuta na ordem exata.
 
-## Nova ordem visual da Home (mobile-first)
+**Componentes novos (mínimos, só o necessário)**
+- `src/components/home/HomeHeader.tsx` — saudação + botões olho/sino.
+- `src/components/home/PeriodPicker.tsx` — pill "Resumo financeiro · 1–22 de julho" que abre bottom sheet (Sheet do shadcn) com Este mês / Últimos 7 dias / Mês anterior / Personalizado. Persiste em `periodStore`.
+- `src/components/home/HeroDisponivelCard.tsx` — card principal escuro em degradê (substitui `DisponivelCard` na Home; inclui patrimônio total secundário + botão "Ver composição" que abre bottom sheet com a composição atual do `PatrimonioCard`).
+- `src/components/home/MetricTile.tsx` — tile compacto reutilizado por Gasto médio/dia e Cartão (badge de variação, "Ver detalhes"/"Ver cartões"). Substitui `GastoMedioDiarioCard` e `GastoCartaoCard` no layout.
+- `src/components/home/QuickActions.tsx` — reescrito para 4 colunas: Anotar gasto, Guardar para meta, Antes de comprar, Mais ações.
+- `src/components/home/PulseCollapsed.tsx` — versão recolhida do Pulso (score + classificação + tendência + expandir). Reaproveita dados de `usePulse`.
+- `src/components/home/PatrimonioSheet.tsx` — bottom sheet com detalhamento atual (reaproveita cálculo já feito por `computeNetWorth`).
 
-1. Cabeçalho compacto (saudação, subtítulo, olho de privacidade, sino).
-2. Chip "Resumo financeiro · <intervalo humano>" que abre bottom sheet de período.
-3. **Card principal**: "Disponível até o fim do mês/período" + linha secundária "Patrimônio total" + botão "Ver composição".
-4. Grid 2 colunas compactas: **Gasto médio/dia** | **Gastos no cartão** (cada um com variação vs. mesmo intervalo deslocado e ação "Ver detalhes"/"Ver cartões").
-5. **Próxima melhor ação** (uma só, com "Fazer agora" e "Agora não").
-6. **Ações rápidas** (Anotar gasto, Guardar para meta, Antes de comprar, Mais ações).
-7. **Sua evolução financeira** (Pulso compacto expansível).
-8. **Ponte de Caixa** compacta (saldo inicial + entradas − saídas = saldo final, fechando).
-9. **Check-in emocional** minimalista (só chips, expande após seleção).
-10. Botão flutuante do assessor com opções "No app" / "WhatsApp" (remove `WhatsAppCta` e duplicações).
+**Componentes existentes reaproveitados sem alteração**
+- `PonteCaixaCard` (compacto, mantido).
+- `EmotionalCheckinCard` (já tem progressive disclosure).
+- `AssessorFab` (único acesso permanente ao assessor).
+- `BottomTabBar` (já é Início / Movimentos / Metas / Mais — apenas confirmar).
 
-Navegação inferior: **Início · Movimentos · Metas · Mais** (remove duplicação de "Antes de comprar" do bottom bar). `AssessorFab` já existe — apenas ajustar ação para abrir bottom sheet com dois destinos.
+**Removidos da Home (não do produto)**
+- `AssistantTipCard` (dica genérica) → substituído por bloco "Sua próxima melhor ação" inline baseado na mesma fonte (`useQuery(["assistant-tip"])`), renderizando apenas um cartão com CTA primário + "Agora não".
+- `PatrimonioCard` grande (movido para bottom sheet).
+- Atalho "Antes de comprar" como card separado (vira ação rápida).
+- `HomeShortcut` Divisão do Rolê / Relatórios (movidos para "Mais ações").
+- `ParaPagarResumo`, `AReceberRoleResumo` (removidos da Home; continuam nas telas próprias).
+- `WhatsAppCta` banner (removido; acesso permanece via FAB do assessor).
+- `PulseHero` grande (substituído por `PulseCollapsed`).
+- Link "Ver tudo que dá pra fazer aqui" (removido).
 
-## Novos componentes (`src/components/home/`)
+## 2. Ordem final da Home
 
-- `HomeHeader.tsx` — saudação, subtítulo, toggle privacidade, sino.
-- `PeriodChip.tsx` + `PeriodSheet.tsx` — chip compacto e bottom sheet (Este mês, Últimos 7 dias, Mês anterior, Personalizado); persiste via `periodStore`.
-- `DisponivelCard.tsx` — card principal; abre `PatrimonioSheet.tsx` para composição.
-- `PatrimonioSheet.tsx` — detalhamento (contas, investimentos, cartões, dívidas) usando os mesmos números de `computeNetWorth`.
-- `GastoCartaoCard.tsx` — par visual do `GastoMedioDiarioCard` (já reformulado abaixo).
-- `ProximaAcaoCard.tsx` — leitura priorizada de dicas.
-- `AcoesRapidasGrid.tsx` — 4 ações fixas + `MaisAcoesSheet.tsx`.
-- `EvolucaoPulsoCard.tsx` — wrapper compacto sobre `usePulse` com expansão progressiva.
-- `AssessorActionSheet.tsx` — bottom sheet acionado pelo `AssessorFab`.
+```text
+1. HomeHeader           (compacto, ~56px)
+2. PeriodPicker         (pill ~52px)
+3. HeroDisponivelCard   (degradê escuro, ~190px, inclui patrimônio secundário)
+4. Grid 2 col: MetricTile "Gasto médio/dia" | MetricTile "Cartão"
+5. Próxima melhor ação  (card branco, 1 recomendação, CTA pill escuro)
+6. QuickActions         (4 colunas)
+7. PulseCollapsed       (recolhido, expande on demand)
+8. PonteCaixaCard       (compacto existente)
+9. EmotionalCheckinCard (recolhido existente)
+— fora do fluxo: BottomTabBar + AssessorFab
+```
 
-Componentes existentes reaproveitados/adaptados: `GastoMedioDiarioCard`, `PonteCaixaCard`, `EmotionalCheckinCard`, `AssistantTipCard` (reusado internamente pelo `ProximaAcaoCard`), `AssessorFab`, `NotificationBell`.
+## 3. Design System aplicado
 
-Removidos da Home (mantidos no restante do app): `WhatsAppCta`, `PatrimonioCard` grande, `PulseHero` grande, `ParaPagarResumo`/`AReceberRoleResumo` (migram para `MaisAcoesSheet`), atalhos duplicados de Divisão do Rolê/Relatórios (vão para "Mais ações").
+Tokens adicionados/ajustados em `src/index.css` (HSL) e `tailwind.config.ts`:
+- `--background` #F6F6FB, `--card` #FFFFFF, `--muted` #F1EFF8, `--foreground` #171420, `--muted-foreground` #6F6A79, `--border` #E6E3EC.
+- `--primary` #5B2BE0, `--primary-2` #7A3FF2, `--navy` #21124B, `--pink` #F05D85.
+- `--success` #0F9F72 + `--success-soft` #E9F8F2; `--destructive` #D64D67 + `--destructive-soft` #FFF0F3; `--warning` #A66B00 + `--warning-soft` #FFF7DF.
+- `--gradient-hero` = `linear-gradient(135deg,#1D1048 0%,#5D2AE8 55%,#F05D85 128%)`.
+- Sombras: `--shadow-card` `0 8px 24px rgba(38,24,62,.05)`, `--shadow-hero` `0 18px 35px rgba(71,36,155,.22)`.
+- Raios: hero 24px, card 18px, controle 14px, pill 999px.
+- Padding horizontal da página 16px; gap entre seções 14–18px.
 
-## Fórmulas (todas reutilizando o engine, sem paralelismo)
+Só edito tokens usados; não redesenho o resto do app.
 
-### Disponível até o fim do período
-`disponivel = saldoContasTransacionais + receitasFuturasConfirmadas(period) − despesasFuturasConfirmadas(period) − próximasRecorrências(period) − faturasCartaoComVencimentoNoPeriodo − outrasObrigacoesConhecidas`
-- Base: `computeAccountBalances` (saldo atual real).
-- Futuros: `nextRecurringOccurrences` + transações `status='planned'` dentro do período (via `computeUpcomingCommitments`).
-- Fatura: `computeCreditCardOutstandingByCard` cruzado com `due_day` de cada cartão dentro do período — evita dupla contagem pois despesas de cartão já não afetam saldo em conta (`txOrigin==='credit_card'`).
-- Investimentos: ignorados (não consumíveis).
-Nova função pura `computeAvailableUntil(range, {accounts, txs, snapshots, recurring, cards})` em `src/lib/engine/facts.ts` composta 100% pelas funções existentes; testada em `src/test/facts-available-until.test.ts`.
+## 4. Regras de cálculo
 
-### Gasto médio/dia
-Reutiliza `computeAverageDailySpending` (`src/lib/engine/dailyAverage.ts`) — já implementa dias inclusivos, corte pelo dia atual, exclusão de transferências/investimentos/estornos duplicados, comparação com mesmo intervalo deslocado com ajuste para meses curtos. Já coberto por `src/test/daily-average.test.ts`. Ampliar testes para Divisão do Rolê e cancelados.
+Reaproveitam engines existentes — sem nova regra paralela:
+- **Disponível**: `computeAvailableUntil` (já existente, sem mudança).
+- **Patrimônio secundário no hero**: `computeNetWorth().net` (já usado hoje).
+- **Gasto médio/dia + comparação**: `computeDailyAverageComparison` do `src/lib/engine/dailyAverage.ts` (já exclui transferências/aportes; retorna `trend` e `deltaPct`). Comparação usa mesmo intervalo do mês anterior. Zero anterior → "Sem base de comparação"; ambos zero → "Ainda não há dados suficientes"; |Δ|<1% → "Estável".
+- **Cartão no período**: `computeCardSpendingComparison` já existente; mesmas regras de fallback.
+- **Ponte de caixa**: `computeAccountStatementTotals` (mantido).
+- Todos os cards leem o mesmo `periodStore`, logo respondem juntos ao PeriodPicker.
 
-### Gastos no cartão
-Somatório de `type='expense' AND status='confirmed' AND txOrigin==='credit_card'` com `occurred_at` dentro do período efetivo (data econômica, nunca vencimento), excluindo `settles_card_id` e `movement_kind∈EXCLUDED_MOVEMENT_KINDS`. Comparação com mesmo intervalo deslocado, mesma lógica do gasto médio. Testes em `src/test/facts-card-spending.test.ts`.
+## 5. Sincronização e estados
 
-### Ponte de Caixa
-`saldoInicial + entradasReais − saidasReais = saldoFinal` via `computeAccountStatementTotals` (já exclui transferências internas e usa `isGrossAccountMovement`). O ajuste, quando existir, aparece como linha explícita "Ajustes de conciliação".
+- Continua usando os hooks `useAccounts/useAllTransactions/...` já reativos via React Query. Nenhuma nova query duplicada.
+- Loading: cada tile mostra skeleton com a altura final (evita layout shift). Não renderiza "R$ 0" antes de dados.
+- Vazio: `ComecePorAqui` continua sendo o fallback quando não há conta/lançamento/meta.
+- Erro por card isolado com try/catch de render + botão "Tentar de novo" onde aplicável.
 
-### Patrimônio
-`computeNetWorth` inalterado — mesmo número no card e no detalhamento.
+## 6. Responsividade e acessibilidade
 
-### Próxima melhor ação
-Reutiliza pipeline atual (`AssistantTipCard`/`user_insights`). Aplica ordem: integridade > vencidos > risco imediato > meta em risco > gasto anormal > economia > educativo > informativo. Dispensa persiste em `sessionStorage` (`nc:next-action:dismissed`) e chama a mesma invalidação usada hoje.
+- Container `max-w-md mx-auto px-4` no mobile; `md:max-w-2xl` mantém desktop.
+- Grid tiles `grid-cols-2 gap-2.5`; valores com `tabular-nums` e `text-[clamp(1.25rem,5vw,1.5rem)]` para evitar corte em 320px.
+- Inputs do bottom sheet com `text-base` (16px) para não disparar zoom no iOS. Safe-area preservada no FAB e BottomTabBar (já existente).
+- `aria-label` nos botões de ícone; foco visível via `focus-visible:ring`; badges com ícone + texto (não dependem só de cor); `prefers-reduced-motion` respeitado nas transições do Pulso/Check-in.
 
-## Sincronização de dados
+## 7. Testes
 
-- Um único `useHomeData(period)` hook agregando `useAccounts`, `useAllTransactions`, `useAccountBalanceSnapshots`, `useGoals`, `useInvestments`, `useDebts`, cartões e recorrências — evita N+1 e mantém memoização por período.
-- Após qualquer mutação, chamar `invalidateFinancialQueries(queryClient)` (já existe em `src/lib/db/invalidation.ts`) — todos os cards reagem sem reload.
-- Sem chamadas ao LLM ao abrir a Home; dicas vêm de `user_insights`.
+- Novo `src/test/home-layout.test.tsx`: verifica ordem dos blocos, ausência de `PatrimonioCard` inline, ausência do banner WhatsApp, ausência dos atalhos Relatórios/Divisão, presença de exatamente 4 quick actions, Pulso e Check-in recolhidos por padrão.
+- Reaproveita `daily-average.test.ts`, `facts-available-until.test.ts`, `facts-statement-totals.test.ts` (sem alteração).
+- Executa `bun run test` completo + typecheck + build.
 
-## Estados de UI
+## 8. Fora de escopo (explicitamente)
 
-Skeletons com dimensões estáveis por card; erro isolado por seção com botão "Tentar novamente"; primeira utilização mantém `ComecePorAqui`; período sem dados exibe copy amigável; nunca renderizar `NaN`/`Infinity`.
-
-## Responsividade e acessibilidade
-
-- `overflow-x-hidden` global mantido; grid 2 col apenas quando `sm+`.
-- Inputs de data com `min-w-0` e wrapper `flex-1`.
-- Bottom sheets usando `Sheet` do shadcn com `side="bottom"`, respeitando safe area (`pb-[env(safe-area-inset-bottom)]`).
-- `aria-label` em ícones; setas de variação sempre acompanhadas de texto ("31,3% menor…"); foco visível; fechamento por Esc.
-- `AssessorFab` continua acima do bottom bar; z-index mantido.
-
-## Testes
-
-- `src/test/facts-available-until.test.ts` — cenários: sem futuros, com recorrência, com fatura dentro/fora, sem cartão, período personalizado, evitar dupla contagem fatura, valores negativos.
-- `src/test/facts-card-spending.test.ts` — total, exclusão de fatura, estornos, comparação mês anterior, base zero.
-- `src/test/daily-average.test.ts` — adicionar casos Divisão do Rolê, refund, estabilidade <1%.
-- `src/test/home-next-action.test.tsx` — priorização, dispensa, substituição, ausência de repetição.
-- `src/test/home-period-sync.test.tsx` — mudar período atualiza todos os cards.
-- `src/test/home-render.test.tsx` — ordem visual, ausência de banner WhatsApp, botão flutuante único.
-- Rodar `bunx vitest run` inteiro; typecheck; build.
-
-## Restrições respeitadas
-
-Nada é removido do produto — apenas realocado (WhatsApp CTA → sheet do assessor; Divisão/Relatórios → "Mais ações"). Fórmulas, Pulso, agente, RLS, migrations e Ponte de Caixa permanecem como fonte única de verdade. Sem novas migrations, sem alterar Edge Functions.
-
-## Entrega final
-
-Resumo, arquivos criados/modificados, fórmulas exatas, testes adicionados e contagem final de testes verdes — tudo em uma única rodada de implementação após aprovação.
+Sem mudanças em: Agent Core, WhatsApp, `engine/facts.ts`, `dailyAverage.ts`, telas de Movimentos/Metas/Relatórios/Divisão/Assessor, tokens não usados pela Home, migrations, edge functions.
