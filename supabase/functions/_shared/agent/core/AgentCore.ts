@@ -279,8 +279,12 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   metrics.estimated_cost_usd = estimateCost(prompt?.model ?? "unknown", metrics.tokens_in, metrics.tokens_out);
 
   // ---- ResponseValidator -------------------------------------------------
+  const successfulMutation = toolCallLog.some(c => c.ok && (
+    /_draft$/.test(String(c.tool_name)) || c.tool_name === "confirm_pending_action"
+  ));
   const validated = await timeStage(metrics, "validate", async () => validate(reply, {
     expectedKind: kind, hasDraft: !!draft_id,
+    hasSuccessfulMutation: successfulMutation,
     toolCallErrors: toolCallLog.filter(c => !c.ok).length,
   }));
   metrics.validations = validated.reasons.length;
