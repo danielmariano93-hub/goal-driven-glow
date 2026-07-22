@@ -650,6 +650,63 @@ export type Database = {
         }
         Relationships: []
       }
+      category_spending_goals: {
+        Row: {
+          alerts: Json
+          baseline_kind: string
+          baseline_value: number | null
+          category_id: string
+          computed_limit: number
+          created_at: string
+          end_date: string | null
+          fixed_limit: number | null
+          frequency: string
+          id: string
+          mode: string
+          reduction_pct: number | null
+          start_date: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          alerts?: Json
+          baseline_kind?: string
+          baseline_value?: number | null
+          category_id: string
+          computed_limit: number
+          created_at?: string
+          end_date?: string | null
+          fixed_limit?: number | null
+          frequency?: string
+          id?: string
+          mode: string
+          reduction_pct?: number | null
+          start_date?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          alerts?: Json
+          baseline_kind?: string
+          baseline_value?: number | null
+          category_id?: string
+          computed_limit?: number
+          created_at?: string
+          end_date?: string | null
+          fixed_limit?: number | null
+          frequency?: string
+          id?: string
+          mode?: string
+          reduction_pct?: number | null
+          start_date?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       challenges: {
         Row: {
           created_at: string
