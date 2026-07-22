@@ -130,12 +130,30 @@
     max-width: 100%;
   }
 
+  input[type="date"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   /* iOS: qualquer <input>, <select> ou <textarea> com fonte < 16px provoca
      zoom automático ao focar. Forçamos 16px em telas ≤ 768px sem afetar o
      design em desktop (onde o Tailwind `text-sm` continua valendo). */
   @media (max-width: 767px) {
     input, select, textarea {
       font-size: 16px;
+    }
+
+    input[type="date"]::-webkit-date-and-time-value {
+      min-width: 0;
+      text-align: left;
+    }
+
+    input[type="date"]::-webkit-datetime-edit {
+      min-width: 0;
+      padding: 0;
     }
   }
 

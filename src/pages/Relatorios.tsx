@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Download, Loader2, Printer } from "lucide-react";
+import { Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { groupByMonth, byCategory, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
+import { groupByMonth, byCategory, filterPeriod, spendingHighlights, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
 import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 
@@ -32,6 +32,7 @@ export default function Relatorios() {
   const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
   const totalExpense = monthly.reduce((s, m) => s + m.expense, 0);
   const maxCat = Math.max(1, ...byCat.map(c => c.total));
+  const highlights = spendingHighlights(byCat, totalExpense);
 
   const download = () => {
     const csv = toCsv(filtered.map(t => ({
@@ -69,9 +70,15 @@ export default function Relatorios() {
         </div>
       </div>
 
-      <div className="surface-card p-3 flex gap-2 print:hidden">
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs" />
-        <input type="date" value={to} onChange={e => setTo(e.target.value)} className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs" />
+      <div className="surface-card grid min-w-0 grid-cols-1 gap-2 p-3 min-[380px]:grid-cols-2 print:hidden">
+        <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          De
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="mt-1 h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base normal-case tracking-normal text-foreground" />
+        </label>
+        <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Até
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} className="mt-1 h-11 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-base normal-case tracking-normal text-foreground" />
+        </label>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -103,12 +110,15 @@ export default function Relatorios() {
 
       <section>
         <h2 className="text-sm font-semibold mb-2">Por categoria (despesas)</h2>
-        <div className="surface-card p-4 space-y-2">
+        <div className="surface-card p-4 space-y-3">
           {byCat.map(c => (
             <div key={c.category}>
-              <div className="flex justify-between text-xs">
-                <span>{c.category}</span>
-                <span className="font-medium">{formatBRL(c.total)} · {c.count}x</span>
+              <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
+                <div className="min-w-0">
+                  <span className="block truncate font-medium">{c.category}</span>
+                  <span className="text-[10px] text-muted-foreground">{c.percentOfExpenses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das despesas</span>
+                </div>
+                <span className="shrink-0 text-right font-medium">{formatBRL(c.total)} · {c.count}x</span>
               </div>
               <div className="mt-1 h-1.5 rounded-full bg-secondary overflow-hidden">
                 <div className="h-full bg-primary" style={{ width: `${(c.total/maxCat)*100}%` }} />
@@ -117,6 +127,26 @@ export default function Relatorios() {
           ))}
         </div>
         <p className="text-[10px] text-muted-foreground mt-2">Valores factuais. Não incluímos projeções ou score inventado.</p>
+      </section>
+
+      <section>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Principais leituras do período</h2>
+        <div className="space-y-2">
+          {highlights.map((h) => (
+            <article key={h.id} className="surface-card p-4">
+              <div className="flex min-w-0 gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <TrendingDown size={15} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold leading-snug">{h.title}</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{h.body}</p>
+                  {h.impact ? <p className="mt-2 text-[11px] font-medium text-foreground">{h.impact}</p> : null}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );
