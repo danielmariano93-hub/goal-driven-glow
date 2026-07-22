@@ -271,7 +271,7 @@ export default function Metas() {
 
       {openCatGoal && (
         <CategoryGoalForm
-          initial={editingCatGoal}
+          initial={editingCatGoal as never}
           categories={categories ?? []}
           txs={numericTxs}
           saving={saveCatGoal.isPending}
