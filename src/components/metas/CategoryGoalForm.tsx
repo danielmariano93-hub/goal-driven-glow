@@ -18,7 +18,7 @@ export type CategoryGoalFormValues = {
 };
 
 type Props = {
-  initial?: CategorySpendingGoalRow | null;
+  initial?: Partial<CategorySpendingGoalRow> | null;
   categories: CategoryRow[];
   txs: TransactionRow[];
   saving?: boolean;
