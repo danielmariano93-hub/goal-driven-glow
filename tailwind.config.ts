@@ -97,6 +97,7 @@ export default {
         "gradient-brand-soft": "var(--gradient-brand-soft)",
         "gradient-brand-dark": "var(--gradient-brand-dark)",
         "gradient-hero": "var(--gradient-hero)",
+        "gradient-fab": "var(--gradient-fab)",
       },
       keyframes: {
         "accordion-down": {
