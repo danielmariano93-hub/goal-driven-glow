@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/context/AuthContext";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import type {
   AccountInput,
   CategoryInput,
@@ -428,7 +429,7 @@ export function useSaveGoal() {
         if (error) throw error;
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["goals"] }),
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -439,10 +440,7 @@ export function useDeleteGoal() {
       const { error } = await supabase.from("goals").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goals"] });
-      qc.invalidateQueries({ queryKey: ["contributions"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -475,7 +473,7 @@ export function useAddContribution() {
       });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["contributions"] }),
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -486,7 +484,7 @@ export function useDeleteContribution() {
       const { error } = await supabase.from("goal_contributions").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["contributions"] }),
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -529,10 +527,7 @@ export function useSaveInvestment() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["investments"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -543,7 +538,7 @@ export function useDeleteInvestment() {
       const { error } = await supabase.from("investments").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["investments"] }),
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
