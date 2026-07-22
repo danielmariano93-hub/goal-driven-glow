@@ -351,11 +351,21 @@ export async function computeAgentSnapshot(
         id: g.id, category_id: g.category_id,
         mode: g.mode, computed_limit: Number(g.computed_limit || 0),
         start_date: g.start_date, end_date: g.end_date, status: g.status,
+        period_type: g.period_type ?? null,
       },
       txs, today, catNames.get(g.category_id),
     ),
   );
-  const rank = (s: CategoryGoalStatus) => ({ exceeded: 3, at_risk: 2, attention: 1, on_track: 0 } as const)[s];
+  const rank = (s: CategoryGoalStatus): number => {
+    switch (s) {
+      case "exceeded": return 5;
+      case "at_risk": return 4;
+      case "limit_reached": return 3;
+      case "attention": return 2;
+      case "on_track": return 1;
+      default: return 0;
+    }
+  };
   const top = goals.length === 0 ? null : [...goals].sort((a, b) => {
     const dr = rank(b.status) - rank(a.status);
     if (dr !== 0) return dr;
