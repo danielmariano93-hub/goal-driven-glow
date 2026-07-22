@@ -854,6 +854,18 @@ export const AGENT_TOOLS: ToolSpec[] = [
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: get_spending_highlights,
   },
+  {
+    name: "get_financial_snapshot",
+    description: "Retorna o mesmo painel que a Home mostra: disponível hoje, ritmo de gasto, projeção de fim de mês, entradas e compromissos futuros conhecidos, fatura em aberto e metas de categoria ativas. Use quando o usuário pedir 'como estou?', 'quanto sobra até o fim do mês?', 'projeção', 'ritmo', 'quanto gastei/quanto entrou este mês'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_financial_snapshot,
+  },
+  {
+    name: "list_category_spending_goals",
+    description: "Lista as metas de controle de gasto por categoria, com limite, gasto atual, ritmo diário permitido, projeção de estouro e status (no_ritmo, atencao, em_risco, estourou). Use quando o usuário perguntar por uma meta de gasto específica ou 'minhas metas de categoria'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_category_spending_goals,
+  },
 ];
 
 export function toolByName(name: string): ToolSpec | null {
