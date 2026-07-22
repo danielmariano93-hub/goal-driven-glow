@@ -26,6 +26,7 @@ import { buildRecord, logDecision } from "./DecisionLogger.ts";
 import { guard } from "./ErrorRecovery.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { isLLMConfigured } from "../llm.ts";
+import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
 
 export type HandleTurnInput = {
   user_id: string;
