@@ -83,11 +83,7 @@ export default function Index() {
       <HomeHeader />
 
       <HeroDisponivelCard
-        accounts={[]}
-        txs={[]}
-        recurring={[]}
-        snapshots={[]}
-        endDate={periodRange.end}
+        available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
         netWorth={snap?.netWorth.net ?? 0}
         cash={snap?.netWorth.cash ?? 0}
