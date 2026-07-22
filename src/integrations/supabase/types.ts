@@ -3276,6 +3276,7 @@ export type Database = {
         Row: {
           example_style: string
           explanation_style: string
+          fast_log_token: string
           suggestion_frequency: string
           technical_level: string
           tone: string
@@ -3286,6 +3287,7 @@ export type Database = {
         Insert: {
           example_style?: string
           explanation_style?: string
+          fast_log_token?: string
           suggestion_frequency?: string
           technical_level?: string
           tone?: string
@@ -3296,6 +3298,7 @@ export type Database = {
         Update: {
           example_style?: string
           explanation_style?: string
+          fast_log_token?: string
           suggestion_frequency?: string
           technical_level?: string
           tone?: string
