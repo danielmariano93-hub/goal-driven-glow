@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { PlusCircle, Target, Calculator, LayoutGrid } from "lucide-react";
+import { PlusCircle, Users, Calculator, LayoutGrid } from "lucide-react";
 
 /**
  * Ações rápidas — quatro colunas nativas, sem minicards.
@@ -8,7 +8,7 @@ export function QuickActions() {
   return (
     <nav aria-label="Ações rápidas" className="grid grid-cols-4 gap-2">
       <Action to="/app/lancamentos" label="Anotar" icon={<PlusCircle />} />
-      <Action to="/app/metas" label="Guardar" icon={<Target />} />
+      <Action to="/app/divisao-do-role" label={"Dividir\nrolê"} icon={<Users />} />
       <Action to="/app/planejamento" label={"Antes de\ncomprar"} icon={<Calculator />} />
       <Action to="/app/mais" label="Mais" icon={<LayoutGrid />} />
     </nav>
