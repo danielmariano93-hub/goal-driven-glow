@@ -1,71 +1,77 @@
-## Plano — Relatórios inteligentes + correção mobile de datas
 
-### Objetivo
-Corrigir os vazamentos de campos de data no mobile e transformar a seção de categorias dos Relatórios em uma análise útil para decisão: percentual por categoria, oportunidades concretas de economia e highlights conectados aos dados reais do período.
+# Dicas inteligentes de verdade — Home + Assessor + WhatsApp
 
-### Estado atual verificado
-- `src/pages/Relatorios.tsx` usa dois `input[type=date]` dentro de um `flex` simples; no mobile isso ainda pode apertar/estourar dependendo do navegador e do texto renderizado pelo Safari.
-- `src/pages/Relatorios.tsx` calcula categorias com `byCategory`, exibindo apenas total e quantidade; não existe percentual nem bloco de highlights.
-- `src/lib/reports/aggregations.ts` hoje agrupa por mês/categoria sem usar todos os campos necessários para distinguir melhor movimentos financeiros e gerar análises mais ricas.
-- A Home persiste o período em `src/lib/ui/periodStore.ts`; Relatórios já inicializa por esse período, mas a UI de datas precisa ficar responsiva e mais clara.
+Objetivo: acabar com a sensação de "duas dicas repetidas" na Home, tornar as dicas realmente comportamentais (baseadas em padrões do usuário) e garantir que Assessor (app) e WhatsApp conheçam as mesmas dicas/highlights para responder quando o usuário perguntar diretamente.
 
-### Implementação proposta
+## Diagnóstico do que trava hoje
 
-#### 1. Corrigir definitivamente os campos de data no mobile
-- Trocar o bloco de datas em Relatórios de `flex` para `grid` responsivo:
-  - 1 coluna em telas muito estreitas;
-  - 2 colunas quando couber;
-  - `min-w-0`, `w-full`, altura estável e labels claros “De” / “Até”.
-- Aplicar o mesmo padrão visual seguro para datas usadas em filtros sensíveis, incluindo Lançamentos quando necessário, sem refatorar a página inteira.
-- Reforçar CSS global para `input[type="date"]` no Safari/iPhone:
-  - `font-size: 16px` no mobile;
-  - `min-width: 0`;
-  - largura 100%;
-  - tratamento do valor interno WebKit para não empurrar o input para fora.
+1. `AssistantTipCard` só pega **a última dica ativa** (`limit(5)` mas usa `list[0]`). Como `insights-generate` só cria uma nova dica quando: (a) cache de 6h expira, (b) `force=true`, ou (c) há transação sem categoria — o usuário vê a mesma dica por horas mesmo depois de "já ter interagido".
+2. Feedback (👍/👎) não desativa a dica, só grava `feedback`. Ela continua sendo a "top 1" e volta a aparecer.
+3. Não existe conceito de **"vista/dispensada" por sessão**; o `sessionStorage` só atua no fallback local, não no que vem do servidor.
+4. Fallback do servidor tem só ~8 candidatos e não considera padrões comportamentais (categoria que cresceu vs mês anterior, dia da semana com mais gasto, recorrência de merchant, streak de dias sem registrar etc). Vira o mesmo "Fatura sob olho" toda hora.
+5. Assessor (`agent-chat`) e WhatsApp (`whatsapp-webhook`) não têm ferramenta para ler `user_insights`/highlights; se o usuário perguntar "qual sua dica pra mim hoje?" o agente responde no vácuo.
 
-#### 2. Percentual por categoria em Relatórios
-- Evoluir `byCategory` para retornar também:
-  - `percentOfExpenses`;
-  - ranking da categoria;
-  - ticket médio (`total / count`).
-- Exibir em cada categoria:
-  - nome;
-  - valor total;
-  - quantidade;
-  - percentual sobre o total de despesas do período;
-  - barra proporcional mantendo o layout mobile-first.
-- Garantir que percentuais sejam calculados sobre as despesas filtradas do período, sem inventar dados.
+## Escopo (o que MUDA)
 
-#### 3. Highlights inteligentes no fim da página
-Adicionar um módulo “Principais leituras do período” com exatamente até 3 insights derivados dos dados reais. A lógica será determinística, sem IA e sem frases genéricas.
+### A. Home — rotação real e "você viu todas por hoje"
+- `AssistantTipCard`
+  - Carregar **até 5 dicas ativas** (`status=active`, não expiradas) e um índice controlado por `useState` para navegar entre elas (setinhas ‹ ›) além do "Nova dica".
+  - Filtrar do array as que já receberam `feedback` OU cujo `id` esteja em `sessionStorage['noc:seen-tips']` (set por sessão).
+  - Ao clicar 👍/👎 → além de gravar feedback, marcar `status='dismissed'` para 👎 e adicionar id ao "seen" para 👍, invalidar query, avançar índice.
+  - Quando a lista filtrada ficar vazia: mostrar estado *friendly* — "Por hoje é só 🌱 Você já viu todas as ideias que preparei. Volto amanhã com novidades — ou toque em Nova dica pra eu tentar algo diferente agora." — com botão único "Nova dica" que dispara `force=true`.
+  - "Nova dica" com `force=true` já existe; garantir que insere sempre uma **nova linha** (server já dismissiona a anterior quando `force` — manter).
 
-Os highlights serão escolhidos por relevância, por exemplo:
-- **Concentração de gastos:** quando a maior categoria representar uma fatia relevante do total. Ex.: “Lazer concentrou 18% das despesas do período.”
-- **Economia acionável:** simular redução realista da maior categoria variável. Ex.: “Reduzir 15% em Lazer economizaria R$ X neste período.”
-- **Recorrência/frequência:** detectar categorias com muitos lançamentos pequenos. Ex.: “Transporte apareceu 41 vezes; revisar pequenos gastos recorrentes pode ter mais impacto que cortar uma compra isolada.”
-- **Alerta de essencial vs. ajustável:** priorizar categorias mais ajustáveis como Lazer, Assinaturas, Delivery/Alimentação fora, Mercado/Outros quando existirem; evitar recomendar cortes cegos em Moradia, Saúde, Dívidas e obrigações.
-- **Dependência de uma categoria:** quando top 3 categorias concentram grande parte do gasto, indicar foco de revisão.
+### B. `insights-generate` — mais candidatos e mais comportamental
+- Ampliar `InsightFacts` e `pickFallback` (client + server, ambos precisam continuar espelhados) com sinais reais:
+  - `top_expense_category` + `top_expense_category_pct` (% do total do mês).
+  - `category_growth`: top categoria que cresceu > 30% vs mês anterior.
+  - `weekday_hotspot`: dia da semana que concentra mais gasto (últimos 30d).
+  - `merchant_repeat`: merchant recorrente detectado nos últimos 30 dias com N ocorrências.
+  - `days_without_entry`: streak sem registrar transação.
+  - `goal_pace`: % de avanço da meta vs tempo restante.
+- Novos candidatos de fallback usando esses sinais, com CTAs específicos (`/app/relatorios?cat=...`, `/app/metas/:id`).
+- No prompt da IA: passar esses sinais e pedir para **variar o ângulo** (comparativo vs mês anterior, projeção, hábito) e **não repetir** títulos das últimas 5 dicas do usuário (passar `recent_titles` no user message).
+- Ao gerar (com ou sem `force`), inserir sempre uma **nova** dica em vez de reaproveitar cache quando `recent_titles` estiver saturado (>3 dicas ativas ainda visíveis).
 
-#### 4. Regras para não ser genérico
-- Só mostrar highlight se houver base mínima de dados no período.
-- Não sugerir cortar categorias sensíveis/obrigatórias como dívida, moradia ou saúde; nesses casos, a dica será de revisão/renegociação/organização, não “reduzir X%”.
-- Usar valores reais do período e percentuais reais.
-- Quando não houver dados suficientes, mostrar estado vazio amigável e factual.
+### C. Assessor + WhatsApp — dicas viram ferramenta do agente
+- Nova tool compartilhada em `supabase/functions/_shared/agent/tools.ts`:
+  - `get_daily_insights(ctx)` → lê últimas dicas ativas do `user_insights` (filtra vencidas), devolve `[{title, body, cta_route, type, evidence_summary}]`.
+  - `get_spending_highlights(ctx)` → reusa a mesma agregação usada pelo `insights-generate` (extrair para `_shared/insights/facts.ts` importável por edge e por tool) e devolve top categorias, crescimento, hotspot, streak.
+- Registrar as duas em `openAIToolDefinitions()` e no roteamento de intents em `IntentRouter.ts` (intents `pedir_dica`, `resumo_do_mes`, `highlights`).
+- Ampliar system prompt do agente (`_shared/agent/prompt.ts`) com uma linha: "Quando o usuário pedir dica, resumo ou insights, use `get_daily_insights`/`get_spending_highlights` antes de responder. Nunca invente números."
+- Fallback determinístico (`DeterministicFallback.ts`): mapear frases "me dá uma dica", "qual seu highlight", "resumo do mês" para chamar essas tools direto quando IA off.
 
-#### 5. Testes e aceite
-- Adicionar testes em `src/test/reports-aggregations.test.ts` para:
-  - percentual por categoria;
-  - geração dos 3 highlights;
-  - não sugerir corte genérico em categorias essenciais;
-  - cálculo de economia simulada em categoria ajustável.
-- Validar visualmente em viewport mobile semelhante ao print para confirmar:
-  - sem overflow horizontal;
-  - datas cabendo na tela;
-  - categorias com percentuais legíveis;
-  - módulo final com 3 highlights úteis.
+### D. Testes e observabilidade
+- Novos testes:
+  - `assistant-tip-rotation.test.ts` — 3 dicas ativas, avança índice, feedback dismissiona, exaustão mostra estado friendly.
+  - `insights-facts-behavioral.test.ts` — sinais novos (`top_expense_category_pct`, `weekday_hotspot`, `days_without_entry`) calculam corretamente com fixture.
+  - `agent-tool-insights.test.ts` — `get_daily_insights` e `get_spending_highlights` retornam formato esperado e respeitam `user_id`.
+- Log `event: "rotation_exhausted"` no cliente (via `console.info`) e `event: "insight_via_tool"` nas tools do agente.
 
-### Arquivos previstos
-- `src/pages/Relatorios.tsx`
-- `src/lib/reports/aggregations.ts`
-- `src/test/reports-aggregations.test.ts`
-- `src/index.css`
+## Fora do escopo
+- Não mexer em Pulso, KPIs, contabilidade, categorias, metas.
+- Sem nova migration (usa colunas existentes de `user_insights`).
+- Sem novo modelo de IA — segue `google/gemini-2.5-flash` no `insights-generate`.
+
+## Detalhes técnicos
+
+**Arquivos que mudam**
+- `src/components/home/AssistantTipCard.tsx` — rotação + estado exausto.
+- `src/lib/insights/fallbacks.ts` + `supabase/functions/_shared/insights/fallbacks.ts` — novos candidatos comportamentais (manter espelhados).
+- `supabase/functions/_shared/insights/facts.ts` (novo) — cálculo compartilhado dos sinais comportamentais; consumido por `insights-generate` e pelas tools do agente.
+- `supabase/functions/insights-generate/index.ts` — usa novos sinais, passa `recent_titles` no prompt, sempre insere nova linha quando `force` ou quando não há dica "não vista" recente.
+- `supabase/functions/_shared/agent/tools.ts` — 2 novas tools + JSON schema.
+- `supabase/functions/_shared/agent/prompt.ts` — instrução curta sobre novas tools.
+- `supabase/functions/_shared/agent/core/IntentRouter.ts` + `DeterministicFallback.ts` — roteamento das novas intents.
+- `src/test/*` — novos arquivos de teste; ajustar `insights-fallbacks.test.ts` para novos candidatos.
+
+**Deploy no final**
+- Edge Functions: `insights-generate`, `agent-chat`, `whatsapp-webhook`.
+- Publicar frontend.
+
+## Critérios de aceite
+1. Na Home, dá para navegar entre pelo menos 3 dicas diferentes sem repetir; após 👍/👎 a dica some da rotação.
+2. Quando não sobra dica nova, aparece a mensagem "Por hoje é só 🌱 …" com botão Nova dica funcional.
+3. Ao perguntar no Assessor "me dá uma dica pra hoje" e "qual foi meu maior gasto do mês", o agente responde com dados reais (via nova tool), sem inventar valores.
+4. Mesma pergunta no WhatsApp devolve a mesma dica/highlight.
+5. `npm test` verde, build sem erros, deploys confirmados.
