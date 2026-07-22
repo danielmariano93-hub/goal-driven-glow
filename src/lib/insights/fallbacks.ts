@@ -25,6 +25,12 @@ export interface InsightFacts {
   has_credit_card?: boolean;
   upcoming_recurring_7d?: number;
   top_expense_category?: string | null;
+  top_expense_category_pct?: number;
+  category_growth?: { name: string; growth_pct: number } | null;
+  weekday_hotspot?: { weekday: number; label: string; pct: number } | null;
+  merchant_repeat?: { name: string; occurrences: number; total: number } | null;
+  days_without_entry?: number;
+  goal_pace?: { name: string; progress_pct: number; time_pct: number; ahead: boolean } | null;
   uncategorized_tx?: { id: string; description: string | null; amount: number; occurred_at: string } | null;
 }
 
