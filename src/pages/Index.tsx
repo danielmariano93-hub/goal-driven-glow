@@ -25,11 +25,11 @@ import {
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
-import { MetricTile } from "@/components/home/MetricTile";
+import { RitmoCard } from "@/components/home/RitmoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
 import { PulseHero } from "@/components/home/PulseHero";
-import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
+import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
@@ -162,26 +162,8 @@ export default function Index() {
   const hasGoal = (goals ?? []).length > 0;
   const isFresh = !hasAccount && !hasTransaction && !hasGoal;
 
-  const dailyCompare =
-    daily.deltaPct == null
-      ? "Sem base de comparação ainda."
-      : daily.trend === "down"
-        ? "Menor que no mesmo período anterior."
-        : daily.trend === "up"
-          ? "Maior que no mesmo período anterior."
-          : "No mesmo ritmo do período anterior.";
-
-  const cardCompare =
-    card.deltaPct == null
-      ? "Sem base de comparação ainda."
-      : card.trend === "up"
-        ? "Atenção ao ritmo desta semana."
-        : card.trend === "down"
-          ? "Melhor que o mesmo período anterior."
-          : "Ritmo estável em relação ao período anterior.";
-
   return (
-    <div className="mx-auto w-full max-w-md space-y-4 md:max-w-2xl">
+    <div className="mx-auto w-full max-w-md space-y-5 md:max-w-2xl" data-surface="home">
       <HomeHeader />
 
       <PeriodPicker
@@ -210,53 +192,26 @@ export default function Index() {
         loading={loading}
       />
 
-      <div className="grid grid-cols-2 gap-2.5">
-        <MetricTile
-          title="Gasto médio/dia"
-          value={daily.current.avg}
-          trend={daily.trend}
-          deltaPct={daily.deltaPct}
-          compareLabel={dailyCompare}
-          ctaLabel="Ver detalhes"
-          ctaTo="/app/relatorios"
-          loading={loading}
-        />
-        <MetricTile
-          title="Gastos no cartão"
-          value={card.current}
-          trend={card.trend}
-          deltaPct={card.deltaPct}
-          compareLabel={cardCompare}
-          ctaLabel="Ver cartões"
-          ctaTo="/app/cartoes"
-          loading={loading}
-        />
-      </div>
+      <RitmoCard
+        daily={{ value: daily.current.avg, trend: daily.trend, deltaPct: daily.deltaPct }}
+        card={{ value: card.current, trend: card.trend, deltaPct: card.deltaPct }}
+        loading={loading}
+      />
 
-      <div>
-        <p className="mb-1.5 pl-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-          Sua próxima melhor ação
-        </p>
-        <AssistantTipCard />
-      </div>
+      <AssistantTipCard />
 
       <QuickActions />
 
-      <div>
-        <p className="mb-1.5 pl-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-          Sua evolução financeira
-        </p>
-        <PulseHero />
-      </div>
+      <PulseHero />
 
       {loading ? (
-        <div className="grid place-items-center py-8">
+        <div className="grid place-items-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
-        <PonteCaixaCard
+        <PrevisaoFechamentoCard
           income={periodSummary.income}
           expense={periodSummary.expense}
           closing={nw.cash}

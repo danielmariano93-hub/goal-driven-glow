@@ -37,11 +37,18 @@ export function BottomTabBar() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card/90 backdrop-blur-xl border-t border-border md:hidden">
-      <div className="flex items-center justify-around h-[58px] max-w-lg mx-auto px-2">
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur-xl md:hidden"
+      style={{
+        background: "rgba(255,255,255,0.92)",
+        borderTop: "1px solid var(--home-hairline)",
+      }}
+    >
+      <div className="flex items-center justify-around h-[56px] max-w-lg mx-auto px-2">
         {tabs.map((tab) => {
           const active = isActive(tab.path);
           const Icon = tab.icon;
+          const color = active ? "var(--home-brand-violet)" : "#827C8B";
           return (
             <button
               key={tab.path}
@@ -49,8 +56,8 @@ export function BottomTabBar() {
               className="flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors"
               aria-current={active ? "page" : undefined}
             >
-              <Icon size={20} strokeWidth={active ? 2.3 : 1.6} className={active ? "text-primary" : "text-muted-foreground"} />
-              <span className={`text-[10px] font-medium leading-tight ${active ? "text-primary" : "text-muted-foreground"}`}>
+              <Icon size={20} strokeWidth={active ? 2.2 : 1.6} style={{ color }} />
+              <span className="text-[10px] font-medium leading-tight" style={{ color }}>
                 {tab.label}
               </span>
             </button>
