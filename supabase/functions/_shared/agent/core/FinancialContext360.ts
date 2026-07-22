@@ -4,13 +4,15 @@
 // loading everything eagerly.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { get_financial_summary, list_accounts, list_credit_cards, list_recent_transactions } from "../tools.ts";
+import { get_financial_summary, get_financial_snapshot, list_accounts, list_credit_cards, list_recent_transactions, list_category_spending_goals } from "../tools.ts";
 
 export type Snapshot360 = {
   summary?: unknown;
   accounts?: unknown;
   cards?: unknown;
   recent?: unknown;
+  metrics?: unknown;
+  categoryGoals?: unknown;
 };
 
 export type ContextRequest = {
@@ -18,6 +20,8 @@ export type ContextRequest = {
   accounts?: boolean;
   cards?: boolean;
   recent?: number | boolean;
+  metrics?: boolean;
+  categoryGoals?: boolean;
 };
 
 export async function buildSnapshot(
@@ -36,6 +40,8 @@ export async function buildSnapshot(
     const limit = typeof req.recent === "number" ? req.recent : 5;
     tasks.push(list_recent_transactions(ctx, { limit }).then(r => { if (r.ok) out.recent = r.result; }));
   }
+  if (req.metrics) tasks.push(get_financial_snapshot(ctx).then(r => { if (r.ok) out.metrics = r.result; }));
+  if (req.categoryGoals) tasks.push(list_category_spending_goals(ctx).then(r => { if (r.ok) out.categoryGoals = r.result; }));
   await Promise.all(tasks);
   return out;
 }
