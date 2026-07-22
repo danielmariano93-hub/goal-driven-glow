@@ -1,39 +1,24 @@
-import { useMemo, useState } from "react";
-import {
-  formatBRL,
-  computeAvailableUntil,
-  type TransactionRow,
-  type AccountRow,
-  type RecurringRow,
-  type AccountBalanceSnapshotRow,
-} from "@/lib/engine/facts";
+import { useState } from "react";
+import { formatBRL } from "@/lib/engine/facts";
 import { PatrimonioSheet } from "./PatrimonioSheet";
 
 type Props = {
-  accounts: AccountRow[];
-  txs: TransactionRow[];
-  recurring: RecurringRow[];
-  snapshots: AccountBalanceSnapshotRow[];
-  endDate: string;
-  periodLabel: string;
+  available: number;
   netWorth: number;
   cash: number;
   cardsOwed: number;
   invested: number;
   otherDebts: number;
+  periodLabel: string;
   loading?: boolean;
 };
 
 export function HeroDisponivelCard(p: Props) {
   const [openSheet, setOpenSheet] = useState(false);
-  const res = useMemo(
-    () => computeAvailableUntil({ accounts: p.accounts, txs: p.txs, recurring: p.recurring, snapshots: p.snapshots, endDate: p.endDate }),
-    [p.accounts, p.txs, p.recurring, p.snapshots, p.endDate],
-  );
   return (
     <>
       <section
-        aria-label="Disponível até o fim do período"
+        aria-label="Disponível hoje"
         className="relative overflow-hidden rounded-[24px] bg-gradient-hero p-5 text-white"
         style={{ boxShadow: "var(--shadow-hero)", minHeight: 172 }}
       >
@@ -48,10 +33,10 @@ export function HeroDisponivelCard(p: Props) {
             className="mt-2 font-display font-extrabold tabular-nums text-white"
             style={{ fontSize: 34, lineHeight: 1.05, letterSpacing: "-0.035em" }}
           >
-            {p.loading ? "—" : formatBRL(res.available)}
+            {p.loading ? "—" : formatBRL(p.available)}
           </p>
           <p className="mt-1 truncate text-[12px] leading-snug text-white/78">
-            Depois da fatura e dos compromissos já conhecidos.
+            Saldo real em conta agora, sem descontar fatura futura.
           </p>
 
           <div

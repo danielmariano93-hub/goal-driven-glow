@@ -1,24 +1,29 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
-import { formatBRL, round2 } from "@/lib/engine/facts";
+import { formatBRL } from "@/lib/engine/facts";
 
 type Props = {
-  income: number;
-  expense: number;
-  closing: number;
-  periodLabel: string;
+  projectedMonthEndAvailable: number;
+  monthToDateAverageConsumption: number;
+  daysRemainingInMonth: number;
+  projectedRemainingConsumption: number;
 };
 
 /**
- * Previsão de fechamento: mostra primeiro a conclusão (saldo final).
- * Reaproveita exatamente os totais já calculados em Index.tsx — sem recálculo.
+ * Projeção fim de mês — mostra o saldo projetado (disponível hoje + entradas
+ * confirmadas − compromissos − fatura − consumo projetado). Números vêm do
+ * FinancialSnapshot, nunca recalculados aqui.
  */
-export function PrevisaoFechamentoCard({ income, expense, closing }: Props) {
-  const delta = round2(income - expense);
-  const positive = delta >= 0;
+export function PrevisaoFechamentoCard({
+  projectedMonthEndAvailable,
+  monthToDateAverageConsumption,
+  daysRemainingInMonth,
+  projectedRemainingConsumption,
+}: Props) {
+  const positive = projectedMonthEndAvailable >= 0;
   return (
     <section
-      aria-label="Previsão de fechamento"
+      aria-label="Projeção fim de mês"
       className="rounded-[20px] bg-[color:var(--home-surface)] px-4 py-4"
       style={{ border: "1px solid var(--home-hairline)" }}
     >
@@ -26,10 +31,10 @@ export function PrevisaoFechamentoCard({ income, expense, closing }: Props) {
         className="text-[10px] font-bold uppercase"
         style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}
       >
-        Previsão de fechamento
+        Projeção fim de mês
       </p>
       <p className="mt-1 text-[12px]" style={{ color: "var(--home-text-2)" }}>
-        Seu mês deve fechar em
+        Seu mês deve encerrar com
       </p>
       <p
         className="mt-0.5 font-display font-extrabold tabular-nums"
@@ -40,10 +45,10 @@ export function PrevisaoFechamentoCard({ income, expense, closing }: Props) {
           color: positive ? "var(--home-pos)" : "var(--home-neg)",
         }}
       >
-        {formatBRL(closing)}
+        {formatBRL(projectedMonthEndAvailable)}
       </p>
       <p className="mt-1.5 text-[11px] tabular-nums" style={{ color: "var(--home-text-2)" }}>
-        {formatBRL(income)} entraram · {formatBRL(expense)} saíram
+        Ritmo atual {formatBRL(monthToDateAverageConsumption)}/dia · {daysRemainingInMonth} dia(s) restantes · projeção de consumo {formatBRL(projectedRemainingConsumption)}
       </p>
       <div className="mt-2.5">
         <Link

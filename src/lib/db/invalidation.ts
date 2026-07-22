@@ -20,6 +20,8 @@ export function invalidateFinancialQueries(qc: QueryClient) {
     ["contributions"],
     ["credit-cards"],
     ["recurring"],
+    ["category_spending_goals"],
+    ["financial-snapshot"],
   ] as const;
   for (const key of keys) qc.invalidateQueries({ queryKey: key as unknown as readonly unknown[] });
 }
