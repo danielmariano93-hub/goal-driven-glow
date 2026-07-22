@@ -1,12 +1,9 @@
 import { Outlet } from 'react-router-dom';
-import { Eye, EyeOff, LogOut } from 'lucide-react';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
-import { NotificationBell } from '@/components/NotificationBell';
 import { AssessorFab } from '@/components/assessor/AssessorFab';
 import { AssessorPanel } from '@/components/assessor/AssessorPanel';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
-import { useAuth } from '@/context/AuthContext';
 import { usePrivacyMode } from '@/context/PrivacyModeContext';
 
 /**
@@ -22,42 +19,16 @@ function GlobalAssessorPanel() {
 }
 
 export function AppLayout() {
-  const { profile, signOut } = useAuth();
-  const { valuesHidden, toggleValues } = usePrivacyMode();
+  const { valuesHidden } = usePrivacyMode();
   return (
     <AssessorProvider>
-      <div className="min-h-screen bg-background flex overflow-x-hidden">
+      <div className="min-h-screen flex overflow-x-hidden" style={{ background: "var(--home-bg)" }}>
         <DesktopSidebar />
         <main className="flex-1 min-w-0 overflow-x-hidden">
-          <div className="mx-auto w-full max-w-lg md:max-w-5xl px-4 md:px-8 pt-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pt-4 md:pb-10">
-            <div className="mb-4 flex min-w-0 items-center justify-between gap-2 md:mb-6">
-              <p className="min-w-0 flex-1 truncate font-display text-base font-semibold text-foreground sm:text-lg md:text-xl">
-                {profile?.display_name ? `Olá, ${profile.display_name}` : ""}
-              </p>
-              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                <button
-                  type="button"
-                  onClick={() => void toggleValues()}
-                  className="grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"
-                  aria-label={valuesHidden ? "Mostrar valores financeiros" : "Ocultar valores financeiros"}
-                  title={valuesHidden ? "Mostrar valores" : "Ocultar valores"}
-                >
-                  {valuesHidden ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-                <NotificationBell />
-                <button
-                  type="button"
-                  onClick={signOut}
-                  className="grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground sm:inline-flex sm:w-auto sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs sm:font-medium"
-                  aria-label="Sair"
-                >
-                  <LogOut size={14} /> <span className="hidden sm:inline">Sair</span>
-                </button>
-              </div>
-            </div>
-            {/* Reatividade do olho: remonta a rota atual sempre que a preferência
-                muda, garantindo que qualquer valor formatado pelo módulo puro
-                formatBRL/formatPrivateBRL seja refletido imediatamente. */}
+          <div className="mx-auto w-full max-w-lg md:max-w-2xl px-4 md:px-8 pt-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pt-4 md:pb-10">
+            {/* Cada rota é responsável pelo próprio cabeçalho.
+                Reatividade do olho: remonta a rota quando a preferência muda,
+                garantindo formatBRL/formatPrivateBRL atualizados. */}
             <div key={valuesHidden ? "priv-on" : "priv-off"}>
               <Outlet />
             </div>

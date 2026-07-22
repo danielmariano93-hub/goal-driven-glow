@@ -33,7 +33,6 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
     if (kind === "month") {
       setPeriod("month");
     } else if (kind === "30d") {
-      // "Últimos 7 dias" no spec — usamos 30d como suporte existente; adaptamos abaixo via custom.
       const end = new Date();
       const start = new Date();
       start.setDate(end.getDate() - 6);
@@ -41,7 +40,6 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
       setCustomEnd(iso(end));
       setPeriod("custom");
     } else if (kind === "90d") {
-      // "Mês anterior"
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const end = new Date(now.getFullYear(), now.getMonth(), 0);
@@ -60,16 +58,20 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
         type="button"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className="flex w-full items-center gap-3 rounded-[14px] border border-border bg-card px-4 py-3 text-left shadow-card"
+        className="flex w-full items-center gap-3 rounded-[14px] bg-[color:var(--home-surface)] px-3.5 text-left"
+        style={{ border: "1px solid var(--home-hairline)", height: 50 }}
       >
-        <span className="grid h-8 w-8 place-items-center rounded-full bg-muted text-primary">
-          <CalendarDays size={15} />
+        <span
+          className="grid h-7 w-7 place-items-center rounded-full"
+          style={{ background: "var(--home-surface-soft)", color: "var(--home-brand-violet)" }}
+        >
+          <CalendarDays size={14} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[11px] text-muted-foreground">Resumo financeiro</span>
-          <span className="block truncate text-sm font-semibold text-foreground">{label}</span>
+          <span className="block text-[11px]" style={{ color: "var(--home-text-2)" }}>Resumo financeiro</span>
+          <span className="block truncate text-[14px] font-semibold" style={{ color: "var(--home-text-1)" }}>{label}</span>
         </span>
-        <ChevronRight size={16} className="text-muted-foreground" />
+        <ChevronRight size={14} style={{ color: "var(--home-text-3)" }} />
       </button>
 
       <Sheet open={open} onOpenChange={setOpen}>

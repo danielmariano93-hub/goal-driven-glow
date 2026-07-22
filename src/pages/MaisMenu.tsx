@@ -12,8 +12,10 @@ import {
   Repeat,
   Trophy,
   BarChart3,
+  LogOut,
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
+import { useAuth } from "@/context/AuthContext";
 
 type Item = { path: string; label: string; desc: string; icon: any };
 
@@ -43,6 +45,7 @@ const account: Item[] = [
 
 export default function MaisMenu() {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
 
   return (
     <div className="space-y-6 pt-2 pb-8">
@@ -78,6 +81,23 @@ export default function MaisMenu() {
       <MoreGroup title={copy.more.sections.organize} items={organize} onGo={navigate} />
       <MoreGroup title={copy.more.sections.understand} items={understand} onGo={navigate} />
       <MoreGroup title={copy.more.sections.account} items={account} onGo={navigate} />
+
+      <section>
+        <button
+          type="button"
+          onClick={signOut}
+          className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-left shadow-card active:bg-secondary/50"
+        >
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-secondary text-primary">
+            <LogOut size={15} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">Sair</p>
+            <p className="text-[11px] text-muted-foreground">Encerrar sessão neste dispositivo</p>
+          </div>
+          <ChevronRight size={14} className="text-muted-foreground" />
+        </button>
+      </section>
     </div>
   );
 }

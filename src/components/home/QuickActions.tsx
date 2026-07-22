@@ -2,17 +2,16 @@ import { Link } from "react-router-dom";
 import { PlusCircle, Target, Calculator, LayoutGrid } from "lucide-react";
 
 /**
- * Ações rápidas — exatamente 4 colunas.
- * Anotar gasto | Guardar para meta | Antes de comprar | Mais ações
+ * Ações rápidas — quatro colunas nativas, sem minicards.
  */
 export function QuickActions() {
   return (
-    <div className="grid grid-cols-4 gap-2">
-      <Action to="/app/lancamentos" label="Anotar gasto" icon={<PlusCircle />} />
-      <Action to="/app/metas" label="Guardar p/ meta" icon={<Target />} />
-      <Action to="/app/planejamento" label="Antes de comprar" icon={<Calculator />} />
-      <Action to="/app/mais" label="Mais ações" icon={<LayoutGrid />} />
-    </div>
+    <nav aria-label="Ações rápidas" className="grid grid-cols-4 gap-2">
+      <Action to="/app/lancamentos" label="Anotar" icon={<PlusCircle />} />
+      <Action to="/app/metas" label="Guardar" icon={<Target />} />
+      <Action to="/app/planejamento" label={"Antes de\ncomprar"} icon={<Calculator />} />
+      <Action to="/app/mais" label="Mais" icon={<LayoutGrid />} />
+    </nav>
   );
 }
 
@@ -20,12 +19,20 @@ function Action({ to, label, icon }: { to: string; label: string; icon: React.Re
   return (
     <Link
       to={to}
-      className="flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-[14px] border border-border bg-card p-2 text-center text-[10.5px] font-medium leading-tight text-foreground shadow-card transition-colors hover:border-primary/40"
+      className="flex min-h-[88px] flex-col items-center justify-start gap-2 pt-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-lg"
     >
-      <span className="grid h-9 w-9 place-items-center rounded-[12px] bg-muted text-primary [&>svg]:h-4 [&>svg]:w-4">
+      <span
+        className="grid h-11 w-11 place-items-center rounded-full [&>svg]:h-5 [&>svg]:w-5"
+        style={{ background: "var(--home-quick-bg)", color: "var(--home-brand-violet)" }}
+      >
         {icon}
       </span>
-      <span className="line-clamp-2">{label}</span>
+      <span
+        className="whitespace-pre-line text-[11px] font-medium leading-tight"
+        style={{ color: "var(--home-text-1)" }}
+      >
+        {label}
+      </span>
     </Link>
   );
 }
