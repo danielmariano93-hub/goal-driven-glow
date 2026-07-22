@@ -26,10 +26,10 @@ export function AppLayout() {
   const { valuesHidden, toggleValues } = usePrivacyMode();
   return (
     <AssessorProvider>
-      <div className="min-h-screen bg-background flex">
+      <div className="min-h-screen bg-background flex overflow-x-hidden">
         <DesktopSidebar />
-        <main className="flex-1 min-w-0">
-          <div className="mx-auto w-full max-w-lg md:max-w-5xl px-4 md:px-8 pb-28 md:pb-10 md:pt-4">
+        <main className="flex-1 min-w-0 overflow-x-hidden">
+          <div className="mx-auto w-full max-w-lg md:max-w-5xl px-4 md:px-8 pt-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pt-4 md:pb-10">
             <div className="mb-4 flex min-w-0 items-center justify-between gap-2 md:mb-6">
               <p className="min-w-0 flex-1 truncate font-display text-base font-semibold text-foreground sm:text-lg md:text-xl">
                 {profile?.display_name ? `Olá, ${profile.display_name}` : ""}

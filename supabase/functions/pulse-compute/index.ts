@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
     const cutoff90 = new Date(today); cutoff90.setDate(cutoff90.getDate() - 90);
 
     // Buscar dados em paralelo.
-    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR] = await Promise.all([
+    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR] = await Promise.all([
       sb.from("transactions").select("id,type,status,amount,occurred_at,category_id,credit_card_id,payment_method,settles_card_id").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
       sb.from("accounts").select("id,opening_balance,active").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active").eq("user_id", userId).eq("active", true),
@@ -46,9 +46,10 @@ Deno.serve(async (req) => {
       sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", iso(cutoff30)),
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
       sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
+      sb.from("investments").select("goal_id,current_value").eq("user_id", userId),
     ]);
 
-    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR]
+    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR]
       .map((r, index) => ({ index, error: r.error }))
       .find((r) => r.error);
     if (failedRead?.error) throw new Error(`pulse_read_${failedRead.index}: ${failedRead.error.message}`);
@@ -61,6 +62,7 @@ Deno.serve(async (req) => {
     const contribs = (contribR.data ?? []) as Array<{ goal_id: string; amount: number | string }>;
     const emos = (emoR.data ?? []) as Array<{ occurred_at: string; transaction_id: string | null }>;
     const recurring = (recR.data ?? []) as Array<{ id: string; status: string; amount: number | string }>;
+    const investments = (invR.data ?? []) as Array<{ goal_id: string | null; current_value: number | string }>;
     const timezone = String(profileR.data?.timezone || "America/Sao_Paulo");
 
     const confirmed = txs.filter((t) => t.status === "confirmed" && t.type !== "transfer");
@@ -93,13 +95,19 @@ Deno.serve(async (req) => {
 
     const monthlyExpense30 = last30.filter((t) => t.type === "expense" && !isCardOrigin(t)).reduce((a, t) => a + Number(t.amount || 0), 0);
 
-    // Metas
+    // Metas — soma contribuições + valor atual de investimentos vinculados.
     const contribByGoal: Record<string, number> = {};
     for (const c of contribs) contribByGoal[c.goal_id] = (contribByGoal[c.goal_id] || 0) + Number(c.amount || 0);
+    const investedByGoal: Record<string, number> = {};
+    for (const i of investments) {
+      if (!i.goal_id) continue;
+      investedByGoal[i.goal_id] = (investedByGoal[i.goal_id] || 0) + Number(i.current_value || 0);
+    }
     const goalsPct = goals
       .map((g) => {
         const target = Number(g.target_amount) || 0;
-        return target > 0 ? Math.min(1, (contribByGoal[g.id] || 0) / target) : 0;
+        const total = (contribByGoal[g.id] || 0) + (investedByGoal[g.id] || 0);
+        return target > 0 ? Math.min(1, total / target) : 0;
       });
 
     const outstandingToday = debts.reduce((a, d) => a + Number(d.outstanding_balance || 0), 0);

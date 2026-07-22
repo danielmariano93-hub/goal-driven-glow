@@ -88,6 +88,7 @@ export function AssistantTipCard() {
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [lastForceAt, setLastForceAt] = useState(0);
+  const [nonce, setNonce] = useState(0);
 
   const { data: txs } = useAllTransactions();
   const { data: goals } = useGoals();
@@ -121,7 +122,11 @@ export function AssistantTipCard() {
       return;
     }
     setGenerating(true);
-    if (force) setLastForceAt(Date.now());
+    if (force) {
+      setLastForceAt(Date.now());
+      // Rotaciona também o fallback local imediatamente para dar sensação de "nova".
+      setNonce((n) => n + 1);
+    }
     try {
       const { data: generated, error } = await supabase.functions.invoke("insights-generate", { body: force ? { force: true } : {} });
       if (error) throw error;
@@ -131,7 +136,7 @@ export function AssistantTipCard() {
         throw new Error("insight_not_returned");
       }
     } catch (e) {
-      if (force) toast.error("Não consegui criar uma nova dica agora", { description: "Sua dica atual continua disponível. Tente novamente em instantes." });
+      if (force) toast.message("Aqui vai outra ideia pra você.");
       console.warn("[insights-generate]", (e as Error).message);
     } finally {
       setGenerating(false);
@@ -154,7 +159,16 @@ export function AssistantTipCard() {
   };
 
   // Determine payload: server insight, else local fallback (never empty).
-  const localFallback: InsightPayload = useMemo(() => pickFallback(facts), [facts]);
+  // Anti-repetição: guardamos a chave da última dica local mostrada para
+  // que o fallback rotacione entre cenários elegíveis quando o usuário
+  // pedir "Nova dica" repetidamente sem que o contexto tenha mudado.
+  const localFallback: InsightPayload = useMemo(() => {
+    const lastKey = typeof window !== "undefined" ? sessionStorage.getItem("noc:last-tip") : null;
+    const p = pickFallback(facts, { skipKey: lastKey ?? undefined });
+    if (typeof window !== "undefined") sessionStorage.setItem("noc:last-tip", `${p.type}:${p.title}`);
+    return p;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facts, nonce]);
   const usingLocal = !isRenderable(data);
   const title = usingLocal ? localFallback.title : data!.title;
   const body = usingLocal ? localFallback.body : data!.body;

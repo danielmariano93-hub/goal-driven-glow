@@ -370,12 +370,24 @@ export function computeCategoryBreakdown(
     .sort((a, b) => b.amount - a.amount);
 }
 
-export function computeGoalProgress(goal: GoalRow, contributions: GoalContributionRow[]) {
+export function computeGoalProgress(
+  goal: GoalRow,
+  contributions: GoalContributionRow[],
+  investments: Array<{ goal_id: string | null; current_value: number | string }> = [],
+) {
   const relevant = contributions.filter((c) => c.goal_id === goal.id);
-  const contributed = sumBy(relevant, (c) => Number(c.amount));
-  const remaining = round2(Math.max(0, Number(goal.target_amount) - contributed));
-  const pct = goal.target_amount > 0 ? Math.min(1, contributed / Number(goal.target_amount)) : 0;
-  return { contributed, remaining, pct };
+  const contributed = round2(sumBy(relevant, (c) => Number(c.amount)));
+  const investedLinked = round2(
+    sumBy(
+      investments.filter((i) => i.goal_id === goal.id),
+      (i) => Number(i.current_value ?? 0),
+    ),
+  );
+  const total = round2(contributed + investedLinked);
+  const target = Number(goal.target_amount) || 0;
+  const remaining = round2(Math.max(0, target - total));
+  const pct = target > 0 ? Math.min(1, total / target) : 0;
+  return { contributed, investedLinked, total, remaining, pct };
 }
 
 export function computeNetWorth(
