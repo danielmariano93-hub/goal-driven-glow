@@ -21,7 +21,31 @@ import { computeDailyAverageComparison, computeCardSpendingComparison, daysInclu
 
 export type CategoryGoalMode = "percent_reduction" | "fixed_limit";
 export type CategoryGoalBaselineKind = "prev_month" | "avg_3m" | "custom";
-export type CategoryGoalStatus = "on_track" | "attention" | "at_risk" | "exceeded";
+export type CategoryGoalPeriodType =
+  | "this_month"
+  | "next_month"
+  | "next_30_days"
+  | "custom"
+  | "monthly_recurring";
+
+/**
+ * Status priorizado (ordem de precedência descendente):
+ *   paused/cancelled > scheduled > exceeded > limit_reached >
+ *   completed_ok/completed_over > at_risk > attention > on_track
+ * Uma meta cuja soma real já ultrapassou o limite jamais pode aparecer como
+ * "on_track" ou "attention".
+ */
+export type CategoryGoalStatus =
+  | "on_track"
+  | "attention"
+  | "at_risk"
+  | "exceeded"
+  | "scheduled"
+  | "limit_reached"
+  | "completed_ok"
+  | "completed_over"
+  | "paused"
+  | "cancelled";
 
 export interface CategorySpendingGoalRow {
   id: string;
@@ -37,26 +61,49 @@ export interface CategorySpendingGoalRow {
   start_date: string;
   end_date: string | null;
   status: "active" | "paused" | "cancelled";
+  period_type?: CategoryGoalPeriodType;
+  recurrence_end_date?: string | null;
+  timezone?: string;
   alerts?: unknown;
 }
 
 export interface CategoryGoalEvaluation {
   goal: CategorySpendingGoalRow;
   period: DateRange;
+  periodType: CategoryGoalPeriodType;
   categoryName?: string;
+
+  // Contrato oficial (nomes canônicos)
+  baselineAmount: number;
+  targetAmount: number;
+  actualSpend: number;
+  remainingAmount: number;
+  percentageUsed: number; // 0..1 (utilização real, sem clamp)
+  elapsedDays: number;
+  totalDays: number;
+  remainingDays: number;
+  currentDailyRate: number;
+  projectedFinalSpend: number;
+  projectedDifference: number; // target - projected
+  projectedOverage: number; // max(0, projected - target)
+  currentOverage: number; // max(0, actual - target)
+  dailyAllowance: number;
+  requiredDailyReduction: number;
+  status: CategoryGoalStatus;
+  message: string;
+  calculationReferenceDate: string;
+  includedTransactionCount: number;
+  projectionMethod: "linear" | "weekday_weighted";
+
+  // Aliases legados (mantidos para não quebrar consumidores existentes)
   spent: number;
   limit: number;
-  utilizationPct: number; // spent/limit
+  utilizationPct: number; // clampado 0..1 para barra
   daysElapsed: number;
   daysTotal: number;
   daysRemaining: number;
-  dailyAllowance: number; // (limit - spent)/daysRemaining
-  currentDailyPace: number; // spent/daysElapsed
-  projectedSpend: number; // pace × daysTotal
-  projectedOverspend: number; // max(0, projected - limit)
-  requiredDailyReduction: number; // max(0, (projected - limit)/daysRemaining)
-  status: CategoryGoalStatus;
-  message: string;
+  projectedSpend: number;
+  projectedOverspend: number;
 }
 
 export interface FinancialSnapshotInput {
@@ -93,18 +140,106 @@ export interface FinancialSnapshot {
   topCategoryGoal: CategoryGoalEvaluation | null;
 }
 
-function inMonthRange(today: Date): DateRange {
-  const start = new Date(today.getFullYear(), today.getMonth(), 1);
-  const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+function monthRangeOf(d: Date): DateRange {
+  const start = new Date(d.getFullYear(), d.getMonth(), 1);
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
   return { start: todayISO(start), end: todayISO(end) };
 }
 
-function classifyStatus(utilizationPct: number, daysProgressPct: number): CategoryGoalStatus {
-  if (utilizationPct >= 1) return "exceeded";
-  const drift = utilizationPct - daysProgressPct;
-  if (drift >= 0.25) return "at_risk";
-  if (drift >= 0.1) return "attention";
+/**
+ * Resolve o período efetivo da meta considerando `period_type` e a data atual.
+ * Para `monthly_recurring`, retorna o ciclo do mês corrente (ou próximo, se a
+ * meta ainda não começou), respeitando `recurrence_end_date`.
+ */
+export function resolveGoalPeriod(goal: CategorySpendingGoalRow, today: Date): DateRange {
+  const type: CategoryGoalPeriodType = (goal.period_type as CategoryGoalPeriodType | undefined) ??
+    (goal.end_date ? "custom" : "monthly_recurring");
+
+  const todayIso = todayISO(today);
+
+  if (type === "monthly_recurring") {
+    const anchor = new Date(Math.max(new Date(goal.start_date + "T00:00:00").getTime(), today.getTime()));
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    // Se o mês de hoje é anterior ao start_date da meta, usa o próprio mês do start.
+    if (todayIso < goal.start_date) {
+      const gs = new Date(goal.start_date + "T00:00:00");
+      return {
+        start: todayISO(new Date(gs.getFullYear(), gs.getMonth(), 1)),
+        end: todayISO(new Date(gs.getFullYear(), gs.getMonth() + 1, 0)),
+      };
+    }
+    return { start: todayISO(start), end: todayISO(end) };
+  }
+
+  // Casos com datas explícitas (this_month, next_month, next_30_days, custom):
+  // usa exatamente o que veio persistido em start_date/end_date.
+  return {
+    start: goal.start_date,
+    end: goal.end_date ?? goal.start_date,
+  };
+}
+
+function statusPriority(
+  goal: CategorySpendingGoalRow,
+  today: Date,
+  period: DateRange,
+  actualSpend: number,
+  limit: number,
+  projected: number,
+): CategoryGoalStatus {
+  if (goal.status === "cancelled") return "cancelled";
+  if (goal.status === "paused") return "paused";
+  const todayIso = todayISO(today);
+  if (todayIso < period.start) return "scheduled";
+  // Prioridade absoluta: ultrapassada mata qualquer projeção
+  if (actualSpend > limit) {
+    return todayIso > period.end ? "completed_over" : "exceeded";
+  }
+  if (todayIso > period.end) return actualSpend <= limit ? "completed_ok" : "completed_over";
+  if (actualSpend === limit) return "limit_reached";
+  // Ainda dentro do período e abaixo do limite: olha projeção
+  const overage = Math.max(0, projected - limit);
+  if (overage > limit * 0.1) return "at_risk";
+  if (overage > 0) return "attention";
   return "on_track";
+}
+
+function statusMessage(
+  status: CategoryGoalStatus,
+  name: string,
+  currentOverage: number,
+  projectedOverage: number,
+  projected: number,
+  dailyAllowance: number,
+  requiredDailyReduction: number,
+  daysRemaining: number,
+  periodEnd: string,
+): string {
+  const brl = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
+  switch (status) {
+    case "scheduled":
+      return `Começa em ${new Date(periodEnd + "T00:00:00").toLocaleDateString("pt-BR")}.`;
+    case "paused":
+      return `Meta de ${name} está pausada.`;
+    case "cancelled":
+      return `Meta de ${name} foi cancelada.`;
+    case "exceeded":
+      return `Você ultrapassou o limite em ${brl(currentOverage)}. Novos gastos aumentarão o excesso.`;
+    case "limit_reached":
+      return `Você atingiu o limite e ainda faltam ${daysRemaining} dia(s).`;
+    case "completed_ok":
+      return `Você encerrou o período dentro do limite em ${name}.`;
+    case "completed_over":
+      return `O período terminou ${brl(currentOverage)} acima da meta.`;
+    case "at_risk":
+      return `Para ficar dentro da meta, reduza aprox. ${brl(requiredDailyReduction)} por dia.`;
+    case "attention":
+      return `No ritmo atual, você pode ultrapassar a meta em ${brl(projectedOverage)}.`;
+    case "on_track":
+    default:
+      return `No ritmo atual, você deve terminar em ${brl(projected)}.`;
+  }
 }
 
 export function evaluateCategoryGoal(
@@ -113,66 +248,109 @@ export function evaluateCategoryGoal(
   today: Date,
   categoryName?: string,
 ): CategoryGoalEvaluation {
-  const monthRange = inMonthRange(today);
-  const period: DateRange = {
-    start: goal.start_date > monthRange.start ? goal.start_date : monthRange.start,
-    end: goal.end_date && goal.end_date < monthRange.end ? goal.end_date : monthRange.end,
-  };
+  const period = resolveGoalPeriod(goal, today);
   const todayIso = todayISO(today);
-  const daysTotal = Math.max(1, daysInclusive(period.start, period.end));
-  const daysElapsed = Math.min(daysTotal, Math.max(1, daysInclusive(period.start, todayIso)));
-  const daysRemaining = Math.max(0, daysTotal - daysElapsed);
+  const totalDays = Math.max(1, daysInclusive(period.start, period.end));
 
-  let spent = 0;
+  // Data de referência: menor entre hoje e fim do período
+  const referenceIso = todayIso < period.end ? todayIso : period.end;
+  const elapsedDays = todayIso < period.start
+    ? 0
+    : Math.min(totalDays, daysInclusive(period.start, referenceIso));
+  const remainingDays = todayIso < period.start
+    ? totalDays
+    : todayIso >= period.end
+      ? 0
+      : Math.max(0, totalDays - elapsedDays);
+
+  // Soma real de despesas comportamentais da categoria no período
+  let actualSpend = 0;
+  let includedTransactionCount = 0;
   for (const t of txs) {
     if (t.category_id !== goal.category_id) continue;
     if (t.type !== "expense") continue;
     if (!isRealMonthlyMovement(t)) continue;
     if (t.occurred_at < period.start || t.occurred_at > period.end) continue;
-    spent += Number(t.amount || 0);
+    actualSpend += Number(t.amount || 0);
+    includedTransactionCount += 1;
   }
-  spent = round2(Math.max(0, spent));
+  actualSpend = round2(Math.max(0, actualSpend));
 
   const limit = round2(Number(goal.computed_limit || 0));
-  const utilizationPct = limit > 0 ? spent / limit : 0;
-  const daysProgressPct = daysTotal > 0 ? daysElapsed / daysTotal : 0;
-  const currentDailyPace = round2(spent / daysElapsed);
-  const projectedSpend = round2(currentDailyPace * daysTotal);
-  const projectedOverspend = round2(Math.max(0, projectedSpend - limit));
-  const remainingBudget = round2(Math.max(0, limit - spent));
-  const dailyAllowance = daysRemaining > 0 ? round2(remainingBudget / daysRemaining) : 0;
-  const requiredDailyReduction = daysRemaining > 0 && projectedOverspend > 0
-    ? round2(projectedOverspend / daysRemaining)
-    : 0;
-  const status = classifyStatus(utilizationPct, daysProgressPct);
+  const baselineAmount = round2(Number(goal.baseline_value ?? 0));
+  const remainingAmount = round2(limit - actualSpend);
+  const percentageUsed = limit > 0 ? round2(actualSpend / limit) : 0;
 
-  const name = categoryName ?? "categoria";
-  const message =
-    status === "exceeded"
-      ? `Você já ultrapassou o limite em ${name}.`
-      : status === "at_risk"
-      ? `Ritmo de ${name} projeta estouro; ajuste ${dailyAllowance > 0 ? `para ~R$ ${dailyAllowance.toFixed(2)}/dia` : "agora"}.`
-      : status === "attention"
-      ? `Atenção com ${name}: ritmo levemente acima do plano.`
-      : `Você está no ritmo em ${name}.`;
+  const currentDailyRate = elapsedDays > 0 ? round2(actualSpend / elapsedDays) : 0;
+
+  // Projeção linear (garantindo nunca menor que o já gasto)
+  const projectedLinear = elapsedDays > 0
+    ? round2(actualSpend + currentDailyRate * remainingDays)
+    : actualSpend;
+  const projectedFinalSpend = Math.max(actualSpend, projectedLinear);
+  const projectedDifference = round2(limit - projectedFinalSpend);
+  const projectedOverage = round2(Math.max(0, projectedFinalSpend - limit));
+  const currentOverage = round2(Math.max(0, actualSpend - limit));
+
+  const remainingBudget = Math.max(0, limit - actualSpend);
+  const dailyAllowance = actualSpend >= limit || remainingDays === 0
+    ? 0
+    : round2(remainingBudget / remainingDays);
+
+  const allowedRemainingRate = remainingDays > 0 ? remainingBudget / remainingDays : 0;
+  const requiredDailyReduction = projectedOverage > 0 && remainingDays > 0
+    ? round2(Math.max(0, currentDailyRate - allowedRemainingRate))
+    : 0;
+
+  const status = statusPriority(goal, today, period, actualSpend, limit, projectedFinalSpend);
+  const message = statusMessage(
+    status,
+    categoryName ?? "categoria",
+    currentOverage,
+    projectedOverage,
+    projectedFinalSpend,
+    dailyAllowance,
+    requiredDailyReduction,
+    remainingDays,
+    period.end,
+  );
+
+  const utilClamped = Math.min(1, Math.max(0, percentageUsed));
 
   return {
     goal,
     period,
+    periodType: (goal.period_type as CategoryGoalPeriodType | undefined) ?? "monthly_recurring",
     categoryName,
-    spent,
-    limit,
-    utilizationPct: round2(utilizationPct),
-    daysElapsed,
-    daysTotal,
-    daysRemaining,
+    baselineAmount,
+    targetAmount: limit,
+    actualSpend,
+    remainingAmount,
+    percentageUsed,
+    elapsedDays,
+    totalDays,
+    remainingDays,
+    currentDailyRate,
+    projectedFinalSpend,
+    projectedDifference,
+    projectedOverage,
+    currentOverage,
     dailyAllowance,
-    currentDailyPace,
-    projectedSpend,
-    projectedOverspend,
     requiredDailyReduction,
     status,
     message,
+    calculationReferenceDate: referenceIso,
+    includedTransactionCount,
+    projectionMethod: "linear",
+    // Aliases legados
+    spent: actualSpend,
+    limit,
+    utilizationPct: utilClamped,
+    daysElapsed: elapsedDays,
+    daysTotal: totalDays,
+    daysRemaining: remainingDays,
+    projectedSpend: projectedFinalSpend,
+    projectedOverspend: projectedOverage,
   };
 }
 
@@ -209,23 +387,12 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const today = input.today ?? new Date();
   const todayIso = todayISO(today);
 
-  // Disponível hoje (não desconta fatura futura) = saldo em conta líquido atual.
   const availableToday = computeTotalCash(input.accounts, input.txs, input.snapshots);
-
-  const netWorth = computeNetWorth(
-    input.accounts,
-    input.txs,
-    input.investments,
-    input.debts,
-    input.snapshots,
-  );
-
+  const netWorth = computeNetWorth(input.accounts, input.txs, input.investments, input.debts, input.snapshots);
   const daily = computeDailyAverageComparison(input.txs, input.period);
   const card = computeCardSpendingComparison(input.txs, input.period);
 
-  // Projeção fim de mês: usa consumo médio do mês corrente até hoje × dias restantes
-  // + compromissos futuros conhecidos (recorrências + planned) - entradas futuras.
-  const monthRange = inMonthRange(today);
+  const monthRange = monthRangeOf(today);
   const monthToDateRange: DateRange = { start: monthRange.start, end: todayIso };
   const mtdExpense = computeBehavioralExpense(input.txs, monthToDateRange);
   const daysElapsed = Math.max(1, daysInclusive(monthRange.start, todayIso));
@@ -243,9 +410,6 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     today,
   });
 
-  // Compromissos e receitas futuras já vieram de computeAvailableUntil,
-  // mas queremos expor separadamente. A fatura atual JÁ está em availableUntil
-  // (deduzida); aqui projeção fim de mês subtrai adicionalmente o consumo projetado.
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
   const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
   const cardsOwed = computeCreditCardOutstanding(input.txs);
@@ -284,10 +448,24 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
 function pickTopGoal(list: CategoryGoalEvaluation[]): CategoryGoalEvaluation | null {
   if (list.length === 0) return null;
-  const rank = (s: CategoryGoalStatus) => ({ exceeded: 3, at_risk: 2, attention: 1, on_track: 0 } as const)[s];
+  const rank = (s: CategoryGoalStatus): number => {
+    switch (s) {
+      case "exceeded": return 5;
+      case "at_risk": return 4;
+      case "limit_reached": return 3;
+      case "attention": return 2;
+      case "on_track": return 1;
+      case "scheduled":
+      case "completed_ok":
+      case "completed_over":
+      case "paused":
+      case "cancelled":
+      default: return 0;
+    }
+  };
   return [...list].sort((a, b) => {
     const dr = rank(b.status) - rank(a.status);
     if (dr !== 0) return dr;
-    return b.utilizationPct - a.utilizationPct;
+    return b.percentageUsed - a.percentageUsed;
   })[0];
 }
