@@ -26,6 +26,42 @@ export const THRESHOLDS = {
   SUGGEST: 0.6,
 } as const;
 
+/** Thresholds efetivos, calibráveis via platform_public_config.
+ *  Preservam defaults quando a configuração está ausente/inválida. */
+export type EffectiveThresholds = {
+  AUTO: number;
+  SUGGEST: number;
+  per_source: { rule: number; history: number; alias: number; llm: number };
+};
+
+const DEFAULT_THRESHOLDS: EffectiveThresholds = {
+  AUTO: 0.85, SUGGEST: 0.6,
+  per_source: { rule: 0.75, history: 0.85, alias: 0.98, llm: 0.75 },
+};
+
+// deno-lint-ignore no-explicit-any
+export function parseThresholds(raw: any): EffectiveThresholds {
+  try {
+    const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const out: EffectiveThresholds = { ...DEFAULT_THRESHOLDS, per_source: { ...DEFAULT_THRESHOLDS.per_source } };
+    if (typeof v?.AUTO === "number" && v.AUTO >= 0 && v.AUTO <= 1) out.AUTO = v.AUTO;
+    if (typeof v?.SUGGEST === "number" && v.SUGGEST >= 0 && v.SUGGEST <= 1) out.SUGGEST = v.SUGGEST;
+    for (const k of ["rule", "history", "alias", "llm"] as const) {
+      const n = v?.per_source?.[k];
+      if (typeof n === "number" && n >= 0 && n <= 1) out.per_source[k] = n;
+    }
+    return out;
+  } catch { return DEFAULT_THRESHOLDS; }
+}
+
+// deno-lint-ignore no-explicit-any
+export async function loadEffectiveThresholds(sb: any): Promise<EffectiveThresholds> {
+  try {
+    const { data } = await sb.from("platform_public_config").select("value").eq("key", "categorization.thresholds").maybeSingle();
+    return parseThresholds(data?.value);
+  } catch { return DEFAULT_THRESHOLDS; }
+}
+
 const RULES: Array<{ pattern: RegExp; category: string }> = [
   { pattern: /\b(uber|99|cabify|indriver)\b/, category: "transporte" },
   { pattern: /\b(ifood|rappi|zé\s*delivery|ze\s*delivery|james)\b/, category: "alimentacao" },
@@ -113,8 +149,15 @@ export function decideCategoryDeterministic(input: {
       ?? decideByRule(input.description, input.candidates);
 }
 
-export function shouldAutoApply(decision: CategoryDecision | null): boolean {
-  return !!decision && decision.category_confidence >= THRESHOLDS.AUTO;
+export function shouldAutoApply(decision: CategoryDecision | null, thresholds?: EffectiveThresholds): boolean {
+  if (!decision) return false;
+  const T = thresholds ?? DEFAULT_THRESHOLDS;
+  const perSource = decision.category_source === "rule" ? T.per_source.rule
+    : decision.category_source === "history" ? T.per_source.history
+    : decision.category_source === "alias" ? T.per_source.alias
+    : decision.category_source === "llm" ? T.per_source.llm
+    : T.AUTO;
+  return decision.category_confidence >= Math.max(T.AUTO, perSource);
 }
 
 function round2(n: number) { return Math.round((n + Number.EPSILON) * 100) / 100; }

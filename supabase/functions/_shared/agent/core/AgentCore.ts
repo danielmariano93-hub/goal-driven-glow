@@ -379,6 +379,8 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   metrics.stages.total = Date.now() - t0;
 
   // ---- Decision log (best-effort) ---------------------------------------
+  metrics.intent = routed.intent.kind;
+  metrics.model = prompt?.model ?? null;
   await logDecision(sb, buildRecord({
     run_id: run_id ?? null,
     user_id: input.user_id, conversation_id: input.conversation_id,
@@ -388,6 +390,30 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     validations: validated.reasons,
     metrics, error: errorSanitized,
   }));
+
+  // ---- Turn event (observability unificada, App+WhatsApp) ---------------
+  try {
+    await sb.from("agent_turn_events").insert({
+      run_id: run_id ?? null,
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      channel: input.channel,
+      intent: routed.intent.kind,
+      tools_used: toolCallLog.map((c: any) => ({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok })),
+      formula_versions: metrics.formula_versions,
+      stages_ms: metrics.stages,
+      tokens_in: metrics.tokens_in || 0,
+      tokens_out: metrics.tokens_out || 0,
+      estimated_cost_usd: metrics.estimated_cost_usd,
+      model: metrics.model,
+      fallback_used: metrics.fallback_used,
+      artifact_id: metrics.artifact_id,
+      artifact_status: metrics.artifact_status,
+      error: errorSanitized,
+    });
+  } catch (e) {
+    console.error("[agent-core] turn_event insert failed", String((e as Error).message).slice(0, 200));
+  }
   console.log("[agent-core] turn", JSON.stringify(summarize(metrics)));
 
   // ---- Learning loop (Fase 3, best-effort) ------------------------------

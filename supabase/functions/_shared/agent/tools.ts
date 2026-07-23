@@ -649,6 +649,7 @@ import {
   buildCompareArtifact, buildForecastArtifact, buildGoalArtifact,
   type ChartArtifact,
 } from "../artifacts/builder.ts";
+import { reconciliationGate } from "../engine/reconciliation.ts";
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [{ data: txs }, { data: cats }] = await Promise.all([
@@ -675,6 +676,8 @@ export async function compare_periods(ctx: ToolContext, args: {
   const from = period_a.from < period_b.from ? period_a.from : period_b.from;
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
   const { txs, names } = await loadTxAndCategories(ctx, from, to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
   const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
   return { ok: true, result };
 }
@@ -686,6 +689,8 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
   const from = shiftMonth(cur.from, -12);
   const to = cur.to;
   const { txs } = await loadTxAndCategories(ctx, from, to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
   const { data: rec } = await ctx.sb.from("recurring_entries")
     .select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", ctx.user_id).eq("active", true);
   const recurring = (rec ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));

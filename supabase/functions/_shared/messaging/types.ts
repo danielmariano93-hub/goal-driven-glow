@@ -22,6 +22,7 @@ export interface MessagingProvider {
   configured: boolean;
   normalizeAddress(raw: string): string | null;
   sendText(to: string, body: string): Promise<{ provider_message_id: string }>;
+  sendImage?(to: string, mediaUrl: string, caption?: string): Promise<{ provider_message_id: string }>;
   getHealth(): Promise<{ ok: boolean; latency_ms: number; error?: string }>;
   getSessionStatus(): Promise<{ status: string; error?: string }>;
   startSession?(): Promise<void>;

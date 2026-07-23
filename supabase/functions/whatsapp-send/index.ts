@@ -48,11 +48,55 @@ Deno.serve(async (req) => {
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
   for (const m of rows) {
     try {
-      const { provider_message_id } = await provider.sendText(m.to_phone, m.body);
+      // Verifica se a linha carrega artefato para envio como imagem
+      const { data: extra } = await sb.from("outbound_messages")
+        .select("artifact_id,media_url,media_mime").eq("id", m.id).maybeSingle();
+      let providerId: string | null = null;
+      let mediaUrl: string | null = extra?.media_url ?? null;
+      let mediaStatus: "none" | "delivered" | "failed" | "fallback_text" = "none";
+
+      if (extra?.artifact_id && !mediaUrl) {
+        try {
+          const rr = await fetch(`${SUPABASE_URL}/functions/v1/artifact-render`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+            body: JSON.stringify({ artifact_id: extra.artifact_id }),
+          });
+          const j = await rr.json().catch(() => ({}));
+          if (j?.ok && j?.media_url) mediaUrl = j.media_url;
+        } catch (_e) { /* fallback textual */ }
+      }
+
+      if (mediaUrl && provider.sendImage) {
+        try {
+          const r = await provider.sendImage(m.to_phone, mediaUrl, m.body);
+          providerId = r.provider_message_id;
+          mediaStatus = "delivered";
+        } catch (_e) {
+          // fallback textual
+          const r = await provider.sendText(m.to_phone, m.body);
+          providerId = r.provider_message_id;
+          mediaStatus = "fallback_text";
+        }
+      } else {
+        const r = await provider.sendText(m.to_phone, m.body);
+        providerId = r.provider_message_id;
+        mediaStatus = extra?.artifact_id ? "fallback_text" : "none";
+      }
+
       const { error: markErr } = await sb.rpc("mark_outbound_sent", {
-        p_id: m.id, p_provider_message_id: provider_message_id ?? null,
+        p_id: m.id, p_provider_message_id: providerId ?? null,
       });
       if (markErr) throw new Error(markErr.message);
+      if (extra?.artifact_id) {
+        await sb.from("outbound_messages").update({
+          media_status: mediaStatus, media_url: mediaUrl,
+        }).eq("id", m.id);
+        await sb.from("agent_artifacts").update({
+          delivered_at: mediaStatus === "delivered" ? new Date().toISOString() : null,
+          delivery_status: mediaStatus,
+        }).eq("id", extra.artifact_id).then(() => {}, () => {});
+      }
       results.push({ id: m.id, ok: true });
     } catch (e) {
       const attempts = m.attempts + 1;

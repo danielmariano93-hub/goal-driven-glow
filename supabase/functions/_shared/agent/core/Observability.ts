@@ -19,6 +19,11 @@ export type TurnMetrics = {
   validations: number;
   errors: string[];
   estimated_cost_usd?: number | null;
+  formula_versions: Record<string, string>;
+  artifact_id: string | null;
+  artifact_status: "none" | "generated" | "delivered" | "failed";
+  model: string | null;
+  intent: string | null;
 };
 
 export function createMetrics(channel: string): TurnMetrics {
@@ -33,7 +38,21 @@ export function createMetrics(channel: string): TurnMetrics {
     validations: 0,
     errors: [],
     estimated_cost_usd: null,
+    formula_versions: {},
+    artifact_id: null,
+    artifact_status: "none",
+    model: null,
+    intent: null,
   };
+}
+
+export function recordFormulaVersion(m: TurnMetrics, tool: string, version: string): void {
+  if (tool && version) m.formula_versions[tool] = version;
+}
+
+export function recordArtifact(m: TurnMetrics, status: TurnMetrics["artifact_status"], id?: string | null): void {
+  m.artifact_status = status;
+  if (id) m.artifact_id = id;
 }
 
 export async function timeStage<T>(
