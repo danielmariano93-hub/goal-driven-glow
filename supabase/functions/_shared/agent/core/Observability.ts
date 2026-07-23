@@ -19,6 +19,11 @@ export type TurnMetrics = {
   validations: number;
   errors: string[];
   estimated_cost_usd?: number | null;
+  formula_versions: Record<string, string>;
+  artifact_id: string | null;
+  artifact_status: "none" | "generated" | "delivered" | "failed";
+  model: string | null;
+  intent: string | null;
 };
 
 export function createMetrics(channel: string): TurnMetrics {
