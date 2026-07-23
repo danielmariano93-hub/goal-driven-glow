@@ -141,6 +141,34 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
 
   if (policyReply.kind === "reply") {
     metrics.path = "policy";
+    // Auto-recuperação: usuário confirmou mas o LLM anterior alucinou o
+    // rascunho (nunca chamou create_transaction_draft). Tenta remontar a
+    // partir das últimas mensagens do próprio usuário na conversa.
+    if (routed.intent.kind === "confirm" && policyReply.replyKind === "info") {
+      const recovered = await guard(async () => {
+        const hist = await (await import("./ConversationHistory.ts")).loadHistory(
+          sb, input.conversation_id, { limit: 12, excludeMessageId: null });
+        const lastUserTexts = hist.filter(h => h.role === "user")
+          .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
+        const recoveredText = [...lastUserTexts, input.text].join(". ");
+        const fb = await deterministicFallback(sb, { ...input, text: recoveredText });
+        return fb;
+      }, (m) => metrics.errors.push("confirm_recover:" + m), null as any);
+      if (recovered && recovered.kind === "draft") {
+        metrics.fallback_used = true;
+        if (input.channel !== "app" && input.to_phone) {
+          await enqueueReply(sb, {
+            user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+            body: recovered.reply, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+            source: input.channel === "simulator" ? "simulator" : "whatsapp",
+          });
+        }
+        return {
+          reply: recovered.reply, reply_kind: "draft", path: "deterministic_fallback",
+          draft_id: recovered.draft_id, session_id,
+        };
+      }
+    }
     const v = validate(policyReply.body, { expectedKind: policyReply.replyKind, hasDraft: !!policyReply.draft_id });
     metrics.validations = v.reasons.length;
     const body = v.body;
@@ -200,6 +228,9 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     `sem ter chamado neste mesmo turno a tool create_transaction_draft (novo) ou ` +
     `confirm_pending_action (rascunho existente). Se pedir confirmação ao usuário, ` +
     `chame OBRIGATORIAMENTE create_transaction_draft antes de perguntar.\n` +
+    `PROIBIDO escrever a frase "Responda CONFIRMAR/CANCELAR" ou qualquer resumo do tipo ` +
+    `"Despesa de R$X na conta Y — Categoria em DATA" antes de a tool _draft ter retornado com sucesso ` +
+    `neste mesmo turno. Se faltar informação, pergunte só o slot faltante — não antecipe o rascunho.\n` +
     `Palavra-mágica do usuário: se a mensagem contiver "${fastLogToken}" no início ou fim, ` +
     `o sistema já registrou direto — não repita o fluxo.\n\n` +
     systemPrompt;
@@ -290,12 +321,24 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   metrics.validations = validated.reasons.length;
   if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {
     // If validator rejects an LLM reply, drop to deterministic fallback once.
+    // Concatena os últimos turnos do usuário para não perder contexto quando
+    // a mensagem atual é só o slot que faltava (ex.: "Alimentação").
     try {
-      const fb = await deterministicFallback(sb, input);
+      const lastUserTexts = (history ?? []).filter(h => h.role === "user")
+        .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
+      const recoveredText = lastUserTexts.length > 0
+        ? [...lastUserTexts, input.text].join(". ")
+        : input.text;
+      const fb = await deterministicFallback(sb, { ...input, text: recoveredText });
       reply = fb.reply; draft_id = fb.draft_id;
       kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
       metrics.fallback_used = true;
       path = "deterministic_fallback";
+      if (kind !== "draft" && kind !== "question") {
+        // Recuperação não encontrou dados suficientes: pede a frase completa
+        // em vez de devolver o erro genérico.
+        reply = "Perdi o rascunho anterior. Pode me mandar tudo em uma frase, ex.: 'gastei 33,89 alimentação Itaú hoje'?";
+      }
     } catch { reply = validated.body; }
   } else {
     reply = validated.body;
