@@ -76,11 +76,9 @@ describe("reconciliation invariants", () => {
   });
 
   it("gate encapsula violações", () => {
-    const r = reconciliationGate([tx({ amount: -1 })]);
+    const r = reconciliationGate([tx({ amount: -1 })]) as { ok: false; error: string; violations: any[] };
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error).toBe("reconciliation_failed");
-      expect(r.violations.length).toBeGreaterThan(0);
-    }
+    expect(r.error).toBe("reconciliation_failed");
+    expect(r.violations.length).toBeGreaterThan(0);
   });
 });
