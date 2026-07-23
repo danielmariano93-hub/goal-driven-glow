@@ -27,7 +27,7 @@ describe("ChartArtifact contract", () => {
   it("forecast gera forecast_band com Observado e Projeção", () => {
     const f: ForecastResult = {
       month: "2026-07", point: 3000, low: 2500, high: 3500,
-      model_used: "forecast.observed.v1",
+      model_used: "observed.v1",
       drivers: { mtd_expense: 1500, day_of_month: 15, days_in_month: 31, recurring_future: 500, seasonal_adjust: 0 },
       backtest_summary: null,
       provenance: { ...baseProv, formula_version: "forecast.observed.v1" },
