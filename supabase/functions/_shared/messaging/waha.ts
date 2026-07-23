@@ -289,6 +289,22 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
     const data = (await res.json().catch(() => ({}))) as { id?: string };
     return { provider_message_id: data.id ?? crypto.randomUUID() };
   },
+  async sendImage(to: string, mediaUrl: string, caption?: string) {
+    if (!this.configured) throw new Error("waha_not_configured");
+    const res = await safeFetch(`${WAHA_API_URL}/api/sendImage`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        session: WAHA_SESSION,
+        chatId: to.replace(/^\+/, "") + "@c.us",
+        file: { url: mediaUrl },
+        caption: caption ?? undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(`waha_send_image_failed_${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as { id?: string };
+    return { provider_message_id: data.id ?? crypto.randomUUID() };
+  },
   async getHealth() {
     if (!this.configured) return { ok: false, latency_ms: 0, error: "not_configured" };
     const t0 = performance.now();
