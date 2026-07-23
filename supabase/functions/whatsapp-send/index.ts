@@ -46,6 +46,7 @@ Deno.serve(async (req) => {
   const rows = (claimed as Array<{ id: string; to_phone: string; body: string; attempts: number }> | null) ?? [];
 
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+  let mediaFailures = 0;
   for (const m of rows) {
     try {
       // Verifica se a linha carrega artefato para envio como imagem
@@ -53,9 +54,15 @@ Deno.serve(async (req) => {
         .select("artifact_id,media_url,media_mime").eq("id", m.id).maybeSingle();
       let providerId: string | null = null;
       let mediaUrl: string | null = extra?.media_url ?? null;
+      // Texto de fallback vindo do artefato (números do motor, nunca recalculado)
+      let artifactFallbackText: string | null = null;
+      // Nota: schema atual restringe media_status a
+      // ('pending','sent','failed','fallback_text'). Não adicionamos
+      // 'failed_fallback_text' aqui — distinguimos via last_error + heartbeat.
       let mediaStatus: "none" | "delivered" | "failed" | "fallback_text" = "none";
+      let mediaError: string | null = null;
 
-      if (extra?.artifact_id && !mediaUrl) {
+      if (extra?.artifact_id) {
         try {
           const rr = await fetch(`${SUPABASE_URL}/functions/v1/artifact-render`, {
             method: "POST",
@@ -63,25 +70,47 @@ Deno.serve(async (req) => {
             body: JSON.stringify({ artifact_id: extra.artifact_id }),
           });
           const j = await rr.json().catch(() => ({}));
-          if (j?.ok && j?.media_url) mediaUrl = j.media_url;
-        } catch (_e) { /* fallback textual */ }
+          if (j?.ok) {
+            if (!mediaUrl && j?.media_url) mediaUrl = j.media_url as string;
+            if (typeof j?.fallback_text === "string" && j.fallback_text.trim()) {
+              artifactFallbackText = j.fallback_text as string;
+            }
+          } else {
+            mediaError = `render_failed:${String(j?.error ?? "unknown").slice(0, 80)}`;
+          }
+        } catch (e) {
+          mediaError = `render_exception:${String((e as Error).message).slice(0, 80)}`;
+        }
       }
+
+      // Corpo textual: quando há artefato, prefere o fallback_text determinístico
+      // (mantém EXATAMENTE os números do motor) sobre o body do LLM.
+      const textBody = artifactFallbackText ?? m.body;
 
       if (mediaUrl && provider.sendImage) {
         try {
-          const r = await provider.sendImage(m.to_phone, mediaUrl, m.body);
+          const r = await provider.sendImage(m.to_phone, mediaUrl, textBody);
           providerId = r.provider_message_id;
           mediaStatus = "delivered";
-        } catch (_e) {
-          // fallback textual
-          const r = await provider.sendText(m.to_phone, m.body);
+        } catch (e) {
+          mediaError = mediaError ?? `send_image_failed:${String((e as Error).message).slice(0, 80)}`;
+          console.error("[whatsapp-send] media_send_failed", { id: m.id, artifact_id: extra?.artifact_id, err: mediaError });
+          const r = await provider.sendText(m.to_phone, textBody);
           providerId = r.provider_message_id;
           mediaStatus = "fallback_text";
+          mediaFailures += 1;
         }
       } else {
-        const r = await provider.sendText(m.to_phone, m.body);
+        const r = await provider.sendText(m.to_phone, textBody);
         providerId = r.provider_message_id;
-        mediaStatus = extra?.artifact_id ? "fallback_text" : "none";
+        if (extra?.artifact_id) {
+          // artefato existia mas não conseguimos render nem enviar como imagem
+          mediaStatus = "fallback_text";
+          mediaFailures += 1;
+          console.error("[whatsapp-send] media_send_failed", { id: m.id, artifact_id: extra.artifact_id, err: mediaError ?? "no_media_url" });
+        } else {
+          mediaStatus = "none";
+        }
       }
 
       const { error: markErr } = await sb.rpc("mark_outbound_sent", {
@@ -90,7 +119,9 @@ Deno.serve(async (req) => {
       if (markErr) throw new Error(markErr.message);
       if (extra?.artifact_id) {
         await sb.from("outbound_messages").update({
-          media_status: mediaStatus, media_url: mediaUrl,
+          media_status: mediaStatus,
+          media_url: mediaUrl,
+          last_error: mediaStatus === "fallback_text" ? (mediaError ?? "media_fallback") : null,
         }).eq("id", m.id);
         await sb.from("agent_artifacts").update({
           delivered_at: mediaStatus === "delivered" ? new Date().toISOString() : null,
