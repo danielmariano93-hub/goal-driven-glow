@@ -200,6 +200,9 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     `sem ter chamado neste mesmo turno a tool create_transaction_draft (novo) ou ` +
     `confirm_pending_action (rascunho existente). Se pedir confirmação ao usuário, ` +
     `chame OBRIGATORIAMENTE create_transaction_draft antes de perguntar.\n` +
+    `PROIBIDO escrever a frase "Responda CONFIRMAR/CANCELAR" ou qualquer resumo do tipo ` +
+    `"Despesa de R$X na conta Y — Categoria em DATA" antes de a tool _draft ter retornado com sucesso ` +
+    `neste mesmo turno. Se faltar informação, pergunte só o slot faltante — não antecipe o rascunho.\n` +
     `Palavra-mágica do usuário: se a mensagem contiver "${fastLogToken}" no início ou fim, ` +
     `o sistema já registrou direto — não repita o fluxo.\n\n` +
     systemPrompt;
