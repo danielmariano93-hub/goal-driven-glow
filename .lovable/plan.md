@@ -1,104 +1,145 @@
 
-## Diagnóstico do incidente
+# Landing Page pública MeuNino → Meu Nino.IA (reescrita fiel ao HTML v3)
 
-Sequência real no banco (conversa `1b4c8b3c…`, 22/07 22:42 – 22:43):
+## A. Diagnóstico
 
-1. Usuário: "Faça o lançamento como despesa de 33,89 na conta corrente do Itaú"
-2. Agente (LLM): "Faltou a descrição. Qual a finalidade da despesa de R$ 33,89?"
-3. Usuário: "Alimentação"
-4. Agente (LLM): **"Despesa de R$ 33,89 na conta corrente Itaú — Alimentação em 2026-07-22. Responda *CONFIRMAR* para registrar ou *CANCELAR* para descartar."**
-5. Usuário: "Confirmar" → agente: "Não encontrei nada pendente para confirmar…"
-6. Usuário: "Estou falando do lançamento de 33,89…" → mesma resposta.
+A LP atual (`src/pages/Landing.tsx`, ~380 linhas) é uma composição própria com hero+chat, 3 features, 3 steps, FAQ curta e footer, usando tokens de marca do app (roxo/coral já existentes em `src/index.css` / `tailwind.config.ts`).
 
-**Causa-raiz:** No passo 4 o LLM escreveu o texto exato do template de rascunho — inclusive o "Responda *CONFIRMAR*" — **sem chamar `create_transaction_draft`**. Nenhuma linha foi criada em `pending_confirmations`. Os guardrails atuais (`ResponseValidator.validate`) só cobrem três padrões:
+O HTML anexado propõe **outra narrativa e estética**, mais próxima de fintech premium:
+- Header sticky flutuante com pill translúcida.
+- Hero com headline de duas linhas (“Você não precisa controlar cada centavo. / Precisa entender o que vem pela frente.”), visual composto por símbolo + 3 cards flutuantes (Previsão / Meta / Insight escuro).
+- Seção “dor” com layout sticky + 4 cards numerados.
+- Seção “inteligência” com **bento** (chat card + card preto de projeção + 2 cards menores).
+- Seção **dark** com 6 features.
+- Faixa AI escura com lista de projeção 30 dias.
+- Prova social (declarada demonstrativa no HTML).
+- FAQ com 5 perguntas (conteúdo diferente do atual).
+- CTA final em card gradiente.
+- Footer minimalista.
 
-- `RECEIPT_LANGUAGE_RX` — "registrado/salvo/anotado ✅"
-- `CONFIRM_QUESTION_RX` — "você confirma?", "posso registrar?"
-- `DRAFT_LANGUAGE_RX` — "rascunho/proposta … confirmar" ou "posso/vou/quer que eu … criar/salvar"
+Paleta é compatível com os tokens já existentes (violet #6D4AFF, coral #FF6B5F, ink #10111A, cloud #F7F6FB). Diferenças: fundo `--cloud` mais claro que o `--background` atual do app; a LP terá **tokens próprios** para não afetar o app.
 
-Nenhum casa com a frase-template real usada pelo próprio `deterministicFallback`/`orchestrator` (`Responda *CONFIRMAR* para registrar ou *CANCELAR* para descartar`). O LLM aprendeu a frase por few-shot e a devolve como texto, sem tool call, e o validador aprova.
+Marca: passa a exibir **“Meu Nino.IA”** (o `.IA` como pill gradiente). Texto corrente varia entre “Nino”, “O Nino”, “Com o Nino”. Nome interno do produto (package, metadados operacionais) permanece como está.
 
-Consequência: qualquer variação "descreve a operação + Responda CONFIRMAR/CANCELAR" produz o mesmo bug — usuário confirma, `PolicyEngine.evaluate` não acha `pending_confirmations`, responde "Não encontrei nada pendente" e todo o contexto se perde.
+## B. Mapa de seções → componentes
 
-## Cenários adicionais que a mesma falha permite
+Rota `/` (público) renderiza `LandingPage` com esta composição:
 
-1. LLM diz *"Registrei sua despesa de R$X ✅"* após uma tool call que falhou (`tool_call_errors ≥ 1` mas < 2). O guardrail atual só dispara em ≥ 2 erros.
-2. LLM diz *"Vou lançar R$X no Itaú, pode ser?"* — não bate em `CONFIRM_QUESTION_RX` nem em `DRAFT_LANGUAGE_RX`.
-3. LLM devolve resumo estruturado ("Valor: X · Conta: Y · Data: Z") pedindo confirmação — mesmo problema.
-4. LLM inventa nome de conta/categoria ("Registrei na Conta Corrente Bradesco") sem consultar `list_accounts`.
-5. Usuário confirma um rascunho verdadeiro que já expirou entre turnos — hoje já cai em "expirou", mas sem oferecer recriação.
+1. `<LandingHeader />` — pill sticky, logo (símbolo SVG + wordmark “Meu Nino” + pill “.IA”), 3 âncoras (`#inteligencia`, `#recursos`, `#duvidas`), botões “Entrar” (`/login`) e “Começar grátis” (`/signup`).
+2. `<HeroSection />` — badge, H1 com trecho em gradiente, lead, 2 CTAs (`/signup`, `#recursos`), 3 microbenefícios com check, `<HeroVisual />` (halo + símbolo + 3 glass cards absolutos).
+3. `<PainSection />` — sticky de intro + 4 `<PainCard />` numerados.
+4. `<IntelligenceBento />` — bento grid: 
+   - `<ChatCard />` (mockup de conversa com 4 balões);
+   - `<ForecastCard />` (card preto com projeção 30 dias + barra);
+   - `<ContextCard />` e `<GoalCard />` menores.
+5. `<FeaturesDark />` — seção dark com 6 `<FeatureTile />` (registro por conversa, contexto imediato, projeções, acompanhamento de metas, alertas de mudança, resumos periódicos — conforme HTML).
+6. `<AIBand />` — faixa escura com copy + `<ForecastList />` (3 linhas de previsão de 30 dias).
+7. `<SocialProof />` — **tratamento ético**: renderizada por trás de flag `SHOW_LANDING_TESTIMONIALS` (default `false`). Enquanto `false`, a seção não é montada. Quando `true`, mostra os 3 cards com etiqueta explícita “Exemplo demonstrativo”. **Recomendado: manter oculta até termos depoimentos reais assinados.**
+8. `<FAQSection />` — 5 perguntas do HTML como `<details>` estilizados, com `aria-expanded` via estado controlado + suporte a teclado.
+9. `<FinalCTA />` — card gradiente com H2 e dois CTAs (`/signup`, `#duvidas`).
+10. `<LandingFooter />` — logo + copyright. Links “Privacidade”, “Termos”, “Contato” **só aparecem se houver destino real**. Como o projeto não possui essas rotas hoje, planejamos: (a) ocultar por ora **ou** (b) apontar Contato para `mailto:contato@meunino.com.br` se o e-mail estiver disponível (decisão trivial na implementação, sem bloqueio).
+11. `<LandingMobileCTA />` — barra fixa inferior mobile com um botão “Começar grátis” → `/signup` (equivalente ao `.mobile` do HTML).
 
-## O que vai mudar
+Cada componente é **puro de apresentação**, sem chamadas a Supabase.
 
-Escopo cirúrgico, sem tocar em dados nem em migrations. Todo o trabalho vive em `supabase/functions/_shared/agent/core/` + prompt.
+## C. Arquivos a criar/alterar
 
-### 1. `ResponseValidator.ts` — novo guardrail "draft-invite sem mutação"
+Criar:
+- `src/pages/landing/LandingPage.tsx` — orquestra as seções.
+- `src/pages/landing/sections/LandingHeader.tsx`
+- `src/pages/landing/sections/HeroSection.tsx`
+- `src/pages/landing/sections/HeroVisual.tsx`
+- `src/pages/landing/sections/PainSection.tsx`
+- `src/pages/landing/sections/IntelligenceBento.tsx`
+- `src/pages/landing/sections/FeaturesDark.tsx`
+- `src/pages/landing/sections/AIBand.tsx`
+- `src/pages/landing/sections/SocialProof.tsx`
+- `src/pages/landing/sections/FAQSection.tsx`
+- `src/pages/landing/sections/FinalCTA.tsx`
+- `src/pages/landing/sections/LandingFooter.tsx`
+- `src/pages/landing/sections/LandingMobileCTA.tsx`
+- `src/pages/landing/brand/NinoSymbol.tsx` — símbolo SVG recriado.
+- `src/pages/landing/brand/NinoWordmark.tsx` — lettering “Meu Nino” + pill “.IA”.
+- `src/pages/landing/landing.css` — **escopado** com prefixo `.mn-lp` (evita vazar tokens/`html` para o resto do app). Contém apenas o que não é razoável em Tailwind (glass cards absolutos, halos, gradientes específicos, `details[open]`).
 
-Adicionar regex e razão:
+Alterar:
+- `src/App.tsx` — trocar `import Landing` para a nova `LandingPage` (mesma rota `/`).
+- `src/pages/Landing.tsx` — **remover** (ou manter como reexport temporário do novo módulo; preferir remover).
+- `index.html` — atualizar `<title>` e `<meta name="description">` para a versão do HTML v3 (“Meu Nino.IA — inteligência para a sua vida financeira” / descrição correspondente), ajustar `og:title`, `og:description`, `twitter:*`. Sem inventar `og:image`; deixar o auto-preview do Lovable atuar (ver F). Preconnect de Inter já existe.
 
-```
-DRAFT_INVITE_RX = /(responda\s*\*?\s*confirmar\s*\*?)|(\*?confirmar\*?\s*para\s+(registrar|salvar|lan[çc]ar|criar|anotar))|(\bposso\s+(lan[çc]ar|registrar|salvar|criar|anotar)\b.*\?)|(\bvou\s+(lan[çc]ar|registrar|salvar|criar|anotar)\b)/i
-```
+Não alterar:
+- `src/index.css`, `tailwind.config.ts` (tokens globais do app permanecem intactos — a LP usa `landing.css` escopado + utilitários Tailwind já disponíveis).
+- Qualquer rota autenticada, layout, admin, edge functions, migrations, Supabase, WAHA.
 
-Regra: se `hasSuccessfulMutation === false` **e** `DRAFT_INVITE_RX.test(reply)` → `action="fallback_deterministic"`, `reason="hallucinated_draft_invite"`. Também baixar o limite de `too_many_tool_errors` para `≥ 1` quando o texto contém `RECEIPT_LANGUAGE_RX` (recibo com qualquer erro de tool = suspeito).
+## D. Estratégia de marca e assets (os 3 PNGs base64)
 
-### 2. `AgentCore.ts` — recuperação real, não mensagem de erro
+Os 3 PNGs no HTML são: (1) wordmark de header, (2) símbolo grande do hero, (3) wordmark de footer. **Nenhum será importado como base64**. Estratégia:
 
-Hoje, quando o validador cai em `fallback_deterministic` e a rota LLM não conseguiu mutação, o `deterministicFallback` recebe apenas o **último** `input.text` do usuário (ex.: `"Alimentação"`), que sozinho não descreve a operação. Ajuste:
+- **`NinoSymbol.tsx`**: componente SVG inline (círculos/curvas + gradiente `--grad`) que reproduz o símbolo como forma geométrica leve. Aceita `size` e `variant` (`solid` / `mono`).
+- **`NinoWordmark.tsx`**: lettering em texto real usando a Manrope/Inter já carregada, com peso 800, letter-spacing negativo, e a pill “.IA” como `<span>` com fundo `--grad`. Zero imagem.
+- Se, no futuro, o usuário fornecer artes definitivas, criamos `.asset.json` via `lovable-assets` e trocamos o SVG por `<img>`. Fora do escopo desta rodada.
 
-- Recuperar as últimas 4 mensagens `inbound` da conversa via `tctx.history` **antes** de chamar o fallback recuperador.
-- Concatená-las em `recoveredText` (mais antiga → mais nova) e chamar `deterministicFallback(sb, { …input, text: recoveredText })`.
-- Se o fallback conseguir criar um rascunho real (`kind === "draft"`), esse rascunho passa a existir em `pending_confirmations` e o próximo "Confirmar" funciona.
-- Se o fallback não conseguir montar draft, responder texto claro: *"Perdi o rascunho anterior. Pode me mandar tudo em uma frase, ex.: 'gastei 33,89 alimentação Itaú hoje'?"* — nunca a mensagem genérica.
+Resultado: **nenhum data URI**, sem novos binários no repo, bundle não cresce significativamente.
 
-### 3. `AgentCore.ts` — reforço no system prompt
+## E. Ajustes de copy por precisão factual
 
-Trocar o bloco `[REGRA CRÍTICA]` já existente para proibir explicitamente o template:
+Copy do HTML já é conservadora; ainda assim:
 
-```
-NUNCA escreva a frase "Responda CONFIRMAR/CANCELAR", nem qualquer resumo do tipo
-"Despesa de R$X na conta Y — Categoria em DATA", sem antes ter chamado
-create_transaction_draft / create_transfer_draft / add_goal_contribution_draft
-NESTE MESMO TURNO. Se faltar informação, pergunte só o slot faltante — não
-antecipe o rascunho.
-```
+- ✅ **Manter**: “Comece gratuitamente”, “Experiência pelo WhatsApp”, “Sem planilhas e sem julgamento”, faixa de projeção 30 dias (rotulada como projeção/estimativa).
+- ⚠️ **Ajustar**: microbenefício/qualquer texto que sugira “segurança bancária”, “criptografia ponta-a-ponta” ou “conformidade LGPD certificada” — o HTML v3 não contém essas promessas explícitas, então nada a ajustar aí; **remover a linha atual da LP antiga** “Dados protegidos com LGPD” já sai naturalmente.
+- ⚠️ **FAQ “Quanto custa?”**: manter a resposta do HTML (“Você pode começar gratuitamente. Planos e recursos adicionais serão apresentados com transparência.”) — não citar valores.
+- ⚠️ **FAQ “Preciso preencher tudo manualmente?”**: manter menção genérica a “recursos de importação disponíveis no produto” (o projeto já tem OFX/CSV). OK.
+- ⚠️ **Prova social**: seção fica **desligada** por padrão (ver B.7). Não publicar depoimentos fictícios.
+- ⚠️ **Rodapé — Privacidade/Termos/Contato**: só linkar se houver destino real. Recomendação: nesta rodada, exibir apenas “Contato → `mailto:` do owner (se autorizado)” ou ocultar todos. Decisão trivial, não bloqueia.
 
-### 4. `PolicyEngine.evaluate` — auto-recuperação no "confirm sem pending"
+## F. Critérios de aceite
 
-Antes de responder "Não encontrei nada pendente", verificar se a última mensagem `outbound` casa `DRAFT_INVITE_RX`. Se sim, disparar a mesma recuperação da §2 (montar `recoveredText` a partir das últimas 4 inbound e tentar `deterministicFallback`). Se conseguir criar um draft real, responder o novo resumo pedindo nova confirmação; se não, responder mensagem clara pedindo a frase completa (não a genérica atual).
+Funcional:
+- [ ] `/` renderiza a nova LP; `/login`, `/signup`, `/app/*`, `/admin/*` intactos.
+- [ ] Todos os CTAs de “começar/cadastrar” apontam para `/signup`; “entrar” para `/login`. Nenhum `wa.me/` sem número, nenhum `#` vazio.
+- [ ] Âncoras `#inteligencia`, `#recursos`, `#duvidas`, `#comecar` funcionam com scroll suave e respeitam `prefers-reduced-motion`.
+- [ ] FAQ abre/fecha por clique **e** por teclado (Enter/Space), com foco visível.
 
-### 5. Fallback determinístico — reaproveitar spans acumulados
+Visual/responsivo (Playwright headless nas larguras 320, 360, 390, 430, 768, 1024, 1440):
+- [ ] Sem overflow horizontal (checar `document.documentElement.scrollWidth ≤ innerWidth`).
+- [ ] Hero visual não sobrepõe texto em ≤600px (empilha, `min-height` ajustado).
+- [ ] Header sticky não cobre H1 no primeiro fold em nenhuma largura.
+- [ ] Barra mobile inferior só aparece <960px e não cobre o footer (padding-bottom aplicado ao `body` do escopo).
 
-Em `DeterministicFallback.ts`, quando `extractSpans(text)` já reunir `amount + description + payment_method|account_hint`, o rascunho é criado; a alteração em §2 (passar `recoveredText` concatenado) faz esse caminho funcionar sem novas dependências. Nada muda aqui além de garantir que `extract.ts` consiga combinar spans quando o texto tem múltiplas linhas — checar rapidamente e, se necessário, ordenar a extração para preferir o **primeiro** amount + a **última** descrição livre.
+Acessibilidade:
+- [ ] Um único `<h1>`; hierarquia h2→h3 correta por seção.
+- [ ] Contraste AA em texto sobre `--cloud`, sobre dark e sobre gradiente final (verificar branco em `--grad` — passa).
+- [ ] `nav` com `aria-label="Principal"`; FAQ com `aria-expanded` correto.
+- [ ] `focus-visible` estilizado.
 
-### 6. Testes de regressão (vitest, espelhando o padrão de `agent-response-validator-hallucination.test.ts`)
+Performance / bundle:
+- [ ] Nenhuma imagem base64; nenhum novo pacote NPM.
+- [ ] `bun run build` verde; tamanho do chunk da LP monitorado (esperado <25kB gz para a página).
 
-Novo arquivo `src/test/agent-hallucinated-draft-invite.test.ts` com casos:
+SEO / metadados:
+- [ ] `index.html` com title/description v3, `og:*` e `twitter:*` coerentes. Sem `og:image` fabricado. Canonical: `https://meunino.com.br/`.
 
-1. `"Despesa de R$ 33,89 na conta corrente Itaú — Alimentação em 2026-07-22. Responda *CONFIRMAR* para registrar ou *CANCELAR* para descartar."` com `hasSuccessfulMutation:false` → `fallback_deterministic`, razão `hallucinated_draft_invite`.
-2. `"Posso lançar R$50 no Nubank?"` sem mutação → `fallback_deterministic`.
-3. `"Vou registrar R$30 alimentação"` sem mutação → `fallback_deterministic`.
-4. Mesma frase do caso 1 **com** `hasSuccessfulMutation:true` e `hasDraft:true` → `accept` (não pode regredir o fluxo real).
-5. Recibo `"Despesa registrada ✅"` com **1** erro de tool → agora `fallback_deterministic` (novo threshold).
+Testes automatizados:
+- [ ] Novo `src/test/landing-page.test.tsx` (RTL): renderiza LP; CTAs apontam para `/signup` e `/login`; FAQ toggles; SocialProof oculta com flag false; ausência de string “Lovable” e de placeholders `#`.
+- [ ] Suíte `rebranding-meunino.test.ts` continua passando.
 
-### 7. Observability
+## G. Ordem de implementação (uma rodada única)
 
-`DecisionLogger` já grava `validations`. Nenhum schema muda; só passa a registrar os novos motivos (`hallucinated_draft_invite`) para conseguirmos medir recorrência no admin.
+1. Criar `landing.css` escopado + tokens locais + `NinoSymbol` e `NinoWordmark`.
+2. Montar `LandingPage` compondo os 11 subcomponentes (usar os textos exatos do HTML — copy só ajustada nos pontos de E).
+3. Trocar import em `src/App.tsx`; remover `src/pages/Landing.tsx` antigo.
+4. Atualizar metadados em `index.html`.
+5. Criar `landing-page.test.tsx`; rodar `bunx vitest run` e `bun run build`.
+6. Rodar smoke visual Playwright nas 7 larguras com screenshots em `/tmp/browser/landing/`.
+7. Relatório: rotas, testes, screenshots, tamanho de chunk.
 
-### 8. Deploy
+Publicação em produção: **fora desta rodada** (o usuário decidirá quando publicar).
 
-Após tests + typecheck verdes, deploy apenas de `agent-chat`, `agent-run`, `whatsapp-webhook` (compartilham `_shared/agent/core`). Sem migration, sem mudança em tabela.
+## H. Riscos / decisões bloqueantes
 
-## Fora de escopo
+- **Nenhuma decisão bloqueante** — todos os pontos ambíguos já têm default seguro definido acima (SocialProof oculta por flag; footer sem links jurídicos até termos rotas; símbolo em SVG; sem `og:image` inventado; tokens em CSS escopado).
+- Risco menor: se surgir demanda futura de trocar o SVG por artes definitivas, exige apenas um patch cirúrgico via `lovable-assets` — não afeta esta rodada.
 
-- Persistência de estado verbal em `agent_sessions` (já existe via `pending_confirmations`, não é o gargalo aqui).
-- Reescrita do prompt principal ou troca de modelo.
-- UI do app / mobile.
-- Novos campos em `agent_decisions` ou `agent_runs`.
+---
 
-## Critério de aceite
-
-- Suíte `bunx vitest run` verde (inclui os 5 novos testes).
-- Reproduzir o incidente na conversa `1b4c8b3c…`: mandar novamente "Faça o lançamento como despesa de 33,89 na conta corrente do Itaú" → "Alimentação" → "Confirmar" deve terminar com uma transação real criada, sem cair em "Não encontrei nada pendente".
-- Nenhum recibo/draft-invite passa quando `hasSuccessfulMutation=false`.
-- Quando o LLM alucina, o agente recupera contexto e monta um rascunho real via caminho determinístico em vez de devolver a mensagem genérica de erro.
+**Nenhum código foi alterado em Plan Mode.**
