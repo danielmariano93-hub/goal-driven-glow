@@ -649,10 +649,11 @@ import { computeAttribution } from "../analytics/attribute.ts";
 import { computeForecast } from "../analytics/forecast.ts";
 import { projectGoal, simulatePace } from "../analytics/goals.ts";
 import { computeDailySpend } from "../analytics/timeseries.ts";
+import { computeCumulativeDailyAverage } from "../analytics/dailyAverage.ts";
 import { monthRange, shiftMonth, todaySP } from "../analytics/periods.ts";
 import {
   buildCompareArtifact, buildForecastArtifact, buildGoalArtifact,
-  buildTimeseriesArtifact,
+  buildTimeseriesArtifact, buildCumulativeDailyAverageArtifact,
   type ChartArtifact,
 } from "../artifacts/builder.ts";
 import { reconciliationGate } from "../engine/reconciliation.ts";
@@ -771,8 +772,23 @@ export async function spending_timeseries_daily(ctx: ToolContext, args: {
   return { ok: true, result };
 }
 
+export async function spending_average_daily_trend(ctx: ToolContext, args: {
+  from?: string;
+  to?: string;
+}): Promise<ToolResult> {
+  const today = todaySP();
+  const cur = monthRange(today);
+  const from = args?.from ?? cur.from;
+  const to = args?.to ?? today;
+  const { txs } = await loadTxAndCategories(ctx, from, to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  const result = computeCumulativeDailyAverage({ txs: txs as any, from, to });
+  return { ok: true, result };
+}
+
 export async function generate_chart_artifact(ctx: ToolContext, args: {
-  kind: "compare" | "forecast" | "goal" | "timeseries";
+  kind: "compare" | "forecast" | "goal" | "timeseries" | "average_daily_trend";
   goal_id?: string;
   goal?: string;
   metric?: "expense" | "income";
@@ -798,6 +814,10 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
     });
     if (!r.ok) return r;
     artifact = buildTimeseriesArtifact(r.result);
+  } else if (args.kind === "average_daily_trend") {
+    const r = await spending_average_daily_trend(ctx, { from: args.from, to: args.to });
+    if (!r.ok) return r;
+    artifact = buildCumulativeDailyAverageArtifact(r.result);
   } else {
     const r = await compare_periods(ctx, { metric: args.metric ?? "expense", period_a: args.period_a, period_b: args.period_b });
     if (!r.ok) return r;
