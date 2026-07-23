@@ -94,9 +94,9 @@ function extractLinkCode(text: string): string | null {
   // Friendly format: must contain the verification anchor phrase
   const anchored = /c[óo]digo\s+de\s+verifica[cç][ãa]o[^0-9]{0,15}(\d{6})\b/i.exec(t);
   if (anchored) return anchored[1];
-  // Alternate: "meu código é 123456" together with the word NoControle to
-  // avoid grabbing arbitrary numbers.
-  if (/NoControle/i.test(t)) {
+  // Alternate: "meu código é 123456" together with the brand name (MeuNino
+  // ou o antigo NoControle) para evitar capturar números arbitrários.
+  if (/MeuNino|NoControle/i.test(t)) {
     const alt = /c[óo]digo[^0-9]{0,15}(\d{6})\b/i.exec(t);
     if (alt) return alt[1];
   }
