@@ -95,7 +95,20 @@ describe("LandingPage", () => {
     const { container } = renderLP();
     const txt = container.textContent ?? "";
     expect(txt).not.toMatch(/HTTPS\/TLS/i);
-    expect(txt).not.toMatch(/LGPD como padrão/i);
+    expect(txt).not.toMatch(/criptografia/i);
+    expect(txt).not.toMatch(/LGPD/i);
+    expect(txt).not.toMatch(/exportar ou excluir/i);
     expect(txt).toMatch(/seu dinheiro é pessoal/i);
+  });
+
+  it("não promete funcionalidades não implementadas", () => {
+    const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).not.toMatch(/aplique com um toque/i);
+    expect(txt).not.toMatch(/automatize seu aporte/i);
+    expect(txt).not.toMatch(/envia lembretes pelo whatsapp/i);
+    expect(txt).not.toMatch(/cobrar os pendentes/i);
+    expect(txt).toMatch(/preparar lembrete amig/i);
+    expect(txt).toMatch(/planeje o próximo aporte/i);
   });
 });

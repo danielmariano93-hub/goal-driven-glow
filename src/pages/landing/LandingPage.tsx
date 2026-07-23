@@ -22,12 +22,11 @@ import "./landing.css";
  * Escopada em .mn-lp — não afeta app autenticado nem admin.
  *
  * Direção:
- *  - hero em Deep Ink (marca);
- *  - previsão em Deep Ink (momento estratégico);
- *  - demais seções em Cloud/branco;
+ *  - Deep Ink apenas em hero, previsão e footer;
  *  - CTA final em gradiente oficial;
+ *  - demais seções em branco/Cloud;
  *  - sem prova social fictícia;
- *  - claims de segurança sem afirmações não comprovadas.
+ *  - sem claims não comprovados (criptografia, LGPD, exportar/excluir).
  */
 export default function LandingPage() {
   return (
@@ -96,9 +95,12 @@ function HeroSection() {
           </h1>
           <p className="lp-lead">
             O Nino entende seus gastos, percebe mudanças e ajuda você a decidir
-            antes que o mês aperte. Converse pelo WhatsApp ou pelo app, registre
-            sua rotina em segundos e receba previsões, alertas, metas e próximos
-            passos que realmente fazem sentido.
+            antes que o mês aperte.
+          </p>
+          <p className="lp-lead lp-lead--sub">
+            Converse pelo WhatsApp ou pelo app, registre sua rotina em segundos
+            e receba previsões, alertas, metas e próximos passos que realmente
+            fazem sentido.
           </p>
           <div className="lp-actions">
             <Link to="/signup" className="lp-btn primary">
@@ -354,9 +356,9 @@ function InsightsSection() {
       d: "Antecipar R$ 480 reduz o juros do próximo ciclo.",
     },
     {
-      t: "Automatize seu aporte da meta",
+      t: "Planeje o próximo aporte",
       ctx: "Você fez aportes constantes por 3 meses.",
-      d: "Vale programar como recorrência para não depender de lembrete.",
+      d: "Vale planejar o próximo com base no ritmo atual — sem depender de lembrete.",
     },
   ];
   return (
@@ -392,16 +394,15 @@ function DivisaoRoleSection() {
     { nome: "Diego",   valor: "R$ 80", status: "pendente" as const },
   ];
   return (
-    <section className="lp-section lp-section--soft" id="role">
+    <section className="lp-section" id="role">
       <div className="lp-wrap">
         <div className="lp-split">
           <div>
             <span className="lp-label">Divisão do Rolê</span>
             <h2>Dividir a conta não deveria virar outra conta para você resolver.</h2>
             <p className="lp-lead" style={{ marginTop: 18 }}>
-              O Nino organiza participantes, valores individuais e status de
-              pagamento — e prepara uma mensagem de lembrete para você enviar
-              quando quiser.
+              O Nino ajuda você a acompanhar quem pagou, quem está pendente e
+              prepara uma mensagem de lembrete quando precisar.
             </p>
           </div>
           <div className="lp-split-visual">
@@ -427,7 +428,7 @@ function DivisaoRoleSection() {
                 ))}
               </div>
               <a className="lp-mockup-cta" href="#role" style={{ marginTop: 16 }}>
-                Preparar lembrete para os pendentes <CaretRight size={14} weight="bold" />
+                Preparar lembrete amigável <CaretRight size={14} weight="bold" />
               </a>
             </div>
           </div>
@@ -445,20 +446,20 @@ const CAPACIDADES: Array<{ icon: React.ComponentType<IconProps>; t: string; d: s
   { icon: ArrowsClockwise,  t: "Recorrências",           d: "Assinaturas e contas fixas identificadas e projetadas." },
   { icon: Bell,             t: "Alertas úteis",          d: "Avisos quando algo importante muda — sem barulho." },
   { icon: PencilSimple,     t: "Edição onde estiver",    d: "Corrija e organize no app ou pelo WhatsApp." },
-  { icon: Sparkle,          t: "Organização automática", d: "Categorização que aprende com sua rotina." },
+  { icon: Sparkle,          t: "Organização por contexto", d: "O Nino organiza com base nas informações que você registra." },
 ];
 
 function CapacidadesSection() {
   return (
-    <section className="lp-section" id="capacidades">
+    <section className="lp-section lp-section--soft" id="capacidades">
       <div className="lp-wrap">
         <div className="lp-section-head">
           <span className="lp-label">Outras capacidades</span>
           <h2>Um assistente completo — na medida do seu dia.</h2>
         </div>
         <div className="lp-tiles">
-          {CAPACIDADES.map(({ icon: Icon, t, d }) => (
-            <article className="lp-tile" key={t}>
+          {CAPACIDADES.map(({ icon: Icon, t, d }, idx) => (
+            <article className={`lp-tile lp-tile--${idx}`} key={t}>
               <div className="lp-tile-icon"><Icon size={20} weight="light" /></div>
               <h3>{t}</h3>
               <p>{d}</p>
@@ -476,51 +477,73 @@ function ComoFuncionaSection() {
   const steps = [
     { n: "01", t: "Conecte", d: "Crie sua conta e escolha começar pelo app ou pelo WhatsApp." },
     { n: "02", t: "Converse", d: "Registre gastos por texto. O Nino entende, categoriza e confirma." },
-    { n: "03", t: "Decida",   d: "Receba insights com próximos passos e aplique com um toque." },
+    { n: "03", t: "Decida",   d: "Receba insights com próximos passos, no momento em que fazem diferença." },
   ];
   return (
-    <section className="lp-section lp-section--soft" id="como-funciona">
+    <section className="lp-section" id="como-funciona">
       <div className="lp-wrap">
         <div className="lp-section-head">
           <span className="lp-label">Como funciona</span>
           <h2>Três passos. Nenhuma planilha.</h2>
         </div>
-        <div className="lp-steps">
-          {steps.map((s) => (
-            <article className="lp-step" key={s.n}>
-              <span className="lp-step-num">{s.n}</span>
-              <h3>{s.t}</h3>
-              <p>{s.d}</p>
-            </article>
+        <ol className="lp-flow">
+          {steps.map((s, i) => (
+            <li className="lp-flow-step" key={s.n}>
+              <span className="lp-flow-num">{s.n}</span>
+              <div>
+                <h3>{s.t}</h3>
+                <p>{s.d}</p>
+              </div>
+              {i < steps.length - 1 && <span className="lp-flow-line" aria-hidden="true" />}
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
     </section>
   );
 }
 
-/* =========================== Confiança (sem prova fictícia) =============== */
+/* =========================== Confiança (editorial) ======================== */
 
 function ConfiancaSection() {
   const points = [
-    { t: "Registro em segundos", d: "Escreva do jeito que você fala. O Nino organiza depois." },
-    { t: "Conversa que organiza", d: "Sem menus infinitos: você conversa e o app entende." },
-    { t: "Decisões em linguagem humana", d: "Números viram frases claras, com o próximo passo à mão." },
+    {
+      t: "Registre em segundos",
+      d: "Converse naturalmente, sem formulário longo.",
+    },
+    {
+      t: "Entenda sem decifrar gráficos",
+      d: "Mudanças explicadas em linguagem humana, sem ranking nem julgamento.",
+    },
+    {
+      t: "Decida no momento certo",
+      d: "Contexto e próximos passos conectados à rotina — quando fazem diferença.",
+    },
   ];
   return (
     <section className="lp-section" id="confianca">
       <div className="lp-wrap">
-        <div className="lp-section-head">
-          <span className="lp-label">Feito para caber na rotina</span>
-          <h2>Feito para caber na rotina, não para criar mais uma tarefa.</h2>
-        </div>
-        <div className="lp-trust">
-          {points.map((p) => (
-            <article className="lp-trust-item" key={p.t}>
-              <h3>{p.t}</h3>
-              <p>{p.d}</p>
-            </article>
-          ))}
+        <div className="lp-trust-editorial">
+          <div className="lp-trust-copy">
+            <span className="lp-label">Feito para caber na rotina</span>
+            <h2>Feito para caber na rotina, não para criar mais uma tarefa.</h2>
+            <p className="lp-lead" style={{ marginTop: 18 }}>
+              Sem menus infinitos, sem planilhas paralelas. O Nino se encaixa
+              no seu dia — no app quando faz sentido, no WhatsApp quando é mais
+              rápido.
+            </p>
+          </div>
+          <ol className="lp-trust-list">
+            {points.map((p, i) => (
+              <li className="lp-trust-row" key={p.t}>
+                <span className="lp-trust-index">{String(i + 1).padStart(2, "0")}</span>
+                <div>
+                  <h3>{p.t}</h3>
+                  <p>{p.d}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </div>
       </div>
     </section>
@@ -530,17 +553,29 @@ function ConfiancaSection() {
 /* ============================== Segurança ================================ */
 
 function SegurancaSection() {
+  const apoios = [
+    "Você escolhe o que registrar.",
+    "O Nino não executa movimentações financeiras.",
+    "Privacidade explicada sem letras miúdas.",
+  ];
   return (
-    <section className="lp-section lp-section--soft" id="seguranca">
+    <section className="lp-section" id="seguranca">
       <div className="lp-wrap">
-        <div className="lp-section-head">
+        <div className="lp-security">
           <span className="lp-label">Privacidade</span>
           <h2>Seu dinheiro é pessoal. Seus dados também.</h2>
-          <p className="lp-lead lp-lead--wide">
+          <p className="lp-lead lp-lead--wide" style={{ marginTop: 18 }}>
             O Nino não movimenta seu dinheiro. Ele organiza as informações que
-            você decide registrar e deixa claro como elas são usadas — você
-            pode revisar, exportar ou excluir a qualquer momento.
+            você decide registrar e deixa claro como elas são usadas.
           </p>
+          <ul className="lp-security-apoios">
+            {apoios.map((a) => (
+              <li key={a}>
+                <Check size={14} weight="bold" />
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </section>
@@ -568,7 +603,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "O que acontece com os meus dados?",
-    a: "Você pode revisar, exportar ou excluir suas informações quando quiser. O Nino organiza apenas o que você decide registrar.",
+    a: "O Nino organiza apenas o que você decide registrar e deixa claro como cada informação é usada.",
   },
   {
     q: "Quanto custa para começar?",
@@ -578,7 +613,7 @@ const FAQ_ITEMS = [
 
 function FAQSection() {
   return (
-    <section className="lp-section" id="duvidas">
+    <section className="lp-section lp-section--soft" id="duvidas">
       <div className="lp-wrap">
         <div className="lp-section-head">
           <span className="lp-label">Dúvidas frequentes</span>
