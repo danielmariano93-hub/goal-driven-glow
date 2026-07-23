@@ -62,8 +62,8 @@ const PREVIEW_VARS: Record<string, string> = {
   amount: "R$ 19,95",
   due_date: "22/07",
   due_sentence: " O combinado é pagar até 22/07.",
-  pix_key: "daniel@nocontrole.ia",
-  pix_sentence: " Pix: daniel@nocontrole.ia.",
+  pix_key: "daniel@meunino.com.br",
+  pix_sentence: " Pix: daniel@meunino.com.br.",
 };
 
 export function renderPreview(template: string, cfg: StructuredCfg): string {
