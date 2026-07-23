@@ -1,91 +1,238 @@
-# Refatoração visual da Landing Page — Meu Nino
 
-Escopo restrito à rota `/` (`src/pages/landing/*` + `index.html`). Nada de app autenticado, admin, Supabase, edge functions ou rotas internas. Sem publicação ao final.
+# Reconstrução premium da LP Meu Nino.IA
 
-## Auditoria — divergências encontradas na LP atual
+Escopo estrito: apenas `src/pages/landing/**`, `index.html` (head/fonte) e um novo `public/brand/*` para o SVG oficial. Nada de app autenticado, admin, backend, dados ou rotas internas.
 
-Baseada em leitura de `src/pages/landing/LandingPage.tsx`, `landing.css`, `NinoSymbol.tsx`, `NinoWordmark.tsx`:
+## 1. Diagnóstico da LP atual
 
-1. **Marca**: wordmark usa Manrope + pill ".IA" gradiente como parte obrigatória — contraria "não invente Meu Nino.IA como parte obrigatória do logotipo".
-2. **Símbolo**: `NinoSymbol` é um squircle com "N" retangular geométrico — não é monograma conversacional orgânico, não tem curvas M/N, não tem ponto coral, não tem balão de conversa.
-3. **Tipografia**: Inter + Manrope carregadas via Google Fonts. Sofia Pro ausente. Falta fallback autorizado documentado (Plus Jakarta Sans é a escolha ideal open-source próxima da Sofia Pro).
-4. **Iconografia dura**: `FEATURES` usa caracteres tipográficos (`✎ ◎ ⟳ ◈ ! ≡`) como ícones. `lp-feature-icon` idem (`◎`, `◈`). Nenhum SVG outline arredondado com stroke consistente.
-5. **Tagline oficial ausente**: "Seu dinheiro começa a fazer mais sentido." não aparece no Hero.
-6. **Avatar do Nino**: inexistente. Não há variante em círculo Deep Ink com indicador mint para uso em mockup conversacional.
-7. **Mockup de chat**: usa gradiente cheio na bolha do usuário e visual genérico; falta avatar do Nino ao lado das bolhas dele.
-8. **Cards flutuantes do Hero**: `lp-glass forecast/goal/insight` bons em conceito mas com iconografia zero — números soltos, sem símbolos orgânicos da marca (pulso, estrela, coração).
-9. **Bordas/sombras**: `--lp-line: #E8E6F0` cria contornos cinza um pouco pesados vs. "bordas suaves, sombras difusas discretas".
-10. **Pills em excesso**: badge do hero + label uppercase de cada seção + pill `.IA` no logo — acumula sensação SaaS.
-11. **Gradient overuse**: bolhas do usuário no chat usam gradient cheio; deveriam ser mais discretas (superfície clara com acento).
-12. **Metadados**: `index.html` traz "Meu Nino.IA" como título/OG. Deve destacar "Meu Nino" e tagline oficial.
+Ler `LandingPage.tsx` (592 linhas), `landing.css` (381), `NinoSymbol.tsx`, `NinoWordmark.tsx`, `icons/NinoIcons.tsx`:
 
-## Estratégia de fonte
+- **Marca**: `NinoSymbol` é um SVG *reinterpretado* (geometria própria, não o símbolo oficial). Precisa ser substituído pelo SVG exato fornecido. `NinoWordmark` já usa "Meu Nino" com `.IA` opcional — estrutura ok, mas tracking, tamanho relativo do `.IA` e cor precisam ser recalibrados.
+- **Tipografia**: hoje usa Plus Jakarta Sans. Aceitável pelo briefing como fallback, mas priorizar DM Sans (open, SIL OFL, Google Fonts, coerente com o rascunho do wordmark) para alinhar títulos/wordmark.
+- **Tokens**: `landing.css` usa `--lp-violet #6D4AFF`, `--lp-indigo #4338FF`, `--lp-coral #FF6B5F`, `--lp-mint #2FC99A` — batem com o briefing. Faltam `Deep Ink Elevated #181A25`, `Bordas claras #E7E5EE`, `Texto secundário #6D7080` (hoje `#737688`).
+- **Composição**: seções seguem padrão card+ícone+título+texto repetitivo (Pain, Features, FAQ, AI band). Falta ritmo editorial. Bento de "Inteligência" mistura chat + previsão + meta sem causalidade.
+- **Mockups**: `HeroVisual` mistura Previsão + Meta Viagem + Insight sem correlação — viola a regra "cada mockup conta UMA história com dados correlacionados".
+- **Iconografia**: `NinoIcons.tsx` mistura pictogramas próprios (ChatBubble, Sparkle, Pulse, HeartOutline etc). Briefing exige Phosphor Icons regular/light — trocar.
+- **Narrativa**: falta seção dedicada a Previsão, Metas, Divisão do Rolê, Como Funciona (3 etapas), Segurança. Prova social existe atrás de flag, mas sem marcação visual clara de placeholder.
+- **Responsivo**: `HeroVisual` usa `position:absolute` para os 3 glass cards — precisa entrar no fluxo em <768px.
+- **Repetição de "Nino"**: copy usa frequente "O Nino" — ok, mas há trechos com "Meu Nino" repetidos que precisam ser reduzidos.
 
-- Sofia Pro é comercial (Fontspring). **Não** será carregada.
-- Fallback autorizado: **Plus Jakarta Sans** via Google Fonts (open-source, SIL OFL). Formato geométrico humanista muito próximo da Sofia Pro. Pesos 300/400/500/600/700.
-- Stack CSS: `"Plus Jakarta Sans", "Sofia Pro", "Avenir Next", "Nunito Sans", system-ui, sans-serif` — se o cliente tiver Sofia Pro instalada localmente, será usada; senão cai em Jakarta Sans. Documentar em comentário no CSS.
-- Remover pré-conexão do Manrope; substituir pela do Jakarta Sans no `index.html`.
+## 2. Desalinhamentos vs. marca
 
-## Arquitetura da entrega
+1. Símbolo não é o oficial.
+2. `.IA` no wordmark ora é pill gradient, ora ausente — precisa padronizar como sobrescrito discreto, tamanho ~45–55% da altura de "Nino", cor violet ou gradiente sutil.
+3. Ícones não-Phosphor.
+4. Mockups misturam narrativas.
+5. Cores secundárias divergem em 1–2 hexes.
+6. Falta seção Segurança e Como Funciona.
+7. Tipografia principal não é a prioritária do briefing.
 
-Reaproveita a estrutura de seções aprovada (Header, Hero, Pain, Bento, Features Dark, AI Band, FAQ, FinalCTA, Footer, MobileCTA) — o que muda é a camada visual: marca, ícones, tipografia, superfícies, tokens.
+## 3. Mapa de seções (14)
 
-### Arquivos alterados
-
-| Arquivo | O que muda |
-|---|---|
-| `src/pages/landing/NinoSymbol.tsx` | Reescrito. Monograma orgânico com duas curvas contínuas em gradiente (M/N + balão) e ponto coral no canto inferior direito. Props: `variant: "gradient" \| "mono" \| "avatar"`. Variante `avatar` desenha o próprio círculo Deep Ink + indicador mint. |
-| `src/pages/landing/NinoWordmark.tsx` | Reescrito. Lettering "Meu Nino" em Plus Jakarta Sans SemiBold, tracking justo, sem pill ".IA". Aceita prop `withDescriptor` (default false); quando true, mostra ".IA" como descritor discreto abaixo/ao lado, cor `--lp-muted`, peso Regular, tamanho ~0.62rem, sem gradient. |
-| `src/pages/landing/icons/NinoIcons.tsx` | **NOVO**. Biblioteca SVG própria com stroke arredondado consistente (24×24, stroke 1.6, `stroke-linecap="round"`, `stroke-linejoin="round"`, `fill="none"`): `ChatBubble`, `Sparkle`, `Pulse`, `HeartOutline`, `Target`, `Compass`, `TrendUp`, `BellSoft`, `CalendarSoft`, `Wallet`. Aceitam `accent: "violet"\|"coral"\|"mint"\|"ink"` aplicando `stroke="url(#grad-...)"` quando accent é violet/coral. |
-| `src/pages/landing/landing.css` | Refactor amplo: novos tokens (mantém paleta oficial), remove `--lp-line` pesado (troca por `rgba(16,17,26,.06)`), sombras difusas com raio maior e opacidade menor, superfícies com radius 20–28, remove Manrope/Inter e adota Plus Jakarta Sans, ajusta bolhas de chat (bolha do usuário deixa de ser gradient cheio — passa a ser Deep Ink com texto branco; bolha do Nino ganha avatar circular), refina `lp-badge` (uma única pill no hero), remove pill do wordmark, adiciona `lp-avatar` para avatar Deep Ink + indicador mint, ajusta ícones features dark para o novo componente. |
-| `src/pages/landing/LandingPage.tsx` | Atualiza Hero para incluir tagline oficial "Seu dinheiro começa a fazer mais sentido." com "sentido." em `lp-grad`. Substitui todos os placeholders tipográficos de ícones por componentes de `NinoIcons`. Adiciona `<NinoSymbol variant="avatar" />` ao lado das bolhas do Nino no mockup. Adiciona pequenos ícones aos cards flutuantes do hero (Pulse na previsão, Target na meta, Sparkle no insight). Reduz labels uppercase onde acumulam. Remove pill `.IA` do header. |
-| `index.html` | Título: `Meu Nino — seu dinheiro começa a fazer mais sentido`. Description alinhada. Substitui preconnect Manrope→Jakarta Sans. Mantém OG/Twitter sem `og:image` fabricado. |
-| `src/test/landing-page.test.tsx` | Ajusta smoke tests: valida tagline oficial presente, CTAs `/signup` e `/login`, 5 itens FAQ, ausência de marca antiga, ausência de pill ".IA" obrigatória no wordmark. |
-
-### Arquivos NÃO alterados
-
-App autenticado, admin, `src/index.css`, tokens globais, Supabase, migrations, edge functions, WAHA/WhatsApp, autenticação, rotas internas. `NinoSymbol` continua sendo importado apenas por arquivos da LP (verificado: uso apenas em `landing/`).
-
-## Detalhes de execução
-
-### NinoSymbol — desenho orgânico
-
-Viewbox 64×64. Duas curvas Bezier contínuas que sugerem M/N entrelaçados dentro de uma silhueta de balão de conversa arredondado; ponto coral (r=4) no canto inferior direito como "cauda" do balão. Stroke 5, `stroke-linecap="round"`, gradiente `violet → indigo → coral` (id único por instância via `useId`). Sem preenchimento sólido pesado; a variante `avatar` envelopa em círculo `fill="#10111A"` com indicador mint (círculo 8×8) no canto superior direito.
-
-### Tipografia
-
-```css
-@import Plus Jakarta Sans (300;400;500;600;700) via <link> no index.html
-.mn-lp { font-family: "Plus Jakarta Sans", "Sofia Pro", "Avenir Next", "Nunito Sans", system-ui, sans-serif; }
 ```
-Headlines com `letter-spacing: -0.03em` (menos comprimido que -0.055 atual), line-height 1.05, peso 600 (não 800). Subheads peso 400. Labels peso 600 tracking 0.14em uppercase.
+1  Header sticky (logo oficial + nav + CTA)
+2  Hero escuro — "O Nino entende seus gastos hoje..."
+3  Manifesto da dor
+4  Previsão de fechamento (mockup dedicado)
+5  Mudanças de comportamento (mockup dedicado)
+6  Metas acompanhadas (mockup dedicado)
+7  Insights acionáveis / próximos passos
+8  Divisão do Rolê (mockup com participantes/status)
+9  Outras capacidades (composição compacta: patrimônio,
+   investimentos, recorrências, alertas, edição, organização)
+10 Como funciona — 3 etapas
+11 Prova social (placeholders MARCADOS)
+12 Segurança (afirmações verdadeiras)
+13 FAQ compacto
+14 CTA final com gradiente + símbolo oficial
++ Footer com logo oficial
++ Mobile CTA sticky
+```
 
-### Chat mockup
+## 4. Wireframe textual
 
-- Bolha usuário: `background: #10111A; color: #fff; border-radius: 18px 18px 6px 18px`.
-- Bolha Nino: `background: #fff; box-shadow: sombra difusa; border-radius: 18px 18px 18px 6px`. Precedida de `<NinoSymbol variant="avatar" size={28} />` alinhado ao topo.
-- Sem gradiente cheio em nenhuma bolha.
+### Desktop (≥1024px)
 
-### Testes, typecheck e build
+```
+┌─ Header 64px, sticky, glass ──────────────────────────┐
+│ [Logo]        [nav]                        [CTA]      │
+└───────────────────────────────────────────────────────┘
 
-- Rodar `bunx vitest run src/test/landing-page.test.tsx src/test/rebranding-meunino.test.ts` (LP + guardião de rebrand).
-- Typecheck + build automáticos do harness.
-- Smoke visual via Playwright em 320/390/768/1024/1440 com screenshots salvos em `/tmp/browser/lp/`.
+Hero (ink #10111A, ~720px)
+┌─────────────────────────┬─────────────────────────────┐
+│ badge                   │                             │
+│ H1 grande (2 linhas)    │  Mockup Hero: chat curto    │
+│ subtítulo 620px         │  do Nino com 1 bolha usuário│
+│ [CTA primário] [ghost]  │  + 1 resposta com contexto  │
+│ micro-provas            │  (UMA história só)          │
+└─────────────────────────┴─────────────────────────────┘
 
-## Critérios de aceite (checklist final)
+Manifesto (cloud, texto editorial centrado, 760px máx)
 
-- [ ] Wordmark "Meu Nino" limpo, sem pill obrigatória ".IA".
-- [ ] Símbolo orgânico com curvas contínuas e ponto coral, variantes gradient/mono/avatar.
-- [ ] Plus Jakarta Sans carregada; stack de fallback documentada.
-- [ ] Nenhum caractere tipográfico usado como ícone; toda iconografia via `NinoIcons`.
-- [ ] Tagline oficial visível no Hero com "sentido." em gradiente.
-- [ ] Bolhas de chat sem gradient cheio; avatar Deep Ink com mint presente.
-- [ ] Sem overflow horizontal em 320/360/390/430/768/1024/1440.
-- [ ] Áreas de toque ≥44 px, foco visível, contraste AA.
-- [ ] Testes verdes (LP + rebrand), typecheck e build OK.
-- [ ] Nenhuma alteração fora de `src/pages/landing/**`, `src/test/landing-page.test.tsx` e `index.html`.
-- [ ] Sem publicação em produção.
+Previsão (dark, split 50/50)
+  Copy à esquerda | Mockup: previsão R$3.180 + delta
+                  + causa (lazer/alimentação 72%)
+                  + botão "revisar limite"
 
-## Relatório final (a entregar após implementação)
+Comportamento (cloud, split invertido)
+  Mockup: 3 categorias com variação % vs média,
+          barra comparativa, insight causal.
 
-Divergências corrigidas · arquivos alterados com diff resumido · estratégia de fonte (Plus Jakarta Sans como fallback autorizado, Sofia Pro apenas como stack local) · lista de componentes/ícones novos · saída de vitest + typecheck + build · larguras validadas com screenshots · confirmação explícita de que rotas internas, backend e dados permaneceram intactos · URL de preview.
+Metas (dark, cards horizontais)
+  Mockup: 1 meta com aportes, projeção fim, ajuste sugerido.
+
+Insights (cloud, lista editorial numerada 01–03)
+
+Divisão do Rolê (dark, mockup próprio)
+  Participantes com avatar inicial, status (pago/pendente),
+  total do rolê, botão "cobrar restantes".
+
+Outras capacidades (grid 3x2, tiles compactos Phosphor)
+
+Como funciona (cloud, 3 passos horizontais)
+  01 Conecte / 02 Converse / 03 Decida
+
+Prova social (cloud, 3 blocos com badge "Exemplo")
+
+Segurança (dark, 3 pilares verdadeiros:
+  criptografia em trânsito, dados no seu controle,
+  LGPD)
+
+FAQ (cloud, <details>, 6 perguntas)
+
+CTA final (gradiente 135deg, símbolo grande)
+
+Footer (ink, logo + copyright)
+```
+
+### Mobile (320–767px)
+
+Uma coluna. Hero: badge → H1 → sub → CTAs empilhados → mockup abaixo (no fluxo, sem `absolute`). Seções split viram vertical. Grids 3×2 viram 1 coluna. Todos os mockups entram no fluxo. Nenhum texto/CTA em `position:absolute`. Header vira barra compacta com logo + botão CTA. CTA mobile sticky no rodapé.
+
+## 5. Sistema tipográfico
+
+- Família principal: **DM Sans** (Google Fonts, SIL OFL, licença livre). Fallback: Plus Jakarta Sans, Inter, system-ui.
+- Escala fluida `clamp()`:
+  - H1: `clamp(2.4rem, 5.2vw, 4.2rem)` / weight 700 / line-height 1.05 / tracking -0.02em
+  - H2: `clamp(1.9rem, 3.6vw, 3.1rem)` / 700 / 1.08 / -0.015em
+  - H3: `clamp(1.15rem, 1.6vw, 1.4rem)` / 600 / 1.2
+  - Lead: `clamp(1.05rem, 1.3vw, 1.2rem)` / 400 / 1.6 / max 720px
+  - Body: `1rem` / 400 / 1.65 / max 620px
+  - Label overline: 0.75rem / 600 / uppercase / tracking 0.14em
+- Sofia Pro **não** será carregada (comercial). Mantido como preferência local do usuário no stack, sem @font-face.
+
+## 6. Tokens e componentes
+
+### Tokens CSS (escopados em `.mn-lp`)
+
+```
+--lp-ink:            #10111A
+--lp-ink-elev:       #181A25
+--lp-cloud:          #F7F6FB
+--lp-white:          #FFFFFF
+--lp-violet:         #6D4AFF
+--lp-indigo:         #4338FF
+--lp-coral:          #FF6B5F
+--lp-mint:           #2FC99A
+--lp-muted:          #6D7080
+--lp-line:           #E7E5EE
+--lp-grad:           linear-gradient(135deg,#6D4AFF 0%,#4338FF 54%,#FF6B5F 100%)
+--lp-radius-card:    20px
+--lp-radius-pill:    999px
+--lp-shadow-soft:    0 14px 40px rgba(16,17,26,.06)
+--lp-shadow-lift:    0 30px 80px rgba(16,17,26,.10)
+```
+
+### Componentes (arquivo único ou co-locados em `src/pages/landing/`)
+
+- `NinoLogo.tsx` (novo) — símbolo oficial + wordmark, variantes `light`/`dark`, `sm`/`md`.
+- `NinoSymbol.tsx` — reescrito para renderizar exatamente o SVG oficial (via `<img src="/brand/meu-nino-symbol.svg">` ou inline; inline preferido para controle de cor de fundo/tamanho, com o markup EXATO do briefing).
+- `NinoWordmark.tsx` — apenas lettering "Meu Nino" + descritor `.IA` sobrescrito discreto.
+- `LandingPage.tsx` — orquestrador, importa seções.
+- Seções separadas para clareza: `sections/Hero.tsx`, `Manifesto.tsx`, `Previsao.tsx`, `Comportamento.tsx`, `Metas.tsx`, `Insights.tsx`, `DivisaoRole.tsx`, `Capacidades.tsx`, `ComoFunciona.tsx`, `ProvaSocial.tsx`, `Seguranca.tsx`, `FAQ.tsx`, `CTAFinal.tsx`, `Footer.tsx`, `MobileCTA.tsx`.
+- `landing.css` reescrito com tokens acima.
+
+## 7. Uso do símbolo e wordmark
+
+- Header: `NinoLogo` variante `light` (fundo claro), altura 28px.
+- Footer: `NinoLogo` variante `dark`, altura 24px.
+- CTA final: símbolo isolado 96px acima do H2.
+- Nenhum outro uso do símbolo. Zero prints, zero labels "símbolo/wordmark" na página. `.IA` sempre menor (~50% altura de "Nino"), elevado, cor `--lp-violet` (ou gradiente sutil no header apenas).
+
+## 8. Iconografia
+
+- Biblioteca única: **Phosphor Icons** via `phosphor-react` já presente? Verificar; se não, adicionar `@phosphor-icons/react` (dependência nova, ~poucos KB tree-shaken). Estilo `regular`. Weight `light` para tiles secundários.
+- Remover `src/pages/landing/icons/NinoIcons.tsx` (pictogramas próprios) — substituídos por Phosphor.
+- Ícones usados: ChatCircleDots, TrendUp, Target, Sparkle, Bell, ArrowsClockwise, ShieldCheck, Users, Wallet, ChartLineUp, PencilSimple, Sparkle, CaretRight.
+
+## 9. Mockups (HTML/CSS/SVG, uma história cada)
+
+1. **Hero mockup** — Conversa curta: usuário "Gastei R$62 no jantar ontem" → Nino "Anotado. Alimentação subiu 14% este mês, ainda dentro do previsto." (UMA história: conversa + contexto imediato.)
+2. **Previsão** — Card com: previsão fim do mês R$ 3.180, delta +8% vs mês anterior, causa "Lazer e alimentação fora explicam 72% do aumento", CTA "revisar limite". Todos os números coerentes.
+3. **Comportamento** — Três linhas de categorias (Alimentação +22%, Transporte -8%, Lazer +14%) com barras comparando "este mês vs média 3 meses" + rodapé com insight causal único.
+4. **Metas** — UMA meta: "Viagem set/2026", progresso 72%, aportes últimos 3 meses (R$400, R$400, R$500), projeção "fecha 12 dias antes do prazo", CTA "aumentar aporte".
+5. **Divisão do Rolê** — Rolê "Churrasco 15/07", 4 participantes com iniciais, status Pago/Pendente coerente com valor total (R$ 320 = 4 × R$ 80).
+6. **CTA final** — Símbolo oficial em destaque, sem mockup competindo.
+
+Cada mockup em bloco próprio, no fluxo mobile, sem `position:absolute` para dados.
+
+## 10. Estratégia responsiva
+
+- Mobile first (base 375). Breakpoints: 640, 768, 1024, 1280.
+- Grids CSS com `minmax` e `auto-fit` para tiles.
+- Splits usam `grid-template-columns: 1fr` em mobile, `1.05fr .95fr` em ≥1024.
+- Zero `position:absolute` para conteúdo com dado/CTA. Absolute apenas para halos/glow de fundo com `aria-hidden`.
+- Header vira compacto <768 (logo + CTA); nav some, substituído pelo scroll.
+- Validar em 320, 375, 390, 414, 768, 1024, 1280, 1440.
+- Respeitar `prefers-reduced-motion` (desabilita gradients animados / spark).
+
+## 11. O que remover, refazer, preservar
+
+**Remover:**
+- `src/pages/landing/icons/NinoIcons.tsx` (substituído por Phosphor).
+- `HeroVisual` atual (3 glass cards absolutos misturando narrativas).
+- Seção `SocialProof` inline atrás de flag → refeita como componente com placeholders visualmente marcados.
+
+**Refazer:**
+- `NinoSymbol.tsx` — usar SVG oficial exato do briefing.
+- `NinoWordmark.tsx` — calibrar `.IA` sobrescrito.
+- `landing.css` — reescrito completo com novos tokens, tipografia, escala 4/8, sem redundâncias.
+- `LandingPage.tsx` — decomposto em 14 seções.
+- `index.html` — trocar `<link>` do Google Fonts para DM Sans; manter title/description v3 já aprovados; adicionar preconnect.
+
+**Preservar:**
+- Rotas `to="/signup"` e `to="/login"`.
+- `src/App.tsx` sem alteração (rota `/` já aponta pra `LandingPage`).
+- Flag `SHOW_LANDING_TESTIMONIALS` (renomeada `SOCIAL_PROOF_IS_PLACEHOLDER`, default `true`).
+- Testes `src/test/landing-page.test.tsx` atualizados (não removidos) para novo DOM.
+
+## 12. Riscos, dependências, dúvidas
+
+- **Nova dep**: `@phosphor-icons/react` (~tree-shaken). Baixo risco. Alternativa: inline SVGs de Phosphor copiados manualmente para zero-dep. **Dúvida**: prefere adicionar dep ou inline?
+- **Fonte**: DM Sans via Google Fonts. Alternativa: Plus Jakarta Sans já carregada. **Dúvida**: mantenho DM Sans ou fico com Plus Jakarta Sans para zero mudança de carga?
+- **SVG oficial**: será servido de `/public/brand/meu-nino-symbol.svg` E inline no componente (para permitir controle de cor sem CORS). Confirmado que o conteúdo é o markup do briefing sem alterações.
+- **Testes**: `landing-page.test.tsx` precisa ser adaptado ao novo DOM (contagem FAQ, seletores). `rebranding-meunino.test.ts` continua passando (marca "Meu Nino.IA" preservada).
+- **Não fará**: publicação, alterações fora da LP, novos endpoints, novas rotas.
+
+## 13. Critérios de aceite verificáveis
+
+1. `/public/brand/meu-nino-symbol.svg` existe com o markup EXATO do briefing (diff byte-a-byte).
+2. `NinoSymbol` renderiza o SVG oficial inline; nenhum outro símbolo aparece na LP (grep `<svg` em `src/pages/landing/` retorna apenas o oficial + ícones Phosphor).
+3. Wordmark: "Meu Nino" 700 + `.IA` sobrescrito ~50% altura, cor `--lp-violet`.
+4. Todas as 14 seções da narrativa presentes (teste por `getByRole('heading')`).
+5. Nenhum `NinoIcons` importado; apenas Phosphor (`grep -r 'from ".*NinoIcons"' src/pages/landing` retorna vazio).
+6. Zero `position: absolute` em elementos com texto/CTA/dado (auditoria manual + regra CSS).
+7. Mockups: cada um em seção própria, sem dado de outra história misturado.
+8. Prova social com atributo `data-placeholder="true"` e badge visível "Exemplo demonstrativo".
+9. Responsivo sem overflow horizontal em 320/375/768/1024/1440 (`document.documentElement.scrollWidth <= clientWidth`).
+10. Contraste AA em texto principal (ink em cloud, white em ink).
+11. `bunx vitest run src/test/landing-page.test.tsx src/test/rebranding-meunino.test.ts` passa.
+12. Typecheck e build do harness passam.
+13. Nenhum arquivo fora de `src/pages/landing/**`, `src/test/landing-page.test.tsx`, `index.html`, `public/brand/**` alterado.
+14. Nenhuma publicação em produção.
+
+---
+
+**Aguardando aprovação explícita antes de implementar.** Duas dúvidas pontuais para responder junto da aprovação (ou aceitar defaults):
+- (a) Phosphor via `@phosphor-icons/react` (nova dep) **ou** SVGs inline copiados? Default proposto: dep.
+- (b) Trocar para DM Sans **ou** manter Plus Jakarta Sans já carregada? Default proposto: DM Sans.
