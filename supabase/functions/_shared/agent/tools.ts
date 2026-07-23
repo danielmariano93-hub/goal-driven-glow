@@ -649,6 +649,7 @@ import {
   buildCompareArtifact, buildForecastArtifact, buildGoalArtifact,
   type ChartArtifact,
 } from "../artifacts/builder.ts";
+import { reconciliationGate } from "../engine/reconciliation.ts";
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [{ data: txs }, { data: cats }] = await Promise.all([
