@@ -191,6 +191,45 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_artifacts: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          formula_version: string | null
+          id: string
+          kind: string
+          media_expires_at: string | null
+          media_mime: string | null
+          media_path: string | null
+          payload: Json
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          formula_version?: string | null
+          id?: string
+          kind: string
+          media_expires_at?: string | null
+          media_mime?: string | null
+          media_path?: string | null
+          payload: Json
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          formula_version?: string | null
+          id?: string
+          kind?: string
+          media_expires_at?: string | null
+          media_mime?: string | null
+          media_path?: string | null
+          payload?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_decisions: {
         Row: {
           channel: string | null
@@ -377,7 +416,10 @@ export type Database = {
           ended_at: string | null
           error_masked: string | null
           error_sanitized: string | null
+          formula_versions: Json | null
           id: string
+          intent_requested: string | null
+          intent_served: string | null
           latency_ms: number | null
           model: string | null
           path: string | null
@@ -387,6 +429,7 @@ export type Database = {
           steps: number
           tokens_in: number
           tokens_out: number
+          tools_used: string[] | null
           user_id: string
         }
         Insert: {
@@ -395,7 +438,10 @@ export type Database = {
           ended_at?: string | null
           error_masked?: string | null
           error_sanitized?: string | null
+          formula_versions?: Json | null
           id?: string
+          intent_requested?: string | null
+          intent_served?: string | null
           latency_ms?: number | null
           model?: string | null
           path?: string | null
@@ -405,6 +451,7 @@ export type Database = {
           steps?: number
           tokens_in?: number
           tokens_out?: number
+          tools_used?: string[] | null
           user_id: string
         }
         Update: {
@@ -413,7 +460,10 @@ export type Database = {
           ended_at?: string | null
           error_masked?: string | null
           error_sanitized?: string | null
+          formula_versions?: Json | null
           id?: string
+          intent_requested?: string | null
+          intent_served?: string | null
           latency_ms?: number | null
           model?: string | null
           path?: string | null
@@ -423,6 +473,7 @@ export type Database = {
           steps?: number
           tokens_in?: number
           tokens_out?: number
+          tools_used?: string[] | null
           user_id?: string
         }
         Relationships: [
@@ -2152,37 +2203,49 @@ export type Database = {
       merchant_aliases: {
         Row: {
           alias_key: string
+          canonical_name: string | null
           category_id: string | null
+          confidence: number | null
+          confirmed_by_user_at: string | null
           created_at: string
           friendly_name: string
           hits: number
           id: string
           last_used_at: string
           learned_from: string
+          normalized_pattern: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           alias_key: string
+          canonical_name?: string | null
           category_id?: string | null
+          confidence?: number | null
+          confirmed_by_user_at?: string | null
           created_at?: string
           friendly_name: string
           hits?: number
           id?: string
           last_used_at?: string
           learned_from?: string
+          normalized_pattern?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           alias_key?: string
+          canonical_name?: string | null
           category_id?: string | null
+          confidence?: number | null
+          confirmed_by_user_at?: string | null
           created_at?: string
           friendly_name?: string
           hits?: number
           id?: string
           last_used_at?: string
           learned_from?: string
+          normalized_pattern?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2305,6 +2368,7 @@ export type Database = {
       }
       outbound_messages: {
         Row: {
+          artifact_id: string | null
           attempts: number
           body: string
           channel: string
@@ -2319,6 +2383,9 @@ export type Database = {
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          media_mime: string | null
+          media_status: string | null
+          media_url: string | null
           metadata: Json
           next_attempt_at: string
           participant_id: string | null
@@ -2332,6 +2399,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          artifact_id?: string | null
           attempts?: number
           body: string
           channel?: string
@@ -2346,6 +2414,9 @@ export type Database = {
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
+          media_mime?: string | null
+          media_status?: string | null
+          media_url?: string | null
           metadata?: Json
           next_attempt_at?: string
           participant_id?: string | null
@@ -2359,6 +2430,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          artifact_id?: string | null
           attempts?: number
           body?: string
           channel?: string
@@ -2373,6 +2445,9 @@ export type Database = {
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
+          media_mime?: string | null
+          media_status?: string | null
+          media_url?: string | null
           metadata?: Json
           next_attempt_at?: string
           participant_id?: string | null
@@ -2386,6 +2461,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "outbound_messages_artifact_id_fkey"
+            columns: ["artifact_id"]
+            isOneToOne: false
+            referencedRelation: "agent_artifacts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "outbound_messages_inbound_message_id_fkey"
             columns: ["inbound_message_id"]
@@ -3256,7 +3338,10 @@ export type Database = {
           amount: number
           bank_description: string | null
           bank_reference: string | null
+          category_confidence: number | null
           category_id: string | null
+          category_reason: string | null
+          category_source: string | null
           competence_date: string | null
           created_at: string
           credit_card_id: string | null
@@ -3285,6 +3370,7 @@ export type Database = {
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
           updated_at: string
+          user_edited_at: string | null
           user_id: string
           version: number
         }
@@ -3293,7 +3379,10 @@ export type Database = {
           amount: number
           bank_description?: string | null
           bank_reference?: string | null
+          category_confidence?: number | null
           category_id?: string | null
+          category_reason?: string | null
+          category_source?: string | null
           competence_date?: string | null
           created_at?: string
           credit_card_id?: string | null
@@ -3322,6 +3411,7 @@ export type Database = {
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
           updated_at?: string
+          user_edited_at?: string | null
           user_id: string
           version?: number
         }
@@ -3330,7 +3420,10 @@ export type Database = {
           amount?: number
           bank_description?: string | null
           bank_reference?: string | null
+          category_confidence?: number | null
           category_id?: string | null
+          category_reason?: string | null
+          category_source?: string | null
           competence_date?: string | null
           created_at?: string
           credit_card_id?: string | null
@@ -3359,6 +3452,7 @@ export type Database = {
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
           updated_at?: string
+          user_edited_at?: string | null
           user_id?: string
           version?: number
         }
@@ -3964,6 +4058,7 @@ export type Database = {
       claim_outbound_batch: {
         Args: { p_limit?: number }
         Returns: {
+          artifact_id: string | null
           attempts: number
           body: string
           channel: string
@@ -3978,6 +4073,9 @@ export type Database = {
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          media_mime: string | null
+          media_status: string | null
+          media_url: string | null
           metadata: Json
           next_attempt_at: string
           participant_id: string | null
