@@ -6,6 +6,7 @@ import type { CompareResult } from "../analytics/compare.ts";
 import type { ForecastResult } from "../analytics/forecast.ts";
 import type { GoalProjection } from "../analytics/goals.ts";
 import type { TimeseriesResult } from "../analytics/timeseries.ts";
+import type { CumulativeDailyAverageResult } from "../analytics/dailyAverage.ts";
 
 export type ChartType = "line" | "bar" | "stacked_bar" | "donut" | "area" | "progress" | "forecast_band";
 export type ArtifactKind = "chart" | "report" | "goal_projection" | "forecast";
@@ -147,6 +148,44 @@ export function buildTimeseriesArtifact(t: TimeseriesResult): ChartArtifact {
     },
     provenance: t.provenance,
     a11y_summary: `Série diária de ${metricLabel} entre ${t.from} e ${t.to}. Total ${BRL(t.total)}.`,
+  };
+}
+
+export function buildCumulativeDailyAverageArtifact(r: CumulativeDailyAverageResult): ChartArtifact {
+  const shortLabels = r.labels.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
+  const trendPctAbs = Math.abs(r.trend_change_pct);
+  const trendLabel =
+    r.trend === "falling" ? `↓ caindo ${(trendPctAbs * 100).toFixed(0)}% no período` :
+    r.trend === "rising"  ? `↑ subindo ${(trendPctAbs * 100).toFixed(0)}% no período` :
+                            "→ estável";
+  const narrative =
+    r.trend === "falling" ? `Sua média diária está caindo — de ${BRL(r.first_average)} para ${BRL(r.final_average)}.` :
+    r.trend === "rising"  ? `Sua média diária está subindo — de ${BRL(r.first_average)} para ${BRL(r.final_average)}.` :
+                            `Sua média diária está estável em torno de ${BRL(r.final_average)}.`;
+
+  return {
+    kind: "chart",
+    headline: "Gasto médio diário acumulado",
+    narrative,
+    metrics: [
+      { label: "Média atual", value: BRL(r.final_average) },
+      { label: "Média inicial", value: BRL(r.first_average) },
+      { label: "Variação", value: `${r.trend_change_pct >= 0 ? "+" : ""}${(r.trend_change_pct * 100).toFixed(1).replace(".", ",")}%`, hint: trendLabel },
+      { label: "Dias observados", value: String(r.labels.length) },
+    ],
+    chart: {
+      type: "line",
+      title: "Média diária acumulada (R$/dia) e gasto do dia",
+      x_labels: shortLabels,
+      series: [
+        { name: "Média diária acumulada", data: r.cumulative_average, color: "#6D3BFF" },
+        { name: "Gasto do dia", data: r.daily, color: "#FF9F1C" },
+      ],
+      units: "BRL",
+      annotations: [{ x: "__trend__", label: trendLabel }],
+    },
+    provenance: r.provenance,
+    a11y_summary: `Média diária acumulada de ${r.from} a ${r.to}: ${BRL(r.final_average)}. Tendência: ${trendLabel}.`,
   };
 }
 
