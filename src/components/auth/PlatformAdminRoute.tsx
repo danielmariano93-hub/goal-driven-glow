@@ -49,7 +49,7 @@ export function PlatformAdminRoute({ children }: { children: React.ReactNode }) 
           <ShieldAlert className="mx-auto h-10 w-10 text-brand-coral" />
           <h1 className="mt-4 font-display text-2xl font-bold">Acesso restrito</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Esta área é exclusiva para administradores da plataforma NoControle.ia.
+            Esta área é exclusiva para administradores da plataforma MeuNino.
           </p>
           <a
             href="/app"

@@ -53,7 +53,7 @@ export const copy = {
       title: "Vincular seu WhatsApp",
       body: "Vamos abrir uma conversa com seu assistente. Você continua no controle: nada é gravado sem sua confirmação.",
       privacy: "Seu número fica associado só à sua conta. Você pode desvincular a qualquer momento.",
-      consent: "Concordo em vincular meu número ao NoControle.ia (LGPD).",
+      consent: "Concordo em vincular meu número ao MeuNino (LGPD).",
       generate: "Gerar código e abrir WhatsApp",
       alreadyLinked: "Abrir conversa",
       manageIn: "Gerencie sua conexão em Perfil.",

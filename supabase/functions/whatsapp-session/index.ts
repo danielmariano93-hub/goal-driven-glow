@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
         const to = normalizeBrPhone(String(body.to ?? ""));
         if (!to) return json({ ok: false, error_code: "invalid_phone" }, 400, extraHeaders);
         try {
-          const r = await provider.sendText(to, "[TESTE NoControle.ia] Mensagem de teste enviada pelo painel administrativo.");
+          const r = await provider.sendText(to, "[TESTE MeuNino] Mensagem de teste enviada pelo painel administrativo.");
           return json({ ok: true, provider_message_id: r.provider_message_id }, 200, extraHeaders);
         } catch {
           return json({ ok: false, error_code: "provider_error" }, 502, extraHeaders);

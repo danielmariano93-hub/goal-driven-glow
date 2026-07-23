@@ -25,6 +25,6 @@ export function useAdminDocumentTitle() {
   const { pathname } = useLocation();
   useEffect(() => {
     const t = currentAdminTitle(pathname);
-    document.title = `Admin · ${t} · NoControle.ia`;
+    document.title = `Admin · ${t} · MeuNino`;
   }, [pathname]);
 }

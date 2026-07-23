@@ -56,7 +56,7 @@ async function resolveOfficialNumber(): Promise<OfficialResolution> {
 }
 
 function friendlyLinkMessage(code: string): string {
-  return `Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: ${code}`;
+  return `Olá! Quero vincular meu WhatsApp ao MeuNino. Meu código de verificação é: ${code}`;
 }
 
 function waMeUrl(numberE164: string, code?: string) {
@@ -298,7 +298,7 @@ export function WhatsAppLinkSheet({ open, onClose }: { open: boolean; onClose: (
               </button>
             </div>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Cole a mensagem no chat com o número oficial do NoControle.ia para concluir a vinculação.
+              Cole a mensagem no chat com o número oficial do MeuNino para concluir a vinculação.
             </p>
           </>
         ) : (

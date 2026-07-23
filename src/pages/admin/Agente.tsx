@@ -109,7 +109,7 @@ export default function AgenteAdmin() {
     <div className="space-y-8">
       <PageHeader
         title="Assistente"
-        description="Configure e publique como o assistente do NoControle.ia deve conversar com os usuários no WhatsApp e no app."
+        description="Configure e publique como o assistente do MeuNino deve conversar com os usuários no WhatsApp e no app."
         status={<StatusChip view={view} size="sm" />}
         actions={
           <Button asChild variant="outline" size="sm">

@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     headers: {
       ...corsHeaders,
       "Content-Type": "application/json",
-      "Content-Disposition": `attachment; filename="nocontrole_export.json"`,
+      "Content-Disposition": `attachment; filename="meunino_export.json"`,
     },
   });
 });

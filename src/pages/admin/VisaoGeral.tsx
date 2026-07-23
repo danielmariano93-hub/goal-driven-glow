@@ -65,7 +65,7 @@ export default function VisaoGeral() {
     <div className="space-y-8">
       <PageHeader
         title="Visão Geral"
-        description="Métricas agregadas do negócio NoControle.ia — sem exposição de dados pessoais dos usuários."
+        description="Métricas agregadas do negócio MeuNino — sem exposição de dados pessoais dos usuários."
         status={
           <>
             {ag && <StatusChip view={mapAgentStatus(ag.status)} size="sm" />}
@@ -88,7 +88,7 @@ export default function VisaoGeral() {
           <EmptyState
             icon={Users}
             title="Nenhum usuário por aqui ainda"
-            description="Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece aqui."
+            description="Quando alguém entrar no MeuNino e ativar o perfil financeiro, aparece aqui."
           />
         )}
       </Section>

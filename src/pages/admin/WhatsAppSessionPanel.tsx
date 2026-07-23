@@ -396,7 +396,7 @@ function ConnectDeviceCard({
         <div>
           <p className="text-sm font-semibold">Conectar aparelho</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Escolha como quer conectar o WhatsApp oficial do NoControle.
+            Escolha como quer conectar o WhatsApp oficial do MeuNino.
           </p>
         </div>
       </div>

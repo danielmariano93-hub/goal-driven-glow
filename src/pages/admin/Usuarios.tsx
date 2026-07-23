@@ -121,7 +121,7 @@ export default function Usuarios() {
         <EmptyState
           icon={Users}
           title={debounced ? "Nenhum usuário para esta busca" : "Nenhum usuário por aqui ainda"}
-          description={debounced ? "Confira a grafia ou tente outro termo." : "Quando alguém entrar no NoControle.ia e ativar o perfil financeiro, aparece aqui."}
+          description={debounced ? "Confira a grafia ou tente outro termo." : "Quando alguém entrar no MeuNino e ativar o perfil financeiro, aparece aqui."}
         />
       ) : (
         <DataTable rows={q.data} columns={columns} rowKey={(r) => r.user_id} ariaLabel="Lista de usuários" />

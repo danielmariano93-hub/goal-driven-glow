@@ -49,7 +49,7 @@ export default function Signup() {
             <Wallet size={18} />
           </span>
           <span className="font-display text-lg font-bold tracking-tight">
-            NoControle<span className="text-gradient-brand">.ia</span>
+            MeuNino
           </span>
         </Link>
         <Link

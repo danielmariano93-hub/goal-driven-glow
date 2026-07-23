@@ -53,7 +53,7 @@ export function DesktopSidebar() {
           <Wallet size={18} strokeWidth={2.4} />
         </span>
         <span className="font-display text-base font-bold tracking-tight">
-          NoControle<span className="text-gradient-brand">.ia</span>
+          MeuNino
         </span>
       </div>
 
