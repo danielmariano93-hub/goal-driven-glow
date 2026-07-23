@@ -149,8 +149,15 @@ export function decideCategoryDeterministic(input: {
       ?? decideByRule(input.description, input.candidates);
 }
 
-export function shouldAutoApply(decision: CategoryDecision | null): boolean {
-  return !!decision && decision.category_confidence >= THRESHOLDS.AUTO;
+export function shouldAutoApply(decision: CategoryDecision | null, thresholds?: EffectiveThresholds): boolean {
+  if (!decision) return false;
+  const T = thresholds ?? DEFAULT_THRESHOLDS;
+  const perSource = decision.category_source === "rule" ? T.per_source.rule
+    : decision.category_source === "history" ? T.per_source.history
+    : decision.category_source === "alias" ? T.per_source.alias
+    : decision.category_source === "llm" ? T.per_source.llm
+    : T.AUTO;
+  return decision.category_confidence >= Math.max(T.AUTO, perSource);
 }
 
 function round2(n: number) { return Math.round((n + Number.EPSILON) * 100) / 100; }
