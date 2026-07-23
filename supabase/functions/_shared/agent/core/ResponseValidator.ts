@@ -43,6 +43,13 @@ const CONFIRM_QUESTION_RX = /\b(voc[eê]\s+confirma|confirma\s*\?|posso\s+(regis
 // é alucinação e cai no fallback determinístico.
 const RECEIPT_LANGUAGE_RX = /(\b(?:despesa|receita|lan[çc]amento|transfer[eê]ncia|aporte|opera[çc][aã]o)\s+(?:foi\s+)?(?:registrad[ao]|salv[ao]|anotad[ao]|confirmad[ao]|criad[ao]|cadastrad[ao])\b)|(\b(?:registrad[ao]|salv[ao]|anotad[ao]|confirmad[ao])\b.*(?:✅|com sucesso))|(✅\s*$)/i;
 
+// Convites de rascunho que o LLM produz sem chamar tool alguma:
+//  - "Responda CONFIRMAR / *CONFIRMAR*"
+//  - "CONFIRMAR para registrar/salvar/lançar/criar/anotar"
+//  - "Posso lançar/registrar/salvar ...?"
+//  - "Vou lançar/registrar/salvar ..."
+const DRAFT_INVITE_RX = /(responda\s*\*?\s*confirmar\s*\*?)|(\*?\s*confirmar\s*\*?\s*para\s+(registrar|salvar|lan[çc]ar|criar|anotar))|(\bposso\s+(lan[çc]ar|registrar|salvar|criar|anotar)\b[^?]{0,80}\?)|(\bvou\s+(lan[çc]ar|registrar|salvar|criar|anotar)\b)/i;
+
 export function validate(raw: string, ctx: ValidationContext = {}): ValidationResult {
   const reasons: string[] = [];
   const trimmed = String(raw ?? "").trim();
@@ -73,12 +80,26 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
     reasons.push("confirm_question_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
   }
+  // Convite de rascunho ("Responda CONFIRMAR…", "Posso lançar…?", "Vou registrar…")
+  // sem qualquer mutação real neste turno = alucinação do template. Cai no
+  // caminho determinístico que sabe montar o rascunho de verdade.
+  if (ctx.hasSuccessfulMutation === false && DRAFT_INVITE_RX.test(trimmed)) {
+    reasons.push("hallucinated_draft_invite");
+    return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
+  }
   if (ctx.hasDraft === false && DRAFT_LANGUAGE_RX.test(trimmed)) {
     reasons.push("draft_language_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
   }
-  // Too many tool failures — mistrust the reply and fall back
-  if ((ctx.toolCallErrors ?? 0) >= 2) {
+  // Recibo declarado combinado com QUALQUER erro de tool ⇒ suspeito.
+  // Antes exigíamos ≥2 erros; agora, se o texto soa a recibo e houve ao menos 1
+  // erro, tratamos como fallback. O limite geral segue em ≥2.
+  const errs = ctx.toolCallErrors ?? 0;
+  if (errs >= 1 && RECEIPT_LANGUAGE_RX.test(trimmed) && ctx.hasSuccessfulMutation === false) {
+    reasons.push("receipt_with_tool_errors");
+    return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
+  }
+  if (errs >= 2) {
     reasons.push("too_many_tool_errors");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
   }
