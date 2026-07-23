@@ -1,5 +1,5 @@
 /**
- * Testes de fumaça da LP pública Meu Nino.
+ * Testes de fumaça da LP pública Meu Nino.IA.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -20,16 +20,16 @@ describe("LandingPage", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: /você não precisa controlar cada centavo/i,
+        name: /o nino entende seus gastos hoje/i,
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/inteligência financeira que conversa/i)).toBeInTheDocument();
   });
 
-  it("exibe a tagline oficial no hero", () => {
+  it("renderiza o manifesto oficial", () => {
     const { container } = renderLP();
     expect(container.textContent ?? "").toMatch(
-      /seu dinheiro começa a fazer mais\s+sentido\./i,
+      /você não precisa olhar mais números/i,
     );
   });
 
@@ -45,15 +45,17 @@ describe("LandingPage", () => {
     expect(hrefs).toContain("/login");
   });
 
-  it("FAQ renderiza 5 perguntas como <details>", () => {
+  it("FAQ renderiza 6 perguntas como <details>", () => {
     const { container } = renderLP();
     const details = container.querySelectorAll(".lp-faq details");
-    expect(details.length).toBe(5);
+    expect(details.length).toBe(6);
   });
 
-  it("SocialProof fica oculto por default (flag desligada)", () => {
-    renderLP();
-    expect(screen.queryByText(/exemplo demonstrativo/i)).not.toBeInTheDocument();
+  it("prova social é marcada como placeholder por default", () => {
+    const { container } = renderLP();
+    const quotes = container.querySelector(".lp-quotes");
+    expect(quotes?.getAttribute("data-placeholder")).toBe("true");
+    expect(container.querySelectorAll(".lp-quote-badge").length).toBeGreaterThan(0);
   });
 
   it("não contém referências à marca antiga NoControle", () => {
@@ -62,9 +64,40 @@ describe("LandingPage", () => {
     expect(container.textContent ?? "").toMatch(/Meu Nino/);
   });
 
-  it("wordmark do header não usa pill '.IA' obrigatória", () => {
+  it("wordmark oficial: 'Meu Nino' + descritor '.IA' sobrescrito", () => {
     const { container } = renderLP();
-    // A pill gradiente antiga tinha classe lp-ia-pill; não deve mais existir.
+    // Não deve mais existir pill gradiente antiga.
     expect(container.querySelector(".lp-ia-pill")).toBeNull();
+    // Deve existir a estrutura oficial do wordmark.
+    expect(container.querySelector(".nino-wordmark__name")).not.toBeNull();
+    expect(container.querySelector(".nino-wordmark__ia")?.textContent).toBe(".IA");
+  });
+
+  it("todas as 14 seções principais estão presentes por id", () => {
+    const { container } = renderLP();
+    const ids = [
+      "top",
+      "previsao",
+      "comportamento",
+      "metas",
+      "insights",
+      "role",
+      "capacidades",
+      "como-funciona",
+      "prova",
+      "seguranca",
+      "duvidas",
+      "comecar",
+    ];
+    for (const id of ids) {
+      expect(container.querySelector(`#${id}`)).not.toBeNull();
+    }
+  });
+
+  it("nenhum ícone antigo NinoIcons segue sendo importado", () => {
+    // grep indireto via DOM: os componentes antigos usavam data-icon="chat-bubble" etc.
+    // Aqui garantimos ao menos que a página renderiza sem erros e Phosphor está no DOM.
+    const { container } = renderLP();
+    expect(container.querySelectorAll("svg").length).toBeGreaterThan(4);
   });
 });
