@@ -1,18 +1,14 @@
 import { Link } from "react-router-dom";
 import {
-  ChatCircleDots,
   TrendUp,
   Target,
   Sparkle,
   Bell,
   ArrowsClockwise,
-  ShieldCheck,
   Users,
   Wallet,
   ChartLineUp,
   PencilSimple,
-  Lock,
-  UserFocus,
   CaretRight,
   Check,
   type IconProps,
@@ -23,14 +19,16 @@ import "./landing.css";
 
 /**
  * Landing page pública oficial Meu Nino.IA (rota "/").
- * Escopo: estilos escopados em .mn-lp — não afeta app autenticado nem admin.
+ * Escopada em .mn-lp — não afeta app autenticado nem admin.
  *
- * Prova social por padrão em modo placeholder até depoimentos reais serem
- * coletados. Trocar para false apenas quando houver conteúdo real.
+ * Direção:
+ *  - hero em Deep Ink (marca);
+ *  - previsão em Deep Ink (momento estratégico);
+ *  - demais seções em Cloud/branco;
+ *  - CTA final em gradiente oficial;
+ *  - sem prova social fictícia;
+ *  - claims de segurança sem afirmações não comprovadas.
  */
-// TODO: substituir por depoimentos reais antes da publicação final.
-const SOCIAL_PROOF_IS_PLACEHOLDER = true;
-
 export default function LandingPage() {
   return (
     <div className="mn-lp">
@@ -45,7 +43,7 @@ export default function LandingPage() {
         <DivisaoRoleSection />
         <CapacidadesSection />
         <ComoFuncionaSection />
-        <ProvaSocialSection />
+        <ConfiancaSection />
         <SegurancaSection />
         <FAQSection />
         <FinalCTA />
@@ -71,8 +69,8 @@ function LandingHeader() {
           <a href="#metas">Metas</a>
           <a href="#duvidas">Dúvidas</a>
         </nav>
-        <Link to="/signup" className="lp-btn primary">
-          Começar grátis
+        <Link to="/signup" className="lp-btn primary lp-btn--sm">
+          Quero meu Nino
         </Link>
       </div>
     </header>
@@ -85,56 +83,89 @@ function HeroSection() {
   return (
     <section className="lp-hero">
       <div className="lp-wrap lp-hero-grid">
-        <div>
+        <div className="lp-hero-copy">
           <span className="lp-badge">
-            <Sparkle size={16} weight="regular" />
-            Inteligência financeira que conversa com você
+            <Sparkle size={14} weight="regular" />
+            Inteligência financeira pessoal
           </span>
           <h1>
-            O Nino entende seus gastos hoje para ajudar você a{" "}
-            <span className="lp-grad-text">decidir melhor amanhã.</span>
+            Seu dinheiro não está desorganizado.{" "}
+            <span className="lp-grad-text">
+              Só faltava alguém para cuidar dele com você.
+            </span>
           </h1>
           <p className="lp-lead">
-            Uma inteligência pessoal que percebe sua rotina, antecipa mudanças e
-            transforma seus registros em decisões — sem planilhas, sem julgamento.
+            O Nino entende seus gastos, percebe mudanças e ajuda você a decidir
+            antes que o mês aperte. Converse pelo WhatsApp ou pelo app, registre
+            sua rotina em segundos e receba previsões, alertas, metas e próximos
+            passos que realmente fazem sentido.
           </p>
           <div className="lp-actions">
             <Link to="/signup" className="lp-btn primary">
-              Começar gratuitamente <CaretRight size={16} weight="bold" />
+              Quero meu Nino grátis <CaretRight size={16} weight="bold" />
             </Link>
             <a href="#previsao" className="lp-btn ghost-dark">
-              Ver como funciona
+              Ver o Nino em ação
             </a>
           </div>
           <div className="lp-micro">
-            <span><Check size={14} weight="bold" /> Registro por conversa</span>
-            <span><Check size={14} weight="bold" /> Também pelo WhatsApp</span>
-            <span><Check size={14} weight="bold" /> Comece sem cartão</span>
+            <span><Check size={14} weight="bold" /> Grátis para começar</span>
+            <span><Check size={14} weight="bold" /> Sem cartão</span>
+            <span><Check size={14} weight="bold" /> Leva menos de 1 minuto</span>
           </div>
-          <p className="lp-micro" style={{ marginTop: 14 }}>
-            <Link to="/login" style={{ textDecoration: "underline", color: "inherit" }}>
-              Já tenho conta
-            </Link>
+          <p className="lp-micro lp-micro-login">
+            <Link to="/login">Já tenho conta</Link>
           </p>
         </div>
-        <HeroMockup />
+        <HeroComposition />
       </div>
     </section>
   );
 }
 
-function HeroMockup() {
+/**
+ * Composição unificada do hero: uma única história —
+ * usuário → resposta do Nino → contexto causal → ação.
+ */
+function HeroComposition() {
   return (
-    <div className="lp-hero-mockup" aria-hidden="true">
-      <div className="lp-hero-mockup-header">
-        <span className="dot" />
-        Conversa com o Nino · agora
+    <div className="lp-hero-comp" aria-hidden="true">
+      <div className="lp-hero-chat">
+        <div className="lp-hero-chat-head">
+          <span className="lp-hero-avatar">
+            <NinoSymbol size={22} />
+          </span>
+          <div>
+            <strong>Nino</strong>
+            <small>agora</small>
+          </div>
+          <span className="lp-hero-dot" />
+        </div>
+        <div className="lp-chat-msg user">
+          Gastei R$ 80 no bar ontem no Nubank.
+        </div>
+        <div className="lp-chat-msg nino">
+          Pronto. Organizei em <b>Lazer</b>. Com esse gasto, sua previsão
+          para fechar o mês passou para <b>R$ 3.180</b>.
+        </div>
+        <div className="lp-chat-msg nino">
+          Isso é <b>8% acima</b> do mês anterior. Lazer e alimentação fora
+          explicam <b>72%</b> da alta.
+        </div>
       </div>
-      <div className="lp-chat-msg user">Gastei R$ 62 no jantar ontem</div>
-      <div className="lp-chat-msg nino">
-        Anotado em Alimentação. Este mês você já está 14% acima da sua média,
-        ainda dentro do previsto.
-        <small>Quer que eu acompanhe essa categoria de perto?</small>
+      <div className="lp-hero-card">
+        <div className="lp-hero-card-head">
+          <span>Previsão · fechamento do mês</span>
+          <TrendUp size={16} weight="regular" />
+        </div>
+        <span className="lp-hero-num">R$ 3.180</span>
+        <span className="lp-delta">
+          <TrendUp size={12} weight="bold" /> +8% vs. mês anterior
+        </span>
+        <a className="lp-hero-action" href="#previsao">
+          Criar um limite para essas categorias
+          <CaretRight size={14} weight="bold" />
+        </a>
       </div>
     </div>
   );
@@ -143,13 +174,31 @@ function HeroMockup() {
 /* ============================== Manifesto ================================ */
 
 function ManifestoSection() {
+  const dores = [
+    "O mês parece normal — até deixar de parecer.",
+    "Pequenos aumentos passam despercebidos.",
+    "Metas se desconectam da rotina.",
+    "Decisões chegam tarde.",
+  ];
   return (
     <section className="lp-manifesto">
-      <div className="lp-wrap">
+      <div className="lp-wrap lp-manifesto-inner">
         <blockquote>
           Você não precisa olhar mais números.{" "}
           <span>Precisa entender o que eles estão tentando dizer.</span>
         </blockquote>
+        <p className="lp-lead lp-lead--wide lp-manifesto-lead">
+          Planilhas e aplicativos mostram o que já aconteceu. O Nino conecta o
+          que mudou, por que mudou e o que você pode fazer agora.
+        </p>
+        <ol className="lp-manifesto-list">
+          {dores.map((d, i) => (
+            <li key={d}>
+              <span className="lp-manifesto-index">{String(i + 1).padStart(2, "0")}</span>
+              <span>{d}</span>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );
@@ -164,11 +213,11 @@ function PrevisaoSection() {
         <div className="lp-split">
           <div>
             <span className="lp-label">Previsão de fechamento</span>
-            <h2>Saiba onde o mês termina antes que ele te surpreenda.</h2>
+            <h2>Veja onde o mês provavelmente termina antes que ele termine.</h2>
             <p className="lp-lead" style={{ marginTop: 18 }}>
               O Nino projeta o fim do mês com base no seu histórico e nos
-              compromissos já registrados. Quando algo muda, você percebe cedo —
-              e ainda dá tempo de decidir.
+              compromissos já registrados. Quando algo muda, você percebe cedo
+              — e ainda dá tempo de decidir.
             </p>
           </div>
           <div className="lp-split-visual">
@@ -179,13 +228,28 @@ function PrevisaoSection() {
               </div>
               <span className="lp-mockup-num">R$ 3.180</span>
               <span className="lp-delta">
-                <TrendUp size={14} weight="bold" /> +8% vs. mês anterior
+                <TrendUp size={12} weight="bold" /> +8% vs. mês anterior
               </span>
+              <div className="lp-trend">
+                <svg viewBox="0 0 300 90" preserveAspectRatio="none" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="lp-trend-grad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stopColor="#6D4AFF" />
+                      <stop offset="1" stopColor="#FF6B5F" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M0,70 C40,60 70,50 110,52 C150,54 180,44 220,34 C250,26 275,22 300,18"
+                    fill="none" stroke="url(#lp-trend-grad)" strokeWidth="3" strokeLinecap="round"
+                  />
+                </svg>
+                <div className="lp-trend-marks"><span>01</span><span>08</span><span>15</span><span>22</span><span>29</span></div>
+              </div>
               <div className="lp-cause">
-                Lazer e alimentação fora explicam <b>72%</b> do aumento nas últimas 2 semanas.
+                Lazer e alimentação fora explicam <b>72%</b> do aumento.
               </div>
               <a className="lp-mockup-cta" href="#previsao">
-                Revisar limite dessas categorias <CaretRight size={14} weight="bold" />
+                Revisar limite <CaretRight size={14} weight="bold" />
               </a>
             </div>
           </div>
@@ -198,48 +262,32 @@ function PrevisaoSection() {
 /* =========================== Mudanças de comportamento =================== */
 
 function ComportamentoSection() {
-  const categorias = [
-    { nome: "Alimentação fora", atual: 92, media: 68, delta: "+22%", pos: false },
-    { nome: "Transporte", atual: 48, media: 60, delta: "−8%", pos: true },
-    { nome: "Lazer", atual: 74, media: 58, delta: "+14%", pos: false },
+  const sinais = [
+    { t: "Alimentação fora", d: "+22% em 3 semanas", why: "Consistente e acima da sua média — não é um pico isolado.", tone: "alert" as const },
+    { t: "Transporte", d: "−8% no mês", why: "Você diminuiu ao trabalhar mais em casa. Sobra útil para a meta.", tone: "good" as const },
+    { t: "Assinatura recorrente", d: "Nova cobrança identificada", why: "Um débito repetido apareceu no cartão. Vale confirmar.", tone: "neutral" as const },
+    { t: "Gasto fora do padrão", d: "R$ 240 · terça, 22h", why: "Fora do seu ritmo habitual. Confira se foi você.", tone: "alert" as const },
   ];
   return (
     <section className="lp-section" id="comportamento">
       <div className="lp-wrap">
-        <div className="lp-split lp-split--reverse">
-          <div className="lp-split-visual">
-            <div className="lp-mockup" aria-hidden="true">
-              <div className="lp-mockup-head">
-                <span>Comparativo — este mês vs. média 3 meses</span>
-                <ChartLineUp size={16} weight="regular" />
-              </div>
-              <div style={{ marginTop: 8 }}>
-                {categorias.map((c) => (
-                  <div key={c.nome} className="lp-cat-row">
-                    <span className="lp-cat-name">{c.nome}</span>
-                    <span className={`lp-delta ${c.pos ? "lp-delta--good" : ""}`}>{c.delta}</span>
-                    <div className="lp-cat-bars">
-                      <div className="lp-cat-bar"><span style={{ width: `${c.atual}%` }} /></div>
-                      <div className="lp-cat-bar lp-cat-bar--avg"><span style={{ width: `${c.media}%` }} /></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="lp-cause" style={{ marginTop: 18 }}>
-                Alimentação fora subiu de forma consistente por 3 semanas.
-                Boa hora para um limite temporário.
-              </div>
-            </div>
-          </div>
-          <div>
-            <span className="lp-label">Mudanças de comportamento</span>
-            <h2>O Nino percebe o que muda antes de virar problema.</h2>
-            <p className="lp-lead" style={{ marginTop: 18 }}>
-              Em vez de mostrar totais, ele compara seus movimentos com a sua
-              própria história e explica o que está por trás — sem ranking, sem
-              julgamento.
-            </p>
-          </div>
+        <div className="lp-section-head">
+          <span className="lp-label">Mudanças de comportamento</span>
+          <h2>O Nino percebe mudanças que passam despercebidas na rotina.</h2>
+          <p className="lp-lead lp-lead--wide">
+            Em vez de mostrar totais, ele compara seus movimentos com a sua
+            própria história e explica o que está por trás — sem ranking,
+            sem julgamento.
+          </p>
+        </div>
+        <div className="lp-signals">
+          {sinais.map((s, i) => (
+            <article className={`lp-signal lp-signal--${s.tone} lp-signal--${i}`} key={s.t}>
+              <span className="lp-signal-delta">{s.d}</span>
+              <h3>{s.t}</h3>
+              <p>{s.why}</p>
+            </article>
+          ))}
         </div>
       </div>
     </section>
@@ -250,38 +298,40 @@ function ComportamentoSection() {
 
 function MetasSection() {
   return (
-    <section className="lp-section lp-dark" id="metas">
+    <section className="lp-section" id="metas">
       <div className="lp-wrap">
-        <div className="lp-split">
+        <div className="lp-split lp-split--reverse">
+          <div className="lp-split-visual">
+            <div className="lp-mockup lp-mockup--light" aria-hidden="true">
+              <div className="lp-mockup-head">
+                <span>Viagem · setembro 2026</span>
+                <Target size={16} weight="regular" />
+              </div>
+              <div className="lp-goal-row">
+                <span className="lp-mockup-num">R$ 4.320</span>
+                <span className="lp-goal-total">de R$ 6.000</span>
+              </div>
+              <div className="lp-goal-progress lp-goal-progress--light">
+                <span style={{ width: "72%" }} />
+              </div>
+              <div className="lp-goal-meta">
+                <div><small>Ritmo necessário</small><strong>R$ 420 / mês</strong></div>
+                <div><small>Previsão</small><strong>Fecha 12 dias antes</strong></div>
+              </div>
+              <div className="lp-cause">
+                Se o ritmo cair para <b>R$ 260/mês</b>, a meta atrasa 3 semanas.
+                O Nino avisa antes que isso aconteça.
+              </div>
+            </div>
+          </div>
           <div>
             <span className="lp-label">Metas acompanhadas</span>
-            <h2>Meta viva. Ajustada com o que realmente aconteceu no seu mês.</h2>
+            <h2>Suas metas não ficam esquecidas depois de serem criadas.</h2>
             <p className="lp-lead" style={{ marginTop: 18 }}>
               Cada aporte, cada imprevisto: o Nino atualiza o quadro e sinaliza
               quando a meta precisa de um pequeno ajuste — antes que o prazo
               vire pressão.
             </p>
-          </div>
-          <div className="lp-split-visual">
-            <div className="lp-mockup" aria-hidden="true">
-              <div className="lp-mockup-head">
-                <span>Viagem · setembro 2026</span>
-                <Target size={16} weight="regular" />
-              </div>
-              <span className="lp-mockup-num">72%</span>
-              <div className="lp-goal-progress"><span style={{ width: "72%" }} /></div>
-              <div className="lp-goal-aportes">
-                <span className="lp-goal-chip">Mai · R$ 400</span>
-                <span className="lp-goal-chip">Jun · R$ 400</span>
-                <span className="lp-goal-chip">Jul · R$ 500</span>
-              </div>
-              <div className="lp-cause" style={{ marginTop: 18 }}>
-                No ritmo atual, a meta <b>fecha 12 dias antes</b> do prazo.
-              </div>
-              <a className="lp-mockup-cta" href="#metas">
-                Aumentar aporte de agosto <CaretRight size={14} weight="bold" />
-              </a>
-            </div>
           </div>
         </div>
       </div>
@@ -295,15 +345,18 @@ function InsightsSection() {
   const items = [
     {
       t: "Reveja o limite de alimentação fora",
-      d: "Ao continuar no ritmo atual, essa categoria termina R$ 220 acima do previsto.",
+      ctx: "Ritmo atual encerra a categoria R$ 220 acima do previsto.",
+      d: "Um teto temporário de R$ 320 já devolve o mês ao azul.",
     },
     {
-      t: "Antecipe a fatura da próxima semana",
-      d: "Sobra estimada permite antecipar R$ 480 sem comprometer contas fixas.",
+      t: "Antecipe parte da fatura",
+      ctx: "Sobra estimada permite antecipar sem comprometer as fixas.",
+      d: "Antecipar R$ 480 reduz o juros do próximo ciclo.",
     },
     {
       t: "Automatize seu aporte da meta",
-      d: "Você está fazendo aportes constantes há 3 meses. Vale programar como recorrência.",
+      ctx: "Você fez aportes constantes por 3 meses.",
+      d: "Vale programar como recorrência para não depender de lembrete.",
     },
   ];
   return (
@@ -311,17 +364,14 @@ function InsightsSection() {
       <div className="lp-wrap">
         <div className="lp-section-head">
           <span className="lp-label">Próximos passos</span>
-          <h2>Insights que sugerem o que fazer — não mais um relatório.</h2>
-          <p className="lp-lead lp-lead--wide">
-            Cada recomendação nasce dos seus dados e vem com uma ação clara.
-            Você aplica com um toque ou explica ao Nino por que não faz sentido.
-          </p>
+          <h2>Não basta dizer o que aconteceu. O Nino ajuda você a decidir o próximo passo.</h2>
         </div>
         <div className="lp-insights-list">
           {items.map((i) => (
             <article className="lp-insight-item" key={i.t}>
               <div>
                 <h3>{i.t}</h3>
+                <p className="lp-insight-ctx">{i.ctx}</p>
                 <p>{i.d}</p>
               </div>
             </article>
@@ -342,29 +392,29 @@ function DivisaoRoleSection() {
     { nome: "Diego",   valor: "R$ 80", status: "pendente" as const },
   ];
   return (
-    <section className="lp-section lp-dark" id="role">
+    <section className="lp-section lp-section--soft" id="role">
       <div className="lp-wrap">
         <div className="lp-split">
           <div>
             <span className="lp-label">Divisão do Rolê</span>
-            <h2>Divida a conta sem virar cobrança chata no grupo.</h2>
+            <h2>Dividir a conta não deveria virar outra conta para você resolver.</h2>
             <p className="lp-lead" style={{ marginTop: 18 }}>
-              O Nino organiza quem participou, quanto cada um deve e envia
-              lembretes pelo WhatsApp — mantendo o histórico visível pra todo
-              mundo.
+              O Nino organiza participantes, valores individuais e status de
+              pagamento — e prepara uma mensagem de lembrete para você enviar
+              quando quiser.
             </p>
           </div>
           <div className="lp-split-visual">
-            <div className="lp-mockup" aria-hidden="true">
+            <div className="lp-mockup lp-mockup--light" aria-hidden="true">
               <div className="lp-mockup-head">
                 <span>Churrasco · 15/jul</span>
                 <Users size={16} weight="regular" />
               </div>
-              <span className="lp-mockup-num">R$ 320</span>
-              <p style={{ color: "rgba(255,255,255,.6)", fontSize: ".88rem", margin: 0 }}>
-                4 participantes · R$ 80 cada
-              </p>
-              <div className="lp-role-participants">
+              <div className="lp-goal-row">
+                <span className="lp-mockup-num">R$ 320</span>
+                <span className="lp-goal-total">4 pessoas · R$ 80 cada</span>
+              </div>
+              <div className="lp-role-participants lp-role-participants--light">
                 {parts.map((p) => (
                   <div className="lp-role-row" key={p.nome}>
                     <div className="lp-role-avatar">{p.nome[0]}</div>
@@ -377,7 +427,7 @@ function DivisaoRoleSection() {
                 ))}
               </div>
               <a className="lp-mockup-cta" href="#role" style={{ marginTop: 16 }}>
-                Cobrar os pendentes pelo WhatsApp <CaretRight size={14} weight="bold" />
+                Preparar lembrete para os pendentes <CaretRight size={14} weight="bold" />
               </a>
             </div>
           </div>
@@ -390,12 +440,12 @@ function DivisaoRoleSection() {
 /* ============================ Capacidades ================================ */
 
 const CAPACIDADES: Array<{ icon: React.ComponentType<IconProps>; t: string; d: string }> = [
-  { icon: Wallet,           t: "Patrimônio consolidado", d: "Contas, investimentos e faturas somados em uma visão só." },
+  { icon: Wallet,           t: "Patrimônio consolidado", d: "Contas, investimentos e faturas em uma visão só." },
   { icon: ChartLineUp,      t: "Investimentos",          d: "Aportes, rendimentos e vínculo com metas específicas." },
   { icon: ArrowsClockwise,  t: "Recorrências",           d: "Assinaturas e contas fixas identificadas e projetadas." },
   { icon: Bell,             t: "Alertas úteis",          d: "Avisos quando algo importante muda — sem barulho." },
-  { icon: PencilSimple,     t: "Edição em qualquer lugar", d: "Corrigir e organizar no app ou pelo WhatsApp." },
-  { icon: ChatCircleDots,   t: "Organização automática", d: "Categorização inteligente que aprende com você." },
+  { icon: PencilSimple,     t: "Edição onde estiver",    d: "Corrija e organize no app ou pelo WhatsApp." },
+  { icon: Sparkle,          t: "Organização automática", d: "Categorização que aprende com sua rotina." },
 ];
 
 function CapacidadesSection() {
@@ -409,7 +459,7 @@ function CapacidadesSection() {
         <div className="lp-tiles">
           {CAPACIDADES.map(({ icon: Icon, t, d }) => (
             <article className="lp-tile" key={t}>
-              <div className="lp-tile-icon"><Icon size={22} weight="regular" /></div>
+              <div className="lp-tile-icon"><Icon size={20} weight="light" /></div>
               <h3>{t}</h3>
               <p>{d}</p>
             </article>
@@ -429,7 +479,7 @@ function ComoFuncionaSection() {
     { n: "03", t: "Decida",   d: "Receba insights com próximos passos e aplique com um toque." },
   ];
   return (
-    <section className="lp-section" id="como-funciona">
+    <section className="lp-section lp-section--soft" id="como-funciona">
       <div className="lp-wrap">
         <div className="lp-section-head">
           <span className="lp-label">Como funciona</span>
@@ -449,36 +499,26 @@ function ComoFuncionaSection() {
   );
 }
 
-/* ============================= Prova social ============================== */
+/* =========================== Confiança (sem prova fictícia) =============== */
 
-function ProvaSocialSection() {
-  // Placeholders explicitamente marcados. Substituir por depoimentos reais.
-  const quotes = [
-    { p: "Passei a entender o que muda no meu mês antes do fim.",   a: "Persona demonstrativa · Ana, 32" },
-    { p: "Registrar pelo WhatsApp virou hábito em duas semanas.",   a: "Persona demonstrativa · Bruno, 28" },
-    { p: "As sugestões me ajudam a decidir antes de comprar.",      a: "Persona demonstrativa · Camila, 41" },
+function ConfiancaSection() {
+  const points = [
+    { t: "Registro em segundos", d: "Escreva do jeito que você fala. O Nino organiza depois." },
+    { t: "Conversa que organiza", d: "Sem menus infinitos: você conversa e o app entende." },
+    { t: "Decisões em linguagem humana", d: "Números viram frases claras, com o próximo passo à mão." },
   ];
   return (
-    <section className="lp-section" id="prova">
+    <section className="lp-section" id="confianca">
       <div className="lp-wrap">
         <div className="lp-section-head">
-          <span className="lp-label">Quem já usa</span>
-          <h2>Organização que finalmente cabe na rotina.</h2>
-          {SOCIAL_PROOF_IS_PLACEHOLDER ? (
-            <p className="lp-lead lp-lead--wide">
-              Estamos coletando depoimentos reais. Os exemplos abaixo estão
-              marcados como <b>demonstrativos</b> até essa etapa concluir.
-            </p>
-          ) : null}
+          <span className="lp-label">Feito para caber na rotina</span>
+          <h2>Feito para caber na rotina, não para criar mais uma tarefa.</h2>
         </div>
-        <div className="lp-quotes" data-placeholder={SOCIAL_PROOF_IS_PLACEHOLDER}>
-          {quotes.map((q) => (
-            <article className="lp-quote" key={q.a}>
-              {SOCIAL_PROOF_IS_PLACEHOLDER ? (
-                <span className="lp-quote-badge">Exemplo demonstrativo</span>
-              ) : null}
-              <blockquote>“{q.p}”</blockquote>
-              <cite>{q.a}</cite>
+        <div className="lp-trust">
+          {points.map((p) => (
+            <article className="lp-trust-item" key={p.t}>
+              <h3>{p.t}</h3>
+              <p>{p.d}</p>
             </article>
           ))}
         </div>
@@ -490,42 +530,17 @@ function ProvaSocialSection() {
 /* ============================== Segurança ================================ */
 
 function SegurancaSection() {
-  const pillars = [
-    {
-      icon: Lock,
-      t: "Criptografia em trânsito",
-      d: "Toda comunicação com o Nino é feita por conexões seguras (HTTPS/TLS).",
-    },
-    {
-      icon: UserFocus,
-      t: "Seus dados sob seu controle",
-      d: "Você pode exportar ou excluir suas informações a qualquer momento.",
-    },
-    {
-      icon: ShieldCheck,
-      t: "LGPD como padrão",
-      d: "Tratamos dados pessoais conforme a Lei Geral de Proteção de Dados.",
-    },
-  ];
   return (
-    <section className="lp-section lp-dark" id="seguranca">
+    <section className="lp-section lp-section--soft" id="seguranca">
       <div className="lp-wrap">
         <div className="lp-section-head">
-          <span className="lp-label">Segurança</span>
-          <h2>Confiança começa na base.</h2>
+          <span className="lp-label">Privacidade</span>
+          <h2>Seu dinheiro é pessoal. Seus dados também.</h2>
           <p className="lp-lead lp-lead--wide">
-            O Nino não movimenta dinheiro. Ele apenas organiza informações que
-            você registra — com boas práticas de segurança e privacidade.
+            O Nino não movimenta seu dinheiro. Ele organiza as informações que
+            você decide registrar e deixa claro como elas são usadas — você
+            pode revisar, exportar ou excluir a qualquer momento.
           </p>
-        </div>
-        <div className="lp-security">
-          {pillars.map(({ icon: Icon, t, d }) => (
-            <article className="lp-security-item" key={t}>
-              <div className="lp-tile-icon"><Icon size={22} weight="regular" /></div>
-              <h3>{t}</h3>
-              <p>{d}</p>
-            </article>
-          ))}
         </div>
       </div>
     </section>
@@ -537,23 +552,23 @@ function SegurancaSection() {
 const FAQ_ITEMS = [
   {
     q: "O Nino é um banco?",
-    a: "Não. O Nino é um assistente financeiro que organiza informações e ajuda você a decidir. Nada de movimentação de dinheiro.",
+    a: "Não. O Nino é um assistente financeiro que organiza informações e ajuda você a decidir. Ele não movimenta dinheiro.",
   },
   {
     q: "Como a inteligência artificial é usada?",
-    a: "Para reconhecer padrões, identificar mudanças no seu comportamento e projetar cenários com base no que você registra.",
+    a: "Para reconhecer padrões nos registros que você faz, identificar mudanças no seu comportamento e projetar cenários com base no seu histórico.",
   },
   {
     q: "Preciso preencher tudo manualmente?",
     a: "Não. Você conversa com o Nino no app ou pelo WhatsApp e ele extrai, categoriza e confirma antes de salvar.",
   },
   {
-    q: "Funciona pelo WhatsApp de verdade?",
-    a: "Sim. Você vincula seu número uma vez e passa a registrar gastos, receber alertas e responder ao Nino direto por lá.",
+    q: "Funciona pelo WhatsApp?",
+    a: "Sim. Você vincula seu número uma vez e passa a registrar gastos e conversar com o Nino direto por lá.",
   },
   {
-    q: "Meus dados ficam seguros?",
-    a: "Sim. Comunicação criptografada, dados pessoais tratados conforme a LGPD e controle total nas suas mãos para exportar ou excluir.",
+    q: "O que acontece com os meus dados?",
+    a: "Você pode revisar, exportar ou excluir suas informações quando quiser. O Nino organiza apenas o que você decide registrar.",
   },
   {
     q: "Quanto custa para começar?",
@@ -590,21 +605,23 @@ function FinalCTA() {
       <div className="lp-wrap">
         <div className="lp-final">
           <div className="lp-final-symbol" aria-hidden="true">
-            <NinoSymbol size={56} />
+            <NinoSymbol size={72} />
           </div>
-          <h2>Fale com o Nino. Seu dinheiro começa a fazer mais sentido.</h2>
+          <h2>Seu dinheiro começa a fazer mais sentido a partir de uma conversa.</h2>
           <p>
-            Crie sua conta gratuita e comece a entender o que vem pela frente —
-            sem planilha, sem julgamento.
+            Fale com o Nino, organize sua rotina e entenda o que vem pela frente.
           </p>
           <div className="lp-actions">
             <Link to="/signup" className="lp-btn on-grad">
-              Criar minha conta grátis
+              Quero meu Nino grátis
             </Link>
-            <a href="#duvidas" className="lp-btn ghost-dark">
+            <a href="#duvidas" className="lp-btn ghost-light">
               Ainda tenho dúvidas
             </a>
           </div>
+          <p className="lp-final-micro">
+            Grátis para começar · Sem cartão de crédito
+          </p>
         </div>
       </div>
     </section>
@@ -632,7 +649,7 @@ function LandingMobileCTA() {
   return (
     <div className="lp-mobile-cta">
       <Link to="/signup" className="lp-btn primary">
-        Começar grátis <CaretRight size={16} weight="bold" />
+        Quero meu Nino grátis <CaretRight size={16} weight="bold" />
       </Link>
     </div>
   );
