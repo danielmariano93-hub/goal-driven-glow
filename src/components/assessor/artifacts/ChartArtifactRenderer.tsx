@@ -92,7 +92,8 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
               <Tooltip formatter={(v: number) => fmt(chart.units, v)} />
               {chart.series.map((s, i) => (
                 <Line key={s.name} dataKey={s.name} stroke={s.color ?? PALETTE[i % PALETTE.length]}
-                  dot={false} strokeWidth={2} />
+                  dot={false} strokeWidth={i === 0 ? 2.5 : 1.5}
+                  strokeDasharray={i === 0 ? undefined : "4 3"} />
               ))}
             </LineChart>
           ) : chart.type === "forecast_band" ? (
