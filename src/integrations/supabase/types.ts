@@ -195,6 +195,8 @@ export type Database = {
         Row: {
           conversation_id: string | null
           created_at: string
+          delivered_at: string | null
+          delivery_status: string | null
           fallback_text: string | null
           formula_version: string | null
           id: string
@@ -211,6 +213,8 @@ export type Database = {
         Insert: {
           conversation_id?: string | null
           created_at?: string
+          delivered_at?: string | null
+          delivery_status?: string | null
           fallback_text?: string | null
           formula_version?: string | null
           id?: string
@@ -227,6 +231,8 @@ export type Database = {
         Update: {
           conversation_id?: string | null
           created_at?: string
+          delivered_at?: string | null
+          delivery_status?: string | null
           fallback_text?: string | null
           formula_version?: string | null
           id?: string
