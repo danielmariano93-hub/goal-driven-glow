@@ -11,10 +11,11 @@ export type EnqueueReplyArgs = {
   idempotency_key: string;
   inbound_message_id: string;
   source: "whatsapp" | "simulator";
+  artifact_id?: string | null;
 };
 
 export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): Promise<void> {
-  const { error } = await sb.from("outbound_messages").insert({
+  const row: Record<string, unknown> = {
     user_id: args.user_id,
     to_phone: args.to_phone,
     body: args.body,
@@ -24,7 +25,9 @@ export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): 
     inbound_message_id: args.inbound_message_id,
     status: args.source === "simulator" ? "sent" : "queued",
     metadata: { conversation_id: args.conversation_id },
-  });
+  };
+  if (args.artifact_id) row.artifact_id = args.artifact_id;
+  const { error } = await sb.from("outbound_messages").insert(row);
   if (error) {
     // Duplicate idempotency_key is safe to ignore (retry path).
     const msg = String(error.message ?? "");

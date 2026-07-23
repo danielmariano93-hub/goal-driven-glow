@@ -169,19 +169,29 @@ export async function handleAppMessage(args: {
     channel: "app",
   });
 
-  await sb.from("conversation_messages").insert({
-    conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: turn.reply,
-  } as any);
-  await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
   const pendingOut = await findPendingApp(sb, args.conversation_id, args.user_id, null);
 
   // Surface any chart artifact created during this turn.
   const recent = await findRecentArtifact(sb, args.conversation_id, args.user_id, turnStartedAt);
-  return { reply: turn.reply, pending: pendingOut, executed: null, artifact: recent?.payload ?? null };
+  let reply = turn.reply;
+  if (recent?.payload && !mentionsChart(reply)) {
+    reply = `Gerei um gráfico com base nos dados reais 👇\n\n${reply}`;
+  }
+
+  await sb.from("conversation_messages").insert({
+    conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: reply,
+  } as any);
+  await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
+
+  return { reply, pending: pendingOut, executed: null, artifact: recent?.payload ?? null };
+}
+
+function mentionsChart(text: string): boolean {
+  return /\b(gr[aá]fico|visualiza|abaixo|📊|📈|📉)\b/i.test(text || "");
 }
 
 function wantsChart(text: string): boolean {
-  return /\b(gr[aá]fico|em\s+barras?|em\s+pizza|em\s+donut|em\s+linhas?|mostra\s+o?\s*gr[aá]fico|gera\s+o?\s*gr[aá]fico)\b/i.test(text);
+  return /\b(gr[aá]fico|chart|visualiza|em\s+barras?|em\s+pizza|em\s+donut|em\s+linhas?|dia\s+a\s+dia|por\s+dia|por\s+semana|evolu[cç][aã]o|mostra\s+o?\s*gr[aá]fico|gera\s+o?\s*gr[aá]fico|manda\s+em\s+gr[aá]fico)\b/i.test(text);
 }
 
 // ---- Fast-path helpers (verbatim from previous agent-chat) ------------------

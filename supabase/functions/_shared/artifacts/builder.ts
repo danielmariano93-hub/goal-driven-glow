@@ -5,6 +5,7 @@ import type { Provenance } from "../analytics/provenance.ts";
 import type { CompareResult } from "../analytics/compare.ts";
 import type { ForecastResult } from "../analytics/forecast.ts";
 import type { GoalProjection } from "../analytics/goals.ts";
+import type { TimeseriesResult } from "../analytics/timeseries.ts";
 
 export type ChartType = "line" | "bar" | "stacked_bar" | "donut" | "area" | "progress" | "forecast_band";
 export type ArtifactKind = "chart" | "report" | "goal_projection" | "forecast";
@@ -118,6 +119,34 @@ export function buildGoalArtifact(g: GoalProjection): ChartArtifact {
     },
     provenance: g.provenance,
     a11y_summary: `Meta ${g.name}: ${(progress * 100).toFixed(0)}% concluída.`,
+  };
+}
+
+export function buildTimeseriesArtifact(t: TimeseriesResult): ChartArtifact {
+  const metricLabel = t.metric === "expense" ? "gastos" : "receitas";
+  // dias em labels curtas "DD/MM"
+  const shortLabels = t.labels.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
+  return {
+    kind: "chart",
+    headline: `Evolução diária de ${metricLabel}`,
+    narrative: `De ${t.from} a ${t.to}: ${BRL(t.total)} no total, média de ${BRL(t.daily_avg)} nos dias com movimento.`,
+    metrics: [
+      { label: "Total no período", value: BRL(t.total) },
+      { label: "Média por dia ativo", value: BRL(t.daily_avg) },
+      { label: "Dias observados", value: String(t.labels.length) },
+    ],
+    chart: {
+      type: "line",
+      title: "Diário e média móvel (7 dias)",
+      x_labels: shortLabels,
+      series: [
+        { name: "Diário", data: t.daily, color: "#6D3BFF" },
+        { name: "Média 7 dias", data: t.rolling7, color: "#FF9F1C" },
+      ],
+      units: "BRL",
+    },
+    provenance: t.provenance,
+    a11y_summary: `Série diária de ${metricLabel} entre ${t.from} e ${t.to}. Total ${BRL(t.total)}.`,
   };
 }
 

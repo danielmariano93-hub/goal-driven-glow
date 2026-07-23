@@ -21,7 +21,7 @@ import { deterministicFallback } from "./DeterministicFallback.ts";
 import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 import { personalizeSystemPrompt } from "./ResponseGenerator.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
-import { createMetrics, estimateCost, timeStage, summarize } from "./Observability.ts";
+import { createMetrics, estimateCost, timeStage, summarize, recordArtifact, recordFormulaVersion } from "./Observability.ts";
 import { buildRecord, logDecision } from "./DecisionLogger.ts";
 import { guard } from "./ErrorRecovery.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
@@ -291,6 +291,17 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     }
     else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) kind = "cancelled";
     else kind = "info";
+
+    // Captura artifact_id de generate_chart_artifact para entrega multi-canal
+    for (const c of turn.toolCalls) {
+      if (c.ok && c.tool_name === "generate_chart_artifact") {
+        const aid = (c.result as any)?.artifact_id as string | undefined;
+        const artifact = (c.result as any)?.artifact;
+        if (aid) recordArtifact(metrics, "generated", aid);
+        const fv = artifact?.provenance?.formula_version;
+        if (fv) recordFormulaVersion(metrics, "generate_chart_artifact", String(fv));
+      }
+    }
   }
 
   if (path === "deterministic_fallback") {
@@ -373,6 +384,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
         user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body,
         idempotency_key: idem, inbound_message_id: input.inbound_message_id,
         source: input.channel === "simulator" ? "simulator" : "whatsapp",
+        artifact_id: metrics.artifact_id,
       });
     }
   });
