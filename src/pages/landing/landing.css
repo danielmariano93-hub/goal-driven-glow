@@ -1,6 +1,6 @@
 /*
  * Landing pública Meu Nino.IA — escopada em .mn-lp.
- * Tipografia: DM Sans (Google Fonts, SIL OFL).
+ * Tipografia: DM Sans (Google Fonts, SIL OFL) — única fonte carregada.
  */
 .mn-lp {
   --lp-ink: #10111A;
@@ -24,8 +24,8 @@
 
   background: var(--lp-white);
   color: var(--lp-ink);
-  font-family: "DM Sans", "Plus Jakarta Sans", "Geist",
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
   font-weight: 400;
   line-height: 1.65;
   overflow-x: hidden;
