@@ -249,8 +249,8 @@ function buildSessionConfig(webhookUrl: string) {
     name: WAHA_SESSION,
     config: {
       metadata: {
-        app: "nocontrole",
-        project: "nocontrole",
+        app: "meunino",
+        project: "meunino",
         environment: Deno.env.get("APP_ENV") ?? "production",
       },
       webhooks: [
