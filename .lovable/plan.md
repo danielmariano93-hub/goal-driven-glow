@@ -1,80 +1,122 @@
+# Corrigir geração de gráficos do Assessor (App + WhatsApp) — rota determinística e paridade com a Home
 
-# Por que o gráfico não veio
+Sua análise prévia está correta em quase todos os pontos. Confirmei no código atual (não só na versão publicada) o seguinte:
 
-Diagnóstico com base no log real da conversa (2026-07-23 09:50 e 16:15). O usuário pediu duas vezes um gráfico "dia a dia do gasto médio" e recebeu texto puro ("No período, você gastou R$ 20.642,74…"). Verifiquei também as tabelas: `agent_artifacts` e `agent_turn_events` estão **vazias** — nenhum artefato foi criado nas duas tentativas. Cinco causas concorrem para isso:
+- `AppAdapter.ts` já tem o guard `isAnalyticsRequest(text) && !wantsChart(text)`, mas `wantsChart` é estreito e **não cobre** frases reais suas: "gasto médio diário", "reduzindo", "andando de lado", "tendência", "média diária". `isAnalyticsRequest` casa "gasto.*mais" e "como está.*mês" → cai no fast-path `analyze_spending` + `buildAnalyticsReply`, exatamente o texto que você recebeu.
+- `analyze_spending` filtra apenas por `type=expense` e ignora `status`, `movement_kind` e exclusões comportamentais — por isso **Aplicações (R$ 5.000)** aparece como maior "gasto". Não é a mesma definição da Home.
+- `spending_timeseries_daily` existe mas calcula **gasto diário + média móvel 7d**, não a **média diária acumulada** (acumulado ÷ dias corridos) que você pediu.
+- `generate_chart_artifact` e `analyze_spending` disputam o mesmo gatilho no prompt; o LLM tende a escolher a textual.
+- Nenhum guardrail obriga artefato quando o pedido é visual (`ResponseValidator` não checa isso).
+- WhatsApp: pipeline de mídia (`artifact_id → whatsapp-send → artifact-render`) existe e está correto; o problema é que o artefato nunca é criado. As mesmas 4 causas de LLM/métrica/ferramenta afetam WhatsApp.
+- Deploy drift: fast-path já tem o guard no repo, mas os logs mostram resposta idêntica ao `buildAnalyticsReply` sem `agent_run` — o `agent-chat` publicado provavelmente está atrás. Precisa redeploy explícito.
 
-### 1. Prompt do sistema tem duas regras que se contradizem
-Em `supabase/functions/_shared/agent/prompt.ts`:
-- Linha 23: "Consultas analíticas, **gráficos**, relatórios […] DEVEM chamar `analyze_spending`."
-- Linha 27: "Pedidos explícitos de gráfico DEVEM chamar `generate_chart_artifact`."
+## Correções (ordem de aplicação)
 
-A regra 23 vence porque aparece primeiro e é mais genérica ("gráficos"). O LLM chama `analyze_spending`, recebe totais, e responde com o texto padrão. `generate_chart_artifact` nunca é invocada.
+### 1. Fast-path do App: nunca interceptar pedidos com intenção visual/analítica não-trivial
+Arquivo: `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts`
 
-### 2. `generate_chart_artifact` só cobre 3 kinds: `compare | forecast | goal`
-O usuário pediu **série temporal diária** ("dia a dia como está o meu gasto médio"). Não há builder nem tool para isso, então mesmo que o LLM tentasse chamar a tool, o `kind` correto não existe. Não há `daily_series` / `spending_by_day`.
+- Ampliar `wantsChart` para: `gráfico(s)`, `graficos`, `chart`, `visualiza(ção|r)`, `linha|curva|barras|pizza|donut`, `dia a dia`, `diariamente`, `por dia|semana|mês`, `evolu(ção|ir)`, `tend(ência|encia)`, `média (diária|do dia|acumulada)`, `gasto médio`, `estou reduzindo`, `andando de lado`, `ritmo dos gastos`.
+- Restringir `isAnalyticsRequest` a pedidos **textuais estritos**: `resumo`, `me analisa`, `onde gasto mais` (sem "gráfico" nem "evolução"). Remover "evolução" e "gráfico" do regex.
+- Instrumentar o fast-path: quando ele responder, gravar um `agent_turn_events` com `route='fast_path_analytics'` para acabar com o ponto cego de observabilidade.
 
-### 3. Fast-path analítico do `AppAdapter` também compete
-`isAnalyticsRequest` casa "gráfico" e dispara `analyze_spending` diretamente (sem LLM). Há um guard `!wantsChart(text)` que evita o atalho quando a palavra "gráfico" aparece — está correto para o texto do usuário —, mas a regra do prompt (item 1) leva ao mesmo resultado no caminho do LLM. Ou seja, os dois caminhos convergem para `analyze_spending`.
+### 2. Nova métrica determinística: média diária acumulada
+Novo arquivo: `supabase/functions/_shared/analytics/dailyAverage.ts`
 
-### 4. Resposta do LLM não referencia o artefato
-Mesmo se `generate_chart_artifact` for chamada, o `AppAdapter` só faz `findRecentArtifact` **por conversa+timestamp** depois do turno. Se o LLM chamar a tool mas não escrever nada sobre o gráfico, o painel exibe o texto genérico. Não há checagem de "gerou artefato mas não citou".
+`computeCumulativeDailyAverage({ txs, from, to })` retorna por dia:
+- `daily_consumption` (real, filtrado por `isRealMonthlyMovement` — mesma definição da Home; exclui aplicações, transferências, resgates, aportes, pagamento de fatura, canceladas)
+- `cumulative_consumption`
+- `elapsed_days` (dias corridos desde `from`, inclusivo)
+- `cumulative_daily_average = cumulative / elapsed_days`
+- `daily_average_change` e `daily_average_change_pct` vs. dia anterior
+- `trend` heurística: `falling | rising | flat` (regressão linear simples sobre a média acumulada)
+- `provenance.formula_version = 'daily_average.cumulative.v1'`, sob `reconciliationGate`
 
-### 5. WhatsApp nunca recebe mídia porque `outbound_messages.artifact_id` não é populado
-`whatsapp-send/index.ts` lê `artifact_id` de `outbound_messages`, mas em nenhum ponto do pipeline (AgentCore, WhatsAppAdapter, tools) esse campo é gravado. Resultado: mesmo com artifact criado, `whatsapp-send` sempre cai em `media_status = 'none'` e envia texto.
+### 3. Estender o motor de artefatos
+Arquivo: `supabase/functions/_shared/artifacts/builder.ts`
 
-### 6. Telemetria confirma o pipeline: `agent_turn_events` vazio
-A inserção instrumentada no `AgentCore` está silenciosamente falhando ou não sendo chamada nesses caminhos rápidos. Menor prioridade para este bug, mas explica por que não temos visibilidade.
+`buildCumulativeDailyAverageArtifact(result)`:
+- `chart.type = 'line'`
+- Série principal: "Média diária acumulada"
+- Série secundária pontilhada: "Gasto do dia"
+- `x_labels` como "DD/MM"
+- `annotations`: tendência ("↓ caindo 12%", "→ estável", "↑ subindo 8%") derivada do motor, não do LLM
+- `formula_version = 'daily_average.cumulative.v1'`
 
-# Correção — escopo cirúrgico
+### 4. Nova ferramenta + kind no chart
+Arquivo: `supabase/functions/_shared/agent/tools.ts`
 
-## A) Prompt: uma única fonte de verdade para gráficos
-`supabase/functions/_shared/agent/prompt.ts`:
-- Reescrever regra 23 para: "análises **textuais** (`onde gasto mais`, `resumo`, `me analisa`) → `analyze_spending`".
-- Deixar regra 27 mais forte e explícita para qualquer pedido que contenha "gráfico", "chart", "visualiza", "mostra em barras/linha/pizza", "dia a dia", "por dia", "por semana", "evolução visual".
-- Adicionar: "Sempre que chamar `generate_chart_artifact`, na resposta **cite o gráfico gerado em uma frase curta** (o app o exibe embaixo). Não repita todos os números do gráfico."
+- Registrar `spending_average_daily_trend(args: { from?, to? })` → chama `computeCumulativeDailyAverage` sob `reconciliationGate`.
+- `generate_chart_artifact` aceita `kind: 'average_daily_trend'` além dos existentes.
+- Descrição das tools **desambiguada** (fim da colisão do LLM):
+  - `analyze_spending`: "APENAS respostas textuais de resumo/onde mais gastou. NUNCA quando o usuário pedir gráfico, tendência, evolução ou média diária."
+  - `generate_chart_artifact`: "OBRIGATÓRIO em qualquer pedido visual. Escolha o kind: `average_daily_trend` para 'gasto médio dia a dia / tendência / estou reduzindo', `timeseries` para série diária bruta, `compare` para dois períodos, `forecast` para fechamento, `goal` para meta."
+- `analyze_spending` passa a filtrar por `isRealMonthlyMovement` (mesma definição da Home). Fim da divergência de "Aplicações R$ 5.000".
 
-## B) Motor: adicionar série temporal diária
-Novo módulo `_shared/analytics/timeseries.ts` com `computeDailySpend({ txs, from, to })` que retorna `{ labels: string[], series: [{name:'Diário', data}, {name:'Média 7d', data}], totals, provenance }`. Reaproveita `provenance.ts` e `computeCompare`-style filters (mesmos exclusores de transferência/investimento e `movement_kind`).
+### 5. Prompt: rota determinística
+Arquivo: `supabase/functions/_shared/agent/prompt.ts`
 
-Novo builder `buildTimeseriesArtifact(result)` em `_shared/artifacts/builder.ts` produzindo `chart.type = 'line'` com séries "Diário" + "Média 7 dias" e `formula_version = 'timeseries.daily.v1'`.
+- Unificar em uma regra única e imperativa (remover ambiguidade de regras 23 vs 27): "Toda intenção visual ou de tendência DEVE chamar `generate_chart_artifact`. Pedido de 'gasto médio dia a dia', 'estou reduzindo', 'andando de lado', 'tendência' → `kind: 'average_daily_trend'`."
+- "Se o turno anterior recebeu correção do usuário ('não foi isso', 'não é o que pedi'), releia o pedido original e refaça obrigatoriamente pela rota visual."
 
-Nova tool `spending_timeseries_daily(args: { from?, to?, granularity: 'day'|'week' })` em `_shared/agent/tools.ts` (com `reconciliationGate`), registrada no schema.
+### 6. Guardrail de saída: artefato obrigatório em pedido visual
+Arquivo: `supabase/functions/_shared/agent/core/ResponseValidator.ts` (e/ou `AgentCore.ts`)
 
-Estender `generate_chart_artifact` com `kind: 'timeseries'` e passthrough de `granularity`/janela.
+Após o turno, se `wantsChart(inbound.text)` for verdadeiro E nenhum `artifact_id` foi produzido:
+1. Executar fallback determinístico: rodar `spending_average_daily_trend` + `buildCumulativeDailyAverageArtifact` no servidor, persistir e anexar.
+2. Se ainda falhar (dados insuficientes ou erro), responder com explicação estruturada e honesta ("não consegui gerar o gráfico agora porque X"). Nunca devolver `buildAnalyticsReply`.
+3. Registrar `chart_missing_recovered=true|false` em `agent_turn_events`.
 
-## C) Renderer: suportar duas séries em linha
-`src/components/assessor/artifacts/ChartArtifactRenderer.tsx` já trata `line`/`area`; só validar labels longas (dia do mês) e permitir a segunda série (média móvel) com cor secundária. Sem mudança estrutural.
+### 7. Estado contextual da tarefa
+Arquivo: `supabase/functions/_shared/agent/core/ContextPipeline.ts`
 
-## D) AppAdapter: garantir que o artefato aparece
-`_shared/agent/core/adapters/AppAdapter.ts`:
-- Reforçar `wantsChart` com os mesmos gatilhos do prompt ("dia a dia", "por dia", "evolução", "visual").
-- Depois de `handleTurn`, se `recent?.payload` existir e a reply do LLM **não** mencionar gráfico/visual, prefixar reply com "Gerei um gráfico com base nos dados reais 👇". Evita a experiência atual (texto plano, artefato invisível).
+Persistir no `agent_memory` do turno: `requested_output`, `requested_metric`, `requested_granularity`, `previous_response_rejected`. Quando o próximo turno contiver referência ("desse gráfico", "agora manda", "não foi isso"), o Core lê esses campos como restrição ativa antes do LLM.
 
-## E) WhatsApp: anexar `artifact_id` ao outbound
-No caminho de envio (onde `outbound_messages` é criado a partir do reply do agente), quando o turno produzir `artifact_id`, gravar em `outbound_messages.artifact_id`. Isso destrava `whatsapp-send` → `artifact-render` → mídia PNG com fallback textual, contrato que já existe.
+### 8. Renderer no App
+Arquivo: `src/components/assessor/artifacts/ChartArtifactRenderer.tsx`
 
-Localizar o insert em `whatsapp-webhook` / `WhatsAppAdapter` e propagar `metrics.artifact_id` capturado pelo `Observability`.
+- Aceitar 2 séries em `line` (principal sólida + secundária tracejada) — já suporta parcialmente.
+- Renderizar `annotations.trend` como chip acima do chart ("Sua média está caindo 12% no mês").
+- Sem mudança estrutural.
 
-## F) Observabilidade
-Corrigir o insert em `agent_turn_events` (nomes das colunas: `formula_versions`, `artifact_status`, `artifact_id`) — o schema atual difere do que o código tenta escrever. Sem isso, seguimos cegos.
+### 9. WhatsApp: paridade e fail-loud
+Arquivos: `supabase/functions/whatsapp-send/index.ts`, `_shared/agent/core/OutboundQueue.ts` (já propaga `artifact_id`), `artifact-render`.
 
-# Aceite (o que valida a correção)
+- Confirmar que `artifact-render` está deployada e que `sendImage` retorna `media_status='delivered'` em sucesso; em falha, marcar `media_status='failed_fallback_text'` (não `none`) e emitir `provider_health_events`.
+- O fallback textual do WhatsApp usa **os mesmos números** da `provenance` do artefato (não recalcula).
+- Adicionar teste de integração: mensagem "gera um gráfico do meu gasto médio diário" → espera artefato com `formula_version=daily_average.cumulative.v1` e `outbound_messages.artifact_id` populado.
 
-1. Mensagem "gera um gráfico dia a dia dos meus gastos" no app → resposta traz `ChartArtifactRenderer` com linha diária + média móvel, `provenance.formula_version = 'timeseries.daily.v1'`.
-2. Mensagem "compare julho com junho em gráfico" → bar chart com séries Antes/Agora (já existente), agora efetivamente disparada.
-3. Mensagem "quanto vou fechar o mês, manda em gráfico" → forecast_band aparece.
-4. Mesma frase no WhatsApp → chega **imagem PNG** (via `artifact-render`); se render falhar, texto de fallback com os mesmos números.
-5. `agent_artifacts` e `agent_turn_events` passam a ter linhas com `formula_version`/`formula_versions` corretos.
+### 10. Redeploy explícito
+- Republicar `agent-chat`, `artifact-render`, `whatsapp-send`, `whatsapp-webhook`. Registrar `code_version` (hash curto do commit) em `agent_turn_events` para detectar drift no futuro.
 
-# Arquivos que serão tocados
+## Testes (bloqueiam merge)
 
-- `supabase/functions/_shared/agent/prompt.ts` — regras 23/27.
-- `supabase/functions/_shared/analytics/timeseries.ts` — novo.
-- `supabase/functions/_shared/artifacts/builder.ts` — `buildTimeseriesArtifact`.
-- `supabase/functions/_shared/agent/tools.ts` — tool `spending_timeseries_daily` + `kind: 'timeseries'` em `generate_chart_artifact` + registro no schema.
-- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts` — `wantsChart` ampliado + hint quando artefato existe e reply o ignora.
-- `supabase/functions/_shared/agent/core/adapters/WhatsAppAdapter.ts` (ou onde `outbound_messages` é criado) — persistir `artifact_id`.
-- `supabase/functions/_shared/agent/core/AgentCore.ts` / `Observability.ts` — corrigir colunas em `agent_turn_events`.
-- `src/test/analytics-timeseries.test.ts` e `src/test/artifact-contract.test.ts` — novos casos para timeseries e para "reply cita artefato".
+- `src/test/analytics-daily-average.test.ts`: série acumulada com dados sintéticos (dia 1: 600 → média 600; dia 2: +200 → média 400; dia 3: +250 → média 350). Exclusão de aplicação (movement_kind='investment') e transferência.
+- `src/test/agent-chart-routing.test.ts`:
+  - "gera um gráfico do meu gasto médio dia a dia" → **não** cai no fast-path, chama `generate_chart_artifact` com kind `average_daily_trend`, artefato criado.
+  - "resumo do mês" → fast-path textual (comportamento antigo preservado).
+  - "não foi isso, quero em gráfico" após turno textual → gera gráfico via fallback determinístico.
+- `src/test/analyze-spending-consumption-parity.test.ts`: soma de `analyze_spending` = soma da Home (mesmo filtro `isRealMonthlyMovement`), aplicações **fora**.
+- `src/test/whatsapp-chart-delivery.test.ts` (mock WAHA): artefato → `artifact-render` PNG → `sendImage`; simular falha → `media_status='failed_fallback_text'` + texto com os mesmos números.
 
-Sem migrations novas: as tabelas `agent_artifacts` e `agent_turn_events` já possuem as colunas necessárias.
+## Aceite
+
+1. App: "gera um gráfico dia a dia do meu gasto médio, pra saber se estou reduzindo" → linha da média acumulada + linha do gasto diário + chip de tendência, provenance `daily_average.cumulative.v1`, aplicações **ausentes**.
+2. App: "resumo do mês" → resposta textual (fast-path preservado, agora com telemetria).
+3. App: turno "não foi isso" seguido de "manda em gráfico" → gráfico é entregue, não texto.
+4. WhatsApp: mesma frase → PNG chega no chat; se render falhar, texto de fallback com os mesmos números e `media_status` correto.
+5. `agent_artifacts`, `agent_turn_events` populados com `formula_version` e `code_version`.
+6. `analyze_spending` e a Home retornam o mesmo total de consumo para o mesmo período.
+
+## Arquivos tocados
+
+- `supabase/functions/_shared/analytics/dailyAverage.ts` (novo)
+- `supabase/functions/_shared/artifacts/builder.ts`
+- `supabase/functions/_shared/agent/tools.ts`
+- `supabase/functions/_shared/agent/prompt.ts`
+- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts`
+- `supabase/functions/_shared/agent/core/AgentCore.ts` / `ResponseValidator.ts` / `ContextPipeline.ts`
+- `supabase/functions/whatsapp-send/index.ts` (só o fail-loud)
+- `src/components/assessor/artifacts/ChartArtifactRenderer.tsx`
+- 4 novos testes em `src/test/`
+
+Sem migrations novas: `agent_artifacts`, `agent_turn_events` e `outbound_messages.artifact_id` já existem.
