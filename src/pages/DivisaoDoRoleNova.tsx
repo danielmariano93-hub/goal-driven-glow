@@ -126,10 +126,30 @@ export default function DivisaoDoRoleNova() {
         } as never);
         if (error) throw error;
         refreshFinance();
-        // Best effort: dispara imediatamente apenas os jobs deste usuário.
-        // O agendador de retaguarda continua sendo a garantia de entrega.
-        supabase.functions.invoke("split-reminders-dispatch", { body: { owner_only: true } }).catch(() => undefined);
-        toast.success("Divisão criada. Já estamos enviando os convites."); nav(`/app/divisao-do-role/${data}`);
+        // O convite faz parte do resultado da criação: não esconda falhas do
+        // dispatcher. O detalhe da divisão permite retomar sem duplicar jobs.
+        const recipients = participantPayload.filter((p) => Boolean(p.phone_e164)).length;
+        if (recipients > 0) {
+          const { data: dispatch, error: dispatchError } = await supabase.functions.invoke<{
+            claimed: number;
+            enqueued: number;
+            skipped: number;
+            failed: number;
+            outbound_processed: number;
+            outbound_kicked: boolean;
+          }>("split-reminders-dispatch", { body: { owner_only: true } });
+
+          if (dispatchError || !dispatch || dispatch.failed > 0 || !dispatch.outbound_kicked) {
+            toast.warning("Divisão criada, mas o convite ainda não foi entregue. Abra a divisão para tentar novamente.");
+          } else if (dispatch.enqueued === 0 && dispatch.outbound_processed === 0) {
+            toast.info("Divisão criada. O convite ficou agendado e você pode acompanhar o envio.");
+          } else {
+            toast.success("Divisão criada e convite encaminhado.");
+          }
+        } else {
+          toast.success("Divisão criada.");
+        }
+        nav(`/app/divisao-do-role/${data}`);
       }
     } catch (e:any) { toast.error(friendlyError(e)); } finally { setSaving(false); }
   };
