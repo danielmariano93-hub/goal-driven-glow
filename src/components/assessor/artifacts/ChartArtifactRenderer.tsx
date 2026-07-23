@@ -36,6 +36,13 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
     return row;
   });
 
+  const trendAnn = chart.annotations?.find((a) => /trend|tend/i.test(a.x) || /↓|↑|→/.test(a.label));
+  const trendCls = trendAnn && /↓|falling|reduzindo/i.test(trendAnn.label)
+    ? "bg-emerald-100 text-emerald-900 border-emerald-200"
+    : trendAnn && /↑|rising|subindo/i.test(trendAnn.label)
+    ? "bg-rose-100 text-rose-900 border-rose-200"
+    : "bg-slate-100 text-slate-800 border-slate-200";
+
   return (
     <div className="w-full max-w-full rounded-2xl border border-border bg-background p-3 shadow-sm">
       <div className="mb-2 flex items-start justify-between gap-2">
@@ -43,7 +50,14 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
           <p className="truncate text-sm font-semibold">{headline}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{narrative}</p>
         </div>
-        <ConfidencePill level={provenance.confidence} />
+        <div className="flex flex-col items-end gap-1">
+          <ConfidencePill level={provenance.confidence} />
+          {trendAnn && (
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${trendCls}`}>
+              {trendAnn.label}
+            </span>
+          )}
+        </div>
       </div>
 
       {metrics.length > 0 && (
@@ -78,7 +92,8 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
               <Tooltip formatter={(v: number) => fmt(chart.units, v)} />
               {chart.series.map((s, i) => (
                 <Line key={s.name} dataKey={s.name} stroke={s.color ?? PALETTE[i % PALETTE.length]}
-                  dot={false} strokeWidth={2} />
+                  dot={false} strokeWidth={i === 0 ? 2.5 : 1.5}
+                  strokeDasharray={i === 0 ? undefined : "4 3"} />
               ))}
             </LineChart>
           ) : chart.type === "forecast_band" ? (
