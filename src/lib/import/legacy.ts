@@ -1,4 +1,4 @@
-/** Parser do formato legado financial_ecosystem_v2 do NoControle.ia (ex-Mindful Money). */
+/** Parser do formato legado financial_ecosystem_v2 do MeuNino (ex-NoControle.ia, ex-Mindful Money). */
 
 export interface LegacyPreview {
   lancamentos: number;
