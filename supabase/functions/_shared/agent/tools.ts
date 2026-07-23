@@ -1104,15 +1104,31 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: simulate_goal_pace,
   },
   {
-    name: "generate_chart_artifact",
-    description: "Gera um artefato de gráfico universal (comparação, previsão ou meta) para renderização no app e/ou envio como mídia no WhatsApp. Retorna também o artifact_id persistido.",
+    name: "spending_timeseries_daily",
+    description: "Retorna a série DIÁRIA de gastos (ou receitas) com média móvel de 7 dias e provenance. Use para responder pedidos como 'gasto dia a dia', 'evolução por dia', 'estou reduzindo?'. Se from/to não vierem, usa mês corrente.",
     parameters: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["compare", "forecast", "goal"] },
+        metric: { type: "string", enum: ["expense", "income"] },
+        from: optionalStr, to: optionalStr,
+        days: { type: "integer", minimum: 1, maximum: 366 },
+      },
+      additionalProperties: false,
+    },
+    execute: spending_timeseries_daily,
+  },
+  {
+    name: "generate_chart_artifact",
+    description: "Gera um artefato de gráfico universal (compare, forecast, goal ou timeseries) para exibir no app e/ou enviar como imagem no WhatsApp. Retorna o artifact_id persistido. Chame SEMPRE que o usuário pedir gráfico/visualização.",
+    parameters: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["compare", "forecast", "goal", "timeseries"] },
         goal_id: optionalStr, goal: optionalStr,
         metric: { type: "string", enum: ["expense", "income"] },
         period_a: periodSchema, period_b: periodSchema,
+        from: optionalStr, to: optionalStr,
+        days: { type: "integer", minimum: 1, maximum: 366 },
       },
       required: ["kind"], additionalProperties: false,
     },
