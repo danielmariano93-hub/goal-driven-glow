@@ -106,13 +106,13 @@ export function BehaviorEditor({
               <TabsContent value="identity" className="space-y-4">
                 <FieldGroup>
                   <FormField id="cfg-name" label="Nome do assistente" hint="Opcional — usado como assinatura automática se não houver assinatura explícita." optional readOnly={readOnly}>
-                    <Input id="cfg-name" value={cfg.name} disabled={readOnly} onChange={(e) => setCfg({ ...cfg, name: e.target.value })} placeholder="Ex.: NoControle.ia" />
+                    <Input id="cfg-name" value={cfg.name} disabled={readOnly} onChange={(e) => setCfg({ ...cfg, name: e.target.value })} placeholder="Ex.: MeuNino" />
                   </FormField>
                   <FormField id="cfg-objective" label="Objetivo principal" hint="Explica em uma frase o que o assistente deve fazer." required readOnly={readOnly}>
                     <Textarea id="cfg-objective" value={cfg.objective} disabled={readOnly} onChange={(e) => setCfg({ ...cfg, objective: e.target.value })} rows={3} />
                   </FormField>
                   <FormField id="cfg-signature" label="Assinatura" hint="Texto aplicado ao final das mensagens." optional readOnly={readOnly}>
-                    <Input id="cfg-signature" value={cfg.signature} disabled={readOnly} onChange={(e) => setCfg({ ...cfg, signature: e.target.value })} placeholder="— NoControle.ia" />
+                    <Input id="cfg-signature" value={cfg.signature} disabled={readOnly} onChange={(e) => setCfg({ ...cfg, signature: e.target.value })} placeholder="— MeuNino" />
                   </FormField>
                 </FieldGroup>
               </TabsContent>
@@ -196,7 +196,7 @@ export function BehaviorEditor({
                   <p>
                     Variáveis: <code>{"{{participant_name}}"}</code>, <code>{"{{owner_name}}"}</code>, <code>{"{{title}}"}</code>,{" "}
                     <code>{"{{amount}}"}</code>, <code>{"{{due_date}}"}</code>, <code>{"{{due_sentence}}"}</code>,{" "}
-                    <code>{"{{pix_key}}"}</code>, <code>{"{{pix_sentence}}"}</code>. Em branco, o NoControle.ia usa o texto padrão.
+                    <code>{"{{pix_key}}"}</code>, <code>{"{{pix_sentence}}"}</code>. Em branco, o MeuNino usa o texto padrão.
                   </p>
                 </div>
                 <div className="space-y-4">

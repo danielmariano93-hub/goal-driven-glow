@@ -94,9 +94,9 @@ function extractLinkCode(text: string): string | null {
   // Friendly format: must contain the verification anchor phrase
   const anchored = /c[óo]digo\s+de\s+verifica[cç][ãa]o[^0-9]{0,15}(\d{6})\b/i.exec(t);
   if (anchored) return anchored[1];
-  // Alternate: "meu código é 123456" together with the word NoControle to
-  // avoid grabbing arbitrary numbers.
-  if (/NoControle/i.test(t)) {
+  // Alternate: "meu código é 123456" together with the brand name (MeuNino
+  // ou o antigo NoControle) para evitar capturar números arbitrários.
+  if (/MeuNino|NoControle/i.test(t)) {
     const alt = /c[óo]digo[^0-9]{0,15}(\d{6})\b/i.exec(t);
     if (alt) return alt[1];
   }
@@ -310,7 +310,7 @@ Deno.serve(async (req) => {
   if (!link) {
     await sb.from("outbound_messages").insert({
       to_phone: evt.from_phone,
-      body: "Olá! Este número ainda não está vinculado a uma conta do NoControle.ia. Abra o app, gere um código de verificação e me envie por aqui — te espero. 💛",
+      body: "Olá! Este número ainda não está vinculado a uma conta do MeuNino. Abra o app, gere um código de verificação e me envie por aqui — te espero. 💛",
       kind: "system",
     });
     triggerDispatcher();
@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
     const salutation = first ? `Recebi seu arquivo, ${first} 💛` : "Recebi seu arquivo por aqui 💛";
     const body = assessorLink
       ? `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app, onde você revisa cada lançamento antes de salvar. Toque no link abaixo para abrir agora:\n\n${assessorLink}\n\nSe preferir, também dá para me contar em texto o que você gastou.`
-      : `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app. Abra o NoControle.ia no seu aparelho e toque em "Falar com meu assessor" para revisar este arquivo antes de salvar.\n\nSe preferir, também dá para me contar em texto o que você gastou.`;
+      : `${salutation}\n\nA leitura de imagens e PDFs acontece pelo Assessor dentro do app. Abra o MeuNino no seu aparelho e toque em "Falar com meu assessor" para revisar este arquivo antes de salvar.\n\nSe preferir, também dá para me contar em texto o que você gastou.`;
     // Idempotência real: se a reentrega chegar antes do worker despachar,
     // a UNIQUE(idempotency_key) devolve 23505 — tratamos como sucesso e
     // NÃO disparamos worker de novo. Outros erros são registrados.

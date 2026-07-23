@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 /**
- * Landing page pública do NoControle.ia.
+ * Landing page pública do MeuNino.
  * F0: apenas apresentação da marca e da promessa. Login/Signup são placeholders
  * (F1 conecta Lovable Cloud, F5 conecta WhatsApp de verdade).
  */
@@ -22,12 +22,12 @@ export default function Landing() {
       {/* NAV */}
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5 md:px-8">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="NoControle.ia">
+          <Link to="/" className="flex items-center gap-2.5" aria-label="MeuNino">
             <span className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-brand text-white shadow-brand">
               <Wallet size={18} strokeWidth={2.4} />
             </span>
             <span className="font-display text-lg font-bold tracking-tight">
-              NoControle<span className="text-gradient-brand">.ia</span>
+              MeuNino
             </span>
           </Link>
 
@@ -81,7 +81,7 @@ export default function Landing() {
 
             <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
               Registre gastos, acompanhe metas e entenda seus hábitos direto pelo WhatsApp.
-              O NoControle.ia organiza sua vida financeira sem planilhas, sem julgamento e sem promessas mágicas.
+              O MeuNino organiza sua vida financeira sem planilhas, sem julgamento e sem promessas mágicas.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -116,7 +116,7 @@ export default function Landing() {
                   <MessageCircle size={16} />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold">NoControle.ia</p>
+                  <p className="text-sm font-semibold">MeuNino</p>
                   <p className="text-[11px] text-muted-foreground">Assistente financeira · online</p>
                 </div>
               </div>
@@ -150,7 +150,7 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-4 md:px-8">
           <div className="mb-12 max-w-2xl">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Por que NoControle.ia
+              Por que MeuNino
             </p>
             <h2 className="font-display text-3xl font-bold tracking-tight md:text-4xl">
               Menos planilha, mais decisão.
@@ -290,11 +290,11 @@ export default function Landing() {
               <Wallet size={14} />
             </span>
             <span className="font-display text-sm font-bold tracking-tight">
-              NoControle<span className="text-gradient-brand">.ia</span>
+              MeuNino
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} NoControle.ia · Feito no Brasil com carinho.
+            © {new Date().getFullYear()} MeuNino · Feito no Brasil com carinho.
           </p>
         </div>
       </footer>

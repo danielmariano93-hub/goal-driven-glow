@@ -82,7 +82,7 @@ export default function Onboarding() {
             <Wallet size={18} />
           </span>
           <span className="font-display text-lg font-bold tracking-tight">
-            NoControle<span className="text-gradient-brand">.ia</span>
+            MeuNino
           </span>
         </div>
         <span className="text-xs text-muted-foreground">Passo {step} de 3</span>

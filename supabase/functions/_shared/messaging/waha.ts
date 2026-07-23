@@ -14,7 +14,7 @@ export const DEFAULT_SESSION_FALLBACK = "default";
 let WAHA_API_URL =
   Deno.env.get("WAHA_API_URL") ?? Deno.env.get("WAHA_BASE_URL") ?? "";
 let WAHA_API_KEY = Deno.env.get("WAHA_API_KEY") ?? "";
-let WAHA_SESSION = Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? DEFAULT_SESSION_FALLBACK;
+let WAHA_SESSION = Deno.env.get("MEUNINO_WAHA_SESSION") ?? Deno.env.get("NOCONTROLE_WAHA_SESSION") ?? Deno.env.get("WAHA_SESSION") ?? DEFAULT_SESSION_FALLBACK;
 let WAHA_WEBHOOK_SECRET = Deno.env.get("WAHA_WEBHOOK_SECRET") ?? "";
 
 export function getSessionName(): string { return WAHA_SESSION; }
@@ -249,8 +249,8 @@ function buildSessionConfig(webhookUrl: string) {
     name: WAHA_SESSION,
     config: {
       metadata: {
-        app: "nocontrole",
-        project: "nocontrole",
+        app: "meunino",
+        project: "meunino",
         environment: Deno.env.get("APP_ENV") ?? "production",
       },
       webhooks: [

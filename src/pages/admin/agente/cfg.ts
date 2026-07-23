@@ -22,7 +22,7 @@ export const DEFAULT_CFG: StructuredCfg = {
   tone: "humano, encorajador, direto",
   do: ["Confirmar antes de gravar qualquer alteração financeira"],
   dont: ["Inventar valores, saldos ou datas"],
-  welcome: "Oi! Sou o assistente do NoControle.ia. Como posso ajudar?",
+  welcome: "Oi! Sou o assistente do MeuNino. Como posso ajudar?",
   fallback: "Não entendi ainda. Pode reformular?",
   proactive: false,
   formality: "informal e respeitoso",
@@ -62,12 +62,12 @@ const PREVIEW_VARS: Record<string, string> = {
   amount: "R$ 19,95",
   due_date: "22/07",
   due_sentence: " O combinado é pagar até 22/07.",
-  pix_key: "daniel@nocontrole.ia",
-  pix_sentence: " Pix: daniel@nocontrole.ia.",
+  pix_key: "daniel@meunino.com.br",
+  pix_sentence: " Pix: daniel@meunino.com.br.",
 };
 
 export function renderPreview(template: string, cfg: StructuredCfg): string {
-  const raw = template?.trim() || "(usando texto padrão do NoControle.ia)";
+  const raw = template?.trim() || "(usando texto padrão do MeuNino)";
   let out = raw.replace(/\{\{([a-z_]+)\}\}/g, (_m, k: string) => PREVIEW_VARS[k] ?? "");
   out = out.replace(/[ \t]+\n/g, "\n").replace(/ {2,}/g, " ").trim();
   const sig = cfg.signature?.trim();

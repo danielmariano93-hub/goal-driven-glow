@@ -7,7 +7,7 @@ export default function WhatsAppAdmin() {
     <div className="space-y-6">
       <PageHeader
         title="WhatsApp"
-        description="Canal oficial de mensageria do NoControle.ia. Ações críticas exigem confirmação e ficam auditadas."
+        description="Canal oficial de mensageria do MeuNino. Ações críticas exigem confirmação e ficam auditadas."
       />
       <WhatsAppValidateCard />
       <WhatsAppSessionPanel />

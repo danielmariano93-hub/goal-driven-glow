@@ -1,5 +1,5 @@
 /**
- * Feedback padronizado do NoControle.ia.
+ * Feedback padronizado do MeuNino.
  * Wrappers finos sobre sonner para manter tom pt-BR consistente
  * (claro, encorajador, sem culpa). Use em toda a UI do app.
  */

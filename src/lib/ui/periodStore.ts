@@ -11,7 +11,26 @@ export interface PeriodState {
   customEnd: string;
 }
 
-const KEY = "nocontrole.periodFilter.v1";
+const KEY = "meunino.periodFilter.v1";
+const LEGACY_KEYS = ["nocontrole.periodFilter.v1"];
+
+/** Migração one-shot da chave legada para a atual (rebranding MeuNino). */
+function migrateLegacyKey(): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (window.localStorage.getItem(KEY)) return;
+    for (const legacy of LEGACY_KEYS) {
+      const raw = window.localStorage.getItem(legacy);
+      if (raw) {
+        window.localStorage.setItem(KEY, raw);
+        window.localStorage.removeItem(legacy);
+        return;
+      }
+    }
+  } catch {
+    /* noop */
+  }
+}
 
 function isoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -28,6 +47,7 @@ export function defaultPeriod(): PeriodState {
 
 export function getPeriod(): PeriodState {
   if (typeof window === "undefined") return defaultPeriod();
+  migrateLegacyKey();
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return defaultPeriod();

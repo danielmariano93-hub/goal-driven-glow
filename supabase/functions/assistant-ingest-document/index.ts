@@ -129,7 +129,7 @@ async function getUser(req: Request) {
   return data.user;
 }
 
-const SYSTEM_PROMPT = `Você é um extrator financeiro para o app NoControle.ia.
+const SYSTEM_PROMPT = `Você é um extrator financeiro para o app MeuNino.
 
 Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON PURO, compacto, sem markdown:
 {"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null}}

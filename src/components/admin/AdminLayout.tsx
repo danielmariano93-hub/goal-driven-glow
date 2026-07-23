@@ -104,7 +104,7 @@ export function AdminLayout() {
         {!collapsed && (
           <div className="min-w-0">
             <p className="font-display text-sm font-bold tracking-tight leading-none truncate">
-              NoControle<span className="text-gradient-brand">.ia</span>
+              MeuNino
             </p>
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground mt-1">
               Centro de Comando

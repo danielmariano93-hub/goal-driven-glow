@@ -58,7 +58,7 @@ export function AIPreferencesCard() {
         <Sparkles className="text-primary" size={18} />
         <div>
           <h2 className="font-semibold text-sm">Personalização do assistente</h2>
-          <p className="text-xs text-muted-foreground">Ajuste como o NoControle.ia conversa com você.</p>
+          <p className="text-xs text-muted-foreground">Ajuste como o MeuNino conversa com você.</p>
         </div>
       </header>
 

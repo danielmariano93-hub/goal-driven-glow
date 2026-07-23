@@ -10,7 +10,7 @@ interface EmptyStateProps {
 }
 
 /**
- * Estado vazio padrão do NoControle.ia — pt-BR, tom encorajador.
+ * Estado vazio padrão do MeuNino — pt-BR, tom encorajador.
  * Use em listas, filtros zerados, cards de módulo sem dados.
  */
 export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {

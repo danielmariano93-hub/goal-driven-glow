@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
   let fallbackReason: string | null = null;
 
   if (LOVABLE_API_KEY) {
-    const system = `Você é o assistente do NoControle.ia. Escreva UMA dica curta em português brasileiro baseada estritamente nos dados fornecidos. Regras rígidas:
+    const system = `Você é o assistente do MeuNino. Escreva UMA dica curta em português brasileiro baseada estritamente nos dados fornecidos. Regras rígidas:
 - Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos de investimento, pagamento de fatura e crédito de empréstimo. NUNCA diga "gastou mais do que recebeu" comparando com fluxo bancário bruto. Se balance_month >= 0, não é déficit.
 - Priorize sinais comportamentais quando existirem: top_expense_category (+pct), category_growth (categoria que mais cresceu vs mês anterior), weekday_hotspot (dia da semana concentra mais gastos), merchant_repeat (mesmo estabelecimento >= 3x), days_without_entry (dias sem lançar), goal_pace (ritmo da meta vs prazo).
 - Se possível, quantifique impacto (ex.: "reduzir 10% em X economiza ~R$ Y"). Nunca invente valores fora dos fatos.

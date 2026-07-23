@@ -96,7 +96,7 @@ export default function Financeiro() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Finanças da NoControle.ia"
+        title="Finanças da MeuNino"
         description="Gestão financeira do negócio. Este módulo é totalmente separado das finanças pessoais dos usuários."
       />
 

@@ -94,7 +94,7 @@ export default function WhatsApp() {
   };
 
   const linkMessage = code
-    ? `Olá! Quero vincular meu WhatsApp ao NoControle. Meu código de verificação é: ${code}`
+    ? `Olá! Quero vincular meu WhatsApp ao MeuNino. Meu código de verificação é: ${code}`
     : "";
   const waLink = code && officialNumber
     ? `https://wa.me/${officialNumber.replace(/\D/g, "")}?text=${encodeURIComponent(linkMessage)}`
@@ -129,7 +129,7 @@ export default function WhatsApp() {
         </div>
       ) : code ? (
         <div className="rounded-2xl border bg-card p-6">
-          <p className="text-sm text-muted-foreground">Envie a seguinte mensagem ao número oficial do NoControle.ia pelo WhatsApp:</p>
+          <p className="text-sm text-muted-foreground">Envie a seguinte mensagem ao número oficial do MeuNino pelo WhatsApp:</p>
           <div className="mt-4 rounded-xl bg-muted p-4 text-sm leading-relaxed">
             {linkMessage}
           </div>
@@ -170,7 +170,7 @@ export default function WhatsApp() {
           </ul>
           <label className="mt-5 flex items-start gap-2 text-sm">
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-1" />
-            <span>Li e concordo com o tratamento do meu número para vincular ao NoControle.ia (LGPD).</span>
+            <span>Li e concordo com o tratamento do meu número para vincular ao MeuNino (LGPD).</span>
           </label>
           <button
             disabled={!consent || generating}

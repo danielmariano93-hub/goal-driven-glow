@@ -106,7 +106,7 @@ export default function Configuracoes() {
       <Section title="Sobre" icon={Info}>
         <div className="surface-card p-5 space-y-3 text-sm">
           <Row label="Build" value={buildInfo} mono />
-          <Row label="Painel" value="NoControle.ia Admin · Beta" />
+          <Row label="Painel" value="MeuNino Admin · Beta" />
         </div>
       </Section>
     </div>

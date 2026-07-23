@@ -31,7 +31,7 @@ const ROWS: Array<{ key: keyof ValidateReport | "secrets_sum"; label: string; pi
   { key: "host",        label: "Servidor acessível",          pick: (r) => r.host.code },
   { key: "auth",        label: "Autenticação aceita",         pick: (r) => r.auth.code },
   { key: "session",     label: "Sessão do WhatsApp encontrada", pick: (r) => r.session.code },
-  { key: "webhook",     label: "Webhook do NoControle.ia",    pick: (r) => r.webhook.code },
+  { key: "webhook",     label: "Webhook do MeuNino",    pick: (r) => r.webhook.code },
 ];
 
 export function WhatsAppValidateCard({ onDone }: { onDone?: () => void }) {
