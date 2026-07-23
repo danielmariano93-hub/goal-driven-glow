@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ninoGradient" x1="92" y1="92" x2="420" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D4AFF"/>
+      <stop offset="0.55" stop-color="#4338FF"/>
+      <stop offset="1" stop-color="#FF6B5F"/>
+    </linearGradient>
+  </defs>
+  <path d="M104 334V154C104 111 155 87 187 116L256 180L325 116C357 87 408 111 408 154V334" stroke="url(#ninoGradient)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M174 272C198 306 225 322 256 322C289 322 316 306 338 272" stroke="url(#ninoGradient)" stroke-width="46" stroke-linecap="round"/>
+  <circle cx="256" cy="392" r="28" fill="#FF6B5F"/>
+</svg>

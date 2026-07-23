@@ -1,28 +1,27 @@
-import { NinoSymbol } from "./NinoSymbol";
-
 /**
- * Wordmark oficial: símbolo + lettering "Meu Nino".
- * O sufixo ".IA" NÃO faz parte obrigatória do logotipo.
- * Quando `withDescriptor` for true, ".IA" aparece como descritor discreto,
- * peso Regular, cor muted — nunca como pill gradiente.
+ * Wordmark oficial: lettering "Meu Nino" + descritor ".IA" sobrescrito discreto.
+ *
+ * Regras:
+ *  - "Meu Nino" em Deep Ink (ou branco na variante dark), peso 700, tracking negativo.
+ *  - ".IA" ~50% da altura de "Nino", elevado, cor violeta oficial — nunca compete.
+ *  - Não usar pill gradient. Não substituir por texto comum sem símbolo ao lado.
  */
 type Props = {
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
+  variant?: "light" | "dark";
   className?: string;
-  withDescriptor?: boolean;
 };
 
-export function NinoWordmark({ size = "md", className, withDescriptor = false }: Props) {
-  const symbolSize = size === "sm" ? 28 : 34;
+export function NinoWordmark({ size = "md", variant = "light", className }: Props) {
+  const fontSize = size === "sm" ? "1.05rem" : size === "lg" ? "1.5rem" : "1.22rem";
   return (
-    <span className={`lp-logo ${className ?? ""}`}>
-      <NinoSymbol size={symbolSize} />
-      <span className="lp-wordmark">Meu Nino</span>
-      {withDescriptor ? (
-        <span className="lp-descriptor" aria-hidden="true">
-          .IA
-        </span>
-      ) : null}
+    <span
+      className={`nino-wordmark nino-wordmark--${variant} ${className ?? ""}`}
+      style={{ fontSize }}
+      aria-label="Meu Nino.IA"
+    >
+      <span className="nino-wordmark__name">Meu Nino</span>
+      <span className="nino-wordmark__ia" aria-hidden="true">.IA</span>
     </span>
   );
 }
