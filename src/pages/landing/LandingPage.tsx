@@ -1,15 +1,26 @@
 import { Link } from "react-router-dom";
 import { NinoWordmark } from "./NinoWordmark";
 import { NinoSymbol } from "./NinoSymbol";
+import {
+  ChatBubble,
+  Sparkle,
+  Pulse,
+  HeartOutline,
+  Target,
+  Compass,
+  TrendUp,
+  BellSoft,
+  CalendarSoft,
+  Wallet,
+} from "./icons/NinoIcons";
 import "./landing.css";
 
 /**
- * Landing page pública Meu Nino.IA (rota "/").
- * Baseada em meu_nino_lp_premium_v3.html — reescrita como React acessível.
- * Não afeta o app autenticado nem o admin: todos os estilos vivem em .mn-lp.
+ * Landing page pública Meu Nino (rota "/").
+ * Camada visual alinhada ao design system oficial:
+ * marca "Meu Nino", símbolo orgânico, iconografia outline própria.
+ * Estilos escopados em .mn-lp — não afeta app autenticado nem admin.
  */
-
-/** Se algum dia tivermos depoimentos reais assinados, habilitar aqui. */
 const SHOW_LANDING_TESTIMONIALS = false;
 
 export default function LandingPage() {
@@ -38,7 +49,7 @@ function LandingHeader() {
   return (
     <header className="lp-header">
       <div className="lp-nav">
-        <Link to="/" className="lp-logo" aria-label="Meu Nino.IA — início">
+        <Link to="/" className="lp-logo" aria-label="Meu Nino — início">
           <NinoWordmark size="sm" />
         </Link>
         <nav className="lp-nav-links" aria-label="Principal">
@@ -62,13 +73,17 @@ function HeroSection() {
       <div className="lp-wrap lp-hero-grid">
         <div>
           <span className="lp-badge">
-            <i aria-hidden="true" /> Inteligência financeira que conversa com você
+            <Sparkle size={16} accent="violet" title="" />
+            Inteligência financeira que conversa com você
           </span>
           <h1>
             Você não precisa controlar cada centavo.
             <br />
             <span className="lp-grad">Precisa entender o que vem pela frente.</span>
           </h1>
+          <p className="lp-tagline">
+            Seu dinheiro começa a fazer mais <span className="lp-grad">sentido.</span>
+          </p>
           <p className="lp-lead">
             O Nino organiza sua rotina financeira, identifica mudanças nos seus hábitos e
             usa inteligência artificial para mostrar riscos, oportunidades e próximos
@@ -83,11 +98,17 @@ function HeroSection() {
             </a>
           </div>
           <div className="lp-micro">
-            <span>Comece gratuitamente</span>
-            <span>Experiência pelo WhatsApp</span>
-            <span>Sem planilhas e sem julgamento</span>
+            <span>
+              <CheckDot /> Comece gratuitamente
+            </span>
+            <span>
+              <CheckDot /> Experiência pelo WhatsApp
+            </span>
+            <span>
+              <CheckDot /> Sem planilhas e sem julgamento
+            </span>
           </div>
-          <p className="lp-micro" style={{ marginTop: 8, color: "#8b8e9b" }}>
+          <p className="lp-micro" style={{ marginTop: 10, color: "#8b8e9b" }}>
             <Link to="/login" style={{ textDecoration: "underline" }}>
               Já tenho conta
             </Link>
@@ -99,18 +120,40 @@ function HeroSection() {
   );
 }
 
+function CheckDot() {
+  return (
+    <svg
+      className="lp-check"
+      width={16}
+      height={16}
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="10" cy="10" r="9" fill="#2FC99A" fillOpacity=".14" />
+      <path
+        d="m6 10.5 2.6 2.5L14 7.5"
+        stroke="#2FC99A"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function HeroVisual() {
   return (
     <div className="lp-hero-visual" aria-hidden="true">
       <div className="lp-symbol-halo" />
-      <div
-        className="lp-symbol-main"
-        style={{ display: "grid", placeItems: "center" }}
-      >
+      <div className="lp-symbol-main">
         <NinoSymbol size={240} />
       </div>
       <div className="lp-glass forecast">
-        <small>Previsão do mês</small>
+        <div className="lp-glass-head">
+          <Pulse size={16} accent="violet" title="" />
+          Previsão do mês
+        </div>
         <strong>R$ 4.820</strong>
         <div className="lp-spark" aria-hidden="true">
           <i style={{ height: "38%" }} />
@@ -123,13 +166,21 @@ function HeroVisual() {
         </div>
       </div>
       <div className="lp-glass goal">
-        <small>Meta — Viagem</small>
+        <div className="lp-glass-head">
+          <Target size={16} accent="coral" title="" />
+          Meta — Viagem
+        </div>
         <strong>72%</strong>
-        <div className="lp-bar"><span /></div>
+        <div className="lp-bar">
+          <span />
+        </div>
       </div>
       <div className="lp-glass insight">
-        <small>Insight do Nino</small>
-        <strong style={{ fontSize: "1.05rem", lineHeight: 1.35 }}>
+        <div className="lp-glass-head">
+          <Sparkle size={16} accent="white" title="" />
+          Insight do Nino
+        </div>
+        <strong>
           Você gastou 22% a mais em alimentação nas últimas 2 semanas. Quer ajustar o plano?
         </strong>
       </div>
@@ -212,13 +263,23 @@ function IntelligenceBento() {
                 e confirma antes de salvar.
               </p>
               <div className="lp-chat" aria-hidden="true">
-                <div className="lp-msg u">Gastei R$ 62 no jantar ontem</div>
-                <div className="lp-msg n">
-                  Anotado. R$ 62 em <b>Alimentação</b>, ontem. Confirmo?
+                <div className="lp-chat-row u">
+                  <div className="lp-msg u">Gastei R$ 62 no jantar ontem</div>
                 </div>
-                <div className="lp-msg u">Confirmo</div>
-                <div className="lp-msg n">
-                  Pronto. Você já registrou R$ 1.240 em Alimentação neste mês.
+                <div className="lp-chat-row">
+                  <NinoSymbol variant="avatar" size={28} className="lp-chat-avatar" />
+                  <div className="lp-msg n">
+                    Anotado. R$ 62 em <b>Alimentação</b>, ontem. Confirmo?
+                  </div>
+                </div>
+                <div className="lp-chat-row u">
+                  <div className="lp-msg u">Confirmo</div>
+                </div>
+                <div className="lp-chat-row">
+                  <NinoSymbol variant="avatar" size={28} className="lp-chat-avatar" />
+                  <div className="lp-msg n">
+                    Pronto. Você já registrou R$ 1.240 em Alimentação neste mês.
+                  </div>
                 </div>
               </div>
             </article>
@@ -230,7 +291,9 @@ function IntelligenceBento() {
                 momento — para que a próxima decisão fique mais clara.
               </p>
               <div className="lp-feature-line">
-                <div className="lp-feature-icon">◎</div>
+                <div className="lp-feature-icon">
+                  <Compass size={22} accent="violet" title="" />
+                </div>
                 <p>
                   “Você está gastando mais rápido do que na média — sobra estimada cai
                   para <b style={{ color: "var(--lp-ink)" }}>R$ 320</b> até o fim do mês.”
@@ -269,7 +332,9 @@ function IntelligenceBento() {
                 sinaliza se a meta precisa de ajuste.
               </p>
               <div className="lp-feature-line">
-                <div className="lp-feature-icon">◈</div>
+                <div className="lp-feature-icon">
+                  <HeartOutline size={22} accent="coral" title="" />
+                </div>
                 <p>
                   <b style={{ color: "var(--lp-ink)" }}>Viagem em setembro:</b> você está
                   no ritmo. Mais R$ 420 e a meta fecha antes do prazo.
@@ -285,13 +350,18 @@ function IntelligenceBento() {
 
 /* ------------------------------ Features dark ----------------------------- */
 
-const FEATURES = [
-  { i: "✎", t: "Registro por conversa", d: "Anote gastos e entradas por texto, no app ou pelo WhatsApp." },
-  { i: "◎", t: "Contexto imediato", d: "Cada valor vem acompanhado do impacto real no seu mês." },
-  { i: "⟳", t: "Projeções de curto prazo", d: "Cenários de 30 dias com base no seu comportamento recente." },
-  { i: "◈", t: "Metas em movimento", d: "Acompanhamento contínuo de aportes, prazos e ajustes." },
-  { i: "!", t: "Alertas quando algo muda", d: "O Nino avisa quando categorias sobem fora do esperado." },
-  { i: "≡", t: "Resumos por período", d: "Fechamentos semanais e mensais em linguagem humana." },
+const FEATURES: Array<{
+  icon: React.ComponentType<{ size?: number; accent?: "violet" | "coral" | "mint" | "white"; title?: string }>;
+  accent: "violet" | "coral" | "mint" | "white";
+  t: string;
+  d: string;
+}> = [
+  { icon: ChatBubble, accent: "white", t: "Registro por conversa", d: "Anote gastos e entradas por texto, no app ou pelo WhatsApp." },
+  { icon: Compass, accent: "white", t: "Contexto imediato", d: "Cada valor vem acompanhado do impacto real no seu mês." },
+  { icon: TrendUp, accent: "white", t: "Projeções de curto prazo", d: "Cenários de 30 dias com base no seu comportamento recente." },
+  { icon: Target, accent: "white", t: "Metas em movimento", d: "Acompanhamento contínuo de aportes, prazos e ajustes." },
+  { icon: BellSoft, accent: "white", t: "Alertas quando algo muda", d: "O Nino avisa quando categorias sobem fora do esperado." },
+  { icon: CalendarSoft, accent: "white", t: "Resumos por período", d: "Fechamentos semanais e mensais em linguagem humana." },
 ];
 
 function FeaturesDark() {
@@ -305,13 +375,18 @@ function FeaturesDark() {
           na primeira tela.
         </p>
         <div className="lp-features">
-          {FEATURES.map((f) => (
-            <div className="lp-feature" key={f.t}>
-              <div className="lp-ico" aria-hidden="true">{f.i}</div>
-              <b>{f.t}</b>
-              <p>{f.d}</p>
-            </div>
-          ))}
+          {FEATURES.map((f) => {
+            const Icon = f.icon;
+            return (
+              <div className="lp-feature" key={f.t}>
+                <div className="lp-ico" aria-hidden="true">
+                  <Icon size={22} accent={f.accent} title="" />
+                </div>
+                <b>{f.t}</b>
+                <p>{f.d}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -326,8 +401,8 @@ function AIBand() {
       <div className="lp-wrap">
         <div className="lp-ai-band">
           <div className="lp-ai-copy">
-            <div className="lp-label" style={{ color: "#B7A6FF" }}>Nino.IA</div>
-            <h2 style={{ fontSize: "clamp(1.9rem, 3.6vw, 3.4rem)", color: "#fff" }}>
+            <div className="lp-label" style={{ color: "#B7A6FF" }}>Nino · IA</div>
+            <h2 style={{ fontSize: "clamp(1.85rem, 3.4vw, 3.2rem)", color: "#fff" }}>
               Inteligência artificial com uma função prática: ajudar você a agir antes.
             </h2>
             <p className="lp-sub">
@@ -337,9 +412,20 @@ function AIBand() {
             </p>
           </div>
           <div className="lp-ai-ui">
-            <small style={{ color: "rgba(255,255,255,.6)", fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", fontSize: ".72rem" }}>
-              Projeção — próximos 30 dias
-            </small>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Wallet size={18} accent="white" title="" />
+              <small
+                style={{
+                  color: "rgba(255,255,255,.6)",
+                  fontWeight: 600,
+                  letterSpacing: ".12em",
+                  textTransform: "uppercase",
+                  fontSize: ".72rem",
+                }}
+              >
+                Projeção — próximos 30 dias
+              </small>
+            </div>
             <div className="lp-forecast-list">
               <div className="lp-forecast-row">
                 <span>Entradas previstas</span>
@@ -458,7 +544,11 @@ function FinalCTA() {
             pela frente — sem planilha, sem julgamento.
           </p>
           <div className="lp-actions">
-            <Link to="/signup" className="lp-btn secondary" style={{ background: "#fff", color: "var(--lp-ink)" }}>
+            <Link
+              to="/signup"
+              className="lp-btn secondary"
+              style={{ background: "#fff", color: "var(--lp-ink)" }}
+            >
               Criar minha conta grátis
             </Link>
             <a href="#duvidas" className="lp-btn ghost-dark">
@@ -480,10 +570,9 @@ function LandingFooter() {
         <div className="lp-logo">
           <NinoSymbol size={26} />
           <span className="lp-wordmark" style={{ fontSize: "1rem" }}>Meu Nino</span>
-          <span className="lp-ia-pill">.IA</span>
         </div>
         <p style={{ margin: 0 }}>
-          © {new Date().getFullYear()} Meu Nino.IA · Feito no Brasil com cuidado.
+          © {new Date().getFullYear()} Meu Nino · Feito no Brasil com cuidado.
         </p>
       </div>
     </footer>
