@@ -23,7 +23,7 @@ type DocDraft = IngestResult;
 
 type Msg =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null; report?: SpendingReport | null };
+  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null; report?: SpendingReport | null; artifact?: ChartArtifact | null };
 
 const SUGGESTIONS = [
   "Como está meu mês?",
@@ -197,7 +197,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     }
   }, [convId, storageKey]);
 
-  async function callAgent(payload: Record<string, unknown>): Promise<{ reply: string; pending: Pending | null; executed: any; conversation_id: string; report?: SpendingReport | null } | null> {
+  async function callAgent(payload: Record<string, unknown>): Promise<{ reply: string; pending: Pending | null; executed: any; conversation_id: string; report?: SpendingReport | null; artifact?: ChartArtifact | null } | null> {
     const { data, error } = await supabase.functions.invoke("agent-chat", {
       body: { conversation_id: convId, ...payload },
     });
@@ -239,7 +239,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         // continuar conversando ou fechar o painel.
       } else {
         const res = await callAgent({ text: clean });
-        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null, report: res?.report ?? null }]);
+        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null, report: res?.report ?? null, artifact: res?.artifact ?? null }]);
         if (res?.executed) refetchAll();
       }
     } catch (e) {
@@ -374,6 +374,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                 </button>
               )}
               {m.role === "assistant" && m.report && <SpendingReportCard report={m.report} />}
+              {m.role === "assistant" && m.artifact && <ChartArtifactRenderer artifact={m.artifact} />}
             </div>
           ))}
           {loadingHistory && (
