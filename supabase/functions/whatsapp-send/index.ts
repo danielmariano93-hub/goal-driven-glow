@@ -146,9 +146,9 @@ Deno.serve(async (req) => {
   const failed = results.filter((r) => !r.ok).length;
   await writeJobHeartbeat({
     jobKey: "whatsapp-send",
-    ok: failed === 0,
+    ok: failed === 0 && mediaFailures === 0,
     processed: results.length,
-    failed,
+    failed: failed + mediaFailures,
     sb,
   });
   return json({ processed: results.length, results });
