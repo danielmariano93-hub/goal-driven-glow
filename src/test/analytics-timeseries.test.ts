@@ -7,13 +7,13 @@ const tx = (d: string, amt: number) => ({
   account_id: "a1",
   category_id: null,
   type: "expense" as const,
-  status: "settled",
+  status: "confirmed",
   amount: amt,
   occurred_at: `${d}T12:00:00Z`,
   description: "x",
   transfer_group_id: null,
   payment_method: "account",
-  movement_kind: "expense",
+  movement_kind: "transaction",
 });
 
 describe("timeseries daily", () => {
