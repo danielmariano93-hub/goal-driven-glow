@@ -7,7 +7,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { computeBeforeSpending, type TransactionRow } from "../engine/facts.ts";
+import { computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
@@ -101,7 +101,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
   const from = iso.test(args?.from ?? "") ? args.from! : start.toISOString().slice(0, 10);
 
   let query = ctx.sb.from("transactions")
-    .select("id,type,amount,occurred_at,description,category_id,payment_method,credit_card_id")
+    .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
     .eq("user_id", ctx.user_id).gte("occurred_at", from).lte("occurred_at", to)
     .order("occurred_at", { ascending: true });
   if (args?.payment_method) query = query.eq("payment_method", args.payment_method);
@@ -113,8 +113,11 @@ export async function analyze_spending(ctx: ToolContext, args: {
 
   const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
   const rows = (data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
-  const expenses = rows.filter((r: any) => r.type === "expense");
-  const income = rows.filter((r: any) => r.type === "income");
+  // Aplica a MESMA definição de consumo real da Home: exclui aplicações,
+  // aportes, transferências, pagamento de fatura, cancelados. Corrige o bug em
+  // que "Aplicações R$ 5.000" aparecia como maior gasto do mês.
+  const expenses = rows.filter((r: any) => r.type === "expense" && isRealMonthlyMovement(r as any));
+  const income = rows.filter((r: any) => r.type === "income" && isRealMonthlyMovement(r as any));
   const byCategory = new Map<string, number>();
   const byDay = new Map<string, number>();
   for (const row of expenses) {
@@ -134,9 +137,10 @@ export async function analyze_spending(ctx: ToolContext, args: {
     result: {
       kind: "spending_report", period: { from, to, days },
       totals: { expense: Math.round(totalExpense * 100) / 100, income: Math.round(totalIncome * 100) / 100, net: Math.round((totalIncome - totalExpense) * 100) / 100 },
-      transactions_count: rows.length, categories: categoriesRank, daily,
+      transactions_count: expenses.length, categories: categoriesRank, daily,
       top_category: categoriesRank[0] ?? null, uncategorized,
-      data_limit: rows.length === 0 ? "no_data" : rows.length < 3 ? "small_sample" : null,
+      data_limit: expenses.length === 0 ? "no_data" : expenses.length < 3 ? "small_sample" : null,
+      formula_version: "analyze_spending.consumption.v2",
     },
   };
 }
@@ -645,10 +649,11 @@ import { computeAttribution } from "../analytics/attribute.ts";
 import { computeForecast } from "../analytics/forecast.ts";
 import { projectGoal, simulatePace } from "../analytics/goals.ts";
 import { computeDailySpend } from "../analytics/timeseries.ts";
+import { computeCumulativeDailyAverage } from "../analytics/dailyAverage.ts";
 import { monthRange, shiftMonth, todaySP } from "../analytics/periods.ts";
 import {
   buildCompareArtifact, buildForecastArtifact, buildGoalArtifact,
-  buildTimeseriesArtifact,
+  buildTimeseriesArtifact, buildCumulativeDailyAverageArtifact,
   type ChartArtifact,
 } from "../artifacts/builder.ts";
 import { reconciliationGate } from "../engine/reconciliation.ts";
@@ -767,8 +772,23 @@ export async function spending_timeseries_daily(ctx: ToolContext, args: {
   return { ok: true, result };
 }
 
+export async function spending_average_daily_trend(ctx: ToolContext, args: {
+  from?: string;
+  to?: string;
+}): Promise<ToolResult> {
+  const today = todaySP();
+  const cur = monthRange(today);
+  const from = args?.from ?? cur.from;
+  const to = args?.to ?? today;
+  const { txs } = await loadTxAndCategories(ctx, from, to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  const result = computeCumulativeDailyAverage({ txs: txs as any, from, to });
+  return { ok: true, result };
+}
+
 export async function generate_chart_artifact(ctx: ToolContext, args: {
-  kind: "compare" | "forecast" | "goal" | "timeseries";
+  kind: "compare" | "forecast" | "goal" | "timeseries" | "average_daily_trend";
   goal_id?: string;
   goal?: string;
   metric?: "expense" | "income";
@@ -794,6 +814,10 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
     });
     if (!r.ok) return r;
     artifact = buildTimeseriesArtifact(r.result);
+  } else if (args.kind === "average_daily_trend") {
+    const r = await spending_average_daily_trend(ctx, { from: args.from, to: args.to });
+    if (!r.ok) return r;
+    artifact = buildCumulativeDailyAverageArtifact(r.result);
   } else {
     const r = await compare_periods(ctx, { metric: args.metric ?? "expense", period_a: args.period_a, period_b: args.period_b });
     if (!r.ok) return r;
@@ -859,7 +883,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "analyze_spending",
-    description: "Analisa gastos reais por período e devolve totais, ranking por categoria e série diária para gráficos/relatórios. Use sempre que o usuário pedir análise, comparação, onde gasta mais, gráfico ou relatório; mesmo com poucos dados, analise o que existir e apenas sinalize a amostra pequena.",
+    description: "APENAS respostas TEXTUAIS de resumo/onde mais gastou (mesma definição de consumo real da Home: exclui aplicações, aportes, transferências, pagamento de fatura). NUNCA use quando o usuário pedir gráfico, visualização, tendência, evolução, 'dia a dia', média diária ou 'estou reduzindo' — nesses casos chame generate_chart_artifact.",
     parameters: {
       type: "object",
       properties: {
@@ -1105,7 +1129,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "spending_timeseries_daily",
-    description: "Retorna a série DIÁRIA de gastos (ou receitas) com média móvel de 7 dias e provenance. Use para responder pedidos como 'gasto dia a dia', 'evolução por dia', 'estou reduzindo?'. Se from/to não vierem, usa mês corrente.",
+    description: "Série DIÁRIA BRUTA de gastos (ou receitas) com média móvel de 7 dias. Use APENAS quando o usuário quiser ver o valor GASTO EM CADA DIA. Para 'gasto médio dia a dia', 'estou reduzindo?', 'tendência', 'andando de lado' use spending_average_daily_trend (média acumulada).",
     parameters: {
       type: "object",
       properties: {
@@ -1118,12 +1142,22 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: spending_timeseries_daily,
   },
   {
+    name: "spending_average_daily_trend",
+    description: "Série da MÉDIA DIÁRIA ACUMULADA (consumo_acumulado / dias_corridos) e tendência (falling|rising|flat). Responde 'meu gasto médio dia a dia', 'estou reduzindo?', 'andando de lado?', 'como está a tendência do meu gasto'. Só consumo real (mesma definição da Home).",
+    parameters: {
+      type: "object",
+      properties: { from: optionalStr, to: optionalStr },
+      additionalProperties: false,
+    },
+    execute: spending_average_daily_trend,
+  },
+  {
     name: "generate_chart_artifact",
-    description: "Gera um artefato de gráfico universal (compare, forecast, goal ou timeseries) para exibir no app e/ou enviar como imagem no WhatsApp. Retorna o artifact_id persistido. Chame SEMPRE que o usuário pedir gráfico/visualização.",
+    description: "OBRIGATÓRIO em qualquer pedido visual/de tendência. Gera artefato de gráfico exibido no app e enviado como PNG no WhatsApp. Kinds: 'average_daily_trend' (gasto médio dia a dia / tendência / estou reduzindo), 'timeseries' (série diária bruta), 'compare' (dois períodos), 'forecast' (fechamento do mês), 'goal' (meta). Retorna artifact_id persistido.",
     parameters: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["compare", "forecast", "goal", "timeseries"] },
+        kind: { type: "string", enum: ["compare", "forecast", "goal", "timeseries", "average_daily_trend"] },
         goal_id: optionalStr, goal: optionalStr,
         metric: { type: "string", enum: ["expense", "income"] },
         period_a: periodSchema, period_b: periodSchema,

@@ -12,7 +12,7 @@ import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
 import { buildReceipt } from "../ReceiptBuilder.ts";
 import { loadHistory } from "../ConversationHistory.ts";
-import { analyze_spending, create_transaction_draft, resolveCreditCardFull } from "../../tools.ts";
+import { analyze_spending, create_transaction_draft, generate_chart_artifact, resolveCreditCardFull } from "../../tools.ts";
 import { extractSpans } from "../../extract.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -172,8 +172,34 @@ export async function handleAppMessage(args: {
   const pendingOut = await findPendingApp(sb, args.conversation_id, args.user_id, null);
 
   // Surface any chart artifact created during this turn.
-  const recent = await findRecentArtifact(sb, args.conversation_id, args.user_id, turnStartedAt);
+  let recent = await findRecentArtifact(sb, args.conversation_id, args.user_id, turnStartedAt);
   let reply = turn.reply;
+
+  // Fallback determinístico: usuário pediu gráfico/tendência mas o LLM não
+  // chamou generate_chart_artifact. Renderiza a média diária acumulada (rota
+  // padrão) para não devolver texto genérico. Idempotente pelo findRecent.
+  if (!recent?.payload && wantsChart(args.text)) {
+    try {
+      const kind = pickDeterministicChartKind(args.text);
+      const chart = await generate_chart_artifact(
+        { sb, user_id: args.user_id, conversation_id: args.conversation_id },
+        { kind } as any,
+      );
+      if (chart.ok) {
+        const artifact_id = (chart as any).result?.artifact_id as string | undefined;
+        recent = artifact_id ? { artifact_id, payload: (chart as any).result?.artifact } : recent;
+        // Reescreve a resposta quando o LLM devolveu texto vazio/redundante.
+        if (!reply || /não\s+conseg|não\s+entend/i.test(reply)) {
+          reply = kind === "average_daily_trend"
+            ? "Gerei o gráfico do seu gasto médio diário acumulado 👇"
+            : "Gerei o gráfico com base nos dados reais 👇";
+        }
+      }
+    } catch (e) {
+      console.error("[app-adapter] chart_fallback_failed", String((e as Error).message).slice(0, 200));
+    }
+  }
+
   if (recent?.payload && !mentionsChart(reply)) {
     reply = `Gerei um gráfico com base nos dados reais 👇\n\n${reply}`;
   }
@@ -190,13 +216,28 @@ function mentionsChart(text: string): boolean {
   return /\b(gr[aá]fico|visualiza|abaixo|📊|📈|📉)\b/i.test(text || "");
 }
 
-function wantsChart(text: string): boolean {
-  return /\b(gr[aá]fico|chart|visualiza|em\s+barras?|em\s+pizza|em\s+donut|em\s+linhas?|dia\s+a\s+dia|por\s+dia|por\s+semana|evolu[cç][aã]o|mostra\s+o?\s*gr[aá]fico|gera\s+o?\s*gr[aá]fico|manda\s+em\s+gr[aá]fico)\b/i.test(text);
+// Amplo: cobre TODO pedido visual/tendência. Se um destes casar, NUNCA
+// interceptamos no fast-path textual — deixamos o LLM (ou o fallback) chamar
+// generate_chart_artifact. Sincronizado com prompt.ts e com o guardrail server.
+export function wantsChart(text: string): boolean {
+  return /\b(gr[aá]fico|gr[aá]ficos|graficos?|chart|visualiz(a|ar|a[çc][aã]o)|em\s+barras?|em\s+pizza|em\s+donut|em\s+linhas?|linha|curva|dia\s+a\s+dia|diariamente|por\s+dia|por\s+semana|por\s+m[eê]s|evolu(?:[cç][aã]o|ir|indo)|tend[eê]ncia|m[eé]dia\s+(?:di[aá]ria|do\s+dia|acumulada)|gasto\s+m[eé]dio|estou\s+reduzindo|reduzindo\s+meus?\s+gastos|andando\s+de\s+lado|est[aá]\s+(?:caindo|subindo)|ritmo\s+dos?\s+gastos?)\b/i.test(text || "");
 }
 
-// ---- Fast-path helpers (verbatim from previous agent-chat) ------------------
+// Escolhe o kind determinístico quando o LLM falha. Prioriza a série de média
+// acumulada quando o pedido menciona "média", "tendência", "reduzindo" etc.;
+// senão cai na série diária bruta ("dia a dia" sem contexto de média).
+function pickDeterministicChartKind(text: string): "average_daily_trend" | "timeseries" {
+  const t = String(text || "");
+  if (/\b(m[eé]dia|tend[eê]ncia|reduzindo|andando\s+de\s+lado|est[aá]\s+(?:caindo|subindo)|ritmo)\b/i.test(t)) {
+    return "average_daily_trend";
+  }
+  return "timeseries";
+}
+
+// Estrito: apenas pedidos TEXTUAIS de resumo. "gráfico" e "evolução" saíram —
+// esses casos precisam gerar artefato, não texto plano.
 function isAnalyticsRequest(text: string): boolean {
-  return /\b(analis[ae]|an[aá]lise|onde.*gast|gasto.*mais|gr[aá]fico|relat[oó]rio|compare|compara[cç][aã]o|evolu[cç][aã]o|resumo.*gast|como est[aá].*m[eê]s)\b/i.test(text);
+  return /\b(me\s+analis[ae]|an[aá]lise\s+geral|resumo\s+(?:do\s+m[eê]s|geral|dos?\s+gastos?)|onde\s+(?:mais\s+)?gast[aeo])\b/i.test(text || "");
 }
 
 function analyticsArgs(text: string): { days: number; payment_method?: "account" | "credit_card" } {
