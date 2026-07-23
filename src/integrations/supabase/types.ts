@@ -195,37 +195,49 @@ export type Database = {
         Row: {
           conversation_id: string | null
           created_at: string
+          fallback_text: string | null
           formula_version: string | null
           id: string
           kind: string
           media_expires_at: string | null
           media_mime: string | null
           media_path: string | null
+          media_url: string | null
           payload: Json
+          rendered_at: string | null
+          summary_text: string | null
           user_id: string
         }
         Insert: {
           conversation_id?: string | null
           created_at?: string
+          fallback_text?: string | null
           formula_version?: string | null
           id?: string
           kind: string
           media_expires_at?: string | null
           media_mime?: string | null
           media_path?: string | null
+          media_url?: string | null
           payload: Json
+          rendered_at?: string | null
+          summary_text?: string | null
           user_id: string
         }
         Update: {
           conversation_id?: string | null
           created_at?: string
+          fallback_text?: string | null
           formula_version?: string | null
           id?: string
           kind?: string
           media_expires_at?: string | null
           media_mime?: string | null
           media_path?: string | null
+          media_url?: string | null
           payload?: Json
+          rendered_at?: string | null
+          summary_text?: string | null
           user_id?: string
         }
         Relationships: []
@@ -662,6 +674,69 @@ export type Database = {
           },
         ]
       }
+      agent_turn_events: {
+        Row: {
+          artifact_id: string | null
+          artifact_status: string
+          channel: string
+          conversation_id: string | null
+          created_at: string
+          error: string | null
+          estimated_cost_usd: number | null
+          fallback_used: boolean
+          formula_versions: Json
+          id: string
+          intent: string | null
+          model: string | null
+          run_id: string | null
+          stages_ms: Json
+          tokens_in: number
+          tokens_out: number
+          tools_used: Json
+          user_id: string
+        }
+        Insert: {
+          artifact_id?: string | null
+          artifact_status?: string
+          channel: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number | null
+          fallback_used?: boolean
+          formula_versions?: Json
+          id?: string
+          intent?: string | null
+          model?: string | null
+          run_id?: string | null
+          stages_ms?: Json
+          tokens_in?: number
+          tokens_out?: number
+          tools_used?: Json
+          user_id: string
+        }
+        Update: {
+          artifact_id?: string | null
+          artifact_status?: string
+          channel?: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number | null
+          fallback_used?: boolean
+          formula_versions?: Json
+          id?: string
+          intent?: string | null
+          model?: string | null
+          run_id?: string | null
+          stages_ms?: Json
+          tokens_in?: number
+          tokens_out?: number
+          tools_used?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           archived_at: string | null
@@ -698,6 +773,51 @@ export type Database = {
           type?: Database["public"]["Enums"]["category_type"]
           updated_at?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      categorization_metrics_daily: {
+        Row: {
+          auto_applied: number
+          category_source: string
+          computed_at: string
+          correction_rate_pct: number | null
+          coverage_pct: number | null
+          date: string
+          precision_proxy_pct: number | null
+          sem_categoria_pct: number | null
+          suggested: number
+          total_tx: number
+          uncategorized: number
+          user_corrected_within_7d: number
+        }
+        Insert: {
+          auto_applied?: number
+          category_source?: string
+          computed_at?: string
+          correction_rate_pct?: number | null
+          coverage_pct?: number | null
+          date: string
+          precision_proxy_pct?: number | null
+          sem_categoria_pct?: number | null
+          suggested?: number
+          total_tx?: number
+          uncategorized?: number
+          user_corrected_within_7d?: number
+        }
+        Update: {
+          auto_applied?: number
+          category_source?: string
+          computed_at?: string
+          correction_rate_pct?: number | null
+          coverage_pct?: number | null
+          date?: string
+          precision_proxy_pct?: number | null
+          sem_categoria_pct?: number | null
+          suggested?: number
+          total_tx?: number
+          uncategorized?: number
+          user_corrected_within_7d?: number
         }
         Relationships: []
       }
@@ -2839,6 +2959,39 @@ export type Database = {
         }
         Relationships: []
       }
+      reconciliation_issues: {
+        Row: {
+          details: Json
+          detected_at: string
+          entity_id: string | null
+          id: string
+          kind: string
+          resolved_at: string | null
+          severity: string
+          user_id: string
+        }
+        Insert: {
+          details?: Json
+          detected_at?: string
+          entity_id?: string | null
+          id?: string
+          kind: string
+          resolved_at?: string | null
+          severity?: string
+          user_id: string
+        }
+        Update: {
+          details?: Json
+          detected_at?: string
+          entity_id?: string | null
+          id?: string
+          kind?: string
+          resolved_at?: string | null
+          severity?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       recurring_entries: {
         Row: {
           account_id: string | null
@@ -3360,6 +3513,7 @@ export type Database = {
           occurred_at: string
           origin: Database["public"]["Enums"]["txn_origin"]
           payment_method: string
+          previous_category_id: string | null
           purchase_date: string | null
           purchase_group_id: string | null
           raw_description: string | null
@@ -3401,6 +3555,7 @@ export type Database = {
           occurred_at: string
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
+          previous_category_id?: string | null
           purchase_date?: string | null
           purchase_group_id?: string | null
           raw_description?: string | null
@@ -3442,6 +3597,7 @@ export type Database = {
           occurred_at?: string
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
+          previous_category_id?: string | null
           purchase_date?: string | null
           purchase_group_id?: string | null
           raw_description?: string | null
