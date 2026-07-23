@@ -7,7 +7,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { computeBeforeSpending, type TransactionRow } from "../engine/facts.ts";
+import { computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
@@ -101,7 +101,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
   const from = iso.test(args?.from ?? "") ? args.from! : start.toISOString().slice(0, 10);
 
   let query = ctx.sb.from("transactions")
-    .select("id,type,amount,occurred_at,description,category_id,payment_method,credit_card_id")
+    .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
     .eq("user_id", ctx.user_id).gte("occurred_at", from).lte("occurred_at", to)
     .order("occurred_at", { ascending: true });
   if (args?.payment_method) query = query.eq("payment_method", args.payment_method);
@@ -113,8 +113,11 @@ export async function analyze_spending(ctx: ToolContext, args: {
 
   const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
   const rows = (data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
-  const expenses = rows.filter((r: any) => r.type === "expense");
-  const income = rows.filter((r: any) => r.type === "income");
+  // Aplica a MESMA definição de consumo real da Home: exclui aplicações,
+  // aportes, transferências, pagamento de fatura, cancelados. Corrige o bug em
+  // que "Aplicações R$ 5.000" aparecia como maior gasto do mês.
+  const expenses = rows.filter((r: any) => r.type === "expense" && isRealMonthlyMovement(r as any));
+  const income = rows.filter((r: any) => r.type === "income" && isRealMonthlyMovement(r as any));
   const byCategory = new Map<string, number>();
   const byDay = new Map<string, number>();
   for (const row of expenses) {
@@ -134,9 +137,10 @@ export async function analyze_spending(ctx: ToolContext, args: {
     result: {
       kind: "spending_report", period: { from, to, days },
       totals: { expense: Math.round(totalExpense * 100) / 100, income: Math.round(totalIncome * 100) / 100, net: Math.round((totalIncome - totalExpense) * 100) / 100 },
-      transactions_count: rows.length, categories: categoriesRank, daily,
+      transactions_count: expenses.length, categories: categoriesRank, daily,
       top_category: categoriesRank[0] ?? null, uncategorized,
-      data_limit: rows.length === 0 ? "no_data" : rows.length < 3 ? "small_sample" : null,
+      data_limit: expenses.length === 0 ? "no_data" : expenses.length < 3 ? "small_sample" : null,
+      formula_version: "analyze_spending.consumption.v2",
     },
   };
 }
