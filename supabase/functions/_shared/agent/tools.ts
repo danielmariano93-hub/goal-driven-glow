@@ -883,7 +883,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "analyze_spending",
-    description: "Analisa gastos reais por período e devolve totais, ranking por categoria e série diária para gráficos/relatórios. Use sempre que o usuário pedir análise, comparação, onde gasta mais, gráfico ou relatório; mesmo com poucos dados, analise o que existir e apenas sinalize a amostra pequena.",
+    description: "APENAS respostas TEXTUAIS de resumo/onde mais gastou (mesma definição de consumo real da Home: exclui aplicações, aportes, transferências, pagamento de fatura). NUNCA use quando o usuário pedir gráfico, visualização, tendência, evolução, 'dia a dia', média diária ou 'estou reduzindo' — nesses casos chame generate_chart_artifact.",
     parameters: {
       type: "object",
       properties: {
@@ -1129,7 +1129,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "spending_timeseries_daily",
-    description: "Retorna a série DIÁRIA de gastos (ou receitas) com média móvel de 7 dias e provenance. Use para responder pedidos como 'gasto dia a dia', 'evolução por dia', 'estou reduzindo?'. Se from/to não vierem, usa mês corrente.",
+    description: "Série DIÁRIA BRUTA de gastos (ou receitas) com média móvel de 7 dias. Use APENAS quando o usuário quiser ver o valor GASTO EM CADA DIA. Para 'gasto médio dia a dia', 'estou reduzindo?', 'tendência', 'andando de lado' use spending_average_daily_trend (média acumulada).",
     parameters: {
       type: "object",
       properties: {
@@ -1142,12 +1142,22 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: spending_timeseries_daily,
   },
   {
+    name: "spending_average_daily_trend",
+    description: "Série da MÉDIA DIÁRIA ACUMULADA (consumo_acumulado / dias_corridos) e tendência (falling|rising|flat). Responde 'meu gasto médio dia a dia', 'estou reduzindo?', 'andando de lado?', 'como está a tendência do meu gasto'. Só consumo real (mesma definição da Home).",
+    parameters: {
+      type: "object",
+      properties: { from: optionalStr, to: optionalStr },
+      additionalProperties: false,
+    },
+    execute: spending_average_daily_trend,
+  },
+  {
     name: "generate_chart_artifact",
-    description: "Gera um artefato de gráfico universal (compare, forecast, goal ou timeseries) para exibir no app e/ou enviar como imagem no WhatsApp. Retorna o artifact_id persistido. Chame SEMPRE que o usuário pedir gráfico/visualização.",
+    description: "OBRIGATÓRIO em qualquer pedido visual/de tendência. Gera artefato de gráfico exibido no app e enviado como PNG no WhatsApp. Kinds: 'average_daily_trend' (gasto médio dia a dia / tendência / estou reduzindo), 'timeseries' (série diária bruta), 'compare' (dois períodos), 'forecast' (fechamento do mês), 'goal' (meta). Retorna artifact_id persistido.",
     parameters: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["compare", "forecast", "goal", "timeseries"] },
+        kind: { type: "string", enum: ["compare", "forecast", "goal", "timeseries", "average_daily_trend"] },
         goal_id: optionalStr, goal: optionalStr,
         metric: { type: "string", enum: ["expense", "income"] },
         period_a: periodSchema, period_b: periodSchema,
