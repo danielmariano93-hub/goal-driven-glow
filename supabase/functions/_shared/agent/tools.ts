@@ -644,9 +644,11 @@ import { computeCompare, type CompareInput } from "../analytics/compare.ts";
 import { computeAttribution } from "../analytics/attribute.ts";
 import { computeForecast } from "../analytics/forecast.ts";
 import { projectGoal, simulatePace } from "../analytics/goals.ts";
+import { computeDailySpend } from "../analytics/timeseries.ts";
 import { monthRange, shiftMonth, todaySP } from "../analytics/periods.ts";
 import {
   buildCompareArtifact, buildForecastArtifact, buildGoalArtifact,
+  buildTimeseriesArtifact,
   type ChartArtifact,
 } from "../artifacts/builder.ts";
 import { reconciliationGate } from "../engine/reconciliation.ts";
@@ -739,13 +741,42 @@ export async function simulate_goal_pace(ctx: ToolContext, args: { goal_id?: str
   return { ok: true, result: { ...scenario, monthly_contribution: Number(args.monthly_contribution || 0), goal_id: proj.result.goal_id } };
 }
 
+export async function spending_timeseries_daily(ctx: ToolContext, args: {
+  metric?: "expense" | "income";
+  from?: string;
+  to?: string;
+  days?: number;
+}): Promise<ToolResult> {
+  const today = todaySP();
+  const cur = monthRange(today);
+  let from = args?.from;
+  let to = args?.to ?? today;
+  if (!from) {
+    if (args?.days && args.days > 0) {
+      const d = new Date(`${today}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - (Math.min(366, args.days) - 1));
+      from = d.toISOString().slice(0, 10);
+    } else {
+      from = cur.from;
+    }
+  }
+  const { txs } = await loadTxAndCategories(ctx, from, to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  const result = computeDailySpend({ txs: txs as any, metric: args?.metric ?? "expense", from, to });
+  return { ok: true, result };
+}
+
 export async function generate_chart_artifact(ctx: ToolContext, args: {
-  kind: "compare" | "forecast" | "goal";
+  kind: "compare" | "forecast" | "goal" | "timeseries";
   goal_id?: string;
   goal?: string;
   metric?: "expense" | "income";
   period_a?: { from: string; to: string };
   period_b?: { from: string; to: string };
+  from?: string;
+  to?: string;
+  days?: number;
 }): Promise<ToolResult> {
   let artifact: ChartArtifact | null = null;
 
@@ -757,6 +788,12 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
     const r = await project_goal_completion(ctx, { goal_id: args.goal_id, goal: args.goal });
     if (!r.ok) return r;
     artifact = buildGoalArtifact(r.result);
+  } else if (args.kind === "timeseries") {
+    const r = await spending_timeseries_daily(ctx, {
+      metric: args.metric ?? "expense", from: args.from, to: args.to, days: args.days,
+    });
+    if (!r.ok) return r;
+    artifact = buildTimeseriesArtifact(r.result);
   } else {
     const r = await compare_periods(ctx, { metric: args.metric ?? "expense", period_a: args.period_a, period_b: args.period_b });
     if (!r.ok) return r;
