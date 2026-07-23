@@ -7,6 +7,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AssessorAttachButton, getIngestionStatus, ingestDocument, resumeIngestion, type PreparedAttachment, type IngestResult } from "./AssessorAttachButton";
 import { ReviewSheet } from "./ReviewSheet";
 import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
+import { ChartArtifactRenderer } from "./artifacts/ChartArtifactRenderer";
+import type { ChartArtifact } from "@/types/artifacts";
 import { useAuth } from "@/context/AuthContext";
 
 type Pending = {
