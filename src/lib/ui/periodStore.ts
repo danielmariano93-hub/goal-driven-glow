@@ -47,6 +47,7 @@ export function defaultPeriod(): PeriodState {
 
 export function getPeriod(): PeriodState {
   if (typeof window === "undefined") return defaultPeriod();
+  migrateLegacyKey();
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return defaultPeriod();
