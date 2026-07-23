@@ -11,7 +11,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { PlatformAdminRoute } from "@/components/auth/PlatformAdminRoute";
 import { AdminLayout } from "@/components/admin/AdminLayout";
-import Landing from "./pages/Landing";
+import Landing from "./pages/landing/LandingPage";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/auth/ForgotPassword";
