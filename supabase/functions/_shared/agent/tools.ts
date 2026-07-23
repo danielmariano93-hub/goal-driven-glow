@@ -638,6 +638,140 @@ export async function list_category_spending_goals(ctx: ToolContext): Promise<To
 
 // ---------- Registry (name → executor + JSON Schema) ----------
 
+// ---------- Motor analítico (compare, forecast, attribute, goals, artifact) ----------
+
+import { computeCompare, type CompareInput } from "../analytics/compare.ts";
+import { computeAttribution } from "../analytics/attribute.ts";
+import { computeForecast } from "../analytics/forecast.ts";
+import { projectGoal, simulatePace } from "../analytics/goals.ts";
+import { monthRange, shiftMonth, todaySP } from "../analytics/periods.ts";
+import {
+  buildCompareArtifact, buildForecastArtifact, buildGoalArtifact,
+  type ChartArtifact,
+} from "../artifacts/builder.ts";
+
+async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
+  const [{ data: txs }, { data: cats }] = await Promise.all([
+    ctx.sb.from("transactions")
+      .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+      .eq("user_id", ctx.user_id).gte("occurred_at", from).lte("occurred_at", to),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+  ]);
+  const names = new Map<string, string>((cats ?? []).map((c: any) => [c.id, c.name]));
+  const rows = (txs ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
+  return { txs: rows, names };
+}
+
+export async function compare_periods(ctx: ToolContext, args: {
+  metric?: "expense" | "income"; period_a?: { from: string; to: string }; period_b?: { from: string; to: string };
+}): Promise<ToolResult> {
+  const today = todaySP();
+  const cur = monthRange(today);
+  const prev = monthRange(shiftMonth(today, -1));
+  const period_a = args?.period_a ?? { from: prev.from, to: prev.to };
+  const period_b = args?.period_b ?? { from: cur.from, to: today };
+  const metric = (args?.metric ?? "expense") as "expense" | "income";
+  // carrega janela unificada
+  const from = period_a.from < period_b.from ? period_a.from : period_b.from;
+  const to = period_a.to > period_b.to ? period_a.to : period_b.to;
+  const { txs, names } = await loadTxAndCategories(ctx, from, to);
+  const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
+  return { ok: true, result };
+}
+
+export async function forecast_month_close(ctx: ToolContext, args: { model?: "auto" | "baseline" | "observed" | "seasonal" }): Promise<ToolResult> {
+  const today = todaySP();
+  const cur = monthRange(today);
+  // pega 12 meses de histórico + mês atual (para sazonal + backtest)
+  const from = shiftMonth(cur.from, -12);
+  const to = cur.to;
+  const { txs } = await loadTxAndCategories(ctx, from, to);
+  const { data: rec } = await ctx.sb.from("recurring_entries")
+    .select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", ctx.user_id).eq("active", true);
+  const recurring = (rec ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
+  const result = computeForecast({ txs: txs as any, recurring, today, model: args?.model ?? "auto" });
+  return { ok: true, result };
+}
+
+export async function explain_spending_change(ctx: ToolContext, args: {
+  period_a?: { from: string; to: string }; period_b?: { from: string; to: string };
+}): Promise<ToolResult> {
+  const cmp = await compare_periods(ctx, { metric: "expense", period_a: args?.period_a, period_b: args?.period_b });
+  if (!cmp.ok) return cmp;
+  const attribution = computeAttribution(cmp.result);
+  return { ok: true, result: { compare: cmp.result, attribution } };
+}
+
+export async function project_goal_completion(ctx: ToolContext, args: { goal_id?: string; goal?: string }): Promise<ToolResult> {
+  let goalRow: any = null;
+  if (args?.goal_id && /^[0-9a-f-]{36}$/i.test(args.goal_id)) {
+    const { data } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("id", args.goal_id).maybeSingle();
+    goalRow = data;
+  } else if (args?.goal) {
+    const { data } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).ilike("name", `%${args.goal}%`).limit(1);
+    goalRow = data && data[0];
+  } else {
+    const { data } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("status", "active").order("created_at").limit(1);
+    goalRow = data && data[0];
+  }
+  if (!goalRow) return { ok: false, error: "goal_not_found" };
+  const { data: contribs } = await ctx.sb.from("goal_contributions").select("amount,occurred_at").eq("user_id", ctx.user_id).eq("goal_id", goalRow.id);
+  const projection = projectGoal({
+    goal: { id: goalRow.id, name: goalRow.name, target_amount: Number(goalRow.target_amount || 0), target_date: goalRow.target_date, status: goalRow.status },
+    contributions: (contribs ?? []).map((c: any) => ({ amount: Number(c.amount), occurred_at: c.occurred_at })),
+  });
+  return { ok: true, result: projection };
+}
+
+export async function simulate_goal_pace(ctx: ToolContext, args: { goal_id?: string; goal?: string; monthly_contribution: number }): Promise<ToolResult> {
+  const proj = await project_goal_completion(ctx, args);
+  if (!proj.ok) return proj;
+  const { data: contribs } = await ctx.sb.from("goal_contributions").select("amount,occurred_at").eq("user_id", ctx.user_id).eq("goal_id", proj.result.goal_id);
+  const scenario = simulatePace({
+    goal: { id: proj.result.goal_id, name: proj.result.name, target_amount: proj.result.target, target_date: null },
+    contributions: (contribs ?? []).map((c: any) => ({ amount: Number(c.amount), occurred_at: c.occurred_at })),
+  }, Number(args.monthly_contribution || 0));
+  return { ok: true, result: { ...scenario, monthly_contribution: Number(args.monthly_contribution || 0), goal_id: proj.result.goal_id } };
+}
+
+export async function generate_chart_artifact(ctx: ToolContext, args: {
+  kind: "compare" | "forecast" | "goal";
+  goal_id?: string;
+  goal?: string;
+  metric?: "expense" | "income";
+  period_a?: { from: string; to: string };
+  period_b?: { from: string; to: string };
+}): Promise<ToolResult> {
+  let artifact: ChartArtifact | null = null;
+
+  if (args.kind === "forecast") {
+    const r = await forecast_month_close(ctx, {});
+    if (!r.ok) return r;
+    artifact = buildForecastArtifact(r.result);
+  } else if (args.kind === "goal") {
+    const r = await project_goal_completion(ctx, { goal_id: args.goal_id, goal: args.goal });
+    if (!r.ok) return r;
+    artifact = buildGoalArtifact(r.result);
+  } else {
+    const r = await compare_periods(ctx, { metric: args.metric ?? "expense", period_a: args.period_a, period_b: args.period_b });
+    if (!r.ok) return r;
+    artifact = buildCompareArtifact(r.result);
+  }
+
+  // Persistência do artefato para reuso/entrega em outros canais
+  const { data: saved } = await ctx.sb.from("agent_artifacts").insert({
+    user_id: ctx.user_id,
+    conversation_id: ctx.conversation_id,
+    kind: artifact.kind,
+    payload: artifact as any,
+    formula_version: artifact.provenance.formula_version,
+  }).select("id").maybeSingle();
+
+  return { ok: true, result: { artifact, artifact_id: saved?.id ?? null } };
+}
+
+// ---------- Registro ----------
+
 export type ToolSpec = {
   name: string;
   description: string;
@@ -648,6 +782,13 @@ export type ToolSpec = {
 const requiredStr = { type: "string" };
 const optionalStr = { type: "string" };
 const num = { type: "number" };
+
+const periodSchema = {
+  type: "object",
+  properties: { from: { type: "string" }, to: { type: "string" } },
+  required: ["from", "to"],
+  additionalProperties: false,
+};
 
 export const AGENT_TOOLS: ToolSpec[] = [
   {
@@ -865,6 +1006,75 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Lista as metas de controle de gasto por categoria, com limite, gasto atual, ritmo diário permitido, projeção de estouro e status (no_ritmo, atencao, em_risco, estourou). Use quando o usuário perguntar por uma meta de gasto específica ou 'minhas metas de categoria'.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: list_category_spending_goals,
+  },
+  {
+    name: "compare_periods",
+    description: "Compara gasto (ou receita) entre dois períodos, com quebra por categoria e delta absoluto/percentual. Se períodos não forem informados, compara mês anterior x mês atual até hoje. Retorna provenance com confiança.",
+    parameters: {
+      type: "object",
+      properties: {
+        metric: { type: "string", enum: ["expense", "income"] },
+        period_a: periodSchema,
+        period_b: periodSchema,
+      },
+      additionalProperties: false,
+    },
+    execute: compare_periods,
+  },
+  {
+    name: "forecast_month_close",
+    description: "Prevê o fechamento do mês corrente combinando gasto até hoje, compromissos recorrentes e sazonalidade quando houver histórico >=6 meses. Sempre devolve confiança e backtest quando possível.",
+    parameters: {
+      type: "object",
+      properties: { model: { type: "string", enum: ["auto", "baseline", "observed", "seasonal"] } },
+      additionalProperties: false,
+    },
+    execute: forecast_month_close,
+  },
+  {
+    name: "explain_spending_change",
+    description: "Explica quais categorias explicam a variação do gasto entre dois períodos (decomposição causal descritiva, não afirmação de causa).",
+    parameters: {
+      type: "object",
+      properties: { period_a: periodSchema, period_b: periodSchema },
+      additionalProperties: false,
+    },
+    execute: explain_spending_change,
+  },
+  {
+    name: "project_goal_completion",
+    description: "Projeta a data de conclusão de uma meta a partir dos aportes observados nos últimos 90 dias. Devolve ritmo necessário x observado e dias de antecipação/atraso.",
+    parameters: {
+      type: "object",
+      properties: { goal_id: optionalStr, goal: optionalStr },
+      additionalProperties: false,
+    },
+    execute: project_goal_completion,
+  },
+  {
+    name: "simulate_goal_pace",
+    description: "Simula a data de conclusão de uma meta considerando um aporte mensal hipotético.",
+    parameters: {
+      type: "object",
+      properties: { goal_id: optionalStr, goal: optionalStr, monthly_contribution: num },
+      required: ["monthly_contribution"], additionalProperties: false,
+    },
+    execute: simulate_goal_pace,
+  },
+  {
+    name: "generate_chart_artifact",
+    description: "Gera um artefato de gráfico universal (comparação, previsão ou meta) para renderização no app e/ou envio como mídia no WhatsApp. Retorna também o artifact_id persistido.",
+    parameters: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["compare", "forecast", "goal"] },
+        goal_id: optionalStr, goal: optionalStr,
+        metric: { type: "string", enum: ["expense", "income"] },
+        period_a: periodSchema, period_b: periodSchema,
+      },
+      required: ["kind"], additionalProperties: false,
+    },
+    execute: generate_chart_artifact,
   },
 ];
 

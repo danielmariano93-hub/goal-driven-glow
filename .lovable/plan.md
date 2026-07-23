@@ -1,238 +1,319 @@
+# Plano — Assessor MeuNino: Motor Analítico, Gráficos, Previsões e Categorização Inteligente
 
-# Reconstrução premium da LP Meu Nino.IA
+## A. Diagnóstico objetivo do estado atual
 
-Escopo estrito: apenas `src/pages/landing/**`, `index.html` (head/fonte) e um novo `public/brand/*` para o SVG oficial. Nada de app autenticado, admin, backend, dados ou rotas internas.
+Auditoria dos arquivos-chave (evidências):
 
-## 1. Diagnóstico da LP atual
+- `supabase/functions/_shared/agent/tools.ts` (880 linhas): tem `analyze_spending`, `get_daily_insights`, `get_spending_highlights`, `get_financial_snapshot`, `run_before_spending`, `list_category_spending_goals`, mas **não existe** `compare_periods`, `forecast_month_close`, `explain_spending_change`, `project_goal_completion`, `simulate_goal_pace`, `build_financial_report`, `generate_chart_artifact`.
+- `supabase/functions/_shared/agent/core/`: já há `FinancialPlanner.ts`, `InsightsEngine.ts`, `FinancialContext360.ts`, `LearningLoop.ts`, `ResponseValidator.ts`, `ReceiptBuilder.ts`, `PendingConfirmations.ts`, adapters `AppAdapter.ts` e `WhatsAppAdapter.ts`. AppAdapter converte pedidos analíticos em um único relatório fixo (evidência da auditoria anterior).
+- `SpendingReportCard.tsx` (63 linhas): renderer único de categorias — não suporta linha, área, donut livre, forecast ou meta.
+- `AssessorPanel.tsx` (513 linhas): renderiza texto + `SpendingReportCard`; não há renderer de artefato genérico.
+- `prompt.ts` (58 linhas): força respostas curtas — conflita com relatório rico.
+- WhatsApp: `whatsapp-send/index.ts` já envia texto; não há esteira comprovada para PNG/PDF de gráfico como mídia; `outbound_messages` existe mas sem contrato `artifact_id`/`media`.
+- Contábil: `_shared/engine/facts.ts` já consolidou `isRealMonthlyMovement` e `movement_kind` (Contabilidade v3), então **as fórmulas contábeis estão prontas** — o problema é que os serviços analíticos as consomem parcialmente.
+- Categorização: existe `merchant_aliases` (tabela) e `LearningLoop.ts`, mas não há pipeline determinístico priorizando alias > histórico > regra > LLM > sem categoria, e sem `confidence`/`reason`/`source` persistidos por transação.
+- `user_insights` existe mas o gating pós-lançamento não tem regras materiais explícitas (impacto na previsão, categoria estourando, etc.).
 
-Ler `LandingPage.tsx` (592 linhas), `landing.css` (381), `NinoSymbol.tsx`, `NinoWordmark.tsx`, `icons/NinoIcons.tsx`:
+## B. Matriz Promessa da LP × Realidade
 
-- **Marca**: `NinoSymbol` é um SVG *reinterpretado* (geometria própria, não o símbolo oficial). Precisa ser substituído pelo SVG exato fornecido. `NinoWordmark` já usa "Meu Nino" com `.IA` opcional — estrutura ok, mas tracking, tamanho relativo do `.IA` e cor precisam ser recalibrados.
-- **Tipografia**: hoje usa Plus Jakarta Sans. Aceitável pelo briefing como fallback, mas priorizar DM Sans (open, SIL OFL, Google Fonts, coerente com o rascunho do wordmark) para alinhar títulos/wordmark.
-- **Tokens**: `landing.css` usa `--lp-violet #6D4AFF`, `--lp-indigo #4338FF`, `--lp-coral #FF6B5F`, `--lp-mint #2FC99A` — batem com o briefing. Faltam `Deep Ink Elevated #181A25`, `Bordas claras #E7E5EE`, `Texto secundário #6D7080` (hoje `#737688`).
-- **Composição**: seções seguem padrão card+ícone+título+texto repetitivo (Pain, Features, FAQ, AI band). Falta ritmo editorial. Bento de "Inteligência" mistura chat + previsão + meta sem causalidade.
-- **Mockups**: `HeroVisual` mistura Previsão + Meta Viagem + Insight sem correlação — viola a regra "cada mockup conta UMA história com dados correlacionados".
-- **Iconografia**: `NinoIcons.tsx` mistura pictogramas próprios (ChatBubble, Sparkle, Pulse, HeartOutline etc). Briefing exige Phosphor Icons regular/light — trocar.
-- **Narrativa**: falta seção dedicada a Previsão, Metas, Divisão do Rolê, Como Funciona (3 etapas), Segurança. Prova social existe atrás de flag, mas sem marcação visual clara de placeholder.
-- **Responsivo**: `HeroVisual` usa `position:absolute` para os 3 glass cards — precisa entrar no fluxo em <768px.
-- **Repetição de "Nino"**: copy usa frequente "O Nino" — ok, mas há trechos com "Meu Nino" repetidos que precisam ser reduzidos.
+| Promessa LP | Capacidade atual | Evidência | Gap | Solução proposta |
+|---|---|---|---|---|
+| Registro do gasto R$80 no bar | ✅ Implementado | `create_transaction_draft` + confirmação | — | Preservar |
+| Categorização como Lazer | ⚠️ Parcial | Fallback LLM inconsistente, muitos "sem categoria" | Sem pipeline híbrido determinístico | §G — Categorizador |
+| Impacto na previsão do mês | ❌ Ausente | `analyze_spending` não projeta fechamento | Sem `forecast_month_close` | §F — Previsão |
+| Comparação com período anterior | ⚠️ Parcial | `analyze_spending` retorna série mas não delta comparável | Sem `compare_periods` | Nova tool |
+| Explicar quais categorias causaram alta | ❌ Ausente | Nenhuma decomposição causal | Sem `explain_spending_change` | Nova tool |
+| Gráfico específico solicitado | ❌ Ausente | `SpendingReportCard` só faz categorias | Sem renderer genérico nem `generate_chart_artifact` | §H — Artefatos |
+| Próxima ação recomendada | ⚠️ Parcial | `get_daily_insights` genérico | Sem gating de materialidade pós-lançamento | §I — Insight pós-lançamento |
+| Ritmo/projeção de meta | ❌ Ausente | Só CRUD e listagem | Sem `project_goal_completion` / `simulate_goal_pace` | §I — Metas preditivas |
+| Envio de gráfico no WhatsApp | ❌ Ausente | `whatsapp-send` só texto | Sem pipeline PNG + signed URL + outbound media | §H |
+| Paridade app/WhatsApp | ⚠️ Parcial | Mesmas tools, adapters distintos | AppAdapter converte tudo no mesmo relatório | Reescrever AppAdapter |
 
-## 2. Desalinhamentos vs. marca
+## C. Arquitetura alvo — 4 camadas
 
-1. Símbolo não é o oficial.
-2. `.IA` no wordmark ora é pill gradient, ora ausente — precisa padronizar como sobrescrito discreto, tamanho ~45–55% da altura de "Nino", cor violet ou gradiente sutil.
-3. Ícones não-Phosphor.
-4. Mockups misturam narrativas.
-5. Cores secundárias divergem em 1–2 hexes.
-6. Falta seção Segurança e Como Funciona.
-7. Tipografia principal não é a prioritária do briefing.
-
-## 3. Mapa de seções (14)
-
-```
-1  Header sticky (logo oficial + nav + CTA)
-2  Hero escuro — "O Nino entende seus gastos hoje..."
-3  Manifesto da dor
-4  Previsão de fechamento (mockup dedicado)
-5  Mudanças de comportamento (mockup dedicado)
-6  Metas acompanhadas (mockup dedicado)
-7  Insights acionáveis / próximos passos
-8  Divisão do Rolê (mockup com participantes/status)
-9  Outras capacidades (composição compacta: patrimônio,
-   investimentos, recorrências, alertas, edição, organização)
-10 Como funciona — 3 etapas
-11 Prova social (placeholders MARCADOS)
-12 Segurança (afirmações verdadeiras)
-13 FAQ compacto
-14 CTA final com gradiente + símbolo oficial
-+ Footer com logo oficial
-+ Mobile CTA sticky
-```
-
-## 4. Wireframe textual
-
-### Desktop (≥1024px)
-
-```
-┌─ Header 64px, sticky, glass ──────────────────────────┐
-│ [Logo]        [nav]                        [CTA]      │
-└───────────────────────────────────────────────────────┘
-
-Hero (ink #10111A, ~720px)
-┌─────────────────────────┬─────────────────────────────┐
-│ badge                   │                             │
-│ H1 grande (2 linhas)    │  Mockup Hero: chat curto    │
-│ subtítulo 620px         │  do Nino com 1 bolha usuário│
-│ [CTA primário] [ghost]  │  + 1 resposta com contexto  │
-│ micro-provas            │  (UMA história só)          │
-└─────────────────────────┴─────────────────────────────┘
-
-Manifesto (cloud, texto editorial centrado, 760px máx)
-
-Previsão (dark, split 50/50)
-  Copy à esquerda | Mockup: previsão R$3.180 + delta
-                  + causa (lazer/alimentação 72%)
-                  + botão "revisar limite"
-
-Comportamento (cloud, split invertido)
-  Mockup: 3 categorias com variação % vs média,
-          barra comparativa, insight causal.
-
-Metas (dark, cards horizontais)
-  Mockup: 1 meta com aportes, projeção fim, ajuste sugerido.
-
-Insights (cloud, lista editorial numerada 01–03)
-
-Divisão do Rolê (dark, mockup próprio)
-  Participantes com avatar inicial, status (pago/pendente),
-  total do rolê, botão "cobrar restantes".
-
-Outras capacidades (grid 3x2, tiles compactos Phosphor)
-
-Como funciona (cloud, 3 passos horizontais)
-  01 Conecte / 02 Converse / 03 Decida
-
-Prova social (cloud, 3 blocos com badge "Exemplo")
-
-Segurança (dark, 3 pilares verdadeiros:
-  criptografia em trânsito, dados no seu controle,
-  LGPD)
-
-FAQ (cloud, <details>, 6 perguntas)
-
-CTA final (gradiente 135deg, símbolo grande)
-
-Footer (ink, logo + copyright)
+```text
+┌─────────────────────────────────────────────────────────┐
+│ 1. MOTOR FINANCEIRO (determinístico, SQL/TS puro)       │
+│    facts.ts + analytics/ (compare, forecast, attribute) │
+│  → Toda métrica sai daqui, com provenance.              │
+├─────────────────────────────────────────────────────────┤
+│ 2. LLM (só intenção, ambiguidade, narrativa)            │
+│    IntentRouter + ResponseGenerator                     │
+│  → NUNCA calcula números.                               │
+├─────────────────────────────────────────────────────────┤
+│ 3. RENDERER (artefatos universais)                       │
+│    ChartArtifact { chart, metrics, provenance, ... }    │
+│  → App: React genérico. WhatsApp: PNG server-side.      │
+├─────────────────────────────────────────────────────────┤
+│ 4. ADAPTER DE CANAL (App/WhatsApp)                       │
+│    Entrega o mesmo artefato no formato do canal.        │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Mobile (320–767px)
+**Fluxo ponta a ponta ("R$80 no bar ontem Nubank"):**
+1. Webhook/WS recebe → AgentCore.handleTurn
+2. IntentRouter → intent=`log_expense`, entidades extraídas
+3. Categorizador (pipeline §G) → sugere `Lazer` (source=history, confidence=0.87)
+4. `create_transaction_draft` → pending confirmation
+5. Usuário confirma → transação persistida com `category_confidence`, `category_source`
+6. Pós-persist: `evaluateMaterialInsight()` avalia — se altera previsão em >X%, chama `forecast_month_close` e monta insight material
+7. ReceiptBuilder: "Registrei R$80 em Lazer • Bar. Previsão do mês subiu de R$2.850 para R$2.930 (+2,8%). Lazer já usou 68% do teto."
+8. WhatsApp: mesmo texto; se usuário pede "mostra o gráfico" → `generate_chart_artifact` → PNG signed URL → outbound_messages com `media_url` + caption.
 
-Uma coluna. Hero: badge → H1 → sub → CTAs empilhados → mockup abaixo (no fluxo, sem `absolute`). Seções split viram vertical. Grids 3×2 viram 1 coluna. Todos os mockups entram no fluxo. Nenhum texto/CTA em `position:absolute`. Header vira barra compacta com logo + botão CTA. CTA mobile sticky no rodapé.
+## D. Contratos (tools, artefatos, tabelas)
 
-## 5. Sistema tipográfico
+### D.1 Novas tools (contratos)
 
-- Família principal: **DM Sans** (Google Fonts, SIL OFL, licença livre). Fallback: Plus Jakarta Sans, Inter, system-ui.
-- Escala fluida `clamp()`:
-  - H1: `clamp(2.4rem, 5.2vw, 4.2rem)` / weight 700 / line-height 1.05 / tracking -0.02em
-  - H2: `clamp(1.9rem, 3.6vw, 3.1rem)` / 700 / 1.08 / -0.015em
-  - H3: `clamp(1.15rem, 1.6vw, 1.4rem)` / 600 / 1.2
-  - Lead: `clamp(1.05rem, 1.3vw, 1.2rem)` / 400 / 1.6 / max 720px
-  - Body: `1rem` / 400 / 1.65 / max 620px
-  - Label overline: 0.75rem / 600 / uppercase / tracking 0.14em
-- Sofia Pro **não** será carregada (comercial). Mantido como preferência local do usuário no stack, sem @font-face.
+Todas retornam `{ ok, result: { data, provenance } }`. Provenance é obrigatório.
 
-## 6. Tokens e componentes
-
-### Tokens CSS (escopados em `.mn-lp`)
-
-```
---lp-ink:            #10111A
---lp-ink-elev:       #181A25
---lp-cloud:          #F7F6FB
---lp-white:          #FFFFFF
---lp-violet:         #6D4AFF
---lp-indigo:         #4338FF
---lp-coral:          #FF6B5F
---lp-mint:           #2FC99A
---lp-muted:          #6D7080
---lp-line:           #E7E5EE
---lp-grad:           linear-gradient(135deg,#6D4AFF 0%,#4338FF 54%,#FF6B5F 100%)
---lp-radius-card:    20px
---lp-radius-pill:    999px
---lp-shadow-soft:    0 14px 40px rgba(16,17,26,.06)
---lp-shadow-lift:    0 30px 80px rgba(16,17,26,.10)
+```ts
+Provenance = {
+  period: { from: string; to: string; tz: "America/Sao_Paulo" };
+  as_of: string;         // ISO
+  row_count: number;
+  confidence: "high"|"medium"|"low"|"insufficient_data";
+  formula_version: string; // e.g. "forecast.v1"
+  maturity?: { days_observed: number; days_in_month: number };
+};
 ```
 
-### Componentes (arquivo único ou co-locados em `src/pages/landing/`)
+- `compare_periods({ metric, period_a, period_b, group_by? })` → `{ total_a, total_b, delta_abs, delta_pct, by_group[], comparable: bool }`
+- `forecast_month_close({ month?, model?: "baseline"|"observed"|"seasonal" })` → `{ point, low, high, model_used, drivers[], backtest_summary }`
+- `explain_spending_change({ period_a, period_b })` → `{ delta_total, contributions: [{name, delta_abs, pct_of_delta, direction}], residual, samples_ok }`
+- `project_goal_completion({ goal_id })` → `{ current, target, remaining, required_pace_month, observed_pace_month, projected_date, days_ahead_or_late, confidence }`
+- `simulate_goal_pace({ goal_id, monthly_contribution })` → `{ scenarios[] }`
+- `build_financial_report({ kind, period })` → `ChartArtifact`
+- `generate_chart_artifact({ chart_type, metric, period, group_by?, filters? })` → `ChartArtifact` + `media_ref` (PNG) quando canal WhatsApp
+- `categorize_transactions_batch({ transaction_ids?, since? })` → aplica pipeline híbrido (não sobrescreve `user_edited_at`).
 
-- `NinoLogo.tsx` (novo) — símbolo oficial + wordmark, variantes `light`/`dark`, `sm`/`md`.
-- `NinoSymbol.tsx` — reescrito para renderizar exatamente o SVG oficial (via `<img src="/brand/meu-nino-symbol.svg">` ou inline; inline preferido para controle de cor de fundo/tamanho, com o markup EXATO do briefing).
-- `NinoWordmark.tsx` — apenas lettering "Meu Nino" + descritor `.IA` sobrescrito discreto.
-- `LandingPage.tsx` — orquestrador, importa seções.
-- Seções separadas para clareza: `sections/Hero.tsx`, `Manifesto.tsx`, `Previsao.tsx`, `Comportamento.tsx`, `Metas.tsx`, `Insights.tsx`, `DivisaoRole.tsx`, `Capacidades.tsx`, `ComoFunciona.tsx`, `ProvaSocial.tsx`, `Seguranca.tsx`, `FAQ.tsx`, `CTAFinal.tsx`, `Footer.tsx`, `MobileCTA.tsx`.
-- `landing.css` reescrito com tokens acima.
+### D.2 ChartArtifact universal
 
-## 7. Uso do símbolo e wordmark
+```ts
+type ChartArtifact = {
+  kind: "chart" | "report" | "goal_projection" | "forecast";
+  headline: string;
+  narrative: string;      // preenchido pela LLM, sobre fatos fixos
+  metrics: { label: string; value: string; hint?: string }[];
+  chart: {
+    type: "line"|"bar"|"stacked_bar"|"donut"|"area"|"progress"|"forecast_band";
+    title: string;
+    x_labels: string[];
+    series: { name: string; data: number[]; color?: string }[];
+    units: "BRL"|"pct"|"count";
+    annotations?: { x: string; label: string }[];
+  };
+  actions?: { label: string; intent: string; params?: any }[];
+  provenance: Provenance;
+  a11y_summary: string;
+  media_ref?: { storage_path: string; signed_url: string; expires_at: string };
+};
+```
 
-- Header: `NinoLogo` variante `light` (fundo claro), altura 28px.
-- Footer: `NinoLogo` variante `dark`, altura 24px.
-- CTA final: símbolo isolado 96px acima do H2.
-- Nenhum outro uso do símbolo. Zero prints, zero labels "símbolo/wordmark" na página. `.IA` sempre menor (~50% altura de "Nino"), elevado, cor `--lp-violet` (ou gradiente sutil no header apenas).
+### D.3 Migrations necessárias
 
-## 8. Iconografia
+1. `transactions`: adicionar `category_confidence numeric(3,2)`, `category_source text` (`user|alias|history|rule|llm|none`), `category_reason text`, `user_edited_at timestamptz`. Índice em `(user_id, occurred_at)` já existente.
+2. `merchant_aliases`: garantir `canonical_name`, `normalized_pattern`, `category_id`, `confidence`, `confirmed_by_user_at`. Índice único `(user_id, normalized_pattern)`.
+3. `agent_artifacts` (nova): `id`, `user_id`, `conversation_id`, `kind`, `payload jsonb` (ChartArtifact), `media_path text`, `media_expires_at`, `created_at`. RLS por `user_id` + GRANT authenticated/service_role.
+4. `outbound_messages`: adicionar `artifact_id uuid null references agent_artifacts`, `media_url text`, `media_mime text`, `media_status text` (`pending|sent|failed|fallback_text`).
+5. `agent_runs`: adicionar `formula_versions jsonb`, `intent_requested text`, `intent_served text`, `tools_used text[]` (se já não houver).
+6. Nenhuma alteração destrutiva; todas colunas nullable com default seguro.
 
-- Biblioteca única: **Phosphor Icons** via `phosphor-react` já presente? Verificar; se não, adicionar `@phosphor-icons/react` (dependência nova, ~poucos KB tree-shaken). Estilo `regular`. Weight `light` para tiles secundários.
-- Remover `src/pages/landing/icons/NinoIcons.tsx` (pictogramas próprios) — substituídos por Phosphor.
-- Ícones usados: ChatCircleDots, TrendUp, Target, Sparkle, Bell, ArrowsClockwise, ShieldCheck, Users, Wallet, ChartLineUp, PencilSimple, Sparkle, CaretRight.
+## E. Arquivos a criar/alterar
 
-## 9. Mockups (HTML/CSS/SVG, uma história cada)
+**Criar:**
+- `supabase/functions/_shared/analytics/compare.ts`
+- `supabase/functions/_shared/analytics/forecast.ts` (baseline + observed + seasonal + backtest)
+- `supabase/functions/_shared/analytics/attribute.ts`
+- `supabase/functions/_shared/analytics/goals.ts`
+- `supabase/functions/_shared/analytics/provenance.ts` (helpers)
+- `supabase/functions/_shared/categorization/pipeline.ts` (6 estágios §G)
+- `supabase/functions/_shared/categorization/normalize.ts` (limpeza de descrição bancária)
+- `supabase/functions/_shared/artifacts/builder.ts` (monta ChartArtifact)
+- `supabase/functions/_shared/artifacts/renderPng.ts` (Deno + `npm:chart.js`+`npm:canvas` ou SVG→PNG via `resvg`)
+- `supabase/functions/agent-artifact-render/index.ts` (edge: gera PNG, sobe no bucket `artifacts`, retorna signed URL)
+- `src/components/assessor/artifacts/ChartArtifactRenderer.tsx` (renderer genérico com Recharts)
+- `src/components/assessor/artifacts/ForecastCard.tsx`, `GoalProjectionCard.tsx`
+- `src/test/analytics-compare.test.ts`, `analytics-forecast.test.ts`, `analytics-attribute.test.ts`, `categorization-pipeline.test.ts`, `artifact-contract.test.ts`, `whatsapp-media-artifact.test.ts`, `assessor-parity.test.ts`
 
-1. **Hero mockup** — Conversa curta: usuário "Gastei R$62 no jantar ontem" → Nino "Anotado. Alimentação subiu 14% este mês, ainda dentro do previsto." (UMA história: conversa + contexto imediato.)
-2. **Previsão** — Card com: previsão fim do mês R$ 3.180, delta +8% vs mês anterior, causa "Lazer e alimentação fora explicam 72% do aumento", CTA "revisar limite". Todos os números coerentes.
-3. **Comportamento** — Três linhas de categorias (Alimentação +22%, Transporte -8%, Lazer +14%) com barras comparando "este mês vs média 3 meses" + rodapé com insight causal único.
-4. **Metas** — UMA meta: "Viagem set/2026", progresso 72%, aportes últimos 3 meses (R$400, R$400, R$500), projeção "fecha 12 dias antes do prazo", CTA "aumentar aporte".
-5. **Divisão do Rolê** — Rolê "Churrasco 15/07", 4 participantes com iniciais, status Pago/Pendente coerente com valor total (R$ 320 = 4 × R$ 80).
-6. **CTA final** — Símbolo oficial em destaque, sem mockup competindo.
+**Alterar:**
+- `supabase/functions/_shared/agent/tools.ts`: acrescentar novas tools; **não remover** existentes.
+- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts`: parar de forçar SpendingReport único; delegar ao IntentRouter e retornar artefato do tipo pedido.
+- `supabase/functions/_shared/agent/core/AgentCore.ts`: hook pós-persistência → `evaluateMaterialInsight`; gating de insight.
+- `supabase/functions/_shared/agent/core/InsightsEngine.ts`: regras materiais (impacto>threshold, categoria acima do teto, gasto atípico, meta em risco, recorrência nova, concentração).
+- `supabase/functions/_shared/agent/prompt.ts`: perfis de resposta (recibo curto, relatório rico, meta) sem quebrar confirmação; nunca calcular.
+- `supabase/functions/_shared/agent/core/ResponseValidator.ts`: reforçar que todo número na resposta precisa ter vindo de tool com provenance daquela turn.
+- `supabase/functions/whatsapp-send/index.ts`: aceitar `media_url` + caption; retentativa; fallback textual se mídia falhar; registrar `media_status`.
+- `src/components/assessor/AssessorPanel.tsx`: substituir uso rígido de `SpendingReportCard` por `ChartArtifactRenderer`.
+- `src/components/assessor/SpendingReportCard.tsx`: preservar como skin para `kind=report,chart=donut`; internamente usar `ChartArtifactRenderer`.
 
-Cada mockup em bloco próprio, no fluxo mobile, sem `position:absolute` para dados.
+## F. Fórmulas, previsão e backtesting
 
-## 10. Estratégia responsiva
+Modelos (registrados como `formula_version`):
 
-- Mobile first (base 375). Breakpoints: 640, 768, 1024, 1280.
-- Grids CSS com `minmax` e `auto-fit` para tiles.
-- Splits usam `grid-template-columns: 1fr` em mobile, `1.05fr .95fr` em ≥1024.
-- Zero `position:absolute` para conteúdo com dado/CTA. Absolute apenas para halos/glow de fundo com `aria-hidden`.
-- Header vira compacto <768 (logo + CTA); nav some, substituído pelo scroll.
-- Validar em 320, 375, 390, 414, 768, 1024, 1280, 1440.
-- Respeitar `prefers-reduced-motion` (desabilita gradients animados / spark).
+- **baseline.v1**: `forecast = (mtd_expense / day_of_month) * days_in_month` — sempre calculável, confiança `low` se `day_of_month<7`.
+- **observed.v1**: `forecast = mtd + Σ compromissos_recorrentes_restantes + tendência_diária_ponderada(últimos 14 dias com decay)`.
+- **seasonal.v1**: só se `history_months>=6`; `forecast = observed + ajuste_sazonal(mes_do_ano)` com winsorização.
 
-## 11. O que remover, refazer, preservar
+Regras:
+- Descartar dias com |z|>3 na base do dia (winsorize, não excluir).
+- Compromissos futuros vêm de `recurring_rules`/`recurring_occurrences` + faturas de cartão previstas.
+- Intervalo: bootstrap simples sobre variância diária dos últimos 90 dias; se `n<30`, exibir apenas ponto sem intervalo.
+- Confidence: `high` se `days_observed>=15` e `mape_backtest<=15%`; `medium` se `>=7` e `<=25%`; senão `low`; `insufficient_data` se `<3` dias com movimento.
 
-**Remover:**
-- `src/pages/landing/icons/NinoIcons.tsx` (substituído por Phosphor).
-- `HeroVisual` atual (3 glass cards absolutos misturando narrativas).
-- Seção `SocialProof` inline atrás de flag → refeita como componente com placeholders visualmente marcados.
+**Backtest walk-forward:**
+- Para cada mês passado, corte no dia D=5,10,15,20,25 → prevê fechamento → compara com realizado.
+- Métricas por modelo: MAE (R$), WAPE = `Σ|erro| / Σ|real|` (protege denominador pequeno), viés = `mean(erro)`, cobertura = `%` de meses em que `real ∈ [low,high]`.
+- Persistir em `agent_runs.formula_versions` e em uma view materializada `forecast_backtest_summary` (opcional S).
 
-**Refazer:**
-- `NinoSymbol.tsx` — usar SVG oficial exato do briefing.
-- `NinoWordmark.tsx` — calibrar `.IA` sobrescrito.
-- `landing.css` — reescrito completo com novos tokens, tipografia, escala 4/8, sem redundâncias.
-- `LandingPage.tsx` — decomposto em 14 seções.
-- `index.html` — trocar `<link>` do Google Fonts para DM Sans; manter title/description v3 já aprovados; adicionar preconnect.
+**Cenários simulados (a validar em testes com fixtures):**
+- A. 5 lançamentos → `baseline.v1`, confidence `insufficient_data`, mensagem "ainda estou aprendendo seu ritmo".
+- B. 3 meses + recorrências → `observed.v1` + recorrentes, confidence `medium`.
+- C. 12 meses + sazonalidade → `seasonal.v1`, confidence `high`.
+- D. Gasto extraordinário → winsorização, badge "atípico" no drill.
+- E. Transferência/aplicação/resgate → `movement_kind` filtra; forecast inalterado.
+- F. Importação parcial/inconsistente → `insufficient_data`, orientar reconciliação.
 
-**Preservar:**
-- Rotas `to="/signup"` e `to="/login"`.
-- `src/App.tsx` sem alteração (rota `/` já aponta pra `LandingPage`).
-- Flag `SHOW_LANDING_TESTIMONIALS` (renomeada `SOCIAL_PROOF_IS_PLACEHOLDER`, default `true`).
-- Testes `src/test/landing-page.test.tsx` atualizados (não removidos) para novo DOM.
+## G. Categorização — pipeline híbrido
 
-## 12. Riscos, dependências, dúvidas
+Ordem (curto-circuita na primeira decisão com confidence≥threshold):
 
-- **Nova dep**: `@phosphor-icons/react` (~tree-shaken). Baixo risco. Alternativa: inline SVGs de Phosphor copiados manualmente para zero-dep. **Dúvida**: prefere adicionar dep ou inline?
-- **Fonte**: DM Sans via Google Fonts. Alternativa: Plus Jakarta Sans já carregada. **Dúvida**: mantenho DM Sans ou fico com Plus Jakarta Sans para zero mudança de carga?
-- **SVG oficial**: será servido de `/public/brand/meu-nino-symbol.svg` E inline no componente (para permitir controle de cor sem CORS). Confirmado que o conteúdo é o markup do briefing sem alterações.
-- **Testes**: `landing-page.test.tsx` precisa ser adaptado ao novo DOM (contagem FAQ, seletores). `rebranding-meunino.test.ts` continua passando (marca "Meu Nino.IA" preservada).
-- **Não fará**: publicação, alterações fora da LP, novos endpoints, novas rotas.
+1. **Explícito do usuário** (`source=user`, conf=1.0) — sempre vence, seta `user_edited_at`.
+2. **Alias pessoal confirmado** (`merchant_aliases.confirmed_by_user_at IS NOT NULL`) → `source=alias`, conf=0.98.
+3. **Histórico do próprio usuário** — nos últimos 180 dias, se ≥3 transações com mesmo `merchant_canonical` foram categoria X e ≥80% concordam → `source=history`, conf=0.85–0.95.
+4. **Regra determinística** (dicionário curado: Uber/99→Transporte, iFood/Rappi→Alimentação, Drogaria/Farmácia→Saúde, supermercado tokens→Mercado) → `source=rule`, conf=0.75.
+5. **LLM em lote** (só quando 1–4 falham) — batelada de até 40 descrições por chamada, prompt com categorias do usuário; retorna categoria + confidence. Aceita se conf≥0.7 → `source=llm`.
+6. **Sem categoria** → `source=none`, sinaliza para revisão.
 
-## 13. Critérios de aceite verificáveis
+Thresholds:
+- Autoaplicar: conf≥0.85.
+- Sugerir (transação sem categoria com badge "sugerido"): 0.6–0.85.
+- Não adivinhar: <0.6.
 
-1. `/public/brand/meu-nino-symbol.svg` existe com o markup EXATO do briefing (diff byte-a-byte).
-2. `NinoSymbol` renderiza o SVG oficial inline; nenhum outro símbolo aparece na LP (grep `<svg` em `src/pages/landing/` retorna apenas o oficial + ícones Phosphor).
-3. Wordmark: "Meu Nino" 700 + `.IA` sobrescrito ~50% altura, cor `--lp-violet`.
-4. Todas as 14 seções da narrativa presentes (teste por `getByRole('heading')`).
-5. Nenhum `NinoIcons` importado; apenas Phosphor (`grep -r 'from ".*NinoIcons"' src/pages/landing` retorna vazio).
-6. Zero `position: absolute` em elementos com texto/CTA/dado (auditoria manual + regra CSS).
-7. Mockups: cada um em seção própria, sem dado de outra história misturado.
-8. Prova social com atributo `data-placeholder="true"` e badge visível "Exemplo demonstrativo".
-9. Responsivo sem overflow horizontal em 320/375/768/1024/1440 (`document.documentElement.scrollWidth <= clientWidth`).
-10. Contraste AA em texto principal (ink em cloud, white em ink).
-11. `bunx vitest run src/test/landing-page.test.tsx src/test/rebranding-meunino.test.ts` passa.
-12. Typecheck e build do harness passam.
-13. Nenhum arquivo fora de `src/pages/landing/**`, `src/test/landing-page.test.tsx`, `index.html`, `public/brand/**` alterado.
-14. Nenhuma publicação em produção.
+Normalização (`normalize.ts`):
+- Lowercase, NFD sem diacríticos, remover tokens `PAY/PIX/TED/DOC/COMPRA/DEBITO/CREDITO`, adquirentes (`REDECARD/STONE/CIELO/PAG*`), IDs numéricos, datas.
+- Extrai `merchant_canonical` (2–3 tokens estáveis).
+
+Aprendizado:
+- Ao editar/confirmar, upsert em `merchant_aliases` com `confirmed_by_user_at=now()`.
+- Nunca sobrescrever `user_edited_at IS NOT NULL`.
+- Recategorização em lote: RPC opt-in (`recategorize_uncategorized(since)`), nunca automática em toda a base.
+
+Conflitos:
+- Se histórico dividido (~50/50 entre duas categorias) → cair para regra/LLM; se persistir, ficar "sem categoria" e sugerir revisão.
+
+Métricas:
+- `coverage_pct`, `precision_sampled` (amostra revisada pelo usuário), `correction_rate`, `avg_confidence` calibrada (buckets de 0.1).
+
+Casos de teste: Uber→Transporte, "BAR DO ZE"→Lazer (após 3 confirmações), Drogaria SP→Saúde, "SUPERMERC PAO"→Mercado, "TRANSF NUBANK"→ignorar (transferência), descrição vazia→sem categoria.
+
+## H. Gráficos e relatórios — app e WhatsApp
+
+**App:** `ChartArtifactRenderer` roteia por `chart.type` para componentes Recharts (line/bar/stacked/donut/area/progress/forecast_band). Estados: empty, insufficient_data, loading, error. Botões de ação vindos de `artifact.actions`.
+
+**WhatsApp:**
+- `agent-artifact-render` (edge): recebe `artifact`, monta SVG com Chart.js headless ou `resvg`+template SVG, converte para PNG (600×360, 96dpi), sobe em bucket `artifacts` com path `/{user_id}/{artifact_id}.png`, gera signed URL (TTL 24h).
+- `whatsapp-send` envia `media_url` + `caption` (headline + top-3 metrics + provenance curta).
+- `outbound_messages.media_status`: `pending→sent|failed`; em falha, envia fallback texto com os mesmos números e marca `fallback_text`.
+- Idempotência por `artifact_id` + `to_phone`.
+
+Intent parser preserva: `chart_type`, `metric`, `period`, `group_by`, `filters`. Se ambíguo, pergunta.
+
+## I. Insight pós-lançamento e metas preditivas
+
+**Gating material (InsightsEngine):** dispara ≤1 insight quando:
+- previsão mensal muda ≥3% ou R$150,
+- categoria passa 90% do teto (`category_spending_goals`),
+- gasto |z|>2 no histórico da categoria,
+- nova recorrência detectada (mesmo merchant, 3 meses seguidos, ±10%),
+- concentração (top merchant no mês ≥25% do gasto),
+- meta com projeção atrasada.
+Cooldown por tipo (24h); dedup por hash de conteúdo.
+
+**Metas (`analytics/goals.ts`):**
+- `required_pace = remaining / meses_até_target_date`.
+- `observed_pace = média_móvel_3m(contribuições)`.
+- `projected_date = today + remaining / observed_pace` (guarda contra 0).
+- `days_ahead_or_late = projected_date - target_date`.
+- Sem prazo → devolve só `required_pace` para 3/6/12m.
+- Aportes irregulares → confidence `medium`; <3 aportes → `insufficient_data`.
+- `simulate_goal_pace`: n cenários com aportes distintos, sem juros (projeto não é investimento).
+
+## J. Prompt, paridade e canal
+
+- Ambos adapters chamam AgentCore; só `channel` muda.
+- Prompt reorganizado em blocos: (i) confirmação de mutação (curta), (ii) recibo pós-persist (1 linha + até 1 insight material), (iii) relatório rico (só quando intent=`report/chart/forecast/goal_projection`), (iv) ambiguidade (perguntar). Nenhuma resposta pode conter número não presente em ferramentas invocadas na turn (validado por `ResponseValidator`).
+- Capability negotiation: WhatsApp anuncia `supports_media=true`; se falso, artefato vira texto+tabela ASCII simplificada.
+
+## K. Observabilidade, custo e performance
+
+Eventos em `agent_runs`/`decision_logs`: intent_requested vs served, tools, `formula_version`, latência por etapa, tokens in/out, artifact_id, categoria (source/confidence), material_insight_shown, reconciliation_error.
+
+Controle de custo:
+- Toda matemática em SQL/TS — LLM só para intenção e narrativa.
+- Categorização LLM sempre em lote (≤40 itens/chamada), com cache por `merchant_canonical`.
+- Cache de artefatos por `(user_id, kind, period_hash)` 5min.
+- Idempotência por `inbound_message_id`.
+
+## L. Plano de testes
+
+- Unit: fórmulas (compare, forecast baseline/observed/seasonal, attribute, goal_projection), normalize, pipeline.
+- Fixtures contábeis (reusar `financial_ecosystem_v2.json`): invariantes — transferência não altera receita/despesa; aplicação reduz caixa e sobe investimento; pagamento de fatura não duplica despesa; exclusão zera efeitos.
+- Golden test: "R$80 bar Nubank ontem" → categoria=Lazer, previsão sobe X%, top-3 causal contém Lazer, artefato de linha diária disponível.
+- Backtest: MAE/WAPE por modelo em 12 meses sintéticos + threshold de aceite.
+- Categorização calibrada: 50 amostras sintéticas por cenário, `precision_sampled≥0.85` no threshold auto.
+- Parity: mesma pergunta App×WhatsApp retorna mesmos `metrics` e mesma `provenance.formula_version`.
+- WhatsApp media: envio PNG + fallback texto quando mock falha.
+- Metas: cenários com/sem prazo, aportes irregulares, estorno.
+- Timezone SP; RLS/isolamento; mobile 320–1440; regressão nas mutações existentes (FastLog, edit/delete, transferência).
+
+## M. Critérios de aceite
+
+- Nenhum número exibido sem provenance rastreável.
+- Gráfico pedido = gráfico entregue (ou pergunta de esclarecimento).
+- Paridade app/WhatsApp bit-a-bit nos números.
+- Transferência/investimento/fatura não distorcem fluxo (validado por invariantes).
+- Categoria automática só ≥0.85; edição manual permanente.
+- LP promete apenas o que os testes cobrem.
+
+## N. Riscos, dependências e rollback
+
+- **Risco:** custo LLM em categorização em massa. **Mitigação:** batelada + cache + curto-circuito nas etapas 1–4.
+- **Risco:** PNG server-side no Deno pesado. **Mitigação:** SVG→PNG com `resvg` (WASM), 600×360; se falhar, fallback texto.
+- **Risco:** previsão parecer "certa demais". **Mitigação:** confidence sempre visível + copy prudente.
+- **Risco:** regressão no fluxo de mutação. **Mitigação:** testes existentes preservados; nenhuma tool antiga removida.
+- **Rollback:** todas migrations aditivas; novas tools coexistem com antigas; feature flags `agent.forecast_enabled`, `agent.charts_enabled`, `agent.categorizer_v2` em `agent_settings` para desligar por canal.
+
+## O. Ordem de implementação (rodada única posterior)
+
+Caminho crítico em sequência linear, tudo numa PR única:
+
+1. Migrations aditivas (transactions cols, merchant_aliases, agent_artifacts, outbound_messages, agent_runs). **[S]**
+2. `analytics/provenance.ts` + `compare.ts` + `attribute.ts` + testes. **[M]**
+3. `analytics/forecast.ts` + backtest + testes. **[L]**
+4. `analytics/goals.ts` + testes. **[M]**
+5. `categorization/normalize.ts` + `pipeline.ts` + LearningLoop updates + testes. **[L]**
+6. `artifacts/builder.ts` + `ChartArtifactRenderer` (App) + refactor `AssessorPanel`. **[M]**
+7. `artifacts/renderPng.ts` + `agent-artifact-render` edge + bucket `artifacts`. **[M]**
+8. `whatsapp-send` — media + fallback + retentativa. **[S]**
+9. Novas tools em `agent/tools.ts` + wiring no AgentCore/AppAdapter/WhatsAppAdapter. **[M]**
+10. `InsightsEngine` regras materiais + hook pós-persist. **[M]**
+11. Prompt v2 (perfis) + ResponseValidator reforço. **[S]**
+12. Testes de paridade + golden + backtest + smoke visual. **[M]**
+13. Feature flags e defaults por canal. **[S]**
+
+Estimativa total: ~**XL** (uma rodada consolidada).
+
+## P. O que NÃO deve ser alterado
+
+- `_shared/engine/facts.ts` (regras contábeis v3 já consolidadas).
+- `src/lib/engine/facts.ts` (paridade cliente).
+- Fluxo de confirmação de mutação (`PendingConfirmations`, drafts).
+- FastLog (`!ja`) e regex de bloqueio de rascunho hallucinado.
+- Categorias globais (somente clone-on-edit já implementado).
+- Landing Page, rebranding, admin UI.
+- `outbound_messages` fluxo texto atual (só extensão aditiva).
+- RLS/GRANT existentes.
 
 ---
 
-**Aguardando aprovação explícita antes de implementar.** Duas dúvidas pontuais para responder junto da aprovação (ou aceitar defaults):
-- (a) Phosphor via `@phosphor-icons/react` (nova dep) **ou** SVGs inline copiados? Default proposto: dep.
-- (b) Trocar para DM Sans **ou** manter Plus Jakarta Sans já carregada? Default proposto: DM Sans.
+**Aguardo aprovação explícita deste plano antes de qualquer alteração de código, migration, deploy ou dado.**

@@ -28,7 +28,17 @@ export type AppTurnResult = {
   pending: { id: string; kind: string; summary_text: string; payload: any; expires_at: string } | null;
   executed: any;
   report?: any;
+  artifact?: any;
 };
+
+async function findRecentArtifact(sb: SupabaseClient, conversation_id: string, user_id: string, sinceIso: string) {
+  const { data } = await sb.from("agent_artifacts")
+    .select("id, kind, payload, created_at")
+    .eq("user_id", user_id).eq("conversation_id", conversation_id)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  return data ? { artifact_id: (data as any).id, payload: (data as any).payload } : null;
+}
 
 function svc(): SupabaseClient {
   return createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -104,6 +114,7 @@ export async function handleAppMessage(args: {
     conversation_id: args.conversation_id, user_id: args.user_id, direction: "inbound", body_masked: args.text,
   } as any).select("id").maybeSingle();
   const inbound_message_id = ((inbound as any)?.id as string | undefined) ?? crypto.randomUUID();
+  const turnStartedAt = new Date().toISOString();
 
   // Free-text CONFIRMAR / CANCELAR (parity with WhatsApp: PolicyEngine)
   const routed = routeIntent(args.text);
@@ -122,8 +133,9 @@ export async function handleAppMessage(args: {
 
   const history = await loadHistory(sb, args.conversation_id, { limit: HISTORY_TURNS, excludeMessageId: inbound_message_id });
 
-  // Fast-path 1: analytics
-  if (isAnalyticsRequest(args.text)) {
+  // Fast-path 1: analytics (só quando o usuário NÃO pediu gráfico específico
+  // — nesses casos deixamos o LLM chamar generate_chart_artifact).
+  if (isAnalyticsRequest(args.text) && !wantsChart(args.text)) {
     const argsA = analyticsArgs(args.text);
     const result = await analyze_spending({ sb, user_id: args.user_id, conversation_id: args.conversation_id }, argsA);
     if (result.ok) {
@@ -162,7 +174,14 @@ export async function handleAppMessage(args: {
   } as any);
   await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
   const pendingOut = await findPendingApp(sb, args.conversation_id, args.user_id, null);
-  return { reply: turn.reply, pending: pendingOut, executed: null };
+
+  // Surface any chart artifact created during this turn.
+  const recent = await findRecentArtifact(sb, args.conversation_id, args.user_id, turnStartedAt);
+  return { reply: turn.reply, pending: pendingOut, executed: null, artifact: recent?.payload ?? null };
+}
+
+function wantsChart(text: string): boolean {
+  return /\b(gr[aá]fico|em\s+barras?|em\s+pizza|em\s+donut|em\s+linhas?|mostra\s+o?\s*gr[aá]fico|gera\s+o?\s*gr[aá]fico)\b/i.test(text);
 }
 
 // ---- Fast-path helpers (verbatim from previous agent-chat) ------------------
