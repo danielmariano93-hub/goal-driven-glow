@@ -1,158 +1,80 @@
-# Plano — Observabilidade, Calibração, Reconciliação e Artefatos no WhatsApp
 
-Consolidação em quatro frentes complementares, aproveitando o motor analítico e o contrato `ChartArtifact` já entregues. Escopo backend + admin + testes; sem retrabalho na LP.
+# Por que o gráfico não veio
 
----
+Diagnóstico com base no log real da conversa (2026-07-23 09:50 e 16:15). O usuário pediu duas vezes um gráfico "dia a dia do gasto médio" e recebeu texto puro ("No período, você gastou R$ 20.642,74…"). Verifiquei também as tabelas: `agent_artifacts` e `agent_turn_events` estão **vazias** — nenhum artefato foi criado nas duas tentativas. Cinco causas concorrem para isso:
 
-## 1. Observabilidade unificada (App + WhatsApp)
+### 1. Prompt do sistema tem duas regras que se contradizem
+Em `supabase/functions/_shared/agent/prompt.ts`:
+- Linha 23: "Consultas analíticas, **gráficos**, relatórios […] DEVEM chamar `analyze_spending`."
+- Linha 27: "Pedidos explícitos de gráfico DEVEM chamar `generate_chart_artifact`."
 
-### 1.1 Evento canônico `agent_turn_event`
-Nova tabela `agent_turn_events` (append-only), gravada pelo `DecisionLogger` a cada turno em `AgentCore.handleTurn`:
+A regra 23 vence porque aparece primeiro e é mais genérica ("gráficos"). O LLM chama `analyze_spending`, recebe totais, e responde com o texto padrão. `generate_chart_artifact` nunca é invocada.
 
-Campos: `id`, `run_id`, `user_id`, `conversation_id`, `channel` (`app`|`whatsapp`|`simulator`), `intent`, `tools_used jsonb` (nomes + durações), `formula_versions jsonb` (por tool), `stages_ms jsonb` (session/intent/policy/plan/tools/validate/persist/total), `tokens_in`, `tokens_out`, `estimated_cost_usd`, `model`, `fallback_used`, `artifact_id nullable`, `artifact_status` (`none`|`generated`|`delivered`|`failed`), `error`, `created_at`.
+### 2. `generate_chart_artifact` só cobre 3 kinds: `compare | forecast | goal`
+O usuário pediu **série temporal diária** ("dia a dia como está o meu gasto médio"). Não há builder nem tool para isso, então mesmo que o LLM tentasse chamar a tool, o `kind` correto não existe. Não há `daily_series` / `spending_by_day`.
 
-RLS: apenas platform admin lê. GRANT `service_role` all, `authenticated` select somente via view admin.
+### 3. Fast-path analítico do `AppAdapter` também compete
+`isAnalyticsRequest` casa "gráfico" e dispara `analyze_spending` diretamente (sem LLM). Há um guard `!wantsChart(text)` que evita o atalho quando a palavra "gráfico" aparece — está correto para o texto do usuário —, mas a regra do prompt (item 1) leva ao mesmo resultado no caminho do LLM. Ou seja, os dois caminhos convergem para `analyze_spending`.
 
-### 1.2 Instrumentação
-- `supabase/functions/_shared/agent/core/Observability.ts`: adicionar `recordArtifact(status, id?)` e `recordFormulaVersion(tool, version)` no `TurnMetrics`.
-- `_shared/agent/tools.ts`: cada tool analítica retorna `provenance.formula_version`; runtime agrega em `metrics.formula_versions[tool]`.
-- `AgentCore.handleTurn`: no `onFinish`, além de `agent_decisions`, insere linha em `agent_turn_events`.
-- WhatsApp: em `whatsapp-send`, ao processar `outbound_messages` com `metadata.artifact_id`, atualiza `artifact_status='delivered'|'failed'` no evento vinculado (via `run_id`).
+### 4. Resposta do LLM não referencia o artefato
+Mesmo se `generate_chart_artifact` for chamada, o `AppAdapter` só faz `findRecentArtifact` **por conversa+timestamp** depois do turno. Se o LLM chamar a tool mas não escrever nada sobre o gráfico, o painel exibe o texto genérico. Não há checagem de "gerou artefato mas não citou".
 
-### 1.3 Dashboard admin `/admin/ia/observabilidade`
-Nova aba dentro de `IAInteligencia.tsx`, cards mobile-first:
-- **Volume**: turnos/dia por canal (linha empilhada).
-- **Latência**: p50/p95 por stage (heatmap).
-- **Custo**: USD/dia por modelo + custo médio por turno.
-- **Ferramentas**: top-10 tools por chamadas, taxa de fallback.
-- **Artefatos**: gerados vs entregues vs falhos por canal.
-- **Fórmulas em produção**: versão ativa por tool com contagem de uso.
+### 5. WhatsApp nunca recebe mídia porque `outbound_messages.artifact_id` não é populado
+`whatsapp-send/index.ts` lê `artifact_id` de `outbound_messages`, mas em nenhum ponto do pipeline (AgentCore, WhatsAppAdapter, tools) esse campo é gravado. Resultado: mesmo com artifact criado, `whatsapp-send` sempre cai em `media_status = 'none'` e envia texto.
 
-Fonte: RPC `admin_turn_events_agg(from, to, granularity)` retornando JSON agregado; sem exposição de PII.
+### 6. Telemetria confirma o pipeline: `agent_turn_events` vazio
+A inserção instrumentada no `AgentCore` está silenciosamente falhando ou não sendo chamada nesses caminhos rápidos. Menor prioridade para este bug, mas explica por que não temos visibilidade.
 
----
+# Correção — escopo cirúrgico
 
-## 2. Calibração de categorização
+## A) Prompt: uma única fonte de verdade para gráficos
+`supabase/functions/_shared/agent/prompt.ts`:
+- Reescrever regra 23 para: "análises **textuais** (`onde gasto mais`, `resumo`, `me analisa`) → `analyze_spending`".
+- Deixar regra 27 mais forte e explícita para qualquer pedido que contenha "gráfico", "chart", "visualiza", "mostra em barras/linha/pizza", "dia a dia", "por dia", "por semana", "evolução visual".
+- Adicionar: "Sempre que chamar `generate_chart_artifact`, na resposta **cite o gráfico gerado em uma frase curta** (o app o exibe embaixo). Não repita todos os números do gráfico."
 
-### 2.1 Métricas persistidas
-Nova tabela `categorization_metrics_daily` (materializada por job diário `categorization-metrics-tick`):
-- `date`, `total_tx`, `auto_applied`, `suggested`, `uncategorized`, `user_corrected_within_7d`, `coverage_pct`, `precision_proxy_pct` (1 − correções/auto_applied), `correction_rate_pct`, `sem_categoria_pct`, por `category_source` (rule/history/alias/llm).
+## B) Motor: adicionar série temporal diária
+Novo módulo `_shared/analytics/timeseries.ts` com `computeDailySpend({ txs, from, to })` que retorna `{ labels: string[], series: [{name:'Diário', data}, {name:'Média 7d', data}], totals, provenance }`. Reaproveita `provenance.ts` e `computeCompare`-style filters (mesmos exclusores de transferência/investimento e `movement_kind`).
 
-### 2.2 Job de correção observada
-`supabase/functions/categorization-metrics-tick/index.ts`: para cada `transaction` com `category_source ∈ {rule, history, llm}` cuja `category_id` foi alterada pelo usuário em ≤ 7 dias, marca `user_edited_at` e `previous_category_id`. Alimenta tabela.
+Novo builder `buildTimeseriesArtifact(result)` em `_shared/artifacts/builder.ts` produzindo `chart.type = 'line'` com séries "Diário" + "Média 7 dias" e `formula_version = 'timeseries.daily.v1'`.
 
-### 2.3 Thresholds dinâmicos
-Substituir constantes em `_shared/categorization/pipeline.ts` por leitura de `platform_public_config` (`categorization.thresholds`): `{ AUTO, SUGGEST, per_source: { rule, history, alias, llm } }`. Default preserva `0.85`/`0.6`.
+Nova tool `spending_timeseries_daily(args: { from?, to?, granularity: 'day'|'week' })` em `_shared/agent/tools.ts` (com `reconciliationGate`), registrada no schema.
 
-Painel admin `/admin/ia/categorizacao`:
-- Linha do tempo de cobertura, precisão-proxy, correção, sem-categoria.
-- Sliders por source com preview do impacto simulado (recomputa em amostra dos últimos 30 dias antes de salvar).
-- Botão "Salvar thresholds" grava em `platform_public_config` com audit em `platform_admin_audit`.
+Estender `generate_chart_artifact` com `kind: 'timeseries'` e passthrough de `granularity`/janela.
 
-### 2.4 Ciclo de vida do alias
-`merchant_aliases`: gatilho — quando ≥3 correções do usuário para o mesmo `normalized_pattern → category_id`, insere alias com `confidence=0.9` e `confirmed_by_user_at=now()`. Já reflete no pipeline via estágio `alias`.
+## C) Renderer: suportar duas séries em linha
+`src/components/assessor/artifacts/ChartArtifactRenderer.tsx` já trata `line`/`area`; só validar labels longas (dia do mês) e permitir a segunda série (média móvel) com cor secundária. Sem mudança estrutural.
 
----
+## D) AppAdapter: garantir que o artefato aparece
+`_shared/agent/core/adapters/AppAdapter.ts`:
+- Reforçar `wantsChart` com os mesmos gatilhos do prompt ("dia a dia", "por dia", "evolução", "visual").
+- Depois de `handleTurn`, se `recent?.payload` existir e a reply do LLM **não** mencionar gráfico/visual, prefixar reply com "Gerei um gráfico com base nos dados reais 👇". Evita a experiência atual (texto plano, artefato invisível).
 
-## 3. Reconciliação e invariantes contábeis
+## E) WhatsApp: anexar `artifact_id` ao outbound
+No caminho de envio (onde `outbound_messages` é criado a partir do reply do agente), quando o turno produzir `artifact_id`, gravar em `outbound_messages.artifact_id`. Isso destrava `whatsapp-send` → `artifact-render` → mídia PNG com fallback textual, contrato que já existe.
 
-### 3.1 Módulo `_shared/engine/reconciliation.ts`
-Função `assertInvariants(txs, options)` que retorna `{ ok, violations[] }`. Invariantes:
-- **Transferências**: soma por `transfer_group_id` = 0; exatamente uma perna `expense` + uma `income`; contas distintas.
-- **Investimentos**: para cada `investment_movement`, existe transação espelho com `movement_kind='investment_in|out'` e mesmo valor absoluto; saldo do investimento nunca negativo.
-- **Cartões**: soma de `payment_method='credit_card'` do ciclo = valor da transação `movement_kind='card_payment'` que quita (`settles_card_id`, ciclo).
-- **Reembolsos/estornos**: `movement_kind='refund'` deve referenciar transação original (`refunds_transaction_id`) e não exceder seu valor; par gera saldo neutro na conta.
-- **Consistência de sinal**: `expense.amount > 0` e `income.amount > 0`; conta não pode ficar com saldo derivado inconsistente com `initial_balance + Σledger`.
+Localizar o insert em `whatsapp-webhook` / `WhatsAppAdapter` e propagar `metrics.artifact_id` capturado pelo `Observability`.
 
-### 3.2 Gate no motor analítico
-Antes de produzir número em `compare_periods`, `forecast_month_close`, `explain_spending_change`, `project_goal_completion`: rodar `assertInvariants` na janela consultada. Se `violations.length > 0`, tool retorna `{ ok: false, error: 'reconciliation_failed', violations, provenance }` — LLM é instruída a explicar a inconsistência ao usuário em vez de inventar número.
+## F) Observabilidade
+Corrigir o insert em `agent_turn_events` (nomes das colunas: `formula_versions`, `artifact_status`, `artifact_id`) — o schema atual difere do que o código tenta escrever. Sem isso, seguimos cegos.
 
-### 3.3 Job diário `reconciliation-tick`
-Varre últimas 24h de cada usuário ativo, grava violações em nova tabela `reconciliation_issues` (`user_id`, `kind`, `entity_id`, `severity`, `detected_at`, `resolved_at`). Expõe em `/admin/operacao` (contagem por tipo) e na Home do usuário como aviso não-bloqueante quando `severity='high'`.
+# Aceite (o que valida a correção)
 
-### 3.4 Testes automatizados (Vitest)
-- `src/test/reconciliation-transfers.test.ts`
-- `src/test/reconciliation-investments.test.ts`
-- `src/test/reconciliation-cards.test.ts`
-- `src/test/reconciliation-refunds.test.ts`
-- `src/test/reconciliation-gate-analytics.test.ts` — garante que `compare_periods` bloqueia quando invariantes falham.
+1. Mensagem "gera um gráfico dia a dia dos meus gastos" no app → resposta traz `ChartArtifactRenderer` com linha diária + média móvel, `provenance.formula_version = 'timeseries.daily.v1'`.
+2. Mensagem "compare julho com junho em gráfico" → bar chart com séries Antes/Agora (já existente), agora efetivamente disparada.
+3. Mensagem "quanto vou fechar o mês, manda em gráfico" → forecast_band aparece.
+4. Mesma frase no WhatsApp → chega **imagem PNG** (via `artifact-render`); se render falhar, texto de fallback com os mesmos números.
+5. `agent_artifacts` e `agent_turn_events` passam a ter linhas com `formula_version`/`formula_versions` corretos.
 
-Fixtures reaproveitam `src/test/fixtures/financial_ecosystem_v2.json`.
+# Arquivos que serão tocados
 
----
+- `supabase/functions/_shared/agent/prompt.ts` — regras 23/27.
+- `supabase/functions/_shared/analytics/timeseries.ts` — novo.
+- `supabase/functions/_shared/artifacts/builder.ts` — `buildTimeseriesArtifact`.
+- `supabase/functions/_shared/agent/tools.ts` — tool `spending_timeseries_daily` + `kind: 'timeseries'` em `generate_chart_artifact` + registro no schema.
+- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts` — `wantsChart` ampliado + hint quando artefato existe e reply o ignora.
+- `supabase/functions/_shared/agent/core/adapters/WhatsAppAdapter.ts` (ou onde `outbound_messages` é criado) — persistir `artifact_id`.
+- `supabase/functions/_shared/agent/core/AgentCore.ts` / `Observability.ts` — corrigir colunas em `agent_turn_events`.
+- `src/test/analytics-timeseries.test.ts` e `src/test/artifact-contract.test.ts` — novos casos para timeseries e para "reply cita artefato".
 
-## 4. Artefatos como mídia no WhatsApp
-
-### 4.1 Renderizador server-side
-Novo edge function `artifact-render` (`supabase/functions/artifact-render/index.ts`):
-- Entrada: `artifact_id`.
-- Lê `agent_artifacts.spec` (contrato `ChartArtifact` já compartilhado).
-- Renderiza para PNG usando `npm:@napi-rs/canvas` (bar/line/donut/waterfall) — sem dependência de headless browser.
-- Faz upload em bucket `artifacts` (privado), gera signed URL de 24h, grava em `agent_artifacts.media_url`, `media_kind='image/png'`, `rendered_at`.
-- Fallback PDF (multi-página) para artefatos com `sections.length > 1`, via `pdf-lib`.
-
-### 4.2 Envio pelo WhatsApp
-- `_shared/messaging/waha.ts`: adicionar `sendImage(to, mediaUrl, caption)` e `sendDocument(to, mediaUrl, filename, caption)`.
-- `whatsapp-send`: se `outbound_messages.metadata.artifact_id` presente, tenta `artifact-render` (síncrono, com timeout 8s). Sucesso → `sendImage` com legenda = resumo textual do artefato (`artifact.summary_text`). Falha/timeout → envia somente texto (`fallback_text` do artefato) e marca `artifact_status='failed'`.
-- `outbound_messages`: novas colunas `media_url`, `media_kind`, `artifact_id` (já parcialmente adicionadas na rodada anterior — completar migration se faltar).
-
-### 4.3 Paridade de fatos
-`ChartArtifact.spec` já carrega `provenance` completo (fórmula, período, confiança). O rodapé da legenda no WhatsApp e o `ChartArtifactRenderer` do app exibem o mesmo bloco de providência: `"Fórmula vX · N lançamentos · confiança: alta"`. Garantido por teste `src/test/artifact-parity.test.ts` que compara render app vs metadados PNG.
-
-### 4.4 Falhas e observabilidade
-- Cada tentativa registra `artifact_status` no `agent_turn_events`.
-- Painel admin § 1.3 mostra taxa de entrega por canal.
-- Se `artifact_status='failed'` em 3 turnos consecutivos de um usuário, alerta em `provider_health_events`.
-
----
-
-## Detalhes técnicos e migrações
-
-```text
-Migrations aditivas:
-  1. create table agent_turn_events (+ RLS, GRANTs, índices por created_at, user_id, channel)
-  2. create table categorization_metrics_daily (+ índice por date)
-  3. alter transactions add column user_edited_at timestamptz, previous_category_id uuid
-  4. alter merchant_aliases add trigger para autoconfirmar após 3 correções
-  5. create table reconciliation_issues (+ RLS user pode ver as suas)
-  6. alter outbound_messages add media_url text, media_kind text, artifact_id uuid (se faltar)
-  7. alter agent_artifacts add media_url, media_kind, rendered_at, summary_text, fallback_text
-  8. platform_public_config: seed 'categorization.thresholds'
-  9. create bucket artifacts (privado) + policies (service_role write, owner read via signed URL)
-
-Edge functions novas:
-  - artifact-render
-  - categorization-metrics-tick (cron 1h)
-  - reconciliation-tick (cron 6h)
-
-Edge functions alteradas:
-  - whatsapp-send (branch de mídia + artefato)
-  - agent-chat / AgentCore (grava agent_turn_events, artifact_status)
-  - _shared/agent/tools.ts (gate de invariantes)
-
-Frontend:
-  - src/pages/admin/IAInteligencia.tsx: abas "Observabilidade", "Categorização"
-  - src/pages/admin/Operacao.tsx: card "Reconciliação"
-  - src/components/home/ReconciliationBanner.tsx (severity high)
-
-Testes (Vitest):
-  - reconciliação (5 arquivos § 3.4)
-  - categorization-thresholds-config.test.ts
-  - observability-turn-event.test.ts
-  - artifact-render-contract.test.ts
-  - whatsapp-send-media.test.ts
-```
-
-### Ordem de execução sugerida
-1. Migrations + tabelas de eventos.
-2. Instrumentação `Observability`/`DecisionLogger` + admin dashboard.
-3. Módulo de reconciliação + gate nas tools + testes.
-4. Métricas de categorização + thresholds dinâmicos.
-5. `artifact-render` + integração `whatsapp-send` + testes de mídia.
-6. QA end-to-end: turno no app com artefato → mesmo turno no WhatsApp → verificar `agent_turn_events`, artefato entregue, fórmula/providência idênticas.
-
-### Fora de escopo
-- Recharts server-side (usaremos canvas nativo).
-- Alteração no motor analítico já entregue (apenas adiciona gate).
-- Landing page.
-- Modelos preditivos além dos 3 já existentes.
+Sem migrations novas: as tabelas `agent_artifacts` e `agent_turn_events` já possuem as colunas necessárias.
