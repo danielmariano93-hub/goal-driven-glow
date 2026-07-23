@@ -321,12 +321,24 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   metrics.validations = validated.reasons.length;
   if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {
     // If validator rejects an LLM reply, drop to deterministic fallback once.
+    // Concatena os últimos turnos do usuário para não perder contexto quando
+    // a mensagem atual é só o slot que faltava (ex.: "Alimentação").
     try {
-      const fb = await deterministicFallback(sb, input);
+      const lastUserTexts = (history ?? []).filter(h => h.role === "user")
+        .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
+      const recoveredText = lastUserTexts.length > 0
+        ? [...lastUserTexts, input.text].join(". ")
+        : input.text;
+      const fb = await deterministicFallback(sb, { ...input, text: recoveredText });
       reply = fb.reply; draft_id = fb.draft_id;
       kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
       metrics.fallback_used = true;
       path = "deterministic_fallback";
+      if (kind !== "draft" && kind !== "question") {
+        // Recuperação não encontrou dados suficientes: pede a frase completa
+        // em vez de devolver o erro genérico.
+        reply = "Perdi o rascunho anterior. Pode me mandar tudo em uma frase, ex.: 'gastei 33,89 alimentação Itaú hoje'?";
+      }
     } catch { reply = validated.body; }
   } else {
     reply = validated.body;
