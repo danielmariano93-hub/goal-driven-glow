@@ -28,7 +28,7 @@ describe("chart routing — pedidos visuais nunca caem no fast-path textual", ()
   const textualPhrases = [
     "me analisa",
     "resumo do mês",
-    "onde mais gastei",
+    "onde mais gasto",
     "análise geral",
   ];
   for (const p of textualPhrases) {
