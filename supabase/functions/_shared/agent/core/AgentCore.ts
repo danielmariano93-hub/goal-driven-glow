@@ -141,6 +141,34 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
 
   if (policyReply.kind === "reply") {
     metrics.path = "policy";
+    // Auto-recuperação: usuário confirmou mas o LLM anterior alucinou o
+    // rascunho (nunca chamou create_transaction_draft). Tenta remontar a
+    // partir das últimas mensagens do próprio usuário na conversa.
+    if (routed.intent.kind === "confirm" && policyReply.replyKind === "info") {
+      const recovered = await guard(async () => {
+        const hist = await (await import("./ConversationHistory.ts")).loadHistory(
+          sb, input.conversation_id, { limit: 12, excludeMessageId: null });
+        const lastUserTexts = hist.filter(h => h.role === "user")
+          .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
+        const recoveredText = [...lastUserTexts, input.text].join(". ");
+        const fb = await deterministicFallback(sb, { ...input, text: recoveredText });
+        return fb;
+      }, (m) => metrics.errors.push("confirm_recover:" + m), null as any);
+      if (recovered && recovered.kind === "draft") {
+        metrics.fallback_used = true;
+        if (input.channel !== "app" && input.to_phone) {
+          await enqueueReply(sb, {
+            user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+            body: recovered.reply, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+            source: input.channel === "simulator" ? "simulator" : "whatsapp",
+          });
+        }
+        return {
+          reply: recovered.reply, reply_kind: "draft", path: "deterministic_fallback",
+          draft_id: recovered.draft_id, session_id,
+        };
+      }
+    }
     const v = validate(policyReply.body, { expectedKind: policyReply.replyKind, hasDraft: !!policyReply.draft_id });
     metrics.validations = v.reasons.length;
     const body = v.body;
