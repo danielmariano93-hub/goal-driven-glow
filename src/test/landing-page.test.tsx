@@ -15,15 +15,14 @@ function renderLP() {
 }
 
 describe("LandingPage", () => {
-  it("renderiza headline principal e badge", () => {
+  it("renderiza headline principal", () => {
     renderLP();
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: /o nino entende seus gastos hoje/i,
+        name: /seu dinheiro não está desorganizado/i,
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/inteligência financeira que conversa/i)).toBeInTheDocument();
   });
 
   it("renderiza o manifesto oficial", () => {
@@ -51,11 +50,11 @@ describe("LandingPage", () => {
     expect(details.length).toBe(6);
   });
 
-  it("prova social é marcada como placeholder por default", () => {
+  it("não exibe depoimentos fictícios (prova social removida)", () => {
     const { container } = renderLP();
-    const quotes = container.querySelector(".lp-quotes");
-    expect(quotes?.getAttribute("data-placeholder")).toBe("true");
-    expect(container.querySelectorAll(".lp-quote-badge").length).toBeGreaterThan(0);
+    expect(container.querySelector(".lp-quotes")).toBeNull();
+    expect(container.querySelector(".lp-quote-badge")).toBeNull();
+    expect(container.textContent ?? "").not.toMatch(/persona demonstrativa/i);
   });
 
   it("não contém referências à marca antiga NoControle", () => {
@@ -66,14 +65,12 @@ describe("LandingPage", () => {
 
   it("wordmark oficial: 'Meu Nino' + descritor '.IA' sobrescrito", () => {
     const { container } = renderLP();
-    // Não deve mais existir pill gradiente antiga.
     expect(container.querySelector(".lp-ia-pill")).toBeNull();
-    // Deve existir a estrutura oficial do wordmark.
     expect(container.querySelector(".nino-wordmark__name")).not.toBeNull();
     expect(container.querySelector(".nino-wordmark__ia")?.textContent).toBe(".IA");
   });
 
-  it("todas as 14 seções principais estão presentes por id", () => {
+  it("seções principais estão presentes por id", () => {
     const { container } = renderLP();
     const ids = [
       "top",
@@ -84,7 +81,7 @@ describe("LandingPage", () => {
       "role",
       "capacidades",
       "como-funciona",
-      "prova",
+      "confianca",
       "seguranca",
       "duvidas",
       "comecar",
@@ -94,10 +91,11 @@ describe("LandingPage", () => {
     }
   });
 
-  it("nenhum ícone antigo NinoIcons segue sendo importado", () => {
-    // grep indireto via DOM: os componentes antigos usavam data-icon="chat-bubble" etc.
-    // Aqui garantimos ao menos que a página renderiza sem erros e Phosphor está no DOM.
+  it("copy de segurança não inventa criptografia específica nem selos", () => {
     const { container } = renderLP();
-    expect(container.querySelectorAll("svg").length).toBeGreaterThan(4);
+    const txt = container.textContent ?? "";
+    expect(txt).not.toMatch(/HTTPS\/TLS/i);
+    expect(txt).not.toMatch(/LGPD como padrão/i);
+    expect(txt).toMatch(/seu dinheiro é pessoal/i);
   });
 });
