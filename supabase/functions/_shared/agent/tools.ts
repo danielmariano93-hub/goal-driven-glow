@@ -676,6 +676,8 @@ export async function compare_periods(ctx: ToolContext, args: {
   const from = period_a.from < period_b.from ? period_a.from : period_b.from;
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
   const { txs, names } = await loadTxAndCategories(ctx, from, to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
   const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
   return { ok: true, result };
 }
