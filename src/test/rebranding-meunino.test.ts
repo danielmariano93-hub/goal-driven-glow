@@ -46,6 +46,11 @@ const ALLOWLIST: Array<{ file: string; match: RegExp; reason: string }> = [
     match: /daniel\.assis@nocontrole\.com\.br/,
     reason: "e-mail bootstrap existente do owner (dado operacional preservado)",
   },
+  {
+    file: "src/pages/admin/agente/cfg.ts",
+    match: /daniel@nocontrole\.ia/,
+    reason: "chave Pix operacional do owner preservada por decisão explícita",
+  },
 ];
 
 /** Recolhe todos os arquivos de texto sob um caminho. */
