@@ -172,6 +172,7 @@ export function AdminLayout() {
   );
 
   return (
+    <SessionInactivityGuard>
     <div className="min-h-dvh bg-background flex">
       {/* Desktop sidebar */}
       <aside
