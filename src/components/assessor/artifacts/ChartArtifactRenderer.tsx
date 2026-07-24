@@ -103,8 +103,8 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
               <XAxis dataKey="label" fontSize={10} />
               <YAxis fontSize={10} tickFormatter={(v) => fmt(chart.units, v)} width={60} />
               <Tooltip formatter={(v: number) => fmt(chart.units, v)} />
-              <Area dataKey="Projeção" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.15} />
-              <Line dataKey="Observado" stroke="#6D3BFF" strokeWidth={2} dot={false} />
+              <Area type="monotone" dataKey="Projeção" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.15} />
+              <Line type="monotone" dataKey="Observado" stroke="#6D3BFF" strokeWidth={2} dot={false} />
             </ComposedChart>
           ) : chart.type === "donut" ? (
             <PieChart>
