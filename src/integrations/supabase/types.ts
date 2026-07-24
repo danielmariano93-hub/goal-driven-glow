@@ -191,6 +191,27 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_reauth_events: {
+        Row: {
+          admin_id: string
+          created_at: string
+          id: string
+          method: string
+        }
+        Insert: {
+          admin_id: string
+          created_at?: string
+          id?: string
+          method: string
+        }
+        Update: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          method?: string
+        }
+        Relationships: []
+      }
       agent_artifacts: {
         Row: {
           conversation_id: string | null
@@ -742,6 +763,56 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      break_glass_sessions: {
+        Row: {
+          admin_id: string
+          closed_at: string | null
+          closed_reason: string | null
+          expires_at: string
+          fields: string[]
+          id: string
+          opened_at: string
+          pseudo_id: string
+          reads_count: number
+          reason: string
+          ticket_ref: string
+        }
+        Insert: {
+          admin_id: string
+          closed_at?: string | null
+          closed_reason?: string | null
+          expires_at: string
+          fields: string[]
+          id?: string
+          opened_at?: string
+          pseudo_id: string
+          reads_count?: number
+          reason: string
+          ticket_ref: string
+        }
+        Update: {
+          admin_id?: string
+          closed_at?: string | null
+          closed_reason?: string | null
+          expires_at?: string
+          fields?: string[]
+          id?: string
+          opened_at?: string
+          pseudo_id?: string
+          reads_count?: number
+          reason?: string
+          ticket_ref?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "break_glass_sessions_pseudo_id_fkey"
+            columns: ["pseudo_id"]
+            isOneToOne: false
+            referencedRelation: "user_pseudonyms"
+            referencedColumns: ["pseudo_id"]
+          },
+        ]
       }
       categories: {
         Row: {
@@ -3081,6 +3152,27 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_permissions: {
+        Row: {
+          action: string
+          allowed: boolean
+          role: Database["public"]["Enums"]["platform_role"]
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          allowed?: boolean
+          role: Database["public"]["Enums"]["platform_role"]
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          allowed?: boolean
+          role?: Database["public"]["Enums"]["platform_role"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       platform_public_config: {
         Row: {
           key: string
@@ -4185,6 +4277,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_pseudonyms: {
+        Row: {
+          created_at: string
+          detached_at: string | null
+          pseudo_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          detached_at?: string | null
+          pseudo_id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          detached_at?: string | null
+          pseudo_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -4309,15 +4422,42 @@ export type Database = {
       }
     }
     Functions: {
+      _break_glass_allowed_fields: { Args: never; Returns: string[] }
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
       _vault_upsert: {
         Args: { p_description: string; p_name: string; p_value: string }
         Returns: string
       }
+      admin_active_break_glass: {
+        Args: never
+        Returns: {
+          admin_id: string
+          closed_at: string | null
+          closed_reason: string | null
+          expires_at: string
+          fields: string[]
+          id: string
+          opened_at: string
+          pseudo_id: string
+          reads_count: number
+          reason: string
+          ticket_ref: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "break_glass_sessions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       admin_agent_stats: { Args: never; Returns: Json }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
         Returns: undefined
+      }
+      admin_close_break_glass: {
+        Args: { _id: string; _reason?: string }
+        Returns: boolean
       }
       admin_consumer_users_set: {
         Args: never
@@ -4379,6 +4519,15 @@ export type Database = {
       }
       admin_message_reprocess: { Args: { p_id: string }; Returns: Json }
       admin_message_timeline: { Args: { p_id: string }; Returns: Json }
+      admin_open_break_glass: {
+        Args: {
+          _fields: string[]
+          _pseudo_id: string
+          _reason: string
+          _ticket_ref: string
+        }
+        Returns: string
+      }
       admin_ops_health: { Args: never; Returns: Json }
       admin_platform_status: { Args: never; Returns: Json }
       admin_process_deletion_request: {
@@ -4631,7 +4780,15 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["platform_role"]
       }
+      current_platform_permissions: {
+        Args: never
+        Returns: {
+          action: string
+          allowed: boolean
+        }[]
+      }
       ensure_profile: { Args: never; Returns: undefined }
+      ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
       grant_platform_admin: {
         Args: {
           _role: Database["public"]["Enums"]["platform_role"]
@@ -4639,6 +4796,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      has_platform_permission: { Args: { _action: string }; Returns: boolean }
       has_role:
         | {
             Args: { _role: Database["public"]["Enums"]["app_role"] }
@@ -4704,6 +4862,7 @@ export type Database = {
         Args: { p_account_id: string; p_document_id: string }
         Returns: Json
       }
+      record_admin_reauth: { Args: { _method?: string }; Returns: string }
       recover_expired_outbound_leases: { Args: never; Returns: number }
       recurring_confirm: { Args: { p_occurrence_id: string }; Returns: string }
       recurring_generate_due: {
@@ -4718,6 +4877,10 @@ export type Database = {
       reprocess_rejected_items: {
         Args: { p_document_id: string; p_reason_codes?: string[] }
         Returns: Json
+      }
+      require_recent_reauth: {
+        Args: { _max_age_seconds?: number }
+        Returns: boolean
       }
       revoke_platform_admin: { Args: { _target: string }; Returns: undefined }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
