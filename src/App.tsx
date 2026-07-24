@@ -50,14 +50,7 @@ const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
 const AdminUsuarios = lazy(() => import("./pages/admin/Usuarios"));
 const AdminEngajamento = lazy(() => import("./pages/admin/Engajamento"));
 const AdminFinanceiro = lazy(() => import("./pages/admin/Financeiro"));
-const AdminAgente = lazy(() => import("./pages/admin/Agente"));
 const AdminAgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
-const AdminMensagens = lazy(() => import("./pages/admin/Mensagens"));
-const AdminIAInteligencia = lazy(() => import("./pages/admin/IAInteligencia"));
-const AdminWhatsApp = lazy(() => import("./pages/admin/WhatsApp"));
-const AdminOperacao = lazy(() => import("./pages/admin/Operacao"));
-const AdminProduto = lazy(() => import("./pages/admin/Produto"));
-const AdminSeguranca = lazy(() => import("./pages/admin/Seguranca"));
 const AdminConfiguracoes = lazy(() => import("./pages/admin/Configuracoes"));
 // Control Center v2
 const AdminCockpit = lazy(() => import("./pages/admin/Cockpit"));
