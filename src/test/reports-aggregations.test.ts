@@ -46,8 +46,8 @@ describe("aggregations", () => {
   });
 
   it("detecta frequência relevante de gastos pequenos", () => {
-    const frequent = Array.from({ length: 9 }, (_, i) => ({ type: "expense" as const, amount: 20, occurred_at: `2026-01-${String(i + 1).padStart(2, "0")}`, category_name: "Transporte" }));
-    const cats = byCategory([...frequent, { type: "expense" as const, amount: 500, occurred_at: "2026-01-20", category_name: "Mercado" }]);
+    const frequent = Array.from({ length: 9 }, (_, i) => ({ type: "expense" as const, status: "confirmed" as const, amount: 20, occurred_at: `2026-01-${String(i + 1).padStart(2, "0")}`, category_name: "Transporte" }));
+    const cats = byCategory([...frequent, { type: "expense" as const, status: "confirmed" as const, amount: 500, occurred_at: "2026-01-20", category_name: "Mercado" }]);
     const h = spendingHighlights(cats);
     expect(h.some((x) => x.title === "Transporte apareceu 9 vezes")).toBe(true);
   });
