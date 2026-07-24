@@ -23,7 +23,7 @@ export type TemplateMatch = {
 // como "quanto gastei" ou "onde gasto mais" (essas seguem por analyze_spending).
 const RX = {
   spending_trend: [
-    /\b(evolu[cç][aã]o|tend[eê]ncia|hist[oó]rico)\s+(dos?\s+)?(meus\s+)?gastos?\b/i,
+    /\b(evolu[cç][aã]o|tend[eê]ncia|hist[oó]rico)\s+(dos?\s+)?(meus?\s+)?gastos?\b/i,
     /\bgasto\s+(m[eé]dio|di[aá]rio|dia\s+a\s+dia)\b/i,
     /\bestou\s+(reduzindo|gastando\s+menos)\b/i,
     /\bandando\s+de\s+lado\b/i,
