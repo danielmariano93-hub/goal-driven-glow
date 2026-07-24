@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { can, roleLabel, type PlatformAction } from "@/lib/admin/permissions";
 import { AdminErrorBoundary } from "@/components/admin/AdminErrorBoundary";
 import { currentAdminTitle, useAdminDocumentTitle } from "@/components/admin/useAdminDocumentTitle";
+import { SessionInactivityGuard } from "@/components/auth/SessionInactivityGuard";
 
 type Item = {
   to: string;
@@ -171,6 +172,7 @@ export function AdminLayout() {
   );
 
   return (
+    <SessionInactivityGuard>
     <div className="min-h-dvh bg-background flex">
       {/* Desktop sidebar */}
       <aside
@@ -231,5 +233,6 @@ export function AdminLayout() {
         </div>
       </main>
     </div>
+    </SessionInactivityGuard>
   );
 }
