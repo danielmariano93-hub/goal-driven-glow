@@ -846,6 +846,33 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
   return { ok: true, result: { artifact, artifact_id: saved?.id ?? null } };
 }
 
+// generate_report_from_template — bypass determinístico para templates ativos
+// em public.financial_report_templates. Recebe template_key + params e delega
+// para generate_chart_artifact usando o mapeamento canônico.
+import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templates/reportTemplates.ts";
+
+export async function generate_report_from_template(ctx: ToolContext, args: {
+  template_key: TemplateKey;
+  params?: Record<string, unknown>;
+}): Promise<ToolResult> {
+  if (!TEMPLATE_KEYS.includes(args.template_key as TemplateKey)) {
+    return { ok: false, error: "unknown_template" };
+  }
+  // Confirma que o template está ativo no banco (fonte de verdade).
+  const { data: tpl } = await ctx.sb
+    .from("financial_report_templates")
+    .select("template_key, active")
+    .eq("template_key", args.template_key)
+    .maybeSingle();
+  if (!tpl || !tpl.active) return { ok: false, error: "template_inactive" };
+
+  const { kind, args: mappedArgs } = templateToArtifactArgs({
+    template_key: args.template_key,
+    params: args.params ?? {},
+  });
+  return await generate_chart_artifact(ctx, { kind: kind as any, ...(mappedArgs as any) });
+}
+
 // ---------- Registro ----------
 
 export type ToolSpec = {
