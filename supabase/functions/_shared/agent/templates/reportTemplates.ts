@@ -64,19 +64,41 @@ function defaultParams(key: TemplateKey): Record<string, unknown> {
 }
 
 // Mapeia template → (kind do ChartArtifact, args para generate_chart_artifact).
-// A resolução real do artefato reaproveita as tools existentes,
-// evitando duplicar a fundação analítica.
-export function templateToArtifactArgs(m: TemplateMatch): {
+// Aceita tanto o formato bruto (TemplateMatch) quanto o validado por Zod.
+export function templateToArtifactArgs(m: {
+  template_key: TemplateKey;
+  params?: Record<string, unknown>;
+}): {
   kind: "compare" | "timeseries" | "average_daily_trend";
   args: Record<string, unknown>;
 } {
+  const params = m.params ?? {};
   if (m.template_key === "monthly_comparison") {
-    return { kind: "compare", args: { metric: (m.params as any).metric ?? "expense" } };
+    return {
+      kind: "compare",
+      args: { metric: (params as any).metric ?? "expense" },
+    };
   }
   if (m.template_key === "weekly_one_page") {
-    // one_page semanal = série diária dos últimos 7 dias
-    return { kind: "timeseries", args: { metric: "expense", days: 7 } };
+    const weeksBack = Number((params as any).weeks_back ?? 0);
+    if (!weeksBack || weeksBack <= 0) {
+      return { kind: "timeseries", args: { metric: "expense", days: 7 } };
+    }
+    // Semana N atrás: janela de 7 dias terminando (weeksBack*7) dias antes de hoje.
+    const today = new Date();
+    const to = new Date(today);
+    to.setUTCDate(to.getUTCDate() - weeksBack * 7);
+    const from = new Date(to);
+    from.setUTCDate(from.getUTCDate() - 6);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    return {
+      kind: "timeseries",
+      args: { metric: "expense", from: iso(from), to: iso(to) },
+    };
   }
-  // spending_trend = média diária acumulada
-  return { kind: "average_daily_trend", args: {} };
+  // spending_trend: passa from/to quando informado.
+  const args: Record<string, unknown> = {};
+  if ((params as any).from) args.from = (params as any).from;
+  if ((params as any).to) args.to = (params as any).to;
+  return { kind: "average_daily_trend", args };
 }

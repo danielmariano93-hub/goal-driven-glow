@@ -6,7 +6,8 @@
 // as first-class helpers from the deterministic fallback.
 
 // deno-lint-ignore-file no-explicit-any
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
+type SupabaseClient = any;
 import { behavioralMetricAmount, computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
@@ -26,7 +27,9 @@ export type ToolContext = {
   user_text?: string;
 };
 
-export type ToolResult = { ok: true; result: any } | { ok: false; error: string };
+export type ToolResult =
+  | { ok: true; result: any }
+  | { ok: false; error: string; details?: unknown; result?: any; violations?: unknown };
 
 async function fetchFactsForBeforeSpending(sb: SupabaseClient, user_id: string) {
   const [accounts, txs, recurring, debts, goals, contribs] = await Promise.all([
@@ -126,7 +129,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
     const incomeAmount = behavioralMetricAmount(row as any, "income");
     totalIncome += incomeAmount;
     if (expenseAmount === 0) continue;
-    const category = row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria";
+    const category = String(row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria");
     byCategory.set(category, (byCategory.get(category) ?? 0) + expenseAmount);
     byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + expenseAmount);
     totalExpense += expenseAmount;
@@ -668,6 +671,7 @@ import {
 } from "../artifacts/builder.ts";
 import { reconciliationGate } from "../engine/reconciliation.ts";
 import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templates/reportTemplates.ts";
+import { parseTemplateArgs } from "./templates/templateSchemas.ts";
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [{ data: txs }, { data: cats }] = await Promise.all([
@@ -695,7 +699,7 @@ export async function compare_periods(ctx: ToolContext, args: {
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
   const { txs, names } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
   return { ok: true, result };
 }
@@ -708,7 +712,7 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
   const to = cur.to;
   const { txs } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const { data: rec } = await ctx.sb.from("recurring_entries")
     .select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", ctx.user_id).eq("active", true);
   const recurring = (rec ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
@@ -778,7 +782,7 @@ export async function spending_timeseries_daily(ctx: ToolContext, args: {
   }
   const { txs } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeDailySpend({ txs: txs as any, metric: args?.metric ?? "expense", from, to });
   return { ok: true, result };
 }
@@ -793,7 +797,7 @@ export async function spending_average_daily_trend(ctx: ToolContext, args: {
   const to = args?.to ?? today;
   const { txs } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCumulativeDailyAverage({ txs: txs as any, from, to });
   return { ok: true, result };
 }
@@ -855,21 +859,20 @@ export async function generate_report_from_template(ctx: ToolContext, args: {
   template_key: TemplateKey;
   params?: Record<string, unknown>;
 }): Promise<ToolResult> {
-  if (!TEMPLATE_KEYS.includes(args.template_key as TemplateKey)) {
-    return { ok: false, error: "unknown_template" };
+  const parsed = parseTemplateArgs(args?.template_key as string, args?.params);
+  if (!parsed.ok) {
+    const p = parsed as { ok: false; error: string; details?: unknown };
+    return { ok: false, error: p.error, details: p.details };
   }
   // Confirma que o template está ativo no banco (fonte de verdade).
   const { data: tpl } = await ctx.sb
     .from("financial_report_templates")
     .select("template_key, active")
-    .eq("template_key", args.template_key)
+    .eq("template_key", parsed.value.template_key)
     .maybeSingle();
   if (!tpl || !tpl.active) return { ok: false, error: "template_inactive" };
 
-  const { kind, args: mappedArgs } = templateToArtifactArgs({
-    template_key: args.template_key,
-    params: args.params ?? {},
-  });
+  const { kind, args: mappedArgs } = templateToArtifactArgs(parsed.value);
   return await generate_chart_artifact(ctx, { kind: kind as any, ...(mappedArgs as any) });
 }
 
@@ -1212,7 +1215,17 @@ export const AGENT_TOOLS: ToolSpec[] = [
       type: "object",
       properties: {
         template_key: { type: "string", enum: ["spending_trend", "monthly_comparison", "weekly_one_page"] },
-        params: { type: "object", additionalProperties: true },
+        params: {
+          type: "object",
+          description: "Parâmetros do template. spending_trend: { from?, to? } em YYYY-MM-DD. monthly_comparison: { metric: 'expense' | 'income' }. weekly_one_page: { weeks_back: 0..52 }. Validação estrita via Zod no servidor.",
+          additionalProperties: false,
+          properties: {
+            from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            metric: { type: "string", enum: ["expense", "income"] },
+            weeks_back: { type: "integer", minimum: 0, maximum: 52 },
+          },
+        },
       },
       required: ["template_key"], additionalProperties: false,
     },

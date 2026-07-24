@@ -1,43 +1,79 @@
-## Plano — Fatias finais: Backfill Runner + Rotas de templates
+# Plano — Templates Zod-validados + Correção contábil canônica
 
-Encerra o rollout do PR #2. Duas frentes cirúrgicas.
+Duas frentes na mesma execução. Foco em paridade estrita entre a fórmula SQL `financial_daily.v2` (fonte da verdade) e o motor TS usado por `analyze_spending`, `generate_chart_artifact` e `generate_report_from_template`.
 
-### 1) Fatia D fase 2 — `finance-backfill-runner`
-Nova Edge Function que executa o backfill canônico em lotes idempotentes, usando a coluna `phase` já existente em `financial_backfill_checkpoints`.
+## Diagnóstico contábil (verificado por leitura)
 
-- `supabase/functions/finance-backfill-runner/index.ts`:
-  - Autenticação via header `x-internal-secret` = `INTERNAL_CRON_SECRET` (mesmo padrão de `split-reminders-dispatch`).
-  - Loop por `user_id` pendente:
-    - `phase='baseline'` → recalcula `financial_daily_facts` + `financial_daily_category_facts` para o intervalo do checkpoint em lotes de 30 dias, avança `phase='backfill'`.
-    - `phase='backfill'` → aplica `is_behavioral_consumption` v2 sobre `transactions` do usuário no intervalo, marca `phase='dual_read'`.
-    - `phase='dual_read'` → compara agregados canônicos vs. legado (grava `financial_metric_diffs` se divergir >R$0,01), se sem diffs marca `phase='cutover'`.
-  - Timebox de 25s por invocação (poll do cron), `EdgeRuntime.waitUntil` para persistir heartbeat.
-  - `job_heartbeats.job_key='finance-backfill-runner'` com `processed/failed/last_ok`.
-- Sem cron novo agendado (evita mexer em `pg_cron` sem necessidade); a função fica disponível para invocação manual/curl e para agendamento futuro. Documentado em `.lovable/migration-reconciliation.md`.
+Fatos observados nesta rodada, com a linha de origem:
 
-### 2) Fatia E parte 2 — Rotas Zod de templates no roteamento visual
-Não vamos inflar o `IntentRouter.ts` (que é hoje apenas um wrapper); vamos adicionar as rotas onde o `generate_chart_artifact` já é acionado, mantendo o prompt como fonte de verdade e um fallback determinístico.
+1. **SQL canônico** (`20260724023000_..._hardening.sql`): estornos entram como `type=income AND movement_kind=refund AND transfer_group_id IS NULL`, abatendo `behavioral_consumption` via `THEN -t.amount`. Transferências internas saem por `transfer_group_id IS NULL` e `movement_kind <> 'internal_transfer'`. Fatura de cartão sai por `settles_card_id IS NULL`.
+2. **TS `engine/facts.ts:106` (`behavioralMetricAmount`)** trata `movement_kind = 'refund'` **independentemente de `t.type`**. Se um refund vier lançado como `expense` (ou vier com `transfer_group_id` preenchido em cenário de estorno-espelho), a função retorna `-amount` e o TS diverge do SQL. Estas duas condições não replicam o gate do SQL (`type='income' AND transfer_group_id IS NULL`).
+3. **TS `isRealMonthlyMovement`** não checa `transfer_group_id`. Uma linha com `movement_kind='transaction'` mas `transfer_group_id != NULL` seria contada no TS e ignorada no SQL.
+4. **`analytics/timeseries.ts:52`** faz `Math.max(0, byDay.get(d))` — o dia com estorno líquido negativo é apresentado como zero. Para contabilidade honesta, o `daily` deve preservar o sinal (o clamp cai só na renderização, não no fato). O `total` já é `sum(daily)`, hoje inflado.
+5. **Templates**: `financial_report_templates` tem os três `active=true`. `generate_report_from_template` valida `active` no banco, mas os `params` só são validados por JSON Schema com `additionalProperties: true` — sem Zod, sem coerção, sem mensagens úteis.
+6. **Cobertura de testes**: existe `report-templates.test.ts` (matching regex) e `canonical-financial-foundation.test.ts` (grep na migration). **Não existe** teste que exercite `generate_report_from_template` fim-a-fim, nem paridade "TS × SQL" com cenários de estorno/transferência.
 
-- `supabase/functions/_shared/agent/templates/reportTemplates.ts` (novo):
-  - Schema Zod para cada `template_key`: `spending_trend`, `monthly_comparison`, `weekly_one_page`.
-  - `matchTemplate(text)` retorna `{ template_key, params }` por regex determinística (tendência/evolução → `spending_trend`; "compara"/"vs mês passado" → `monthly_comparison`; "one page"/"resumo semanal" → `weekly_one_page`).
-  - `buildArtifactFromTemplate(userId, template_key, params)` chama os motores existentes (`analytics/timeseries`, `analytics/compare`, `analytics/dailyAverage`) e devolve um `ChartArtifact`.
-- `supabase/functions/_shared/agent/tools.ts` (`generate_chart_artifact`):
-  - Antes do LLM escolher `kind`, tenta `matchTemplate` no texto original; se casar e template `active=true` em `financial_report_templates`, usa `buildArtifactFromTemplate` (bypass determinístico). Caso contrário, mantém o comportamento atual.
-- `AppAdapter.ts` / `WhatsAppAdapter.ts`: sem mudança — o artefato já flui pelo mesmo canal.
+## O que será entregue
 
-### Testes
-- `src/test/backfill-runner.test.ts`: unit da máquina de estados (`baseline→backfill→dual_read→cutover`), com mock do supabase client.
-- `src/test/report-templates.test.ts`: `matchTemplate` para as 3 chaves + negativos (não deve casar frases genéricas como "quanto gastei").
-- Reexecução completa do vitest (esperado 528+5 = 533 passes).
+### A) Fórmulas canônicas — paridade TS ↔ SQL
 
-### Deploy e verificação
-- Deploy: `finance-backfill-runner` (novo) + redeploy de `agent-chat` (usa `tools.ts` alterado).
-- `curl` no runner com `x-internal-secret` para 1 usuário de teste → confere `financial_metric_diffs` sem linhas novas e `phase='cutover'`.
-- Verificação manual dos 3 templates por texto ("mostra evolução dos meus gastos", "compara com o mês passado", "me dá um one page da semana") — cada um deve gerar `ChartArtifact` pelo caminho determinístico (sem custo LLM).
+Arquivo: `supabase/functions/_shared/engine/facts.ts` (mesmo motor consumido por `analytics/*` e pelo `useCanonicalMonthly` no cliente via `src/lib/engine/facts.ts` — vamos alinhar os dois).
 
-### Fora de escopo
-- Não altera schema (colunas `phase`, tabelas de fatos e templates já existem).
-- Não agenda cron novo.
-- Não mexe em RLS, prompts do agente ou UI.
-- Não altera migrations já aplicadas.
+- **Refund estrito**: só abate consumo comportamental quando `t.type === 'income' && (t.transfer_group_id ?? null) === null`. Refund lançado como `expense` volta a somar como despesa comum (fica visível como erro de dado, não como abatimento silencioso).
+- **`isRealMonthlyMovement`**: passa a exigir `transfer_group_id == null`, alinhando a SQL.
+- **Sinal preservado em `timeseries`**: `daily` guarda o valor com sinal (positivo=consumo, negativo=estorno líquido do dia); `total` continua correto; a renderização (`ChartArtifactRenderer.tsx`) exibe negativos como chip "Estorno líquido" no dia e a curva monótona não é clampada. Nenhuma UI hoje depende de `daily >= 0`.
+- Espelho da versão: exportar `FORMULA_VERSION = "financial_daily.v2"` de `facts.ts` e usar em `provenance` dos artefatos para casar com o `formula_version` dos templates cadastrados.
+
+### B) Templates com validação Zod
+
+Arquivo novo: `supabase/functions/_shared/agent/templates/templateSchemas.ts`
+
+- `SpendingTrendParams`, `MonthlyComparisonParams`, `WeeklyOnePageParams` como `z.object` com `additionalProperties: false` (via `.strict()`), coerção de datas (`z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`) e defaults.
+- `parseTemplateArgs(template_key, params)` retorna `{ ok, data | error }`.
+
+Alteração em `supabase/functions/_shared/agent/tools.ts` (`generate_report_from_template`):
+
+- Antes de chamar `generate_chart_artifact`, roda `parseTemplateArgs`. Falha → `{ ok: false, error: "invalid_template_params", details }`.
+- Atualiza o JSON Schema no registro para refletir as chaves canônicas por template (`from/to` em `spending_trend`, `metric` em `monthly_comparison`, `weeks_back` em `weekly_one_page`) e `additionalProperties: false`.
+- `templateToArtifactArgs` respeita os params validados (hoje ignora `from/to` e `weeks_back`).
+
+### C) Testes de integração determinísticos
+
+Todos rodam em vitest puro (sem Deno), com `sb` stubado e `ToolContext` mínimo.
+
+- `src/test/tools-report-template.integration.test.ts` — cobre 6 casos:
+  1. `spending_trend` sem params → chama `generate_chart_artifact` com `kind='average_daily_trend'`, salva artifact, `formula_version === 'financial_daily.v2'`.
+  2. `monthly_comparison` com `metric='income'` → propaga metric.
+  3. `weekly_one_page` com `weeks_back=1` → traduz para `days=7` na semana anterior.
+  4. `template_key` inexistente → `unknown_template`.
+  5. Template com `active=false` (stub) → `template_inactive`.
+  6. Params inválidos (ex.: `metric='foo'`) → `invalid_template_params`.
+
+- `src/test/facts-refund-parity.test.ts` — paridade contábil TS ↔ SQL:
+  1. Refund lançado como `income + refund + transfer_group_id=null` **abate** consumo comportamental.
+  2. Refund lançado como `expense + refund` **não** abate (regra estrita) e é ignorado como movimento real (dado inconsistente).
+  3. Linha `movement_kind='transaction'` com `transfer_group_id` preenchido **não** entra no consumo.
+  4. Transferência interna (`internal_transfer`) e fatura (`settles_card_id`) permanecem fora.
+  5. Cenário composto (renda + gasto + refund + aplicação + rendimento + fatura + transferência) confere `income`, `expense`, `net` exatos.
+
+- `src/test/timeseries-refund-signed.test.ts` — o dia com estorno líquido negativo é preservado; `total = sum(daily)`; `daily_avg` usa dias com dados (incluindo negativos).
+
+- Atualiza `canonical-financial-foundation.test.ts` para exigir `FORMULA_VERSION === "financial_daily.v2"` exportado por `facts.ts`.
+
+### D) Validação e deploy
+
+- `bunx vitest run` completo — meta: 545+/545+ verdes (10 novos casos, ajuste dos existentes conforme regra estrita).
+- Deploy de `agent-chat` (usa `tools.ts` alterado). `finance-backfill-runner` **não** muda.
+
+## Detalhes técnicos
+
+**Compat com dados legados**: a mudança em `behavioralMetricAmount` é mais restritiva; o número absoluto pode variar em usuários cujo dado tinha refund como `expense`. Isso é o comportamento correto — o SQL já era assim. Registrar diferença esperada em `.lovable/migration-reconciliation.md` (nota de 3 linhas) para o runner de backfill classificar como "TS parity fix, non-regression".
+
+**Sem migration nesta rodada**: a SQL canônica já está em produção e correta. Todas as mudanças são TS + testes + registro da tool.
+
+**Escopo negativo**: não muda `analyze_spending`, não mexe em rotas HTTP, não altera `AppAdapter` regexes, não toca `ChartArtifactRenderer` além de aceitar `daily` negativo (verificação já existe para números; ajustaremos só o label do chip).
+
+## Riscos
+
+- Componentes de UI que assumam `daily >= 0` — checar `ChartArtifactRenderer` antes da entrega.
+- Se algum usuário em produção tem estorno lançado como `expense`, ele verá o total de despesa subir. É correção contábil, não regressão; documentar no changelog interno.

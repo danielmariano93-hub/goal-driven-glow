@@ -94,11 +94,17 @@ export const EXCLUDED_MOVEMENT_KINDS = new Set([
   "loan_proceeds",
 ]);
 
+// Versão canônica — deve casar com o formula_version salvo pelo SQL
+// `refresh_financial_daily_facts` e com os templates ativos.
+export const FORMULA_VERSION = "financial_daily.v2";
+
 export function isRealMonthlyMovement(t: TransactionRow): boolean {
   if (t.status !== "confirmed") return false;
   if (t.type === "transfer") return false;
+  if (t.transfer_group_id) return false;
   const mk = (t.movement_kind ?? "transaction").toString();
   if (EXCLUDED_MOVEMENT_KINDS.has(mk)) return false;
+  if (mk !== "transaction") return false;
   if (t.settles_card_id) return false;
   return true;
 }
@@ -110,7 +116,10 @@ export function behavioralMetricAmount(
   if (t.status !== "confirmed" || t.type === "transfer") return 0;
   const mk = (t.movement_kind ?? "transaction").toString();
   if (mk === "refund") {
-    return metric === "expense" ? -Number(t.amount || 0) : 0;
+    if (metric !== "expense") return 0;
+    if (t.type !== "income") return 0;
+    if (t.transfer_group_id) return 0;
+    return -Number(t.amount || 0);
   }
   if (!isRealMonthlyMovement(t) || t.type !== metric) return 0;
   return Number(t.amount || 0);

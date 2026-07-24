@@ -54,7 +54,7 @@ describe("computeDailyAverage exclui movimentos não comportamentais", () => {
     tx({ id: "3", occurred_at: "2026-07-03", amount: 200, movement_kind: "investment_application" }),
     tx({ id: "4", occurred_at: "2026-07-04", amount: 300, settles_card_id: "c1" }),
     tx({ id: "5", occurred_at: "2026-07-05", amount: 60 }),
-    tx({ id: "6", occurred_at: "2026-07-06", amount: 20, movement_kind: "refund" }),
+    tx({ id: "6", occurred_at: "2026-07-06", amount: 20, type: "income", movement_kind: "refund" }),
     tx({ id: "7", occurred_at: "2026-06-30", amount: 999 }), // fora do range
   ];
 

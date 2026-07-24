@@ -52,7 +52,10 @@ export function computeDailySpend(input: {
     rows += 1;
   }
 
-  const daily = labels.map((d) => round2(Math.max(0, byDay.get(d) ?? 0)));
+  // Preserva sinal: dias com estorno líquido negativo aparecem como valor
+  // negativo (contabilmente honesto). O clamp visual, se necessário, fica
+  // a cargo do renderer.
+  const daily = labels.map((d) => round2(byDay.get(d) ?? 0));
   const rolling7 = daily.map((_, i) => {
     const start = Math.max(0, i - 6);
     const slice = daily.slice(start, i + 1);
@@ -61,7 +64,7 @@ export function computeDailySpend(input: {
   });
 
   const total = round2(daily.reduce((a, b) => a + b, 0));
-  const daysWithData = daily.filter((v) => v > 0).length;
+  const daysWithData = daily.filter((v) => v !== 0).length;
   const daily_avg = round2(daysWithData > 0 ? total / daysWithData : 0);
 
   const provenance = makeProvenance({
