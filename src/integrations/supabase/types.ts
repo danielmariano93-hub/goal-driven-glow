@@ -1942,6 +1942,7 @@ export type Database = {
           cursor_user_id: string | null
           job_key: string
           last_error: string | null
+          phase: string
           rows_processed: number
           status: string
           updated_at: string
@@ -1952,6 +1953,7 @@ export type Database = {
           cursor_user_id?: string | null
           job_key: string
           last_error?: string | null
+          phase?: string
           rows_processed?: number
           status?: string
           updated_at?: string
@@ -1962,6 +1964,7 @@ export type Database = {
           cursor_user_id?: string | null
           job_key?: string
           last_error?: string | null
+          phase?: string
           rows_processed?: number
           status?: string
           updated_at?: string
@@ -2751,6 +2754,7 @@ export type Database = {
       }
       outbound_messages: {
         Row: {
+          accepted_at: string | null
           artifact_id: string | null
           attempts: number
           body: string
@@ -2759,11 +2763,13 @@ export type Database = {
           context_id: string | null
           context_type: string | null
           created_at: string
+          delivered_at: string | null
           feature: string | null
           id: string
           idempotency_key: string | null
           inbound_message_id: string | null
           kind: string
+          last_ack_at: string | null
           last_error: string | null
           lease_expires_at: string | null
           media_mime: string | null
@@ -2774,6 +2780,8 @@ export type Database = {
           participant_id: string | null
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string | null
+          read_at: string | null
+          retry_count: number
           sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           surface: string | null
@@ -2782,6 +2790,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          accepted_at?: string | null
           artifact_id?: string | null
           attempts?: number
           body: string
@@ -2790,11 +2799,13 @@ export type Database = {
           context_id?: string | null
           context_type?: string | null
           created_at?: string
+          delivered_at?: string | null
           feature?: string | null
           id?: string
           idempotency_key?: string | null
           inbound_message_id?: string | null
           kind?: string
+          last_ack_at?: string | null
           last_error?: string | null
           lease_expires_at?: string | null
           media_mime?: string | null
@@ -2805,6 +2816,8 @@ export type Database = {
           participant_id?: string | null
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string | null
+          read_at?: string | null
+          retry_count?: number
           sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           surface?: string | null
@@ -2813,6 +2826,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          accepted_at?: string | null
           artifact_id?: string | null
           attempts?: number
           body?: string
@@ -2821,11 +2835,13 @@ export type Database = {
           context_id?: string | null
           context_type?: string | null
           created_at?: string
+          delivered_at?: string | null
           feature?: string | null
           id?: string
           idempotency_key?: string | null
           inbound_message_id?: string | null
           kind?: string
+          last_ack_at?: string | null
           last_error?: string | null
           lease_expires_at?: string | null
           media_mime?: string | null
@@ -2836,6 +2852,8 @@ export type Database = {
           participant_id?: string | null
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string | null
+          read_at?: string | null
+          retry_count?: number
           sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           surface?: string | null
@@ -4461,6 +4479,13 @@ export type Database = {
         }
         Returns: string
       }
+      apply_outbound_ack: {
+        Args: { p_ack: string; p_provider_message_id: string }
+        Returns: {
+          id: string
+          new_status: string
+        }[]
+      }
       apply_safe_category_suggestions: { Args: never; Returns: Json }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
@@ -4477,6 +4502,7 @@ export type Database = {
       claim_outbound_batch: {
         Args: { p_limit?: number }
         Returns: {
+          accepted_at: string | null
           artifact_id: string | null
           attempts: number
           body: string
@@ -4485,11 +4511,13 @@ export type Database = {
           context_id: string | null
           context_type: string | null
           created_at: string
+          delivered_at: string | null
           feature: string | null
           id: string
           idempotency_key: string | null
           inbound_message_id: string | null
           kind: string
+          last_ack_at: string | null
           last_error: string | null
           lease_expires_at: string | null
           media_mime: string | null
@@ -4500,6 +4528,8 @@ export type Database = {
           participant_id: string | null
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string | null
+          read_at: string | null
+          retry_count: number
           sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           surface: string | null
