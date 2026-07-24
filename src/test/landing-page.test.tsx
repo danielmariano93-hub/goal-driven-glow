@@ -118,7 +118,7 @@ describe("LandingPage — redesign 6 capítulos", () => {
   it("cap. 4 exibe meta com valor absoluto, ritmo e previsão", () => {
     const { container } = renderLP();
     const txt = container.textContent ?? "";
-    expect(txt).toMatch(/r\$ 4\.320/);
+    expect(txt).toMatch(/r\$ 4\.320/i);
     expect(txt).toMatch(/de r\$ 6\.000/i);
     expect(txt).toMatch(/r\$ 280 \/ mês/i);
     expect(txt).toMatch(/novembro/i);
