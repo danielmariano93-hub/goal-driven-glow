@@ -1,430 +1,339 @@
 
-# Redesign estratégico — Landing Page Meu Nino.IA (mobile-first)
+# Auditoria LP Mobile — Meu Nino.IA
 
-> Plan Mode. Nenhum arquivo foi alterado. Sem código, sem build, sem deploy. Aguarda aprovação explícita.
-
----
-
-## 1. Diagnóstico da versão mobile atual
-
-Estado real observado em `src/pages/landing/LandingPage.tsx` (691 linhas) e `landing.css` (610 linhas):
-
-- **14 blocos** em sequência: `top`, `hero`, `manifesto`, `previsao`, `comportamento`, `metas`, `insights`, `role`, `capacidades`, `como-funciona`, `confianca`, `seguranca`, `duvidas`, `comecar`.
-- Alternância de fundos claros/escuros repetida, criando fadiga visual no mobile.
-- Hero denso (linhas 83–184): headline + subheadline + selos + dois CTAs + mockup elaborado dentro da primeira dobra.
-- 4 seções distintas (`previsao`, `comportamento`, `metas`, `insights`) explicando essencialmente a mesma promessa com pequenas variações.
-- Seções `confianca` e `seguranca` duplicam a mensagem de "você no controle".
-- CTA fixo inferior presumivelmente sobrepondo conteúdo (a apurar no CSS).
-- Muitos cards e sub-cards; poucos momentos editoriais respiráveis.
-- Copy tecnicamente correta, mas mistura tom humano ("percebe mudanças") com tom SaaS ("insights acionáveis", "categorização automática").
-
-## 2. Percepção premium atual — avaliação
-
-Nível atual: **"SaaS financeiro brasileiro bem-feito"**. Não é ainda **"marca proprietária jovem e sofisticada"**.
-
-Razões:
-- excesso de superfícies (cards em cards) dilui hierarquia;
-- ritmo previsível: título → parágrafo → visual, repetido 8+ vezes;
-- gradiente e ícones aplicados como decoração, não como pontuação;
-- ausência de silêncio tipográfico — pouca área branca dominante.
-
-## 3. Problemas de storytelling
-
-- Cada seção reintroduz o produto em vez de avançar a história.
-- O visitante recebe todas as respostas antes de ter perguntas.
-- Nenhum arco emocional claro entre "isso acontece comigo" e "quero começar".
-- Divisão do Rolê aparece perdida entre seções analíticas, matando seu potencial de identificação.
-
-## 4. Problemas de copy
-
-- Recorrência de "entender mudanças", "decidir melhor", "próximos passos", "sem planilhas".
-- Termos B2B/SaaS: "insights", "capacidades", "consolidado".
-- Explicações longas onde uma cena curta bastaria.
-- Poucas frases concretas com valor, pessoa, cenário real.
-
-## 5. Problemas de design e ritmo
-
-- 14 seções ~= página mobile muito longa (rolagem cansativa).
-- Cards de altura similar em sequência.
-- Duas colunas repetidas em desktop, sem contraste editorial.
-- Ícones em quase todos os títulos.
-- CTA fixo + header fixo comprimem viewport útil.
+Documento de análise. **Nenhum arquivo foi alterado.** Base: `src/pages/landing/LandingPage.tsx` (553 linhas, 7 blocos) e `src/pages/landing/landing.css` (606 linhas).
 
 ---
 
-## 6. Mapa da nova narrativa (7 atos → 7 blocos)
+## 1. Notas gerais (0–10)
+
+| Dimensão | Nota | Justificativa |
+|---|---|---|
+| Percepção premium | 6.5 | Tipografia e paleta certas, mas hero denso, CTA fixo agressivo e mockups em caixas repetidas puxam pra baixo. |
+| Clareza | 7.5 | Copy boa; hierarquia por vezes competida por eyebrow + 2 leads + micro. |
+| Storytelling | 7.0 | Arco correto (percepção → previsão → ação), mas transições abruptas (manifesto → demo, demo → transform). |
+| Copy | 8.0 | Forte, humana, portuguesa. Peca em repetir "fazer mais sentido" no CTA final. |
+| Ritmo mobile | 5.5 | Página longa; padding 72px repetido; mockups altos empilhados; CTA fixo compete. |
+| Conversão | 6.0 | Hero exige 6 elementos antes do CTA; CTA fixo perde valor por onipresença; final tem eco de promessa em vez de decisão. |
+| Consistência de marca | 8.0 | Gradiente/Deep Ink/Cloud coerentes; excesso de gradiente no CTA fixo enfraquece. |
+| **Geral** | **6.9** | Boa fundação, precisa de edição editorial e faxina rítmica. |
+
+---
+
+## 2. Auditoria bloco a bloco
+
+### 2.1 Hero (`.lp-hero`, `HeroSection`)
+- **Densidade**: eyebrow + H1 duas partes + lead + lead-tight + 2 CTAs + micro + mockup completo. Na primeira dobra 390×844, mockup começa antes do CTA aparecer. H1 mobile em 40px quebra em 5–6 linhas.
+- **Massa escura**: header fixo (rgba ink 0.82) + hero ink + mockup `--lp-ink-elev` criam um bloco preto contínuo.
+- **Impacto**: leitor não avança porque não terminou a dobra 1.
+
+### 2.2 Manifesto (`.lp-manifesto`)
+- Copy forte. Composição quebrada: `lp-manifesto-1` (28/40px) → `lp-manifesto-2` (20/22px) → 3 linhas 18/20px iguais → `lp-manifesto-close` (20/22px) → `lp-manifesto-final` (22/28px).
+- Gaps `gap: 8px` são planos demais entre grupos que deveriam respirar (linhas-observação × fechamento).
+- Falta hierarquia entre "sinais cotidianos" e "conclusão emocional".
+
+### 2.3 Demonstração (`.lp-demo-inner`)
+- Chat (caixa branca com borda) + Trend (caixa branca com borda) dentro da seção branca = 3 níveis de branco, cada um com radius 20–28px. Ruído visual.
+- Botão pill violeta `lp-inline-action` DENTRO do chat + `lp-trend` separado quebram a leitura "conversa → previsão".
+- Legend abaixo é redundante.
+
+### 2.4 Transformação (`.lp-section--cloud`, 3× `lp-split`)
+- 3 splits com mesma cadência (copy 1 lado, card do outro). Mobile empilha tudo virando 6 blocos verticais. Vira coleção de cards.
+- H2 "Menos planilha. Mais clareza." entra sem ponte após o mockup demo.
+- `lp-goal` traz 5 elementos numéricos (nome, %, barra, valor, 2 notas) — protagonismo dos números em vez da frase do Nino.
+- `lp-split-copy p` limitado a 42ch, mas mockups ao lado inflam altura no mobile.
+
+### 2.5 Divisão do Rolê (`.lp-role-card`)
+- Card com header (título+sub+total) + 4 linhas com avatar/nome/valor/status + botão primário largura total. Altura ≈ 480px. Somado ao section-head vira uma tela inteira de mockup.
+- Botão "Preparar lembrete" (primary com gradiente) colide com CTA fixo (também gradiente) na mesma dobra.
+
+### 2.6 Simplicidade + Confiança (`.lp-steps` + `.lp-trust`)
+- 3 passos numerados 40px violet + `lp-trust` com lead + lista de 3 itens. Ao final da página parece manual de onboarding.
+- Repete conceitos já expostos no hero ("WhatsApp ou app") e demo ("organiza e explica").
+
+### 2.7 CTA Final + FAQ
+- CTA final: mesma promessa do hero ("faz mais sentido"). Sem gatilho de decisão.
+- FAQ: 5 perguntas, `<details>` com padding 20/22. Pergunta 4 ("Como as previsões funcionam?") é a única realmente objeção; outras 4 são reiteração.
+- **Bug observado no vídeo**: CTA fixo continua visível sobre o footer — observer só ativa em `#comecar`/`#duvidas`, não em `.lp-footer`.
+
+---
+
+## 3. Tabela de ação por bloco
+
+| Bloco | Ação |
+|---|---|
+| Header | **Manter** |
+| Hero — eyebrow | **Remover** no mobile |
+| Hero — lead + lead-tight | **Fundir** em um parágrafo curto |
+| Hero — link "Ver o Nino em ação" | **Remover** (redundante com scroll) |
+| Hero — mockup | **Reduzir** (3 msgs, altura -30%) |
+| Manifesto | **Redesenhar** (ritmo tipográfico + peso do fechamento) |
+| Demo — chat + trend em caixas separadas | **Fundir** em uma única composição |
+| Demo — legend final | **Remover** |
+| Transform — split C ("Resolver em conversa") | **Remover** (redundante com demo) |
+| Transform — `lp-goal` métricas duplicadas | **Reduzir** para frase-Nino + barra + 1 número |
+| Rolê — 4 participantes | **Reduzir** para 3 (2 pago, 1 pendente) |
+| Rolê — botão primary no card | **Reduzir** (ghost/link) para não competir com CTA fixo |
+| Simples+Trust — trust-lead + trust-list | **Fundir** em 1 parágrafo editorial curto |
+| Simples+Trust — 3 passos | **Reduzir** para linha corrida "01 → 02 → 03" |
+| CTA Final — copy | **Redesenhar** ("Comece a entender seu dinheiro antes que o mês termine.") |
+| FAQ — 5 itens | **Reduzir** para 4 (remover "Quanto custa" — já em micro do hero e CTA) |
+| CTA fixo | **Redesenhar** (altura, cor, escopo de exibição) |
+| Footer | **Manter** |
+
+---
+
+## 4. Copy final revisada (fechada)
+
+### Header
+Nav: `Como ajuda · Divisão do Rolê · Dúvidas · Entrar`
+
+### Hero
+- H1: **Seu dinheiro não está desorganizado.** (quebra) *Só faltava alguém para cuidar dele com você.*
+- Lead único: `O Nino registra sua rotina, percebe mudanças e ajuda você a decidir — pelo WhatsApp ou pelo app.`
+- CTA primário: `Quero meu Nino grátis`
+- Micro: `Grátis para começar · Sem cartão · Menos de 1 minuto`
+- (sem eyebrow, sem link secundário no mobile)
+
+### Manifesto
+```
+O mês não sai do controle
+em um único gasto.
+
+Ele muda aos poucos.
+
+Um delivery a mais.
+Uma assinatura esquecida.
+Uma semana mais cara que o normal.
+
+Quando você percebe,
+a fatura já fechou.
+
+— O Nino acompanha esses sinais com você.
+```
+(última linha em coral, peso 600, tamanho maior)
+
+### Demonstração
+- H2: `Antes de mostrar um número, o Nino explica o que mudou.`
+- Chat unificado (mesmo card, sem trend separado):
+  - user: `Gastei R$ 80 no bar ontem no Nubank.`
+  - nino: `Organizei em Lazer.`
+  - nino: `Nesse ritmo, seu mês fecha em **R$ 3.180** — 8% acima do anterior.`
+  - inline no card: mini-sparkline + label `8% acima do mês anterior`
+  - suggestion: `Quer definir um limite para o restante do mês?`
+- (sem legend abaixo)
+
+### Transformação
+H2: `Menos planilha. Mais clareza.`
+
+**A. Perceber antes que aperte.**
+`O Nino nota quando seu ritmo muda e avisa enquanto ainda dá tempo de ajustar.`
+Mockup: nota `Seus gastos com delivery aumentaram nas últimas 3 semanas — a maior parte às sextas e sábados.`
+
+**B. Manter seus planos vivos.**
+`Suas metas deixam de ser um número esquecido e passam a caminhar com o mês.`
+Mockup (frase do Nino em destaque + barra + 1 número):
+> "Mantendo o ritmo atual, você chega lá em novembro."
+> Viagem de fim de ano · 72%
+
+(split C removido)
+
+### Divisão do Rolê
+- H2: `Dividir a conta não deveria virar outra conta pra você resolver.`
+- Lead: `Você conta quem foi e quanto foi. O Nino calcula a parte de cada um e prepara um lembrete amigável.`
+- Card compacto: título `Jantar de sábado · R$ 480` + 3 linhas (Ana pago, Bruno pago, Camila pendente) + rodapé `+1 pessoa` + botão ghost `Preparar lembrete` (sem gradiente).
+
+### Simplicidade + Confiança
+- H2: `Simples de usar. Claro no que faz.`
+- Passos em linha corrida:
+  `01 Você conta. · 02 O Nino organiza e explica. · 03 Você decide.`
+- Parágrafo único de confiança:
+  `Você escolhe o que registrar. O Nino não movimenta seu dinheiro — só organiza, explica e sugere caminhos em linguagem humana.`
+(sem lista de bullets)
+
+### CTA Final
+- H2: `Comece a entender seu dinheiro antes que o mês termine.`
+- Lead: `Uma conversa com o Nino já muda o jeito que você olha pros seus números.`
+- CTA: `Quero meu Nino grátis`
+- Micro: `Grátis para começar · Sem cartão de crédito`
+
+### FAQ (4)
+1. `O Nino é um banco?` — Não. Ele organiza informações, explica mudanças e ajuda você a decidir. Não movimenta dinheiro.
+2. `Funciona pelo WhatsApp?` — Sim. Você conversa com o Nino pelo WhatsApp ou usa o app.
+3. `Como as previsões funcionam?` — São calculadas com base no que você registra, no seu ritmo atual e no histórico. O Nino mostra o que influenciou cada previsão.
+4. `Meus dados ficam seguros?` — Ficam. Nada é compartilhado sem seu consentimento e nenhuma decisão financeira é tomada automaticamente.
+
+(remover "Quanto custa" — coberto pelo micro em hero/CTA)
+
+---
+
+## 5. Estrutura final recomendada — **7 blocos**, mesma contagem
+
+Mantém o número; muda o peso interno de cada bloco. Sequência:
 
 ```text
-1. HERO            → "Isso pode ser diferente."          (identificação + promessa)
-2. MANIFESTO       → "Isso acontece comigo."             (reconhecimento emocional)
-3. DEMONSTRAÇÃO    → "Como assim ele percebe?"           (prova viva em uma cena)
-4. TRANSFORMAÇÃO   → "O que muda pra mim."               (3 benefícios narrados)
-5. DIVISÃO DO ROLÊ → "Até isso ele resolve?"             (momento concreto, memorável)
-6. SIMPLES+CONFIA  → "Como funciona e o que ele não faz" (mecânica + confiança)
-7. CTA FINAL + FAQ → "Vou começar."                      (ação + últimas dúvidas)
+[Header fixo, escuro, translúcido]
+1. Hero (ink)              — 1 dobra 390×844 completa
+2. Manifesto (cloud)       — 1 dobra
+3. Demonstração (white)    — 1 dobra
+4. Transformação (cloud)   — 2 splits (não 3)
+5. Divisão do Rolê (white) — card compacto
+6. Simples + Confiança (cloud) — passos em linha + 1 parágrafo
+7. CTA Final (ink) + FAQ (cloud, 4 itens)
+[Footer ink]
 ```
 
-Cada bloco responde **uma pergunta nova**. Nenhum repete o anterior.
+Contagem de dobras mobile alvo: **10 dobras** (hoje ≈14).
 
 ---
 
-## 7. Estrutura final recomendada
+## 6. Especificação visual por bloco (mobile 390px)
 
-7 blocos. Fundo predominantemente **Cloud/Branco**. Deep Ink apenas no Hero e no CTA final. Coral e gradiente reservados para 2–3 pontos de energia.
+Tokens já existem em `landing.css`; abaixo os valores-alvo.
 
-| # | Bloco | Fundo | Papel |
-|---|-------|-------|-------|
-| 1 | Hero | Deep Ink | Promessa + demo mínima |
-| 2 | Manifesto | Cloud | Editorial, tipografia grande |
-| 3 | Demonstração | Branco | Cena completa: registro → previsão → causa → ação |
-| 4 | Transformação | Cloud alternado | 3 benefícios com composição alternada |
-| 5 | Divisão do Rolê | Branco | 1 mockup concreto, leve |
-| 6 | Simples + Confiança | Cloud | 3 passos + o que o Nino não faz |
-| 7 | CTA final + FAQ | Deep Ink → Cloud | Fecho emocional + 5 perguntas |
+### Hero
+- Fundo: `--lp-ink` com radial suave existente.
+- Wrap: 20px padding lateral, `padding: 96px 0 56px` (hoje 96/72).
+- H1: 36px / 1.08 / -0.02em; máx 4 linhas.
+- Lead: 16px / 1.65; máx 3 linhas.
+- CTA: `lp-btn.primary` altura 48px (mantém).
+- Micro: 12px, opacity 0.55.
+- Mockup: altura máx 320px, 3 mensagens.
+- **Sem eyebrow, sem link secundário no mobile** (`@media (max-width: 767px)`).
 
----
+### Manifesto
+- Fundo: cloud.
+- `padding: 88px 0`.
+- Inner: `max-width: 520px`, `gap: 20px` entre grupos, `gap: 4px` dentro de grupo.
+- Linha 1: 32px / 1.15 / 600 ink.
+- Linha 2: 20px muted.
+- 3 linhas-sinal: 18px / 1.5 ink com `margin-block: 2px`.
+- Close: 20px muted, `margin-top: 24px`.
+- Final: 22px / 600 **em coral** (`--lp-coral`), `margin-top: 28px`.
 
-## 8. Copy completa proposta
+### Demonstração
+- Fundo: white.
+- `padding: 88px 0`.
+- Section-head max 560px.
+- **Composição unificada**: um único `.lp-chat--light`, radius 24px, sombra soft.
+  - Sparkline dentro do card (altura 56px, padding 12px 0), separador `border-top: 1px solid --lp-line`.
+  - Sem `.lp-trend` externo, sem `.lp-demo-legend`.
+- CTA sugestão (suggestion): mantém.
 
-### Bloco 1 — Hero
-- **Eyebrow (opcional, discreta):** "Inteligência financeira conversacional"
-- **H1:** "Seu dinheiro não está desorganizado. Só faltava alguém para cuidar dele com você."
-- **Sub (1 linha):** "O Nino registra sua rotina, percebe mudanças e ajuda você a decidir antes que o mês aperte."
-- **Complemento:** "Pelo WhatsApp ou pelo app."
-- **CTA primário:** "Quero meu Nino grátis"
-- **CTA secundário (link discreto):** "Ver o Nino em ação"
-- **Microcopy:** "Grátis para começar · Sem cartão · Menos de 1 minuto"
+### Transformação
+- Fundo cloud, `padding: 88px 0`.
+- H2 centralizado, `margin-bottom: 48px`.
+- 2 splits (não 3). Mobile: copy acima do visual, `gap: 24px`. Divider entre splits: `border-top: 1px solid --lp-line`, `padding-block: 40px`.
+- Split A: card `lp-note` altura ≈ 140px.
+- Split B: `lp-goal` redesenhado — frase-Nino em destaque (17px/1.4 ink 500) + barra + `72% · Viagem de fim de ano` em muted 13px.
 
-*Alternativas de H1 a testar (documentadas, não simultâneas):*
-- "O mês não aperta de uma vez. Ele vai dando sinais."
-- "Seu dinheiro tenta avisar antes. O Nino ajuda você a perceber."
+### Divisão do Rolê
+- Fundo white, `padding: 88px 0`.
+- Card radius 24px, `padding: 20px`, altura alvo ≤ 360px.
+- 3 linhas de participante + `+1 pessoa` como muted.
+- Botão: `lp-btn` variante ghost (borda `--lp-line`, texto ink), sem gradiente.
 
-### Bloco 2 — Manifesto
-Texto editorial, uma frase por linha, tipografia grande:
+### Simplicidade + Confiança
+- Fundo cloud, `padding: 88px 0`.
+- Passos: bloco horizontal com 3 células separadas por `·` invisível (grid `1fr auto 1fr auto 1fr`), tipografia 15/1.5, numeral 40px violet.
+- Confiança: 1 parágrafo 16px/1.65 max 60ch, sem lista.
 
-> O mês não sai do controle em um único gasto.
-> Ele muda aos poucos.
-> Um delivery a mais.
-> Uma assinatura esquecida.
-> Uma semana mais cara do que o normal.
-> Quando você percebe, a fatura já fechou.
->
-> **O Nino acompanha esses sinais com você.**
+### CTA Final
+- Fundo ink, `padding: 96px 0`.
+- H2 32/1.15, lead 16 muted, CTA único.
+- Símbolo decorativo: manter opacity 0.05, mas mover para top-right no mobile.
 
-Sem cards. Sem ícones. Só respiro.
+### FAQ
+- Fundo cloud, `padding: 72px 0 96px` (encurta cauda).
+- 4 `<details>`, radius 16px.
 
-### Bloco 3 — Demonstração central
-- **H2:** "Antes de mostrar um número, o Nino explica o que mudou."
-- **Cena (mockup único, conversa + camada de inteligência):**
-  - Você: *"Gastei R$ 80 no bar ontem no Nubank."*
-  - Nino: *"Pronto. Organizei em Lazer."*
-  - Nino: *"Nesse ritmo, seu mês fecha em R$ 3.180 — 8% acima do anterior."*
-  - Nino: *"Lazer e alimentação fora explicam a maior parte da alta."*
-  - Sugestão: *"Quer definir um limite para o restante do mês?"*
-- **Legenda curta abaixo:** "Uma conversa. Um registro. Uma previsão que muda com você."
-
-Sem outros cards competindo. Sem métricas soltas ao lado.
-
-### Bloco 4 — O que muda na sua vida
-- **H2:** "Menos planilha. Mais clareza."
-- Três subseções com **composição alternada** (imagem à direita, imagem à esquerda, texto pleno):
-
-  **A. Perceber antes que aperte**
-  "O Nino percebe quando seu ritmo muda e avisa enquanto ainda dá tempo de ajustar."
-
-  **B. Manter seus planos vivos**
-  "Metas deixam de ser um número esquecido e passam a acompanhar o que acontece no mês."
-
-  **C. Resolver a rotina em uma conversa**
-  "Registrar, corrigir, perguntar, entender. Você fala como fala. O Nino organiza."
-
-Cada benefício com **um visual próprio** (não três cards iguais).
-
-### Bloco 5 — Divisão do Rolê
-- **H2:** "Dividir a conta não deveria virar outra conta pra você resolver."
-- **Corpo:** "Você conta quem foi, quanto foi e quem pagou. O Nino calcula a parte de cada um e te ajuda a preparar um lembrete amigável."
-- **Mockup:** total, participantes, valor por pessoa, quem pagou, pendentes, botão "Preparar lembrete".
-
-Nada sobre envio automático.
-
-### Bloco 6 — Simples + Confiança
-- **H2:** "Falar com o Nino é simples. Entender o que ele faz também."
-- **Três passos (sem cards pesados, tipografia numerada):**
-  1. Você conta o que aconteceu.
-  2. O Nino organiza e explica.
-  3. Você decide com mais clareza.
-- **Bloco curto de confiança (2–3 linhas, sem selos):**
-  "Você escolhe o que registrar. O Nino não movimenta seu dinheiro. Tudo que ele conclui, ele mostra por quê."
-
-### Bloco 7 — CTA final + FAQ
-- **H2:** "Seu dinheiro começa a fazer mais sentido a partir de uma conversa."
-- **Sub:** "Fale com o Nino e descubra o que seus números estão tentando dizer."
-- **CTA:** "Quero meu Nino grátis"
-- **FAQ (5 perguntas, `<details>`):**
-  1. O Nino é um banco? → Não. Ele organiza e explica; nunca movimenta dinheiro.
-  2. Funciona pelo WhatsApp? → Sim, pelo WhatsApp e pelo app.
-  3. O Nino movimenta meu dinheiro? → Nunca. Ele só entende e sugere.
-  4. Como as previsões funcionam? → A partir do que você registra no mês, com a fórmula explicada quando você pergunta.
-  5. Quanto custa para começar? → Grátis. Sem cartão.
+### Footer
+- Ink, `padding: 32px 0` (hoje 40px).
 
 ---
 
-## 9. Wireframe textual — Mobile (360–430 px)
+## 7. Componentes e seletores a alterar
 
-```text
-┌────────────────────────────┐
-│ [Nino] Meu Nino.IA   Entrar│  header 52px
-├────────────────────────────┤
-│                            │
-│  H1 (3–4 linhas, 34–40px)  │
-│                            │
-│  Sub (1 linha, 15px)       │
-│  · WhatsApp ou app         │
-│                            │
-│  [Quero meu Nino grátis]   │
-│  Ver o Nino em ação →      │
-│                            │
-│  microcopy pequena         │
-│                            │
-│  ┌ mockup conversa ─────┐  │
-│  │ Você: ...           │  │
-│  │ Nino: ...           │  │
-│  └─────────────────────┘  │
-├────────────────────────────┤ ← após rolar: CTA fixo aparece
-│  MANIFESTO                 │
-│  frases curtas             │
-│  tipografia grande         │
-│  respiro                   │
-├────────────────────────────┤
-│  DEMONSTRAÇÃO              │
-│  H2                        │
-│  mockup conversa completo  │
-│  legenda                   │
-├────────────────────────────┤
-│  TRANSFORMAÇÃO             │
-│  A. imagem em cima         │
-│      texto embaixo         │
-│  B. imagem embaixo         │
-│      texto em cima         │
-│  C. texto pleno + visual   │
-├────────────────────────────┤
-│  DIVISÃO DO ROLÊ           │
-│  mockup enxuto             │
-├────────────────────────────┤
-│  SIMPLES + CONFIANÇA       │
-│  3 passos numerados        │
-│  confiança em 2 linhas     │
-├────────────────────────────┤
-│  CTA FINAL (Deep Ink)      │
-│  H2 grande                 │
-│  [Quero meu Nino grátis]   │
-├────────────────────────────┤
-│  FAQ (5 <details>)         │
-├────────────────────────────┤
-│  footer minimalista        │
-└────────────────────────────┘
-```
+Arquivos:
+- `src/pages/landing/LandingPage.tsx`
+- `src/pages/landing/landing.css`
+- `src/test/landing-page.test.tsx` (adequar copy final)
 
-CTA fixo: **oculto** durante Hero e durante CTA final/FAQ.
+Trechos-alvo em `LandingPage.tsx`:
+- `HeroSection` (linhas 64–97): remover eyebrow (67:69) e `lp-lead--tight` + link secundário (80–87). Fundir leads.
+- `HeroMockup` (99–119): remover uma das mensagens `nino` para 3 bolhas totais.
+- `ManifestoSection` (123–142): reordenar copy final; adicionar classe modificadora ao fechamento em coral.
+- `DemoSection` (146–201): fundir `.lp-chat--light` e `.lp-trend` em um único card; remover `.lp-demo-legend`.
+- `TransformSection` (205–284): remover terceiro `.lp-split` (264–280); refatorar `.lp-goal` (246–260) reduzindo métricas.
+- `RoleSection` (288–332): reduzir participantes para 3; trocar `lp-btn primary` (325) por variante ghost.
+- `SimpleTrustSection` (336–386): substituir `<ol class="lp-steps">` por linha inline; substituir `<ul class="lp-trust-list">` por parágrafo único.
+- `FinalCtaSection` (390–412): substituir H2 e lead.
+- `FAQSection` + `FAQ_ITEMS` (416–460): reduzir para 4 itens; ajustar copy.
+- `MobileCta` (489–553): trocar sentinelas (ver §9).
 
-## 10. Wireframe textual — Desktop (≥1024 px)
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│ Header 64px  [Nino] Meu Nino.IA           menu    Entrar │
-├──────────────────────────────────────────────────────────┤
-│ HERO — grid 12 col                                       │
-│  ├ 7 col: eyebrow · H1 grande · sub · CTAs · microcopy   │
-│  └ 5 col: mockup conversa único                          │
-├──────────────────────────────────────────────────────────┤
-│ MANIFESTO — coluna central max 720px, tipografia editorial│
-├──────────────────────────────────────────────────────────┤
-│ DEMONSTRAÇÃO — mockup grande centralizado + legenda      │
-├──────────────────────────────────────────────────────────┤
-│ TRANSFORMAÇÃO — 3 linhas alternadas texto↔visual (não 3 cards)│
-├──────────────────────────────────────────────────────────┤
-│ DIVISÃO DO ROLÊ — 6/6 texto+mockup                       │
-├──────────────────────────────────────────────────────────┤
-│ SIMPLES+CONFIANÇA — 3 passos horizontais + linha confiança│
-├──────────────────────────────────────────────────────────┤
-│ CTA FINAL Deep Ink — full width, tipografia grande       │
-│ FAQ Cloud — coluna central 720px                         │
-│ Footer                                                   │
-└──────────────────────────────────────────────────────────┘
-```
-
-Sem duas colunas repetidas. Cada bloco tem uma composição diferente.
+Seletores CSS a criar/ajustar em `landing.css`:
+- Novo: `.lp-manifesto-final--coral`, `.lp-btn.ghost`, `.lp-steps--inline`, `.lp-mobile-cta` (redesign).
+- Ajustar: `.lp-hero` padding mobile, `.lp-eyebrow` `@media (max-width: 767px) { display: none }`, `.lp-lead--tight { display: none }` em mobile, `.lp-section` padding, `.lp-goal` layout, `.lp-role-card` altura, `.lp-final` símbolo posicionamento.
+- Remover: `.lp-trend`, `.lp-demo-legend` (blocos e regras).
 
 ---
 
-## 11. Direção visual por bloco
+## 8. Redução de comprimento
 
-1. **Hero** — Deep Ink `#10111A`. Textura sutil do símbolo Nino como water-mark grande atrás. Mockup em superfície `#181A25` elevada, borda 1px `rgba(255,255,255,0.06)`.
-2. **Manifesto** — Cloud `#F7F6FB`, tipografia 28–40px, coluna estreita, respiro generoso, uma linha por frase.
-3. **Demonstração** — Branco. Mockup único centralizado. Camada de inteligência (previsão + causa) surge abaixo do mockup em superfície levemente elevada; **sem card dentro de card**.
-4. **Transformação** — Cloud. Composição editorial alternada. Coral pontual em uma das três cenas.
-5. **Divisão do Rolê** — Branco. Mockup compacto; gradiente aparece **uma vez** no botão "Preparar lembrete".
-6. **Simples + Confiança** — Cloud. Números 01/02/03 em tipografia grande servindo como ícone; confiança em texto corrido, sem selos.
-7. **CTA final** — Deep Ink full-bleed, título grande, botão coral. FAQ imediatamente abaixo em Cloud com `<details>` mínimos.
+Hoje (estimado a 390px):
+- Hero ≈ 900px · Manifesto ≈ 720px · Demo ≈ 980px · Transform ≈ 1320px · Rolê ≈ 780px · Simples+Trust ≈ 820px · CTA Final ≈ 620px · FAQ ≈ 720px · Footer ≈ 120px → **≈ 6.980px (≈ 8.3 dobras)**. Com header, gaps e CTA fixo empurrando, percepção ≈ 14 dobras.
 
----
+Alvo pós-plano:
+- Hero 780 · Manifesto 640 · Demo 720 · Transform 900 · Rolê 560 · Simples+Trust 520 · CTA Final 560 · FAQ 520 · Footer 100 → **≈ 5.300px (≈ 6.3 dobras)**.
+- **Redução: ≈ 24%**, dentro da meta 20–30%.
 
-## 12. Seções atuais a **remover**
-
-- `previsao`, `comportamento`, `insights` (fundem-se na Demonstração)
-- `capacidades` (funcionalidades genéricas — inimigo do storytelling)
-- `confianca` e `seguranca` como blocos separados (fundem-se em Simples+Confiança)
-- `como-funciona` como bloco autônomo (absorvido em Simples+Confiança)
-
-## 13. Seções a **agrupar**
-
-- `previsao` + `comportamento` + `insights` → **Demonstração central**
-- `como-funciona` + `confianca` + `seguranca` → **Simples + Confiança**
-- `metas` → subseção B de **Transformação**
-
-## 14. Componentes a **preservar**
-
-- `NinoSymbol`, `NinoWordmark`, `NinoLogo` (marca oficial — não mexer)
-- Tokens de cor já definidos em `landing.css`
-- Estrutura de `<details>` do FAQ
-- Testes de fumaça em `src/test/landing-page.test.tsx` (serão ajustados nos ids/qtd. de FAQ como parte da futura implementação)
-
-## 15. Componentes a **refazer**
-
-- `LandingPage.tsx` inteira (composição de 7 blocos)
-- Subcomponentes propostos (na futura implementação):
-  - `HeroBlock`, `ManifestoBlock`, `DemoBlock`, `TransformBlock`, `RoleBlock`, `SimpleTrustBlock`, `FinalCtaFaqBlock`
-  - `ConversationMockup` (usado no Hero e na Demonstração, com variantes de densidade)
-  - `StickyCta` (com regra de visibilidade condicional)
-- `landing.css` reescrita: menos utilitárias, mais escopo editorial, remoção de blocos órfãos.
+Fontes de corte: eliminação de 1 split, fusão chat+trend, redução do `lp-goal`, redução de 5 para 4 FAQs, encurtamento de paddings 120→88 mobile e 40→32 no footer, remoção da lista de trust e da eyebrow.
 
 ---
 
-## 16. Estratégia do CTA fixo mobile
+## 9. Regras finais do CTA fixo
 
-**Recomendação: CTA fixo condicional (opção preferencial do briefing).**
+### Visual
+- Altura total: **52px** (hoje ≈ 64px com padding 8 + botão 48).
+- Fundo: `rgba(16, 17, 26, 0.94)` sólido; **sem gradiente**, sem borda.
+- Border-radius: 14px (hoje 20).
+- Shadow: `0 12px 32px rgba(16, 17, 26, 0.24)`.
+- Botão interno: label `Começar grátis`, texto branco, background `rgba(255,255,255,0.10)`, sem gradiente; altura 40px.
+- Padding: `left/right 16px, bottom 12px`.
 
-Regras:
-- **Oculto** enquanto o Hero está visível (usa `IntersectionObserver` sobre o Hero).
-- **Aparece** ao ultrapassar o Hero, com fade de 180ms.
-- **Desaparece** ao entrar em vista o bloco de CTA Final/FAQ.
-- Altura 52px, fundo `rgba(16,17,26,0.92)` com blur leve, apenas o botão coral + microcopy de 1 linha.
-- Nunca cobre conteúdo: adiciona `padding-bottom` dinâmico ao `<main>` só quando visível.
-- Desktop: **sem** CTA fixo — a densidade não pede.
+### Comportamento (IntersectionObserver)
+- **Oculto** quando qualquer um observado está visível: `#hero`, `#comecar`, `#duvidas`, `.lp-footer`.
+- **Visível** apenas quando nenhum dos acima está no viewport (Manifesto → Simples+Trust).
+- Adicionar `.lp-footer` como sentinel para corrigir o bug observado.
+- Delay de 200ms na primeira aparição para evitar flicker no hero.
 
-Justificativa: mantém conversão no scroll longo sem competir com o hero (que já tem CTA claro) nem com o CTA final (redundância prejudica).
-
----
-
-## 17. Sistema — tipografia, espaçamento, cores
-
-**Cores (uso disciplinado):**
-- Fundo dominante: Cloud `#F7F6FB` + Branco `#FFFFFF` (~70% da página).
-- Deep Ink `#10111A` (~15%): Hero + CTA final.
-- Nino Coral `#FF6B5F`: CTA primário + 1 destaque narrativo por página.
-- Nino Mint `#2FC99A`: apenas estados positivos em mockups.
-- Gradiente `135deg #6D4AFF → #4338FF → #FF6B5F`: máximo 2–3 aparições (mockup do Hero, botão da Divisão do Rolê, borda sutil do símbolo).
-
-**Tipografia (DM Sans):**
-- H1: 40/1.06 mobile, 64/1.04 desktop, peso 600.
-- H2: 28/1.10 mobile, 44/1.08 desktop, peso 600.
-- H3: 20/1.15, peso 600.
-- Body: 16/1.65 mobile, 17/1.7 desktop, peso 400–500.
-- Label/eyebrow: 12/1.2, peso 600, tracking +0.06em, uppercase discreto.
-- Máx. 60–66 caracteres por linha em parágrafos.
-
-**Espaçamento (escala 4px):**
-- Padding vertical entre blocos: 72px mobile, 128px desktop.
-- Gap interno em blocos editoriais: 24/32/48px.
-- Container mobile: 20px padding lateral; desktop: max-width 1120px.
+### Escopo
+- `@media (max-width: 899px)` apenas.
+- `prefers-reduced-motion`: sem transição de opacity, aparece direto.
 
 ---
 
-## 18. Estratégia de iconografia
+## 10. Checklist de QA por viewport
 
-- **Phosphor Icons** apenas em: FAQ toggler, microcopy do CTA fixo, itens utilitários do footer.
-- **Sem ícone** em títulos de seção.
-- **Sem ícone** decorando parágrafos.
-- Símbolo oficial do Nino: watermark no Hero, avatar do Nino nos mockups, âncora do CTA final. Nunca como ícone funcional.
+| Viewport | Verificações |
+|---|---|
+| **320px** (min) | H1 sem overflow; card Rolê participantes cabem sem cortar valor; CTA fixo largura 100% − 24px; padding lateral 16px suficiente. |
+| **360px** | Mockup hero ≤ 320px altura; manifesto max-width respeitado; splits empilhados sem lacuna. |
+| **390px** (iPhone 14) | Primeira dobra: header + H1 + lead + CTA + micro **sem mockup cortado no meio**; CTA fixo oculto no hero. |
+| **430px** (iPhone 15 Pro Max) | Sem widow-lines em H1; padding vertical 88px válido. |
+| **768px** (tablet) | Transição para grid 2 col nos splits; nav-mobile-login oculta ainda; CTA fixo oculto (breakpoint 899). |
+| **1024px** | Header nav-links visíveis; hero grid 1.05fr / 0.95fr; wrap 1120 respeitado. |
+| **1440px** | Sem overflow horizontal; símbolo do CTA final não escapa; footer alinhado horizontal. |
 
----
-
-## 19. Mockups necessários — história de cada um
-
-1. **Hero mockup** — Uma bolha do usuário + duas bolhas do Nino + linha de sugestão. História: "eu falo, ele entende, ele já projeta."
-2. **Demonstração mockup** — Extensão do Hero mockup, com um mini gráfico linha única mostrando a previsão atualizada. História: "não é só resposta, é consciência."
-3. **Transformação A — Percepção** — Notificação sutil "Seus gastos com delivery aumentaram nas últimas 3 semanas."
-4. **Transformação B — Metas** — Barra de progresso viva com nota "Sua meta continua possível, mas o próximo aporte precisa ser um pouco maior."
-5. **Transformação C — Conversa** — Frase natural do usuário + correção rápida ("Foi no débito, não no crédito").
-6. **Divisão do Rolê** — Card com total, 3 avatares, valor por pessoa, status (pago/pendente), botão "Preparar lembrete".
-
-Todos os mockups: estética consistente, mesma família de bolha, mesmo símbolo do Nino como avatar. Sem screenshot real; ilustrações fiéis à UI do app.
-
----
-
-## 20. Microinterações recomendadas
-
-- Bolhas de mensagem entram com fade+translate 180–220ms, escalonadas.
-- Linha do mini-gráfico da Demonstração se desenha uma única vez ao entrar no viewport (path-length 600ms).
-- Barra da meta preenche em 500ms ease-out.
-- CTA fixo: fade 200ms.
-- Hover CTA: brilho 1px + translateY(-1px), 180ms.
-- `prefers-reduced-motion`: tudo estático.
-
-Proibido: parallax, partículas, 3D, glow contínuo, bounce.
+QA transversal:
+- CTA fixo desaparece antes do CTA final e permanece oculto no footer.
+- `prefers-reduced-motion`: sem animações.
+- Contraste texto secundário `--lp-muted #6D7080` sobre `--lp-cloud #F7F6FB` = 4.62:1 (aprova WCAG AA para 16px). Confirmar em mockups.
+- Focus visible violet 2px preservado.
+- Testes: `src/test/landing-page.test.tsx` — atualizar assertions para copy nova e 4 FAQs.
 
 ---
 
-## 21. Critérios de aceite verificáveis
+## 11. Confirmação
 
-- [ ] Página com exatamente **7 blocos** principais.
-- [ ] Hero exibe **uma** promessa principal + no máx. 1 CTA primário + 1 CTA texto.
-- [ ] Nenhuma seção repete a ideia de outra (auditoria de copy).
-- [ ] `previsao`, `comportamento`, `insights`, `capacidades`, `confianca`, `seguranca`, `como-funciona` **não existem** como seções autônomas.
-- [ ] CTA fixo mobile **oculto** no Hero e no CTA final/FAQ.
-- [ ] Página funciona sem overflow horizontal em 320/360/390/430/768/1024/1440.
-- [ ] Nenhum conteúdo essencial em `position: absolute` no mobile.
-- [ ] Alturas de toque ≥ 44px.
-- [ ] Deep Ink usado em no máximo 2 blocos (Hero + CTA final).
-- [ ] Gradiente aparece em no máximo 3 pontos.
-- [ ] FAQ com exatamente 5 perguntas.
-- [ ] Sem selos, sem prova social fictícia, sem promessas absolutas.
-- [ ] Testes existentes em `landing-page.test.tsx` atualizados e verdes (ids revisados na fase de execução).
-- [ ] Lighthouse mobile: LCP < 2.5s, CLS < 0.05, sem shift do CTA fixo.
-- [ ] Title/description conforme SEO abaixo.
-
-**SEO:**
-- Title: `Meu Nino.IA — seu dinheiro começa a fazer mais sentido`
-- Description: `Converse com o Nino para organizar gastos, perceber mudanças, acompanhar metas e entender o que vem pela frente.`
-
----
-
-## 22. Estimativa de arquivos a alterar (na futura execução)
-
-- `src/pages/landing/LandingPage.tsx` — reescrita completa.
-- `src/pages/landing/landing.css` — reescrita completa (poda de ~40% das regras).
-- **Novos**: `src/pages/landing/blocks/HeroBlock.tsx`, `ManifestoBlock.tsx`, `DemoBlock.tsx`, `TransformBlock.tsx`, `RoleBlock.tsx`, `SimpleTrustBlock.tsx`, `FinalCtaFaqBlock.tsx`, `ConversationMockup.tsx`, `StickyCta.tsx`.
-- `src/test/landing-page.test.tsx` — atualização de ids, contagem de FAQ (6 → 5), asserts de copy.
-- `index.html` — title/description/OG.
-- Preservados: `NinoSymbol.tsx`, `NinoWordmark.tsx`, `NinoLogo.tsx`, `public/brand/meu-nino-symbol.svg`.
-
-Estimativa: **~10 arquivos** tocados, **7 novos**, **0 no backend/app autenticado**.
-
----
-
-## 23. Riscos de implementação
-
-- **Testes de LP** dependem de ids atuais (`previsao`, `comportamento`, etc.). Precisarão ser reescritos na mesma execução para não quebrar CI.
-- **Regras de CTA fixo condicional** dependem de `IntersectionObserver`; garantir fallback quando indisponível (mostrar estático após 200px de scroll).
-- **Cortes agressivos** podem gerar pedido de rollback parcial — mitigado mantendo o commit anterior como referência.
-- Divisão do Rolê como bloco isolado exige mockup novo — arriscar-se a mensagem prometer envio automático (proibido). Copy foi travada em "preparar lembrete".
-- Regressão SEO se meta tags não forem atualizadas junto — incluído no escopo do patch único.
-- Contradição com `custom-instructions` sobre nome interno "NoControle.ia": o rebranding para Meu Nino.IA já foi executado em ondas anteriores; este plano mantém a marca vigente.
-
----
-
-## 24. Confirmação de Plan Mode
-
-Nenhum arquivo do projeto foi criado, alterado ou removido nesta etapa. Nenhum build, deploy, migration ou comando de estado foi executado. Nenhum crédito de implementação foi consumido. Este documento é integralmente uma proposta de redesign.
-
-**Aguardando aprovação explícita** para prosseguir com a execução em um único patch consolidado, conforme critérios de aceite acima.
+**Nenhum arquivo do projeto foi alterado nesta análise.** Nenhum build, teste ou deploy foi executado. As únicas leituras foram `src/pages/landing/LandingPage.tsx` e `src/pages/landing/landing.css`, ambas em modo somente-leitura. Aguardando aprovação explícita para prosseguir com a implementação em rodada separada.
