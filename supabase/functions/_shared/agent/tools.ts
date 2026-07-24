@@ -6,7 +6,8 @@
 // as first-class helpers from the deterministic fallback.
 
 // deno-lint-ignore-file no-explicit-any
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
+type SupabaseClient = any;
 import { behavioralMetricAmount, computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";

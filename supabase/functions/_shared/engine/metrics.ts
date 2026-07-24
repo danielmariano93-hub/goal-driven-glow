@@ -2,7 +2,8 @@
 // (src/lib/engine/metrics.ts) para uso das ferramentas do agente. Mantém as
 // mesmas fórmulas essenciais para paridade entre App, WhatsApp e Agent Core.
 // deno-lint-ignore-file no-explicit-any
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
+type SupabaseClient = any;
 import {
   computeAccountBalances,
   computeCreditCardOutstanding,
