@@ -2,63 +2,74 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
 import { dict } from "@/lib/admin/displayDictionary";
+import { formatDateTime } from "@/lib/admin/formulas";
 
 type AuditEvent = {
   action: string;
-  actor_admin_id: string;
-  target_kind: string | null;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  target_user_id: string | null;
+  target_email: string | null;
+  meta: Record<string, unknown> | null;
   created_at: string;
 };
 
+type Response = {
+  events: AuditEvent[];
+  instrumentation_started_at: string | null;
+};
+
 export default function GovernancaAuditoria() {
-  const [rows, setRows] = useState<AuditEvent[] | null>(null);
+  const [data, setData] = useState<Response | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    callAdminRpc<{ events: AuditEvent[] }>("admin_v2_audit_list", { _limit: 200 })
-      .then((r) => setRows(r.events))
-      .catch((e) => setError(e.message))
+    callAdminRpc<Response>("admin_v2_audit_list", { _limit: 200 })
+      .then(setData)
+      .catch((e) => setError(e?.message ?? "Falha ao carregar auditoria"))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Não foi possível carregar" description={error} />;
+  if (error) return <EmptyState title="Não foi possível carregar a auditoria" description={error} />;
+
+  const rows = data?.events ?? [];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Auditoria" description="Ações administrativas registradas (imutáveis)." />
-      <div className="surface-card p-4 overflow-x-auto">
-        {rows?.length ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Quando</th>
-                <th>Ação</th>
-                <th>Ator</th>
-                <th>Alvo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-t border-border/40">
-                  <td className="py-2 text-xs">{new Date(r.created_at).toLocaleString("pt-BR")}</td>
-                  <td>{dict.action(r.action)}</td>
-                  <td className="font-mono text-xs">{r.actor_admin_id?.slice(0, 8)}…</td>
-                  <td>{r.target_kind ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <EmptyState
-            title="Nenhuma ação administrativa ainda"
-            description="Concessões, break-glass e mudanças críticas aparecem aqui automaticamente."
+      <PageHeader title="Auditoria" description="Ações administrativas e acessos protegidos registrados de forma rastreável." />
+
+      {rows.length ? (
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <AdminResponsiveList
+            rows={rows}
+            rowKey={(row, index) => `${row.created_at}-${index}`}
+            columns={[
+              { key: "when", label: "Quando", render: (row) => formatDateTime(row.created_at) },
+              { key: "action", label: "Ação", render: (row) => dict.action(row.action) },
+              {
+                key: "actor",
+                label: "Administrador",
+                render: (row) => row.actor_email || (row.actor_user_id ? `ID ${row.actor_user_id.slice(0, 8)}…` : "Sistema"),
+              },
+              {
+                key: "target",
+                label: "Alvo",
+                render: (row) => row.target_email || (row.target_user_id ? `Cliente ${row.target_user_id.slice(0, 8)}…` : "—"),
+              },
+            ]}
           />
-        )}
-      </div>
+        </section>
+      ) : (
+        <EmptyState
+          title="A auditoria detalhada começou recentemente"
+          description="Ainda não há ações administrativas suficientes para formar um histórico."
+        />
+      )}
     </div>
   );
 }

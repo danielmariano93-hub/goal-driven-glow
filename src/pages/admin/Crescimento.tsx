@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
+import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
-import { safeRate } from "@/lib/admin/displayDictionary";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { dict } from "@/lib/admin/displayDictionary";
 
 type LifecycleRow = {
   day: string;
@@ -16,7 +17,6 @@ type LifecycleRow = {
 
 type CohortRow = {
   cohort_week: string;
-  reference_week: string;
   week_offset: number;
   activated_users: number;
   retained_users: number;
@@ -24,162 +24,103 @@ type CohortRow = {
 };
 
 type FunnelRow = { feature: string; step: string; users: number; events: number };
+type Summary = { lifecycle: LifecycleRow[]; sample_size: number };
+type Cohorts = { cohorts: CohortRow[] };
+type Funnel = { funnel: FunnelRow[]; source_quality?: { live: number; backfill: number; proxy: number } };
 
-type SectionState<T> = { loading: boolean; error: string | null; data: T | null };
-
-function useSection<T>(loader: () => Promise<T>, deps: unknown[] = []): SectionState<T> {
-  const [state, setState] = useState<SectionState<T>>({ loading: true, error: null, data: null });
+function useRpc<T>(name: string, args: Record<string, unknown>) {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    setState({ loading: true, error: null, data: null });
-    loader()
-      .then((d) => { if (!cancelled) setState({ loading: false, error: null, data: d }); })
-      .catch((e) => { if (!cancelled) setState({ loading: false, error: e?.message ?? "Erro ao carregar", data: null }); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return state;
-}
-
-function SectionShell({
-  title,
-  state,
-  emptyTitle,
-  emptyDescription,
-  isEmpty,
-  children,
-}: {
-  title: string;
-  state: SectionState<any>;
-  emptyTitle: string;
-  emptyDescription?: string;
-  isEmpty: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="surface-card p-4">
-      <h3 className="font-display text-base font-semibold mb-3">{title}</h3>
-      {state.loading ? (
-        <AdminSkeleton />
-      ) : state.error ? (
-        <EmptyState title="Não foi possível carregar" description={state.error} />
-      ) : isEmpty ? (
-        <EmptyState title={emptyTitle} description={emptyDescription} />
-      ) : (
-        children
-      )}
-    </div>
-  );
+    callAdminRpc<T>(name, args)
+      .then(setData)
+      .catch((e) => setError(e?.message ?? "Falha ao carregar"))
+      .finally(() => setLoading(false));
+  }, [name]);
+  return { data, loading, error };
 }
 
 export default function Crescimento() {
-  const summary = useSection<{ lifecycle: LifecycleRow[]; sample_size: number }>(
-    () => callAdminRpc("admin_v2_growth_summary", { _days: 30 })
-  );
-  const cohorts = useSection<{ cohorts: CohortRow[] }>(
-    () => callAdminRpc("admin_v2_growth_cohorts", { _weeks: 8 })
-  );
-  const funnel = useSection<{ funnel: FunnelRow[] }>(
-    () => callAdminRpc("admin_v2_growth_funnel", { _days: 30 })
-  );
+  const summary = useRpc<Summary>("admin_v2_growth_summary", { _days: 30 });
+  const cohorts = useRpc<Cohorts>("admin_v2_growth_cohorts", { _weeks: 8 });
+  const funnel = useRpc<Funnel>("admin_v2_growth_funnel", { _days: 30 });
+
+  const last = summary.data?.lifecycle?.at(-1);
+  const quality = funnel.data?.source_quality;
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Crescimento"
-        description="Novos, ativos, dormentes, churn e retenção. Sem PII."
+        title="Crescimento e retenção"
+        description="Entenda quem chega, quem recebe valor e quem continua usando o Nino."
       />
 
-      <SectionShell
-        title="Ciclo de vida — 30 dias"
-        state={summary}
-        emptyTitle="Ainda sem dados suficientes"
-        emptyDescription="Precisamos de pelo menos alguns dias de atividade para mostrar o ciclo de vida."
-        isEmpty={!summary.data?.lifecycle?.length}
-      >
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={summary.data?.lifecycle ?? []}>
-              <XAxis dataKey="day" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="new_users" stackId="a" fill="#6D4AFF" name="Novos" />
-              <Bar dataKey="active_users" stackId="a" fill="#2FC99A" name="Ativos" />
-              <Bar dataKey="dormant_users" stackId="a" fill="#FFC46B" name="Dormentes" />
-              <Bar dataKey="churned_users" stackId="a" fill="#FF6B5F" name="Churn" />
-            </BarChart>
-          </ResponsiveContainer>
+      {summary.loading ? (
+        <AdminSkeleton />
+      ) : summary.error ? (
+        <EmptyState title="Não foi possível carregar o resumo" description={summary.error} />
+      ) : (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <AdminMetricCard label="Novos usuários" value={last?.new_users ?? 0} tone="brand" />
+          <AdminMetricCard label="Ativos" value={last?.active_users ?? 0} tone="positive" />
+          <AdminMetricCard label="Em risco/inativos" value={last?.dormant_users ?? 0} tone="warning" />
+          <AdminMetricCard label="Abandonaram" value={last?.churned_users ?? 0} tone="critical" />
         </div>
-      </SectionShell>
+      )}
 
-      <SectionShell
-        title="Coortes W1/W4/W8"
-        state={cohorts}
-        emptyTitle="Coortes ainda em formação"
-        emptyDescription="As primeiras coortes aparecem após 1 semana completa de ativação."
-        isEmpty={!cohorts.data?.cohorts?.length}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Coorte</th>
-                <th>Semana</th>
-                <th>Offset</th>
-                <th className="text-right">Ativados</th>
-                <th className="text-right">Retidos</th>
-                <th className="text-right">Taxa</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(cohorts.data?.cohorts ?? []).map((c, i) => (
-                <tr key={i} className="border-t border-border/40">
-                  <td className="py-2">{c.cohort_week}</td>
-                  <td>{c.reference_week}</td>
-                  <td>W{c.week_offset}</td>
-                  <td className="text-right tabular-nums">{c.activated_users}</td>
-                  <td className="text-right tabular-nums">{c.retained_users}</td>
-                  <td className="text-right tabular-nums">
-                    {safeRate(c.retained_users, c.activated_users)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {quality && quality.live === 0 ? (
+        <div className="rounded-2xl border border-[#6D4AFF]/20 bg-[#6D4AFF]/5 p-4 text-sm">
+          O histórico atual foi reconstruído por backfill/proxy. Tendências ficarão mais confiáveis após a instrumentação live acumular dados.
         </div>
-      </SectionShell>
+      ) : null}
 
-      <SectionShell
-        title="Funil por feature (30d)"
-        state={funnel}
-        emptyTitle="Sem eventos no funil"
-        emptyDescription="Ainda não há eventos vivos suficientes para desenhar o funil."
-        isEmpty={!funnel.data?.funnel?.length}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Feature</th>
-                <th>Etapa</th>
-                <th className="text-right">Usuários</th>
-                <th className="text-right">Eventos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(funnel.data?.funnel ?? []).map((f, i) => (
-                <tr key={i} className="border-t border-border/40">
-                  <td className="py-2">{f.feature}</td>
-                  <td>{f.step}</td>
-                  <td className="text-right tabular-nums">{f.users}</td>
-                  <td className="text-right tabular-nums">{f.events}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionShell>
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <h2 className="mb-4 font-semibold">Funil das experiências</h2>
+        {funnel.loading ? (
+          <AdminSkeleton />
+        ) : funnel.error ? (
+          <EmptyState title="O funil está temporariamente indisponível" description={funnel.error} />
+        ) : funnel.data?.funnel?.length ? (
+          <AdminResponsiveList
+            rows={funnel.data.funnel}
+            rowKey={(row, index) => `${row.feature}-${row.step}-${index}`}
+            columns={[
+              { key: "feature", label: "Experiência", render: (row) => dict.feature(row.feature) },
+              { key: "step", label: "Etapa", render: (row) => dict.step(row.step) },
+              { key: "users", label: "Usuários", render: (row) => row.users, align: "right" },
+              { key: "events", label: "Eventos", render: (row) => row.events, align: "right" },
+            ]}
+          />
+        ) : (
+          <EmptyState title="Ainda não há eventos live suficientes para desenhar o funil" />
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <h2 className="mb-4 font-semibold">Retenção por coorte</h2>
+        {cohorts.loading ? (
+          <AdminSkeleton />
+        ) : cohorts.error ? (
+          <EmptyState title="Não foi possível carregar as coortes" description={cohorts.error} />
+        ) : cohorts.data?.cohorts?.length ? (
+          <AdminResponsiveList
+            rows={cohorts.data.cohorts}
+            rowKey={(row, index) => `${row.cohort_week}-${row.week_offset}-${index}`}
+            columns={[
+              { key: "cohort", label: "Coorte", render: (row) => row.cohort_week },
+              { key: "week", label: "Semana", render: (row) => `W${row.week_offset}` },
+              { key: "activated", label: "Ativados", render: (row) => row.activated_users, align: "right" },
+              { key: "retained", label: "Retidos", render: (row) => row.retained_users, align: "right" },
+            ]}
+          />
+        ) : (
+          <EmptyState
+            title="Ainda não há histórico suficiente para calcular retenção"
+            description="A primeira leitura aparecerá quando a janela mínima de coorte for concluída."
+          />
+        )}
+      </section>
     </div>
   );
 }

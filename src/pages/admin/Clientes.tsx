@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { usePlatformPermissions } from "@/hooks/usePlatformPermissions";
+import { dict } from "@/lib/admin/displayDictionary";
+import { formatDateTime } from "@/lib/admin/formulas";
 
 type Client = {
   pseudo_id: string;
@@ -13,68 +17,80 @@ type Client = {
   lifecycle_status: string;
 };
 
+type Identity = {
+  pseudo_id: string;
+  display_name: string | null;
+  email: string | null;
+};
+
 export default function Clientes() {
+  const { can, loading: permissionsLoading } = usePlatformPermissions();
   const [rows, setRows] = useState<Client[] | null>(null);
+  const [identities, setIdentities] = useState<Record<string, Identity>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     callAdminRpc<{ clients: Client[] }>("admin_v2_clients_list", { _limit: 200 })
-      .then((r) => setRows(r.clients))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+      .then(async (response) => {
+        setRows(response.clients);
+        const ids = response.clients.map((client) => client.pseudo_id);
+        if (!ids.length || permissionsLoading) return;
 
-  if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Erro" description={error} />;
+        if (can("clients.identity.read")) {
+          const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity", { _pseudo_ids: ids });
+          setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+        } else if (can("clients.identity.masked")) {
+          const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity_masked", { _pseudo_ids: ids });
+          setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+        }
+      })
+      .catch((e) => setError(e?.message ?? "Falha ao carregar clientes"))
+      .finally(() => setLoading(false));
+  }, [permissionsLoading]);
+
+  const clients = useMemo(() => rows ?? [], [rows]);
+
+  if (loading || permissionsLoading) return <AdminSkeleton />;
+  if (error) return <EmptyState title="Não foi possível carregar os clientes" description={error} />;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Clientes"
-        description="Lista pseudonimizada. Sem nome, e-mail ou telefone."
+        description="Acompanhe a jornada e administre contas sem acessar a vida financeira de ninguém."
       />
-      <div className="surface-card p-4 overflow-x-auto">
-        {rows?.length ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Pseudo ID</th>
-                <th>Status</th>
-                <th>Primeiro evento</th>
-                <th>Último evento</th>
-                <th className="text-right">Eventos</th>
-                <th className="text-right">Ações significativas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.pseudo_id} className="border-t border-border/40">
-                  <td className="py-2 font-mono text-xs">{r.pseudo_id.slice(0, 8)}…</td>
-                  <td>
-                    <span
-                      className={`inline-block h-2 w-2 rounded-full mr-1 ${
-                        r.lifecycle_status === "active" ? "bg-emerald-500" : "bg-neutral-400"
-                      }`}
-                    />
-                    {r.lifecycle_status}
-                  </td>
-                  <td className="text-xs">
-                    {r.first_event_at ? new Date(r.first_event_at).toLocaleDateString("pt-BR") : "—"}
-                  </td>
-                  <td className="text-xs">
-                    {r.last_event_at ? new Date(r.last_event_at).toLocaleDateString("pt-BR") : "—"}
-                  </td>
-                  <td className="text-right tabular-nums">{r.total_events}</td>
-                  <td className="text-right tabular-nums">{r.significant_actions}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <EmptyState title="Sem clientes ainda" />
-        )}
-      </div>
+
+      {clients.length ? (
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <AdminResponsiveList
+            rows={clients}
+            rowKey={(row) => row.pseudo_id}
+            columns={[
+              {
+                key: "client",
+                label: "Cliente",
+                render: (row) => {
+                  const identity = identities[row.pseudo_id];
+                  return (
+                    <div>
+                      <p className="font-semibold">{identity?.display_name || `Cliente ${row.pseudo_id.slice(0, 6)}`}</p>
+                      <p className="text-xs text-muted-foreground">{identity?.email || "Identidade protegida"}</p>
+                    </div>
+                  );
+                },
+              },
+              { key: "status", label: "Status", render: (row) => dict.status(row.lifecycle_status) },
+              { key: "first", label: "Primeiro evento", render: (row) => formatDateTime(row.first_event_at) },
+              { key: "last", label: "Última atividade", render: (row) => formatDateTime(row.last_event_at) },
+              { key: "events", label: "Eventos", render: (row) => row.total_events, align: "right" },
+              { key: "actions", label: "Ações relevantes", render: (row) => row.significant_actions, align: "right" },
+            ]}
+          />
+        </section>
+      ) : (
+        <EmptyState title="Nenhum cliente encontrado" description="Os novos cadastros aparecerão aqui." />
+      )}
     </div>
   );
 }

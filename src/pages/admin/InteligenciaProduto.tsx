@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { dict } from "@/lib/admin/displayDictionary";
+import { formatRate, rate, sampleLabel } from "@/lib/admin/formulas";
 
 type Feature = { feature: string; events: number; users: number; share: number };
 type Opportunity = {
@@ -10,109 +13,129 @@ type Opportunity = {
   initiated: number;
   completed: number;
   value_delivered: number;
-  completion_rate: number;
-  value_rate: number;
 };
 
 export default function InteligenciaProduto() {
-  const [features, setFeatures] = useState<Feature[] | null>(null);
-  const [opps, setOpps] = useState<Opportunity[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [features, setFeatures] = useState<Feature[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [loadingFeatures, setLoadingFeatures] = useState(true);
+  const [loadingOpportunities, setLoadingOpportunities] = useState(true);
+  const [featureError, setFeatureError] = useState<string | null>(null);
+  const [opportunityError, setOpportunityError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      callAdminRpc<{ features: Feature[] }>("admin_v2_product_features", { _days: 30 }),
-      callAdminRpc<{ opportunities: Opportunity[] }>("admin_v2_product_opportunities"),
-    ])
-      .then(([f, o]) => {
-        setFeatures(f.features);
-        setOpps(o.opportunities);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    callAdminRpc<{ features: Feature[] }>("admin_v2_product_features", { _days: 30 })
+      .then((response) => setFeatures(response.features))
+      .catch((e) => setFeatureError(e?.message ?? "Falha ao carregar adoção"))
+      .finally(() => setLoadingFeatures(false));
+
+    callAdminRpc<{ opportunities: Opportunity[] }>("admin_v2_product_opportunities")
+      .then((response) => setOpportunities(response.opportunities))
+      .catch((e) => setOpportunityError(e?.message ?? "Falha ao carregar oportunidades"))
+      .finally(() => setLoadingOpportunities(false));
   }, []);
 
-  if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Erro" description={error} />;
+  const ranked = useMemo(() => [...features].sort((a, b) => b.users - a.users), [features]);
+  const validOpportunities = opportunities.filter((item) => item.initiated > 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Inteligência de Produto"
-        description="Uso por feature e oportunidades de conversão. Sem PII."
+        description="Veja como as pessoas descobrem, usam e recebem valor de cada experiência do Nino."
       />
 
-      <div className="surface-card p-4">
-        <h3 className="font-display text-base font-semibold mb-3">Features mais usadas (30d)</h3>
-        {features?.length ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Feature</th>
-                <th className="text-right">Eventos</th>
-                <th className="text-right">Usuários</th>
-                <th className="text-right">Share</th>
-              </tr>
-            </thead>
-            <tbody>
-              {features.map((f) => (
-                <tr key={f.feature} className="border-t border-border/40">
-                  <td className="py-2">{f.feature}</td>
-                  <td className="text-right tabular-nums">{f.events}</td>
-                  <td className="text-right tabular-nums">{f.users}</td>
-                  <td className="text-right tabular-nums">{f.share ?? 0}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <EmptyState title="Sem eventos" />
-        )}
+      <div className="rounded-2xl border border-[#6D4AFF]/20 bg-[#6D4AFF]/5 p-4 text-sm">
+        A instrumentação em tempo real ainda está em implantação. Parte do histórico foi reconstruída a partir de registros existentes.
       </div>
 
-      <div className="surface-card p-4">
-        <h3 className="font-display text-base font-semibold mb-3">Oportunidades (baixa conversão)</h3>
-        {(() => {
-          const withInitiated = (opps ?? []).filter((o) => (o.initiated ?? 0) > 0);
-          if (!withInitiated.length) {
-            return (
-              <EmptyState
-                title="Sem oportunidades mapeadas"
-                description="Aparecem aqui features com iniciados suficientes mas baixa conversão."
-              />
-            );
-          }
-          const fmt = (num: number | null, den: number | null) =>
-            !den || den <= 0 || num === null ? "—" : `${((num / den) * 100).toFixed(1).replace(".0", "")}%`;
-          return (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="py-2">Feature</th>
-                  <th className="text-right">Iniciados</th>
-                  <th className="text-right">Concluídos</th>
-                  <th className="text-right">Valor entregue</th>
-                  <th className="text-right">Conclusão</th>
-                  <th className="text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {withInitiated.map((o) => (
-                  <tr key={o.feature} className="border-t border-border/40">
-                    <td className="py-2">{o.feature}</td>
-                    <td className="text-right tabular-nums">{o.initiated}</td>
-                    <td className="text-right tabular-nums">{o.completed}</td>
-                    <td className="text-right tabular-nums">{o.value_delivered}</td>
-                    <td className="text-right tabular-nums">{fmt(o.completed, o.initiated)}</td>
-                    <td className="text-right tabular-nums">{fmt(o.value_delivered, o.initiated)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          );
-        })()}
-      </div>
+      {loadingFeatures ? (
+        <AdminSkeleton />
+      ) : featureError ? (
+        <EmptyState title="Não foi possível carregar a adoção" description={featureError} />
+      ) : ranked.length ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <AdminMetricCard label="Maior alcance" value={dict.feature(ranked[0]?.feature)} tone="brand" />
+            <AdminMetricCard label="Usuários alcançados" value={ranked[0]?.users ?? 0} />
+            <AdminMetricCard label="Usos registrados" value={ranked[0]?.events ?? 0} />
+            <AdminMetricCard label="Participação" value={formatRate(ranked[0]?.share ?? null)} />
+          </div>
+
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <div className="mb-4">
+              <h2 className="font-semibold">Adoção por experiência</h2>
+              <p className="text-sm text-muted-foreground">Alcance e frequência nos últimos 30 dias.</p>
+            </div>
+            <div className="grid gap-3">
+              {ranked.map((item) => (
+                <article key={item.feature} className="rounded-2xl border border-border p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold">{dict.feature(item.feature)}</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {item.users} usuários · {item.events} usos
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#6D4AFF]/10 px-3 py-1 text-xs font-semibold text-[#4338FF]">
+                      {formatRate(item.share)}
+                    </span>
+                  </div>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#E7E5EE]">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#6D4AFF] via-[#4338FF] to-[#FF6B5F]"
+                      style={{ width: `${Math.min(item.share, 100)}%` }}
+                    />
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        </>
+      ) : (
+        <EmptyState title="Ainda não há adoção suficiente para analisar" />
+      )}
+
+      {loadingOpportunities ? (
+        <AdminSkeleton />
+      ) : opportunityError ? (
+        <EmptyState title="Não foi possível carregar as oportunidades" description={opportunityError} />
+      ) : (
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="mb-4">
+            <h2 className="font-semibold">Sinais para investigar</h2>
+            <p className="text-sm text-muted-foreground">Nenhum resultado abaixo deve ser interpretado como causalidade.</p>
+          </div>
+          {validOpportunities.length ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {validOpportunities.map((item) => {
+                const sample = sampleLabel(item.initiated);
+                const completion = rate(item.completed, item.initiated);
+                const value = rate(item.value_delivered, item.initiated);
+                return (
+                  <article key={item.feature} className="rounded-2xl border border-border p-4">
+                    <h3 className="font-semibold">{dict.feature(item.feature)}</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {sample
+                        ? `${item.initiated} pessoa(s) iniciaram. ${sample} para avaliar conversão.`
+                        : `${formatRate(completion)} concluíram e ${formatRate(value)} receberam valor.`}
+                    </p>
+                    <div className="mt-4 flex gap-4 text-sm">
+                      <span>Iniciaram: <strong>{item.initiated}</strong></span>
+                      <span>Concluíram: <strong>{item.completed}</strong></span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title="Ainda não há base válida para apontar oportunidades"
+              description="Experiências sem início registrado foram excluídas da análise."
+            />
+          )}
+        </section>
+      )}
     </div>
   );
 }

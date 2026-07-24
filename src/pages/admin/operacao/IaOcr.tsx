@@ -2,64 +2,103 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
+import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
+import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { formatRate } from "@/lib/admin/formulas";
 
-type Ocr = { uploaded: number; confirmed: number; confirmation_rate: number };
+type OcrTotals = {
+  uploaded: number;
+  confirmed: number;
+  partially_confirmed: number;
+  partial: number;
+  failed: number;
+  canceled: number;
+  eligible: number;
+  confirmation_rate: number | null;
+  failure_rate: number | null;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  backlog: number;
+};
+
+type OcrDay = {
+  day: string;
+  uploaded: number;
+  confirmed: number;
+  partial: number;
+  failed: number;
+  canceled: number;
+};
+
+type OcrResponse = {
+  totals: OcrTotals;
+  daily: OcrDay[];
+  source_kind: string;
+};
 
 export default function OperacaoIaOcr() {
-  const [data, setData] = useState<Ocr | null>(null);
+  const [data, setData] = useState<OcrResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    callAdminRpc<Ocr>("admin_v2_ia_ocr_metrics", { _days: 30 })
+    callAdminRpc<OcrResponse>("admin_v2_ia_ocr_metrics", { _days: 30 })
       .then(setData)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e?.message ?? "Falha ao carregar OCR"))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Não foi possível carregar" description={error} />;
+  if (error) return <EmptyState title="Não foi possível carregar a leitura de documentos" description={error} />;
 
-  const uploaded = data?.uploaded ?? 0;
-  const confirmed = data?.confirmed ?? 0;
-  const rateLabel =
-    uploaded <= 0
-      ? "—"
-      : `${(((confirmed / uploaded) * 100)).toFixed(1).replace(".0", "")}%`;
-  const insufficient = uploaded > 0 && uploaded < 10;
+  const totals = data?.totals;
+  if (!totals || totals.uploaded === 0) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Leitura de documentos" description="Acompanhe volume, qualidade e falhas das importações." />
+        <EmptyState title="Nenhum documento processado" description="Os primeiros envios aparecerão aqui." />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <PageHeader title="IA & OCR" description="Documentos processados nos últimos 30 dias." />
-      {uploaded === 0 ? (
-        <EmptyState
-          title="Nenhum documento processado nos últimos 30 dias"
-          description="Uploads pelo assessor ou WhatsApp aparecem aqui automaticamente."
+      <PageHeader title="Leitura de documentos" description="Acompanhe volume, qualidade e falhas das importações." />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <AdminMetricCard label="Enviados" value={totals.uploaded} tone="brand" />
+        <AdminMetricCard label="Confirmados" value={totals.confirmed} tone="positive" />
+        <AdminMetricCard
+          label="Resultados parciais"
+          value={totals.partial + totals.partially_confirmed}
+          detail="Exigem alguma revisão do usuário"
+          tone="warning"
         />
-      ) : (
-        <>
-          {insufficient ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
-              Amostra pequena ({uploaded} uploads) — a taxa pode variar bastante.
-            </div>
-          ) : null}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="surface-card p-4">
-              <div className="text-[11px] uppercase text-muted-foreground">Uploads</div>
-              <div className="font-display text-2xl font-bold tabular-nums">{uploaded}</div>
-            </div>
-            <div className="surface-card p-4">
-              <div className="text-[11px] uppercase text-muted-foreground">Confirmados</div>
-              <div className="font-display text-2xl font-bold tabular-nums">{confirmed}</div>
-            </div>
-            <div className="surface-card p-4">
-              <div className="text-[11px] uppercase text-muted-foreground">Taxa de confirmação</div>
-              <div className="font-display text-2xl font-bold tabular-nums">{rateLabel}</div>
-            </div>
-          </div>
-        </>
-      )}
+        <AdminMetricCard label="Falhas" value={totals.failed} tone={totals.failed > 0 ? "critical" : "neutral"} />
+        <AdminMetricCard label="Taxa de confirmação" value={formatRate(totals.confirmation_rate)} />
+        <AdminMetricCard label="Taxa de falha" value={formatRate(totals.failure_rate)} />
+        <AdminMetricCard label="Cancelados" value={totals.canceled} />
+        <AdminMetricCard label="Backlog" value={totals.backlog} />
+      </div>
+
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <div className="mb-4">
+          <h2 className="font-semibold">Evolução diária</h2>
+          <p className="text-sm text-muted-foreground">Resultados agregados, sem documentos ou valores individuais.</p>
+        </div>
+        <AdminResponsiveList
+          rows={data?.daily ?? []}
+          rowKey={(row) => row.day}
+          columns={[
+            { key: "day", label: "Dia", render: (row) => new Date(`${row.day}T12:00:00`).toLocaleDateString("pt-BR") },
+            { key: "uploaded", label: "Enviados", render: (row) => row.uploaded, align: "right" },
+            { key: "confirmed", label: "Confirmados", render: (row) => row.confirmed, align: "right" },
+            { key: "partial", label: "Parciais", render: (row) => row.partial, align: "right" },
+            { key: "failed", label: "Falhas", render: (row) => row.failed, align: "right" },
+          ]}
+        />
+      </section>
     </div>
   );
 }
