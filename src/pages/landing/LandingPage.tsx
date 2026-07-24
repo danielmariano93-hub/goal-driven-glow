@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CaretRight, Check, Plus } from "@phosphor-icons/react";
+import { CaretRight, Plus } from "@phosphor-icons/react";
 import { NinoLogo } from "./NinoLogo";
 import { NinoSymbol } from "./NinoSymbol";
 import "./landing.css";
