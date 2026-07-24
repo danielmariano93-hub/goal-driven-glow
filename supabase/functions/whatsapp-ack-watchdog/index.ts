@@ -50,13 +50,45 @@ Deno.serve(async (req) => {
       results.push({ id: m.id as string, action: "requeued" });
     }
   }
+
+  // ACK stall: mensagens já enviadas mas sem `delivered_at` há > 10 min.
+  const ackStallCutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+  const { data: ackStalled } = await supabase
+    .from("outbound_messages")
+    .select("id, retry_count")
+    .eq("status", "sent")
+    .is("delivered_at", null)
+    .lt("sent_at", ackStallCutoff)
+    .limit(50);
+  let stalledCount = 0;
+  for (const m of ackStalled ?? []) {
+    const rc = Number((m as any).retry_count ?? 0);
+    if (rc >= 2) {
+      await supabase.from("outbound_messages").update({
+        status: "failed",
+        last_error: "ack_stalled_no_delivery",
+      }).eq("id", m.id);
+    } else {
+      await supabase.from("outbound_messages").update({
+        retry_count: rc + 1,
+        last_ack_at: new Date().toISOString(),
+      }).eq("id", m.id);
+    }
+    stalledCount++;
+  }
+
   await writeJobHeartbeat({
     jobKey: "whatsapp-ack-watchdog",
     ok: true,
-    processed: recoveredCount + (stuck ?? []).length,
+    processed: recoveredCount + (stuck ?? []).length + stalledCount,
     failed: 0,
     sb: supabase,
   });
-  return json({ recovered: recoveredCount, checked: (stuck ?? []).length, results });
+  return json({
+    recovered: recoveredCount,
+    checked: (stuck ?? []).length,
+    ack_stalled: stalledCount,
+    results,
+  });
 });
 
