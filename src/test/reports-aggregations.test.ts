@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { groupByMonth, byCategory, filterPeriod, spendingHighlights, toCsv } from "@/lib/reports/aggregations";
 
 const txns = [
-  { type: "income" as const, amount: 5000, occurred_at: "2026-01-05", category_name: "Salário" },
-  { type: "expense" as const, amount: 100, occurred_at: "2026-01-10", category_name: "Mercado" },
-  { type: "expense" as const, amount: 200, occurred_at: "2026-01-20", category_name: "Lazer" },
-  { type: "expense" as const, amount: 150, occurred_at: "2026-02-05", category_name: "Mercado" },
-  { type: "transfer" as const, amount: 500, occurred_at: "2026-01-08" },
+  { type: "income" as const, status: "confirmed" as const, amount: 5000, occurred_at: "2026-01-05", category_name: "Salário" },
+  { type: "expense" as const, status: "confirmed" as const, amount: 100, occurred_at: "2026-01-10", category_name: "Mercado" },
+  { type: "expense" as const, status: "confirmed" as const, amount: 200, occurred_at: "2026-01-20", category_name: "Lazer" },
+  { type: "expense" as const, status: "confirmed" as const, amount: 150, occurred_at: "2026-02-05", category_name: "Mercado" },
+  { type: "transfer" as const, status: "confirmed" as const, amount: 500, occurred_at: "2026-01-08" },
 ];
 
 describe("aggregations", () => {
@@ -25,9 +25,9 @@ describe("aggregations", () => {
 
   it("gera highlights acionáveis com economia calculada para categoria flexível", () => {
     const cats = byCategory([
-      { type: "expense" as const, amount: 1000, occurred_at: "2026-01-05", category_name: "Lazer" },
-      { type: "expense" as const, amount: 1200, occurred_at: "2026-01-06", category_name: "Moradia" },
-      { type: "expense" as const, amount: 300, occurred_at: "2026-01-07", category_name: "Transporte" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 1000, occurred_at: "2026-01-05", category_name: "Lazer" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 1200, occurred_at: "2026-01-06", category_name: "Moradia" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 300, occurred_at: "2026-01-07", category_name: "Transporte" },
     ]);
     const h = spendingHighlights(cats);
     expect(h).toHaveLength(3);
@@ -36,8 +36,8 @@ describe("aggregations", () => {
 
   it("não recomenda corte percentual em categoria essencial como principal ação", () => {
     const cats = byCategory([
-      { type: "expense" as const, amount: 1800, occurred_at: "2026-01-05", category_name: "Moradia" },
-      { type: "expense" as const, amount: 200, occurred_at: "2026-01-06", category_name: "Saúde" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 1800, occurred_at: "2026-01-05", category_name: "Moradia" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 200, occurred_at: "2026-01-06", category_name: "Saúde" },
     ]);
     const h = spendingHighlights(cats);
     expect(h[0].title).toContain("Moradia concentra");
@@ -46,8 +46,8 @@ describe("aggregations", () => {
   });
 
   it("detecta frequência relevante de gastos pequenos", () => {
-    const frequent = Array.from({ length: 9 }, (_, i) => ({ type: "expense" as const, amount: 20, occurred_at: `2026-01-${String(i + 1).padStart(2, "0")}`, category_name: "Transporte" }));
-    const cats = byCategory([...frequent, { type: "expense" as const, amount: 500, occurred_at: "2026-01-20", category_name: "Mercado" }]);
+    const frequent = Array.from({ length: 9 }, (_, i) => ({ type: "expense" as const, status: "confirmed" as const, amount: 20, occurred_at: `2026-01-${String(i + 1).padStart(2, "0")}`, category_name: "Transporte" }));
+    const cats = byCategory([...frequent, { type: "expense" as const, status: "confirmed" as const, amount: 500, occurred_at: "2026-01-20", category_name: "Mercado" }]);
     const h = spendingHighlights(cats);
     expect(h.some((x) => x.title === "Transporte apareceu 9 vezes")).toBe(true);
   });
