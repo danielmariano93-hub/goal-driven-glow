@@ -98,10 +98,23 @@ export default function DivisaoDoRoleNova() {
     if (!valid) { toast.error("Revise os valores e a origem do pagamento"); return; }
     setSaving(true);
     try {
-      const participantPayload = people.filter((p)=>p.name.trim()).map((p) => {
+      const participantPayload: Array<{ id: string | null; name: string; phone_e164: string | null; amount_due: number }> = [];
+      const invalidPhones: string[] = [];
+      for (const p of people.filter((x)=>x.name.trim())) {
         const share = shares.find((s)=>s.name===p.name)?.amount ?? 0;
-        return { id:p.id??null,name:p.name.trim(),phone_e164:p.phone_e164.trim()||null,amount_due:share };
-      });
+        const raw = p.phone_e164.trim();
+        let phone: string | null = null;
+        if (raw) {
+          phone = normalizeBrPhone(raw);
+          if (!phone) invalidPhones.push(p.name.trim());
+        }
+        participantPayload.push({ id:p.id??null, name:p.name.trim(), phone_e164:phone, amount_due:share });
+      }
+      if (invalidPhones.length) {
+        setSaving(false);
+        toast.error(`Telefone inválido: ${invalidPhones.join(", ")}. Use DDD + número (ex.: 11 91234-5678).`);
+        return;
+      }
       if (editing) {
         const ownerExisting = includeOwner ? [{ id: null, name:"Você", phone_e164:null, amount_due:shares.find((s)=>s.name==="Você")?.amount ?? 0 }] : [];
         // O servidor protege pessoas já pagas; o proprietário é representado
