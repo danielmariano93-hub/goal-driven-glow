@@ -850,7 +850,6 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
 // generate_report_from_template — bypass determinístico para templates ativos
 // em public.financial_report_templates. Recebe template_key + params e delega
 // para generate_chart_artifact usando o mapeamento canônico.
-import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templates/reportTemplates.ts";
 
 export async function generate_report_from_template(ctx: ToolContext, args: {
   template_key: TemplateKey;
