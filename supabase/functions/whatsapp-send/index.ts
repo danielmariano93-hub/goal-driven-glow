@@ -130,7 +130,8 @@ Deno.serve(async (req) => {
       }
       results.push({ id: m.id, ok: true });
     } catch (e) {
-      const attempts = m.attempts + 1;
+      // claim_outbound_batch já incrementou attempts antes de retornar a linha.
+      const attempts = Number(m.attempts);
       const backoffMs = Math.min(60_000 * Math.pow(2, attempts), 30 * 60_000);
       const dead = attempts >= 6;
       await sb.from("outbound_messages").update({
@@ -153,4 +154,3 @@ Deno.serve(async (req) => {
   });
   return json({ processed: results.length, results });
 });
-

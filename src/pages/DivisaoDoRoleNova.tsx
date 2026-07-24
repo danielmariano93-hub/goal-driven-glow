@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccounts, useCategories } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/split/math";
+import { dispatchSplitReminders } from "@/lib/split/dispatch";
 import { CategorySelect } from "@/components/CategorySelect";
 
 type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
@@ -130,21 +131,26 @@ export default function DivisaoDoRoleNova() {
         // dispatcher. O detalhe da divisão permite retomar sem duplicar jobs.
         const recipients = participantPayload.filter((p) => Boolean(p.phone_e164)).length;
         if (recipients > 0) {
-          const { data: dispatch, error: dispatchError } = await supabase.functions.invoke<{
-            claimed: number;
-            enqueued: number;
-            skipped: number;
-            failed: number;
-            outbound_processed: number;
-            outbound_kicked: boolean;
-          }>("split-reminders-dispatch", { body: { owner_only: true } });
-
-          if (dispatchError || !dispatch || dispatch.failed > 0 || !dispatch.outbound_kicked) {
+          const dispatch = await dispatchSplitReminders();
+          if (dispatch.status === "timeout") {
+            toast.info("Divisão criada. O envio continua em segundo plano e você pode acompanhar por aqui.");
+          } else if (dispatch.status === "error") {
             toast.warning("Divisão criada, mas o convite ainda não foi entregue. Abra a divisão para tentar novamente.");
-          } else if (dispatch.enqueued === 0 && dispatch.outbound_processed === 0) {
-            toast.info("Divisão criada. O convite ficou agendado e você pode acompanhar o envio.");
+          } else if (
+            dispatch.data.failed > 0
+            || (dispatch.data.outbound_failed ?? 0) > 0
+            || !dispatch.data.outbound_kicked
+          ) {
+            toast.warning("Divisão criada, mas houve uma falha no envio. Abra a divisão para tentar novamente.");
+          } else if ((dispatch.data.outbound_sent ?? 0) > 0) {
+            toast.success("Divisão criada e convite enviado.");
+          } else if (
+            dispatch.data.enqueued > 0
+            || (dispatch.data.outbound_pending ?? 0) > 0
+          ) {
+            toast.info("Divisão criada. O convite está na fila do WhatsApp.");
           } else {
-            toast.success("Divisão criada e convite encaminhado.");
+            toast.info("Divisão criada. O convite ficou agendado e você pode acompanhar o envio.");
           }
         } else {
           toast.success("Divisão criada.");

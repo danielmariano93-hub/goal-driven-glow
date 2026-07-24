@@ -226,16 +226,32 @@ export function isRealMonthlyMovement(t: TransactionRow): boolean {
   return true;
 }
 
+/**
+ * Valor assinado da métrica comportamental.
+ * - expense comum soma consumo;
+ * - refund confirmado reduz consumo (não vira renda);
+ * - entradas comuns somam renda;
+ * - movimentos patrimoniais, transferências e pagamento de fatura retornam 0.
+ */
+export function behavioralMetricAmount(
+  t: TransactionRow,
+  metric: "expense" | "income",
+): number {
+  if (t.status !== "confirmed" || t.type === "transfer") return 0;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (mk === "refund") {
+    return metric === "expense" ? -Number(t.amount || 0) : 0;
+  }
+  if (!isRealMonthlyMovement(t) || t.type !== metric) return 0;
+  return Number(t.amount || 0);
+}
+
 export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
   let income = 0, expense = 0;
   for (const t of txs) {
     if (!isInMonth(t.occurred_at, ym)) continue;
-    if (!isRealMonthlyMovement(t)) continue;
-    const amt = Number(t.amount || 0);
-    const mk = (t.movement_kind ?? "transaction").toString();
-    if (mk === "refund") { expense -= amt; continue; }
-    if (t.type === "income") income += amt;
-    else if (t.type === "expense") expense += amt;
+    income += behavioralMetricAmount(t, "income");
+    expense += behavioralMetricAmount(t, "expense");
   }
   expense = Math.max(0, expense);
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
@@ -251,11 +267,7 @@ export function computeBehavioralExpense(
   let expense = 0;
   for (const t of txs) {
     if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
-    if (!isRealMonthlyMovement(t)) continue;
-    const amt = Number(t.amount || 0);
-    const mk = (t.movement_kind ?? "transaction").toString();
-    if (mk === "refund") { expense -= amt; continue; }
-    if (t.type === "expense") expense += amt;
+    expense += behavioralMetricAmount(t, "expense");
   }
   return round2(Math.max(0, expense));
 }
@@ -266,15 +278,12 @@ export function computeMonthlyIncomeExpense(
   filter?: { origin?: "account" | "credit_card" | "all" },
 ) {
   const origin = filter?.origin ?? "all";
-  const inMonth = txs.filter((t) => isInMonth(t.occurred_at, ym) && isRealMonthlyMovement(t));
+  const inMonth = txs.filter((t) => isInMonth(t.occurred_at, ym));
   const scoped = origin === "all" ? inMonth : inMonth.filter((t) => txOrigin(t) === origin);
   let income = 0, expense = 0;
   for (const t of scoped) {
-    const amt = Number(t.amount || 0);
-    const mk = (t.movement_kind ?? "transaction").toString();
-    if (mk === "refund") { expense -= amt; continue; }
-    if (t.type === "income") income += amt;
-    else if (t.type === "expense") expense += amt;
+    income += behavioralMetricAmount(t, "income");
+    expense += behavioralMetricAmount(t, "expense");
   }
   expense = Math.max(0, expense);
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };

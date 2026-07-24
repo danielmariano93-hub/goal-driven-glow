@@ -7,7 +7,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import { behavioralMetricAmount, computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
@@ -116,31 +116,41 @@ export async function analyze_spending(ctx: ToolContext, args: {
   // Aplica a MESMA definição de consumo real da Home: exclui aplicações,
   // aportes, transferências, pagamento de fatura, cancelados. Corrige o bug em
   // que "Aplicações R$ 5.000" aparecia como maior gasto do mês.
-  const expenses = rows.filter((r: any) => r.type === "expense" && isRealMonthlyMovement(r as any));
-  const income = rows.filter((r: any) => r.type === "income" && isRealMonthlyMovement(r as any));
   const byCategory = new Map<string, number>();
   const byDay = new Map<string, number>();
-  for (const row of expenses) {
+  let totalExpense = 0;
+  let totalIncome = 0;
+  let expenseRows = 0;
+  for (const row of rows) {
+    const expenseAmount = behavioralMetricAmount(row as any, "expense");
+    const incomeAmount = behavioralMetricAmount(row as any, "income");
+    totalIncome += incomeAmount;
+    if (expenseAmount === 0) continue;
     const category = row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria";
-    byCategory.set(category, (byCategory.get(category) ?? 0) + row.amount);
-    byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + row.amount);
+    byCategory.set(category, (byCategory.get(category) ?? 0) + expenseAmount);
+    byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + expenseAmount);
+    totalExpense += expenseAmount;
+    expenseRows += 1;
   }
   const categoriesRank = [...byCategory.entries()]
-    .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+    .map(([name, value]) => ({ name, value: Math.round(Math.max(0, value) * 100) / 100 }))
+    .filter((row) => row.value > 0)
     .sort((a, b) => b.value - a.value);
-  const daily = [...byDay.entries()].map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
-  const totalExpense = expenses.reduce((sum: number, r: any) => sum + r.amount, 0);
-  const totalIncome = income.reduce((sum: number, r: any) => sum + r.amount, 0);
+  const daily = [...byDay.entries()].map(([date, value]) => ({
+    date,
+    value: Math.round(Math.max(0, value) * 100) / 100,
+  }));
+  totalExpense = Math.max(0, totalExpense);
   const uncategorized = categoriesRank.find((c) => c.name === "Sem categoria")?.value ?? 0;
   return {
     ok: true,
     result: {
       kind: "spending_report", period: { from, to, days },
       totals: { expense: Math.round(totalExpense * 100) / 100, income: Math.round(totalIncome * 100) / 100, net: Math.round((totalIncome - totalExpense) * 100) / 100 },
-      transactions_count: expenses.length, categories: categoriesRank, daily,
+      transactions_count: expenseRows, categories: categoriesRank, daily,
       top_category: categoriesRank[0] ?? null, uncategorized,
-      data_limit: expenses.length === 0 ? "no_data" : expenses.length < 3 ? "small_sample" : null,
-      formula_version: "analyze_spending.consumption.v2",
+      data_limit: expenseRows === 0 ? "no_data" : expenseRows < 3 ? "small_sample" : null,
+      formula_version: "analyze_spending.consumption.v3",
     },
   };
 }
