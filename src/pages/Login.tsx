@@ -1,20 +1,36 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Wallet, Sparkles, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { loginSchema } from "@/lib/validation/auth";
+import { LOGOUT_REASON_KEY } from "@/hooks/useSessionInactivity";
 
 export default function Login() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const nextParam = params.get("next");
+  const reasonParam = params.get("reason");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let reason: string | null = reasonParam;
+    if (!reason) {
+      try { reason = sessionStorage.getItem(LOGOUT_REASON_KEY); } catch { /* noop */ }
+    }
+    if (reason === "inactivity") {
+      setInactivityNotice(
+        "Sua sessão expirou por inatividade. Entre novamente para continuar.",
+      );
+      try { sessionStorage.removeItem(LOGOUT_REASON_KEY); } catch { /* noop */ }
+    }
+  }, [reasonParam]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
