@@ -23,36 +23,37 @@ type Group = { title: string; items: Item[] };
 
 const GROUPS: Group[] = [
   {
-    title: "Visão",
+    title: "Cockpit",
     items: [
-      { to: "/admin", label: "Visão Geral", icon: LayoutDashboard, action: "overview.read", end: true },
+      { to: "/admin/cockpit", label: "Cockpit", icon: LayoutDashboard, action: "overview.read" },
     ],
   },
   {
-    title: "Usuários & Engajamento",
+    title: "Crescimento",
     items: [
-      { to: "/admin/usuarios", label: "Usuários", icon: Users, action: "users.read" },
-      { to: "/admin/engajamento", label: "Engajamento", icon: TrendingUp, action: "overview.read" },
+      { to: "/admin/crescimento", label: "Crescimento", icon: TrendingUp, action: "overview.read" },
+      { to: "/admin/inteligencia-produto", label: "Inteligência de Produto", icon: Sparkles, action: "product.read" },
+      { to: "/admin/clientes", label: "Clientes", icon: Users, action: "users.read" },
+      { to: "/admin/receita", label: "Receita", icon: Wallet, action: "company_finance.read" },
     ],
   },
   {
-    title: "Assistente & Mensageria",
+    title: "Operação",
     items: [
-      { to: "/admin/agente", label: "Assistente", icon: Bot, action: "agent.read" },
-      { to: "/admin/ia", label: "IA & Inteligência", icon: Sparkles, action: "agent.read" },
-      { to: "/admin/mensagens", label: "Mensagens", icon: MessageCircle, action: "agent.read" },
-      { to: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle, action: "whatsapp.read" },
-      { to: "/admin/agente/simulador", label: "Simulador", icon: Play, action: "agent.read" },
+      { to: "/admin/operacao/saude", label: "Saúde", icon: Activity, action: "ops.read" },
+      { to: "/admin/operacao/mensageria", label: "Mensageria", icon: MessageCircle, action: "agent.read" },
+      { to: "/admin/operacao/ia-ocr", label: "IA & OCR", icon: Package, action: "ops.read" },
+      { to: "/admin/operacao/whatsapp", label: "WhatsApp", icon: MessageCircle, action: "whatsapp.read" },
+      { to: "/admin/operacao/assistente", label: "Assessor", icon: Bot, action: "agent.read" },
+      { to: "/admin/operacao/assistente/simulador", label: "Simulador", icon: Play, action: "agent.read" },
     ],
   },
   {
-    title: "Operação & Sistema",
+    title: "Governança",
     items: [
-      { to: "/admin/operacao", label: "Operação", icon: Activity, action: "ops.read" },
-      { to: "/admin/financeiro", label: "Financeiro", icon: Wallet, action: "company_finance.read" },
-      { to: "/admin/produto", label: "Produto", icon: Package, action: "product.read" },
-      { to: "/admin/seguranca", label: "Segurança", icon: ShieldCheck, action: "security.read" },
-      { to: "/admin/configuracoes", label: "Configurações", icon: Settings, action: "settings.read" },
+      { to: "/admin/governanca/seguranca", label: "Segurança & Break-glass", icon: ShieldCheck, action: "security.read" },
+      { to: "/admin/governanca/auditoria", label: "Auditoria", icon: ShieldCheck, action: "security.read" },
+      { to: "/admin/governanca/configuracoes", label: "Configurações", icon: Settings, action: "settings.read" },
     ],
   },
 ];

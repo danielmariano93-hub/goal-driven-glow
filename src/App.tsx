@@ -50,15 +50,21 @@ const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
 const AdminUsuarios = lazy(() => import("./pages/admin/Usuarios"));
 const AdminEngajamento = lazy(() => import("./pages/admin/Engajamento"));
 const AdminFinanceiro = lazy(() => import("./pages/admin/Financeiro"));
-const AdminAgente = lazy(() => import("./pages/admin/Agente"));
 const AdminAgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
-const AdminMensagens = lazy(() => import("./pages/admin/Mensagens"));
-const AdminIAInteligencia = lazy(() => import("./pages/admin/IAInteligencia"));
-const AdminWhatsApp = lazy(() => import("./pages/admin/WhatsApp"));
-const AdminOperacao = lazy(() => import("./pages/admin/Operacao"));
-const AdminProduto = lazy(() => import("./pages/admin/Produto"));
-const AdminSeguranca = lazy(() => import("./pages/admin/Seguranca"));
 const AdminConfiguracoes = lazy(() => import("./pages/admin/Configuracoes"));
+// Control Center v2
+const AdminCockpit = lazy(() => import("./pages/admin/Cockpit"));
+const AdminCrescimento = lazy(() => import("./pages/admin/Crescimento"));
+const AdminInteligenciaProduto = lazy(() => import("./pages/admin/InteligenciaProduto"));
+const AdminClientes = lazy(() => import("./pages/admin/Clientes"));
+const AdminReceita = lazy(() => import("./pages/admin/Receita"));
+const AdminGovernancaSeguranca = lazy(() => import("./pages/admin/GovernancaSeguranca"));
+const AdminGovernancaAuditoria = lazy(() => import("./pages/admin/GovernancaAuditoria"));
+const AdminOpSaude = lazy(() => import("./pages/admin/operacao/Saude"));
+const AdminOpMensageria = lazy(() => import("./pages/admin/operacao/Mensageria"));
+const AdminOpIaOcr = lazy(() => import("./pages/admin/operacao/IaOcr"));
+const AdminOpWhatsApp = lazy(() => import("./pages/admin/operacao/WhatsApp"));
+const AdminOpAssistente = lazy(() => import("./pages/admin/operacao/Assistente"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -128,18 +134,36 @@ const App = () => (
                 path="/admin"
                 element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}
               >
-                <Route index element={<AdminVisaoGeral />} />
+                {/* Control Center v2 */}
+                <Route index element={<AdminCockpit />} />
+                <Route path="cockpit" element={<AdminCockpit />} />
+                <Route path="crescimento" element={<AdminCrescimento />} />
+                <Route path="inteligencia-produto" element={<AdminInteligenciaProduto />} />
+                <Route path="clientes" element={<AdminClientes />} />
+                <Route path="receita" element={<AdminReceita />} />
+                <Route path="operacao" element={<AdminOpSaude />} />
+                <Route path="operacao/saude" element={<AdminOpSaude />} />
+                <Route path="operacao/mensageria" element={<AdminOpMensageria />} />
+                <Route path="operacao/ia-ocr" element={<AdminOpIaOcr />} />
+                <Route path="operacao/whatsapp" element={<AdminOpWhatsApp />} />
+                <Route path="operacao/assistente" element={<AdminOpAssistente />} />
+                <Route path="operacao/assistente/simulador" element={<AdminAgenteSimulador />} />
+                <Route path="governanca/seguranca" element={<AdminGovernancaSeguranca />} />
+                <Route path="governanca/auditoria" element={<AdminGovernancaAuditoria />} />
+                <Route path="governanca/configuracoes" element={<AdminConfiguracoes />} />
+
+                {/* Legado — mantido acessível por 1 release (rollback), removido do menu */}
+                <Route path="legado/visao-geral" element={<AdminVisaoGeral />} />
                 <Route path="usuarios" element={<AdminUsuarios />} />
                 <Route path="engajamento" element={<AdminEngajamento />} />
                 <Route path="financeiro" element={<AdminFinanceiro />} />
-                <Route path="agente" element={<AdminAgente />} />
+                <Route path="agente" element={<AdminOpAssistente />} />
                 <Route path="agente/simulador" element={<AdminAgenteSimulador />} />
-                <Route path="mensagens" element={<AdminMensagens />} />
-                <Route path="ia" element={<AdminIAInteligencia />} />
-                <Route path="whatsapp" element={<AdminWhatsApp />} />
-                <Route path="operacao" element={<AdminOperacao />} />
-                <Route path="produto" element={<AdminProduto />} />
-                <Route path="seguranca" element={<AdminSeguranca />} />
+                <Route path="mensagens" element={<AdminOpMensageria />} />
+                <Route path="ia" element={<AdminInteligenciaProduto />} />
+                <Route path="whatsapp" element={<AdminOpWhatsApp />} />
+                <Route path="produto" element={<AdminInteligenciaProduto />} />
+                <Route path="seguranca" element={<AdminGovernancaSeguranca />} />
                 <Route path="configuracoes" element={<AdminConfiguracoes />} />
               </Route>
 
