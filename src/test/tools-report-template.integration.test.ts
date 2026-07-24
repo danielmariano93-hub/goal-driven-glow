@@ -121,7 +121,7 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.result.artifact.kind).toBe("compare");
+      expect(r.result.artifact.kind).toBe("chart");
       expect(r.result.artifact_id).toBe("artifact_stub");
     }
     // Insert em agent_artifacts com formula_version presente
