@@ -1,5 +1,5 @@
 /**
- * Testes de fumaça da LP pública Meu Nino.IA.
+ * Testes de fumaça da LP pública Meu Nino.IA — redesign 7 blocos.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -14,25 +14,56 @@ function renderLP() {
   );
 }
 
-describe("LandingPage", () => {
-  it("renderiza headline principal", () => {
+describe("LandingPage — redesign 7 blocos", () => {
+  it("renderiza headline principal exata", () => {
     renderLP();
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: /seu dinheiro não está desorganizado/i,
+        name: /seu dinheiro não está desorganizado\.\s*só faltava alguém para cuidar dele com você\./i,
       }),
     ).toBeInTheDocument();
   });
 
-  it("renderiza o manifesto oficial", () => {
+  it("contém as sete âncoras dos blocos oficiais", () => {
     const { container } = renderLP();
-    expect(container.textContent ?? "").toMatch(
-      /você não precisa olhar mais números/i,
-    );
+    for (const id of [
+      "top",
+      "manifesto",
+      "demonstracao",
+      "transformacao",
+      "role",
+      "simples",
+      "comecar",
+      "duvidas",
+    ]) {
+      expect(container.querySelector(`#${id}`)).not.toBeNull();
+    }
   });
 
-  it("todos os CTAs de cadastro apontam para /signup e o de login para /login", () => {
+  it("não expõe seções antigas como blocos autônomos", () => {
+    const { container } = renderLP();
+    for (const id of [
+      "previsao",
+      "comportamento",
+      "metas",
+      "insights",
+      "capacidades",
+      "como-funciona",
+      "confianca",
+      "seguranca",
+    ]) {
+      expect(container.querySelector(`#${id}`)).toBeNull();
+    }
+  });
+
+  it("FAQ tem exatamente 5 perguntas", () => {
+    const { container } = renderLP();
+    const details = container.querySelectorAll(".lp-faq details");
+    expect(details.length).toBe(5);
+  });
+
+  it("CTAs de cadastro apontam para /signup e login para /login", () => {
     const { container } = renderLP();
     const anchors = Array.from(container.querySelectorAll<HTMLAnchorElement>("a[href]"));
     const hrefs = anchors.map((a) => a.getAttribute("href"));
@@ -44,23 +75,41 @@ describe("LandingPage", () => {
     expect(hrefs).toContain("/login");
   });
 
-  it("FAQ renderiza 6 perguntas como <details>", () => {
+  it("microcopy oficial de gratuidade presente no hero", () => {
     const { container } = renderLP();
-    const details = container.querySelectorAll(".lp-faq details");
-    expect(details.length).toBe(6);
+    expect(container.textContent ?? "").toMatch(
+      /grátis para começar\s*·\s*sem cartão\s*·\s*menos de 1 minuto/i,
+    );
   });
 
-  it("não exibe depoimentos fictícios (prova social removida)", () => {
+  it("manifesto contém as frases oficiais em sequência", () => {
     const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).toMatch(/o mês não sai do controle em um único gasto/i);
+    expect(txt).toMatch(/uma assinatura esquecida/i);
+    expect(txt).toMatch(/quando você percebe, a fatura já fechou/i);
+    expect(txt).toMatch(/o nino acompanha esses sinais com você/i);
+  });
+
+  it("não contém prova social fictícia, selos ou claims proibidos", () => {
+    const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).not.toMatch(/NoControle/i);
+    expect(txt).not.toMatch(/LGPD/i);
+    expect(txt).not.toMatch(/criptografia/i);
+    expect(txt).not.toMatch(/100% seguro/i);
+    expect(txt).not.toMatch(/HTTPS\/TLS/i);
+    expect(txt).not.toMatch(/persona demonstrativa/i);
     expect(container.querySelector(".lp-quotes")).toBeNull();
-    expect(container.querySelector(".lp-quote-badge")).toBeNull();
-    expect(container.textContent ?? "").not.toMatch(/persona demonstrativa/i);
   });
 
-  it("não contém referências à marca antiga NoControle", () => {
+  it("Divisão do Rolê promete apenas 'preparar lembrete'", () => {
     const { container } = renderLP();
-    expect(container.textContent ?? "").not.toMatch(/NoControle/i);
-    expect(container.textContent ?? "").toMatch(/Meu Nino/);
+    const txt = container.textContent ?? "";
+    expect(txt).toMatch(/preparar lembrete/i);
+    expect(txt).not.toMatch(/envia lembrete/i);
+    expect(txt).not.toMatch(/cobrança automática/i);
+    expect(txt).not.toMatch(/pix/i);
   });
 
   it("wordmark oficial: 'Meu Nino' + descritor '.IA' sobrescrito", () => {
@@ -68,47 +117,5 @@ describe("LandingPage", () => {
     expect(container.querySelector(".lp-ia-pill")).toBeNull();
     expect(container.querySelector(".nino-wordmark__name")).not.toBeNull();
     expect(container.querySelector(".nino-wordmark__ia")?.textContent).toBe(".IA");
-  });
-
-  it("seções principais estão presentes por id", () => {
-    const { container } = renderLP();
-    const ids = [
-      "top",
-      "previsao",
-      "comportamento",
-      "metas",
-      "insights",
-      "role",
-      "capacidades",
-      "como-funciona",
-      "confianca",
-      "seguranca",
-      "duvidas",
-      "comecar",
-    ];
-    for (const id of ids) {
-      expect(container.querySelector(`#${id}`)).not.toBeNull();
-    }
-  });
-
-  it("copy de segurança não inventa criptografia específica nem selos", () => {
-    const { container } = renderLP();
-    const txt = container.textContent ?? "";
-    expect(txt).not.toMatch(/HTTPS\/TLS/i);
-    expect(txt).not.toMatch(/criptografia/i);
-    expect(txt).not.toMatch(/LGPD/i);
-    expect(txt).not.toMatch(/exportar ou excluir/i);
-    expect(txt).toMatch(/seu dinheiro é pessoal/i);
-  });
-
-  it("não promete funcionalidades não implementadas", () => {
-    const { container } = renderLP();
-    const txt = container.textContent ?? "";
-    expect(txt).not.toMatch(/aplique com um toque/i);
-    expect(txt).not.toMatch(/automatize seu aporte/i);
-    expect(txt).not.toMatch(/envia lembretes pelo whatsapp/i);
-    expect(txt).not.toMatch(/cobrar os pendentes/i);
-    expect(txt).toMatch(/preparar lembrete amig/i);
-    expect(txt).toMatch(/planeje o próximo aporte/i);
   });
 });
