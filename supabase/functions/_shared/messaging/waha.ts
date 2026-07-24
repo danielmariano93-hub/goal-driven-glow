@@ -276,14 +276,13 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
   },
   async sendText(to, body) {
     if (!this.configured) throw new Error("waha_not_configured");
+    const e164 = normalizeBrPhone(to);
+    if (!e164) throw new Error("invalid_phone_e164");
+    const chatId = e164.replace(/^\+/, "") + "@c.us";
     const res = await safeFetch(`${WAHA_API_URL}/api/sendText`, {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({
-        session: WAHA_SESSION,
-        chatId: to.replace(/^\+/, "") + "@c.us",
-        text: body,
-      }),
+      body: JSON.stringify({ session: WAHA_SESSION, chatId, text: body }),
     });
     if (!res.ok) throw new Error(`waha_send_failed_${res.status}`);
     const data = (await res.json().catch(() => ({}))) as { id?: string };
@@ -291,12 +290,15 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
   },
   async sendImage(to: string, mediaUrl: string, caption?: string) {
     if (!this.configured) throw new Error("waha_not_configured");
+    const e164 = normalizeBrPhone(to);
+    if (!e164) throw new Error("invalid_phone_e164");
+    const chatId = e164.replace(/^\+/, "") + "@c.us";
     const res = await safeFetch(`${WAHA_API_URL}/api/sendImage`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
         session: WAHA_SESSION,
-        chatId: to.replace(/^\+/, "") + "@c.us",
+        chatId,
         file: { url: mediaUrl },
         caption: caption ?? undefined,
       }),
