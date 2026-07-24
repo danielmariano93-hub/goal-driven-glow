@@ -4686,6 +4686,18 @@ export type Database = {
     }
     Functions: {
       _break_glass_allowed_fields: { Args: never; Returns: string[] }
+      _envelope: {
+        Args: {
+          _extras?: Json
+          _formula_version?: string
+          _polarity: string
+          _previous: number
+          _sample: number
+          _value: number
+        }
+        Returns: Json
+      }
+      _require_perm: { Args: { _action: string }; Returns: undefined }
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
       _vault_upsert: {
         Args: { p_description: string; p_name: string; p_value: string }
@@ -4820,6 +4832,21 @@ export type Database = {
           whatsapp_linked: boolean
         }[]
       }
+      admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
+      admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
+      admin_v2_clients_list: { Args: { _limit?: number }; Returns: Json }
+      admin_v2_cockpit: { Args: never; Returns: Json }
+      admin_v2_governance_summary: { Args: never; Returns: Json }
+      admin_v2_growth_cohorts: { Args: { _weeks?: number }; Returns: Json }
+      admin_v2_growth_funnel: { Args: { _days?: number }; Returns: Json }
+      admin_v2_growth_summary: { Args: { _days?: number }; Returns: Json }
+      admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
+      admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
+      admin_v2_operations_health: { Args: never; Returns: Json }
+      admin_v2_product_features: { Args: { _days?: number }; Returns: Json }
+      admin_v2_product_opportunities: { Args: never; Returns: Json }
+      admin_v2_revenue_summary: { Args: never; Returns: Json }
+      admin_v2_whatsapp_monitor: { Args: { _days?: number }; Returns: Json }
       admin_waha_config_status: { Args: never; Returns: Json }
       admin_waha_resolve_config: { Args: never; Returns: Json }
       admin_waha_save_config: {
