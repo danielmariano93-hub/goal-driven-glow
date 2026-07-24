@@ -667,6 +667,7 @@ import {
   type ChartArtifact,
 } from "../artifacts/builder.ts";
 import { reconciliationGate } from "../engine/reconciliation.ts";
+import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templates/reportTemplates.ts";
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [{ data: txs }, { data: cats }] = await Promise.all([
