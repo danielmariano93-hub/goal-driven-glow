@@ -129,7 +129,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
     const incomeAmount = behavioralMetricAmount(row as any, "income");
     totalIncome += incomeAmount;
     if (expenseAmount === 0) continue;
-    const category = row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria";
+    const category = String(row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria");
     byCategory.set(category, (byCategory.get(category) ?? 0) + expenseAmount);
     byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + expenseAmount);
     totalExpense += expenseAmount;
