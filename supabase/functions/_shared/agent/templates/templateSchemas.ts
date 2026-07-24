@@ -1,7 +1,7 @@
 // Validação Zod para os parâmetros dos templates determinísticos.
 // Mantém tipos puros de TS/Zod para permitir import direto pelo vitest
 // (usamos o mesmo `zod` já resolvido pelo bundler do projeto).
-import { z } from "zod";
+import { z } from "npm:zod@3.23.8";
 import { TEMPLATE_KEYS, type TemplateKey } from "./reportTemplates.ts";
 
 const yyyymmdd = z
