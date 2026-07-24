@@ -233,5 +233,6 @@ export function AdminLayout() {
         </div>
       </main>
     </div>
+    </SessionInactivityGuard>
   );
 }
