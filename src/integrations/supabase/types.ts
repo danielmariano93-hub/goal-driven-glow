@@ -4697,6 +4697,8 @@ export type Database = {
         }
         Returns: Json
       }
+      _mask_email: { Args: { _email: string }; Returns: string }
+      _mask_name: { Args: { _name: string }; Returns: string }
       _require_perm: { Args: { _action: string }; Returns: undefined }
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
       _vault_upsert: {
@@ -4834,6 +4836,14 @@ export type Database = {
       }
       admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
       admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
+      admin_v2_clients_identity: {
+        Args: { _pseudo_ids: string[] }
+        Returns: Json
+      }
+      admin_v2_clients_identity_masked: {
+        Args: { _pseudo_ids: string[] }
+        Returns: Json
+      }
       admin_v2_clients_list: { Args: { _limit?: number }; Returns: Json }
       admin_v2_cockpit: { Args: never; Returns: Json }
       admin_v2_governance_summary: { Args: never; Returns: Json }
@@ -4842,7 +4852,9 @@ export type Database = {
       admin_v2_growth_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
-      admin_v2_operations_health: { Args: never; Returns: Json }
+      admin_v2_operations_health:
+        | { Args: never; Returns: Json }
+        | { Args: { _hours?: number }; Returns: Json }
       admin_v2_product_features: { Args: { _days?: number }; Returns: Json }
       admin_v2_product_opportunities: { Args: never; Returns: Json }
       admin_v2_revenue_summary: { Args: never; Returns: Json }

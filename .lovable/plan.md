@@ -1,88 +1,45 @@
-# Meu Nino Control Center — Plano Final Executável
 
-**Status:** `READY_TO_EXECUTE_ALL_PHASES`
-**Documento completo:** `.lovable/plan.md` (24 seções obrigatórias, ~13k caracteres, mantido íntegro — este texto é apenas o índice executivo).
+Plano completo gravado em `.lovable/plan.md` (19 seções, ~1.100 linhas). Resumo executivo abaixo — o documento é a fonte canônica.
 
-Nada foi modificado no código, banco, migrations, edge functions ou configurações. Apenas `.lovable/plan.md` foi atualizado.
+## Causa raiz confirmada
+- `/admin/operacao/saude` e `/admin/operacao/ia-ocr`: RPCs exigem `_require_perm('ops.read')`, mas em `platform_permissions` existe apenas `operations.read`. Owner incluído — `42501` para todos os papéis.
+- `/admin/operacao/whatsapp`: RPC exige `whatsapp.read`, ausente da tabela (só existe `whatsapp.critical`).
+- `/admin/crescimento` e `/admin/governanca/auditoria`: permissões (`growth.read`, `audit.read`) existem e o owner as tem. `Promise.all` em Crescimento mascara qual chamada falhou. Causa exata **não confirmada** — tarefa #1 da execução será reproduzir com Playwright autenticado como owner e capturar o erro real antes de propor patch.
 
----
+## Ruptura de vocabulário (menu vs backend)
+Menu usa `overview.read`, `product.read`, `users.read`, `agent.read` (Mensageria), `security.read` (Auditoria), `ops.read`. Backend exige `cockpit.read`, `growth.read`, `product_intel.read`, `clients.read`, `messaging.read`, `audit.read`, `operations.read`. Plano padroniza um único vocabulário canônico (22 ações) e faz o menu ser **derivado 100% de `usePlatformPermissions()`**; matriz local vira apenas tipagem.
 
-## Auditoria concluída (evidência real, não inferência)
+## Migrations planejadas (sem SQL executado)
+M1 permissões canônicas (inclui `whatsapp.read`, `clients.identity.read`, `clients.identity.masked`) · M2 renomear gates dos 3 RPCs quebrados · M3 revogar `EXECUTE` a `PUBLIC`/`anon` nos 15 RPCs admin · M4 três RPCs separados para Clientes (pseudonimizado / identificado / mascarado) · M5 auditoria por chamada identificada · M6 recomputo do funil sem passos órfãos · M7 rebuild de coortes semanais.
 
-- **24 RPCs `admin_*`** inspecionados via `pg_get_functiondef`. Todos gated apenas por `is_platform_admin()` — a matriz `MATRIX` em `src/lib/admin/permissions.ts` (4 roles × 22 ações) é 100% cosmética. Qualquer role chama qualquer RPC direto pelo cliente.
-- **PII vaza em RPCs padrão**:
-  - `admin_users_list` retorna `email` e `display_name`, com `ILIKE` sobre ambos.
-  - `admin_message_activity` retorna `preview` (200 chars do body), `to_phone` mascarado, e faz `ILIKE '%…%'` sobre `body` e `to_phone`.
-  - `admin_conversation_activity` retorna `contact` mascarado + `preview` (240 chars).
-- **Enum `platform_role`** = `{platform_owner, platform_admin, support, analyst}` ✅. Tabelas `platform_admins`, `platform_admin_audit` existem; **não existem** `platform_permissions`, `has_platform_permission`, `user_pseudonyms`, `break_glass_sessions`, `product_events`, agregados de produto.
-- **Timeout admin herda 30 min do app** — `AdminLayout` usa `<SessionInactivityGuard>` sem props e default é `30*60_000`. Precisa override para 20/18 min.
-- **Drift legado:** `admin_ops_health.imports_recent` lê `import_batches` (pré Pipeline Documental v2) enquanto novos dados vão para `document_imports`.
-- **Base analítica utilizável** já existe em `agent_runs`, `outbound_messages`, `document_imports`, `transactions`, `goals`, `shared_expenses` — permite backfill determinístico de eventos de negócio, mas **não** de entrega de valor (`insight_delivered`, `forecast_delivered`, `personalized_response_delivered`, `goal_progress_explained`, `split_result_delivered`, `split_reminder_prepared`). WVU oficial começa na Fase 2.
+## Frontend — redesign real (não “mínimo funcional”)
+- Novos primitivos: `AdminSectionSkeleton`, `AdminSectionError` (retry por bloco), `AdminNoDataState`, `AdminDataQualityBadge`, `AdminMetricTooltip`, `AdminResponsiveDataList` (tabela ≥1024 px, cards <768 px).
+- `displayDictionary.ts` centraliza labels PT (nada de `agent`, `entry`, `other`, `initiated` na UI).
+- `formulas.ts` com denom‑zero → `—`, amostra insuficiente <10, sinal inicial 10–19, deltas em pp.
+- Reescrita das 12 páginas admin com wireframes desktop + mobile (§7 do plano).
+- Paleta Deep Ink/Cloud/Violet/Coral/Mint; **sem** `#FFC46B`; Phosphor único.
 
-## Decisões técnicas fechadas (aplicadas neste plano)
+## Estados honestos (regras)
+- Coortes vazias → mensagem “ainda não há histórico suficiente”, jamais tabela vazia.
+- Receipts WhatsApp/App sem `delivered_at`/`read_at` → KPIs de entrega/leitura como `—` + aviso factual “provedor ainda não retorna confirmações”.
+- Oportunidades com `initiated=0` **não listadas**.
+- Badge de qualidade `live | backfill | proxy` em todo KPI derivado (hoje: 0 live, 466 backfill/proxy).
 
-- **RBAC server-side**: `platform_permissions(role, action, allowed)` + `has_platform_permission(action)` + `current_platform_permissions()`. 22 ações canônicas (§5 do plano). Semeadura owner/admin/support/analyst definida.
-- **Break-glass**: só `platform_owner` v1, reauth ≤5min, motivo ≥20 chars + ticket, escopo 1 pseudo_id + fields allowlist, TTL 15min, banner persistente, auditoria imutável sem conteúdo lido.
-- **Pseudonimização**: `user_pseudonyms(user_id, pseudo_id, detached_at)` com surrogate UUID (não hash). Resolução só via funções SECURITY DEFINER. Exclusão de conta detacha `user_id` mantendo `pseudo_id` para agregados.
-- **Sessão admin**: 18min warning / 20min logout (override em `AdminLayout`), app usuário permanece 30min, BroadcastChannel entre abas, revalidação `getSession()` ao voltar de background, reauth ≤5min para ações críticas.
-- **WVU / Ativação / Retenção**: WVU 7d rolling A∧B (entrada significativa E entrega de valor válida). Ativação 7d. W1/W4/W8 sobre coorte de ativados. Amostras específicas por tipo (10/20/30% share). Insights sem causalidade.
-- **Envelope canônico** para todo RPC analítico (§11): `value/numerator/denominator/previous/delta_abs/delta_pct/delta_pp/delta_kind/sample_size/sufficient_sample/polarity/formula_version/timezone/measurement_started_at/data_quality/source_kind`.
+## Clientes — identidade por papel
+Break‑glass **não é usado** para nome/e‑mail. Três RPCs separados com gates distintos; owner/admin veem identidade completa (auditada), support vê mascarado por padrão (e completo em detalhe com reautenticação), analyst só pseudônimo. Nunca saldo/lançamentos/conversas/telefone.
 
-## Arquitetura de rotas final
+## Auditoria
+Filtros por período/ação/ator/resultado. Ações em PT via dicionário. Nome do ator só para `security.read`; UUID vai para “Ver detalhes técnicos”. Estado vazio explicativo. Lista de instrumentação faltante em §13 (ficará para rodada seguinte).
 
-```
-/admin → /admin/cockpit                (Cockpit.tsx novo)
-/admin/crescimento
-/admin/inteligencia-produto            (página nova, NÃO é IAInteligencia.tsx)
-/admin/operacao/{saude,mensageria,ia-ocr,whatsapp,assistente,assistente/simulador}
-/admin/clientes
-/admin/receita
-/admin/governanca/{configuracoes,seguranca,auditoria}
-```
+## Critérios de aceite (§15)
+12 critérios mensuráveis, incluindo: 5 páginas quebradas carregam ok para owner; menu 100% server‑driven; grants revogados para `anon`; nenhuma chave técnica em UI; nenhum `0%` sob receipts indisponíveis; tabelas >4 colunas viram cards <768 px; auditoria grava toda leitura de identidade; build/typecheck/testes verdes.
 
-13 redirects legados feature-flagged por 1 release, testados contra loops. `VisaoGeral.tsx` mantido para rollback; `Produto.tsx` → Governança > Configurações; `IAInteligencia.tsx` desmembrada em Inteligência de Produto (agregado) + Operação/IA-OCR (técnico).
+## Decisões pendentes (§17)
+Apenas 4 — todas com recomendação técnica registrada:
+1. Support vê e‑mail completo pós‑reauth? (recomendo sim, auditado)
+2. Retenção de `product_events` (90d?)
+3. Cadências de job (chumbar em `job_heartbeats` ou em `opsCadence.ts`?)
+4. Configuração do WhatsApp entra agora ou em rodada dedicada? (recomendo dedicada)
 
-## Eventos e agregados (Fase 2)
-
-- `product_events` append-only com allowlist enforced por trigger (sem PII, sem texto livre, valores em buckets `0_50/50_100/100_250/250_500/500_plus`), idempotency_key único, `event_source in (live|backfill|backfill_proxy)`.
-- 6 tabelas agregadas físicas (não MV): `product_daily_value, outbound_metrics_daily, agent_metrics_daily, feature_funnel_daily, product_cohorts_weekly, user_lifecycle_daily`.
-- Refresh incremental cron 15min + rebuild diário janela 3d; job monitorado via `job_heartbeats`.
-- Timezone `America/Sao_Paulo` na agregação/exibição; UTC no armazenamento.
-- Retenção: raw 90d, agregados perpétuos, auditoria ≥2 anos.
-- 8 experiências mapeadas com máquina de estados, emissor real, idempotency e regra de sucesso (§9): registro financeiro, edição/categorização, meta, divisão, lembrete, OCR, resposta do agente, mensagem WhatsApp. `agent_run.status=done` **não** conta como sucesso sozinho.
-
-## 21 RPCs futuros contratados (§13)
-
-Inclui `admin_v2_cockpit, admin_v2_growth_*, admin_v2_product_*, admin_v2_operations_health, admin_v2_messaging_activity` (sem PII), `admin_v2_ia_ocr_metrics, admin_v2_whatsapp_monitor, admin_v2_assistant_health, admin_v2_clients_list` (pseudonimizada), `admin_v2_revenue_summary, admin_v2_governance_*, admin_v2_audit_list, current_platform_permissions, has_platform_permission, admin_open/close/read/active_break_glass, require_recent_reauth`.
-
-## Rollout em 5 fases com gates
-
-1. **Privacidade + RBAC + Timeout (bloqueadora)** — permissions server-side, pseudonimização, break-glass, timeout 20min, novos RPCs sem PII, revogar grants dos legados.
-2. **Eventos e agregação** — `product_events`, triggers, agregados, jobs, backfill determinístico.
-3. **Cockpit** — nova rota, KpiCard, gráfico, atenção, funil, saúde, redirects sob flag.
-4. **Crescimento/Retenção/Produto/Clientes** — páginas novas, coortes, funis, oportunidades, clientes pseudonimizados.
-5. **Operação/Receita/Governança + depreciação** — sub-rotas, break-glass completo, auditoria, remoção dos RPCs e páginas legadas após 1 release.
-
-Cada fase avança somente com migrations aplicadas sem erro, testes unit/int/RLS/privacidade verdes, build/typecheck ok, smoke de rotas ok, rollback definido. **Sem publish automático** — preview + relatório e aguarda autorização.
-
-## Design (recap)
-
-DM Sans única, Deep Ink sidebar, Cloud bg, Violet informação, Coral degradação, Mint recuperação, sem gradiente/glass/sombras pesadas, ícones Phosphor nas telas novas, cards radius 14-16px, tabela header sticky, skeletons independentes, sem spinner de página, mobile <768px mostra só 4 KPIs + alertas + saúde + ações críticas + resumo (heatmaps/coortes escondidos com "Abra no desktop").
-
-## Arquivos a criar/editar/mover/deprecar/remover
-
-Mapeamento completo em §16 do `.lovable/plan.md`. Resumo: 13 páginas novas + ~12 componentes novos + ~14 hooks novos; editar `App.tsx`, `AdminLayout.tsx`, `SessionInactivityGuard.tsx`, `useSessionInactivity.ts`, `PlatformAdminRoute.tsx`, `permissions.ts`; mover 5 arquivos; deprecar 7 páginas por 1 release; remover 7 RPCs legados na Fase 5.
-
-## Aceite, testes, riscos
-
-- 26 critérios de aceite não negociáveis (§18).
-- Checklist de testes abrangendo unit, integração, RLS/RBAC negativos, sessão, rotas/redirects, build, a11y, responsividade 768→1920, performance, freshness, rollback (§19).
-- Riscos residuais mapeados: latência RPCs, WVU vs proxies históricos, custo de triggers em `outbound_messages`, disponibilidade de `agent_runs.cost_cents`, migração gradual Lucide→Phosphor (§20).
-
-## Decisões humanas pendentes
-
-Nenhuma. Todas as decisões técnicas estão fechadas. Falta **apenas autorização de execução por fase**.
-
----
-
-**Confirmação obrigatória:** somente `.lovable/plan.md` foi atualizado nesta rodada. Nenhuma migration criada, nenhuma tabela/RPC/policy/grant alterada, nenhum build/teste/deploy/publicação executado. Aguardo autorização explícita para iniciar a Fase 1 e, em seguida, executar sequencialmente todas as fases com os gates definidos.
+## Confirmação
+Somente `.lovable/plan.md` foi atualizado. Nenhuma migration, RPC, policy, grant, componente, rota ou configuração alterada. Nenhum build/teste mutável/commit/deploy. Aguardo autorização explícita para entrar em Build Mode.

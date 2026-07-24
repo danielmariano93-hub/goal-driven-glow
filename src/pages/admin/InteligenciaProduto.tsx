@@ -73,34 +73,45 @@ export default function InteligenciaProduto() {
 
       <div className="surface-card p-4">
         <h3 className="font-display text-base font-semibold mb-3">Oportunidades (baixa conversão)</h3>
-        {opps?.length ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Feature</th>
-                <th className="text-right">Iniciados</th>
-                <th className="text-right">Concluídos</th>
-                <th className="text-right">Valor entregue</th>
-                <th className="text-right">Conclusão</th>
-                <th className="text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {opps.map((o) => (
-                <tr key={o.feature} className="border-t border-border/40">
-                  <td className="py-2">{o.feature}</td>
-                  <td className="text-right tabular-nums">{o.initiated}</td>
-                  <td className="text-right tabular-nums">{o.completed}</td>
-                  <td className="text-right tabular-nums">{o.value_delivered}</td>
-                  <td className="text-right tabular-nums">{o.completion_rate}%</td>
-                  <td className="text-right tabular-nums">{o.value_rate}%</td>
+        {(() => {
+          const withInitiated = (opps ?? []).filter((o) => (o.initiated ?? 0) > 0);
+          if (!withInitiated.length) {
+            return (
+              <EmptyState
+                title="Sem oportunidades mapeadas"
+                description="Aparecem aqui features com iniciados suficientes mas baixa conversão."
+              />
+            );
+          }
+          const fmt = (num: number | null, den: number | null) =>
+            !den || den <= 0 || num === null ? "—" : `${((num / den) * 100).toFixed(1).replace(".0", "")}%`;
+          return (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="py-2">Feature</th>
+                  <th className="text-right">Iniciados</th>
+                  <th className="text-right">Concluídos</th>
+                  <th className="text-right">Valor entregue</th>
+                  <th className="text-right">Conclusão</th>
+                  <th className="text-right">Valor</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <EmptyState title="Sem oportunidades mapeadas" />
-        )}
+              </thead>
+              <tbody>
+                {withInitiated.map((o) => (
+                  <tr key={o.feature} className="border-t border-border/40">
+                    <td className="py-2">{o.feature}</td>
+                    <td className="text-right tabular-nums">{o.initiated}</td>
+                    <td className="text-right tabular-nums">{o.completed}</td>
+                    <td className="text-right tabular-nums">{o.value_delivered}</td>
+                    <td className="text-right tabular-nums">{fmt(o.completed, o.initiated)}</td>
+                    <td className="text-right tabular-nums">{fmt(o.value_delivered, o.initiated)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        })()}
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { dict } from "@/lib/admin/displayDictionary";
 
 type Row = {
   day: string;
@@ -25,12 +26,22 @@ export default function OperacaoWhatsApp() {
       .finally(() => setLoading(false));
   }, []);
 
+  const receiptsAvailable = useMemo(
+    () => (rows ?? []).some((r) => (r.delivered ?? 0) > 0 || (r.read ?? 0) > 0),
+    [rows],
+  );
+
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Erro" description={error} />;
+  if (error) return <EmptyState title="Não foi possível carregar" description={error} />;
 
   return (
     <div className="space-y-6">
       <PageHeader title="WhatsApp" description="Entregas e falhas por dia. Sem conteúdo." />
+      {rows?.length && !receiptsAvailable ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
+          Recibos de <strong>entregue/lido</strong> ainda não chegam do provedor — colunas exibidas como <code>—</code>.
+        </div>
+      ) : null}
       <div className="surface-card p-4 overflow-x-auto">
         {rows?.length ? (
           <table className="w-full text-sm">
@@ -48,10 +59,10 @@ export default function OperacaoWhatsApp() {
               {rows.map((r, i) => (
                 <tr key={i} className="border-t border-border/40">
                   <td className="py-2 text-xs">{r.day}</td>
-                  <td>{r.feature}</td>
+                  <td>{dict.feature(r.feature)}</td>
                   <td className="text-right tabular-nums">{r.sent}</td>
-                  <td className="text-right tabular-nums">{r.delivered}</td>
-                  <td className="text-right tabular-nums">{r.read}</td>
+                  <td className="text-right tabular-nums">{receiptsAvailable ? r.delivered : "—"}</td>
+                  <td className="text-right tabular-nums">{receiptsAvailable ? r.read : "—"}</td>
                   <td className={`text-right tabular-nums ${r.failed > 0 ? "text-rose-600" : ""}`}>
                     {r.failed}
                   </td>
@@ -60,7 +71,10 @@ export default function OperacaoWhatsApp() {
             </tbody>
           </table>
         ) : (
-          <EmptyState title="Sem tráfego" />
+          <EmptyState
+            title="Sem tráfego no WhatsApp"
+            description="Novas mensagens aparecem aqui em até 15 minutos."
+          />
         )}
       </div>
     </div>
