@@ -1935,6 +1935,263 @@ export type Database = {
           },
         ]
       }
+      financial_backfill_checkpoints: {
+        Row: {
+          attempts: number
+          cursor_date: string | null
+          cursor_user_id: string | null
+          job_key: string
+          last_error: string | null
+          rows_processed: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          cursor_date?: string | null
+          cursor_user_id?: string | null
+          job_key: string
+          last_error?: string | null
+          rows_processed?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          cursor_date?: string | null
+          cursor_user_id?: string | null
+          job_key?: string
+          last_error?: string | null
+          rows_processed?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      financial_current_snapshots: {
+        Row: {
+          account_consumption: number
+          as_of_date: string
+          available_balance: number
+          behavioral_consumption: number
+          card_consumption: number
+          cash_outflow: number
+          computed_at: string
+          confidence: string
+          formula_versions: Json
+          income: number
+          period_start: string
+          user_id: string
+        }
+        Insert: {
+          account_consumption?: number
+          as_of_date: string
+          available_balance?: number
+          behavioral_consumption?: number
+          card_consumption?: number
+          cash_outflow?: number
+          computed_at?: string
+          confidence?: string
+          formula_versions?: Json
+          income?: number
+          period_start: string
+          user_id: string
+        }
+        Update: {
+          account_consumption?: number
+          as_of_date?: string
+          available_balance?: number
+          behavioral_consumption?: number
+          card_consumption?: number
+          cash_outflow?: number
+          computed_at?: string
+          confidence?: string
+          formula_versions?: Json
+          income?: number
+          period_start?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      financial_daily_category_facts: {
+        Row: {
+          category_id: string | null
+          computed_at: string
+          consumption: number
+          fact_date: string
+          formula_version: string
+          id: number
+          transaction_count: number
+          user_id: string
+        }
+        Insert: {
+          category_id?: string | null
+          computed_at?: string
+          consumption?: number
+          fact_date: string
+          formula_version?: string
+          id?: never
+          transaction_count?: number
+          user_id: string
+        }
+        Update: {
+          category_id?: string | null
+          computed_at?: string
+          consumption?: number
+          fact_date?: string
+          formula_version?: string
+          id?: never
+          transaction_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_daily_category_facts_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_daily_facts: {
+        Row: {
+          account_consumption: number
+          behavioral_consumption: number
+          card_consumption: number
+          cash_outflow: number
+          computed_at: string
+          fact_date: string
+          formula_version: string
+          income: number
+          transaction_count: number
+          user_id: string
+        }
+        Insert: {
+          account_consumption?: number
+          behavioral_consumption?: number
+          card_consumption?: number
+          cash_outflow?: number
+          computed_at?: string
+          fact_date: string
+          formula_version?: string
+          income?: number
+          transaction_count?: number
+          user_id: string
+        }
+        Update: {
+          account_consumption?: number
+          behavioral_consumption?: number
+          card_consumption?: number
+          cash_outflow?: number
+          computed_at?: string
+          fact_date?: string
+          formula_version?: string
+          income?: number
+          transaction_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      financial_feature_flags: {
+        Row: {
+          updated_at: string
+          use_canonical_financial_snapshot: boolean
+          use_chart_templates: boolean
+          use_daily_financial_facts: boolean
+          use_report_templates: boolean
+          user_id: string
+        }
+        Insert: {
+          updated_at?: string
+          use_canonical_financial_snapshot?: boolean
+          use_chart_templates?: boolean
+          use_daily_financial_facts?: boolean
+          use_report_templates?: boolean
+          user_id: string
+        }
+        Update: {
+          updated_at?: string
+          use_canonical_financial_snapshot?: boolean
+          use_chart_templates?: boolean
+          use_daily_financial_facts?: boolean
+          use_report_templates?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
+      financial_metric_diffs: {
+        Row: {
+          absolute_diff: number | null
+          canonical_formula: string | null
+          canonical_value: number | null
+          created_at: string
+          id: number
+          legacy_formula: string | null
+          legacy_value: number | null
+          metric_key: string
+          period_end: string
+          period_start: string
+          user_id: string
+        }
+        Insert: {
+          absolute_diff?: number | null
+          canonical_formula?: string | null
+          canonical_value?: number | null
+          created_at?: string
+          id?: never
+          legacy_formula?: string | null
+          legacy_value?: number | null
+          metric_key: string
+          period_end: string
+          period_start: string
+          user_id: string
+        }
+        Update: {
+          absolute_diff?: number | null
+          canonical_formula?: string | null
+          canonical_value?: number | null
+          created_at?: string
+          id?: never
+          legacy_formula?: string | null
+          legacy_value?: number | null
+          metric_key?: string
+          period_end?: string
+          period_start?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      financial_report_templates: {
+        Row: {
+          active: boolean
+          created_at: string
+          definition: Json
+          name: string
+          template_key: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          definition: Json
+          name: string
+          template_key: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          definition?: Json
+          name?: string
+          template_key?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       goal_contributions: {
         Row: {
           account_id: string | null
@@ -4369,6 +4626,16 @@ export type Database = {
         Args: { p_account_id: string; p_rows: Json }
         Returns: Json
       }
+      is_behavioral_consumption: {
+        Args: {
+          p_movement_kind: string
+          p_settles_card_id: string
+          p_status: string
+          p_transfer_group_id: string
+          p_type: string
+        }
+        Returns: boolean
+      }
       is_current_user_admin: { Args: never; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       join_challenge: { Args: { p_slug: string }; Returns: string }
@@ -4413,6 +4680,10 @@ export type Database = {
         Returns: number
       }
       recurring_skip: { Args: { p_occurrence_id: string }; Returns: undefined }
+      refresh_financial_daily_facts: {
+        Args: { p_from: string; p_to: string; p_user_id: string }
+        Returns: number
+      }
       reprocess_rejected_items: {
         Args: { p_document_id: string; p_reason_codes?: string[] }
         Returns: Json
@@ -4487,6 +4758,10 @@ export type Database = {
         Returns: string
       }
       split_delete: { Args: { p_id: string }; Returns: undefined }
+      split_delivery_diagnosis: {
+        Args: { p_expense_id: string }
+        Returns: Json
+      }
       split_enqueue_message: {
         Args: {
           p_expense_id: string
