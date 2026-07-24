@@ -4852,9 +4852,7 @@ export type Database = {
       admin_v2_growth_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
-      admin_v2_operations_health:
-        | { Args: never; Returns: Json }
-        | { Args: { _hours?: number }; Returns: Json }
+      admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
       admin_v2_product_features: { Args: { _days?: number }; Returns: Json }
       admin_v2_product_opportunities: { Args: never; Returns: Json }
       admin_v2_revenue_summary: { Args: never; Returns: Json }
