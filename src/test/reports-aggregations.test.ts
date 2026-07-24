@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { groupByMonth, byCategory, filterPeriod, spendingHighlights, toCsv } from "@/lib/reports/aggregations";
 
 const txns = [
-  { type: "income" as const, amount: 5000, occurred_at: "2026-01-05", category_name: "Salário" },
-  { type: "expense" as const, amount: 100, occurred_at: "2026-01-10", category_name: "Mercado" },
-  { type: "expense" as const, amount: 200, occurred_at: "2026-01-20", category_name: "Lazer" },
-  { type: "expense" as const, amount: 150, occurred_at: "2026-02-05", category_name: "Mercado" },
-  { type: "transfer" as const, amount: 500, occurred_at: "2026-01-08" },
+  { type: "income" as const, status: "confirmed" as const, amount: 5000, occurred_at: "2026-01-05", category_name: "Salário" },
+  { type: "expense" as const, status: "confirmed" as const, amount: 100, occurred_at: "2026-01-10", category_name: "Mercado" },
+  { type: "expense" as const, status: "confirmed" as const, amount: 200, occurred_at: "2026-01-20", category_name: "Lazer" },
+  { type: "expense" as const, status: "confirmed" as const, amount: 150, occurred_at: "2026-02-05", category_name: "Mercado" },
+  { type: "transfer" as const, status: "confirmed" as const, amount: 500, occurred_at: "2026-01-08" },
 ];
 
 describe("aggregations", () => {
