@@ -1205,6 +1205,19 @@ export const AGENT_TOOLS: ToolSpec[] = [
     },
     execute: generate_chart_artifact,
   },
+  {
+    name: "generate_report_from_template",
+    description: "Gera um relatório visual a partir de um template ATIVO cadastrado (financial_report_templates). Use quando o usuário pedir um relatório nomeado: 'evolução dos gastos' (spending_trend), 'compara com o mês passado' (monthly_comparison), 'one page semanal' / 'resumo da semana' (weekly_one_page). Determinístico e sem custo de LLM.",
+    parameters: {
+      type: "object",
+      properties: {
+        template_key: { type: "string", enum: ["spending_trend", "monthly_comparison", "weekly_one_page"] },
+        params: { type: "object", additionalProperties: true },
+      },
+      required: ["template_key"], additionalProperties: false,
+    },
+    execute: generate_report_from_template,
+  },
 ];
 
 export function toolByName(name: string): ToolSpec | null {
