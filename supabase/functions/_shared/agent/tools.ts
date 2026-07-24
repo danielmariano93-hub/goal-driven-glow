@@ -26,7 +26,7 @@ export type ToolContext = {
   user_text?: string;
 };
 
-export type ToolResult = { ok: true; result: any } | { ok: false; error: string };
+export type ToolResult = { ok: true; result: any } | { ok: false; error: string; details?: unknown };
 
 async function fetchFactsForBeforeSpending(sb: SupabaseClient, user_id: string) {
   const [accounts, txs, recurring, debts, goals, contribs] = await Promise.all([
