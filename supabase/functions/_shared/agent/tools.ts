@@ -698,7 +698,7 @@ export async function compare_periods(ctx: ToolContext, args: {
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
   const { txs, names } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
   return { ok: true, result };
 }
@@ -711,7 +711,7 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
   const to = cur.to;
   const { txs } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const { data: rec } = await ctx.sb.from("recurring_entries")
     .select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", ctx.user_id).eq("active", true);
   const recurring = (rec ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
@@ -781,7 +781,7 @@ export async function spending_timeseries_daily(ctx: ToolContext, args: {
   }
   const { txs } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeDailySpend({ txs: txs as any, metric: args?.metric ?? "expense", from, to });
   return { ok: true, result };
 }
@@ -796,7 +796,7 @@ export async function spending_average_daily_trend(ctx: ToolContext, args: {
   const to = args?.to ?? today;
   const { txs } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
-  if (!gate.ok) return { ok: false, error: gate.error, result: { violations: gate.violations } };
+  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCumulativeDailyAverage({ txs: txs as any, from, to });
   return { ok: true, result };
 }
