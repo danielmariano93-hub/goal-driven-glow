@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CaretRight, Plus } from "@phosphor-icons/react";
+import { Plus } from "@phosphor-icons/react";
 import { NinoLogo } from "./NinoLogo";
 import { NinoSymbol } from "./NinoSymbol";
 import "./landing.css";
@@ -9,13 +9,13 @@ import "./landing.css";
  * Landing page pública Meu Nino.IA (rota "/").
  * Escopada em .mn-lp — não afeta app autenticado nem admin.
  *
- * Estrutura fechada: 7 blocos.
- *  1. Hero            #top
+ * Estrutura: 7 blocos, refinamento mobile-first (auditoria .lovable/plan.md).
+ *  1. Hero            #top / #hero
  *  2. Manifesto       #manifesto
- *  3. Demonstração    #demonstracao   (absorve previsao/comportamento/insights)
- *  4. Transformação   #transformacao  (absorve metas + o que muda)
+ *  3. Demonstração    #demonstracao
+ *  4. Transformação   #transformacao   (2 splits)
  *  5. Divisão do Rolê #role
- *  6. Simplicidade+Confiança #simples (absorve como-funciona/confianca/seguranca)
+ *  6. Simples+Confiança #simples
  *  7. CTA Final + FAQ #comecar / #duvidas
  */
 export default function LandingPage() {
@@ -66,7 +66,6 @@ function HeroSection() {
     <section className="lp-hero" id="hero">
       <div className="lp-wrap lp-hero-grid">
         <div className="lp-hero-copy">
-          <span className="lp-eyebrow">Inteligência financeira conversacional</span>
           <h1>
             Seu dinheiro não está desorganizado.{" "}
             <span className="lp-hero-h1-soft">
@@ -75,16 +74,12 @@ function HeroSection() {
           </h1>
           <p className="lp-lead">
             O Nino registra sua rotina, percebe mudanças e ajuda você a decidir
-            antes que o mês aperte.
+            — pelo WhatsApp ou pelo app.
           </p>
-          <p className="lp-lead lp-lead--tight">Pelo WhatsApp ou pelo app.</p>
           <div className="lp-actions">
             <Link to="/signup" className="lp-btn primary">
               Quero meu Nino grátis
             </Link>
-            <a href="#demonstracao" className="lp-btn-link">
-              Ver o Nino em ação
-            </a>
           </div>
           <p className="lp-micro">
             Grátis para começar · Sem cartão · Menos de 1 minuto
@@ -107,12 +102,9 @@ function HeroMockup() {
         </div>
       </div>
       <div className="lp-msg user">Gastei R$ 80 no bar ontem no Nubank.</div>
-      <div className="lp-msg nino">Pronto. Organizei em Lazer.</div>
+      <div className="lp-msg nino">Organizei em Lazer.</div>
       <div className="lp-msg nino">
         Nesse ritmo, seu mês fecha em <b>R$ 3.180</b> — 8% acima do anterior.
-      </div>
-      <div className="lp-msg suggestion">
-        Quer definir um limite para o restante do mês?
       </div>
     </div>
   );
@@ -124,17 +116,23 @@ function ManifestoSection() {
   return (
     <section className="lp-manifesto" id="manifesto">
       <div className="lp-wrap lp-manifesto-inner">
-        <p className="lp-manifesto-1">O mês não sai do controle em um único gasto.</p>
+        <p className="lp-manifesto-1">
+          O mês não sai do controle em um único gasto.
+        </p>
         <p className="lp-manifesto-2">Ele muda aos poucos.</p>
 
-        <p className="lp-manifesto-line">Um delivery a mais.</p>
-        <p className="lp-manifesto-line">Uma assinatura esquecida.</p>
-        <p className="lp-manifesto-line">Uma semana mais cara do que o normal.</p>
+        <div className="lp-manifesto-signals">
+          <p className="lp-manifesto-line">Um delivery a mais.</p>
+          <p className="lp-manifesto-line">Uma assinatura esquecida.</p>
+          <p className="lp-manifesto-line">Uma semana mais cara que o normal.</p>
+        </div>
 
-        <p className="lp-manifesto-close">Quando você percebe, a fatura já fechou.</p>
+        <p className="lp-manifesto-close">
+          Quando você percebe, a fatura já fechou.
+        </p>
 
         <p className="lp-manifesto-final">
-          O Nino acompanha esses sinais com você.
+          — O Nino acompanha esses sinais com você.
         </p>
       </div>
     </section>
@@ -155,23 +153,15 @@ function DemoSection() {
           </p>
         </div>
 
-        <div className="lp-demo-mockup" aria-hidden="true">
-          <div className="lp-chat lp-chat--light">
-            <div className="lp-msg user">Gastei R$ 80 no bar ontem no Nubank.</div>
-            <div className="lp-msg nino">Pronto. Organizei em Lazer.</div>
-            <div className="lp-msg nino">
-              Nesse ritmo, seu mês fecha em <b>R$ 3.180</b> — 8% acima do anterior.
-            </div>
-            <div className="lp-msg nino">
-              Lazer e alimentação fora explicam a maior parte da alta.
-            </div>
-            <button type="button" className="lp-inline-action" tabIndex={-1}>
-              Definir um limite para o restante do mês
-            </button>
+        <div className="lp-chat lp-chat--light lp-chat--unified" aria-hidden="true">
+          <div className="lp-msg user">Gastei R$ 80 no bar ontem no Nubank.</div>
+          <div className="lp-msg nino">Organizei em Lazer.</div>
+          <div className="lp-msg nino">
+            Nesse ritmo, seu mês fecha em <b>R$ 3.180</b> — 8% acima do anterior.
           </div>
 
-          <div className="lp-trend">
-            <svg viewBox="0 0 320 90" preserveAspectRatio="none" aria-hidden="true">
+          <div className="lp-chat-spark">
+            <svg viewBox="0 0 320 56" preserveAspectRatio="none" aria-hidden="true">
               <defs>
                 <linearGradient id="lp-trend-grad" x1="0" y1="0" x2="1" y2="0">
                   <stop offset="0" stopColor="#6D4AFF" />
@@ -179,22 +169,22 @@ function DemoSection() {
                 </linearGradient>
               </defs>
               <path
-                d="M0,72 C40,62 70,54 110,54 C150,54 180,44 220,32 C250,24 275,20 320,16"
+                d="M0,44 C40,38 70,34 110,34 C150,34 180,26 220,18 C250,12 275,10 320,8"
                 fill="none"
                 stroke="url(#lp-trend-grad)"
-                strokeWidth="3"
+                strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <circle cx="320" cy="16" r="5" fill="#FF6B5F" />
+              <circle cx="320" cy="8" r="4" fill="#FF6B5F" />
             </svg>
-            <p className="lp-trend-label">8% acima do mês anterior</p>
+            <p className="lp-chat-spark-label">8% acima do mês anterior</p>
+          </div>
+
+          <div className="lp-msg suggestion">
+            Quer definir um limite para o restante do mês?
           </div>
         </div>
-
-        <p className="lp-demo-legend">
-          Uma conversa. Um registro. Uma previsão que muda com você.
-        </p>
       </div>
     </section>
   );
@@ -215,8 +205,8 @@ function TransformSection() {
           <div className="lp-split-copy">
             <h3>Perceber antes que aperte.</h3>
             <p>
-              O Nino percebe quando seu ritmo muda e avisa enquanto ainda dá
-              tempo de ajustar.
+              O Nino nota quando seu ritmo muda e avisa enquanto ainda dá tempo
+              de ajustar.
             </p>
           </div>
           <div className="lp-split-visual">
@@ -228,7 +218,6 @@ function TransformSection() {
               <p className="lp-note-sub">
                 A maior parte aconteceu às sextas e sábados.
               </p>
-              <span className="lp-note-cta">Ver onde aumentou</span>
             </div>
           </div>
         </div>
@@ -238,43 +227,19 @@ function TransformSection() {
           <div className="lp-split-copy">
             <h3>Manter seus planos vivos.</h3>
             <p>
-              Metas deixam de ser um número esquecido e passam a acompanhar o
-              que acontece no mês.
+              Suas metas deixam de ser um número esquecido e passam a caminhar
+              com o mês.
             </p>
           </div>
           <div className="lp-split-visual">
             <div className="lp-goal" aria-hidden="true">
-              <div className="lp-goal-head">
-                <span className="lp-goal-name">Viagem de fim de ano</span>
-                <span className="lp-goal-pct">72%</span>
-              </div>
+              <p className="lp-goal-quote">
+                “Mantendo o ritmo atual, você chega lá em novembro.”
+              </p>
               <div className="lp-goal-bar"><span style={{ width: "72%" }} /></div>
-              <p className="lp-goal-values">R$ 4.320 <span>de R$ 6.000</span></p>
-              <p className="lp-goal-note">
-                Mantendo o ritmo atual, você chega lá em novembro.
+              <p className="lp-goal-meta">
+                Viagem de fim de ano <span>· 72%</span>
               </p>
-              <p className="lp-goal-note lp-goal-note--muted">
-                Se o próximo aporte cair, o Nino recalcula o caminho.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* C. Resolver a rotina em uma conversa */}
-        <div className="lp-split">
-          <div className="lp-split-copy">
-            <h3>Resolver a rotina em uma conversa.</h3>
-            <p>
-              Registrar, corrigir, perguntar e entender. Você fala como fala.
-              O Nino organiza.
-            </p>
-          </div>
-          <div className="lp-split-visual">
-            <div className="lp-chat lp-chat--light lp-chat--mini" aria-hidden="true">
-              <div className="lp-msg user">Foi no débito, não no crédito.</div>
-              <div className="lp-msg nino">
-                Corrigido. O lançamento agora está no débito.
-              </div>
             </div>
           </div>
         </div>
@@ -290,7 +255,6 @@ function RoleSection() {
     { nome: "Ana", status: "pago" as const },
     { nome: "Bruno", status: "pago" as const },
     { nome: "Camila", status: "pendente" as const },
-    { nome: "Diego", status: "pendente" as const },
   ];
   return (
     <section className="lp-section lp-section--white" id="role">
@@ -298,8 +262,8 @@ function RoleSection() {
         <div className="lp-section-head">
           <h2>Dividir a conta não deveria virar outra conta pra você resolver.</h2>
           <p className="lp-lead">
-            Você conta quem foi, quanto foi e quem pagou. O Nino calcula a parte
-            de cada um e ajuda você a preparar um lembrete amigável.
+            Você conta quem foi e quanto foi. O Nino calcula a parte de cada um
+            e prepara um lembrete amigável.
           </p>
         </div>
         <div className="lp-role-card" aria-hidden="true">
@@ -315,14 +279,14 @@ function RoleSection() {
               <li key={p.nome}>
                 <span className="lp-role-avatar">{p.nome[0]}</span>
                 <span className="lp-role-name">{p.nome}</span>
-                <span className="lp-role-value">R$ 120</span>
                 <span className={`lp-role-status ${p.status}`}>
                   {p.status === "pago" ? "Pago" : "Pendente"}
                 </span>
               </li>
             ))}
+            <li className="lp-role-more">+1 pessoa</li>
           </ul>
-          <button type="button" className="lp-btn primary lp-role-btn" tabIndex={-1}>
+          <button type="button" className="lp-btn ghost lp-role-btn" tabIndex={-1}>
             Preparar lembrete
           </button>
         </div>
@@ -337,49 +301,29 @@ function SimpleTrustSection() {
   return (
     <section className="lp-section lp-section--cloud" id="simples">
       <div className="lp-wrap">
-        <div className="lp-section-head">
-          <h2>Falar com o Nino é simples. Entender o que ele faz também.</h2>
+        <div className="lp-section-head lp-section-head--center">
+          <h2>Simples de usar. Claro no que faz.</h2>
         </div>
 
-        <ol className="lp-steps">
+        <ol className="lp-steps lp-steps--inline">
           <li>
             <span className="lp-step-num">01</span>
-            <div>
-              <p className="lp-step-title">Você conta o que aconteceu.</p>
-              <p className="lp-step-sub">Pode ser pelo app ou pelo WhatsApp.</p>
-            </div>
+            <p className="lp-step-title">Você conta.</p>
           </li>
           <li>
             <span className="lp-step-num">02</span>
-            <div>
-              <p className="lp-step-title">O Nino organiza e explica.</p>
-              <p className="lp-step-sub">
-                Valor, categoria, contexto e impacto no seu mês.
-              </p>
-            </div>
+            <p className="lp-step-title">O Nino organiza e explica.</p>
           </li>
           <li>
             <span className="lp-step-num">03</span>
-            <div>
-              <p className="lp-step-title">Você decide com mais clareza.</p>
-              <p className="lp-step-sub">
-                O Nino sugere caminhos. A decisão continua sendo sua.
-              </p>
-            </div>
+            <p className="lp-step-title">Você decide.</p>
           </li>
         </ol>
 
-        <div className="lp-trust">
-          <p className="lp-trust-lead">
-            Você escolhe o que registrar. O Nino não movimenta seu dinheiro.
-            Tudo que ele conclui, ele mostra de forma clara.
-          </p>
-          <ul className="lp-trust-list">
-            <li>Sem movimentações financeiras</li>
-            <li>Sem decisões automáticas sobre seu dinheiro</li>
-            <li>Informações explicadas em linguagem humana</li>
-          </ul>
-        </div>
+        <p className="lp-trust-para">
+          Você escolhe o que registrar. O Nino não movimenta seu dinheiro — só
+          organiza, explica e sugere caminhos em linguagem humana.
+        </p>
       </div>
     </section>
   );
@@ -394,11 +338,9 @@ function FinalCtaSection() {
         <NinoSymbol size={480} />
       </div>
       <div className="lp-wrap lp-final-inner">
-        <h2>
-          Seu dinheiro começa a fazer mais sentido a partir de uma conversa.
-        </h2>
+        <h2>Comece a entender seu dinheiro antes que o mês termine.</h2>
         <p className="lp-lead">
-          Fale com o Nino e descubra o que seus números estão tentando dizer.
+          Uma conversa com o Nino já muda o jeito que você olha pros seus números.
         </p>
         <div className="lp-actions">
           <Link to="/signup" className="lp-btn primary">
@@ -416,29 +358,25 @@ function FinalCtaSection() {
 const FAQ_ITEMS = [
   {
     q: "O Nino é um banco?",
-    a: "Não. O Nino organiza informações, explica mudanças e ajuda você a decidir. Ele não movimenta dinheiro.",
+    a: "Não. Ele organiza informações, explica mudanças e ajuda você a decidir. Não movimenta dinheiro.",
   },
   {
     q: "Funciona pelo WhatsApp?",
-    a: "Sim. Você pode conversar com o Nino pelo WhatsApp ou usar o app.",
-  },
-  {
-    q: "O Nino movimenta meu dinheiro?",
-    a: "Não. Ele organiza, acompanha e sugere caminhos. A decisão e qualquer movimentação continuam sendo suas.",
+    a: "Sim. Você conversa com o Nino pelo WhatsApp ou usa o app.",
   },
   {
     q: "Como as previsões funcionam?",
-    a: "Elas são calculadas a partir do que você registra, do seu ritmo atual e do histórico disponível. O Nino mostra o que influenciou cada previsão.",
+    a: "São calculadas com base no que você registra, no seu ritmo atual e no histórico. O Nino mostra o que influenciou cada previsão.",
   },
   {
-    q: "Quanto custa para começar?",
-    a: "Você pode começar gratuitamente, sem cartão de crédito.",
+    q: "Meus dados ficam seguros?",
+    a: "Ficam. Nada é compartilhado sem seu consentimento e nenhuma decisão financeira é tomada automaticamente.",
   },
 ];
 
 function FAQSection() {
   return (
-    <section className="lp-section lp-section--cloud" id="duvidas">
+    <section className="lp-section lp-section--cloud lp-section--faq" id="duvidas">
       <div className="lp-wrap lp-faq-inner">
         <div className="lp-section-head">
           <h2>Dúvidas frequentes</h2>
@@ -480,35 +418,47 @@ function LandingFooter() {
 /* ============================ Mobile CTA ============================= */
 
 /**
- * CTA fixo condicional (mobile).
- *  - Oculto enquanto o Hero está visível.
- *  - Aparece após sair do Hero.
- *  - Desaparece ao entrar no CTA final (#comecar) ou FAQ (#duvidas).
- *  - Fallback (sem IntersectionObserver): aparece após 200px de scroll.
+ * CTA fixo mobile refinado (auditoria §9).
+ *  - Oculto em: #hero, #comecar, #duvidas, .lp-footer.
+ *  - Fundo Deep Ink sólido (sem gradiente), altura ~52px.
+ *  - Delay 200ms de primeira aparição para evitar flicker.
  */
 function MobileCta() {
   const [visible, setVisible] = useState(false);
   const heroVisibleRef = useRef(true);
-  const finalVisibleRef = useRef(false);
+  const suppressorVisibleRef = useRef(false);
+  const armedRef = useRef(false);
 
   useEffect(() => {
     const hero = document.getElementById("hero");
     const finalCta = document.getElementById("comecar");
     const faq = document.getElementById("duvidas");
+    const footer = document.querySelector(".lp-footer");
 
     const supportsIO = typeof IntersectionObserver !== "undefined";
+    const armTimer = window.setTimeout(() => {
+      armedRef.current = true;
+      update();
+    }, 200);
 
-    if (!supportsIO) {
-      const onScroll = () => setVisible(window.scrollY > 200);
-      onScroll();
-      window.addEventListener("scroll", onScroll, { passive: true });
-      return () => window.removeEventListener("scroll", onScroll);
+    function update() {
+      if (!armedRef.current) return;
+      setVisible(!heroVisibleRef.current && !suppressorVisibleRef.current);
     }
 
-    const update = () => {
-      setVisible(!heroVisibleRef.current && !finalVisibleRef.current);
-    };
+    if (!supportsIO) {
+      const onScroll = () => {
+        if (!armedRef.current) return;
+        setVisible(window.scrollY > 320);
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      return () => {
+        window.clearTimeout(armTimer);
+        window.removeEventListener("scroll", onScroll);
+      };
+    }
 
+    const suppressors = new Map<Element, boolean>();
     const heroObs = new IntersectionObserver(
       ([entry]) => {
         heroVisibleRef.current = entry.isIntersecting;
@@ -516,21 +466,24 @@ function MobileCta() {
       },
       { threshold: 0.15 },
     );
-    const finalObs = new IntersectionObserver(
+    const suppressObs = new IntersectionObserver(
       (entries) => {
-        finalVisibleRef.current = entries.some((e) => e.isIntersecting);
+        for (const e of entries) suppressors.set(e.target, e.isIntersecting);
+        suppressorVisibleRef.current = Array.from(suppressors.values()).some(Boolean);
         update();
       },
       { threshold: 0.05 },
     );
 
     if (hero) heroObs.observe(hero);
-    if (finalCta) finalObs.observe(finalCta);
-    if (faq) finalObs.observe(faq);
+    for (const el of [finalCta, faq, footer]) {
+      if (el) suppressObs.observe(el);
+    }
 
     return () => {
+      window.clearTimeout(armTimer);
       heroObs.disconnect();
-      finalObs.disconnect();
+      suppressObs.disconnect();
     };
   }, []);
 
@@ -544,9 +497,8 @@ function MobileCta() {
       className={`lp-mobile-cta${visible ? " is-visible" : ""}`}
       aria-hidden={!visible}
     >
-      <Link to="/signup" className="lp-btn primary" tabIndex={visible ? 0 : -1}>
-        Quero meu Nino grátis
-        <CaretRight size={14} weight="bold" />
+      <Link to="/signup" className="lp-mobile-cta-btn" tabIndex={visible ? 0 : -1}>
+        Começar grátis
       </Link>
     </div>
   );

@@ -57,11 +57,12 @@ describe("LandingPage — redesign 7 blocos", () => {
     }
   });
 
-  it("FAQ tem exatamente 5 perguntas", () => {
+  it("FAQ tem exatamente 4 perguntas", () => {
     const { container } = renderLP();
     const details = container.querySelectorAll(".lp-faq details");
-    expect(details.length).toBe(5);
+    expect(details.length).toBe(4);
   });
+
 
   it("CTAs de cadastro apontam para /signup e login para /login", () => {
     const { container } = renderLP();
