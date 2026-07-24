@@ -103,16 +103,25 @@ export function isRealMonthlyMovement(t: TransactionRow): boolean {
   return true;
 }
 
+export function behavioralMetricAmount(
+  t: TransactionRow,
+  metric: "expense" | "income",
+): number {
+  if (t.status !== "confirmed" || t.type === "transfer") return 0;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (mk === "refund") {
+    return metric === "expense" ? -Number(t.amount || 0) : 0;
+  }
+  if (!isRealMonthlyMovement(t) || t.type !== metric) return 0;
+  return Number(t.amount || 0);
+}
+
 export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
   let income = 0, expense = 0;
   for (const t of txs) {
     if (!t.occurred_at.startsWith(ym)) continue;
-    if (!isRealMonthlyMovement(t)) continue;
-    const amt = Number(t.amount || 0);
-    const mk = (t.movement_kind ?? "transaction").toString();
-    if (mk === "refund") { expense -= amt; continue; }
-    if (t.type === "income") income += amt;
-    else if (t.type === "expense") expense += amt;
+    income += behavioralMetricAmount(t, "income");
+    expense += behavioralMetricAmount(t, "expense");
   }
   expense = Math.max(0, expense);
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };

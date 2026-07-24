@@ -1,7 +1,7 @@
 // compare_periods — delta de gasto/receita entre dois períodos, com quebra
 // por grupo. Só considera movimentos "reais" (isRealMonthlyMovement) para
 // evitar contar transferências/aplicações como gasto.
-import { isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { comparablePeriods, daysBetween } from "./periods.ts";
 
@@ -33,11 +33,10 @@ function sumInPeriod(txs: TransactionRow[], metric: "expense" | "income", from: 
   let rows = 0;
   const daySet = new Set<string>();
   for (const t of txs) {
-    if (t.type !== metric) continue;
-    if (!isRealMonthlyMovement(t)) continue;
     const d = t.occurred_at.slice(0, 10);
     if (d < from || d > to) continue;
-    const amt = Number(t.amount || 0);
+    const amt = behavioralMetricAmount(t, metric);
+    if (amt === 0) continue;
     total += amt;
     rows += 1;
     daySet.add(d);

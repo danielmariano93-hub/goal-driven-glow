@@ -5,7 +5,7 @@
 // aqui calculamos: para cada dia d do período, média = consumo_acumulado(1..d) / d.
 // Só consumo real, filtrado por isRealMonthlyMovement — mesma definição da Home
 // (exclui aplicações, aportes, transferências, pagamento de fatura, etc.).
-import { isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { daysBetween, todaySP, monthRange } from "./periods.ts";
 
@@ -79,14 +79,11 @@ export function computeCumulativeDailyAverage(input: {
   const byDay = new Map<string, number>();
   let rows = 0;
   for (const t of input.txs) {
-    if (t.type !== "expense") continue;
-    if (!isRealMonthlyMovement(t)) continue;
     const d = String(t.occurred_at ?? "").slice(0, 10);
     if (!d || d < from || d > to) continue;
-    const amt = Number(t.amount || 0);
-    // refund reduz consumo do dia — coerente com computeMonthlyTotals
-    const mk = (t.movement_kind ?? "transaction").toString();
-    byDay.set(d, (byDay.get(d) ?? 0) + (mk === "refund" ? -amt : amt));
+    const signed = behavioralMetricAmount(t, "expense");
+    if (signed === 0) continue;
+    byDay.set(d, (byDay.get(d) ?? 0) + signed);
     rows += 1;
   }
 

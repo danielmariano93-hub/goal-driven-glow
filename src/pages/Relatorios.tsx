@@ -1,7 +1,24 @@
 import { useEffect, useState } from "react";
 import { Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { supabase } from "@/integrations/supabase/client";
-import { groupByMonth, byCategory, filterPeriod, spendingHighlights, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
+import {
+  groupByMonth,
+  byCategory,
+  filterCanonicalReportTransactions,
+  filterPeriod,
+  spendingHighlights,
+  toCsv,
+  type ReportTxn,
+} from "@/lib/reports/aggregations";
 import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 
@@ -15,18 +32,22 @@ export default function Relatorios() {
     (async () => {
       const { data } = await supabase
         .from("transactions")
-        .select("type,amount,occurred_at,category_id,categories(name)")
+        .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,categories(name)")
         .order("occurred_at", { ascending: false });
       setTxns((data ?? []).map((t: any) => ({
-        type: t.type, amount: Number(t.amount), occurred_at: t.occurred_at,
+        id: t.id, account_id: t.account_id, type: t.type, status: t.status,
+        amount: Number(t.amount), occurred_at: t.occurred_at,
         category_id: t.category_id, category_name: t.categories?.name ?? null,
+        transfer_group_id: t.transfer_group_id, payment_method: t.payment_method,
+        credit_card_id: t.credit_card_id, settles_card_id: t.settles_card_id,
+        movement_kind: t.movement_kind,
       })));
     })();
   }, []);
 
   if (txns === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
-  const filtered = filterPeriod(txns, from, to);
+  const filtered = filterCanonicalReportTransactions(filterPeriod(txns, from, to));
   const monthly = groupByMonth(filtered);
   const byCat = byCategory(filtered);
   const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
@@ -88,7 +109,27 @@ export default function Relatorios() {
       </div>
 
       <section>
-        <h2 className="text-sm font-semibold mb-2">Mensal</h2>
+        <h2 className="mb-2 text-sm font-semibold">Evolução mensal</h2>
+        <div className="surface-card mb-3 h-64 p-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={monthly} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="ym" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+              <Tooltip
+                formatter={(value: number) => formatBRL(Number(value))}
+                contentStyle={{
+                  borderRadius: 14,
+                  border: "1px solid hsl(var(--border))",
+                  background: "hsl(var(--background))",
+                  fontSize: 12,
+                }}
+              />
+              <Line type="monotone" dataKey="income" name="Receitas" stroke="hsl(var(--success))" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="expense" name="Consumo real" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
         <div className="surface-card overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-secondary/40">
@@ -126,7 +167,7 @@ export default function Relatorios() {
             </div>
           ))}
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2">Valores factuais. Não incluímos projeções ou score inventado.</p>
+        <p className="text-[10px] text-muted-foreground mt-2">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
       </section>
 
       <section>

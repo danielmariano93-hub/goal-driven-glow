@@ -1,7 +1,7 @@
 // spending_timeseries_daily — série diária real de gastos com média móvel
 // de 7 dias, para gráfico de linha. Só considera movimentos reais
 // (isRealMonthlyMovement) para não contar transferência/investimento.
-import { isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { daysBetween, todaySP, monthRange } from "./periods.ts";
 
@@ -44,15 +44,15 @@ export function computeDailySpend(input: {
   const byDay = new Map<string, number>();
   let rows = 0;
   for (const t of input.txs) {
-    if (t.type !== metric) continue;
-    if (!isRealMonthlyMovement(t)) continue;
     const d = t.occurred_at.slice(0, 10);
     if (d < from || d > to) continue;
-    byDay.set(d, (byDay.get(d) ?? 0) + Number(t.amount || 0));
+    const signed = behavioralMetricAmount(t, metric);
+    if (signed === 0) continue;
+    byDay.set(d, (byDay.get(d) ?? 0) + signed);
     rows += 1;
   }
 
-  const daily = labels.map((d) => round2(byDay.get(d) ?? 0));
+  const daily = labels.map((d) => round2(Math.max(0, byDay.get(d) ?? 0)));
   const rolling7 = daily.map((_, i) => {
     const start = Math.max(0, i - 6);
     const slice = daily.slice(start, i + 1);

@@ -1,8 +1,8 @@
 // Reminder dispatch worker.
 // Gate: requires either header `x-cron-secret` matching CRON_SECRET env,
 // or an admin JWT (is_current_user_admin === true). Never publicly callable.
-// Semantics: claims reminder_jobs atomically (lease), respects quiet hours
-// via claim_reminder_jobs RPC, enqueues in outbound_messages with a dedup
+// Semantics: claims reminder_jobs atomically (lease), operates 24/7,
+// enqueues in outbound_messages with a per-job dedup
 // idempotency key. Marks job as `enqueued`, NEVER as `sent` — the outbound
 // worker + provider ack drives the terminal state.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Claim atomically; respects quiet hours (SP 08–22) and attempt limits.
+  // Claim atomically 24/7, respecting scheduled_for and attempt limits.
   // Usuários autenticados podem adiantar somente a própria fila logo após
   // criar/repetir um convite. Cron, service role e admin processam a fila global.
   const globalWorker = okCron || okService || caller.admin;
@@ -83,6 +83,7 @@ Deno.serve(async (req) => {
   const ownerNames = new Map<string, string>();
 
   let enqueued = 0, skipped = 0, failed = 0;
+  const targetOutboundIds: string[] = [];
   for (const j of jobs) {
     try {
       const kind = String(j.kind ?? "reminder");
@@ -124,8 +125,9 @@ Deno.serve(async (req) => {
       }
       const msg = messageFor(kind, p, se, remaining, persona);
 
-      const dedupDay = new Date(j.scheduled_for).toISOString().slice(0, 10);
-      const idem = `split:${kind}:${j.participant_id}:${dedupDay}`;
+      // Uma nova tentativa manual gera um novo job e deve poder enviar no
+      // mesmo dia. Reprocessar o MESMO job continua idempotente.
+      const idem = `split:${kind}:${j.participant_id}:${j.id}`;
 
       const { data: om, error: omErr } = await sb
         .from("outbound_messages")
@@ -146,20 +148,41 @@ Deno.serve(async (req) => {
         .single();
 
       if (omErr) {
-        // duplicate idempotency = already enqueued → treat as skipped-ok
+        // O mesmo job já foi enfileirado: recupere o outbound existente para
+        // preservar rastreabilidade e não transformar retry em falso "skipped".
         const dupe = String(omErr.message).includes("duplicate") || String(omErr.code) === "23505";
-        await sb.from("reminder_jobs").update({
-          status: dupe ? "skipped" : "failed",
-          last_error: dupe ? "duplicate_idempotency" : String(omErr.message).slice(0, 200),
-          lease_expires_at: null,
-        }).eq("id", j.id);
-        if (dupe) skipped++; else failed++;
+        if (dupe) {
+          const { data: existing } = await sb.from("outbound_messages")
+            .select("id")
+            .eq("idempotency_key", idem)
+            .maybeSingle();
+          await sb.from("reminder_jobs").update({
+            status: existing?.id ? "enqueued" : "skipped",
+            outbound_message_id: existing?.id ?? null,
+            last_error: existing?.id ? null : "duplicate_idempotency",
+            lease_expires_at: null,
+          }).eq("id", j.id);
+          if (existing?.id) {
+            targetOutboundIds.push(existing.id);
+            enqueued++;
+          } else {
+            skipped++;
+          }
+        } else {
+          await sb.from("reminder_jobs").update({
+            status: "failed",
+            last_error: String(omErr.message).slice(0, 200),
+            lease_expires_at: null,
+          }).eq("id", j.id);
+          failed++;
+        }
       } else {
         await sb.from("reminder_jobs").update({
           status: "enqueued",
           outbound_message_id: om.id,
           lease_expires_at: null,
         }).eq("id", j.id);
+        targetOutboundIds.push(om.id);
         await sb.from("shared_expense_events").insert({
           shared_expense_id: j.shared_expense_id,
           owner_user_id: se.owner_user_id,
@@ -212,5 +235,29 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: String((error as Error).message).slice(0, 160) }));
   }
-  return json({ claimed: jobs.length, enqueued, skipped, failed, outbound_processed: outboundProcessed, outbound_kicked: outboundKicked });
+
+  let outboundSent = 0, outboundPending = 0, outboundFailed = 0;
+  if (targetOutboundIds.length > 0) {
+    const { data: targetRows } = await sb.from("outbound_messages")
+      .select("status")
+      .in("id", targetOutboundIds);
+    for (const row of targetRows ?? []) {
+      const status = String(row.status ?? "");
+      if (["sent", "delivered", "read"].includes(status)) outboundSent++;
+      else if (["failed", "dead"].includes(status)) outboundFailed++;
+      else outboundPending++;
+    }
+  }
+
+  return json({
+    claimed: jobs.length,
+    enqueued,
+    skipped,
+    failed,
+    outbound_processed: outboundProcessed,
+    outbound_kicked: outboundKicked,
+    outbound_sent: outboundSent,
+    outbound_pending: outboundPending,
+    outbound_failed: outboundFailed,
+  });
 });

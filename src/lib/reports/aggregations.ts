@@ -1,9 +1,19 @@
+import { behavioralMetricAmount, type TransactionRow } from "@/lib/engine/facts";
+
 export interface ReportTxn {
+  id?: string;
+  account_id?: string;
   type: "income" | "expense" | "transfer";
+  status: "confirmed" | "planned";
   amount: number;
   occurred_at: string; // YYYY-MM-DD
   category_id?: string | null;
   category_name?: string | null;
+  transfer_group_id?: string | null;
+  payment_method?: string | null;
+  credit_card_id?: string | null;
+  settles_card_id?: string | null;
+  movement_kind?: string | null;
 }
 
 export interface CategoryBucket {
@@ -29,15 +39,30 @@ export interface MonthlyBucket {
   net: number;
 }
 
+function asCanonicalTransaction(t: ReportTxn): TransactionRow {
+  return {
+    ...t,
+    id: t.id ?? "",
+    account_id: t.account_id ?? "",
+    category_id: t.category_id ?? null,
+    status: t.status ?? "confirmed",
+    description: null,
+    transfer_group_id: t.transfer_group_id ?? null,
+  };
+}
+
 export function groupByMonth(txns: ReportTxn[]): MonthlyBucket[] {
   const map = new Map<string, MonthlyBucket>();
   for (const t of txns) {
-    if (t.type === "transfer") continue;
+    const canonical = asCanonicalTransaction(t);
+    const incomeAmount = behavioralMetricAmount(canonical, "income");
+    const expenseAmount = behavioralMetricAmount(canonical, "expense");
+    if (incomeAmount === 0 && expenseAmount === 0) continue;
     const ym = t.occurred_at.slice(0, 7);
     const b = map.get(ym) ?? { ym, income: 0, expense: 0, net: 0 };
-    if (t.type === "income") b.income += t.amount;
-    else b.expense += t.amount;
-    b.net = b.income - b.expense;
+    b.income += incomeAmount;
+    b.expense = Math.max(0, b.expense + expenseAmount);
+    b.net = b.income - Math.max(0, b.expense);
     map.set(ym, b);
   }
   return [...map.values()].sort((a, b) => a.ym.localeCompare(b.ym));
@@ -46,15 +71,17 @@ export function groupByMonth(txns: ReportTxn[]): MonthlyBucket[] {
 export function byCategory(txns: ReportTxn[]): CategoryBucket[] {
   const map = new Map<string, { total: number; count: number }>();
   for (const t of txns) {
-    if (t.type !== "expense") continue;
+    const signed = behavioralMetricAmount(asCanonicalTransaction(t), "expense");
+    if (signed === 0) continue;
     const k = t.category_name || "Sem categoria";
     const cur = map.get(k) ?? { total: 0, count: 0 };
-    cur.total += t.amount;
-    cur.count += 1;
+    cur.total = Math.max(0, cur.total + signed);
+    if (signed > 0) cur.count += 1;
     map.set(k, cur);
   }
   const totalExpenses = [...map.values()].reduce((sum, v) => sum + v.total, 0);
   return [...map.entries()]
+    .filter(([, value]) => value.total > 0)
     .map(([category, v]) => ({
       category,
       ...v,
@@ -155,6 +182,14 @@ export function filterPeriod(txns: ReportTxn[], from?: string, to?: string): Rep
     if (from && t.occurred_at < from) return false;
     if (to && t.occurred_at > to) return false;
     return true;
+  });
+}
+
+export function filterCanonicalReportTransactions(txns: ReportTxn[]): ReportTxn[] {
+  return txns.filter((t) => {
+    const canonical = asCanonicalTransaction(t);
+    return behavioralMetricAmount(canonical, "income") !== 0
+      || behavioralMetricAmount(canonical, "expense") !== 0;
   });
 }
 
