@@ -667,6 +667,7 @@ import {
   type ChartArtifact,
 } from "../artifacts/builder.ts";
 import { reconciliationGate } from "../engine/reconciliation.ts";
+import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templates/reportTemplates.ts";
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [{ data: txs }, { data: cats }] = await Promise.all([
@@ -844,6 +845,32 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
   }).select("id").maybeSingle();
 
   return { ok: true, result: { artifact, artifact_id: saved?.id ?? null } };
+}
+
+// generate_report_from_template — bypass determinístico para templates ativos
+// em public.financial_report_templates. Recebe template_key + params e delega
+// para generate_chart_artifact usando o mapeamento canônico.
+
+export async function generate_report_from_template(ctx: ToolContext, args: {
+  template_key: TemplateKey;
+  params?: Record<string, unknown>;
+}): Promise<ToolResult> {
+  if (!TEMPLATE_KEYS.includes(args.template_key as TemplateKey)) {
+    return { ok: false, error: "unknown_template" };
+  }
+  // Confirma que o template está ativo no banco (fonte de verdade).
+  const { data: tpl } = await ctx.sb
+    .from("financial_report_templates")
+    .select("template_key, active")
+    .eq("template_key", args.template_key)
+    .maybeSingle();
+  if (!tpl || !tpl.active) return { ok: false, error: "template_inactive" };
+
+  const { kind, args: mappedArgs } = templateToArtifactArgs({
+    template_key: args.template_key,
+    params: args.params ?? {},
+  });
+  return await generate_chart_artifact(ctx, { kind: kind as any, ...(mappedArgs as any) });
 }
 
 // ---------- Registro ----------
@@ -1177,6 +1204,19 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["kind"], additionalProperties: false,
     },
     execute: generate_chart_artifact,
+  },
+  {
+    name: "generate_report_from_template",
+    description: "Gera um relatório visual a partir de um template ATIVO cadastrado (financial_report_templates). Use quando o usuário pedir um relatório nomeado: 'evolução dos gastos' (spending_trend), 'compara com o mês passado' (monthly_comparison), 'one page semanal' / 'resumo da semana' (weekly_one_page). Determinístico e sem custo de LLM.",
+    parameters: {
+      type: "object",
+      properties: {
+        template_key: { type: "string", enum: ["spending_trend", "monthly_comparison", "weekly_one_page"] },
+        params: { type: "object", additionalProperties: true },
+      },
+      required: ["template_key"], additionalProperties: false,
+    },
+    execute: generate_report_from_template,
   },
 ];
 
