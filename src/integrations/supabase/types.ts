@@ -376,6 +376,48 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_metrics_daily: {
+        Row: {
+          cost_cents: number
+          day: string
+          latency_ms_p50: number | null
+          latency_ms_p95: number | null
+          runs: number
+          runs_error: number
+          runs_ok: number
+          surface: string
+          tokens_in: number
+          tokens_out: number
+          updated_at: string
+        }
+        Insert: {
+          cost_cents?: number
+          day: string
+          latency_ms_p50?: number | null
+          latency_ms_p95?: number | null
+          runs?: number
+          runs_error?: number
+          runs_ok?: number
+          surface: string
+          tokens_in?: number
+          tokens_out?: number
+          updated_at?: string
+        }
+        Update: {
+          cost_cents?: number
+          day?: string
+          latency_ms_p50?: number | null
+          latency_ms_p95?: number | null
+          runs?: number
+          runs_error?: number
+          runs_ok?: number
+          surface?: string
+          tokens_in?: number
+          tokens_out?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       agent_prompt_versions: {
         Row: {
           created_at: string
@@ -2006,6 +2048,33 @@ export type Database = {
           },
         ]
       }
+      feature_funnel_daily: {
+        Row: {
+          day: string
+          events: number
+          feature: string
+          step: string
+          updated_at: string
+          users: number
+        }
+        Insert: {
+          day: string
+          events?: number
+          feature: string
+          step: string
+          updated_at?: string
+          users?: number
+        }
+        Update: {
+          day?: string
+          events?: number
+          feature?: string
+          step?: string
+          updated_at?: string
+          users?: number
+        }
+        Relationships: []
+      }
       financial_backfill_checkpoints: {
         Row: {
           attempts: number
@@ -2949,6 +3018,39 @@ export type Database = {
           },
         ]
       }
+      outbound_metrics_daily: {
+        Row: {
+          day: string
+          delivered: number
+          failed: number
+          feature: string
+          read: number
+          sent: number
+          surface: string
+          updated_at: string
+        }
+        Insert: {
+          day: string
+          delivered?: number
+          failed?: number
+          feature: string
+          read?: number
+          sent?: number
+          surface: string
+          updated_at?: string
+        }
+        Update: {
+          day?: string
+          delivered?: number
+          failed?: number
+          feature?: string
+          read?: number
+          sent?: number
+          surface?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pending_confirmations: {
         Row: {
           confirmed_from_message_id: string | null
@@ -3190,6 +3292,140 @@ export type Database = {
           value?: string
         }
         Relationships: []
+      }
+      product_cohorts_weekly: {
+        Row: {
+          activated_users: number
+          cohort_week: string
+          reference_week: string
+          retained_users: number
+          updated_at: string
+          week_offset: number
+        }
+        Insert: {
+          activated_users?: number
+          cohort_week: string
+          reference_week: string
+          retained_users?: number
+          updated_at?: string
+          week_offset: number
+        }
+        Update: {
+          activated_users?: number
+          cohort_week?: string
+          reference_week?: string
+          retained_users?: number
+          updated_at?: string
+          week_offset?: number
+        }
+        Relationships: []
+      }
+      product_daily_value: {
+        Row: {
+          activated_count: number
+          day: string
+          formula_version: string
+          sample_size: number
+          significant_entry_users: number
+          updated_at: string
+          value_delivered_count: number
+          wvu_count: number
+        }
+        Insert: {
+          activated_count?: number
+          day: string
+          formula_version?: string
+          sample_size?: number
+          significant_entry_users?: number
+          updated_at?: string
+          value_delivered_count?: number
+          wvu_count?: number
+        }
+        Update: {
+          activated_count?: number
+          day?: string
+          formula_version?: string
+          sample_size?: number
+          significant_entry_users?: number
+          updated_at?: string
+          value_delivered_count?: number
+          wvu_count?: number
+        }
+        Relationships: []
+      }
+      product_event_types: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          event_name: string
+          requires_value_bucket: boolean
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description: string
+          event_name: string
+          requires_value_bucket?: boolean
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          event_name?: string
+          requires_value_bucket?: boolean
+        }
+        Relationships: []
+      }
+      product_events: {
+        Row: {
+          created_at: string
+          event_name: string
+          event_source: Database["public"]["Enums"]["event_source"]
+          feature: string | null
+          id: string
+          idempotency_key: string
+          occurred_at: string
+          outcome: string | null
+          pseudo_id: string
+          surface: string | null
+          value_bucket: Database["public"]["Enums"]["value_bucket"] | null
+        }
+        Insert: {
+          created_at?: string
+          event_name: string
+          event_source?: Database["public"]["Enums"]["event_source"]
+          feature?: string | null
+          id?: string
+          idempotency_key: string
+          occurred_at?: string
+          outcome?: string | null
+          pseudo_id: string
+          surface?: string | null
+          value_bucket?: Database["public"]["Enums"]["value_bucket"] | null
+        }
+        Update: {
+          created_at?: string
+          event_name?: string
+          event_source?: Database["public"]["Enums"]["event_source"]
+          feature?: string | null
+          id?: string
+          idempotency_key?: string
+          occurred_at?: string
+          outcome?: string | null
+          pseudo_id?: string
+          surface?: string | null
+          value_bucket?: Database["public"]["Enums"]["value_bucket"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_events_event_name_fkey"
+            columns: ["event_name"]
+            isOneToOne: false
+            referencedRelation: "product_event_types"
+            referencedColumns: ["event_name"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -4232,6 +4468,33 @@ export type Database = {
         }
         Relationships: []
       }
+      user_lifecycle_daily: {
+        Row: {
+          active_users: number
+          churned_users: number
+          day: string
+          dormant_users: number
+          new_users: number
+          updated_at: string
+        }
+        Insert: {
+          active_users?: number
+          churned_users?: number
+          day: string
+          dormant_users?: number
+          new_users?: number
+          updated_at?: string
+        }
+        Update: {
+          active_users?: number
+          churned_users?: number
+          day?: string
+          dormant_users?: number
+          new_users?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_profiles_snapshot: {
         Row: {
           behavior_tags: string[]
@@ -4628,6 +4891,10 @@ export type Database = {
         }
         Returns: string
       }
+      amount_to_bucket: {
+        Args: { _amount: number }
+        Returns: Database["public"]["Enums"]["value_bucket"]
+      }
       apply_outbound_ack: {
         Args: { p_ack: string; p_provider_message_id: string }
         Returns: {
@@ -4636,6 +4903,10 @@ export type Database = {
         }[]
       }
       apply_safe_category_suggestions: { Args: never; Returns: Json }
+      backfill_product_events_from_history: {
+        Args: { _days?: number }
+        Returns: Json
+      }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
       category_alias_key: { Args: { p_text: string }; Returns: string }
@@ -4858,6 +5129,7 @@ export type Database = {
         }
         Returns: string
       }
+      prune_product_events: { Args: { _days?: number }; Returns: number }
       reconcile_document_balance: {
         Args: { p_account_id: string; p_document_id: string }
         Returns: Json
@@ -4873,6 +5145,14 @@ export type Database = {
       refresh_financial_daily_facts: {
         Args: { p_from: string; p_to: string; p_user_id: string }
         Returns: number
+      }
+      refresh_product_aggregates_full: {
+        Args: { _days?: number }
+        Returns: undefined
+      }
+      refresh_product_aggregates_incremental: {
+        Args: never
+        Returns: undefined
       }
       reprocess_rejected_items: {
         Args: { p_document_id: string; p_reason_codes?: string[] }
@@ -5079,6 +5359,7 @@ export type Database = {
         | "completed"
         | "rejected"
         | "cancelled"
+      event_source: "live" | "backfill" | "backfill_proxy"
       goal_status: "active" | "paused" | "completed"
       import_batch_status: "pending" | "completed" | "failed"
       income_frequency: "mensal" | "quinzenal" | "semanal" | "variavel"
@@ -5128,6 +5409,7 @@ export type Database = {
       transfer_direction: "debit" | "credit"
       txn_origin: "manual" | "agent" | "import" | "recurring" | "split"
       user_challenge_status: "joined" | "completed" | "abandoned"
+      value_bucket: "0_50" | "50_100" | "100_250" | "250_500" | "500_plus"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -5275,6 +5557,7 @@ export const Constants = {
         "rejected",
         "cancelled",
       ],
+      event_source: ["live", "backfill", "backfill_proxy"],
       goal_status: ["active", "paused", "completed"],
       import_batch_status: ["pending", "completed", "failed"],
       income_frequency: ["mensal", "quinzenal", "semanal", "variavel"],
@@ -5328,6 +5611,7 @@ export const Constants = {
       transfer_direction: ["debit", "credit"],
       txn_origin: ["manual", "agent", "import", "recurring", "split"],
       user_challenge_status: ["joined", "completed", "abandoned"],
+      value_bucket: ["0_50", "50_100", "100_250", "250_500", "500_plus"],
     },
   },
 } as const
