@@ -58,7 +58,7 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
       template_key: "does_not_exist" as any,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("unknown_template");
+    if (!r.ok) expect((r as any).error).toBe("unknown_template");
   });
 
   it("rejeita params inválidos (metric fora do enum)", async () => {
@@ -69,8 +69,8 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.error).toBe("invalid_template_params");
-      expect(r.details).toBeDefined();
+      expect((r as any).error).toBe("invalid_template_params");
+      expect((r as any).details).toBeDefined();
     }
   });
 
@@ -81,7 +81,7 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
       params: { random_key: "x" } as any,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("invalid_template_params");
+    if (!r.ok) expect((r as any).error).toBe("invalid_template_params");
   });
 
   it("rejeita params com formato de data inválido", async () => {
@@ -91,7 +91,7 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
       params: { from: "07/01/2026" } as any,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("invalid_template_params");
+    if (!r.ok) expect((r as any).error).toBe("invalid_template_params");
   });
 
   it("retorna template_inactive quando o registro está desligado no banco", async () => {
@@ -100,7 +100,7 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
       template_key: "spending_trend",
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("template_inactive");
+    if (!r.ok) expect((r as any).error).toBe("template_inactive");
   });
 
   it("retorna template_inactive quando o registro não existe", async () => {
@@ -109,7 +109,7 @@ describe("generate_report_from_template — Zod + validação de estado", () => 
       template_key: "monthly_comparison",
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("template_inactive");
+    if (!r.ok) expect((r as any).error).toBe("template_inactive");
   });
 
   it("happy path monthly_comparison: gera artefato compare e persiste id", async () => {
