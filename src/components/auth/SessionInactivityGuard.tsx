@@ -12,8 +12,14 @@ import { useSessionInactivity } from "@/hooks/useSessionInactivity";
  */
 export function SessionInactivityGuard({
   children,
+  idleMs,
+  warnMs,
 }: {
   children: React.ReactNode;
+  /** Timeout total em ms (default 30min). Admin usa 20min. */
+  idleMs?: number;
+  /** Janela de aviso em ms (default 2min). Admin usa 2min. */
+  warnMs?: number;
 }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -27,6 +33,8 @@ export function SessionInactivityGuard({
     signOutNow,
   } = useSessionInactivity({
     enabled,
+    idleMs,
+    warnMs,
     onSignOut: async () => {
       await signOut();
       navigate("/login?reason=inactivity", { replace: true });
