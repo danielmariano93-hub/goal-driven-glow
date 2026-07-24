@@ -19,25 +19,47 @@ export default function OperacaoIaOcr() {
   }, []);
 
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Erro" description={error} />;
+  if (error) return <EmptyState title="Não foi possível carregar" description={error} />;
+
+  const uploaded = data?.uploaded ?? 0;
+  const confirmed = data?.confirmed ?? 0;
+  const rateLabel =
+    uploaded <= 0
+      ? "—"
+      : `${(((confirmed / uploaded) * 100)).toFixed(1).replace(".0", "")}%`;
+  const insufficient = uploaded > 0 && uploaded < 10;
 
   return (
     <div className="space-y-6">
       <PageHeader title="IA & OCR" description="Documentos processados nos últimos 30 dias." />
-      <div className="grid grid-cols-3 gap-3">
-        <div className="surface-card p-4">
-          <div className="text-[11px] uppercase text-muted-foreground">Uploads</div>
-          <div className="font-display text-2xl font-bold">{data?.uploaded}</div>
-        </div>
-        <div className="surface-card p-4">
-          <div className="text-[11px] uppercase text-muted-foreground">Confirmados</div>
-          <div className="font-display text-2xl font-bold">{data?.confirmed}</div>
-        </div>
-        <div className="surface-card p-4">
-          <div className="text-[11px] uppercase text-muted-foreground">Taxa</div>
-          <div className="font-display text-2xl font-bold">{data?.confirmation_rate}%</div>
-        </div>
-      </div>
+      {uploaded === 0 ? (
+        <EmptyState
+          title="Nenhum documento processado nos últimos 30 dias"
+          description="Uploads pelo assessor ou WhatsApp aparecem aqui automaticamente."
+        />
+      ) : (
+        <>
+          {insufficient ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
+              Amostra pequena ({uploaded} uploads) — a taxa pode variar bastante.
+            </div>
+          ) : null}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="surface-card p-4">
+              <div className="text-[11px] uppercase text-muted-foreground">Uploads</div>
+              <div className="font-display text-2xl font-bold tabular-nums">{uploaded}</div>
+            </div>
+            <div className="surface-card p-4">
+              <div className="text-[11px] uppercase text-muted-foreground">Confirmados</div>
+              <div className="font-display text-2xl font-bold tabular-nums">{confirmed}</div>
+            </div>
+            <div className="surface-card p-4">
+              <div className="text-[11px] uppercase text-muted-foreground">Taxa de confirmação</div>
+              <div className="font-display text-2xl font-bold tabular-nums">{rateLabel}</div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

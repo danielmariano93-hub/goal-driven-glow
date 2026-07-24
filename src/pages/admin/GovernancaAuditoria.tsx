@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { dict } from "@/lib/admin/displayDictionary";
 
 type AuditEvent = {
   action: string;
@@ -24,7 +25,7 @@ export default function GovernancaAuditoria() {
   }, []);
 
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Erro" description={error} />;
+  if (error) return <EmptyState title="Não foi possível carregar" description={error} />;
 
   return (
     <div className="space-y-6">
@@ -44,7 +45,7 @@ export default function GovernancaAuditoria() {
               {rows.map((r, i) => (
                 <tr key={i} className="border-t border-border/40">
                   <td className="py-2 text-xs">{new Date(r.created_at).toLocaleString("pt-BR")}</td>
-                  <td>{r.action}</td>
+                  <td>{dict.action(r.action)}</td>
                   <td className="font-mono text-xs">{r.actor_admin_id?.slice(0, 8)}…</td>
                   <td>{r.target_kind ?? "—"}</td>
                 </tr>
@@ -52,7 +53,10 @@ export default function GovernancaAuditoria() {
             </tbody>
           </table>
         ) : (
-          <EmptyState title="Sem eventos" />
+          <EmptyState
+            title="Nenhuma ação administrativa ainda"
+            description="Concessões, break-glass e mudanças críticas aparecem aqui automaticamente."
+          />
         )}
       </div>
     </div>

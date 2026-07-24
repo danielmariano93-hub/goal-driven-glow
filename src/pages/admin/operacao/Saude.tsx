@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { dict } from "@/lib/admin/displayDictionary";
 
 type Heartbeat = {
   job_key: string;
@@ -56,7 +57,7 @@ export default function OperacaoSaude() {
             <tbody>
               {data.heartbeats.map((h) => (
                 <tr key={h.job_key} className="border-t border-border/40">
-                  <td className="py-2 font-mono text-xs">{h.job_key}</td>
+                  <td className="py-2">{dict.job(h.job_key)}</td>
                   <td className="text-xs">
                     {h.last_run_at ? new Date(h.last_run_at).toLocaleString("pt-BR") : "nunca"}
                   </td>
@@ -100,7 +101,7 @@ export default function OperacaoSaude() {
             <tbody>
               {data.today_agent.map((a, i) => (
                 <tr key={i} className="border-t border-border/40">
-                  <td className="py-2">{a.surface}</td>
+                  <td className="py-2">{dict.surface(a.surface)}</td>
                   <td className="text-right tabular-nums">{a.runs}</td>
                   <td className="text-right tabular-nums">{a.runs_ok}</td>
                   <td className="text-right tabular-nums">{a.runs_error}</td>
