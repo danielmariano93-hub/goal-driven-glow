@@ -59,6 +59,19 @@ const AdminOperacao = lazy(() => import("./pages/admin/Operacao"));
 const AdminProduto = lazy(() => import("./pages/admin/Produto"));
 const AdminSeguranca = lazy(() => import("./pages/admin/Seguranca"));
 const AdminConfiguracoes = lazy(() => import("./pages/admin/Configuracoes"));
+// Control Center v2
+const AdminCockpit = lazy(() => import("./pages/admin/Cockpit"));
+const AdminCrescimento = lazy(() => import("./pages/admin/Crescimento"));
+const AdminInteligenciaProduto = lazy(() => import("./pages/admin/InteligenciaProduto"));
+const AdminClientes = lazy(() => import("./pages/admin/Clientes"));
+const AdminReceita = lazy(() => import("./pages/admin/Receita"));
+const AdminGovernancaSeguranca = lazy(() => import("./pages/admin/GovernancaSeguranca"));
+const AdminGovernancaAuditoria = lazy(() => import("./pages/admin/GovernancaAuditoria"));
+const AdminOpSaude = lazy(() => import("./pages/admin/operacao/Saude"));
+const AdminOpMensageria = lazy(() => import("./pages/admin/operacao/Mensageria"));
+const AdminOpIaOcr = lazy(() => import("./pages/admin/operacao/IaOcr"));
+const AdminOpWhatsApp = lazy(() => import("./pages/admin/operacao/WhatsApp"));
+const AdminOpAssistente = lazy(() => import("./pages/admin/operacao/Assistente"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
