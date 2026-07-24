@@ -36,8 +36,8 @@ describe("aggregations", () => {
 
   it("não recomenda corte percentual em categoria essencial como principal ação", () => {
     const cats = byCategory([
-      { type: "expense" as const, amount: 1800, occurred_at: "2026-01-05", category_name: "Moradia" },
-      { type: "expense" as const, amount: 200, occurred_at: "2026-01-06", category_name: "Saúde" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 1800, occurred_at: "2026-01-05", category_name: "Moradia" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 200, occurred_at: "2026-01-06", category_name: "Saúde" },
     ]);
     const h = spendingHighlights(cats);
     expect(h[0].title).toContain("Moradia concentra");
