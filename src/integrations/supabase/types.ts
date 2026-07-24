@@ -4658,6 +4658,7 @@ export type Database = {
         Args: { p_id: string; p_provider_message_id: string }
         Returns: undefined
       }
+      normalize_br_phone: { Args: { raw: string }; Returns: string }
       notify_upsert: {
         Args: {
           p_action_url: string
