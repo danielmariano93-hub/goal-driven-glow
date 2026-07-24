@@ -860,7 +860,8 @@ export async function generate_report_from_template(ctx: ToolContext, args: {
 }): Promise<ToolResult> {
   const parsed = parseTemplateArgs(args?.template_key as string, args?.params);
   if (!parsed.ok) {
-    return { ok: false, error: parsed.error, details: parsed.details } as ToolResult;
+    const p = parsed as { ok: false; error: string; details?: unknown };
+    return { ok: false, error: p.error, details: p.details };
   }
   // Confirma que o template está ativo no banco (fonte de verdade).
   const { data: tpl } = await ctx.sb
