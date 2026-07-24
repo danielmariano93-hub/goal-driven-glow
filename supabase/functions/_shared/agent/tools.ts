@@ -1211,7 +1211,17 @@ export const AGENT_TOOLS: ToolSpec[] = [
       type: "object",
       properties: {
         template_key: { type: "string", enum: ["spending_trend", "monthly_comparison", "weekly_one_page"] },
-        params: { type: "object", additionalProperties: true },
+        params: {
+          type: "object",
+          description: "Parâmetros do template. spending_trend: { from?, to? } em YYYY-MM-DD. monthly_comparison: { metric: 'expense' | 'income' }. weekly_one_page: { weeks_back: 0..52 }. Validação estrita via Zod no servidor.",
+          additionalProperties: false,
+          properties: {
+            from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            to: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            metric: { type: "string", enum: ["expense", "income"] },
+            weeks_back: { type: "integer", minimum: 0, maximum: 52 },
+          },
+        },
       },
       required: ["template_key"], additionalProperties: false,
     },
