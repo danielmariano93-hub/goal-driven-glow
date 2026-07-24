@@ -5,6 +5,7 @@ import { AssessorFab } from '@/components/assessor/AssessorFab';
 import { AssessorPanel } from '@/components/assessor/AssessorPanel';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
 import { usePrivacyMode } from '@/context/PrivacyModeContext';
+import { SessionInactivityGuard } from '@/components/auth/SessionInactivityGuard';
 
 /**
  * Painel único e global do Assessor. Fica montado condicionalmente aqui
