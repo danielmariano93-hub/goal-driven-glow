@@ -8,6 +8,7 @@ import { useAccounts, useCategories } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/split/math";
 import { dispatchSplitReminders } from "@/lib/split/dispatch";
+import { normalizeBrPhone } from "@/lib/phone";
 import { CategorySelect } from "@/components/CategorySelect";
 
 type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
