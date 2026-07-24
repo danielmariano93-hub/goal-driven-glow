@@ -1,328 +1,302 @@
-# Plano — Redesign narrativo da LP Meu Nino.IA (6 capítulos)
 
-> Auditoria confirmada por leitura direta de `src/pages/landing/LandingPage.tsx` (505 linhas) e `src/pages/landing/landing.css` (602 linhas). **Nenhum arquivo foi alterado nesta etapa.**
+# Meu Nino Control Center — Plano de Redesign do Admin
 
----
-
-## 1. Diagnóstico técnico — onde o CSS atual cria os vazios
-
-| # | Sintoma observado | Origem confirmada no código |
-|---|---|---|
-| A | 176px de vazio entre seções | `.lp-section { padding: 88px 0 }` (linha 158) somado a `.lp-hero { padding: 96px 0 56px }` e `.lp-manifesto { padding: 88px 0 }` (293). Toda transição soma paddings verticais idênticos. |
-| B | Manifesto ocupa quase 1 tela sem progressão | `.lp-manifesto-inner { gap: 20px }` mais `padding: 88px 0` sem qualquer elemento visual — só parágrafos. |
-| C | Sparkline solto abaixo do chat | `.lp-chat-spark` (279) posicionado como filho fraternal do `.lp-msg` sem relação causal — apenas `border-top`. |
-| D | CTA fixo compete com mockups | `.lp-mobile-cta` (561–591) + `body.mn-lp-has-mobile-cta { padding-bottom: 76px }` (592) + `IntersectionObserver` no `MobileCta` (426–504 do TSX). |
-| E | Cards de features rasos | `SimpleTrustSection` (300–330 TSX) — 3 `<li>` com `01/02/03` + parágrafo curto = título + 3 linhas + vazio. |
-| F | Meta sem valor / esforço | `.lp-goal` (373–395 CSS) exibe só quote + barra 72% + label — sem valor absoluto, ritmo, prazo. |
-| G | Cards que "flutuam" isolados | `.lp-note`, `.lp-goal`, `.lp-role-card` cada um em `lp-split` ou `lp-role-inner` próprios, com `.lp-section { padding: 88px 0 }` a cada troca. |
-| H | Header pode cobrir âncoras | Header `position: fixed` (128) sem `scroll-margin-top` nas seções. |
-| I | Gradiente onipresente | `--lp-grad` usado em `.lp-btn.primary`, `.lp-role-avatar`, `.lp-goal-bar > span`, `lp-trend-grad` do SVG — viola regra de 1–3 usos. |
-| J | Passos 01/02/03 genéricos | `.lp-steps` (448–472) — bloco autônomo sem contexto narrativo. |
-
-Conclusão: o CSS trata seções como recipientes autônomos com padding uniforme, e o TSX não conecta visualmente chat → dado → causa → ação. A pilha é aditiva, não causal.
+Documento de plano. **Nenhum arquivo foi alterado, nenhuma migration/RPC/edge function foi criada, nenhum build/teste/comando/commit/deploy foi executado.**
 
 ---
 
-## 2. Mapa de componentes atuais — remover / fundir / reconstruir
+## 1. Diagnóstico técnico (estado atual)
 
-### Remover completamente
-- `MobileCta` (LandingPage.tsx 420–504) e toda referência a `mn-lp-has-mobile-cta`.
-- `SimpleTrustSection` (300–330) e função `.lp-steps` / `.lp-step-num` / `.lp-step-title` / `.lp-trust-para` isoladas.
-- `.lp-chat-spark` e `.lp-chat-spark-label` (SVG sparkline decorativa em `DemoSection`).
-- `.lp-msg.suggestion` como bolha passiva ("Quer definir um limite...").
-- `.lp-mobile-cta*`, `body.mn-lp-has-mobile-cta` no CSS.
-- `--lp-grad` em `.lp-role-avatar` e `.lp-goal-bar` (mantido só em símbolo, 1 indicador da demo central, 1 CTA).
+**Rotas / RPCs mapeados**
+- `VisaoGeral.tsx` — chama 4 RPCs (`admin_dashboard_stats`, `admin_engagement_stats`, `admin_agent_stats`, `admin_ops_health`). Somente contagens brutas; sem período, comparação, denominador, polaridade ou fórmula.
+- `Engajamento.tsx` — reusa `admin_engagement_stats`. Duplicação confirmada com Cockpit.
+- `Usuarios.tsx` + `IAInteligencia.tsx` — ambos usam `admin_users_list`. `IAInteligencia` monta inspetor individual expondo patrimônio, renda estimada, capacidade de poupança, perfil de risco, tags comportamentais, memória, preferências, sugestões e decisões — exposição padrão inaceitável.
+- `Mensagens.tsx` + `messageCenter.ts` — campos `preview`, `contact`, e input `search` sobre conteúdo/telefone. Viola minimização.
+- `Operacao.tsx` — jobs e erros brutos; sem p50/p95, sem backlog, sem idade de fila, sem taxa de sucesso, sem agrupamento por causa nem timeline de incidentes. RPCs `admin_run_check`, `admin_reprocess_failed`, `admin_ops_health`.
+- `Financeiro.tsx` — mistura três domínios (economia da empresa, IA, OCR via `admin_document_metrics`).
+- `Produto.tsx` — configuração de flags/desafios; não é inteligência de produto.
+- `Seguranca.tsx` — `admin_list_platform_admins`; acesso condicionado a `admin_users_list` para lookup por e-mail.
+- `Agente.tsx`, `AgenteSimulador.tsx`, `WhatsApp*.tsx` — telas técnicas soltas em Assistente & Mensageria; corretas em espírito, precisam mudar de agrupamento.
+- `permissions.ts` — matriz somente frontend (`platform_owner|platform_admin|support|analyst`). Não confirma RLS/RPC server-side por ação.
+- `AdminLayout.tsx` — grupos organizados por arquitetura técnica ("Assistente & Mensageria", "Operação & Sistema"), não por decisão de gestão. Usa `SessionInactivityGuard` (herda 30 min do app; admin deveria ter 20 min próprio).
+- `StatCard.tsx` — não suporta delta, sparkline, polaridade, denominador, tooltip de fórmula ou freshness.
 
-### Fundir
-- `HeroSection` + `HeroMockup` → **Cap. 1** com artboard único terminando em faixa que transiciona para Cloud.
-- `ManifestoSection` → **Cap. 2** virando timeline (não parágrafos soltos).
-- `DemoSection` → base do **Cap. 3 (`FinancialStoryCanvas`)**, expandido em 4 etapas causais.
-- `TransformSection` (2 splits) → **Cap. 4** com casos aprofundados (padrão + meta) numa sequência editorial única com divisor 1px.
-- `RoleSection` → **Cap. 5** artboard 3-passos (conversa → divisão → mensagem preparada).
-- `FinalCtaSection` + `FAQSection` + faixa de confiança nova → **Cap. 6** compacto.
+**Pontos de exposição de PII confirmados no fluxo padrão**
+1. `Mensagens.tsx`: `preview`, `contact`, busca por conteúdo/telefone.
+2. `IAInteligencia.tsx`: perfil financeiro individual completo.
+3. `Usuarios.tsx`: e-mail visível sem gate de reautenticação/motivo.
+4. Ausência de log de acesso a PII (nenhuma tabela do tipo `admin_pii_access_log` visível nas tables listadas).
 
-### Reconstruir
-- Sistema de espaçamento: eliminar `.lp-section { padding: 88px 0 }` uniforme. Introduzir tokens `--lp-chapter-*` mobile 40–72 / desktop 88–104.
-- Header: adicionar `scroll-margin-top: 72px` nas âncoras de capítulo; ajustar bg no scroll para `rgba(16,17,26,.94)`.
-- Todos os artboards com `border-radius: 28px` mobile, `padding: 20–24px`, sem `min-height`.
-
----
-
-## 3. Wireframe textual — mobile e desktop
-
-### Cap. 1 — HERO (`#hero`)
-
-```text
-MOBILE (Ink)                                DESKTOP (Ink, 2 col)
-┌────────────────────────────┐              ┌──────────────┬──────────────┐
-│ [header 56px fixed]         │              │ H1           │ artboard     │
-│                             │              │ lead         │ conversa     │
-│ H1 (38/1.06) esquerda       │              │ apoio        │ 3 bolhas     │
-│ lead 17/1.62 muted-hi       │              │ CTA primary  │ resumo Ink   │
-│ apoio "Pelo WhatsApp..."    │              │ micro        │              │
-│ [CTA gradient]              │              └──────────────┴──────────────┘
-│ micro                       │
-│ ─── artboard Ink-elev ───   │
-│ • Usuário: R$ 80 no bar     │
-│ • Nino: Registrado em Lazer │
-│ • Nino: Previsão R$ 3.180   │
-│ [rodapé: Previsão · 3.180]  │
-│ ═══ faixa de transição ═══  │  ← borda inferior curva/gradient → Cloud
-└────────────────────────────┘
-```
-
-### Cap. 2 — RECONHECIMENTO (`#reconhecimento`, Cloud)
-
-```text
-H2 esquerda: "O mês não sai do controle de uma vez."
-Lead: "Ele muda em pequenas decisões..."
-
-┌ Rail vertical Violet, dots Coral ────────────┐
-│ ● Segunda   R$ 42   · delivery                │
-│ ● Quarta    R$ 29   · assinatura esquecida    │
-│ ● Sexta     R$ 86   · jantar fora             │
-│ ● Domingo   R$ 54   · outro delivery          │
-└──────────────────────────────────────────────┘
-Fechamento: "Separados, parecem pouco..."
-▸ Nino (conectada ao rail): "O Nino acompanha esses sinais..."
-Altura alvo mobile: 520–620px.
-```
-
-### Cap. 3 — O NINO EM AÇÃO (`#acao`, White) — `FinancialStoryCanvas`
-
-```text
-H2: "Uma conversa vira contexto..."
-Lead 1 linha.
-
-┌ artboard único radius 28, borda #E7E5EE ─────────────────────────┐
-│ ▏ rail Violet vertical conectando 4 etapas ▏                     │
-│                                                                   │
-│ 1 REGISTRO   [msg user] R$ 80 no bar · Nubank                    │
-│              [msg Nino] Registrado em Lazer · Nubank · ontem     │
-│                                                                   │
-│ 2 IMPACTO    Previsão de fechamento                              │
-│              R$ 3.180    ▲ 8% mês anterior (Coral)               │
-│                                                                   │
-│ 3 EXPLICAÇÃO O que puxou a alta                                  │
-│              Lazer            ████████░░  +R$ 180                │
-│              Alim. fora       █████░░░░░  +R$ 95                 │
-│              Outras           ██░░░░░░░░  +R$ 34                 │
-│                                                                   │
-│ 4 AÇÃO       [Nino] "Se limitar Lazer/Alim. a R$ 350..."         │
-│              → R$ 2.940 (Mint)                                   │
-│              [ Criar limite de R$ 350 ]  ← único CTA gradient    │
-└──────────────────────────────────────────────────────────────────┘
-Altura mobile: 720–860px.
-Desktop: mesmo artboard, largura 880–1040px, rail à esquerda.
-```
-
-### Cap. 4 — O NINO ACOMPANHA O MÊS (`#mes`, Cloud)
-
-```text
-H2: "O Nino não olha só para um gasto..."
-
-CASO A — Padrão de gasto
-  H3: "Ele percebe padrões antes de virarem hábito."
-  Copy: "Delivery subiu 22%..."
-  Visual: grade 3 semanas × 7 dias, pontos Coral só em sex/sáb/dom
-  [Nino] "Seu aumento não está espalhado..."
-  [ Criar limite para sexta a domingo ] (ghost)
-
-── divisor 1px, 40px de gap ──
-
-CASO B — Meta
-  H3: "E mantém seus planos conectados ao mês real."
-  Meta: Viagem de fim de ano
-    R$ 4.320 de R$ 6.000  |  72%  |  faltam R$ 1.680
-    Ritmo: R$ 280/mês  |  Previsão: novembro
-    [barra Mint 72%]
-  [Nino] "Com R$ 280/mês, você chega em novembro..."
-  [ Ver um plano possível ] (ghost)
-
-Altura combinada mobile: 1050–1250px.
-```
-
-### Cap. 5 — DIVISÃO DO ROLÊ (`#role`, White)
-
-```text
-H2 + Lead.
-
-┌ artboard único (mobile stack, desktop 2 col) ─────────────────┐
-│ 1) Conversa                                                    │
-│    [msg user] "O jantar deu R$ 480. Eu, Ana, Bruno, Camila."   │
-│                                                                │
-│ 2) Divisão                                                     │
-│    Jantar de sábado · 4 pessoas · R$ 120 cada                  │
-│    ● Você    Pago  (Mint)                                      │
-│    ● Ana     Pago                                              │
-│    ● Bruno   Pendente (Coral)                                  │
-│    ● Camila  Pendente                                          │
-│    (avatares Violet flat, não gradient)                        │
-│                                                                │
-│ 3) Mensagem preparada                                          │
-│    "Oi, Bruno! Sua parte do jantar de sábado ficou em R$ 120…" │
-│    [ Copiar lembrete ] (ghost)                                 │
-└───────────────────────────────────────────────────────────────┘
-Altura mobile: 720–840px.
-```
-
-### Cap. 6 — CONFIANÇA + CTA + FAQ (`#comecar` / `#duvidas`, Ink)
-
-```text
-Faixa Ink-elev compacta (sem cards):
-  H4: "Você continua no controle."
-  · O Nino não movimenta seu dinheiro.
-  · Você escolhe o que registrar.
-  · Toda previsão mostra o que influenciou o resultado.
-
-── 40px ──
-
-CTA final (Ink, símbolo watermark):
-  H2 centralizada: "Entenda seu mês enquanto ainda dá tempo..."
-  Lead
-  [ Quero meu Nino grátis ] ← gradient (2º e último uso)
-  micro
-
-── 48px ──
-
-FAQ (4 perguntas <details>, direto no Ink dark ou Ink-elev card):
-  1. O Nino é um banco?
-  2. Funciona pelo WhatsApp?
-  3. Como as previsões funcionam?
-  4. O Nino movimenta meu dinheiro?
-
-Footer 32px.
-```
+**Redundâncias / débitos**
+- `admin_engagement_stats` chamado em duas rotas.
+- Sem camada agregada; toda métrica é `count(*)` em tempo real.
+- Frontend faz interpretação de status (`statusMapper.ts`) sem contrato canônico do backend.
+- Sem versionamento de fórmula, sem `computed_at`, sem `sample_size`.
 
 ---
 
-## 4. Novos componentes React (todos em `LandingPage.tsx`)
+## 2. Arquitetura final de navegação
 
-| Componente | Substitui | Papel |
-|---|---|---|
-| `HeroChapter` | `HeroSection` + `HeroMockup` | Hero com rodapé de resumo integrado e faixa de transição. |
-| `RecognitionTimeline` | `ManifestoSection` | Rail visual com 4 eventos + fecho + linha Nino. |
-| `FinancialStoryCanvas` | `DemoSection` | Artboard único com 4 etapas conectadas por rail vertical. |
-| `ImpactBar` (interno) | — | Barra horizontal Coral/Mint com valor à direita. |
-| `MonthTrackingChapter` | `TransformSection` | Cap. 4 unificado (padrão + meta) com divisor 1px. |
-| `PatternGrid` (interno) | — | Grade 3×7 semanas × dias com pontos Coral. |
-| `GoalBreakdown` (interno) | `.lp-goal` | Valor, faltante, ritmo, previsão, barra Mint. |
-| `SplitStory` | `RoleSection` | Artboard 3-passos (chat → divisão → mensagem). |
-| `TrustStrip` | `SimpleTrustSection` | Faixa compacta 3 afirmações sem cards. |
-| `FinalChapter` | `FinalCtaSection` + `FAQSection` | Confiança + CTA + FAQ em fluxo contínuo. |
+Sidebar Deep Ink 232–240 px, agrupada por decisão:
 
-**Remover:** `MobileCta`, `SimpleTrustSection`, `HeroMockup` (fundido).
-
----
-
-## 5. Seletores CSS — remover e criar
-
-### Remover
 ```
-.lp-section, .lp-section--white, .lp-section--cloud, .lp-section--faq
-.lp-section-head, .lp-section-head--center
-.lp-manifesto, .lp-manifesto-inner, .lp-manifesto-1, .lp-manifesto-2,
-  .lp-manifesto-signals, .lp-manifesto-line, .lp-manifesto-close, .lp-manifesto-final
-.lp-chat-spark, .lp-chat-spark-label
-.lp-split, .lp-split--reverse, .lp-split-copy, .lp-split-visual
-.lp-note, .lp-note-dot, .lp-note-title, .lp-note-sub
-.lp-goal, .lp-goal-quote, .lp-goal-bar, .lp-goal-meta
-.lp-steps, .lp-steps--inline, .lp-step-num, .lp-step-title
-.lp-trust-para
-.lp-mobile-cta, .lp-mobile-cta-btn, .lp-mobile-cta.is-visible
-body.mn-lp-has-mobile-cta
-gradient em .lp-role-avatar e .lp-goal-bar
+Cockpit
+Crescimento & Retenção
+Inteligência de Produto
+Operação
+  ├─ Saúde dos serviços
+  ├─ Mensageria & Entrega
+  ├─ IA & OCR
+  ├─ WhatsApp
+  └─ Assistente & Simulador
+Clientes & Suporte
+Receita & Custos
+Governança
+  ├─ Configurações de produto
+  ├─ Segurança & acessos
+  └─ Auditoria
 ```
 
-### Criar
+Redirects temporários (mantidos por 1 release):
+- `/admin` → Cockpit (nova `VisaoGeral`)
+- `/admin/engajamento` → `/admin/crescimento`
+- `/admin/mensagens` → `/admin/operacao/mensageria`
+- `/admin/ia` → `/admin/produto` (bloco agregado). Inspetor individual removido do menu.
+- `/admin/financeiro` → `/admin/receita` (OCR migra para `/admin/operacao/ia-ocr`)
+- `/admin/produto` → `/admin/governanca/configuracoes`
+- `/admin/seguranca`, `/admin/configuracoes` → `/admin/governanca/*`
+- `/admin/agente`, `/admin/agente/simulador`, `/admin/whatsapp` → `/admin/operacao/*`
+
+---
+
+## 3. Dicionário de métricas
+
+| Métrica | Fórmula | Fonte | Janela | Comparação | Polaridade | Amostra mínima | Regra de exibição |
+|---|---|---|---|---|---|---|---|
+| WVU (Usuários com valor semanal) | usuários únicos com (entrada significativa ∧ entrega de valor) em janela móvel 7 d | `product_events` | 7 d rolante | período anterior mesma duração | maior = melhor | n≥10 | valor + delta abs + delta % + sparkline 8 períodos + tooltip |
+| Taxa de ativação | ativados / cadastros elegíveis (janela 7 d concluída) | `product_events` | coorte diária | período anterior | maior = melhor | denom ≥10 | pp; senão "amostra pequena" |
+| Tempo mediano até ativação | mediana de (t_valor − t_signup) em ativados | `product_events` | 30 d | anterior | menor = melhor | n≥10 | horas/dias |
+| Retenção W1/W4/W8 | usuários com valor em janelas 7-13/28-34/56-62 pós-ativação / coorte | `product_events` | coorte semanal | coorte anterior | maior = melhor | coorte ≥10 (senão cinza + "amostra insuficiente") | heatmap; sem verde/coral se <10 |
+| Sucesso das experiências | sucessos / tentativas (excluir cancelamento voluntário pré-envio) | `product_events` | 30 d | anterior | maior = melhor | n≥10 | pp |
+| DAU/WAU/MAU | usuários únicos com evento significativo | `product_events` | 1/7/30 d | anterior | neutro (violet) | MAU≥20 senão "volume insuficiente" | sem cor de sucesso |
+| Adoção de feature | concluíram / elegíveis | `product_events` (por feature) | 30 d | anterior | maior = melhor | elegíveis ≥10 | pp |
+| Conclusão de feature | concluíram / iniciaram | idem | 30 d | anterior | maior = melhor | iniciaram ≥10 | pp |
+| Repetição | repetiram / concluíram (30 d) | idem | 30 d | anterior | maior = melhor | concluíram ≥10 | pp |
+| Entrega WhatsApp | delivered / sent | agregados msg | 30 d | anterior | maior = melhor | sent ≥10 | pp |
+| p50/p95 latência (WA/agente/OCR) | percentis por evento | agregados | 30 d | anterior | menor = melhor | n≥10 | ms/s |
+| Backlog / idade de fila | max(age) e count fila | fila viva | agora | neutro | menor = melhor | — | sempre exibe |
+| Custo por sucesso IA | custo atribuível / execuções concluídas | agregados IA | 30 d | anterior | menor = melhor | denom ≥10 | R$ |
+| Custo por WVU | custo IA / WVU | agregados | 7 d | anterior | menor = melhor | WVU ≥10 | R$ |
+| Receita/despesa/margem | fonte contábil confiável | economia empresa | mensal | mês anterior | maior = melhor | dado real ou "—" | nunca zero falso |
+
+Regras de comparação, polaridade, amostra e anomalia seguem a especificação recebida sem alteração.
+
+**Formato de resposta padrão** (todo RPC de métrica):
+`{ value, numerator, denominator, previous, delta_abs, delta_pct_or_pp, sample_size, sufficient_sample, polarity, formula_version, computed_at }`.
+
+---
+
+## 4. Taxonomia de eventos e dados proibidos
+
+**`product_events` (append-only)** — colunas permitidas: `id, occurred_at, pseudonymous_user_id, event_name, channel, feature, status, error_code, latency_ms, model, provider, tokens_in, tokens_out, cost, source, category_slug, attempt_number, app_version, schema_version, bucket_valor?, metadata (allowlisted)`.
+
+**Eventos** — exatamente a lista fechada (user_signed_up … meaningful_session_completed).
+
+**Proibido nesta camada**: conteúdo bruto, descrição livre, Pix, telefone, e-mail, nome, CPF, conta, texto livre, valor individual bruto.
+
+Faixas de valor: apenas buckets `0–50, 50–100, 100–250, 250–500, 500+`.
+
+Contrato: escrita via helper server-side com validação de schema (`schema_version`), rejeitando payloads que contenham chaves fora do allowlist.
+
+---
+
+## 5. Wireframes textuais
+
+**Cockpit — desktop (grid 12 col, fundo Cloud)**
 ```
-/* Escala editorial (tokens) */
---lp-space-8/12/16/20/24/32/40/48/56/64/72
---lp-chapter-pad-mobile: 48px
---lp-chapter-pad-desktop: 96px
---lp-artboard-radius: 28px
+[Filtros globais: 7/30/90 · Todos/App/WhatsApp · comparação · atualizado há Xmin]
+[KPI WVU][KPI Ativação][KPI Retenção W4][KPI Sucesso]   (linha 1, cada 3 col)
+[Gráfico "O que mudou" seletor 4 séries         (8 col)][Feed "Atenção necessária" máx 5 (4 col)]
+[Funil de ativação 5 etapas (7 col)][Saúde dos serviços chips (5 col)]
+```
+Cada KPI: título sentence case, valor 28-32 px, delta com seta e cor por polaridade, comparação explícita ("vs 30 d anteriores"), sparkline 8 pts, meta opcional, ícone info→tooltip com fórmula/denominador/n/computed_at, click → diagnóstico.
 
-/* Capítulo genérico */
-.lp-chapter { padding-block: var(--lp-chapter-pad-mobile); }
-.lp-chapter--ink / --cloud / --white
-.lp-chapter-head, .lp-chapter-title, .lp-chapter-lead
-[id].lp-chapter { scroll-margin-top: 72px; }
+**Cockpit — mobile**: filtros compactos, 4 KPIs empilhados, chips de saúde, feed de atenção. Sem gráfico complexo, sem funil detalhado → "Abra no desktop para análise completa".
 
-/* Cap 1 */
-.lp-hero-artboard, .lp-hero-summary, .lp-hero-transition
+**Crescimento & Retenção — desktop**
+```
+[Funil ativação com volume/conversão/perda/tempo] (12 col)
+[Heatmap coortes W1/W4/W8 8 col][Linha retenção 4 col]
+[App vs WhatsApp comparativo] [Sinais de abandono lista com CTA jornada]
+```
+**Mobile**: funil resumido + top 3 sinais de abandono.
 
-/* Cap 2 */
-.lp-timeline, .lp-timeline-rail, .lp-timeline-item, .lp-timeline-dot,
-.lp-timeline-close, .lp-timeline-nino
+**Inteligência de Produto — desktop**
+```
+[Adoção de features tabela com elegível/descobriu/iniciou/concluiu/repetiu + funis]
+[Tendências comportamentais (k≥10): heatmap dia×hora, App×WA, intenções, categorias]
+[Necessidades não atendidas: distribuição suportado/parcial/não/mal-compreendido/reformulado/abandonado]
+[Oportunidades (cards com evidência/n/período/segmento/confiança/experimento/responsável/status)]
+```
+**Mobile**: apenas oportunidades e adoção resumida.
 
-/* Cap 3 */
-.lp-story, .lp-story-rail, .lp-story-step, .lp-story-step-num,
-.lp-story-impact, .lp-story-impact-value, .lp-story-delta,
-.lp-story-bars, .lp-impact-bar, .lp-story-action
-
-/* Cap 4 */
-.lp-month, .lp-month-case, .lp-month-divider,
-.lp-pattern-grid, .lp-pattern-dot,
-.lp-goal-block, .lp-goal-meta-grid, .lp-goal-bar-mint
-
-/* Cap 5 */
-.lp-split-story, .lp-split-step, .lp-split-participants,
-.lp-split-avatar (flat Violet), .lp-split-message
-
-/* Cap 6 */
-.lp-trust-strip, .lp-trust-line, .lp-final-chapter, .lp-final-cta, .lp-faq-inline
+**Operação · Saúde dos serviços — desktop**
+```
+[Chips WhatsApp/Agente/OCR/Mensageria/Jobs com regras saudável/atenção/crítico]
+[p50/p95 por serviço · backlog · idade máx fila]
+[Erros agrupados por error_code: contagem, usuários pseudônimos afetados, 1ª/última ocorrência, tendência, retryable]
+[Timeline de incidentes com deploys/config/versão de prompt]
 ```
 
-Header: acrescentar regra `.mn-lp .lp-header.is-scrolled { background: rgba(16,17,26,.94) }` e `scroll-margin-top: 72px` global nas âncoras `[id]`.
+**Operação · Mensageria & Entrega**
+Tabela padrão: `event_id, pseud_user, direction, channel, type, status, attempts, latency_ms, created_at, error_sanitized`. **Sem** preview, sem busca por conteúdo/telefone. Filtros: status, canal, tipo, error_code, data, ID operacional. Ação "Retry" com permissão e log — não abre conteúdo.
+
+**Operação · IA & OCR, WhatsApp, Assistente/Simulador**: painéis técnicos com p50/p95, sucesso, custo agregado.
+
+**Clientes & Suporte — desktop**
+Tabela: `pseud_id, ciclo de vida, ativação+data, último evento significativo, dias com valor 7/30, WhatsApp sim/não, problema técnico recente`. Painel lateral: jornada de eventos, saúde técnica, tickets, ações condicionadas. **Sem** saldo/patrimônio/renda/lançamentos/conversas. Revelação de e-mail: gate por motivo+ticket, auditada.
+
+**Receita & Custos — desktop**
+Três blocos separados: A. Economia do negócio (receita/despesa/resultado/MRR/infra/margem — cada um "—" se sem fonte); B. Economia da IA (custo total, custo/sucesso, custo/WVU, por feature/model/provider; tokens como contexto secundário); C. Infraestrutura opcional. OCR **não** aparece aqui.
+
+**Governança**
+- Configurações de produto (ex-Produto).
+- Segurança & acessos: RBAC, break-glass, sessões admin, revogações. Ações críticas exigem reautenticação ≤5 min.
+- Auditoria: log imutável de ações administrativas e acessos break-glass.
 
 ---
 
-## 6. Altura mobile estimada por capítulo (390px)
+## 6. Plano de dados, RPCs, agregados e migrations (futuros)
 
-| Capítulo | Alvo | Notas |
-|---|---|---|
-| 1. Hero | 780–860px | 56 header + copy 260 + artboard 440 + transição 24 |
-| 2. Reconhecimento | 560–620px | pad 48 + head 120 + 4 items×48 + fecho 80 + Nino 80 + pad 48 |
-| 3. Story Canvas | 780–880px | pad 48 + head 120 + artboard 620 + pad 48 |
-| 4. Mês | 1080–1240px | pad 48 + head 100 + caso A 460 + divisor 40 + caso B 500 + pad 48 |
-| 5. Rolê | 780–840px | pad 48 + head 100 + artboard 620 + pad 48 |
-| 6. Confiança+CTA+FAQ+footer | 780–900px | trust 200 + CTA 320 + FAQ 260 + footer 80 |
-| **Total** | **≈ 4.760–5.340px** | ~5.9–6.6 dobras — dentro do alvo de densidade. |
+**Tabelas propostas** (apenas planejadas):
+- `product_events` (append-only) — colunas do §4. Índices por `(event_name, occurred_at)`, `(pseudonymous_user_id, occurred_at)`, `(feature, occurred_at)`.
+- `product_event_daily` (materialized/aggregate): `date, event_name, channel, feature, status, unique_users, events, successes, failures, p50_ms, p95_ms, total_cost, sample_size`.
+- `user_lifecycle_daily`: `date, pseud_user, stage (novo/ativado/engajado/em_risco/adormecido/reativado)`.
+- `product_activation_cohorts`: coortes por semana e retenção W1/W4/W8.
+- `admin_pii_access_log` (imutável): quem, alvo, motivo, ticket, escopo, campos, início, expiração, IP, dispositivo.
+- `admin_break_glass_sessions`: escopo/duração ≤15 min.
+- `admin_audit_events`: ações críticas.
 
-Ganho versus estado atual (~5.900–6.400px com muito padding): densidade real de conteúdo cresce >30% pela eliminação de vazios repetidos e Simple/Steps.
+**RPCs analíticos padrão** (assinatura comum `p_start, p_end, p_compare_start, p_compare_end, p_channel, p_timezone`):
+- `admin_metric_wvu`, `admin_metric_activation`, `admin_metric_retention`, `admin_metric_experience_success`, `admin_metric_active_users`
+- `admin_feature_funnel(p_feature, …)`, `admin_lifecycle_distribution`
+- `admin_ops_health_v2` (p50/p95/backlog/idade fila/error grouping/incidentes)
+- `admin_messaging_events` (metadados only), `admin_message_retry` (gate + auditoria)
+- `admin_costs_ai`, `admin_costs_business`
+- `admin_customer_snapshot(pseud_user)` — sem dados financeiros
+- `admin_break_glass_open`, `admin_break_glass_close`, `admin_break_glass_read`
+- `admin_opportunities_list`
 
----
+**Regras**: UTC no storage, timezone `America/Sao_Paulo` na resposta; nenhum select bruto no frontend; toda métrica retorna o envelope canônico.
 
-## 7. Critérios de QA visual
-
-- [ ] Nenhum `.lp-mobile-cta` no DOM em qualquer viewport.
-- [ ] Zero área vazia >72px entre elementos do mesmo capítulo (medição em DevTools).
-- [ ] Transição inter-capítulo ≤64px de padding combinado.
-- [ ] Header 56px mobile / 64px desktop, `scroll-margin-top: 72px` funcional.
-- [ ] Gradient (`--lp-grad`) usado em ≤3 lugares: símbolo, CTA hero, CTA final (a demo central usa 1 indicador Coral+Mint, não gradient).
-- [ ] Cap. 3 exibe 4 etapas ligadas por rail contínuo.
-- [ ] Cap. 4 mostra valor absoluto (R$ 4.320/R$ 6.000), faltante, ritmo, previsão.
-- [ ] Cap. 5 exibe conversa + divisão + mensagem preparada dentro do mesmo artboard.
-- [ ] FAQ imediatamente após CTA final, sem `padding: 88px 0`.
-- [ ] Zero overflow horizontal em 320 / 360 / 390 / 430 / 768 / 1024 / 1440.
-- [ ] Títulos alinhados à esquerda em mobile, exceto CTA final centralizado.
-- [ ] Nenhum card com `min-height`.
-- [ ] Nenhuma seção com `padding-block > 72px` no mobile.
-- [ ] `useSessionInactivity`, guard e rotas autenticadas intocados (verificação por grep).
-- [ ] Testes `landing-page.test.tsx` atualizados: novas âncoras (`hero, reconhecimento, acao, mes, role, comecar, duvidas`), 4 FAQs, ausência de `#simples`, ausência de `.lp-mobile-cta`, headline mantida.
+**Migrations** (sequência futura, uma por fase, com GRANT + RLS + policies por role):
+1. `product_events` + índices + GRANT service_role.
+2. Materialized views/aggregate tables + jobs de refresh (cron interno).
+3. `admin_pii_access_log`, `admin_break_glass_*`, `admin_audit_events`.
+4. RPCs por área (métricas → operação → receita).
+5. Backfill oportunista dos eventos derivados das tabelas atuais (`transactions`, `goals`, `shared_expenses`, `agent_runs`, `outbound_messages`, `document_imports`) — one-shot, sem PII.
 
 ---
 
-## 8. Arquivos que serão alterados na execução
+## 7. Matriz RBAC e fluxo break-glass
 
-- `src/pages/landing/LandingPage.tsx` — reescrita completa dos componentes de seção; remoção de `MobileCta`, `SimpleTrustSection`, `HeroMockup`.
-- `src/pages/landing/landing.css` — refatoração completa dos seletores listados; introdução dos tokens de espaçamento e classes de capítulo/artboard.
-- `src/test/landing-page.test.tsx` — atualização de âncoras, remoção de asserts de `#simples`/steps, assert explícito de ausência de `.lp-mobile-cta`, mantidos os asserts de headline, 4 FAQs, gratuidade micro, hrefs `/signup` e `/login`.
+Papéis: `owner, admin, operations, support, product_analyst, finance, security_auditor`.
 
-Não serão tocados: `NinoLogo.tsx`, `NinoSymbol.tsx`, `NinoWordmark.tsx`, `App.tsx`, `AppLayout.tsx`, guards de sessão, backend, migrations, edge functions, admin, integrações WhatsApp, cálculos financeiros.
+| Ação | owner | admin | operations | support | product_analyst | finance | security_auditor |
+|---|---|---|---|---|---|---|---|
+| Cockpit / Crescimento / Produto (agregados) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Operação leitura | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| Retry mensagem / rerun job | ✓ | ✓ | ✓ | — | — | — | — |
+| WhatsApp connect/disconnect | ✓ (reauth) | ✓ (reauth) | ✓ (reauth) | — | — | — | — |
+| Publicar prompt | ✓ (reauth) | ✓ (reauth) | — | — | — | — | — |
+| Receita/Custos | ✓ | ✓ | — | — | leitura | ✓ | leitura |
+| Cliente snapshot (sem PII) | ✓ | ✓ | ✓ | ✓ | ✓ (pseud) | — | ✓ |
+| Revelar e-mail | ✓ (reauth+motivo) | ✓ (reauth+motivo) | — | ✓ (reauth+motivo+ticket) | — | — | ✓ (leitura de log) |
+| Break-glass abrir | ✓ | — | — | support-lead (reauth+ticket) | — | — | — |
+| Break-glass ler logs | ✓ | ✓ | — | — | — | — | ✓ |
+| Governança / roles | ✓ | — | — | — | — | — | leitura |
+
+**Break-glass** (`admin_break_glass_open`): exige owner/support-lead, reautenticação, motivo e ticket obrigatórios, escopo=1 usuário, TTL=15 min, campos limitados, redaction automática de PII/Pix/conta/valor/texto livre, exportação em massa proibida, log imutável (solicitante, alvo, motivo, ticket, campos, início, expiração, IP, device). Banner persistente enquanto sessão está aberta. **Todas as regras aplicadas no servidor via RLS/RPC + revalidadas no client.**
+
+**Sessão admin**: guard próprio — inatividade 20 min, aviso 18 min, sincronização entre abas (BroadcastChannel), revalidação de sessão no retorno. App do usuário permanece com 30 min.
 
 ---
 
-## 9. Confirmação
+## 8. Componentes/arquivos a criar, fundir, remover ou redirecionar
 
-Nenhum arquivo foi alterado nesta etapa. Nenhuma migration, deploy ou comando de build/teste foi executado. O plano aguarda aprovação explícita para execução.
+**Criar**
+- `src/pages/admin/Cockpit.tsx` (substitui `VisaoGeral.tsx`)
+- `src/pages/admin/Crescimento.tsx` (substitui `Engajamento.tsx`)
+- `src/pages/admin/ProductIntelligence.tsx`
+- `src/pages/admin/operacao/{Saude,Mensageria,IAOcr,WhatsApp,Assistente}.tsx`
+- `src/pages/admin/ClientesSuporte.tsx`
+- `src/pages/admin/Receita.tsx`
+- `src/pages/admin/governanca/{Configuracoes,Seguranca,Auditoria}.tsx`
+- `src/components/admin/KpiCard.tsx` (delta, polaridade, sparkline, denominador, tooltip fórmula, freshness, skeleton)
+- `src/components/admin/Sparkline.tsx`, `MetricTooltip.tsx`, `AnomalyBadge.tsx`, `IncidentTimeline.tsx`, `ErrorGroupTable.tsx`, `LifecycleChip.tsx`, `BreakGlassBanner.tsx`, `BreakGlassDialog.tsx`
+- `src/hooks/useAdminMetric.ts` (envelope canônico + cache 1-5 min por métrica)
+- `src/lib/admin/polarity.ts`, `sampleRules.ts`, `anomaly.ts`, `formulas.ts` (versão)
+- `src/components/auth/AdminSessionGuard.tsx` (20/18 min)
+
+**Fundir / migrar**
+- `StatCard.tsx` → substituído por `KpiCard.tsx` (mantido temporariamente até fim da migração).
+- `AdminLayout.tsx` → nova taxonomia de grupos, ícones Phosphor gradualmente, sidebar Deep Ink.
+- `permissions.ts` → nova enum `admin_role` e novas actions; espelho de matriz server-side (RLS + funções `has_admin_action`).
+- `App.tsx` → novas rotas e redirects temporários.
+
+**Retirar do fluxo comum**
+- `IAInteligencia.tsx` como inspetor individual → transformada em página apenas de agregados dentro de `ProductIntelligence`. Perfil individual só via break-glass.
+- `Mensagens.tsx` → reduzir a metadados; remover `preview`, `contact`, campo de busca por conteúdo/telefone. `messageCenter.ts` (`ConversationRow.preview`, filtro `search`) deprecados.
+- `Usuarios.tsx` e-mail visível → apenas pseud_id + reveal auditado.
+- `Financeiro.tsx` → dividida entre `Receita.tsx` (empresa + IA) e `operacao/IAOcr.tsx`.
+
+**Redirects temporários** listados em §2.
+
+---
+
+## 9. Rollout por fases e compatibilidade
+
+- **Fase 0 — Auditoria**: inventariar RPCs, colunas, políticas RLS, permissões efetivas; mapear todas as leituras de PII.
+- **Fase 1 — Privacidade emergencial**: remover exposição padrão (`preview`, busca por conteúdo, inspetor individual, e-mail visível), sem depender de novas tabelas. Adicionar `admin_pii_access_log` mínimo.
+- **Fase 2 — Instrumentação**: `product_events` + emissores server-side nos pontos existentes; agregados diários; RPCs com envelope canônico.
+- **Fase 3 — Cockpit** (KpiCard, gráfico "O que mudou", feed atenção, funil ativação, saúde).
+- **Fase 4 — Crescimento/Retenção + Inteligência de Produto**.
+- **Fase 5 — Operação v2 + Receita + Governança + Break-glass completo**.
+
+Rotas antigas mantidas com redirects e feature-flag por fase. Sem big-bang. `StatCard` coexiste com `KpiCard` até fase 3 concluída.
+
+---
+
+## 10. Checklist de QA
+
+- **Fórmulas**: cada métrica cobre denom=0 (`—`), numerador=0, amostra <10 (cinza + label), 10-19 ("sinal inicial"), pp para taxas, delta % apenas se anterior>0, "novo" se anterior=0 e atual>0.
+- **Timezone**: storage UTC, exibição `America/Sao_Paulo`; teste com virada de dia.
+- **Privacidade**: nenhum componente renderiza `preview/contact/email/valor` fora de break-glass; scanner de string por PII em snapshots.
+- **RLS**: testes que verificam que role `support` não lê perfil financeiro, `analyst` não roda retry, break-glass expirado não retorna dados.
+- **Anomalia**: baseline ≥10 obrigatório; sem alerta abaixo do limiar; severidades 30/50/80.
+- **Responsividade**: desktop-first; mobile mostra apenas resumo/alertas/4 KPIs/saúde; heatmap/coortes bloqueadas com mensagem.
+- **Acessibilidade**: nunca depender só da cor (ícone + rótulo); contraste AA sobre Cloud; foco visível; navegação por teclado nas tabelas.
+- **Performance**: consultas paralelas; cache 1-5 min por métrica; skeletons por card; sem spinner de página inteira; freshness visível.
+- **Session guard admin**: 20/18 min, sincronização entre abas, revalidação no retorno.
+- **Reautenticação recente ≤5 min** para ações críticas.
+- **Audit log** imutável cobre 100% das ações críticas e break-glass.
+
+---
+
+## 11. Riscos, dependências e questões
+
+- **Dependência forte**: fase 2 (instrumentação) é pré-requisito de 3/4. Sem `product_events` populado, KPIs continuam brutos.
+- **Backfill**: definir se derivamos eventos históricos das tabelas existentes ou começamos do zero; sem backfill, retenção W4/W8 fica indisponível por 4-8 semanas.
+- **Custo IA atribuível**: hoje `agent_runs` tem tokens/cost; para "custo por sucesso" precisamos definir sucesso canônico por intenção — pendente decisão de produto.
+- **Break-glass legal**: definir base legal de acesso a dados individuais (LGPD art. 7º/11) e prazo de retenção do log — decisão jurídica.
+- **Papéis vs roles atuais**: `platform_owner|platform_admin|support|analyst` → mapa para novos 7 papéis; escolher se `product_analyst` e `finance` são criados agora ou provisoriamente derivados de `analyst`.
+- **Migração de ícones**: Phosphor em telas novas; Lucide permanece nas legadas até fase 5 — evitar mistura em tela nova.
+- **`admin_engagement_stats` legado**: manter até Cockpit v2 estar 100% verde em produção; depois deprecar.
+- **Timezone em RPCs existentes**: alguns retornam datas sem TZ; padronizar em fase 2.
+- **Questão aberta**: definir se meta configurável por KPI é global ou por owner — armazenamento e UI dependem disso.
+
+---
+
+## 12. Confirmação
+
+Confirmo explicitamente: **nenhum arquivo foi editado, criado ou removido; nenhuma migration, RPC, view, tabela ou edge function foi criada; nenhum build, teste, comando, migration, commit ou deploy foi executado.** Esta entrega é somente o plano solicitado e aguarda aprovação explícita antes de qualquer implementação.
