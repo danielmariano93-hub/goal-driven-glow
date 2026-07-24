@@ -1,81 +1,173 @@
 
-# Rollout pendente do PR #2 — execução consolidada
+# Patch consolidado — Meu Nino: telefone, entrega, canônico, templates, deploys
 
-## Contexto verificado agora
-- Arquivo `supabase/migrations/20260724023000_canonical_finance_and_split_delivery_hardening.sql` existe na main (349 linhas) e NÃO foi aplicado ao banco.
-- `financial_backfill_checkpoints` e `financial_metric_diffs`: existem, `relrowsecurity = false` → confirma RLS desligada.
-- `financial_report_templates` contém apenas `weekly_reflection_v1` (active=true). Faltam `spending_trend`, `monthly_comparison`, `weekly_one_page`.
-- `is_behavioral_consumption` já existe (versão anterior sem `financial_daily.v2`) — a migration usa `CREATE OR REPLACE`, então a atualização é idempotente e segura.
-- `claim_reminder_jobs` e `claim_reminder_jobs_for_owner` presentes. Cron `split-message-pipeline-1m` ativo e heartbeat saudável (informado pelo usuário e coerente com o estado). Janela 08–22 já removida (confirmado pelas queries anteriores do usuário).
-- Frontend na main: `src/pages/DivisaoDoRoleNova.tsx` já usa `dispatchSplitReminders`; `src/lib/split/dispatch.ts` e testes canônicos presentes → apenas Edge Functions + migration faltam ser propagadas.
+Objetivo: um único patch coordenado que resolve os 10 achados, sem publicar, sem aplicar migration nem redeploy neste passo. Nada do legado é removido nesta rodada.
 
-## Bloqueios / riscos conhecidos antes de executar
-- Nenhum bloqueio impeditivo. A migration é aditiva/corretiva e todos os objetos que ela toca já estão em estado compatível (`CREATE OR REPLACE`, `ALTER … ENABLE RLS`, `INSERT … ON CONFLICT`). Vou reconfirmar isso lendo o arquivo inteiro antes de submeter (ver passo 2).
-- Não temos permissão de leitura em `supabase_migrations.schema_migrations` via psql da sandbox; a verificação de duplicidade é feita pela ferramenta de migration da Lovable (que registra o arquivo). Isso é aceitável e evita duplicar o arquivo.
+## Causa raiz por eixo
 
-## Execução (uma única rodada, sob sua aprovação)
+1. **Telefone (Divisão do Rolê)**: `DivisaoDoRoleNova.tsx` grava `phone_e164` cru; não há CHECK regex em `shared_expense_participants.phone_e164`; `waha.ts` faz apenas `to.replace(/^\+/,"")` — aceita "11 9…" e monta `chatId` inválido. `normalizeBrPhone` só está no client, não na fronteira RPC/DB nem no provider.
+2. **Falso positivo de entrega**: `outbound_messages.status='sent'` é gravado por `mark_outbound_sent` após HTTP 2xx da WAHA. A UI e o painel tratam `sent` como entregue. ACK só sobe para `delivered/read` via webhook, mas não há estado intermediário `accepted` nem watchdog explícito para "aceito sem ACK". Enum livre (text) permite evolução compatível.
+3. **Pipeline 24/7**: Já OK depois do PR#2 (sem janela 08–22, `SKIP LOCKED`, leases). Falta apenas: distinguir aceito/entregue no diagnóstico e evitar duplicação no reenvio manual.
+4. **Fundação canônica**: `refresh_financial_daily_facts` existe (v2), mas nunca é chamada por usuário; `financial_feature_flags` vazia; `financial_current_snapshots` vazio; assistente/relatórios consomem só `transactions` diretamente. Falta baseline, backfill em lotes, dual read e observabilidade de diferença.
+5. **Templates decorativos**: `spending_trend/monthly_comparison/weekly_one_page` inseridos em `financial_report_templates`, mas o roteador do agente (`IntentRouter/AppAdapter`) não os consulta; `ChartArtifactRenderer` usa `type="linear"` implícito em `<Line>` do Recharts (não aplica `monotone`).
+6. **Deploys**: PR#2 republicou só 2 funções. Módulos compartilhados alterados (`_shared/messaging/waha.ts`, `_shared/heartbeats.ts`, `_shared/agent/*`, `_shared/analytics/*`, `_shared/artifacts/*`) são embarcados no bundle Deno de cada função que os importa e exigem redeploy explícito.
+7. **Migrations**: `20260724023000_canonical_finance_and_split_delivery_hardening.sql` existe no repo. Histórico remoto tem o timestamp `20260724021636` (a Lovable registrou com hash diferente). Precisa reconciliação de metadata sem reaplicar SQL e sem apagar histórico.
+8. **Segurança**: RLS já cobre operacionais; falta CHECK regex no telefone, mascaramento em logs do provider e revisão de `SECURITY DEFINER` das novas funções (`claim_reminder_jobs*`, `is_behavioral_consumption`, `refresh_financial_daily_facts`) para `SET search_path = public, pg_temp`.
 
-### 1. Validação de histórico e prevenção de duplicidade
-- Reutilizar EXATAMENTE o arquivo já versionado `20260724023000_canonical_finance_and_split_delivery_hardening.sql`. Não gerar um novo timestamp.
-- Não criar migrations paralelas. A ferramenta Supabase-migration registra o arquivo em `schema_migrations` ao aplicar; se ela detectar que já foi aplicada, aborta sem efeitos.
+## Escopo — arquivos e mudanças
 
-### 2. Aplicação segura da migration 20260724023000
-- Reler o arquivo inteiro (349 linhas) e conferir que cada bloco é idempotente:
-  - `ALTER TABLE … ENABLE ROW LEVEL SECURITY` (idempotente).
-  - `REVOKE … / GRANT … TO service_role` (idempotente).
-  - `CREATE OR REPLACE FUNCTION is_behavioral_consumption`, `refresh_financial_daily_facts` e quaisquer helpers.
-  - `INSERT INTO public.financial_report_templates … ON CONFLICT (template_key) DO UPDATE` para `spending_trend`, `monthly_comparison`, `weekly_one_page` e para atualizar `weekly_reflection_v1` se a migration o fizer.
-  - Ajustes de `claim_reminder_jobs*` sem a janela 08–22 e com `lease_expires_at = now() + interval '2 minutes'` / `FOR UPDATE SKIP LOCKED`.
-- Submeter via ferramenta de migration da Lovable (fluxo de aprovação padrão). Não executar SQL bruto por psql.
-- Se algum bloco não for idempotente após a releitura, isolar em `DO $$ … IF NOT EXISTS … END $$` antes de submeter, mantendo o mesmo arquivo.
+### A. Normalização de telefone (frontend + fronteira + provider)
 
-### 3. Deploy/redeploy de Edge Functions
-Somente as que mudaram no PR e dependem de estados do backend acima:
-- `split-reminders-dispatch` (usa `claim_reminder_jobs*`, mensagens de reminder 24/7, idempotência `split:{kind}:{participant_id}:{job_id}`).
-- `whatsapp-send` (fallback textual determinístico, heartbeat com `mediaFailures`).
-- Dependências compartilhadas embarcadas no bundle Deno (não precisam de deploy separado, mas confirmar que foram publicadas junto):
-  - `_shared/cors.ts`, `_shared/heartbeats.ts`, `_shared/agent/messageTemplates.ts`, `_shared/messaging/waha.ts`, `_shared/artifacts/*` referenciadas por `artifact-render` (se `artifact-render` mudou, incluir; caso contrário, pular).
-- Não redeployar funções não alteradas.
+- `src/pages/DivisaoDoRoleNova.tsx`
+  - Importar `normalizeBrPhone` e aplicar no `onChange` (formatar máscara) e no submit; bloquear salvar se algum participante tem telefone digitado e `normalizeBrPhone` retornar `null`; exibir erro inline por linha.
+  - Mostrar `+55 (11) 9xxxx-xxxx` já formatado no `input` após blur.
+- `src/pages/DivisaoDoRoleDetalhe.tsx` (edição de participante): idêntico.
+- `src/lib/phone.ts`: expor `formatBrDisplay(e164)` para exibição consistente (não altera storage).
+- `supabase/functions/_shared/messaging/waha.ts`
+  - `sendText/sendImage`: chamar `normalizeBrPhone(to)` antes de montar `chatId`; se `null`, lançar erro `invalid_phone_e164` (não enviar).
+  - Log sanitizado (`***` + 4 últimos dígitos) já existe em partes; padronizar helper `maskE164`.
+- **Migration (novo arquivo `20260725010000_phone_e164_hardening.sql`)**
+  - `ALTER TABLE public.shared_expense_participants ADD CONSTRAINT chk_phone_e164 CHECK (phone_e164 IS NULL OR phone_e164 ~ '^\+55[1-9][0-9]{9,10}$') NOT VALID;`
+  - RPC `normalize_and_fix_phone_e164()` SECURITY DEFINER que, para cada linha inválida, tenta reconstruir via `normalize_br_phone` (função pl/pgsql equivalente ao client, idempotente) e grava; linhas irrecuperáveis vão para `shared_expense_participants.phone_e164 = NULL` + `notes` com motivo (mantém histórico).
+  - `VALIDATE CONSTRAINT chk_phone_e164` depois do fix.
+  - Trigger `BEFORE INSERT OR UPDATE` que roda `normalize_br_phone` no `phone_e164` (defesa em profundidade contra caller antigo).
+  - Idêntico para `conversations.phone_e164` (constraint NOT VALID, sem fix automático — apenas trigger de normalização em novos inserts).
 
-### 4. Confirmação de envio 24/7 e semântica de fila
-Após deploy, checar em produção (somente leitura):
-- `SELECT prosrc FROM pg_proc WHERE proname='claim_reminder_jobs'` — não deve conter `local_time` nem `make_timestamptz`.
-- Idempotência: `SELECT indexdef FROM pg_indexes WHERE tablename='outbound_messages' AND indexdef ILIKE '%idempotency_key%'` (deve existir unique).
-- Retry/contagem: `SELECT column_name FROM information_schema.columns WHERE table_name='outbound_messages' AND column_name IN ('attempts','next_attempt_at','claimed_at','lease_expires_at')`.
-- Confirmar em código (`whatsapp-send/index.ts`) que o incremento de `attempts` acontece em `claim_outbound_batch` (não duplicar em catch) — validado neste passo por leitura, não por edit.
+### B. Estados semânticos de entrega + ACK
 
-### 5. Confirmação das fórmulas canônicas
-- `SELECT prosrc FROM pg_proc WHERE proname='is_behavioral_consumption'` deve conter: exclusão de `internal_transfer`, `investment_application`, `investment_redemption`, `investment_yield`, `loan_proceeds`; ignorar `p_settles_card_id IS NOT NULL` (fatura); ignorar `status <> 'confirmed'` (planejados); tratar `refund` como `-t.amount` (estorno líquido).
-- `SELECT DISTINCT formula_version FROM public.financial_daily_facts` — sem linhas ainda (ok, backfill fora do escopo). O que importa é que a função `refresh_financial_daily_facts` grave `'financial_daily.v2'` quando for chamada.
+- **Migration `20260725011000_delivery_state_semantics.sql`**
+  - Coluna `outbound_messages.status` continua `text`. Adicionar:
+    - `accepted_at timestamptz` (preenchido em `mark_outbound_sent`, hoje mapeado como `sent`).
+    - Manter `status='sent'` como sinônimo de "accepted pela WAHA" para compatibilidade histórica; novo derivado:
+    - View `public.outbound_delivery_v` expõe `delivery_state` computado: `queued|processing|accepted|delivered|read|failed|dead`.
+  - RPC `mark_outbound_sent`: atualizar também `accepted_at = now()`.
+  - Ranking do webhook (`whatsapp-webhook`) permanece `sent < delivered < read`; adicionar promoção idempotente de `queued/processing → sent` quando ACK inicial `sent` chega antes do POST-back.
+  - Watchdog `whatsapp-ack-watchdog`: já existe; ampliar para marcar `last_error='no_ack_after_5m'` em rows com `status='sent'` e `accepted_at < now()-'5 min'`, sem alterar `status` (recuperável, não regressivo). Log estruturado inclui `provider_message_id` mascarado.
+- **Frontend**
+  - `src/pages/DivisaoDoRoleDetalhe.tsx` e cards de status: consumir `outbound_delivery_v`; label:
+    - `accepted` → "Aguardando entrega no WhatsApp"
+    - `delivered` → "Entregue"
+    - `read` → "Lido"
+    - `no_ack_after_5m` → "Sem confirmação — reenviar?"
+  - Botão "reenviar" chama RPC `resend_split_reminder(participant_id)` idempotente (usa `idempotency_key=split:resend:{participant_id}:{yyyymmddhh}` — não duplica no mesmo bloco de hora).
+- **Testes** (`src/test/split-delivery-tracking.test.ts` já existe): estender casos accepted→delivered→read, no-ACK, timeout, dead-letter (attempts>=6), reenvio manual duplicado.
 
-### 6. RLS/permissões operacionais
-- `SELECT relname, relrowsecurity FROM pg_class … WHERE relname IN ('financial_backfill_checkpoints','financial_metric_diffs')` → ambos `t`.
-- `SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_name IN ('financial_backfill_checkpoints','financial_metric_diffs')` → apenas `service_role`.
+### C. Pipeline 24/7 — apenas guardrails
 
-### 7. Templates de relatório
-- `SELECT template_key, active FROM public.financial_report_templates` deve retornar 4 linhas:
-  - `weekly_reflection_v1` — a migration original define como legado; confirmar se ela o desativa (`active=false`) ou mantém. Se a migration atual não desativa, e a instrução do usuário exige desativar o legado, aplicar SOMENTE no mesmo arquivo antes da submissão (adicionar linha `UPDATE public.financial_report_templates SET active=false WHERE template_key='weekly_reflection_v1';`) — decisão registrada no plano; confirmar comigo se preferir manter ativo.
-  - `spending_trend`, `monthly_comparison`, `weekly_one_page` — `active=true`.
+- Nenhuma mudança de schema; adicionar teste read-only que garante ausência de `local_time`/`make_timestamptz` em `claim_reminder_jobs*` e ausência da janela 08–22 (`src/test/split-flow-contract.test.ts`).
 
-### 8. Smoke tests read-only pós-implantação
-Executar via `supabase--read_query` (sem escrever nada):
-1. Verificações dos passos 4, 5, 6 e 7 acima.
-2. `SELECT status, count(*) FROM public.reminder_jobs WHERE created_at > now() - interval '1 day' GROUP BY 1`.
-3. `SELECT status, count(*) FROM public.outbound_messages WHERE created_at > now() - interval '1 day' GROUP BY 1`.
-4. `SELECT job_key, ok, processed, failed, updated_at FROM public.job_heartbeats WHERE job_key IN ('split-reminders-dispatch','whatsapp-send') ORDER BY updated_at DESC LIMIT 4`.
-5. `SELECT count(*) FROM public.financial_metric_diffs` (deve ser 0, backfill fora do escopo).
+### D. Fundação canônica — rollout aditivo
 
-### 9. Rollback seguro
-- **Migration**: não usar `DROP`. Se algum objeto novo introduzir regressão, criar migration corretiva subsequente (`CREATE OR REPLACE` da função à versão anterior + `UPDATE financial_report_templates SET active=false` nos três novos). Nunca reverter RLS on→off nem apagar `financial_daily_facts`.
-- **Edge Functions**: manter cópia do bundle anterior; em caso de regressão, `supabase--deploy_edge_functions` da versão prévia do arquivo (git checkout do commit anterior localmente e redeploy). Não é preciso rollback de banco para desfazer o redeploy.
-- **Cron**: nenhum cron novo é criado; se necessário, `SELECT cron.unschedule('split-message-pipeline-1m')` fica disponível como último recurso.
+- **Migration `20260725012000_canonical_rollout_scaffolding.sql`**
+  - RPC `financial_baseline(user_id, until date)` SECURITY DEFINER: calcula snapshot legado (via `facts.ts` equivalente em SQL — reusa `is_behavioral_consumption`) e grava em `financial_current_snapshots` com `formula_version='legacy.baseline'`.
+  - RPC `financial_backfill_batch(user_id, from date, to date, batch int default 15)`: percorre dias em lotes; chama `refresh_financial_daily_facts`; grava `financial_backfill_checkpoints`.
+  - RPC `financial_dual_read(user_id, day)` retorna `{legacy, canonical, diff}` — persiste em `financial_metric_diffs` quando |diff| > tolerância (1 centavo).
+  - Índices auxiliares em `financial_daily_facts(user_id, day)`.
+- **Feature flag**: `financial_feature_flags(user_id, flag='use_canonical_financial_snapshot', enabled bool, rollout_stage text default 'off')`. Nada é ligado agora.
+- **Backend consumidor** (`src/lib/hooks/useFinancialSnapshot.ts` + `src/lib/engine/facts.ts` e `supabase/functions/_shared/engine/facts.ts`):
+  - Introduzir função `readSnapshot(userId)` que **por padrão retorna legado**; se flag ligada, faz `dual read` e loga diff; nunca substitui legado no client sem flag `stage='canonical_only'`.
+- **Piloto**: `financial_feature_flags` gerenciado por RPC admin — fora do escopo de UI neste patch.
+- **Rollback**: `UPDATE financial_feature_flags SET enabled=false` desliga tudo; migrations são aditivas.
 
-## O que este plano NÃO faz
-- Não altera design, não cria funcionalidades novas.
-- Não modifica dados financeiros de usuários (sem UPDATE em `transactions`, `accounts`, etc.).
-- Não liga feature flags de rollout (`use_canonical_financial_snapshot` permanece off).
-- Não executa backfill de `financial_daily_facts` / `financial_current_snapshots`.
+### E. Templates + gráficos do assistente
+
+- `supabase/functions/_shared/agent/IntentRouter.ts`: mapear intents `tendencia_gastos`, `comparativo_mensal`, `one_page_semanal` a `template_key` correspondente e usar `_shared/analytics/*` para preencher; passar `template_key` como campo do `agent_artifacts`.
+- `supabase/functions/_shared/artifacts/builder.ts`: aceitar `template_key`; garantir contrato consistente app/PNG.
+- `src/components/assessor/artifacts/ChartArtifactRenderer.tsx`:
+  - `<Line type="monotone" />` explícito; `<Area type="monotone">` para faixas de previsão; garantir tipos `bar|line|forecast_band|donut|progress` renderizados; incluir chip de proveniência com `formula_version` e `template_key`.
+- `supabase/functions/artifact-render/index.ts`: mesmo `type: monotone` na renderização PNG (SVG server-side) e mesmo fallback textual determinístico com os números exatos do motor.
+- **Testes** `src/test/artifact-contract.test.ts` + `src/test/agent-chart-routing.test.ts`: cobrir os 3 templates, PNG e fallback textual (mesmos números).
+
+### F. Deploys — lista real
+
+Após a migration D aplicada, redeploy destas Edge Functions (todas importam módulos compartilhados alterados):
+
+Ordem sugerida:
+1. `whatsapp-send` (waha.ts + heartbeats.ts + artifact-render deps).
+2. `whatsapp-webhook` (waha.ts + mediaFallback + ACK ranking).
+3. `whatsapp-ack-watchdog` (heartbeats + novo aviso `no_ack_after_5m`).
+4. `split-reminders-dispatch` (waha.ts + idempotência resend).
+5. `artifact-render` (builder.ts + template_key).
+6. `agent-run` e `agent-chat` (IntentRouter + template_key + facts.ts leitor canônico opcional).
+
+Não redeployar: `admin-*`, `assistant-*`, `documents-cleanup`, `pulse-compute`, `insights-generate`, `user-*` (não tocados).
+
+Validação de secrets (sem expor valores): `fetch_secrets` para confirmar `WAHA_API_URL`, `WAHA_API_KEY`, `INTERNAL_CRON_SECRET`, `LOVABLE_API_KEY` presentes.
+
+### G. Reconciliação de histórico de migrations
+
+- **Não** renomear nem apagar `20260724023000_canonical_finance_and_split_delivery_hardening.sql`.
+- **Não** editar `supabase_migrations.schema_migrations`.
+- Novas migrations desta rodada usam timestamps `20260725010000..20260725012000` — nunca menores que o último registrado, evitando reordenação.
+- Se a ferramenta Lovable detectar que `20260724023000` está registrado com hash divergente, aceitar como já aplicado (skip). Documentar em `.lovable/plan.md` que a reconciliação é resolvida ao aplicar as novas migrations acima (a ferramenta registra pelo nome do arquivo).
+
+### H. Segurança
+
+- Todas as novas RPCs: `SECURITY DEFINER`, `SET search_path = public, pg_temp`, `REVOKE ALL ... FROM public/anon`, `GRANT EXECUTE TO authenticated` só onde há uso client (ex.: `resend_split_reminder`). Backfill/baseline/dual-read: `GRANT EXECUTE TO service_role` apenas.
+- Mascaramento em `waha.ts` sendText/sendImage error logs.
+- Confirmar RLS `financial_daily_facts`, `financial_daily_category_facts`, `financial_current_snapshots` restritas a `auth.uid()=user_id` (SELECT) + `service_role` full.
+
+## Testes obrigatórios (novos/atualizados)
+
+- `src/test/phone.test.ts` ✓ já existe — adicionar casos de fixture com os 6 telefones corrompidos do banco (via factory local, sem tocar banco).
+- `src/test/split-flow-contract.test.ts`: form→RPC→banco→dispatcher→outbound com chatId `5511...@c.us`.
+- `src/test/waha-image-payload.test.ts`: garantir rejeição de telefone inválido.
+- `src/test/split-delivery-tracking.test.ts`: novos casos ACK/no-ACK/dead-letter/resend idempotente.
+- `src/test/canonical-financial-foundation.test.ts`: dual-read com fixture `financial_ecosystem_v2.json` (cartão, fatura, transferências, investimentos, empréstimos, refunds, planejados). Tolerância 1 centavo.
+- `src/test/agent-chart-routing.test.ts`: 3 templates; App e WhatsApp produzem o mesmo número.
+- `src/test/artifact-contract.test.ts`: PNG e fallback textual determinístico.
+- RLS: `src/test/whatsapp-permissions.test.tsx` + novo `canonical-rls.test.ts`.
+- Pipeline local: `npm ci && npm test -s && npx tsgo --noEmit && npm run build`.
+
+## Sequência de implementação (uma execução)
+
+```text
+1. Migrations (aprovar via ferramenta, uma a uma):
+   1a. 20260725010000_phone_e164_hardening
+   1b. 20260725011000_delivery_state_semantics
+   1c. 20260725012000_canonical_rollout_scaffolding
+2. Patch de código (frontend + edge functions + shared):
+   - normalizeBrPhone no form + provider
+   - accepted_at + outbound_delivery_v consumo na UI
+   - IntentRouter/template_key + monotone no renderer
+   - readSnapshot com dual-read opt-in
+3. Testes: rodar suite completa localmente; corrigir regressões.
+4. Deploy edge functions (ordem acima) — SÓ após 1+2+3 verdes.
+5. Smoke tests read-only (queries):
+   - SELECT count(*) FROM shared_expense_participants
+     WHERE phone_e164 IS NOT NULL AND phone_e164 !~ '^\+55[1-9][0-9]{9,10}$';  -- deve ser 0
+   - SELECT status,count(*) FROM outbound_messages
+     WHERE created_at>now()-'1 day' GROUP BY 1;
+   - SELECT count(*) FROM financial_metric_diffs;  -- 0 até flag ligada
+6. Rollout: manter TODOS os usuários em legacy. Ligar flag apenas para 1 usuário-piloto (founder) em passo separado, fora deste patch.
+```
+
+## Riscos e mitigação
+
+- **CHECK phone_e164 falhando em produção**: por isso `NOT VALID` + fix RPC antes de `VALIDATE`. Se o fix não recuperar linhas, nulificar phone_e164 preservando `name/amount` (não perde histórico financeiro).
+- **UI mostrando "Aguardando" após WAHA rápida**: aceitável; ACK típico chega em segundos. `no_ack_after_5m` só aparece após 5 min.
+- **Backfill pesado**: 15 dias/lote + checkpoint garante reentrância; nunca roda automaticamente para usuários — só via RPC admin.
+- **Templates novos ainda "decorativos" se roteador não casar intent**: testes `agent-chart-routing` bloqueiam merge se roteamento não usar `template_key`.
+- **Deploys parciais**: script único chama `supabase--deploy_edge_functions` com array das 6 funções.
+
+## Critérios de aceite verificáveis
+
+- [ ] `(11) 9xxxx-xxxx` no form persiste como `+5511…`; RPC rejeita inválidos.
+- [ ] 6 telefones corrompidos: corrigidos ou nulificados (contagem = 0 na query smoke).
+- [ ] UI mostra "Aguardando entrega" enquanto `accepted_at` mas sem ACK; muda para "Entregue" apenas com ACK real.
+- [ ] Reenvio manual dentro do mesmo bloco de hora não gera segundo outbound (idempotency_key).
+- [ ] `financial_metric_diffs` recebe linhas somente para o piloto após ligar a flag; diff médio ≤ R$0,01.
+- [ ] "meu gasto médio está diminuindo?" no app e WhatsApp: mesmo `template_key='spending_trend'`, mesma série, PNG + fallback textual coincidem.
+- [ ] `ChartArtifactRenderer` renderiza linhas com `type="monotone"`.
+- [ ] Todas as 6 edge functions redeployadas com heartbeat ok.
+- [ ] `npm test`, `tsgo --noEmit`, `npm run build` verdes.
+- [ ] Nenhum publish disparado; nenhum backfill executado; nenhuma flag ligada.
+
+## O que NÃO faz
+
+- Não remove cálculo legado.
+- Não liga `use_canonical_financial_snapshot` para nenhum usuário.
+- Não executa backfill.
 - Não publica frontend.
-
-## Pergunta única antes de implementar
-Confirmar se devo **desativar `weekly_reflection_v1`** (passo 7) na mesma submissão da migration, ou manter os quatro templates ativos até você decidir. Sem a resposta, mantenho os quatro ativos e você só ativa/desativa manualmente depois.
+- Não altera `supabase_migrations.schema_migrations`.
+- Não muda WAHA config nem cria secrets.
