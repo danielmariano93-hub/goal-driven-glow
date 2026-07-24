@@ -1,5 +1,5 @@
 /**
- * Testes de fumaça da LP pública Meu Nino.IA — redesign 7 blocos.
+ * Testes de fumaça da LP pública Meu Nino.IA — redesign narrativo 6 capítulos.
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -14,7 +14,7 @@ function renderLP() {
   );
 }
 
-describe("LandingPage — redesign 7 blocos", () => {
+describe("LandingPage — redesign 6 capítulos", () => {
   it("renderiza headline principal exata", () => {
     renderLP();
     expect(
@@ -25,15 +25,15 @@ describe("LandingPage — redesign 7 blocos", () => {
     ).toBeInTheDocument();
   });
 
-  it("contém as sete âncoras dos blocos oficiais", () => {
+  it("contém as âncoras oficiais dos capítulos", () => {
     const { container } = renderLP();
     for (const id of [
       "top",
-      "manifesto",
-      "demonstracao",
-      "transformacao",
+      "hero",
+      "reconhecimento",
+      "acao",
+      "mes",
       "role",
-      "simples",
       "comecar",
       "duvidas",
     ]) {
@@ -41,9 +41,13 @@ describe("LandingPage — redesign 7 blocos", () => {
     }
   });
 
-  it("não expõe seções antigas como blocos autônomos", () => {
+  it("não expõe seções antigas removidas", () => {
     const { container } = renderLP();
     for (const id of [
+      "manifesto",
+      "demonstracao",
+      "transformacao",
+      "simples",
       "previsao",
       "comportamento",
       "metas",
@@ -57,12 +61,22 @@ describe("LandingPage — redesign 7 blocos", () => {
     }
   });
 
+  it("não renderiza CTA fixo mobile em nenhuma forma", () => {
+    const { container } = renderLP();
+    expect(container.querySelector(".lp-mobile-cta")).toBeNull();
+  });
+
+  it("não renderiza seção autônoma de passos genéricos", () => {
+    const { container } = renderLP();
+    expect(container.querySelector(".lp-steps")).toBeNull();
+    expect(container.querySelector(".lp-step-num")).toBeNull();
+  });
+
   it("FAQ tem exatamente 4 perguntas", () => {
     const { container } = renderLP();
     const details = container.querySelectorAll(".lp-faq details");
     expect(details.length).toBe(4);
   });
-
 
   it("CTAs de cadastro apontam para /signup e login para /login", () => {
     const { container } = renderLP();
@@ -83,13 +97,50 @@ describe("LandingPage — redesign 7 blocos", () => {
     );
   });
 
-  it("manifesto contém as frases oficiais em sequência", () => {
+  it("capítulo de reconhecimento traz a timeline oficial", () => {
     const { container } = renderLP();
     const txt = container.textContent ?? "";
-    expect(txt).toMatch(/o mês não sai do controle em um único gasto/i);
-    expect(txt).toMatch(/uma assinatura esquecida/i);
-    expect(txt).toMatch(/quando você percebe, a fatura já fechou/i);
-    expect(txt).toMatch(/o nino acompanha esses sinais com você/i);
+    expect(txt).toMatch(/o mês não sai do controle de uma vez/i);
+    expect(txt).toMatch(/assinatura que você esqueceu/i);
+    expect(txt).toMatch(/separados, parecem pouco\. juntos, mudam o mês/i);
+    expect(txt).toMatch(/o nino acompanha esses sinais/i);
+  });
+
+  it("Story Canvas mostra as 4 etapas causais", () => {
+    const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).toMatch(/registrado em lazer · nubank · ontem/i);
+    expect(txt).toMatch(/previsão de fechamento/i);
+    expect(txt).toMatch(/o que puxou a alta/i);
+    expect(txt).toMatch(/criar limite de r\$ 350/i);
+  });
+
+  it("cap. 4 exibe meta com valor absoluto, ritmo e previsão", () => {
+    const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).toMatch(/r\$ 4\.320/);
+    expect(txt).toMatch(/de r\$ 6\.000/i);
+    expect(txt).toMatch(/r\$ 280 \/ mês/i);
+    expect(txt).toMatch(/novembro/i);
+  });
+
+  it("Divisão do Rolê traz conversa, cálculo e mensagem preparada", () => {
+    const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).toMatch(/o jantar deu r\$ 480/i);
+    expect(txt).toMatch(/r\$ 120 cada/i);
+    expect(txt).toMatch(/oi, bruno! sua parte do jantar/i);
+    expect(txt).toMatch(/copiar lembrete/i);
+    expect(txt).not.toMatch(/envia lembrete/i);
+    expect(txt).not.toMatch(/cobrança automática/i);
+    expect(txt).not.toMatch(/pix/i);
+  });
+
+  it("faixa de confiança compacta substitui seção autônoma de passos", () => {
+    const { container } = renderLP();
+    const txt = container.textContent ?? "";
+    expect(txt).toMatch(/você continua no controle/i);
+    expect(txt).toMatch(/o nino não movimenta seu dinheiro/i);
   });
 
   it("não contém prova social fictícia, selos ou claims proibidos", () => {
@@ -100,17 +151,7 @@ describe("LandingPage — redesign 7 blocos", () => {
     expect(txt).not.toMatch(/criptografia/i);
     expect(txt).not.toMatch(/100% seguro/i);
     expect(txt).not.toMatch(/HTTPS\/TLS/i);
-    expect(txt).not.toMatch(/persona demonstrativa/i);
     expect(container.querySelector(".lp-quotes")).toBeNull();
-  });
-
-  it("Divisão do Rolê promete apenas 'preparar lembrete'", () => {
-    const { container } = renderLP();
-    const txt = container.textContent ?? "";
-    expect(txt).toMatch(/preparar lembrete/i);
-    expect(txt).not.toMatch(/envia lembrete/i);
-    expect(txt).not.toMatch(/cobrança automática/i);
-    expect(txt).not.toMatch(/pix/i);
   });
 
   it("wordmark oficial: 'Meu Nino' + descritor '.IA' sobrescrito", () => {
