@@ -213,25 +213,36 @@ export const EXCLUDED_MOVEMENT_KINDS = new Set([
   "loan_proceeds",
 ]);
 
+/** Versão canônica do motor comportamental — deve casar com o `formula_version`
+ *  registrado em `financial_daily_facts` e nos templates de relatório. */
+export const FORMULA_VERSION = "financial_daily.v2";
+
 /** Regra canônica única para totais mensais reais — usada em Home, relatórios e insights.
- *  - exclui transferências (type='transfer') e movimentações internas/investimento;
- *  - exclui pagamento de fatura (settles_card_id) para não contar duas vezes;
- *  - trata refund como reversão da despesa (subtrai) em vez de nova entrada. */
+ *  Espelha exatamente `public.is_behavioral_consumption` (SQL):
+ *  - status confirmado;
+ *  - `type <> 'transfer'` e `transfer_group_id IS NULL`;
+ *  - `movement_kind` = 'transaction' (nenhum kind patrimonial nem refund);
+ *  - `settles_card_id IS NULL` (fatura fica fora). */
 export function isRealMonthlyMovement(t: TransactionRow): boolean {
   if (t.status !== "confirmed") return false;
   if (t.type === "transfer") return false;
+  if (t.transfer_group_id) return false;
   const mk = (t.movement_kind ?? "transaction").toString();
   if (EXCLUDED_MOVEMENT_KINDS.has(mk)) return false;
+  if (mk !== "transaction") return false;
   if (t.settles_card_id) return false;
   return true;
 }
 
 /**
- * Valor assinado da métrica comportamental.
- * - expense comum soma consumo;
- * - refund confirmado reduz consumo (não vira renda);
+ * Valor assinado da métrica comportamental — paridade estrita com o SQL
+ * `refresh_financial_daily_facts`:
+ * - despesa comum (`is_behavioral_consumption`) soma consumo;
+ * - refund abate consumo APENAS quando `type='income'` e
+ *   `transfer_group_id IS NULL`; refund como expense é dado inconsistente
+ *   e retorna 0 (não abate, não conta como despesa);
  * - entradas comuns somam renda;
- * - movimentos patrimoniais, transferências e pagamento de fatura retornam 0.
+ * - qualquer outro kind patrimonial, transferência ou fatura retorna 0.
  */
 export function behavioralMetricAmount(
   t: TransactionRow,
@@ -240,7 +251,10 @@ export function behavioralMetricAmount(
   if (t.status !== "confirmed" || t.type === "transfer") return 0;
   const mk = (t.movement_kind ?? "transaction").toString();
   if (mk === "refund") {
-    return metric === "expense" ? -Number(t.amount || 0) : 0;
+    if (metric !== "expense") return 0;
+    if (t.type !== "income") return 0;
+    if (t.transfer_group_id) return 0;
+    return -Number(t.amount || 0);
   }
   if (!isRealMonthlyMovement(t) || t.type !== metric) return 0;
   return Number(t.amount || 0);
