@@ -4758,6 +4758,10 @@ export type Database = {
         Returns: string
       }
       split_delete: { Args: { p_id: string }; Returns: undefined }
+      split_delivery_diagnosis: {
+        Args: { p_expense_id: string }
+        Returns: Json
+      }
       split_enqueue_message: {
         Args: {
           p_expense_id: string
