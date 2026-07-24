@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { can, roleLabel, type PlatformAction } from "@/lib/admin/permissions";
 import { AdminErrorBoundary } from "@/components/admin/AdminErrorBoundary";
 import { currentAdminTitle, useAdminDocumentTitle } from "@/components/admin/useAdminDocumentTitle";
+import { SessionInactivityGuard } from "@/components/auth/SessionInactivityGuard";
 
 type Item = {
   to: string;
