@@ -11,6 +11,10 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // Bridge npm:* Deno specifiers so vitest can import _shared modules.
+      "npm:zod@3.23.8": "zod",
+    },
   },
 });
