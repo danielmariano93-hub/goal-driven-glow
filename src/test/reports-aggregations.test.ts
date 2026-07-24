@@ -25,9 +25,9 @@ describe("aggregations", () => {
 
   it("gera highlights acionáveis com economia calculada para categoria flexível", () => {
     const cats = byCategory([
-      { type: "expense" as const, amount: 1000, occurred_at: "2026-01-05", category_name: "Lazer" },
-      { type: "expense" as const, amount: 1200, occurred_at: "2026-01-06", category_name: "Moradia" },
-      { type: "expense" as const, amount: 300, occurred_at: "2026-01-07", category_name: "Transporte" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 1000, occurred_at: "2026-01-05", category_name: "Lazer" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 1200, occurred_at: "2026-01-06", category_name: "Moradia" },
+      { type: "expense" as const, status: "confirmed" as const, amount: 300, occurred_at: "2026-01-07", category_name: "Transporte" },
     ]);
     const h = spendingHighlights(cats);
     expect(h).toHaveLength(3);
