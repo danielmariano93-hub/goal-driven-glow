@@ -172,7 +172,7 @@ export function AdminLayout() {
   );
 
   return (
-    <SessionInactivityGuard>
+    <SessionInactivityGuard idleMs={20 * 60 * 1000} warnMs={2 * 60 * 1000}>
     <div className="min-h-dvh bg-background flex">
       {/* Desktop sidebar */}
       <aside
