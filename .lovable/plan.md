@@ -1,122 +1,81 @@
-# Corrigir geração de gráficos do Assessor (App + WhatsApp) — rota determinística e paridade com a Home
 
-Sua análise prévia está correta em quase todos os pontos. Confirmei no código atual (não só na versão publicada) o seguinte:
+# Rollout pendente do PR #2 — execução consolidada
 
-- `AppAdapter.ts` já tem o guard `isAnalyticsRequest(text) && !wantsChart(text)`, mas `wantsChart` é estreito e **não cobre** frases reais suas: "gasto médio diário", "reduzindo", "andando de lado", "tendência", "média diária". `isAnalyticsRequest` casa "gasto.*mais" e "como está.*mês" → cai no fast-path `analyze_spending` + `buildAnalyticsReply`, exatamente o texto que você recebeu.
-- `analyze_spending` filtra apenas por `type=expense` e ignora `status`, `movement_kind` e exclusões comportamentais — por isso **Aplicações (R$ 5.000)** aparece como maior "gasto". Não é a mesma definição da Home.
-- `spending_timeseries_daily` existe mas calcula **gasto diário + média móvel 7d**, não a **média diária acumulada** (acumulado ÷ dias corridos) que você pediu.
-- `generate_chart_artifact` e `analyze_spending` disputam o mesmo gatilho no prompt; o LLM tende a escolher a textual.
-- Nenhum guardrail obriga artefato quando o pedido é visual (`ResponseValidator` não checa isso).
-- WhatsApp: pipeline de mídia (`artifact_id → whatsapp-send → artifact-render`) existe e está correto; o problema é que o artefato nunca é criado. As mesmas 4 causas de LLM/métrica/ferramenta afetam WhatsApp.
-- Deploy drift: fast-path já tem o guard no repo, mas os logs mostram resposta idêntica ao `buildAnalyticsReply` sem `agent_run` — o `agent-chat` publicado provavelmente está atrás. Precisa redeploy explícito.
+## Contexto verificado agora
+- Arquivo `supabase/migrations/20260724023000_canonical_finance_and_split_delivery_hardening.sql` existe na main (349 linhas) e NÃO foi aplicado ao banco.
+- `financial_backfill_checkpoints` e `financial_metric_diffs`: existem, `relrowsecurity = false` → confirma RLS desligada.
+- `financial_report_templates` contém apenas `weekly_reflection_v1` (active=true). Faltam `spending_trend`, `monthly_comparison`, `weekly_one_page`.
+- `is_behavioral_consumption` já existe (versão anterior sem `financial_daily.v2`) — a migration usa `CREATE OR REPLACE`, então a atualização é idempotente e segura.
+- `claim_reminder_jobs` e `claim_reminder_jobs_for_owner` presentes. Cron `split-message-pipeline-1m` ativo e heartbeat saudável (informado pelo usuário e coerente com o estado). Janela 08–22 já removida (confirmado pelas queries anteriores do usuário).
+- Frontend na main: `src/pages/DivisaoDoRoleNova.tsx` já usa `dispatchSplitReminders`; `src/lib/split/dispatch.ts` e testes canônicos presentes → apenas Edge Functions + migration faltam ser propagadas.
 
-## Correções (ordem de aplicação)
+## Bloqueios / riscos conhecidos antes de executar
+- Nenhum bloqueio impeditivo. A migration é aditiva/corretiva e todos os objetos que ela toca já estão em estado compatível (`CREATE OR REPLACE`, `ALTER … ENABLE RLS`, `INSERT … ON CONFLICT`). Vou reconfirmar isso lendo o arquivo inteiro antes de submeter (ver passo 2).
+- Não temos permissão de leitura em `supabase_migrations.schema_migrations` via psql da sandbox; a verificação de duplicidade é feita pela ferramenta de migration da Lovable (que registra o arquivo). Isso é aceitável e evita duplicar o arquivo.
 
-### 1. Fast-path do App: nunca interceptar pedidos com intenção visual/analítica não-trivial
-Arquivo: `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts`
+## Execução (uma única rodada, sob sua aprovação)
 
-- Ampliar `wantsChart` para: `gráfico(s)`, `graficos`, `chart`, `visualiza(ção|r)`, `linha|curva|barras|pizza|donut`, `dia a dia`, `diariamente`, `por dia|semana|mês`, `evolu(ção|ir)`, `tend(ência|encia)`, `média (diária|do dia|acumulada)`, `gasto médio`, `estou reduzindo`, `andando de lado`, `ritmo dos gastos`.
-- Restringir `isAnalyticsRequest` a pedidos **textuais estritos**: `resumo`, `me analisa`, `onde gasto mais` (sem "gráfico" nem "evolução"). Remover "evolução" e "gráfico" do regex.
-- Instrumentar o fast-path: quando ele responder, gravar um `agent_turn_events` com `route='fast_path_analytics'` para acabar com o ponto cego de observabilidade.
+### 1. Validação de histórico e prevenção de duplicidade
+- Reutilizar EXATAMENTE o arquivo já versionado `20260724023000_canonical_finance_and_split_delivery_hardening.sql`. Não gerar um novo timestamp.
+- Não criar migrations paralelas. A ferramenta Supabase-migration registra o arquivo em `schema_migrations` ao aplicar; se ela detectar que já foi aplicada, aborta sem efeitos.
 
-### 2. Nova métrica determinística: média diária acumulada
-Novo arquivo: `supabase/functions/_shared/analytics/dailyAverage.ts`
+### 2. Aplicação segura da migration 20260724023000
+- Reler o arquivo inteiro (349 linhas) e conferir que cada bloco é idempotente:
+  - `ALTER TABLE … ENABLE ROW LEVEL SECURITY` (idempotente).
+  - `REVOKE … / GRANT … TO service_role` (idempotente).
+  - `CREATE OR REPLACE FUNCTION is_behavioral_consumption`, `refresh_financial_daily_facts` e quaisquer helpers.
+  - `INSERT INTO public.financial_report_templates … ON CONFLICT (template_key) DO UPDATE` para `spending_trend`, `monthly_comparison`, `weekly_one_page` e para atualizar `weekly_reflection_v1` se a migration o fizer.
+  - Ajustes de `claim_reminder_jobs*` sem a janela 08–22 e com `lease_expires_at = now() + interval '2 minutes'` / `FOR UPDATE SKIP LOCKED`.
+- Submeter via ferramenta de migration da Lovable (fluxo de aprovação padrão). Não executar SQL bruto por psql.
+- Se algum bloco não for idempotente após a releitura, isolar em `DO $$ … IF NOT EXISTS … END $$` antes de submeter, mantendo o mesmo arquivo.
 
-`computeCumulativeDailyAverage({ txs, from, to })` retorna por dia:
-- `daily_consumption` (real, filtrado por `isRealMonthlyMovement` — mesma definição da Home; exclui aplicações, transferências, resgates, aportes, pagamento de fatura, canceladas)
-- `cumulative_consumption`
-- `elapsed_days` (dias corridos desde `from`, inclusivo)
-- `cumulative_daily_average = cumulative / elapsed_days`
-- `daily_average_change` e `daily_average_change_pct` vs. dia anterior
-- `trend` heurística: `falling | rising | flat` (regressão linear simples sobre a média acumulada)
-- `provenance.formula_version = 'daily_average.cumulative.v1'`, sob `reconciliationGate`
+### 3. Deploy/redeploy de Edge Functions
+Somente as que mudaram no PR e dependem de estados do backend acima:
+- `split-reminders-dispatch` (usa `claim_reminder_jobs*`, mensagens de reminder 24/7, idempotência `split:{kind}:{participant_id}:{job_id}`).
+- `whatsapp-send` (fallback textual determinístico, heartbeat com `mediaFailures`).
+- Dependências compartilhadas embarcadas no bundle Deno (não precisam de deploy separado, mas confirmar que foram publicadas junto):
+  - `_shared/cors.ts`, `_shared/heartbeats.ts`, `_shared/agent/messageTemplates.ts`, `_shared/messaging/waha.ts`, `_shared/artifacts/*` referenciadas por `artifact-render` (se `artifact-render` mudou, incluir; caso contrário, pular).
+- Não redeployar funções não alteradas.
 
-### 3. Estender o motor de artefatos
-Arquivo: `supabase/functions/_shared/artifacts/builder.ts`
+### 4. Confirmação de envio 24/7 e semântica de fila
+Após deploy, checar em produção (somente leitura):
+- `SELECT prosrc FROM pg_proc WHERE proname='claim_reminder_jobs'` — não deve conter `local_time` nem `make_timestamptz`.
+- Idempotência: `SELECT indexdef FROM pg_indexes WHERE tablename='outbound_messages' AND indexdef ILIKE '%idempotency_key%'` (deve existir unique).
+- Retry/contagem: `SELECT column_name FROM information_schema.columns WHERE table_name='outbound_messages' AND column_name IN ('attempts','next_attempt_at','claimed_at','lease_expires_at')`.
+- Confirmar em código (`whatsapp-send/index.ts`) que o incremento de `attempts` acontece em `claim_outbound_batch` (não duplicar em catch) — validado neste passo por leitura, não por edit.
 
-`buildCumulativeDailyAverageArtifact(result)`:
-- `chart.type = 'line'`
-- Série principal: "Média diária acumulada"
-- Série secundária pontilhada: "Gasto do dia"
-- `x_labels` como "DD/MM"
-- `annotations`: tendência ("↓ caindo 12%", "→ estável", "↑ subindo 8%") derivada do motor, não do LLM
-- `formula_version = 'daily_average.cumulative.v1'`
+### 5. Confirmação das fórmulas canônicas
+- `SELECT prosrc FROM pg_proc WHERE proname='is_behavioral_consumption'` deve conter: exclusão de `internal_transfer`, `investment_application`, `investment_redemption`, `investment_yield`, `loan_proceeds`; ignorar `p_settles_card_id IS NOT NULL` (fatura); ignorar `status <> 'confirmed'` (planejados); tratar `refund` como `-t.amount` (estorno líquido).
+- `SELECT DISTINCT formula_version FROM public.financial_daily_facts` — sem linhas ainda (ok, backfill fora do escopo). O que importa é que a função `refresh_financial_daily_facts` grave `'financial_daily.v2'` quando for chamada.
 
-### 4. Nova ferramenta + kind no chart
-Arquivo: `supabase/functions/_shared/agent/tools.ts`
+### 6. RLS/permissões operacionais
+- `SELECT relname, relrowsecurity FROM pg_class … WHERE relname IN ('financial_backfill_checkpoints','financial_metric_diffs')` → ambos `t`.
+- `SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_name IN ('financial_backfill_checkpoints','financial_metric_diffs')` → apenas `service_role`.
 
-- Registrar `spending_average_daily_trend(args: { from?, to? })` → chama `computeCumulativeDailyAverage` sob `reconciliationGate`.
-- `generate_chart_artifact` aceita `kind: 'average_daily_trend'` além dos existentes.
-- Descrição das tools **desambiguada** (fim da colisão do LLM):
-  - `analyze_spending`: "APENAS respostas textuais de resumo/onde mais gastou. NUNCA quando o usuário pedir gráfico, tendência, evolução ou média diária."
-  - `generate_chart_artifact`: "OBRIGATÓRIO em qualquer pedido visual. Escolha o kind: `average_daily_trend` para 'gasto médio dia a dia / tendência / estou reduzindo', `timeseries` para série diária bruta, `compare` para dois períodos, `forecast` para fechamento, `goal` para meta."
-- `analyze_spending` passa a filtrar por `isRealMonthlyMovement` (mesma definição da Home). Fim da divergência de "Aplicações R$ 5.000".
+### 7. Templates de relatório
+- `SELECT template_key, active FROM public.financial_report_templates` deve retornar 4 linhas:
+  - `weekly_reflection_v1` — a migration original define como legado; confirmar se ela o desativa (`active=false`) ou mantém. Se a migration atual não desativa, e a instrução do usuário exige desativar o legado, aplicar SOMENTE no mesmo arquivo antes da submissão (adicionar linha `UPDATE public.financial_report_templates SET active=false WHERE template_key='weekly_reflection_v1';`) — decisão registrada no plano; confirmar comigo se preferir manter ativo.
+  - `spending_trend`, `monthly_comparison`, `weekly_one_page` — `active=true`.
 
-### 5. Prompt: rota determinística
-Arquivo: `supabase/functions/_shared/agent/prompt.ts`
+### 8. Smoke tests read-only pós-implantação
+Executar via `supabase--read_query` (sem escrever nada):
+1. Verificações dos passos 4, 5, 6 e 7 acima.
+2. `SELECT status, count(*) FROM public.reminder_jobs WHERE created_at > now() - interval '1 day' GROUP BY 1`.
+3. `SELECT status, count(*) FROM public.outbound_messages WHERE created_at > now() - interval '1 day' GROUP BY 1`.
+4. `SELECT job_key, ok, processed, failed, updated_at FROM public.job_heartbeats WHERE job_key IN ('split-reminders-dispatch','whatsapp-send') ORDER BY updated_at DESC LIMIT 4`.
+5. `SELECT count(*) FROM public.financial_metric_diffs` (deve ser 0, backfill fora do escopo).
 
-- Unificar em uma regra única e imperativa (remover ambiguidade de regras 23 vs 27): "Toda intenção visual ou de tendência DEVE chamar `generate_chart_artifact`. Pedido de 'gasto médio dia a dia', 'estou reduzindo', 'andando de lado', 'tendência' → `kind: 'average_daily_trend'`."
-- "Se o turno anterior recebeu correção do usuário ('não foi isso', 'não é o que pedi'), releia o pedido original e refaça obrigatoriamente pela rota visual."
+### 9. Rollback seguro
+- **Migration**: não usar `DROP`. Se algum objeto novo introduzir regressão, criar migration corretiva subsequente (`CREATE OR REPLACE` da função à versão anterior + `UPDATE financial_report_templates SET active=false` nos três novos). Nunca reverter RLS on→off nem apagar `financial_daily_facts`.
+- **Edge Functions**: manter cópia do bundle anterior; em caso de regressão, `supabase--deploy_edge_functions` da versão prévia do arquivo (git checkout do commit anterior localmente e redeploy). Não é preciso rollback de banco para desfazer o redeploy.
+- **Cron**: nenhum cron novo é criado; se necessário, `SELECT cron.unschedule('split-message-pipeline-1m')` fica disponível como último recurso.
 
-### 6. Guardrail de saída: artefato obrigatório em pedido visual
-Arquivo: `supabase/functions/_shared/agent/core/ResponseValidator.ts` (e/ou `AgentCore.ts`)
+## O que este plano NÃO faz
+- Não altera design, não cria funcionalidades novas.
+- Não modifica dados financeiros de usuários (sem UPDATE em `transactions`, `accounts`, etc.).
+- Não liga feature flags de rollout (`use_canonical_financial_snapshot` permanece off).
+- Não executa backfill de `financial_daily_facts` / `financial_current_snapshots`.
+- Não publica frontend.
 
-Após o turno, se `wantsChart(inbound.text)` for verdadeiro E nenhum `artifact_id` foi produzido:
-1. Executar fallback determinístico: rodar `spending_average_daily_trend` + `buildCumulativeDailyAverageArtifact` no servidor, persistir e anexar.
-2. Se ainda falhar (dados insuficientes ou erro), responder com explicação estruturada e honesta ("não consegui gerar o gráfico agora porque X"). Nunca devolver `buildAnalyticsReply`.
-3. Registrar `chart_missing_recovered=true|false` em `agent_turn_events`.
-
-### 7. Estado contextual da tarefa
-Arquivo: `supabase/functions/_shared/agent/core/ContextPipeline.ts`
-
-Persistir no `agent_memory` do turno: `requested_output`, `requested_metric`, `requested_granularity`, `previous_response_rejected`. Quando o próximo turno contiver referência ("desse gráfico", "agora manda", "não foi isso"), o Core lê esses campos como restrição ativa antes do LLM.
-
-### 8. Renderer no App
-Arquivo: `src/components/assessor/artifacts/ChartArtifactRenderer.tsx`
-
-- Aceitar 2 séries em `line` (principal sólida + secundária tracejada) — já suporta parcialmente.
-- Renderizar `annotations.trend` como chip acima do chart ("Sua média está caindo 12% no mês").
-- Sem mudança estrutural.
-
-### 9. WhatsApp: paridade e fail-loud
-Arquivos: `supabase/functions/whatsapp-send/index.ts`, `_shared/agent/core/OutboundQueue.ts` (já propaga `artifact_id`), `artifact-render`.
-
-- Confirmar que `artifact-render` está deployada e que `sendImage` retorna `media_status='delivered'` em sucesso; em falha, marcar `media_status='failed_fallback_text'` (não `none`) e emitir `provider_health_events`.
-- O fallback textual do WhatsApp usa **os mesmos números** da `provenance` do artefato (não recalcula).
-- Adicionar teste de integração: mensagem "gera um gráfico do meu gasto médio diário" → espera artefato com `formula_version=daily_average.cumulative.v1` e `outbound_messages.artifact_id` populado.
-
-### 10. Redeploy explícito
-- Republicar `agent-chat`, `artifact-render`, `whatsapp-send`, `whatsapp-webhook`. Registrar `code_version` (hash curto do commit) em `agent_turn_events` para detectar drift no futuro.
-
-## Testes (bloqueiam merge)
-
-- `src/test/analytics-daily-average.test.ts`: série acumulada com dados sintéticos (dia 1: 600 → média 600; dia 2: +200 → média 400; dia 3: +250 → média 350). Exclusão de aplicação (movement_kind='investment') e transferência.
-- `src/test/agent-chart-routing.test.ts`:
-  - "gera um gráfico do meu gasto médio dia a dia" → **não** cai no fast-path, chama `generate_chart_artifact` com kind `average_daily_trend`, artefato criado.
-  - "resumo do mês" → fast-path textual (comportamento antigo preservado).
-  - "não foi isso, quero em gráfico" após turno textual → gera gráfico via fallback determinístico.
-- `src/test/analyze-spending-consumption-parity.test.ts`: soma de `analyze_spending` = soma da Home (mesmo filtro `isRealMonthlyMovement`), aplicações **fora**.
-- `src/test/whatsapp-chart-delivery.test.ts` (mock WAHA): artefato → `artifact-render` PNG → `sendImage`; simular falha → `media_status='failed_fallback_text'` + texto com os mesmos números.
-
-## Aceite
-
-1. App: "gera um gráfico dia a dia do meu gasto médio, pra saber se estou reduzindo" → linha da média acumulada + linha do gasto diário + chip de tendência, provenance `daily_average.cumulative.v1`, aplicações **ausentes**.
-2. App: "resumo do mês" → resposta textual (fast-path preservado, agora com telemetria).
-3. App: turno "não foi isso" seguido de "manda em gráfico" → gráfico é entregue, não texto.
-4. WhatsApp: mesma frase → PNG chega no chat; se render falhar, texto de fallback com os mesmos números e `media_status` correto.
-5. `agent_artifacts`, `agent_turn_events` populados com `formula_version` e `code_version`.
-6. `analyze_spending` e a Home retornam o mesmo total de consumo para o mesmo período.
-
-## Arquivos tocados
-
-- `supabase/functions/_shared/analytics/dailyAverage.ts` (novo)
-- `supabase/functions/_shared/artifacts/builder.ts`
-- `supabase/functions/_shared/agent/tools.ts`
-- `supabase/functions/_shared/agent/prompt.ts`
-- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts`
-- `supabase/functions/_shared/agent/core/AgentCore.ts` / `ResponseValidator.ts` / `ContextPipeline.ts`
-- `supabase/functions/whatsapp-send/index.ts` (só o fail-loud)
-- `src/components/assessor/artifacts/ChartArtifactRenderer.tsx`
-- 4 novos testes em `src/test/`
-
-Sem migrations novas: `agent_artifacts`, `agent_turn_events` e `outbound_messages.artifact_id` já existem.
+## Pergunta única antes de implementar
+Confirmar se devo **desativar `weekly_reflection_v1`** (passo 7) na mesma submissão da migration, ou manter os quatro templates ativos até você decidir. Sem a resposta, mantenho os quatro ativos e você só ativa/desativa manualmente depois.
