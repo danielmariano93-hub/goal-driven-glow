@@ -28,7 +28,7 @@ BEGIN
     'processing',count(*) FILTER (WHERE j.status='processing'),
     'enqueued',count(*) FILTER (WHERE j.status='enqueued'),
     'sent',count(*) FILTER (WHERE o.status='sent'),
-    'failed',count(*) FILTER (WHERE j.status IN ('failed','dead') OR o.status IN ('failed','dead')),
+    'failed',count(*) FILTER (WHERE j.status = 'failed' OR o.status IN ('failed','dead')),
     'last_error',max(coalesce(o.last_error,j.last_error)),
     'last_update',max(greatest(j.updated_at,coalesce(o.updated_at,j.updated_at)))
   ) INTO result
