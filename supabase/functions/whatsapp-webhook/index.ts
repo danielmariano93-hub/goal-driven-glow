@@ -199,16 +199,16 @@ Deno.serve(async (req) => {
   // before the inbound classifier (which intentionally drops message.ack).
   const ack = readAckEvent(payload);
   if (ack) {
-    const { data: outbound } = await sb.from("outbound_messages")
-      .select("id,status")
-      .eq("provider_message_id", ack.providerMessageId)
-      .maybeSingle();
-    if (!outbound) return json({ ok: true, ack: "unmatched" });
-    const rank: Record<string, number> = { queued: 0, processing: 0, sent: 1, delivered: 2, read: 3, failed: -1, dead: -1 };
-    if ((rank[ack.status] ?? 0) > (rank[String(outbound.status)] ?? 0)) {
-      await sb.from("outbound_messages").update({ status: ack.status }).eq("id", outbound.id);
+    // Transição monotônica + timestamps de accepted/delivered/read via função SECURITY DEFINER.
+    const { data: applied, error: ackErr } = await sb.rpc("apply_outbound_ack", {
+      p_provider_message_id: ack.providerMessageId,
+      p_ack: ack.status,
+    });
+    if (ackErr) {
+      console.warn("[webhook] apply_outbound_ack_failed", ackErr.message?.slice(0, 200));
     }
-    return json({ ok: true, ack: ack.status });
+    const matched = Array.isArray(applied) && applied.length > 0;
+    return json({ ok: true, ack: ack.status, matched });
   }
 
   const expected = getSessionName();
