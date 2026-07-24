@@ -2,23 +2,17 @@
 // Fatia E parte 2: casamento de texto → template_key registrado em
 // public.financial_report_templates. NÃO substitui o roteamento pelo LLM;
 // é usado como pré-classificador determinístico (bypass sem custo).
-import { z } from "https://esm.sh/zod@3.23.8";
+// Nota: mantemos tipos puros de TS para permitir import direto pelo vitest
+// (sem resolver especifiers HTTPS estilo Deno). A validação estrita fica
+// nos parameters JSON Schema da tool.
 
 export const TEMPLATE_KEYS = ["spending_trend", "monthly_comparison", "weekly_one_page"] as const;
 export type TemplateKey = typeof TEMPLATE_KEYS[number];
 
-export const templateParamsSchema = {
-  spending_trend: z.object({
-    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  }),
-  monthly_comparison: z.object({
-    metric: z.enum(["expense", "income"]).default("expense"),
-  }),
-  weekly_one_page: z.object({
-    weeks_back: z.number().int().min(0).max(12).default(0),
-  }),
-} as const;
+export type TemplateParams =
+  | { template_key: "spending_trend"; from?: string; to?: string }
+  | { template_key: "monthly_comparison"; metric?: "expense" | "income" }
+  | { template_key: "weekly_one_page"; weeks_back?: number };
 
 export type TemplateMatch = {
   template_key: TemplateKey;
