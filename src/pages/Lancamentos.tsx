@@ -294,6 +294,34 @@ export default function Lancamentos() {
         />
       ) : (
         <>
+          {hiddenByFilter && (
+            <div
+              role="status"
+              className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <span>
+                Lançamento salvo, mas oculto pelo filtro de <strong>{hiddenByFilter}</strong>.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setFilters({ type: "all", sort: "date_desc" });
+                    setHiddenByFilter(null);
+                  }}
+                  className="rounded-full border border-amber-400 bg-white px-3 py-1 text-xs font-medium hover:bg-amber-100"
+                >
+                  Limpar filtros
+                </button>
+                <button
+                  onClick={() => setHiddenByFilter(null)}
+                  className="rounded-full px-2 py-1 text-xs text-amber-700 hover:bg-amber-100"
+                  aria-label="Dispensar aviso"
+                >
+                  Dispensar
+                </button>
+              </div>
+            </div>
+          )}
           <div className="mb-3 flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2">
             <Search size={15} className="shrink-0 text-muted-foreground" aria-hidden />
             <input
