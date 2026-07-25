@@ -119,6 +119,14 @@ Deno.serve(async (req) => {
       fallback_text: art.fallback_text ?? (art.payload as any)?.fallback_text,
       provenance: (art.payload as any)?.provenance ?? { formula_version: art.formula_version },
     };
+    // Onda 2.3 — validação do contrato antes de renderizar. Não bloqueia v1,
+    // mas registra erros no log para diagnóstico e evita renderer travar.
+    const validation = validateChartArtifactV2(art.payload);
+    if (!validation.ok && validation.version === "v2") {
+      console.warn("[artifact-render] v2_validation_errors", {
+        artifact_id: art.id, errors: validation.errors.slice(0, 8),
+      });
+    }
     // Pure TypeScript encoder: compatible with Supabase Edge/Deno and does not
     // require @napi-rs/canvas, the source of canvas_unavailable in WhatsApp.
     const png = await renderArtifactPng(payload as any);
