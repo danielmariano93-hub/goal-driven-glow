@@ -11,12 +11,14 @@ export type MessagePersona = {
 };
 
 const DEFAULTS: Record<string, string> = {
-  invite: "Oi, {{participant_name}}! 👋 {{owner_name}} incluiu você na divisão “{{title}}”. Sua parte ficou em {{amount}}.{{due_sentence}}{{pix_sentence}} Quando pagar, avise quem criou o rolê para dar baixa por lá.",
-  reminder: "Oi, {{participant_name}}! Passando com um lembrete leve: ainda faltam {{amount}} da sua parte em “{{title}}”.{{due_sentence}}{{pix_sentence}} Se você já pagou, pode desconsiderar e avisar quem criou o rolê 💛",
-  due_soon: "Oi, {{participant_name}}! Sua parte de {{amount}} em “{{title}}” vence em breve.{{due_sentence}}{{pix_sentence}}",
-  overdue: "Oi, {{participant_name}}. Sua parte de {{amount}} em “{{title}}” ainda aparece em aberto. Se você já pagou, avise quem criou o rolê para atualizar por lá 💛{{pix_sentence}}",
+  invite: "Oi, {{participant_name}}! 👋 {{owner_name}} incluiu você na divisão “{{title}}”. Sua parte ficou em {{amount}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
+  reminder: "Oi, {{participant_name}}! Passando com um lembrete leve: ainda faltam {{amount}} da sua parte em “{{title}}”.{{due_sentence}}{{pix_sentence}}{{link_sentence}} Se você já pagou, pode desconsiderar e avisar quem criou o rolê 💛",
+  due_soon: "Oi, {{participant_name}}! Sua parte de {{amount}} em “{{title}}” vence em breve.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
+  overdue: "Oi, {{participant_name}}. Sua parte de {{amount}} em “{{title}}” ainda aparece em aberto. Se você já pagou, avise quem criou o rolê para atualizar por lá 💛{{pix_sentence}}{{link_sentence}}",
   payment_confirmation: "Tudo certo, {{participant_name}}! Seu pagamento em “{{title}}” foi registrado. Obrigado por organizar esse rolê com a gente 🙌",
   completed: "Rolê fechado! 🎉 Todo mundo acertou a divisão “{{title}}”.",
+  goal_invite: "Oi, {{participant_name}}! 👋 {{owner_name}} convidou você para a meta conjunta “{{title}}” (objetivo: {{amount}}).{{link_sentence}} Bora juntos?",
+  goal_invite_followup: "Oi, {{participant_name}}! Só passando pra lembrar do convite da meta “{{title}}” com {{owner_name}}.{{link_sentence}} Se não quiser participar, é só ignorar 💛",
 };
 
 // Mapeia o kind curto para as chaves de contexts.* administráveis.
@@ -27,7 +29,10 @@ const CONTEXT_KEYS: Record<string, string> = {
   overdue: "split_overdue",
   payment_confirmation: "split_payment_confirmation",
   completed: "split_completed",
+  goal_invite: "goal_invite",
+  goal_invite_followup: "goal_invite_followup",
 };
+
 
 function pickTemplate(kind: string, persona: MessagePersona | null | undefined): string {
   const contextKey = CONTEXT_KEYS[kind] ?? kind;
