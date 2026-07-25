@@ -84,9 +84,14 @@ export default function DivisaoDoRole() {
         setJoined([]);
         return;
       }
-      const rows: JoinedItem[] = parts
+      const rows: JoinedItem[] = (parts as unknown as Array<{
+        amount_due: number | string;
+        amount_paid: number | string;
+        status: string;
+        shared_expenses: OwnedItem | null;
+      }>)
         .map((r) => {
-          const se = (r as unknown as { shared_expenses: OwnedItem | null }).shared_expenses;
+          const se = r.shared_expenses;
           if (!se || se.deleted_at) return null;
           if (filter !== "all" && se.status !== filter) return null;
           return {
@@ -97,10 +102,10 @@ export default function DivisaoDoRole() {
             due_date: se.due_date,
             status: se.status,
             owner_user_id: se.owner_user_id,
-            my_due: Number((r as ParticipantSlim).amount_due),
-            my_paid: Number((r as ParticipantSlim).amount_paid),
-            my_status: String((r as ParticipantSlim).status ?? ""),
-          };
+            my_due: Number(r.amount_due),
+            my_paid: Number(r.amount_paid),
+            my_status: String(r.status ?? ""),
+          } satisfies JoinedItem;
         })
         .filter(Boolean) as JoinedItem[];
       setJoined(rows);
