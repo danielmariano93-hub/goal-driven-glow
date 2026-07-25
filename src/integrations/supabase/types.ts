@@ -6046,6 +6046,7 @@ export type Database = {
       user_export_data: { Args: never; Returns: Json }
       user_request_deletion: { Args: { p_reason: string }; Returns: string }
       value_events: { Args: never; Returns: string[] }
+      whatsapp_send_dispatch_tick: { Args: never; Returns: number }
     }
     Enums: {
       account_type: "checking" | "savings" | "cash" | "investment" | "other"

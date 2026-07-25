@@ -23,11 +23,16 @@ async function requireAdmin(req: Request) {
   return { ok: true as const };
 }
 
+const RENDER_TIMEOUT_MS = 25_000;
+const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("NOCONTROLE_CRON_SECRET") ?? "";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const auth = req.headers.get("Authorization") ?? "";
   const isService = auth === `Bearer ${SERVICE_ROLE}`;
-  if (!isService) {
+  const cronSecret = req.headers.get("x-cron-secret") ?? "";
+  const isCron = !!CRON_SECRET && cronSecret === CRON_SECRET;
+  if (!isService && !isCron) {
     const gate = await requireAdmin(req);
     if (!gate.ok) return json({ error: "forbidden" }, gate.status);
   }
@@ -63,23 +68,37 @@ Deno.serve(async (req) => {
       let mediaError: string | null = null;
 
       if (extra?.artifact_id) {
-        try {
-          const rr = await fetch(`${SUPABASE_URL}/functions/v1/artifact-render`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
-            body: JSON.stringify({ artifact_id: extra.artifact_id }),
-          });
-          const j = await rr.json().catch(() => ({}));
-          if (j?.ok) {
-            if (!mediaUrl && j?.media_url) mediaUrl = j.media_url as string;
-            if (typeof j?.fallback_text === "string" && j.fallback_text.trim()) {
-              artifactFallbackText = j.fallback_text as string;
+        // AbortController + 1 retry: se o render travar >25s cai no fallback
+        // textual em vez de congelar o worker inteiro.
+        for (let attempt = 0; attempt < 2 && !mediaUrl; attempt++) {
+          const ac = new AbortController();
+          const timer = setTimeout(() => ac.abort(), RENDER_TIMEOUT_MS);
+          try {
+            const rr = await fetch(`${SUPABASE_URL}/functions/v1/artifact-render`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+              body: JSON.stringify({ artifact_id: extra.artifact_id }),
+              signal: ac.signal,
+            });
+            const j = await rr.json().catch(() => ({}));
+            if (j?.ok) {
+              if (!mediaUrl && j?.media_url) mediaUrl = j.media_url as string;
+              if (typeof j?.fallback_text === "string" && j.fallback_text.trim()) {
+                artifactFallbackText = j.fallback_text as string;
+              }
+              mediaError = null;
+              break;
+            } else {
+              mediaError = `render_failed:${String(j?.error ?? "unknown").slice(0, 80)}`;
             }
-          } else {
-            mediaError = `render_failed:${String(j?.error ?? "unknown").slice(0, 80)}`;
+          } catch (e) {
+            const err = e as Error;
+            mediaError = err.name === "AbortError"
+              ? `render_timeout:${RENDER_TIMEOUT_MS}ms`
+              : `render_exception:${String(err.message).slice(0, 80)}`;
+          } finally {
+            clearTimeout(timer);
           }
-        } catch (e) {
-          mediaError = `render_exception:${String((e as Error).message).slice(0, 80)}`;
         }
       }
 
@@ -127,6 +146,16 @@ Deno.serve(async (req) => {
           delivered_at: mediaStatus === "delivered" ? new Date().toISOString() : null,
           delivery_status: mediaStatus,
         }).eq("id", extra.artifact_id).then(() => {}, () => {});
+        // Fecha o loop de observabilidade: agent_turn_events sai de
+        // 'generated' → 'delivered'|'failed' conforme a entrega real.
+        const turnStatus = mediaStatus === "delivered" ? "delivered"
+          : mediaStatus === "fallback_text" ? "failed" : null;
+        if (turnStatus) {
+          await sb.from("agent_turn_events")
+            .update({ artifact_status: turnStatus })
+            .eq("artifact_id", extra.artifact_id)
+            .then(() => {}, () => {});
+        }
       }
       results.push({ id: m.id, ok: true });
     } catch (e) {

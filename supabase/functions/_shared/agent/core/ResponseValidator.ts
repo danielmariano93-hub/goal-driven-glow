@@ -35,6 +35,10 @@ export type ValidationContext = {
   hasSuccessfulMutation?: boolean;
   userText?: string;
   toolCalls?: ToolCallEvidence[];
+  /** True quando o usuário pediu explicitamente um gráfico/artefato visual. */
+  artifactExpected?: boolean;
+  /** True quando o turno realmente produziu um artefato (linha em agent_artifacts). */
+  artifactReady?: boolean;
 };
 
 const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
@@ -54,6 +58,11 @@ const RECEIPT_LANGUAGE_RX = /(\b(?:despesa|receita|lan[çc]amento|transfer[eê]n
 //  - "Posso lançar/registrar/salvar ...?"
 //  - "Vou lançar/registrar/salvar ..."
 const DRAFT_INVITE_RX = /(responda\s*\*?\s*confirmar\s*\*?)|(\*?\s*confirmar\s*\*?\s*para\s+(registrar|salvar|lan[çc]ar|criar|anotar))|(\bposso\s+(lan[çc]ar|registrar|salvar|criar|anotar)\b[^?]{0,80}\?)|(\bvou\s+(lan[çc]ar|registrar|salvar|criar|anotar)\b)/i;
+
+// Afirmação de entrega de artefato visual sem que o turno de fato tenha
+// produzido um. Bloqueia "aqui está o gráfico", "segue o gráfico", "preparei/
+// gerei/enviei o gráfico" quando artifactReady === false.
+const GRAPH_CLAIM_RX = /\b(aqui\s+est[aá]|segue|preparei|gerei|enviei|montei|criei)\b[^.\n]{0,60}\b(gr[aá]fico|visualiza[çc][aã]o|chart)\b/i;
 
 export function validate(raw: string, ctx: ValidationContext = {}): ValidationResult {
   const reasons: string[] = [];
@@ -95,6 +104,16 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
   if (ctx.hasDraft === false && DRAFT_LANGUAGE_RX.test(trimmed)) {
     reasons.push("draft_language_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
+  }
+  // Alegação de entrega de gráfico sem artefato pronto neste turno.
+  // Não abandona a resposta (o texto pode conter conteúdo útil): reescreve
+  // como esclarecimento honesto.
+  if (ctx.artifactReady === false && GRAPH_CLAIM_RX.test(trimmed)) {
+    reasons.push("hallucinated_chart_delivery");
+    const rewritten = ctx.artifactExpected
+      ? "Ainda estou preparando o gráfico — te mando em instantes. Se quiser, já posso te resumir em texto o que ele vai mostrar."
+      : "Não gerei nenhum gráfico neste turno. Se quiser ver visualmente, me diga qual métrica e período.";
+    return { action: "accept", body: rewritten, reasons };
   }
   // Recibo declarado combinado com QUALQUER erro de tool ⇒ suspeito.
   // Antes exigíamos ≥2 erros; agora, se o texto soa a recibo e houve ao menos 1
