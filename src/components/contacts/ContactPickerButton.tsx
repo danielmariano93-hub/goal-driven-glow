@@ -18,8 +18,7 @@ export function ContactPickerButton({ onPicked, label = "Contatos", className }:
   const supported =
     typeof navigator !== "undefined" &&
     // @ts-expect-error non-standard API
-    typeof navigator.contacts?.select === "function" &&
-    typeof (window as unknown as { ContactsManager?: unknown }).ContactsManager !== "undefined";
+    typeof navigator.contacts?.select === "function";
 
   async function pick() {
     if (!supported) {
