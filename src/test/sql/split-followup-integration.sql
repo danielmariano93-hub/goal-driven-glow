@@ -5,6 +5,7 @@ DO $$
 DECLARE
   v_owner uuid := gen_random_uuid();
   v_part  uuid := gen_random_uuid();
+  v_acct  uuid;
   v_exp   uuid;
   v_pid   uuid;
   v_inv   uuid;
@@ -12,8 +13,12 @@ DECLARE
   v_fu_row  record;
 BEGIN
   -- Setup como postgres (bypass RLS).
-  INSERT INTO public.shared_expenses(owner_user_id, title, total_amount, occurred_at, status)
-  VALUES (v_owner, 'Followup Test', 100, current_date, 'active')
+  INSERT INTO public.accounts(user_id, name, type, initial_balance, is_primary)
+  VALUES (v_owner, 'Test Acct', 'checking', 0, true)
+  RETURNING id INTO v_acct;
+
+  INSERT INTO public.shared_expenses(owner_user_id, title, total_amount, occurred_at, status, source_account_id)
+  VALUES (v_owner, 'Followup Test', 100, current_date, 'active', v_acct)
   RETURNING id INTO v_exp;
 
   INSERT INTO public.shared_expense_participants(shared_expense_id, owner_user_id, name, phone_e164, amount_due, status)
