@@ -242,7 +242,9 @@ export default function MetaConjuntaDetalhe() {
           onSubmit={(phone) =>
             invite.mutate(phone, {
               onSuccess: () => {
-                toast.success("Convite registrado. Assim que a pessoa entrar com esse telefone, ela participa automaticamente.");
+                toast.success("Convite enviado por WhatsApp", {
+                  description: "Um lembrete automático é enviado em 72h se a pessoa ainda não tiver respondido.",
+                });
                 setOpenInvite(false);
               },
               onError: (e) => toast.error("Erro", { description: String((e as Error).message) }),
