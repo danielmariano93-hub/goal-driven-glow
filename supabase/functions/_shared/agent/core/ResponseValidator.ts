@@ -35,6 +35,10 @@ export type ValidationContext = {
   hasSuccessfulMutation?: boolean;
   userText?: string;
   toolCalls?: ToolCallEvidence[];
+  /** True quando o usuário pediu explicitamente um gráfico/artefato visual. */
+  artifactExpected?: boolean;
+  /** True quando o turno realmente produziu um artefato (linha em agent_artifacts). */
+  artifactReady?: boolean;
 };
 
 const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
