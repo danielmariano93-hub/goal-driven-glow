@@ -330,6 +330,9 @@ export default function Metas() {
             })
           }
         />
+      )}
+
+
 
       {openNewSelector && (
         <NewGoalSelector
