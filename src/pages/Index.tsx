@@ -127,6 +127,9 @@ export default function Index() {
 
       <EvolucaoFinanceiraCard topGoal={snap?.topCategoryGoal ?? null} />
 
+      <SharedGoalHighlight />
+
+
       {loading ? (
         <div className="grid place-items-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
