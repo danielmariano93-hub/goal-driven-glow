@@ -56,7 +56,7 @@ function line(buf: Uint8Array, x0: number, y0: number, x1: number, y1: number, c
 async function deflate(data: Uint8Array): Promise<Uint8Array> {
   const compression = new CompressionStream("deflate");
   const writer = compression.writable.getWriter();
-  await writer.write(data);
+  await writer.write(data as unknown as BufferSource);
   await writer.close();
   return new Uint8Array(await new Response(compression.readable).arrayBuffer());
 }
