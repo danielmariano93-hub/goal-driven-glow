@@ -54,6 +54,29 @@ function saveFilters(f: PersistedFilters) {
   try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch { /* ignore */ }
 }
 
+// Onda 3.1 — Retorna uma descrição legível se a linha salva não bate com os
+// filtros ativos; usada para o banner "salvo mas oculto pelo filtro X".
+function describeHiddenReason(
+  saved: Record<string, unknown> | null,
+  f: PersistedFilters,
+): string | null {
+  if (!saved) return null;
+  const t = String(saved.type ?? "");
+  if (f.type && f.type !== "all" && f.type !== t) return `tipo (${f.type})`;
+  if (f.categoryId && String(saved.category_id ?? "") !== f.categoryId) return "categoria";
+  if (f.accountId && String(saved.account_id ?? "") !== f.accountId) return "conta";
+  // (cartão específico não é filtro persistido nesta tela)
+  const occ = String(saved.occurred_at ?? "").slice(0, 10);
+  if (f.from && occ && occ < f.from) return `data (antes de ${f.from})`;
+  if (f.to && occ && occ > f.to) return `data (depois de ${f.to})`;
+  if (f.search) {
+    const desc = `${saved.description ?? ""}`.toLowerCase();
+    if (!desc.includes(f.search.toLowerCase())) return "busca por texto";
+  }
+  return null;
+}
+
+
 export default function Lancamentos() {
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -110,6 +133,8 @@ export default function Lancamentos() {
   const [bulkCategoryId, setBulkCategoryId] = useState<string | null>(null);
   const [bulkName, setBulkName] = useState("");
   const [bulkRunning, setBulkRunning] = useState(false);
+  // Onda 3.1 — banner "lançamento salvo mas oculto pelo filtro X".
+  const [hiddenByFilter, setHiddenByFilter] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectMode) setSelected(new Set());
@@ -269,6 +294,34 @@ export default function Lancamentos() {
         />
       ) : (
         <>
+          {hiddenByFilter && (
+            <div
+              role="status"
+              className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <span>
+                Lançamento salvo, mas oculto pelo filtro de <strong>{hiddenByFilter}</strong>.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setFilters({ type: "all", sort: "date_desc" });
+                    setHiddenByFilter(null);
+                  }}
+                  className="rounded-full border border-amber-400 bg-white px-3 py-1 text-xs font-medium hover:bg-amber-100"
+                >
+                  Limpar filtros
+                </button>
+                <button
+                  onClick={() => setHiddenByFilter(null)}
+                  className="rounded-full px-2 py-1 text-xs text-amber-700 hover:bg-amber-100"
+                  aria-label="Dispensar aviso"
+                >
+                  Dispensar
+                </button>
+              </div>
+            </div>
+          )}
           <div className="mb-3 flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2">
             <Search size={15} className="shrink-0 text-muted-foreground" aria-hidden />
             <input
@@ -632,10 +685,13 @@ export default function Lancamentos() {
             save.mutate(
               { ...v, id: editing?.id },
               {
-                onSuccess: () => {
+                onSuccess: (saved) => {
                   notifySuccess(editing ? "Atualizado" : "Registrado");
                   invalidateFinancialQueries(qc);
                   setOpenTx(false);
+                  // Detecta se o lançamento salvo cai fora dos filtros ativos.
+                  const reason = describeHiddenReason(saved as Record<string, unknown> | null, filters);
+                  if (reason) setHiddenByFilter(reason);
                 },
                 onError: (e: unknown) => notifyError("Erro ao salvar", humanizeError(e)),
               },
