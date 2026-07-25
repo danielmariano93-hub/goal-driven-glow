@@ -13,8 +13,8 @@ DECLARE
   v_fu_row  record;
 BEGIN
   -- Setup como postgres (bypass RLS).
-  INSERT INTO public.accounts(user_id, name, type, initial_balance, is_primary)
-  VALUES (v_owner, 'Test Acct', 'checking', 0, true)
+  INSERT INTO public.accounts(user_id, name, type)
+  VALUES (v_owner, 'Test Acct', 'checking')
   RETURNING id INTO v_acct;
 
   INSERT INTO public.shared_expenses(owner_user_id, title, total_amount, occurred_at, status, source_account_id)
