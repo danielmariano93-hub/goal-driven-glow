@@ -1,137 +1,199 @@
-# Plano — Finalizar implantação do commit `a7afd7e` (Meu Nino.IA)
+# Plano — Correção do Admin Meu Nino.IA (universo de clientes, filtros temporais, evolução diária e homologação)
 
-Somente plano. Nada será executado nesta etapa.
+Nenhuma alteração foi realizada nesta etapa. Este documento é apenas o plano.
 
-## 1. Correção mínima do bloqueio do banco
+## 1. Diagnóstico da causa dos "3 usuários"
 
-**Origem do bloqueio (confirmada em leitura):**
-- Tabela allowlist: `public.product_event_types` (PK `event_name`), criada e semeada em `supabase/migrations/20260724133602_8cc4b59d-39f3-4db5-b5b9-840525ec5721.sql` (linhas 19–58).
-- Trigger `product_events_validate` chama `public.validate_product_event()` (mesma migration, linhas 92–130). O `RAISE EXCEPTION 'event_name % not in allowlist'` dispara porque `user_registered` não está em `product_event_types`.
-- Uso de `user_registered` no PR #5:
-  - `20260725030000_nino_intelligence_core_admin_metrics.sql` linha 103 (trigger `on_new_user` que insere em `product_events`) e linha 116 (backfill histórico).
-  - `20260725043000_nino_intelligence_core_hardening.sql` linhas 32, 33, 41 (apenas filtros SELECT — não inserem).
+Confirmado por leitura em produção:
 
-**Correção proposta — nova migration aditiva `supabase/migrations/20260725050000_product_events_allowlist_user_registered.sql`:**
+- `auth.users` = 3
+- `public.profiles` = 3
+- `public.user_pseudonyms` = 3
+- `public.platform_admins` (active) = 1
+- `public.user_roles` com role `admin` = 1
 
-Conteúdo pretendido (idempotente, sem tocar migrations históricas, sem remover triggers/policies/constraints):
+Ou seja: existem **2 clientes reais + 1 administrador da plataforma**. Todas as RPCs `admin_v2_*` atuais (Cockpit, Clientes, Crescimento, Inteligência de Produto) partem de `auth.users` / `profiles` / `user_pseudonyms` sem excluir o conjunto `platform_admins`. Por isso o painel reporta 3.
 
-```sql
-INSERT INTO public.product_event_types
-  (event_name, category, requires_value_bucket, description)
-VALUES
-  ('user_registered', 'onboarding', false, 'Novo usuário cadastrado (evento de ciclo de vida)')
-ON CONFLICT (event_name) DO NOTHING;
+O `product_events` é pseudonimizado por `user_pseudonyms`; como o admin também tem pseudônimo, qualquer contagem via pseudo_id sem filtro também o inclui.
+
+Não há campo estável em `profiles` ou `auth.users` que identifique admin — a única fonte segura é `public.platform_admins` (chave `user_id`, com `active=true`) cruzada com `user_pseudonyms.user_id`.
+
+## 2. Universo canônico de usuários
+
+Regra única, aplicada em todo o Admin:
+
+```
+CLIENTE  ⇔ auth.users.id ∉ (SELECT user_id FROM platform_admins WHERE active)
+         AND auth.users.id ∉ (SELECT user_id FROM user_roles WHERE role IN ('admin'))  -- defesa em profundidade
 ```
 
-Nada além disso. Sem alterar `validate_product_event()`, sem alterar a categoria existente (`onboarding` já é aceita pela coluna `category text` sem CHECK constraint — confirmado na leitura da migration original).
+Materializada como:
 
-**Rollback operacional:** `DELETE FROM public.product_event_types WHERE event_name='user_registered';` (só remove a linha semeada; não afeta eventos já inseridos, que passariam a falhar em novos INSERTs — usar apenas se decidirmos abandonar o PR #5).
+- `public.v_client_users` (view SECURITY INVOKER) — `user_id`, `pseudo_id`, `registered_at`, `onboarding_completed_at`.
+- `public.v_client_pseudonyms` (view) — só pseudo_ids de clientes.
+- Função imutável `public.is_client_user(uuid) returns boolean` (STABLE, `SET search_path=public`) — usada em RPCs e testes.
 
-## 2. Testes obrigatórios antes de aplicar
+Admin continua aparecendo em: `platform_admins`, `platform_admin_audit`, `admin_reauth_events`, `break_glass_sessions`, `admin_grants_audit`. Nunca em métricas de produto.
 
-Adicionar `src/test/product-events-allowlist.test.ts` (Vitest com fixtures — sem tocar banco), cobrindo:
+### Estratégia anti-regressão
 
-1. **Regressão da allowlist canônica:** os 20 `event_name` semeados originalmente continuam presentes e válidos.
-2. **Novo evento aceito:** `user_registered` está na allowlist após aplicar a migration nova.
-3. **Evento inválido rejeitado:** `foo_bar_baz` continua fora da allowlist (guarda o contrato).
-4. **Idempotência:** aplicar o `INSERT ... ON CONFLICT DO NOTHING` duas vezes não duplica nem altera a linha existente.
+- Lint SQL: teste que faz `EXPLAIN`/parse de todas as RPCs `admin_v2_*` e falha se qualquer uma referencia `auth.users`, `profiles`, `user_pseudonyms` ou `product_events` sem `JOIN v_client_users` (ou `WHERE ... is_client_user`).
+- Teste de integração: insere 1 admin + N clientes em fixture e valida que toda RPC exposta retorna N (nunca N+1).
+- Docstring canônica em cada RPC apontando para `v_client_users`.
 
-Depois: `bunx vitest run` (suíte completa) + build (`bun run build`) verdes antes de qualquer aplicação.
+## 3. Correção dos números atuais (fórmulas)
 
-## 3. Ordem correta das migrations e validações
+Todas as métricas de produto passam por `v_client_users`:
 
-Sequência exata via `supabase--migration` (uma migration por chamada, aprovação humana em cada):
-
-1. `20260725050000_product_events_allowlist_user_registered.sql` (nova, item 1).
-2. `20260725030000_nino_intelligence_core_admin_metrics.sql` (já no repo).
-3. `20260725043000_nino_intelligence_core_hardening.sql` (já no repo).
-
-Validações pós-aplicação (via `supabase--read_query`):
-
-- `SELECT version FROM supabase_migrations.schema_migrations WHERE version IN ('20260725050000','20260725030000','20260725043000');` → 3 linhas.
-- `SELECT event_name FROM public.product_event_types WHERE event_name='user_registered';` → 1 linha.
-- `SELECT count(*) FROM public.product_events WHERE event_name='user_registered';` > 0 (backfill executou).
-- Contratos:
-  - `SELECT admin_v2_clients_list(50)::jsonb->>'formula_version';` → `clients.live.v5`.
-  - `SELECT formula_version FROM public.intelligence_metric_definitions WHERE metric_key='weekday_typical_spend';` → `weekday.robust.v2`.
-- Trigger `on_new_user` existe em `auth.users` (`SELECT tgname FROM pg_trigger WHERE tgname='on_new_user_product_event';` ou nome equivalente definido na migration).
-- Policies e grants das novas tabelas/views existem (`pg_policies`, `has_table_privilege`).
-
-## 4. Edge Functions a redeployar
-
-Baseado em `grep` por importações de módulos compartilhados alterados (`_shared/agent/**`, `_shared/intelligence/**`, `_shared/analytics/**`, `semanticQuery`, contexto temporal):
-
-| Função | Motivo do redeploy |
-|---|---|
-| `agent-chat` | Usa `AgentCore` (`handleTurn`) e `_shared/intelligence/semanticQuery.ts` (novo padrão semanal `weekday.robust.v2` + correção contextual "eu digo na média"). |
-| `whatsapp-webhook` | Usa `WhatsAppAdapter` → `AgentCore`; entrega gráficos via `artifact-render` e fallback de mídia. |
-| `agent-proactive-tick` | Usa `ProactiveEngine`/`AgentCore` e escreve `product_events` (`agent_response_delivered`, etc.). |
-| `agent-run` | Executa `AgentCore.handleTurn` para simulador admin — precisa do novo IntentRouter/Analytics. |
-| `insights-generate` | Usa `InsightsEngine` do `_shared/agent/core` alterado e emite `insight_delivered` (não afetado por `user_registered`, mas depende dos novos módulos). |
-| `split-reminders-dispatch` | Importa `_shared/agent` para telemetria/eventos consolidados no PR #5. |
-| `user-ai-preferences` | Importa `PersonalizationEngine`/`MemoryStore` do core unificado. |
-| `artifact-render` | Renderiza PNG dos novos artefatos `weekday_*`; entrega no App e WhatsApp. |
-
-Não redeployar: `whatsapp-send`, `whatsapp-session`, `whatsapp-official-number`, `whatsapp-ack-watchdog`, `assistant-ingest-document`, `assistant-review-actions`, `documents-cleanup`, `finance-backfill-runner`, `pulse-compute`, `user-data-export`, `admin-*` — não importam módulos alterados no PR #5 (grep negativo).
-
-Ferramenta: `supabase--deploy_edge_functions` com o array das 8 funções acima em uma única chamada.
-
-## 5. Publicação do frontend
-
-- Republicar via `preview_ui--publish` **após** migrations + edge deploy verdes.
-- SHA publicado deve ser `a7afd7e6889fc2373f5774976dc7359d1f5afb22`. Se o Lovable exigir commit corretivo (ao mesclar a nova migration do item 1), publicar o commit resultante e registrar o SHA no relatório final.
-- Sem mudanças de layout adicionais.
-
-## 6. Homologação em produção (após publicar)
-
-Via Playwright headless em `https://meunino.com.br` autenticado como owner e via `supabase--read_query`:
-
-- **Admin → Cockpit:** cartões `Cadastros hoje` e `Usuários totais` renderizam; alerta de integridade visível; consumir `admin_v2_cockpit()` retorna `formula_version` das novas versões.
-- **Admin → Clientes:** total > 0; datas de cadastro visíveis; badges `new | activated | active | dormant` presentes (`admin_v2_clients_list(200)` → contagem por `lifecycle_status`).
-- **Novo cadastro:** criar usuário de teste e confirmar em `< 60s` que aparece em Clientes como `new` (não `active`). SQL: `SELECT lifecycle_status FROM (admin_v2_clients_list(50)->'clients')…` para o pseudo do novo user.
-- **Assessor App e WhatsApp — padrão semanal:** enviar "qual dia da semana eu mais gasto?" — resposta cita `weekday.robust.v2` (via decision log em `agent_turn_events`).
-- **Correção contextual:** enviar "quanto gastei na sexta?" seguida de "eu digo na média" — segunda resposta usa `interpretation=typical_behavior`.
-- **Consulta pontual:** "quanto gastei na sexta-feira?" isolada → não roteia para `weekday_pattern` (evidenciado em `agent_decisions`).
-- **Gráfico:** ambos os canais entregam PNG do `artifact-render` ou fallback textual honesto (checar `agent_artifacts.status`).
-- **Kill switch proativo:** `SELECT value FROM public.financial_feature_flags WHERE key='proactive_enabled';` = `false`.
-- **Integridade de dados:** `SELECT count(*) FROM public.transactions;` e `profiles` iguais ao snapshot pré-migration.
-
-## 7. Critérios de aceite + evidências
-
-| # | Aceite | Evidência |
+| Métrica | Fórmula canônica (TZ America/Sao_Paulo) | Tipo |
 |---|---|---|
-| 1 | Suíte + build verdes | Log Vitest + `bun run build` |
-| 2 | 3 migrations registradas | `SELECT` em `schema_migrations` |
-| 3 | `user_registered` na allowlist | `SELECT` em `product_event_types` |
-| 4 | Contratos `clients.live.v5` e `weekday.robust.v2` | `SELECT` nas RPCs/metric defs |
-| 5 | 8 edge functions redeployadas | Retorno de `supabase--deploy_edge_functions` |
-| 6 | Frontend publicado com SHA correto | Retorno de `preview_ui--publish` |
-| 7 | Cockpit + Clientes com dados live | Screenshot Playwright |
-| 8 | Novo cadastro classificado `new` | SQL + screenshot |
-| 9 | Padrão semanal + correção contextual OK | Logs `agent_decisions` + screenshot |
-| 10 | Gráfico entregue nos dois canais | `agent_artifacts.status='delivered'` |
-| 11 | Proactive off | SQL feature_flags |
-| 12 | Sem perda de dados | Contagens pré/pós migration |
+| Usuários totais | `count(*) v_client_users` | estoque |
+| Cadastros no período | `count(*) v_client_users WHERE registered_at AT TIME ZONE 'America/Sao_Paulo' BETWEEN [from, to]` | fluxo |
+| Ativados no período | primeiro `product_events.event_name IN (allow_significant)` do pseudo_id dentro do período | fluxo |
+| Ativos no período | `count(DISTINCT pseudo_id)` em `product_events` (client-only) no período | fluxo |
+| Dormant atuais | clientes cujo `last_event_at < now() - 14 dias` **e** `registered_at < now() - 14 dias` | estoque |
+| Com dados financeiros | clientes com pelo menos 1 linha em `transactions` (client-only) | estoque |
+| WVU 7d | `count(DISTINCT pseudo_id)` em `product_events` (client-only, últimos 7 dias, eventos de valor) | fluxo |
 
-**Riscos residuais:**
-- Backfill de `user_registered` em `20260725030000` pode ser lento se `auth.users` tiver muitas linhas — mitigar apenas monitorando; migration é one-shot.
-- Se `admin_v2_clients_list` mudar assinatura entre v4→v5, front pode quebrar; contrato foi verificado no auditoria anterior — sem breaking changes esperados.
+Validação cruzada obrigatória no teste SQL: `auth.users − platform_admins = profiles − platform_admins = user_pseudonyms − platform_admins = v_client_users`.
 
-**Rollback:**
-- Migrations Supabase são transacionais; falha em qualquer statement reverte tudo.
-- Se pós-aplicação surgir regressão de contrato, criar migration corretiva aditiva (nunca reverter histórico).
+## 4. Filtros de data (contrato único)
 
-**Custo:**
-- Consomem créditos: `supabase--migration` (×3), `supabase--deploy_edge_functions` (×1 chamada, 8 funções), `preview_ui--publish`, chamadas Playwright de homologação.
-- Apenas operacionais/gratuitas: `supabase--read_query`, `imagegen`-free grep/leitura, testes locais.
+Contrato em todas as RPCs de Cockpit, Clientes, Crescimento, Inteligência de Produto e Mensageria:
 
-## Sequência de execução (após aprovação)
+```
+_from date, _to date, _tz text default 'America/Sao_Paulo'
+```
 
-1. Criar `supabase/migrations/20260725050000_product_events_allowlist_user_registered.sql` + teste `product-events-allowlist.test.ts`.
-2. Rodar Vitest + build.
-3. Aplicar migration `20260725050000` → `20260725030000` → `20260725043000` (nessa ordem).
-4. Validar histórico e contratos por SQL.
-5. `deploy_edge_functions(["agent-chat","whatsapp-webhook","agent-proactive-tick","agent-run","insights-generate","split-reminders-dispatch","user-ai-preferences","artifact-render"])`.
-6. `preview_ui--publish` e registrar SHA.
-7. Executar homologação (SQL + Playwright) e preencher checklist do item 7.
-8. Entregar relatório final. Sem publicar nada além do que já está aprovado no PR #5 + a migration aditiva do item 1.
+- Semi-abertura: `[from 00:00 SP, to+1 00:00 SP)` para evitar duplicação entre períodos adjacentes.
+- Períodos pré-definidos calculados no cliente (`src/lib/admin/periodPresets.ts`): hoje, ontem, 7d, 30d, mês atual, mês anterior, dia específico, intervalo custom.
+- Compatibilidade: RPCs mantêm assinatura antiga como overload que chama a nova com defaults (últimos 30d).
+- Componente compartilhado `AdminDateFilter` (baseado no shadcn Popover + Calendar com `pointer-events-auto`) publicado em `src/components/admin/AdminDateFilter.tsx`, consumido por Cockpit, Clientes, Crescimento e Inteligência de Produto.
+- Cada cartão declara `metricKind: 'stock' | 'flow' | 'daily'` para o rótulo dinâmico ("atual" vs "no período" vs "por dia").
+
+## 5. Evolução dia a dia
+
+Nova RPC `admin_v2_daily_evolution(_from, _to)` retorna:
+
+```json
+{
+  "series": [
+    { "day": "2026-07-20",
+      "new_clients": 0,
+      "activated": 0,
+      "active_unique": 0,
+      "went_dormant": 0,
+      "cumulative_clients": 2,
+      "first_financial_action": 0 }
+  ],
+  "totals": { ... },
+  "formula_version": "daily.evolution.v1",
+  "sample_size": N,
+  "sufficient_sample": bool,
+  "timezone": "America/Sao_Paulo"
+}
+```
+
+Componente `AdminDailyEvolutionCard` (recharts LineChart `type="monotone"`, tabela responsiva abaixo, tooltip com data localizada, estado vazio e badge "amostra insuficiente" quando `sample_size < 10`). Toggle "Comparar período anterior" só habilita quando `comparablePeriods` (helper já existente em `_shared/analytics/periods.ts`).
+
+## 6. Cockpit e Crescimento — reorganização de cartões
+
+Cada `KpiCard` passa a receber `definition: { formula, source, window, tz, formula_version, quality }` (exibido em tooltip "?"). Envelope já suporta `formula_version` e `data_quality`.
+
+Cockpit rearranjado:
+- Estoque: **Clientes totais**, **Dormant atuais**, **Com dados financeiros**.
+- Fluxo (respeita filtro): **Novos clientes**, **Ativados**, **Ativos únicos**, **WVU**.
+- Operacional: **Custo assessor no período**, **Falha mensageria no período**.
+
+Novo bloco: **Evolução diária** (item 5) + banda de integridade (`auth == profiles == pseudonyms == clients + admins`).
+
+## 7. Escopo de migrations, RPCs, componentes
+
+| Objeto/arquivo | Problema | Mudança planejada | Risco | Teste | Deploy? |
+|---|---|---|---|---|---|
+| `supabase/migrations/20260726000000_client_universe.sql` (novo, aditivo) | admin contado como cliente | cria `v_client_users`, `v_client_pseudonyms`, `is_client_user()`; GRANTs para `authenticated`/`service_role` | baixo (só leitura) | SQL: contagem = 2 | migration |
+| `20260726000500_admin_rpc_client_scoped.sql` (novo, aditivo) | RPCs contam admins | reescreve `admin_v2_cockpit`, `admin_v2_clients_list` (`clients.live.v6`), `admin_v2_growth_summary`, `admin_v2_growth_funnel`, `admin_v2_growth_cohorts`, `admin_v2_product_features`, `admin_v2_product_opportunities` usando `v_client_users`; adiciona params `_from/_to/_tz` opcionais com defaults compatíveis | médio (assinaturas) | fixture 1 admin + 2 clientes → todas RPCs retornam 2 | migration |
+| `20260726001000_admin_daily_evolution.sql` (novo) | falta série diária | cria `admin_v2_daily_evolution(_from,_to,_tz)` | baixo | 30 dias fechados batem com totais | migration |
+| `src/components/admin/AdminDateFilter.tsx` (novo) | sem filtro de data | Popover shadcn + presets + range custom | baixo | RTL: presets aplicam ranges corretos em SP | frontend |
+| `src/lib/admin/periodPresets.ts` (novo) | — | helpers SP | baixo | unit | frontend |
+| `src/components/admin/AdminDailyEvolutionCard.tsx` (novo) | — | line chart + tabela | baixo | RTL: renderiza empty state e amostra insuficiente | frontend |
+| `src/pages/admin/Cockpit.tsx` | mistura estoque/fluxo | consome novo contrato, cartões agrupados por tipo, integra filtro + evolução | baixo | contract test | frontend |
+| `src/pages/admin/Clientes.tsx` | admin listado | consome `clients.live.v6`; filtros lifecycle/financeiro/data; paginação | baixo | RTL | frontend |
+| `src/pages/admin/Crescimento.tsx`, `InteligenciaProduto.tsx`, `operacao/Mensageria.tsx` | idem | plugam `AdminDateFilter` e novo contrato | baixo | RTL | frontend |
+| `src/integrations/supabase/types.ts` | — | regenerar após migrations | — | build | auto |
+| Edge Functions | — | **nenhuma** redeploy necessária: correções vivem no banco + frontend; nenhuma função importa `admin_v2_*` | — | — | não |
+
+Migrations são aditivas e idempotentes (`CREATE OR REPLACE`, `CREATE VIEW IF NOT EXISTS` via `DROP VIEW IF EXISTS` + `CREATE`, `CREATE FUNCTION ... OR REPLACE`). Nenhuma migration histórica é alterada.
+
+## 8. Testes obrigatórios
+
+Unit / RTL (`src/test/`):
+- `admin-client-universe.test.ts` — mock de RPC valida que 1 admin + 2 clientes ⇒ todos os cartões mostram 2.
+- `admin-date-filter.test.tsx` — presets calculam `[from, to]` em SP corretamente, incluindo virada de dia e mês.
+- `admin-daily-evolution.test.tsx` — série vazia, série parcial (amostra insuficiente), tooltip.
+- `admin-metric-kind-labels.test.tsx` — cartões de estoque não mostram sufixo "no período".
+
+SQL (via script de integração em `supabase/tests/`):
+- `client_universe.sql` — `v_client_users` = `auth.users − platform_admins`.
+- `daily_evolution_closure.sql` — soma da série diária = total do período para cada métrica de fluxo.
+- `adjacent_periods_no_overlap.sql` — evento em 00:00 SP cai em um único período.
+- `registration_is_not_activity.sql` — cliente recém-cadastrado sem eventos aparece como `new`, nunca `active`.
+
+Fixtures em `supabase/tests/fixtures/admin_universe.sql`: 1 admin + cliente_new + cliente_activated + cliente_active_multi_day + cliente_dormant + evento na virada 23:59:59-03 / 00:00:00-03.
+
+## 9. Homologação (executar após publicação futura)
+
+- Cockpit: **Clientes totais = 2**, alerta de integridade limpo, `formula_version` visível.
+- Clientes: 2 linhas, admin ausente, lifecycle correto.
+- Cadastro novo aparece como `new`.
+- App e WhatsApp: "Qual dia da semana eu mais gasto?" → padrão semanal `weekday.robust.v2`.
+- Sequência "Quanto gastei na sexta?" → "Eu digo na média" preserva contexto.
+- "Quanto gastei na sexta-feira?" isolado responde valor pontual, não padrão.
+- Gráfico App/WhatsApp com PNG real ou fallback textual honesto.
+- `agent_settings.proactive_enabled = false` em todos os clientes.
+- Diff de contagens em `transactions`, `profiles`, `product_events` = 0 antes/depois.
+
+## 10. Critérios de aceite
+
+- [ ] Painel mostra 2 clientes.
+- [ ] Admin ausente de todas as RPCs `admin_v2_*` de produto.
+- [ ] Filtro de dia específico e intervalo custom funcionam em SP.
+- [ ] Série diária fecha com total do período (assert automatizado).
+- [ ] `clients.live.v6` documentado; frontend compatível.
+- [ ] Testes do padrão semanal passam em App e WhatsApp.
+- [ ] Zero perda de dados; zero PII exposta.
+- [ ] SHA publicado registrado.
+
+## 11. Riscos e rollback
+
+- **Risco:** RPC v6 quebra tela existente. **Mitigação:** manter overload antigo por 1 release; feature flag `admin.date_filter.enabled` no frontend.
+- **Risco:** view mascarar admin legítimo em auditoria. **Mitigação:** views são exclusivas de métricas; auditoria continua em `platform_admins`.
+- **Rollback:** `DROP VIEW`/`DROP FUNCTION` das novas + revert do frontend; migrations antigas permanecem intactas.
+
+## 12. Sequência de execução (futura, não agora)
+
+1. Snapshot: `SELECT count(*) FROM auth.users, platform_admins, profiles, product_events`.
+2. Branch `fix/admin-client-universe`.
+3. Implementar migrations + frontend + testes.
+4. `vitest run` + build verdes.
+5. Revisão de diff.
+6. Merge na `main`.
+7. Aplicar migrations em ordem (client_universe → rpc_client_scoped → daily_evolution).
+8. Regenerar types Supabase.
+9. Publicar frontend.
+10. Homologação SQL + UI + App + WhatsApp.
+11. Relatório final com SHA e prints.
+
+## 13. Estimativa de créditos
+
+- Migrations + RPCs: baixo (SQL puro, ~1 rodada).
+- Frontend (filtro + evolução + refactor Cockpit/Clientes/Crescimento/IA/Mensageria): médio (2–3 rodadas).
+- Testes: baixo-médio.
+- Deploy edge functions: **zero** (nenhuma afetada).
+- Homologação: baixo (leituras + prints).
+
+## 14. Classificação final
+
+**READY_TO_IMPLEMENT** — diagnóstico confirmado em produção, escopo fechado, sem dependências externas, sem necessidade de redeploy de Edge Functions.
+
+Confirmo que nenhuma alteração foi realizada nesta etapa.
