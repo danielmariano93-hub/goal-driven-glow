@@ -55,9 +55,13 @@ export default function Metas() {
   const [editing, setEditing] = useState<GoalRow | null>(null);
   const [contribFor, setContribFor] = useState<GoalRow | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [tab, setTab] = useState<GoalTab>("save");
+  const [tab, setTab] = useState<GoalTab>("all");
   const [openCatGoal, setOpenCatGoal] = useState(false);
+  const [openCatList, setOpenCatList] = useState(false);
+  const [openNewSelector, setOpenNewSelector] = useState(false);
   const [editingCatGoal, setEditingCatGoal] = useState<CategorySpendingGoalRow | null>(null);
+  const navigate = useNavigate();
+
 
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
   const catNameById = useMemo(() => {
