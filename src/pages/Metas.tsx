@@ -458,3 +458,47 @@ function ContribModal({
     </div>
   );
 }
+
+function SharedGoalsInline() {
+  const { data: goals, isLoading } = useSharedGoals();
+  if (isLoading) {
+    return (
+      <div className="grid place-items-center py-10">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!goals || goals.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <Users className="mx-auto h-8 w-8 text-muted-foreground" />
+        <p className="mt-3 text-sm font-medium">Nenhuma meta conjunta ainda</p>
+        <p className="mt-1 text-xs text-muted-foreground">Junte com amigos, família ou parceria para uma meta em comum.</p>
+        <Link to="/app/metas-conjuntas" className="btn-brand mt-4 inline-flex items-center gap-2 text-xs">
+          <Plus size={12} /> Criar meta conjunta
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {goals.map((g) => (
+        <Link key={g.id} to={`/app/metas-conjuntas/${g.id}`} className="surface-card flex items-center justify-between p-4">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{g.title}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Meta {formatBRL(Number(g.target_amount))}
+              {g.deadline ? ` · até ${new Date(g.deadline + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
+            </p>
+          </div>
+          <ArrowRight size={14} className="text-muted-foreground" />
+        </Link>
+      ))}
+      <div className="pt-1 text-center">
+        <Link to="/app/metas-conjuntas" className="text-xs font-medium text-primary underline">
+          Ver todas
+        </Link>
+      </div>
+    </div>
+  );
+}
