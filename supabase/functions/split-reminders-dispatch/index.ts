@@ -34,7 +34,14 @@ function maskPhone(p?: string | null): string {
   return p.replace(/^(\+\d{2})\d+(\d{4})$/, "$1****$2");
 }
 
-function messageFor(kind: string, p: any, se: any, remaining: number, persona: MessagePersona): string {
+function messageFor(
+  kind: string,
+  p: any,
+  se: any,
+  remaining: number,
+  persona: MessagePersona,
+  linkSentence: string,
+): string {
   const amount = `R$ ${remaining.toFixed(2).replace(".", ",")}`;
   const due = se?.due_date ? new Date(`${se.due_date}T12:00:00`).toLocaleDateString("pt-BR") : null;
   return renderMessageTemplate(kind, persona, {
@@ -46,8 +53,21 @@ function messageFor(kind: string, p: any, se: any, remaining: number, persona: M
     due_sentence: due ? ` O combinado é pagar até ${due}.` : "",
     pix_key: String(se.pix_key ?? ""),
     pix_sentence: se.pix_key ? ` Pix: ${se.pix_key}.` : "",
+    link_sentence: linkSentence,
   });
 }
+
+async function isRegisteredPhone(sb: any, phoneE164: string): Promise<boolean> {
+  if (!phoneE164) return false;
+  const { data } = await sb
+    .from("whatsapp_links")
+    .select("user_id, status")
+    .eq("phone_e164", phoneE164)
+    .eq("status", "active")
+    .maybeSingle();
+  return !!data?.user_id;
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
