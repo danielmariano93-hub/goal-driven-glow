@@ -73,6 +73,13 @@ export type Database = {
             foreignKeyName: "account_balance_snapshots_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "account_balance_snapshots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -120,6 +127,13 @@ export type Database = {
             foreignKeyName: "account_deletion_requests_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "account_deletion_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -160,6 +174,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "accounts_user_id_fkey"
             columns: ["user_id"]
@@ -238,6 +259,13 @@ export type Database = {
             foreignKeyName: "admin_reauth_events_admin_id_fkey"
             columns: ["admin_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admin_reauth_events_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -299,6 +327,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "agent_artifacts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "agent_artifacts_user_id_fkey"
             columns: ["user_id"]
@@ -418,6 +453,13 @@ export type Database = {
             foreignKeyName: "agent_memory_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "agent_memory_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -525,6 +567,13 @@ export type Database = {
             foreignKeyName: "agent_prompt_versions_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "agent_prompt_versions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -534,6 +583,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "agent_prompt_versions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_prompt_versions_published_by_fkey"
+            columns: ["published_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "agent_prompt_versions_published_by_fkey"
@@ -637,6 +693,13 @@ export type Database = {
             foreignKeyName: "agent_runs_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "agent_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -677,6 +740,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "agent_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "agent_sessions_user_id_fkey"
             columns: ["user_id"]
@@ -727,6 +797,13 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "agent_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "agent_settings_updated_by_fkey"
             columns: ["updated_by"]
@@ -965,6 +1042,13 @@ export type Database = {
             foreignKeyName: "break_glass_sessions_admin_id_fkey"
             columns: ["admin_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "break_glass_sessions_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -1029,6 +1113,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "categories_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "categories_user_id_fkey"
             columns: ["user_id"]
@@ -1141,6 +1232,13 @@ export type Database = {
             foreignKeyName: "category_spending_goal_cycles_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "category_spending_goal_cycles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -1217,6 +1315,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "category_spending_goals_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "category_spending_goals_user_id_fkey"
             columns: ["user_id"]
@@ -1342,6 +1447,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "pending_proactive_suggestions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "communication_deliveries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "communication_deliveries_user_id_fkey"
@@ -1615,6 +1727,13 @@ export type Database = {
             foreignKeyName: "conversations_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "conversations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -1671,6 +1790,13 @@ export type Database = {
             foreignKeyName: "credit_cards_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_cards_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -1723,6 +1849,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "debts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "debts_user_id_fkey"
             columns: ["user_id"]
@@ -1806,6 +1939,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "document_imports"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_fragments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "document_fragments_user_id_fkey"
@@ -1989,6 +2129,13 @@ export type Database = {
             foreignKeyName: "document_imports_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "document_imports_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -2038,6 +2185,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "document_imports"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_item_rejections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "document_item_rejections_user_id_fkey"
@@ -2145,6 +2299,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "transactions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "emotional_checkins_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "emotional_checkins_user_id_fkey"
@@ -2432,6 +2593,13 @@ export type Database = {
             foreignKeyName: "financial_current_snapshots_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "financial_current_snapshots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -2475,6 +2643,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_daily_category_facts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "financial_daily_category_facts_user_id_fkey"
@@ -2527,6 +2702,13 @@ export type Database = {
             foreignKeyName: "financial_daily_facts_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "financial_daily_facts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -2537,6 +2719,7 @@ export type Database = {
           updated_at: string
           use_canonical_financial_snapshot: boolean
           use_chart_templates: boolean
+          use_commit_movement_rpc: boolean
           use_daily_financial_facts: boolean
           use_report_templates: boolean
           use_v2_artifact_normalizer: boolean
@@ -2547,6 +2730,7 @@ export type Database = {
           updated_at?: string
           use_canonical_financial_snapshot?: boolean
           use_chart_templates?: boolean
+          use_commit_movement_rpc?: boolean
           use_daily_financial_facts?: boolean
           use_report_templates?: boolean
           use_v2_artifact_normalizer?: boolean
@@ -2557,6 +2741,7 @@ export type Database = {
           updated_at?: string
           use_canonical_financial_snapshot?: boolean
           use_chart_templates?: boolean
+          use_commit_movement_rpc?: boolean
           use_daily_financial_facts?: boolean
           use_report_templates?: boolean
           use_v2_artifact_normalizer?: boolean
@@ -2564,6 +2749,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "financial_feature_flags_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "financial_feature_flags_user_id_fkey"
             columns: ["user_id"]
@@ -2614,6 +2806,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "financial_metric_diffs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "financial_metric_diffs_user_id_fkey"
             columns: ["user_id"]
@@ -2703,6 +2902,13 @@ export type Database = {
             foreignKeyName: "goal_contributions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goal_contributions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -2746,6 +2952,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "goals_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "goals_user_id_fkey"
             columns: ["user_id"]
@@ -2827,6 +3040,13 @@ export type Database = {
             foreignKeyName: "import_batches_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "import_batches_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -2882,6 +3102,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "import_batches"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "import_rows_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "import_rows_user_id_fkey"
@@ -3032,6 +3259,13 @@ export type Database = {
             foreignKeyName: "investment_movements_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "investment_movements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -3087,6 +3321,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "goals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "investments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "investments_user_id_fkey"
@@ -3186,6 +3427,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "merchant_aliases_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "merchant_aliases_user_id_fkey"
@@ -3291,6 +3539,13 @@ export type Database = {
             foreignKeyName: "notification_preferences_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "notification_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -3331,6 +3586,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
@@ -3468,6 +3730,13 @@ export type Database = {
             foreignKeyName: "outbound_messages_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "outbound_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -3567,6 +3836,13 @@ export type Database = {
             foreignKeyName: "pending_confirmations_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pending_confirmations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -3629,6 +3905,13 @@ export type Database = {
             foreignKeyName: "pending_proactive_suggestions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pending_proactive_suggestions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -3669,6 +3952,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "phone_link_codes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "phone_link_codes_user_id_fkey"
             columns: ["user_id"]
@@ -3731,6 +4021,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "platform_admins_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "platform_admins_user_id_fkey"
             columns: ["user_id"]
@@ -3952,6 +4249,13 @@ export type Database = {
             foreignKeyName: "profiles_id_fkey"
             columns: ["id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -4065,6 +4369,13 @@ export type Database = {
             foreignKeyName: "pulse_snapshots_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pulse_snapshots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -4160,6 +4471,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_entries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "recurring_entries_user_id_fkey"
@@ -4287,6 +4605,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_rules_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "recurring_rules_user_id_fkey"
@@ -4497,6 +4822,13 @@ export type Database = {
             foreignKeyName: "shared_expense_participants_linked_user_id_fkey"
             columns: ["linked_user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_participants_linked_user_id_fkey"
+            columns: ["linked_user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -4593,6 +4925,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "transactions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expenses_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "shared_expenses_owner_user_id_fkey"
@@ -4791,6 +5130,13 @@ export type Database = {
             foreignKeyName: "transactions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "transactions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -4835,6 +5181,13 @@ export type Database = {
             foreignKeyName: "user_ai_preferences_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_ai_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -4875,6 +5228,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "challenges"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_challenges_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "user_challenges_user_id_fkey"
@@ -4930,6 +5290,13 @@ export type Database = {
             foreignKeyName: "user_financial_settings_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_financial_settings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -4961,6 +5328,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "user_gamification_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "user_gamification_user_id_fkey"
             columns: ["user_id"]
@@ -5035,6 +5409,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "user_insights_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "user_insights_user_id_fkey"
             columns: ["user_id"]
@@ -5119,6 +5500,13 @@ export type Database = {
             foreignKeyName: "user_profiles_snapshot_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_profiles_snapshot_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -5148,6 +5536,13 @@ export type Database = {
             foreignKeyName: "user_pseudonyms_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_pseudonyms_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -5173,6 +5568,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "user_roles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "user_roles_user_id_fkey"
             columns: ["user_id"]
@@ -5257,6 +5659,13 @@ export type Database = {
             foreignKeyName: "whatsapp_links_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_links_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -5291,6 +5700,13 @@ export type Database = {
           xp_delta?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "xp_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "xp_events_user_id_fkey"
             columns: ["user_id"]
@@ -5331,6 +5747,13 @@ export type Database = {
             foreignKeyName: "shared_expenses_owner_user_id_fkey"
             columns: ["owner_user_id"]
             isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_expenses_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
@@ -5354,10 +5777,32 @@ export type Database = {
             foreignKeyName: "user_pseudonyms_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_pseudonyms_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      v_client_universe: {
+        Row: {
+          created_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
       }
       v_client_users: {
         Row: {
@@ -5768,6 +6213,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      commit_movement: { Args: { payload: Json }; Returns: Json }
       complete_onboarding: {
         Args: {
           p_display_name: string
