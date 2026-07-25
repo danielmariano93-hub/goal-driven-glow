@@ -105,10 +105,10 @@ export default function DivisaoDoRole() {
       if (ownerIds.length) {
         const { data: profs } = await supabase
           .from("profiles")
-          .select("id,full_name")
+          .select("id,display_name")
           .in("id", ownerIds);
         ownerNames = Object.fromEntries(
-          ((profs ?? []) as Array<{ id: string; full_name: string | null }>).map((p) => [p.id, p.full_name]),
+          ((profs ?? []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, p.display_name]),
         );
       }
       return raw
