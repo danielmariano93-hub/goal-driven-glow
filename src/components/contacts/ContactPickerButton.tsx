@@ -41,8 +41,13 @@ export function ContactPickerButton({ onPicked, label = "Contatos", className }:
       }
       onPicked({ name, phone_e164 });
       setHint(null);
-    } catch {
-      // user cancelled or permission denied — silent
+    } catch (err) {
+      const name = (err as { name?: string })?.name ?? "";
+      if (name === "AbortError" || name === "NotAllowedError") {
+        setHint("Seleção cancelada. Digite o telefone manualmente abaixo.");
+      } else {
+        setHint("Não foi possível abrir a agenda. Digite manualmente abaixo.");
+      }
     }
   }
 
