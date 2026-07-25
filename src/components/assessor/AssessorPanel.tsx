@@ -85,14 +85,32 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       if (conversation) {
         const { data } = await supabase
           .from("conversation_messages")
-          .select("id, direction, body_masked, created_at")
+          .select("id, direction, body_masked, created_at, artifact_ids")
           .eq("conversation_id", conversation)
           .order("created_at", { ascending: false })
           .limit(50);
-        history = (data ?? []).reverse().map((message) => ({
-          role: message.direction === "inbound" ? "user" as const : "assistant" as const,
-          content: message.body_masked,
-        }));
+        const rows = (data ?? []).reverse();
+        // Rehidrata artefatos referenciados no histórico (Onda 2.4/2.5).
+        const allArtifactIds = Array.from(new Set(
+          rows.flatMap((r: any) => Array.isArray(r.artifact_ids) ? r.artifact_ids : []).filter(Boolean)
+        )) as string[];
+        const artifactMap = new Map<string, ChartArtifact>();
+        if (allArtifactIds.length > 0) {
+          const { data: arts } = await supabase
+            .from("agent_artifacts")
+            .select("id, payload")
+            .in("id", allArtifactIds);
+          for (const a of (arts ?? []) as Array<{ id: string; payload: any }>) {
+            if (a.payload) artifactMap.set(a.id, a.payload as ChartArtifact);
+          }
+        }
+        history = rows.map((message: any) => {
+          const ids: string[] = Array.isArray(message.artifact_ids) ? message.artifact_ids : [];
+          const artifact = ids.map((id) => artifactMap.get(id)).find(Boolean) ?? null;
+          return message.direction === "inbound"
+            ? { role: "user" as const, content: message.body_masked }
+            : { role: "assistant" as const, content: message.body_masked, artifact };
+        });
       }
 
       // Ao abrir o assessor, apenas recupere rascunhos úteis e jobs realmente

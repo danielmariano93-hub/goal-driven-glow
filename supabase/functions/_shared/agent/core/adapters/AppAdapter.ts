@@ -205,9 +205,11 @@ export async function handleAppMessage(args: {
     reply = `Gerei um gráfico com base nos dados reais 👇\n\n${reply}`;
   }
 
-  await sb.from("conversation_messages").insert({
+  const outboundRow: Record<string, any> = {
     conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: reply,
-  } as any);
+  };
+  if (recent?.artifact_id) outboundRow.artifact_ids = [recent.artifact_id];
+  await sb.from("conversation_messages").insert(outboundRow as any);
   await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
 
   return { reply, pending: pendingOut, executed: null, artifact: recent?.payload ?? null, envelope: turn.envelope };
