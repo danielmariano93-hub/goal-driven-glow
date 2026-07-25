@@ -27,6 +27,8 @@ import { guard } from "./ErrorRecovery.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { isLLMConfigured } from "../llm.ts";
 import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
+import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
+import { asEvidence } from "../../intelligence/evidence.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -45,6 +47,7 @@ export type HandleTurnResult = {
   run_id?: string;
   result?: unknown;
   session_id?: string;
+  envelope?: ReturnType<typeof buildChannelEnvelope>;
 };
 
 export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
@@ -221,6 +224,18 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
 
+  const corrections = await guard(() => tctx.memory("correction", 8),
+    (m) => metrics.errors.push("corrections:" + m), []);
+  if (corrections?.length) {
+    const hints = corrections.map((fact: any) => fact.value).filter(Boolean).slice(0, 8);
+    systemPrompt += `
+
+[CORREÇÕES APRENDIDAS DO PRÓPRIO USUÁRIO]
+${JSON.stringify(hints)}
+` +
+      `Use essas correções para não repetir uma interpretação rejeitada. Correção explícita do usuário prevalece sobre inferências anteriores.`;
+  }
+
   // Reinforcement anti-alucinação: proibir "registrado/salvo/✅" sem tool call.
   systemPrompt =
     `[REGRA CRÍTICA]\n` +
@@ -292,8 +307,10 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     else if (turn.toolCalls.some(c => c.tool_name === "cancel_pending_action" && c.ok)) kind = "cancelled";
     else kind = "info";
 
-    // Captura artifact_id de generate_chart_artifact para entrega multi-canal
+    // Captura provenance de toda ferramenta analítica e artefatos multi-canal.
     for (const c of turn.toolCalls) {
+      const genericFormula = c.ok ? (c.result as any)?.formula_version : null;
+      if (genericFormula) recordFormulaVersion(metrics, c.tool_name, String(genericFormula));
       if (c.ok && c.tool_name === "generate_chart_artifact") {
         const aid = (c.result as any)?.artifact_id as string | undefined;
         const artifact = (c.result as any)?.artifact;
@@ -328,6 +345,8 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     expectedKind: kind, hasDraft: !!draft_id,
     hasSuccessfulMutation: successfulMutation,
     toolCallErrors: toolCallLog.filter(c => !c.ok).length,
+    userText: input.text,
+    toolCalls: toolCallLog,
   }));
   metrics.validations = validated.reasons.length;
   if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {
@@ -364,6 +383,8 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
         ended_at: new Date().toISOString(),
         path, steps: toolCallLog.length,
         tokens_in: metrics.tokens_in || null, tokens_out: metrics.tokens_out || null,
+        tools_used: toolCallLog.map((c: any) => c.tool_name),
+        formula_versions: metrics.formula_versions,
         latency_ms: latency,
         error_sanitized: errorSanitized, error_masked: errorSanitized,
       }).eq("id", run_id);
@@ -435,5 +456,14 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     tool_calls: toolCallLog, user_text: input.text,
   }), (m) => metrics.errors.push("learn:" + m), undefined);
 
-  return { reply: body, reply_kind: kind, path, draft_id, run_id, session_id };
+  const analyticalCall = toolCallLog.find((c: any) => c.ok && c.tool_name === "get_weekday_spending_pattern");
+  const evidence = analyticalCall?.result ? asEvidence(analyticalCall.result as any) : null;
+  const envelope = buildChannelEnvelope({
+    text: body,
+    reply_kind: kind,
+    evidence,
+    artifact_id: metrics.artifact_id,
+    artifact_status: metrics.artifact_status,
+  });
+  return { reply: body, reply_kind: kind, path, draft_id, run_id, session_id, envelope };
 }

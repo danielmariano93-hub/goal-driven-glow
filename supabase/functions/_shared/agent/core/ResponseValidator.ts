@@ -5,6 +5,9 @@
 //   layers can decide to accept, regenerate once, or drop to deterministic
 //   fallback. This is additive.
 // deno-lint-ignore-file no-explicit-any
+import { validateAnalyticalClaims } from "../../intelligence/claimValidator.ts";
+import type { ToolCallEvidence } from "../../intelligence/contracts.ts";
+
 const MAX_REPLY_LEN = 4000;
 export const FRIENDLY_ORCHESTRATOR_ERROR =
   "Tive um problema para responder agora. Pode tentar novamente em instantes? 💛";
@@ -30,6 +33,8 @@ export type ValidationContext = {
   /** True quando existe ≥1 tool call bem-sucedida que cria rascunho OU confirma
    *  uma pendência neste mesmo turno. Usado para bloquear alucinação de recibo. */
   hasSuccessfulMutation?: boolean;
+  userText?: string;
+  toolCalls?: ToolCallEvidence[];
 };
 
 const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
@@ -102,6 +107,18 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
   if (errs >= 2) {
     reasons.push("too_many_tool_errors");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
+  }
+
+  if (ctx.userText) {
+    const analytical = validateAnalyticalClaims(trimmed, ctx.userText, ctx.toolCalls ?? []);
+    if (!analytical.ok) {
+      reasons.push(...analytical.reasons);
+      return {
+        action: "accept",
+        body: String(analytical.safe_reply ?? FRIENDLY_ORCHESTRATOR_ERROR).slice(0, MAX_REPLY_LEN),
+        reasons,
+      };
+    }
   }
   const body = trimmed.length > MAX_REPLY_LEN ? trimmed.slice(0, MAX_REPLY_LEN) : trimmed;
   return { action: "accept", body, reasons };

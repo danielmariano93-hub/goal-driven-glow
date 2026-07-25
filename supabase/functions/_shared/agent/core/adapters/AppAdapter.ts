@@ -7,7 +7,7 @@
 // makes lives here or deeper in the Core.
 // deno-lint-ignore-file no-explicit-any
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { handleTurn } from "../AgentCore.ts";
+import { handleTurn, type HandleTurnResult } from "../AgentCore.ts";
 import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
 import { buildReceipt } from "../ReceiptBuilder.ts";
@@ -29,6 +29,7 @@ export type AppTurnResult = {
   executed: any;
   report?: any;
   artifact?: any;
+  envelope?: HandleTurnResult["envelope"];
 };
 
 async function findRecentArtifact(sb: SupabaseClient, conversation_id: string, user_id: string, sinceIso: string) {
@@ -209,7 +210,7 @@ export async function handleAppMessage(args: {
   } as any);
   await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
 
-  return { reply, pending: pendingOut, executed: null, artifact: recent?.payload ?? null };
+  return { reply, pending: pendingOut, executed: null, artifact: recent?.payload ?? null, envelope: turn.envelope };
 }
 
 function mentionsChart(text: string): boolean {

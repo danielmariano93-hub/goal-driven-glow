@@ -1,9 +1,8 @@
-// LearningLoop — post-turn hook that feeds MemoryStore based on user
-// interaction signals: confirmations reinforce, cancellations penalize,
-// corrections mark a `correction` fact that must never be overwritten.
+// LearningLoop — post-turn learning with structured corrections.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { remember, recall, type MemoryKind } from "./MemoryStore.ts";
+import { remember, recall } from "./MemoryStore.ts";
+import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 
 export type TurnSignal = {
   user_id: string;
@@ -16,20 +15,33 @@ export type TurnSignal = {
 
 export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promise<void> {
   try {
-    // Confirmation → reinforce facts used this turn.
     if (sig.policy_decision === "confirm" || sig.reply_kind === "receipt") {
       await reinforceRecent(sb, sig.user_id);
     }
-    // Cancellation / correction → cooldown + memory
-    if (sig.policy_decision === "cancel" || /não era isso|errado|corrigir|corrija/i.test(sig.user_text)) {
+
+    const isCorrection = sig.policy_decision === "cancel"
+      || /não era isso|não foi isso|nao era isso|nao foi isso|errado|corrigir|corrija|eu digo na média|eu digo na media|sem considerar/i.test(sig.user_text);
+    if (isCorrection) {
+      const semantic = interpretSemanticQuery(sig.user_text);
+      const rejected = [...sig.tool_calls].reverse().find(c => c.ok)?.tool_name ?? null;
+      const key = semantic ? `correction:${semantic.intent}` : `correction:${sig.intent}`;
       await remember(sb, {
-        user_id: sig.user_id, kind: "correction",
-        key: `correction:${new Date().toISOString().slice(0, 10)}`,
-        value: { text: sig.user_text.slice(0, 240), intent: sig.intent },
-        source: "correction", confidence: 0.9,
+        user_id: sig.user_id,
+        kind: "correction",
+        key,
+        value: {
+          text: sig.user_text.slice(0, 400),
+          original_intent: sig.intent,
+          corrected_intent: semantic?.intent ?? null,
+          corrected_interpretation: semantic?.interpretation ?? null,
+          corrected_metric_key: semantic?.metric_key ?? null,
+          rejected_tool: rejected,
+        },
+        source: "correction",
+        confidence: 0.98,
       });
     }
-    // Successful drafts on merchants → learn frequent merchant + category
+
     for (const c of sig.tool_calls) {
       if (!c.ok) continue;
       if (c.tool_name === "create_transaction_draft") {
@@ -37,16 +49,22 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
         const category = c.args?.category ?? null;
         if (merchant) {
           await remember(sb, {
-            user_id: sig.user_id, kind: "frequent_merchant",
-            key: merchant, value: { category, last_amount: c.args?.amount },
-            source: "inferred", confidence: 0.55,
+            user_id: sig.user_id,
+            kind: "frequent_merchant",
+            key: merchant,
+            value: { category, last_amount: c.args?.amount },
+            source: "inferred",
+            confidence: 0.55,
           });
         }
         if (category) {
           await remember(sb, {
-            user_id: sig.user_id, kind: "favorite_category",
-            key: String(category), value: { count: 1 },
-            source: "inferred", confidence: 0.5,
+            user_id: sig.user_id,
+            kind: "favorite_category",
+            key: String(category),
+            value: { count: 1 },
+            source: "inferred",
+            confidence: 0.5,
           });
         }
       }

@@ -3,6 +3,7 @@
 // from real data (transactions, investments, debts, goals).
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { behavioralMetricAmount, computeAccountBalances, type TransactionRow } from "../../engine/facts.ts";
 
 export type UserProfile = {
   user_id: string;
@@ -41,33 +42,42 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const now = new Date();
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString();
 
-  const [txResp, accResp, invResp, debtResp] = await Promise.all([
-    sb.from("transactions").select("amount, type, category_id, occurred_at, movement_kind")
-      .eq("user_id", user_id).gte("occurred_at", sixMonthsAgo).limit(5000),
-    sb.from("accounts").select("id, opening_balance, type").eq("user_id", user_id),
+  const txFields = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind";
+  const [txResp, balanceTxResp, accResp, invResp, debtResp, categoryResp] = await Promise.all([
+    sb.from("transactions").select(txFields)
+      .eq("user_id", user_id).gte("occurred_at", sixMonthsAgo.slice(0, 10)).limit(5000),
+    sb.from("transactions").select(txFields)
+      .eq("user_id", user_id).order("occurred_at", { ascending: true }).limit(10000),
+    sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id),
     sb.from("investments").select("current_value").eq("user_id", user_id),
     sb.from("debts").select("outstanding_balance").eq("user_id", user_id),
+    sb.from("categories").select("id,name").or(`user_id.eq.${user_id},user_id.is.null`),
   ]);
 
-  const tx = (txResp.data as any[] | null) ?? [];
+  const tx = ((txResp.data as any[] | null) ?? []).map(t => ({ ...t, amount: Number(t.amount || 0) }));
+  const balanceTx = ((balanceTxResp.data as any[] | null) ?? []).map(t => ({ ...t, amount: Number(t.amount || 0) }));
+  const categoryNames = new Map(((categoryResp.data as any[] | null) ?? []).map(c => [String(c.id), String(c.name)]));
   const byMonth = new Map<string, { income: number; expense: number }>();
   const byCat = new Map<string, number>();
   const bySeason = new Map<string, number>();
 
-  const behavioral = tx.filter(t => !["transfer", "investment_apply", "investment_redeem", "card_payment"].includes(t.movement_kind ?? ""));
-
-  for (const t of behavioral) {
+  for (const t of tx) {
+    const income = behavioralMetricAmount(t as TransactionRow, "income");
+    const expense = behavioralMetricAmount(t as TransactionRow, "expense");
+    if (income === 0 && expense === 0) continue;
     const m = String(t.occurred_at ?? "").slice(0, 7);
     const rec = byMonth.get(m) ?? { income: 0, expense: 0 };
-    const amt = Math.abs(Number(t.amount) || 0);
-    if (t.type === "income") rec.income += amt;
-    else if (t.type === "expense") rec.expense += amt;
+    rec.income += income;
+    rec.expense += expense;
     byMonth.set(m, rec);
-    if (t.type === "expense" && t.category_id) {
-      byCat.set(t.category_id, (byCat.get(t.category_id) ?? 0) + amt);
+    if (expense > 0 && t.category_id) {
+      const category = categoryNames.get(String(t.category_id)) ?? "Sem categoria";
+      byCat.set(category, (byCat.get(category) ?? 0) + expense);
     }
-    const season = seasonLabel(new Date(t.occurred_at));
-    if (t.type === "expense") bySeason.set(season, (bySeason.get(season) ?? 0) + amt);
+    if (expense > 0) {
+      const season = seasonLabel(new Date(`${String(t.occurred_at).slice(0, 10)}T12:00:00Z`));
+      bySeason.set(season, (bySeason.get(season) ?? 0) + expense);
+    }
   }
 
   const months = [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -84,10 +94,14 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const expenseAvg = avg(monthly_evolution.map(m => m.expense));
   const savings = incomeAvg - expenseAvg;
 
+  const accounts = ((accResp.data as any[] | null) ?? []).map(a => ({
+    ...a, opening_balance: Number(a.opening_balance || 0), active: a.active !== false,
+  }));
+  const balances = computeAccountBalances(accounts as any, balanceTx as TransactionRow[]);
   const netWorth =
-    ((accResp.data as any[] | null) ?? []).reduce((s, a) => s + Number(a.opening_balance || 0), 0) +
-    ((invResp.data as any[] | null) ?? []).reduce((s, i) => s + Number(i.current_value || 0), 0) -
-    ((debtResp.data as any[] | null) ?? []).reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
+    (Object.values(balances) as number[]).reduce((sum, value) => sum + Number(value || 0), 0) +
+    ((invResp.data as any[] | null) ?? []).reduce((sum, i) => sum + Number(i.current_value || 0), 0) -
+    ((debtResp.data as any[] | null) ?? []).reduce((sum, d) => sum + Number(d.outstanding_balance || 0), 0);
 
   const tags: string[] = [];
   if (savings > incomeAvg * 0.2) tags.push("poupador");
@@ -95,9 +109,9 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   if (top_categories[0]?.share > 0.4) tags.push("concentrado");
   if (monthly_evolution.length >= 3 && trend(monthly_evolution.map(m => m.expense)) > 0.1) tags.push("gasto_crescente");
 
-  const risk: UserProfile["risk_level"] =
-    savings > incomeAvg * 0.25 ? "arrojado" :
-    savings > 0 ? "moderado" : "conservador";
+  // Capacidade de poupança não mede tolerância a risco. Até existir um
+  // questionário explícito, o Nino não deve inventar perfil de investidor.
+  const risk: UserProfile["risk_level"] = null;
 
   return {
     user_id,
