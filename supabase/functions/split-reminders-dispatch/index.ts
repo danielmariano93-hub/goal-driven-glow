@@ -8,7 +8,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
-import { renderMessageTemplate, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
+import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
+import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
+
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
