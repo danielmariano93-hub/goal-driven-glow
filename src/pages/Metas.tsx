@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Trash2, Loader2, Target, TrendingUp, Users, ArrowRight } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus, Trash2, Loader2, Target, TrendingUp, Users, ArrowRight, Sliders } from "lucide-react";
 import { toast } from "sonner";
 import {
   useGoals,
@@ -20,14 +20,21 @@ import {
   type GoalRow,
   type CategorySpendingGoalRow,
 } from "@/lib/db/finance";
-import { useSharedGoals } from "@/lib/db/sharedGoals";
+import {
+  useSharedGoals,
+  useCreateSharedGoal,
+  useAcceptSharedGoalInvite,
+  useDeclineSharedGoalInvite,
+  usePendingSharedGoalInvites,
+} from "@/lib/db/sharedGoals";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
 import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 
-type GoalTab = "save" | "shared" | "category";
+type GoalTab = "all" | "individual" | "shared";
+
 
 export default function Metas() {
   const { data: goals, isLoading } = useGoals();
