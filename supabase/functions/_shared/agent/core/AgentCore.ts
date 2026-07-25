@@ -29,6 +29,7 @@ import { isLLMConfigured } from "../llm.ts";
 import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
 import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
 import { asEvidence } from "../../intelligence/evidence.ts";
+import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -272,6 +273,7 @@ ${JSON.stringify(hints)}
   const planner = await timeStage(metrics, "plan", () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: input.text, hasPrompt: !!prompt,
+    history,
   }, {
     model: prompt?.model ?? "google/gemini-2.5-flash",
     maxSteps: prompt?.max_steps ?? 6,
@@ -331,6 +333,36 @@ ${JSON.stringify(hints)}
       errorSanitized = errorSanitized ?? String((e as Error).message ?? "fallback_error").slice(0, 200);
       metrics.errors.push("fallback:" + errorSanitized);
       reply = FRIENDLY_ORCHESTRATOR_ERROR; kind = "info";
+    }
+  }
+
+  // Paridade App/WhatsApp: se o usuário pediu um gráfico e o planner não
+  // produziu artefato, o Core tenta a geração determinística antes de responder.
+  const requestedArtifact = await guard(() => ensureRequestedArtifact({
+    sb,
+    user_id: input.user_id,
+    conversation_id: input.conversation_id,
+    text: input.text,
+    toolCalls: toolCallLog,
+  }), (m) => metrics.errors.push("chart_fallback:" + m), null);
+  if (requestedArtifact) {
+    toolCallLog.push(requestedArtifact.toolCall);
+    metrics.tool_call_count = toolCallLog.length;
+    metrics.tools.push({
+      name: requestedArtifact.toolCall.tool_name,
+      duration_ms: requestedArtifact.toolCall.duration_ms,
+      ok: requestedArtifact.toolCall.ok,
+    });
+    if (requestedArtifact.artifact_id) {
+      recordArtifact(metrics, "generated", requestedArtifact.artifact_id);
+      if (!/\b(aqui|segue|preparei|gerei|enviei).{0,50}gr[aá]fico\b/i.test(reply)) {
+        reply = `${reply}\n\n${requestedArtifact.message}`.trim();
+      }
+    } else {
+      const promisedWithoutArtifact = /\b(aqui|segue|preparei|gerei|enviei).{0,50}gr[aá]fico\b/i.test(reply);
+      reply = promisedWithoutArtifact
+        ? requestedArtifact.message
+        : `${reply}\n\n${requestedArtifact.message}`.trim();
     }
   }
 

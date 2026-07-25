@@ -8,10 +8,12 @@ export type WeekdayMetricRow = {
   label: string;
   occurrences: number;
   active_days: number;
+  active_rate: number;
   transactions: number;
   total: number;
   mean_all_days: number;
   median_all_days: number;
+  median_active_amount: number;
   typical_amount: number;
   outlier_count: number;
   transactions_per_occurrence: number;
@@ -66,9 +68,6 @@ function highOutlierThreshold(values: number[]): number {
   const iqr = q3 - q1;
   if (iqr > 0) return q3 + 1.5 * iqr;
   const max = Math.max(...values);
-  // Repeated baseline + one isolated peak makes both MAD and IQR equal zero.
-  // In that shape, use a conservative absolute/relative guard instead of
-  // silently treating the peak as the user's normal behaviour.
   if (max - med >= 100 && max > Math.max(100, med * 3)) {
     return med + Math.max(100, med * 2);
   }
@@ -83,7 +82,7 @@ export function computeWeekdayPattern(args: {
   const requestedWeeks = Math.max(4, Math.min(52, Number(args.weeks ?? 12)));
   const requestedFrom = addDays(args.to, -(requestedWeeks * 7) + 1);
   const valid = args.transactions
-    .map(t => ({ ...t, amount: Number(t.amount || 0) }))
+    .map(t => ({ ...t, occurred_at: String(t.occurred_at).slice(0, 10), amount: Number(t.amount || 0) }))
     .filter(t => t.occurred_at >= requestedFrom && t.occurred_at <= args.to)
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 
@@ -110,47 +109,57 @@ export function computeWeekdayPattern(args: {
   const outliers: WeekdayPatternResult["outliers"] = [];
   const weekdays: WeekdayMetricRow[] = buckets.map((days, weekday) => {
     const values = days.map(d => d.amount);
-    const threshold = highOutlierThreshold(values);
-    const clean = days.filter(d => d.amount <= threshold);
-    const flagged = days.filter(d => d.amount > threshold);
+    const active = days.filter(d => d.amount > 0);
+    // Zeros representam ausência de gasto naquela ocorrência; eles participam
+    // da frequência, mas não da detecção de picos nem da mediana de valor ativo.
+    const threshold = highOutlierThreshold(active.map(d => d.amount));
+    const cleanActive = active.filter(d => d.amount <= threshold);
+    const flagged = active.filter(d => d.amount > threshold);
     for (const f of flagged) outliers.push({ date: f.date, weekday, label: LABELS[weekday], amount: f.amount });
     const total = values.reduce((s, v) => s + v, 0);
     const txCount = days.reduce((s, d) => s + d.transactions, 0);
+    const activeRate = days.length ? active.length / days.length : 0;
+    const medianActive = median(cleanActive.map(d => d.amount));
+    // Gasto esperado por ocorrência do dia = frequência observada × valor
+    // robusto quando houve gasto. Evita que poucos registros virem "padrão".
+    const expectedPerOccurrence = medianActive * activeRate;
     return {
       weekday,
       label: LABELS[weekday],
       occurrences: days.length,
-      active_days: days.filter(d => d.amount > 0).length,
+      active_days: active.length,
+      active_rate: round2(activeRate),
       transactions: txCount,
       total: round2(total),
       mean_all_days: round2(days.length ? total / days.length : 0),
       median_all_days: round2(median(values)),
-      typical_amount: round2(median(clean.map(d => d.amount))),
+      median_active_amount: round2(medianActive),
+      typical_amount: round2(expectedPerOccurrence),
       outlier_count: flagged.length,
       transactions_per_occurrence: round2(days.length ? txCount / days.length : 0),
       average_ticket: round2(txCount ? total / txCount : 0),
     };
   });
 
-  const eligible = weekdays.filter(w => w.occurrences >= 4);
-  const typicalRank = [...eligible].sort((a, b) => b.typical_amount - a.typical_amount);
-  const totalRank = [...eligible].sort((a, b) => b.total - a.total);
-  const freqRank = [...eligible].sort((a, b) => b.transactions_per_occurrence - a.transactions_per_occurrence);
-  const ticketRank = [...eligible].filter(w => w.transactions > 0).sort((a, b) => b.average_ticket - a.average_ticket);
+  const comparable = weekdays.filter(w => w.occurrences >= 4);
+  const typicalEligible = comparable.filter(w => w.active_days >= 3 && w.typical_amount > 0);
+  const typicalRank = [...typicalEligible].sort((a, b) => b.typical_amount - a.typical_amount);
+  const totalRank = [...comparable].filter(w => w.total > 0).sort((a, b) => b.total - a.total);
+  const freqRank = [...comparable].filter(w => w.transactions > 0).sort((a, b) => b.transactions_per_occurrence - a.transactions_per_occurrence);
+  const ticketRank = [...comparable].filter(w => w.transactions > 0).sort((a, b) => b.average_ticket - a.average_ticket);
   const top = typicalRank[0] ?? null;
   const second = typicalRank[1] ?? null;
   const margin = top && second && second.typical_amount > 0
     ? (top.typical_amount - second.typical_amount) / second.typical_amount
     : top?.typical_amount ? 1 : 0;
   const activeDays = weekdays.reduce((s, w) => s + w.active_days, 0);
-  const completeness = allDates.length ? activeDays / allDates.length : 0;
   const weeksObserved = Math.max(0, allDates.length / 7);
 
   let confidence: ConfidenceLevel = "insufficient";
-  if (top && weeksObserved >= 4 && activeDays >= 10) {
-    confidence = weeksObserved >= 12 && completeness >= 0.55 && margin >= 0.2
+  if (top && weeksObserved >= 4 && activeDays >= 10 && top.active_days >= 3) {
+    confidence = weeksObserved >= 12 && activeDays >= 24 && top.active_days >= 6 && margin >= 0.2
       ? "high"
-      : weeksObserved >= 8 && completeness >= 0.3 && margin >= 0.1
+      : weeksObserved >= 8 && activeDays >= 14 && top.active_days >= 4 && margin >= 0.1
         ? "medium"
         : "low";
   }
@@ -161,12 +170,13 @@ export function computeWeekdayPattern(args: {
     : null;
   const limitations: string[] = [];
   if (weeksObserved < 8) limitations.push("O histórico ainda é curto; esse padrão pode mudar com novas semanas.");
-  if (completeness < 0.3) limitations.push("Há poucos dias com movimentações registradas, então a confiança é reduzida.");
-  if (margin < 0.1 && top) limitations.push("Os dois dias líderes estão muito próximos; não há um vencedor claro.");
+  if (!top) limitations.push("Nenhum dia teve pelo menos três ocorrências ativas comparáveis.");
+  else if (top.active_days < 4) limitations.push("O dia líder ainda tem poucas ocorrências com gasto registrado.");
+  if (margin < 0.1 && top && second) limitations.push("Os dois dias líderes estão muito próximos; não há um vencedor claro.");
 
   return {
     metric_key: "weekday_typical_spend",
-    formula_version: "weekday.robust.v1",
+    formula_version: "weekday.robust.v2",
     period: { from, to: args.to, weeks_observed: round2(weeksObserved) },
     sample_size: activeDays,
     confidence,

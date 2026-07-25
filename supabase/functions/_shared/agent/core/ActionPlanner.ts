@@ -10,7 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { isLLMConfigured, sanitizeError, type LLMTurn } from "../llm.ts";
 import { runToolLoop, dedupKey, type ToolRuntimeOptions } from "./ToolRuntime.ts";
 import type { ParsedIntent } from "../parser.ts";
-import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
+import { interpretSemanticQuery, isInterpretationCorrection } from "../../intelligence/semanticQuery.ts";
 import { executeWeekdayPattern } from "../../intelligence/weekdayTool.ts";
 import { classifyModelTask, loadModelRoute } from "../../intelligence/modelGateway.ts";
 
@@ -22,10 +22,23 @@ export type PlannerResult = {
 
 export async function plan(
   sb: SupabaseClient,
-  args: { user_id: string; conversation_id: string; user_text: string; hasPrompt: boolean },
+  args: {
+    user_id: string;
+    conversation_id: string;
+    user_text: string;
+    hasPrompt: boolean;
+    history?: Array<{ role: string; content: string }>;
+  },
   opts: ToolRuntimeOptions,
 ): Promise<PlannerResult> {
-  const semantic = interpretSemanticQuery(args.user_text);
+  const previousAnalyticalQuestion = isInterpretationCorrection(args.user_text)
+    ? [...(args.history ?? [])].reverse().find((entry) =>
+      entry.role === "user"
+      && String(entry.content ?? "").trim() !== String(args.user_text ?? "").trim()
+      && interpretSemanticQuery(String(entry.content ?? "")) !== null
+    )?.content
+    : null;
+  const semantic = interpretSemanticQuery(args.user_text, previousAnalyticalQuestion);
 
   if (semantic?.intent === "weekday_pattern") {
     const started = Date.now();

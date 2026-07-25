@@ -4,13 +4,13 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   weekday_typical_spend: {
     key: "weekday_typical_spend",
     label: "Gasto típico por dia da semana",
-    description: "Compara o gasto diário típico de cada dia da semana usando mediana e separando picos atípicos.",
-    formula: "mediana(gasto diário sem outliers altos) por dia da semana",
+    description: "Combina a frequência observada com a mediana robusta dos dias em que houve gasto.",
+    formula: "taxa de dias ativos × mediana(gasto dos dias ativos sem picos altos)",
     default_window_days: 84,
-    minimum_sample: 4,
+    minimum_sample: 3,
     include_zero_days: true,
     outlier_policy: "exclude_for_typical",
-    formula_version: "weekday.robust.v1",
+    formula_version: "weekday.robust.v2",
   },
   weekday_total_concentration: {
     key: "weekday_total_concentration",

@@ -6,6 +6,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { scanUser } from "../_shared/agent/core/ProactiveEngine.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
+import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -45,10 +46,8 @@ Deno.serve(async (req) => {
   if (body?.user_id) {
     userIds = [String(body.user_id)];
   } else {
-    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
-    const { data } = await sb.from("agent_runs")
-      .select("user_id").gte("started_at", cutoff).limit(500);
-    userIds = Array.from(new Set(((data as any[]) ?? []).map(r => r.user_id))).slice(0, 30);
+    // Inclui cadastro, uso do produto, lançamentos e conversas com o assessor.
+    userIds = await selectProactiveUserIds(sb, { limit: 100, activityDays: 60, onboardingDays: 45 });
   }
 
   const results: Array<{ user_id: string; suggestions: number; deliveries: number; errors: string[] }> = [];

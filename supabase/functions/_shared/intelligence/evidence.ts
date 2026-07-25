@@ -21,7 +21,7 @@ export function asEvidence(result: WeekdayPatternResult): EvidencePackage<Weekda
 export function composeWeekdayPatternReply(result: WeekdayPatternResult, query: SemanticQuery): string {
   const prefix = query.correction ? "Você tem razão em separar padrão de um pico isolado. " : "";
   if (!result.winner || result.confidence === "insufficient") {
-    return `${prefix}Ainda não há histórico suficiente para afirmar em qual dia você normalmente gasta mais. Eu preciso de pelo menos quatro ocorrências comparáveis por dia da semana.`;
+    return `${prefix}Ainda não há histórico suficiente para afirmar em qual dia você normalmente gasta mais. Preciso observar mais semanas e pelo menos três dias ativos comparáveis no dia candidato.`;
   }
 
   if (query.interpretation === "total_concentration") {
@@ -49,10 +49,13 @@ export function composeWeekdayPatternReply(result: WeekdayPatternResult, query: 
       ? "como um sinal consistente"
       : "como um sinal inicial";
 
-  let answer = `${prefix}Desconsiderando picos atípicos, ${w.label} é seu dia de maior gasto típico, em torno de ${BRL.format(w.typical_amount)} por ocorrência, ${confidenceText}.`;
+  let answer = `${prefix}Considerando a frequência com que você gasta e os valores típicos, ${w.label} é o dia de maior gasto esperado, cerca de ${BRL.format(w.typical_amount)} por ${w.label.toLowerCase()} no período, ${confidenceText}.`;
   const total = result.total_concentration_winner;
   if (total && total.weekday !== w.weekday) {
-    answer += ` Já ${total.label} lidera no valor total (${total.share_pct}%), mas esse resultado foi puxado por gastos fora do padrão.`;
+    const pulledByOutlier = result.outliers.some((o) => o.weekday === total.weekday);
+    answer += pulledByOutlier
+      ? ` Já ${total.label} lidera no valor total (${total.share_pct}%), mas esse resultado foi puxado por um gasto fora do padrão.`
+      : ` Já ${total.label} lidera no valor total (${total.share_pct}%), uma métrica diferente do comportamento habitual.`;
   }
   if (result.limitations.length) answer += ` ${result.limitations[0]}`;
   return answer;
