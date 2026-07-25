@@ -251,12 +251,80 @@ export default function MetaConjuntaDetalhe() {
         />
       )}
 
+      {openEdit && (
+        <EditGoalModal
+          initial={{ title: goal.title, target_amount: Number(goal.target_amount), deadline: goal.deadline }}
+          saving={update.isPending}
+          onClose={() => setOpenEdit(false)}
+          onSubmit={(v) =>
+            update.mutate(v, {
+              onSuccess: () => { toast.success("Meta atualizada"); setOpenEdit(false); },
+              onError: (e) => toast.error("Erro", { description: String((e as Error).message) }),
+            })
+          }
+        />
+      )}
+
       <p className="mt-6 text-center text-[11px] text-muted-foreground">
         <Link to="/app/metas" className="underline">Ver metas individuais</Link>
       </p>
     </div>
   );
 }
+
+function EditGoalModal({
+  initial,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  initial: { title: string; target_amount: number; deadline: string | null };
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (v: { title: string; target_amount: number; deadline: string | null }) => void;
+}) {
+  const [title, setTitle] = useState(initial.title);
+  const [target, setTarget] = useState(String(initial.target_amount));
+  const [deadline, setDeadline] = useState(initial.deadline ?? "");
+  const [error, setError] = useState<string | null>(null);
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const n = Number(target.replace(",", "."));
+    if (!title.trim() || !Number.isFinite(n) || n <= 0) { setError("Preencha título e valor válidos"); return; }
+    onSubmit({ title: title.trim(), target_amount: n, deadline: deadline || null });
+  }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Editar meta</h2>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Título</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Valor alvo</label>
+              <input inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} className="input-base" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Prazo</label>
+              <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="input-base" />
+            </div>
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">Cancelar</button>
+          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 
 function ContribModal({
   saving,
