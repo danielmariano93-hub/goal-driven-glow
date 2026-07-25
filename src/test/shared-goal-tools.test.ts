@@ -89,7 +89,9 @@ describe("create_shared_goal_draft", () => {
         insert: () => ({ select: () => ({ single: async () => ({ data: { id: "d1" }, error: null }) }) }),
         update: () => ({ eq: async () => ({ error: null }) }),
       }),
+      rpc: async () => ({ data: "d1", error: null }),
     };
+
     const bad1 = await create_shared_goal_draft({ ...CTX_BASE, sb } as any, { title: "", target_amount: 100 });
     expect(bad1.ok).toBe(false);
     const bad2 = await create_shared_goal_draft({ ...CTX_BASE, sb } as any, { title: "x", target_amount: 0 });
