@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Loader2, Plus, Trash2, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccounts, useCategories } from "@/lib/db/finance";
@@ -10,6 +10,7 @@ import { formatBRL } from "@/lib/split/math";
 import { dispatchSplitReminders } from "@/lib/split/dispatch";
 import { normalizeBrPhone } from "@/lib/phone";
 import { CategorySelect } from "@/components/CategorySelect";
+import { ContactPickerButton } from "@/components/contacts/ContactPickerButton";
 
 type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
 type Source = "account" | "credit_card";
