@@ -2,11 +2,16 @@
 // Avoids native canvas packages, which are unavailable in the Edge runtime.
 // The WhatsApp caption carries labels/values; the image provides the visual trend.
 // deno-lint-ignore-file no-explicit-any
+import { toRenderableSeries, type RenderableSeries } from "./normalize.ts";
 
 type ArtifactPayload = {
   kind?: string;
   data?: { series?: Array<{ name: string; value: number }>; [k: string]: any };
+  chart?: any;
+  [k: string]: any;
 };
+
+
 
 const W = 900, H = 520;
 const RGBA = 4;
