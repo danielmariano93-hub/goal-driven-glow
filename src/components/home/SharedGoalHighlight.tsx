@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Users, ArrowRight, Loader2 } from "lucide-react";
+import { Users, ArrowRight } from "lucide-react";
 import { useSharedGoals, useSharedGoalContribs } from "@/lib/db/sharedGoals";
 import { formatBRL } from "@/lib/engine/facts";
 
