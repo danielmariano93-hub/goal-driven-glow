@@ -104,6 +104,16 @@ export default function Clientes() {
       <PageHeader
         title="Clientes"
         description="Clientes reais do produto — administradores da plataforma não aparecem aqui."
+        actions={
+          <AdminDateFilter
+            preset={preset}
+            value={range}
+            onChange={({ preset: p, range: r }) => {
+              setPreset(p);
+              setRange(r);
+            }}
+          />
+        }
         status={
           formulaVersion && (
             <span className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground">
@@ -112,6 +122,7 @@ export default function Clientes() {
           )
         }
       />
+
 
       {totals && (
         <div className="grid grid-cols-3 gap-3">
