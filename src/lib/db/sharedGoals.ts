@@ -184,6 +184,16 @@ export function useInviteSharedGoal(goalId: string) {
         p_phone_e164: phone_e164,
         p_token_hash: token_hash,
       });
+      // Enqueue WhatsApp notifications (imediata + followup 72h). Falha aqui
+      // NÃO desfaz o convite principal — apenas registra o erro em console.
+      try {
+        const { supabase } = await import("@/integrations/supabase/client");
+        await supabase.functions.invoke("shared-goal-notify-invite", {
+          body: { goal_id: goalId, phone_e164 },
+        });
+      } catch (err) {
+        console.warn("shared_goal_notify_invite_failed", (err as Error).message);
+      }
       return { id, token };
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),

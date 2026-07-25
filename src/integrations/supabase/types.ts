@@ -6223,6 +6223,14 @@ export type Database = {
       }
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
       _test_shared_goals_matrix: { Args: never; Returns: Json }
+      _test_split_followup: {
+        Args: never
+        Returns: {
+          assertion: string
+          detail: string
+          passed: boolean
+        }[]
+      }
       _test_split_link_matrix: {
         Args: never
         Returns: {
