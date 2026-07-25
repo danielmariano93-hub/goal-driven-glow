@@ -4,15 +4,21 @@ import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton
 import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
-import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
+import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
+import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 import { dict } from "@/lib/admin/displayDictionary";
 
-type LifecycleRow = {
-  day: string;
-  new_users: number;
-  active_users: number;
-  dormant_users: number;
-  churned_users: number;
+type Summary = {
+  total_clients: number;
+  new_clients: number;
+  active_clients: number;
+  activated_clients: number;
+  dormant_clients: number;
+  with_financial_data: number;
+  period: { from: string; to: string; timezone: string };
+  formula_version: string;
+  universe: string;
 };
 
 type CohortRow = {
@@ -24,50 +30,84 @@ type CohortRow = {
 };
 
 type FunnelRow = { feature: string; step: string; users: number; events: number };
-type Summary = { lifecycle: LifecycleRow[]; sample_size: number };
 type Cohorts = { cohorts: CohortRow[] };
 type Funnel = { funnel: FunnelRow[]; source_quality?: { live: number; backfill: number; proxy: number } };
 
-function useRpc<T>(name: string, args: Record<string, unknown>) {
-  const [data, setData] = useState<T | null>(null);
+export default function Crescimento() {
+  const [preset, setPreset] = useState<PeriodPresetKey>("30d");
+  const [range, setRange] = useState<PeriodRange>(() => resolvePreset("30d"));
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [cohorts, setCohorts] = useState<Cohorts | null>(null);
+  const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
-    callAdminRpc<T>(name, args)
-      .then(setData)
-      .catch((e) => setError(e?.message ?? "Falha ao carregar"))
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      callAdminRpc<Summary>("admin_v2_growth_summary", withPeriod(range)),
+      callAdminRpc<Cohorts>("admin_v2_growth_cohorts", { _weeks: 8 }),
+      callAdminRpc<Funnel>("admin_v2_growth_funnel", { _days: Math.max(1, daysBetween(range)) }),
+    ])
+      .then(([s, c, f]) => {
+        setSummary(s);
+        setCohorts(c);
+        setFunnel(f);
+      })
+      .catch((e) => setError(e?.message ?? "Falha ao carregar Crescimento"))
       .finally(() => setLoading(false));
-  }, [name]);
-  return { data, loading, error };
-}
+  }, [range.from, range.to]);
 
-export default function Crescimento() {
-  const summary = useRpc<Summary>("admin_v2_growth_summary", { _days: 30 });
-  const cohorts = useRpc<Cohorts>("admin_v2_growth_cohorts", { _weeks: 8 });
-  const funnel = useRpc<Funnel>("admin_v2_growth_funnel", { _days: 30 });
-
-  const last = summary.data?.lifecycle?.at(-1);
-  const quality = funnel.data?.source_quality;
+  const quality = funnel?.source_quality;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Crescimento e retenção"
         description="Entenda quem chega, quem recebe valor e quem continua usando o Nino."
+        actions={
+          <AdminDateFilter
+            preset={preset}
+            value={range}
+            onChange={({ preset: p, range: r }) => {
+              setPreset(p);
+              setRange(r);
+            }}
+          />
+        }
       />
 
-      {summary.loading ? (
+      {loading ? (
         <AdminSkeleton />
-      ) : summary.error ? (
-        <EmptyState title="Não foi possível carregar o resumo" description={summary.error} />
-      ) : (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <AdminMetricCard label="Novos usuários" value={last?.new_users ?? 0} tone="brand" />
-          <AdminMetricCard label="Ativos" value={last?.active_users ?? 0} tone="positive" />
-          <AdminMetricCard label="Em risco/inativos" value={last?.dormant_users ?? 0} tone="warning" />
-          <AdminMetricCard label="Abandonaram" value={last?.churned_users ?? 0} tone="critical" />
-        </div>
-      )}
+      ) : error ? (
+        <EmptyState title="Não foi possível carregar o resumo" description={error} />
+      ) : summary ? (
+        <>
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <h2 className="text-xs uppercase tracking-wider text-muted-foreground">Estoque atual</h2>
+              <span className="rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                agora
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-2">
+              <AdminMetricCard label="Clientes totais" value={summary.total_clients} tone="brand" />
+              <AdminMetricCard label="Com dados financeiros" value={summary.with_financial_data} tone="positive" />
+            </div>
+          </section>
+
+          <section>
+            <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Fluxo no período</h2>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <AdminMetricCard label="Novos clientes" value={summary.new_clients} tone="brand" />
+              <AdminMetricCard label="Ativados" value={summary.activated_clients} tone="positive" />
+              <AdminMetricCard label="Ativos" value={summary.active_clients} tone="positive" />
+              <AdminMetricCard label="Dormant" value={summary.dormant_clients} tone="warning" />
+            </div>
+          </section>
+        </>
+      ) : null}
 
       {quality && quality.live === 0 ? (
         <div className="rounded-2xl border border-[#6D4AFF]/20 bg-[#6D4AFF]/5 p-4 text-sm">
@@ -77,13 +117,11 @@ export default function Crescimento() {
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
         <h2 className="mb-4 font-semibold">Funil das experiências</h2>
-        {funnel.loading ? (
+        {loading ? (
           <AdminSkeleton />
-        ) : funnel.error ? (
-          <EmptyState title="O funil está temporariamente indisponível" description={funnel.error} />
-        ) : funnel.data?.funnel?.length ? (
+        ) : funnel?.funnel?.length ? (
           <AdminResponsiveList
-            rows={funnel.data.funnel}
+            rows={funnel.funnel}
             rowKey={(row, index) => `${row.feature}-${row.step}-${index}`}
             columns={[
               { key: "feature", label: "Experiência", render: (row) => dict.feature(row.feature) },
@@ -99,13 +137,11 @@ export default function Crescimento() {
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
         <h2 className="mb-4 font-semibold">Retenção por coorte</h2>
-        {cohorts.loading ? (
+        {loading ? (
           <AdminSkeleton />
-        ) : cohorts.error ? (
-          <EmptyState title="Não foi possível carregar as coortes" description={cohorts.error} />
-        ) : cohorts.data?.cohorts?.length ? (
+        ) : cohorts?.cohorts?.length ? (
           <AdminResponsiveList
-            rows={cohorts.data.cohorts}
+            rows={cohorts.cohorts}
             rowKey={(row, index) => `${row.cohort_week}-${row.week_offset}-${index}`}
             columns={[
               { key: "cohort", label: "Coorte", render: (row) => row.cohort_week },
@@ -123,4 +159,12 @@ export default function Crescimento() {
       </section>
     </div>
   );
+}
+
+function daysBetween(range: PeriodRange): number {
+  const [fy, fm, fd] = range.from.split("-").map(Number);
+  const [ty, tm, td] = range.to.split("-").map(Number);
+  const a = Date.UTC(fy, fm - 1, fd);
+  const b = Date.UTC(ty, tm - 1, td);
+  return Math.floor((b - a) / 86_400_000) + 1;
 }
