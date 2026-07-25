@@ -101,6 +101,8 @@ export default function DivisaoDoRoleNova() {
     try {
       const participantPayload: Array<{ id: string | null; name: string; phone_e164: string | null; amount_due: number }> = [];
       const invalidPhones: string[] = [];
+      const seenPhones = new Set<string>();
+      const duplicated: string[] = [];
       for (const p of people.filter((x)=>x.name.trim())) {
         const share = shares.find((s)=>s.name===p.name)?.amount ?? 0;
         const raw = p.phone_e164.trim();
@@ -108,8 +110,15 @@ export default function DivisaoDoRoleNova() {
         if (raw) {
           phone = normalizeBrPhone(raw);
           if (!phone) invalidPhones.push(p.name.trim());
+          else if (seenPhones.has(phone)) duplicated.push(p.name.trim());
+          else seenPhones.add(phone);
         }
         participantPayload.push({ id:p.id??null, name:p.name.trim(), phone_e164:phone, amount_due:share });
+      }
+      if (duplicated.length) {
+        setSaving(false);
+        toast.error(`Telefone repetido: ${duplicated.join(", ")}. Cada pessoa só pode aparecer uma vez.`);
+        return;
       }
       if (invalidPhones.length) {
         setSaving(false);
