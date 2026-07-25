@@ -317,6 +317,32 @@ export async function create_transfer_draft(ctx: ToolContext, args: {
   return { ok: true, result: { draft_id: id, summary } };
 }
 
+export async function pay_credit_card_bill_draft(ctx: ToolContext, args: {
+  amount: number;
+  account: string;
+  card: string;
+  occurred_at?: string;
+  description?: string;
+}): Promise<ToolResult> {
+  const amount = Number(args?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
+  const acc = await resolveAccountId(ctx, args.account);
+  if (!acc) return { ok: false, error: "account_not_found" };
+  const card = await resolveCreditCardId(ctx, args.card);
+  if (!card) return { ok: false, error: "card_not_found" };
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
+  const summary = `Pagamento de fatura do cartão ${card.name} no valor de ${BRL.format(amount)} debitando ${acc.name} em ${occurred_at}.`;
+  const id = await upsertDraft(ctx, "credit_card_bill_payment", {
+    amount,
+    account_id: acc.id,
+    settles_card_id: card.id,
+    occurred_at,
+    description: args.description ?? null,
+  }, summary);
+  if (!id) return { ok: false, error: "draft_failed" };
+  return { ok: true, result: { draft_id: id, summary } };
+}
+
 export async function create_goal_draft(ctx: ToolContext, args: {
   name: string; target_amount: number; target_date?: string; priority?: number;
 }): Promise<ToolResult> {
@@ -977,6 +1003,22 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["amount", "from_account", "to_account"], additionalProperties: false,
     },
     execute: create_transfer_draft,
+  },
+  {
+    name: "pay_credit_card_bill_draft",
+    description: "Cria uma proposta de PAGAMENTO DE FATURA de cartão de crédito. Debita a conta informada e liquida o cartão. NÃO conta como consumo do mês.",
+    parameters: {
+      type: "object",
+      properties: {
+        amount: num,
+        account: requiredStr,
+        card: requiredStr,
+        occurred_at: optionalStr,
+        description: optionalStr,
+      },
+      required: ["amount", "account", "card"], additionalProperties: false,
+    },
+    execute: pay_credit_card_bill_draft,
   },
   {
     name: "create_goal_draft",
