@@ -330,10 +330,85 @@ export default function Metas() {
             })
           }
         />
+
+      {openNewSelector && (
+        <NewGoalSelector
+          onClose={() => setOpenNewSelector(false)}
+          onIndividual={() => { setOpenNewSelector(false); setEditing(null); setOpenGoal(true); }}
+          onShared={() => { setOpenNewSelector(false); navigate("/app/metas-conjuntas"); }}
+        />
       )}
     </div>
   );
 }
+
+function NewGoalSelector({ onClose, onIndividual, onShared }: { onClose: () => void; onIndividual: () => void; onShared: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-card">
+        <h2 className="font-display text-base font-bold">Que tipo de meta você quer criar?</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Escolha entre uma meta pessoal ou uma conjunta com outras pessoas.</p>
+        <div className="mt-4 space-y-2">
+          <button onClick={onIndividual} className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left hover:border-primary">
+            <div>
+              <p className="text-sm font-semibold">Meta individual</p>
+              <p className="text-[11px] text-muted-foreground">Guarde dinheiro para um objetivo pessoal.</p>
+            </div>
+            <Target size={16} className="text-muted-foreground" />
+          </button>
+          <button onClick={onShared} className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left hover:border-primary">
+            <div>
+              <p className="text-sm font-semibold">Meta conjunta</p>
+              <p className="text-[11px] text-muted-foreground">Convide outras pessoas e evoluam juntas.</p>
+            </div>
+            <Users size={16} className="text-muted-foreground" />
+          </button>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendingInvitesBanner() {
+  const { data, isLoading } = usePendingSharedGoalInvites();
+  const accept = useAcceptSharedGoalInvite();
+  const decline = useDeclineSharedGoalInvite();
+  if (isLoading || !data || data.length === 0) return null;
+  return (
+    <div className="mb-3 space-y-2">
+      {data.map((inv) => (
+        <div key={inv.id} className="rounded-2xl border border-primary/30 bg-primary/5 p-3">
+          <p className="text-xs font-medium">Você foi convidado para uma meta conjunta</p>
+          <p className="mt-0.5 text-sm font-semibold">{inv.shared_goals?.title ?? "Meta conjunta"}</p>
+          {inv.shared_goals?.target_amount != null && (
+            <p className="text-[11px] text-muted-foreground">Alvo: {formatBRL(Number(inv.shared_goals.target_amount))}</p>
+          )}
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => accept.mutate(inv.goal_id, {
+                onSuccess: () => toast.success("Convite aceito"),
+                onError: (e) => toast.error(String((e as Error).message)),
+              })}
+              className="btn-brand px-3 py-1.5 text-xs"
+            >
+              Aceitar
+            </button>
+            <button
+              onClick={() => decline.mutate(inv.goal_id, { onSuccess: () => toast.success("Convite recusado") })}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs"
+            >
+              Recusar
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 function GoalModal({
   initial,
