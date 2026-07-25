@@ -1,6 +1,7 @@
 -- Integration test: trigger `trg_rj_schedule_followup` cria followup único.
 -- Executar: psql -f src/test/sql/split-followup-integration.sql
 BEGIN;
+SET LOCAL session_replication_role = replica; -- bypass FK to auth.users em ambiente de teste
 DO $$
 DECLARE
   v_owner uuid := gen_random_uuid();
