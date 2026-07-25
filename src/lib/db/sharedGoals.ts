@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/context/AuthContext";
 
 export type SharedGoal = {
   id: string;
@@ -9,6 +8,9 @@ export type SharedGoal = {
   deadline: string | null;
   created_by: string;
   status: string;
+  cancelled_at?: string | null;
+  completed_at?: string | null;
+  last_milestone_pct?: number;
   created_at: string;
   updated_at: string;
 };
@@ -31,17 +33,42 @@ export type SharedGoalContribution = {
   amount: number;
   occurred_at: string;
   note: string | null;
+  idempotency_key?: string | null;
   created_at: string;
 };
+
+export type SharedGoalInvite = {
+  id: string;
+  goal_id: string;
+  phone_e164: string;
+  invited_by: string;
+  status: "pending" | "accepted" | "declined" | "expired" | "revoked";
+  expires_at: string;
+  created_at: string;
+};
+
+export type SharedGoalRole = "owner" | "member" | "pending" | "outsider";
 
 const K = {
   list: ["shared_goals", "list"] as const,
   detail: (id: string) => ["shared_goals", "detail", id] as const,
   members: (id: string) => ["shared_goals", "members", id] as const,
   contribs: (id: string) => ["shared_goals", "contribs", id] as const,
-  invites: (id: string) => ["shared_goals", "invites", id] as const,
+  pendingInvites: ["shared_goals", "pending_invites"] as const,
+  role: (id: string) => ["shared_goals", "role", id] as const,
 };
 
+// Sem tipagem estrita do Database — usa cast controlado para RPCs custom novas.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rpc = supabase.rpc as unknown as (name: string, args?: Record<string, unknown>) => Promise<{ data: any; error: { message: string } | null }>;
+
+async function callRpc<T = unknown>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+  const { data, error } = await rpc(name, args);
+  if (error) throw new Error(error.message);
+  return data as T;
+}
+
+// ---------- Queries ----------
 export function useSharedGoals() {
   return useQuery({
     queryKey: K.list,
@@ -96,43 +123,45 @@ export function useSharedGoalContribs(id: string | undefined) {
   });
 }
 
-export function useCreateSharedGoal() {
-  const qc = useQueryClient();
-  const { user } = useAuth();
-  return useMutation({
-    mutationFn: async (input: { title: string; target_amount: number; deadline?: string | null }) => {
-      if (!user) throw new Error("unauthenticated");
-      const { data, error } = await supabase
-        .from("shared_goals")
-        .insert({
-          title: input.title,
-          target_amount: input.target_amount,
-          deadline: input.deadline ?? null,
-          created_by: user.id,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      // owner como membro
-      await supabase.from("shared_goal_members").insert({
-        goal_id: data.id,
-        user_id: user.id,
-        role: "owner",
-        invite_status: "accepted",
-        joined_at: new Date().toISOString(),
-      });
-      return data as SharedGoal;
+export function useSharedGoalRole(id: string | undefined, userId: string | undefined) {
+  return useQuery({
+    enabled: Boolean(id && userId),
+    queryKey: K.role(id ?? ""),
+    queryFn: async (): Promise<SharedGoalRole> => {
+      const data = await callRpc<string>("shared_goal_role", { _goal_id: id, _user_id: userId });
+      return (data as SharedGoalRole) ?? "outsider";
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
   });
 }
 
-export function useDeleteSharedGoal() {
+/** Convites pendentes endereçados ao usuário atual (via WhatsApp link). */
+export function usePendingSharedGoalInvites() {
+  return useQuery({
+    queryKey: K.pendingInvites,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("shared_goal_invites")
+        .select("id, goal_id, phone_e164, invited_by, status, expires_at, created_at, shared_goals(title,target_amount,deadline)")
+        .eq("status", "pending")
+        .gt("expires_at", new Date().toISOString());
+      if (error) throw error;
+      return (data ?? []) as Array<SharedGoalInvite & { shared_goals?: { title: string; target_amount: number; deadline: string | null } | null }>;
+    },
+  });
+}
+
+// ---------- Mutations (RPCs canônicas) ----------
+
+export function useCreateSharedGoal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("shared_goals").delete().eq("id", id);
-      if (error) throw error;
+    mutationFn: async (input: { title: string; target_amount: number; deadline?: string | null }) => {
+      const id = await callRpc<string>("shared_goal_create", {
+        p_title: input.title,
+        p_target_amount: input.target_amount,
+        p_deadline: input.deadline ?? null,
+      });
+      return { id } as { id: string };
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
   });
@@ -146,66 +175,94 @@ async function sha256Hex(text: string): Promise<string> {
 
 export function useInviteSharedGoal(goalId: string) {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
     mutationFn: async (phone_e164: string) => {
-      if (!user) throw new Error("unauthenticated");
       const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
       const token_hash = await sha256Hex(token);
-      const { data, error } = await supabase
-        .from("shared_goal_invites")
-        .insert({ goal_id: goalId, phone_e164, invited_by: user.id, token_hash })
-        .select()
-        .single();
-      if (error) throw error;
-      // reserva slot no members (pending) para exibir no card
-      await supabase
-        .from("shared_goal_members")
-        .insert({ goal_id: goalId, phone_e164, role: "member", invite_status: "pending" })
-        .then(() => undefined, () => undefined);
-      return { invite: data, token };
+      const id = await callRpc<string>("shared_goal_invite", {
+        p_goal_id: goalId,
+        p_phone_e164: phone_e164,
+        p_token_hash: token_hash,
+      });
+      return { id, token };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["shared_goals"] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
+  });
+}
+
+export function useAcceptSharedGoalInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (goalId: string) => callRpc<{ ok: boolean; goal_id: string }>("shared_goal_accept_invite", { p_goal_id: goalId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
+  });
+}
+
+export function useDeclineSharedGoalInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (goalId: string) => callRpc<{ ok: boolean }>("shared_goal_decline_invite", { p_goal_id: goalId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
   });
 }
 
 export function useAddContribution(goalId: string) {
   const qc = useQueryClient();
-  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (input: { amount: number; occurred_at?: string; note?: string }) => {
-      if (!user) throw new Error("unauthenticated");
-      const { data, error } = await supabase
-        .from("shared_goal_contributions")
-        .insert({
-          goal_id: goalId,
-          user_id: user.id,
-          amount: input.amount,
-          occurred_at: input.occurred_at ?? new Date().toISOString().slice(0, 10),
-          note: input.note ?? null,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      // atualiza total do member (best-effort)
-      const { data: current } = await supabase
-        .from("shared_goal_members")
-        .select("id, contribution_total")
-        .eq("goal_id", goalId)
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (current) {
-        await supabase
-          .from("shared_goal_members")
-          .update({ contribution_total: Number(current.contribution_total ?? 0) + input.amount })
-          .eq("id", current.id);
-      }
-      return data;
+    mutationFn: async (input: { amount: number; occurred_at?: string; note?: string; idempotency_key?: string }) => {
+      const id = await callRpc<string>("shared_goal_add_contribution", {
+        p_goal_id: goalId,
+        p_amount: input.amount,
+        p_occurred_at: input.occurred_at ?? null,
+        p_note: input.note ?? null,
+        p_idempotency_key: input.idempotency_key ?? crypto.randomUUID(),
+      });
+      return id;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["shared_goals"] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
   });
+}
+
+export function useLeaveSharedGoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (goalId: string) => callRpc<{ ok: boolean }>("shared_goal_leave", { p_goal_id: goalId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
+  });
+}
+
+export function useRemoveSharedGoalMember(goalId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (memberId: string) =>
+      callRpc<{ ok: boolean }>("shared_goal_remove_member", { p_goal_id: goalId, p_member_id: memberId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
+  });
+}
+
+export function useUpdateSharedGoal(goalId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { title?: string | null; target_amount?: number | null; deadline?: string | null }) =>
+      callRpc<{ ok: boolean }>("shared_goal_update", {
+        p_goal_id: goalId,
+        p_title: input.title ?? null,
+        p_target_amount: input.target_amount ?? null,
+        p_deadline: input.deadline ?? null,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
+  });
+}
+
+export function useCancelSharedGoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (goalId: string) => callRpc<{ ok: boolean }>("shared_goal_cancel", { p_goal_id: goalId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shared_goals"] }),
+  });
+}
+
+/** Compat: manter export legado usado por MetasConjuntas.tsx */
+export function useDeleteSharedGoal() {
+  return useCancelSharedGoal();
 }
