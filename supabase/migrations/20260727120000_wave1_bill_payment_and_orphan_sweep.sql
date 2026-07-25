@@ -72,7 +72,7 @@ BEGIN
      AND started_at < now() - interval '5 minutes';
   GET DIAGNOSTICS n = ROW_COUNT;
   RETURN n;
-END $function$
+END $function$;
 
 
 -- 5) Helper de pagamento de fatura
@@ -123,7 +123,7 @@ BEGIN
     'settles_card_id', p->>'settles_card_id',
     'amount', p->>'amount'
   );
-END $function$
+END $function$;
 
 
 -- 6) Wrapper agent_execute_confirmation + legacy
@@ -172,7 +172,7 @@ BEGIN
   -- travada por FOR UPDATE nesta transação; a chamada legacy repete o
   -- select (SECURITY DEFINER, mesmo escopo) e finaliza normalmente.
   RETURN public.agent_execute_confirmation_legacy_v1(p_confirmation_id, p_source_message_id);
-END $function$
+END $function$;
 
 
 CREATE OR REPLACE FUNCTION public.agent_execute_confirmation_legacy_v1(p_confirmation_id uuid, p_source_message_id uuid DEFAULT NULL::uuid)
@@ -462,6 +462,6 @@ begin
    where id = c.id;
 
   return jsonb_build_object('ok', true, 'idempotent', false, 'result', result);
-end $function$
+end $function$;
 
 
