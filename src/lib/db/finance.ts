@@ -347,9 +347,19 @@ export function useSaveTransaction() {
         notes: input.notes || null,
         ...(competence_date ? { competence_date } : {}),
       };
+      const SELECT_COLS =
+        "id, purchase_date, competence_date, movement_kind, credit_card_id, account_id, status, type, amount, occurred_at, payment_method, category_id, description, notes";
+      let saved: Record<string, unknown> | null = null;
       if (input.id) {
-        const { error } = await supabase.from("transactions").update(payload).eq("id", input.id);
+        const { data, error } = await supabase
+          .from("transactions")
+          .update(payload)
+          .eq("id", input.id)
+          .select(SELECT_COLS)
+          .single();
         if (error) throw error;
+        if (!data) throw new Error("read_after_write_failed: linha atualizada não retornada");
+        saved = data as unknown as Record<string, unknown>;
         if (input.category_id) {
           const { error: learnError } = await (supabase.rpc as any)("learn_transaction_category", {
             p_transaction_id: input.id,
@@ -358,9 +368,16 @@ export function useSaveTransaction() {
           if (learnError) console.warn("[category-learning]", learnError.message);
         }
       } else {
-        const { error } = await supabase.from("transactions").insert(payload);
+        const { data, error } = await supabase
+          .from("transactions")
+          .insert(payload)
+          .select(SELECT_COLS)
+          .single();
         if (error) throw error;
+        if (!data) throw new Error("read_after_write_failed: linha inserida não retornada");
+        saved = data as unknown as Record<string, unknown>;
       }
+      return saved;
     },
     onSuccess: () => invalidateFinancialQueries(qc),
   });
