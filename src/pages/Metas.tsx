@@ -116,9 +116,9 @@ export default function Metas() {
         </button>
       </div>
 
-      {tab === "shared" && <SharedGoalsInline />}
-
-      {tab === "category" ? (
+      {tab === "shared" ? (
+        <SharedGoalsInline />
+      ) : tab === "category" ? (
         catGoalEvals.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
             <Target className="mx-auto h-8 w-8 text-muted-foreground" />
