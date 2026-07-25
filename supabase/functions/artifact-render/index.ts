@@ -6,6 +6,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { renderArtifactPng } from "../_shared/artifacts/png.ts";
+import { validateChartArtifactV2 } from "../_shared/artifacts/schema.ts";
 // deno-lint-ignore no-explicit-any
 let canvasMod: any = null;
 async function getCanvas() {
