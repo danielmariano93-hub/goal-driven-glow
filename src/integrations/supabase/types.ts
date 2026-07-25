@@ -5225,6 +5225,42 @@ export type Database = {
           },
         ]
       }
+      split_link_audit: {
+        Row: {
+          created_at: string
+          id: string
+          new_user_id: string | null
+          participant_id: string
+          phone_e164: string | null
+          prior_user_id: string | null
+          reason: string
+          shared_expense_id: string
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          new_user_id?: string | null
+          participant_id: string
+          phone_e164?: string | null
+          prior_user_id?: string | null
+          reason: string
+          shared_expense_id: string
+          source: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          new_user_id?: string | null
+          participant_id?: string
+          phone_e164?: string | null
+          prior_user_id?: string | null
+          reason?: string
+          shared_expense_id?: string
+          source?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           account_id: string | null
@@ -6153,6 +6189,14 @@ export type Database = {
       _mask_name: { Args: { _name: string }; Returns: string }
       _require_perm: { Args: { _action: string }; Returns: undefined }
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
+      _test_split_link_matrix: {
+        Args: never
+        Returns: {
+          assertion: string
+          detail: string
+          passed: boolean
+        }[]
+      }
       _vault_upsert: {
         Args: { p_description: string; p_name: string; p_value: string }
         Returns: string
@@ -6629,6 +6673,10 @@ export type Database = {
         Args: { p_category_id: string; p_transaction_id: string }
         Returns: undefined
       }
+      link_split_participant: {
+        Args: { p_participant_id: string; p_source?: string }
+        Returns: Json
+      }
       list_my_whatsapp_link: {
         Args: never
         Returns: {
@@ -6696,6 +6744,28 @@ export type Database = {
         Returns: Json
       }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
+      shared_goal_accept_invite: { Args: { p_goal_id: string }; Returns: Json }
+      shared_goal_contribute: {
+        Args: {
+          p_amount: number
+          p_goal_id: string
+          p_note?: string
+          p_occurred_at?: string
+        }
+        Returns: string
+      }
+      shared_goal_decline_invite: { Args: { p_goal_id: string }; Returns: Json }
+      shared_goal_pending_invites: {
+        Args: never
+        Returns: {
+          created_at: string
+          deadline: string
+          goal_id: string
+          member_id: string
+          target_amount: number
+          title: string
+        }[]
+      }
       split_add_payment: {
         Args: { p_amount: number; p_participant_id: string }
         Returns: undefined
