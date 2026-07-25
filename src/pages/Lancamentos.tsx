@@ -65,7 +65,7 @@ function describeHiddenReason(
   if (f.type && f.type !== "all" && f.type !== t) return `tipo (${f.type})`;
   if (f.categoryId && String(saved.category_id ?? "") !== f.categoryId) return "categoria";
   if (f.accountId && String(saved.account_id ?? "") !== f.accountId) return "conta";
-  if (f.creditCardId && String(saved.credit_card_id ?? "") !== f.creditCardId) return "cartão";
+  // (cartão específico não é filtro persistido nesta tela)
   const occ = String(saved.occurred_at ?? "").slice(0, 10);
   if (f.from && occ && occ < f.from) return `data (antes de ${f.from})`;
   if (f.to && occ && occ > f.to) return `data (depois de ${f.to})`;
