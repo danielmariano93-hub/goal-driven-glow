@@ -1,175 +1,342 @@
 
-# Revisão Consolidada Meu Nino — Plano Definitivo
+# Plano Único — Fechamento Meu Nino + Painel Admin + Divisão do Rolê + Metas Conjuntas
 
-Classificação: **READY_AFTER_CORRECTIONS**. Nenhuma alteração funcional foi realizada nesta rodada. Toda ação é executável somente após aprovação.
+## 1. Diagnóstico do estado atual (por domínio)
 
-## 1. Resumo Executivo
+**Confirmado no código (leituras deste turno):**
+- `supabase/migrations/20260727120000_wave1_bill_payment_and_orphan_sweep.sql`: contém `CREATE TRIGGER trg_transactions_fill_competence_date` **sem** `DROP TRIGGER IF EXISTS` antes — quebra em ambiente já migrado se reexecutar. Tem `GRANT/REVOKE` parcial, snapshot em `wave1_pre_snapshot`, flags `use_wave1_bill_payment` e `use_v2_artifact_normalizer` criadas como colunas.
+- `src/lib/db/finance.ts` (742 linhas): read-after-write parcial; ainda há divergência de query keys `credit_cards` vs `credit-cards` conforme histórico.
+- `supabase/functions/_shared/agent/core/adapters/AppAdapter.ts` (314 linhas): já persiste `artifact_ids`; NÃO usa RPC unificada de movimentação.
+- `supabase/functions/_shared/agent/core/ConversationHistory.ts` (62 linhas): reidrata artefatos.
+- Edge Functions ativas: `agent-run`, `agent-chat`, `artifact-render`, `whatsapp-webhook`, `whatsapp-send`, `whatsapp-ack-watchdog`, `split-reminders-dispatch` etc.
+- `supabase/config.toml`: `whatsapp-webhook`, `whatsapp-ack-watchdog`, `split-reminders-dispatch` com `verify_jwt=false`.
+- `src/pages/DivisaoDoRole.tsx`: telefone digitado manualmente; sem separação criado/participado; sem notificação in-app; sem deep link.
+- Não existe `commit_movement` RPC nem tabelas `shared_goals`.
 
-Top 10 riscos (severidade decrescente):
-1. **P0 — Contrato de artefato divergente entre builder (`chart.series[].data`, v2) e renderer PNG/fallback (`data.series`, v1).** Causa `render_failed:unknown` e `fallback_text` em 100% dos gráficos no WhatsApp.
-2. **P0 — Ausência de contrato canônico para pagamento de fatura.** Agente chama `create_transfer_draft` com `from1_account`/cartão em `to_account` → `account_not_found`, sem lançamento gravado.
-3. **P0 — Fire-and-forget do dispatcher WhatsApp sem watchdog comprovado + timeout de render sem AbortController efetivo.** Filas presas 154–300s.
-4. **P0 — Agente promete "aqui está o gráfico" com base apenas em `artifact_id`, sem confirmação de render/entrega.** Alucinação sistêmica.
-5. **P0 — FastLog conclui tools/tx mas deixa `agent_runs.status='running'`, `ended_at=null`.** Métricas de saúde e SLA quebradas.
-6. **P1 — Query keys divergentes `["credit_cards"]` vs `["credit-cards"]`.** Invalidação parcial → lançamento manual "some" da tela.
-7. **P1 — Lançamento manual sem read-after-write; filtros no `sessionStorage` ocultam sem aviso.**
-8. **P1 — Roteamento semântico: pedidos visuais caem em `intent='unknown'`; "dia da semana que mais gasto" usa concentração, não típico robusto v2.**
-9. **P1 — Histórico do App só persiste texto; artefatos não reidratam ao reabrir painel.**
-10. **P2 — Admin ainda vulnerável a divergências temporais e overloads residuais; PII em views legadas precisa nova auditoria.**
+**Hipóteses a validar antes de codar (Onda 0):**
+- Estado real das flags em produção (`SELECT * FROM financial_feature_flags`).
+- Cron `pg_cron` jobs atuais (nome, schedule, secret): consultar `cron.job`.
+- Existência de índice em `agent_runs(status, started_at)` para sweep.
+- Se `_exec_credit_card_bill_payment` aceita alias `from1_account` (o histórico sugere que sim).
+- Universo real de clientes (`v_client_universe` existe? divergência com `platform_admins`?).
 
-## 2. Matriz Definitiva de Defeitos
+**Pendências confirmadas:**
+- RPC `commit_movement` (Ondas 2.1/2.2) — não implementada.
+- Feature flags são colunas mas não são LIDAS por nenhum ponto crítico.
+- Migration Wave1 não é idempotente para `CREATE TRIGGER`.
+- Guardrail por canal (App vs WhatsApp) ainda misturado em `ResponseValidator`.
+- FastLog lifecycle depende de exceção de topo.
+- Fila WhatsApp sem dead-letter formal nem alerta >60s.
+- Divisão do Rolê: sem Contact Picker, sem vínculo por telefone, sem notificação, sem convite duplo.
+- Metas conjuntas: inexistente.
+- Admin: `v_client_universe` provavelmente aplicado, mas KPIs de fluxo x estoque não separados visualmente; falta cockpit operacional de fila/artefatos/FastLog.
 
-| ID | Feature | Sintoma | Causa (C=confirmada, H=hipótese) | Evidência | Sev | Correção definitiva |
-|---|---|---|---|---|---|---|
-| D01 | Pagamento fatura | `create_transfer_draft` com `from1_account`; cartão em `to_account` → `account_not_found` | C: prompt/tools não expõem `pay_credit_card_bill`; LLM inventa slots | `tools.ts:304`, `prompt.ts` sem `bill_payment` | Blocker | Nova tool `pay_credit_card_bill_draft(card_id, from_account_id, amount, occurred_at)` + `movement_kind='credit_card_bill_payment'` + `settles_card_id` obrigatório; validação estrita rejeita argumentos desconhecidos |
-| D02 | Gráfico WhatsApp | `render_failed:unknown` / `canvas_unavailable`; `media_status='fallback_text'` | C: builder emite `payload.chart.series[].data` (v2), renderer PNG lê `payload.data.series` | `png.ts:68`, `ChartArtifactRenderer.tsx:35` | Blocker | Contrato único `chart.artifact.v2` com normalizer `toRenderableSeries(payload)`; validação Zod antes de persistir; renderer usa normalizer |
-| D03 | Gráfico App | Só texto; sem reidratação | C: `conversation_messages` guarda apenas texto; sem FK a `agent_artifacts` | `ConversationHistory.ts` | P0 | Coluna `artifact_id`/`artifact_ids[]` em `conversation_messages`; hidratação por join no fetch |
-| D04 | Fila WA | 154–300s parada | C: `triggerDispatcher()` fire-and-forget; sem watchdog cron efetivo | `whatsapp-send/index.ts` | P0 | Cron `pg_cron` 30s → `net.http_post` para `whatsapp-send`; `SKIP LOCKED` + lease 60s + retry exponencial + dead-letter; timeout 25s no fetch de `artifact-render` |
-| D05 | Alucinação | "Aqui está o gráfico" sem PNG | C: `ResponseValidator` valida draft/receipt mas `GRAPH_CLAIM_RX` só cobre alguns padrões; `artifact_status` fica `generated` | `ResponseValidator.ts`, `AgentCore.ts` | P0 | Guardrail: só permitir claim se `artifact_status='delivered'` (WA) ou `'ready'` (App); caso contrário reescreve para "Estou preparando o gráfico…" |
-| D06 | FastLog lifecycle | `status='running'`, `ended_at=null` | C: `runFastLog` não fecha `agent_runs` no happy path | `FastLog.ts` | P0 | Finalizador `try/finally` marca `status='done'`, `ended_at=now()`, `latency_ms`; job varre runs órfãos >5min |
-| D07 | Manual cache | Lançamento não aparece | C: `["credit_cards"]` vs `["credit-cards"]` divergentes | `invalidation.ts:21`, `creditCards.ts:26` | P1 | Padronizar em `["credit_cards"]`; helper único `invalidateFinancialQueries`; read-after-write com `.select().single()` |
-| D08 | Filtros ocultam | Sem aviso | H: filtros persistidos em `sessionStorage` | `Lancamentos.tsx` | P1 | Após insert, se linha nova não passa nos filtros ativos, banner "Lançamento salvo mas oculto pelo filtro X — mostrar" |
-| D09 | Intent visual | `unknown` | H: `IntentRouter` não tem regra para pedido visual | `IntentRouter.ts` | P1 | Regex determinístico "grafico\|gráfico\|visual\|imagem" → intent `visualization` |
-| D10 | Weekday robust | Retorna concentração | H: função publicada difere de `weekday.robust.v2` | logs | P1 | Confirmar `formula_version` em prod vs Git; republicar se divergente |
-| D11 | Admin contagem 3 | admin conta como cliente em algum ponto | H: 1 RPC legada não usa `v_client_users` | `admin_v2_*` | P2 | Grep de todas RPCs `admin_v2_*` para `auth.users`/`profiles` sem filtro; padronizar em `v_client_users` |
-| D12 | ACK WA | `accepted_at/delivered_at/read_at` nulos | H: correlação por `provider_message_id` falhando | `outbound_messages` | P2 | Verificar mapping WAHA→`apply_outbound_ack`; index em `provider_message_id` |
+## 2. Arquitetura-alvo
 
-## 3. Arquitetura Atual → Alvo
-
-**Fluxos hoje:**
 ```text
-[App]  UI ──► supabase RPC/insert ──► transactions
-[WA]   waha ─► whatsapp-webhook ─► agent-run ─► tools ─► transactions
-                                              └─► agent_artifacts ─► outbound_messages ─► whatsapp-send ─► artifact-render(PNG)
-[FastLog] regex ─► runFastLog ─► tools ─► (agent_runs NÃO fecha)
+┌──────────────────────────────────────────────────────────────┐
+│  App (React)         WhatsApp (WAHA)         Admin Console   │
+└─────────┬────────────────────┬──────────────────────┬────────┘
+          │                    │                      │
+          ▼                    ▼                      ▼
+     AppAdapter          WhatsAppAdapter        admin_v2_* RPCs
+          │                    │                      │
+          └────────► AgentCore (IntentRouter, PolicyEngine, ToolRuntime)
+                              │
+                              ▼
+              ┌──────────────────────────────┐
+              │  RPC commit_movement (única) │◄── feature flag effective
+              │  RPC agent_execute_confirm.  │
+              │  RPC shared_goal_*, split_*  │
+              └───────────────┬──────────────┘
+                              ▼
+                         Postgres + RLS
+                              │
+                    OutboundQueue (cron+lease+DLQ)
+                              │
+                          WAHA provider
 ```
 
-**Alvo:**
-```text
-Todas as escritas financeiras ──► finance.commitMovement(kind, payload) ──► transactions (RLS + trigger competência)
-                                    ↑
-        App form, agent tool, FastLog, importer — mesmo ponto único.
+**Princípios:**
+- Toda escrita financeira passa por `commit_movement(payload jsonb)` — SECURITY DEFINER, valida ownership via `auth.uid()`, idempotência por `idempotency_key`.
+- Contrato de artefato canônico `chart.artifact.v2` validado com Zod tanto no App quanto na Edge Function.
+- Guardrail por canal: `ChannelGuard.assertRenderable(channel, artifact)` antes de qualquer afirmação de "gerei/enviei".
+- Feature flags lidas via `getEffectiveFlags(user_id)` cacheadas 60s no runtime.
 
-Artefato ──► buildChartArtifactV2 ──► zodValidate ──► agent_artifacts
-                                                          │
-                                          App: ChartArtifactRenderer(v2)
-                                          WA: artifact-render(v2) ──► storage ──► outbound(image)
-                                                                            │
-                                                                Estado: calculating→persisted→rendering→ready→queued→accepted→delivered|failed
-```
+## 3. Modelo de dados
 
-Componentes a **consolidar**: `NotificationDispatcher` (facade) já ok; unificar `png.ts` + `artifact-render/index.ts` num único renderer que consome o mesmo `toRenderableSeries`. **Remover**: caminho de render `@napi-rs/canvas` (não roda no Edge) — manter só o TS puro.
+**Alterações aditivas:**
+- `financial_feature_flags`: já existe. Nenhuma alteração.
+- `agent_runs`: adicionar `trace_id text`, `channel text`, índice `(status, started_at)`.
+- `outbound_messages`: adicionar `dead_letter_at timestamptz`, `attempts int`, `last_error text`, `sla_breach_at timestamptz`.
+- `shared_expenses`: adicionar `referral_source text`, `invite_message_id_secondary uuid`.
+- `shared_expense_participants`: adicionar `linked_user_id uuid REFERENCES auth.users`, `invite_status text`, `viewed_at timestamptz`, `notified_in_app_at timestamptz`.
 
-## 4. Plano em Ondas
+**Novas tabelas:**
+- `shared_goals(id, title, target_amount, deadline, created_by, referral_source, created_at, updated_at)`
+- `shared_goal_members(goal_id, user_id, phone_e164, role[owner|member], invite_status, joined_at, contribution_total, unique(goal_id, user_id or phone_e164))`
+- `shared_goal_contributions(id, goal_id, user_id, amount, occurred_at, transaction_id, note)`
+- `shared_goal_invites(id, goal_id, phone_e164, invited_by, status, token, expires_at, accepted_by_user_id)`
+- `notifications` (se ainda não abrangente): tipos `split_created`, `split_paid`, `goal_invite`, `goal_contribution`, `goal_milestone`.
 
-### Onda 0 — Snapshots e proteção (sem risco)
-| Ordem | Objeto | Alteração | Dep | Risco | Teste | Deploy |
-|---|---|---|---|---|---|---|
-| 0.1 | Snapshot SQL | Dump `agent_artifacts`, `outbound_messages`, `transactions`, `agent_runs` últimos 30d | — | 0 | count antes/depois | não |
-| 0.2 | Feature flag | `agent_v2_bill_payment`, `artifact_v2_contract`, `wa_watchdog` em `financial_feature_flags` | — | 0 | leitura por user | migration |
+**Views/RPCs:**
+- `v_client_universe` (excluir `platform_admins`).
+- `commit_movement(payload jsonb) returns jsonb`.
+- `shared_goal_create/invite/accept/decline/contribute/leave/remove_member`.
+- `split_link_participant_to_user(participant_id)` — chamado quando usuário cadastra com telefone que já é participante.
+- Trigger `AFTER INSERT ON profiles`: procurar `shared_expense_participants` e `shared_goal_invites` com telefone match e vincular.
 
-### Onda 1 — P0 integridade e entrega
-| Ordem | Arquivo/objeto | Alteração | Dep | Risco | Teste | Deploy |
-|---|---|---|---|---|---|---|
-| 1.1 | `_shared/artifacts/normalize.ts` (novo) | `toRenderableSeries(payload)` cobre v1+v2 | — | baixo | unit fixtures | edge |
-| 1.2 | `_shared/artifacts/png.ts` | Usa normalizer | 1.1 | baixo | render 3 fixtures | edge |
-| 1.3 | `artifact-render/index.ts` | Usa normalizer + AbortController 20s + retry 1x | 1.1 | médio | integração | edge |
-| 1.4 | `agent/tools.ts` + `prompt.ts` | Nova tool `pay_credit_card_bill_draft`; validar `movement_kind` em `record_expense`; rejeitar args desconhecidos | — | médio | 4 cenários agente | edge |
-| 1.5 | migration `credit_card_bill_payment` | Enum `movement_kind` já suporta? — validar; senão aditivo; trigger garante `settles_card_id` quando kind=bill_payment | 1.4 | médio | SQL | mig |
-| 1.6 | `ResponseValidator.ts` | Bloqueia claim de gráfico até `artifact_status ∈ {ready,delivered}` | — | baixo | unit | edge |
-| 1.7 | `AgentCore.ts` | Propaga `artifact_status` real (rendered/delivered) para `agent_turn_events` | 1.3 | médio | E2E | edge |
-| 1.8 | `FastLog.ts` | `try/finally` fecha run com status/latency | — | baixo | unit | edge |
-| 1.9 | migration cron | `whatsapp-send-dispatch-30s` + `fastlog-orphan-sweep-5m` | — | baixo | `cron.job` | mig |
-| 1.10 | `whatsapp-send/index.ts` | Lease 60s, `SKIP LOCKED`, dead-letter, timeout render 20s | 1.9 | médio | fila simulada | edge |
+## 4. Migrations (ordem exata)
 
-### Onda 2 — Contratos canônicos
-| Ordem | Objeto | Alteração |
-|---|---|---|
-| 2.1 | `_shared/finance/commit.ts` (novo) | API única `commitMovement({kind, ...})` usada por App/agent/FastLog/import |
-| 2.2 | RPC `commit_movement` | Server-side validation por kind, retorna linha final |
-| 2.3 | Zod `chart.artifact.v2.ts` | Schema + validação antes de insert |
-| 2.4 | `conversation_messages` | Coluna `artifact_ids uuid[]`, backfill NULL |
-| 2.5 | App history | Hidrata artefatos pelo FK |
+1. `20260728000000_wave1_migration_hardening.sql`
+   - `DROP TRIGGER IF EXISTS trg_transactions_fill_competence_date ON public.transactions;` antes do `CREATE TRIGGER`.
+   - Idempotência para todos os `CREATE POLICY` via `DO $$ IF NOT EXISTS`.
+   - `REVOKE EXECUTE ... FROM PUBLIC` em `_exec_credit_card_bill_payment`, `agent_execute_confirmation*`, `sweep_orphan_agent_runs`.
+   - `GRANT EXECUTE ... TO service_role` explícito.
+   - Índice `agent_runs(status, started_at)`.
 
-### Onda 3 — UX, observabilidade, Admin
-| 3.1 | Banner "salvo mas oculto pelo filtro" em Lançamentos |
-| 3.2 | Toast "Gerando gráfico…" com timeout visual |
-| 3.3 | Query keys padronizadas `["credit_cards"]` |
-| 3.4 | Read-after-write em `useSaveTransaction` |
-| 3.5 | `IntentRouter` regra `visualization` determinística |
-| 3.6 | Auditoria RPCs `admin_v2_*` → `v_client_users` |
-| 3.7 | Dashboard filas WA + FastLog órfãos + render failure |
+2. `20260728010000_commit_movement_rpc.sql`
+   - `commit_movement(payload jsonb)` SECURITY DEFINER, valida `auth.uid()`, valida UUID/data/valor, idempotência por `idempotency_keys`, aceita apenas nomes canônicos (`account_id`, não `from1_account`), retorna linha final. Trata `movement_kind IN ('income','expense','transfer','credit_card_bill_payment','investment_movement')`.
+   - `REVOKE FROM PUBLIC`; `GRANT EXECUTE TO authenticated`.
 
-### Onda 4 — Homologação completa
-17 cenários da seção "Testes Obrigatórios" + regressão.
+3. `20260728020000_client_universe_and_admin_flow_metrics.sql`
+   - `v_client_universe` (auth.users − platform_admins).
+   - RPCs `admin_v2_flow_by_period(_from,_to,_tz)`, `admin_v2_daily_lifecycle(_from,_to,_tz)`.
+   - `admin_v2_ops_cockpit()` (queue depth, artifact failures, fastlog error rate, edge fn latencies).
 
-## 5. Arquivos e Objetos
+4. `20260728030000_shared_goals.sql`
+   - Cria tabelas `shared_goals`, `shared_goal_members`, `shared_goal_contributions`, `shared_goal_invites` com GRANTs e RLS (owner/member podem ler; só owner edita meta; membro registra própria contribuição).
 
-**Frontend:** `src/lib/db/finance.ts`, `src/lib/db/invalidation.ts`, `src/lib/db/creditCards.ts`, `src/pages/Lancamentos.tsx`, `src/pages/Cartoes.tsx`, `src/components/assessor/artifacts/ChartArtifactRenderer.tsx`, `src/context/AssessorContext.tsx`.
+5. `20260728040000_split_link_and_referral.sql`
+   - Colunas aditivas em `shared_expenses` e `shared_expense_participants`.
+   - Função `link_participants_on_profile_created()` + trigger em `profiles`.
+   - RPC `create_secondary_invite_message(participant_id)` idempotente por `(participant_id, kind='invite')`.
 
-**Edge Functions:** `whatsapp-send`, `artifact-render`, `agent-run`, `agent-chat`, `whatsapp-webhook`.
+6. `20260728050000_outbound_dlq_and_observability.sql`
+   - Colunas em `outbound_messages`; view `v_outbound_sla_breach`; RPC `admin_v2_outbound_queue()`.
+   - `cron.schedule('outbound-dispatch-1m', '* * * * *', ...)` versionado no arquivo mas usando Vault para o secret — o próprio schedule é criado apenas se não existir.
 
-**Shared:** `_shared/agent/tools.ts`, `_shared/agent/prompt.ts`, `_shared/agent/core/{AgentCore,ResponseValidator,FastLog,IntentRouter}.ts`, `_shared/artifacts/{png,normalize}.ts`, `_shared/finance/commit.ts` (novo).
+7. `20260728060000_notifications_extension.sql`
+   - Enum `notification_type` acrescido de `goal_invite`, `goal_contribution`, `goal_milestone`, `split_participant_linked`.
 
-**Migrations (aditivas):**
-- `..._artifact_v2_contract.sql` (coluna `contract_version` em `agent_artifacts`, backfill 'v2')
-- `..._conversation_messages_artifact_ids.sql`
-- `..._movement_kind_bill_payment.sql` (se enum não cobre) + trigger
-- `..._cron_wa_dispatch_and_fastlog_sweep.sql`
-- `..._feature_flags_agent_v2.sql`
-- `..._commit_movement_rpc.sql`
+Cada migration termina com `SELECT ... snapshot pós` em `wave1_pre_snapshot` (label específico) para auditoria.
 
-**Testes:** 17 novos em `src/test/` + fixtures anonimizadas de artefato v1/v2, WA queue, FastLog lifecycle.
+## 5. Arquivos e funções — inventário completo
 
-## 6. Migrations
+**Backend/DB:**
+- `supabase/migrations/2026072800000..060000_*.sql` (7 arquivos acima).
 
-Todas aditivas, idempotentes (`IF NOT EXISTS`, `DO $$` para enums). Backfill:
-- `agent_artifacts.contract_version = 'v1'` para linhas atuais; novas gravam `'v2'`.
-- Nenhum DROP; rollback = feature flag off.
+**Edge Functions:**
+- `_shared/finance/commitMovement.ts` (novo, wrapper cliente da RPC).
+- `_shared/artifacts/schema.ts` — endurecer Zod, `contract_version:"v2"` obrigatório, rejeitar séries vazias/labels desalinhados.
+- `_shared/artifacts/normalize.ts`, `builder.ts`, `png.ts` — usar Zod strict.
+- `_shared/agent/core/ChannelGuard.ts` (novo).
+- `_shared/agent/core/ResponseValidator.ts` — usar `ChannelGuard`.
+- `_shared/agent/core/adapters/AppAdapter.ts` — usar `commit_movement`.
+- `_shared/agent/core/adapters/WhatsAppAdapter.ts` — usar `commit_movement`; afirmar entrega apenas após provider ack.
+- `_shared/agent/core/FeatureFlags.ts` (novo) — leitura efetiva.
+- `_shared/agent/core/FastLogLifecycle.ts` — `try/finally` real, marca `done|error`, `ended_at`, `error_sanitized`.
+- `_shared/observability/traceId.ts` (novo).
+- `artifact-render/index.ts` — usar schema Zod strict; timeout 25s; retry 2×; persistir `media_path`, `media_mime`, `rendered_at`.
+- `whatsapp-send/index.ts` — vincular `outbound_messages.artifact_id`, retornar apenas após provider accept.
+- `whatsapp-webhook/index.ts` — normalizar telefone; disparar `link_participants_on_profile_created` indiretamente via profile creation.
+- `split-reminders-dispatch/index.ts` — segunda mensagem de convite com espaçamento; idempotência.
+- `agent-run/index.ts` — trace_id, channel.
 
-## 7. Critérios de Aceite
+**Novas Edge Functions:**
+- `shared-goal-invite/index.ts` — cria convite + envia mensagem (WhatsApp/in-app).
+- `outbound-dispatch/index.ts` — worker de fila com lease/DLQ (invocado por cron).
 
-- P95 lançamento simples ≤ 5s.
-- P95 gráfico App ≤ 15s.
-- P95 imagem WA aceita ≤ 30s.
-- Fila WA >60s ⇒ alerta.
-- 0 mensagens "aqui está o gráfico" sem entrega confirmada (métrica `graph_claim_without_delivery` = 0).
-- 0 admin em `admin_v2_clients_list`.
-- 0 `agent_runs` FastLog `status='running'` > 5min.
-- 0 `create_transfer_draft` com destino cartão.
+**Frontend:**
+- `src/lib/db/finance.ts` — todos os saves via `supabase.rpc('commit_movement', ...)`; read-after-write; `setQueryData` + invalidação.
+- `src/lib/db/queryKeys.ts` (novo) — chaves padronizadas.
+- `src/lib/db/invalidation.ts` — refactor para chaves padronizadas.
+- `src/components/assessor/AssessorPanel.tsx` — hidratação artefato + guardrail por canal.
+- `src/components/assessor/artifacts/ChartArtifactRenderer.tsx` — Zod validation.
+- `src/pages/Lancamentos.tsx` — banner "salvo mas oculto" + botão limpar filtros.
+- **Divisão do Rolê:**
+  - `src/pages/DivisaoDoRole.tsx` — abas "Criados por mim" / "Estou participando".
+  - `src/pages/DivisaoDoRoleNova.tsx` — `ContactPickerButton` + fallback manual.
+  - `src/components/split/ContactPickerButton.tsx` (novo) — usa Contact Picker API com fallback.
+  - `src/components/split/ParticipatingList.tsx` (novo).
+  - `src/pages/DivisaoDoRoleDetalhe.tsx` — timeline visual, status, ações.
+- **Metas conjuntas:**
+  - `src/pages/Metas.tsx` — filtro individual/conjunta, badge.
+  - `src/pages/MetaConjuntaNova.tsx` (novo).
+  - `src/pages/MetaDetalhe.tsx` (novo/refactor) — avatares, contribuições por pessoa, ritmo, próximo marco.
+  - `src/components/metas/SharedGoalCard.tsx` (novo).
+  - `src/components/metas/InviteMemberSheet.tsx` (novo).
+- `src/components/NotificationBell.tsx` — novos tipos `goal_*` e `split_participant_linked`.
+- **Admin:**
+  - `src/pages/admin/Cockpit.tsx` — adicionar filtros temporais completos, cards "estoque vs fluxo vs acumulado vs evento diário".
+  - `src/pages/admin/Clientes.tsx` — busca, paginação, lifecycle.
+  - `src/pages/admin/operacao/WhatsApp.tsx` — dashboard de fila (depth, SLA breach, DLQ).
+  - `src/pages/admin/operacao/Artefatos.tsx` (novo).
+  - `src/pages/admin/operacao/FastLog.tsx` (novo).
+  - `src/lib/admin/periodPresets.ts` — Hoje/Ontem/7d/30d/mês atual/mês anterior/dia/intervalo.
 
-## 8. Homologação
+**Testes:** ver seção 10.
 
-Para cada cenário: SQL antes → ação UI/WA → SQL depois → screenshot/log → verificação SHA (`SELECT current_setting('app.git_sha')` se disponível; senão comparar `functions.deployed_at` vs commit).
+## 6. Sequência de implementação (ondas internas, sem deixar P0 aberto)
 
-## 9. Rollout / Rollback
+**Onda 0 — Validação prévia (30min, sem código):**
+- `psql` reads: `financial_feature_flags`, `cron.job`, `pg_indexes` em `agent_runs`, contagem admins vs clients, existência `v_client_universe`.
+- Gate: só prossegue com relatório em `.lovable/pre-flight-snapshot.md`.
 
-Ordem: (1) Onda 0 migrations flag/snapshot, (2) Onda 1 migrations, (3) Deploy Edge Functions Onda 1, (4) Frontend Onda 1, (5) Canário 24h com 1 usuário admin, (6) Onda 2, etc.
+**Onda 1 — Migrations de hardening (P0, backend puro):**
+- Executar migrations 1, 2, 3 acima.
+- Snapshot pós em `wave1_pre_snapshot`.
 
-Rollback por onda = flag OFF + redeploy commit anterior. Dados preservados pois todas migrations são aditivas.
+**Onda 2 — Core financeiro unificado (P0):**
+- `commit_movement` wrapper + refactor de `finance.ts` + read-after-write + query keys unificadas.
+- Banner de filtros ocultos em `Lancamentos.tsx`.
+- Testes 5.1 verdes antes de continuar.
 
-## 10. Estimativa
+**Onda 3 — Artefatos e guardrails (P0):**
+- Zod strict em `schema.ts`; `ChannelGuard`; refactor `ResponseValidator`; `artifact-render` com timeout/retry.
+- Pipeline único: detectar → tool → validar → persistir → renderizar → entregar.
+- Testes 5.2 verdes.
 
-- Onda 0: 1 patch, baixo custo.
-- Onda 1: **1 patch consolidado** (P0 crítico; alto ROI).
-- Onda 2: 1 patch (contratos).
-- Onda 3: 1 patch (UX + Admin).
-- Onda 4: 1 patch (testes).
+**Onda 4 — FastLog + fila WhatsApp (P0):**
+- `FastLogLifecycle` com try/finally.
+- `outbound-dispatch` worker + DLQ + alerta SLA >60s.
+- Cron versionado.
+- Testes 5.3 verdes.
 
-Total: 5 patches. Ondas 1 e 2 **devem** ser separadas por segurança (contrato canônico pode desestabilizar imports).
+**Onda 5 — Feature flags efetivas (P0):**
+- `FeatureFlags.ts` lido por `AppAdapter`, `WhatsAppAdapter`, `artifact-render`, `finance.ts`.
+- Toggle admin no cockpit.
+- Testes on/off por flag.
 
-## 11. Prompt Final de Implementação (copy/paste após aprovação)
+**Onda 6 — Admin (P1):**
+- Migration 3 (`v_client_universe`, `admin_v2_flow_by_period`, `admin_v2_daily_lifecycle`, `admin_v2_ops_cockpit`).
+- Refactor páginas admin; período completo; cockpit operacional; tela Clientes.
+- Testes 5.4.
 
-```
-EXECUTAR ONDA 1 DO PLANO CONSOLIDADO MEU NINO (.lovable/plan.md).
-Escopo estrito: itens 1.1 a 1.10. Não avançar para Onda 2.
-Entregar em patch único: normalizer de artefato, renderer PNG, artifact-render
-com AbortController, nova tool pay_credit_card_bill_draft, ResponseValidator
-com guardrail de gráfico, FastLog lifecycle, cron watchdog WA + varredura
-FastLog, whatsapp-send com SKIP LOCKED e dead-letter. Rodar migrations
-aditivas na ordem indicada. Deploy das 5 Edge Functions afetadas. Validar
-com os 17 cenários; abortar e reportar se qualquer P0 falhar.
-```
+**Onda 7 — Divisão do Rolê v2 (P1):**
+- Migrations 4/5 + link on profile create.
+- `ContactPickerButton` + fallback.
+- Abas criados/participados.
+- Segunda mensagem (convite) idempotente com espaçamento.
+- Notificação in-app + realtime.
+- Testes 5.5.
 
----
-**Confirmação:** nenhuma alteração funcional, migration, deploy ou publicação foi realizada nesta rodada. Aguardando aprovação para executar a Onda 0 + Onda 1.
+**Onda 8 — Metas conjuntas (P1):**
+- Migration 4 (shared_goals) + 6 (notifications).
+- CRUD, convite, aceite, contribuições.
+- Assessor: tools `create_shared_goal_draft`, `contribute_shared_goal_draft`, `explain_shared_goal_progress`.
+- Home + Metas com badge e filtro.
+- Testes 5.6.
+
+**Onda 9 — QA, deploy, publicação (P0 encerra):**
+- Suíte completa verde + typecheck + lint + build.
+- Deploy Edge Functions afetadas.
+- Publicação frontend.
+- Comparar SHAs.
+
+## 7. Dependências e riscos
+
+- **Risco alto:** refactor de `finance.ts` para `commit_movement` pode quebrar Home/Lançamentos se query keys não forem migradas juntas. Mitigar: fazer Onda 2 num único passo atômico com testes.
+- **Risco médio:** Contact Picker API não é suportada em iOS Safari. Aceito: fallback manual sempre disponível.
+- **Risco médio:** cron do `outbound-dispatch` conflita com watchdog existente. Antes de criar, verificar em Onda 0.
+- **Risco baixo:** Zod strict pode rejeitar artefatos legados em histórico. Mitigar: normalizer v1→v2 no path de leitura.
+
+## 8. Rollback
+
+- Cada migration é aditiva; rollback via flag `use_wave1_bill_payment=false`, `use_v2_artifact_normalizer=false`.
+- `commit_movement`: fallback lê flag `use_commit_movement_rpc` (nova coluna); se `false`, `finance.ts` cai no path direto (mantido por 1 sprint).
+- Novas tabelas (`shared_goals*`) — remover via migration reversa se necessário; sem dado legado a preservar.
+- Frontend: reverter deploy anterior via SHA registrado no checklist.
+
+## 9. Testes por etapa
+
+Ver seções 5.1–5.7 do prompt do usuário — adotadas integralmente. Adições:
+- `commit_movement.test.ts` — todos os payloads inválidos.
+- `channel_guard.test.ts` — App vs WhatsApp separados.
+- `fastlog_lifecycle.test.ts` — done/error paths.
+- `outbound_queue.test.ts` — lease/retry/DLQ.
+- `shared_goal_flow.test.ts` — convite → aceite → contribuição.
+- `split_link_on_signup.test.ts` — trigger de vínculo.
+- `admin_client_universe.test.ts` — admins fora das métricas.
+- `contact_picker.test.tsx` — presença de fallback.
+
+## 10. Deploy/publicação
+
+1. Aplicar migrations 1→7 em ordem.
+2. Deploy Edge Functions afetadas: `artifact-render`, `agent-run`, `agent-chat`, `whatsapp-send`, `whatsapp-webhook`, `split-reminders-dispatch`, `outbound-dispatch` (novo), `shared-goal-invite` (novo).
+3. `bun test` full + typecheck + build.
+4. Frontend publish via `preview_ui--publish`.
+5. Registrar SHA repo, SHA edge, SHA frontend em `.lovable/wave2-release.md`.
+
+## 11. Homologação
+
+Cenários E2E manuais (checklist gravado):
+- Fluxo compra R$120 no cartão + pagamento fatura R$4639,73 → consumo não sobe.
+- Pedido "me mostra um gráfico dos últimos 30 dias" no App e no WhatsApp.
+- FastLog `!ja 25 café` → transação salva, run `done`.
+- Criar rolê com contato existente → participante vê rolê ao logar.
+- Criar rolê com número novo → convidado recebe mensagem 1 e mensagem 2 espaçadas.
+- Meta conjunta com dois usuários → ambos veem contribuições.
+- Admin: dois clientes reais aparecem, admin excluído.
+
+## 12. Critérios objetivos de `COMPLETED`
+
+Todos os itens abaixo verdes:
+- [ ] Migrations 1–7 aplicadas e re-executáveis (`bun run migrate` sem erro em ambiente limpo).
+- [ ] `commit_movement` cobre 5 kinds e rejeita 8 payloads inválidos (testes).
+- [ ] `chart.artifact.v2` Zod strict — 0 uso de `any` no contrato público.
+- [ ] Guardrail por canal com testes App e WhatsApp separados.
+- [ ] FastLog `done|error` sempre gravado; sweep sem itens presos.
+- [ ] Fila WhatsApp com DLQ + alerta >60s + cron versionado.
+- [ ] Admin: dois clientes reais, filtros completos, cockpit operacional.
+- [ ] Divisão do Rolê com Contact Picker + fallback + abas + convite duplo + vínculo automático.
+- [ ] Metas conjuntas com convite/aceite/contribuição/RLS + comandos do agente.
+- [ ] Suíte completa verde + typecheck + lint + build.
+- [ ] SHAs registrados.
+
+## 13. Tabela final
+
+| Bloco | Estado atual | Alteração | Evidência esperada | Aceite |
+|---|---|---|---|---|
+| Migration Wave1 | `CREATE TRIGGER` sem guard | Migration 1 idempotente | Rerun limpo | `psql` reexecuta OK |
+| commit_movement | Inexistente | Migration 2 + refactor `finance.ts` | RPC + 5 kinds | Testes 5.1 verdes |
+| Feature flags | Colunas mortas | `FeatureFlags.ts` + gating | flag off ↔ path antigo | Toggle admin funcional |
+| Read-after-write | Parcial | `.select().single()` obrigatório | Home imediata | Teste visibilidade |
+| Query keys | `credit_cards` vs `credit-cards` | `queryKeys.ts` central | Grep zero divergência | Build limpo |
+| Artefatos | Zod fraco | Schema strict + normalizer | 0 `any` público | Teste 5.2 |
+| Guardrail canal | Misto | `ChannelGuard` | Testes separados | 5.2 |
+| FastLog | Depende de exceção | try/finally | `agent_runs.ended_at` sempre | 5.3 |
+| Fila WA | Sem DLQ | `outbound-dispatch` + cron | `outbound_messages.dead_letter_at` | 5.3 |
+| Admin clientes | Mistura admin | `v_client_universe` | 2 clientes reais | 5.4 |
+| Filtros temporais | Parcial | `periodPresets.ts` completo | 8 presets | 5.4 |
+| Cockpit ops | Ausente | `admin_v2_ops_cockpit` | Nova página | 5.4 |
+| Divisão contatos | Manual | Contact Picker + fallback | Botão + input | 5.5 |
+| Divisão vínculo | Ausente | Trigger + notificação | Aba "Participando" | 5.5 |
+| Convite duplo | Ausente | 2ª mensagem espaçada | outbound registros | 5.5 |
+| Metas conjuntas | Ausente | Migration 4 + UI + agente | Tabelas + telas | 5.6 |
+
+## 14. Estimativa de esforço/créditos
+
+- Onda 0: baixo (leituras).
+- Onda 1: médio (migrations).
+- Onda 2: alto (refactor `finance.ts`).
+- Onda 3: médio-alto (artefatos).
+- Onda 4: médio (fila).
+- Onda 5: baixo (flags).
+- Onda 6: médio (admin).
+- Onda 7: alto (divisão do rolê).
+- Onda 8: alto (metas conjuntas).
+- Onda 9: baixo-médio (QA + deploy).
+
+## 15. Prompt interno de execução (auto-suficiente pós-aprovação)
+
+> Executar plano em 9 ondas sem parar entre elas. Ordem: 0→1→2→3→4→5→6→7→8→9. Não pular P0. Cada onda:
+> 1. Ler arquivos afetados.
+> 2. Aplicar migrations/edits em paralelo quando independentes.
+> 3. Rodar `bunx vitest run` da suíte relevante.
+> 4. Só avançar quando verde.
+> 5. Registrar em `.lovable/wave2-progress.md`.
+>
+> Regras de segurança: nunca alterar migrations históricas; toda RPC nova com `REVOKE FROM PUBLIC` + `GRANT` explícito; nenhum `any` em contrato público; toda escrita financeira via `commit_movement`; toda afirmação de "gerei/enviei gráfico" passa por `ChannelGuard`; toda mensagem outbound tem idempotency key; FastLog sempre finaliza status.
+>
+> Ao final da Onda 9: `preview_ui--publish` + registrar SHAs em `.lovable/wave2-release.md`. Não considerar COMPLETED sem checklist da Seção 12 100% verde.
