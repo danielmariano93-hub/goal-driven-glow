@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Loader2, Plus, Trash2, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccounts, useCategories } from "@/lib/db/finance";
@@ -10,6 +10,7 @@ import { formatBRL } from "@/lib/split/math";
 import { dispatchSplitReminders } from "@/lib/split/dispatch";
 import { normalizeBrPhone } from "@/lib/phone";
 import { CategorySelect } from "@/components/CategorySelect";
+import { ContactPickerButton } from "@/components/contacts/ContactPickerButton";
 
 type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
 type Source = "account" | "credit_card";
@@ -100,6 +101,8 @@ export default function DivisaoDoRoleNova() {
     try {
       const participantPayload: Array<{ id: string | null; name: string; phone_e164: string | null; amount_due: number }> = [];
       const invalidPhones: string[] = [];
+      const seenPhones = new Set<string>();
+      const duplicated: string[] = [];
       for (const p of people.filter((x)=>x.name.trim())) {
         const share = shares.find((s)=>s.name===p.name)?.amount ?? 0;
         const raw = p.phone_e164.trim();
@@ -107,8 +110,15 @@ export default function DivisaoDoRoleNova() {
         if (raw) {
           phone = normalizeBrPhone(raw);
           if (!phone) invalidPhones.push(p.name.trim());
+          else if (seenPhones.has(phone)) duplicated.push(p.name.trim());
+          else seenPhones.add(phone);
         }
         participantPayload.push({ id:p.id??null, name:p.name.trim(), phone_e164:phone, amount_due:share });
+      }
+      if (duplicated.length) {
+        setSaving(false);
+        toast.error(`Telefone repetido: ${duplicated.join(", ")}. Cada pessoa só pode aparecer uma vez.`);
+        return;
       }
       if (invalidPhones.length) {
         setSaving(false);
@@ -185,7 +195,7 @@ export default function DivisaoDoRoleNova() {
     </section>}
     {(editing||step===2)&&<section className="space-y-3">
       <div className="surface-card space-y-3 p-4"><div className="flex gap-2"><Choice active={mode==="equal"} onClick={()=>setMode("equal")}>Dividir igual</Choice><Choice active={mode==="custom"} onClick={()=>setMode("custom")}>Personalizar</Choice></div><label className="flex gap-2 text-xs"><input type="checkbox" checked={includeOwner} onChange={(e)=>setIncludeOwner(e.target.checked)}/> Incluir você</label>{includeOwner&&mode==="custom"&&<Field label="Sua parte"><input value={ownerAmount} onChange={(e)=>setOwnerAmount(e.target.value)} className="input" inputMode="decimal"/></Field>}</div>
-      <div className="surface-card space-y-3 p-4">{people.map((p,i)=><div key={p.id??i} className="grid grid-cols-[1fr_8rem_auto] gap-2"><input value={p.name} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Nome" className="input"/><input value={p.phone_e164} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,phone_e164:e.target.value}:x))} placeholder="+55…" className="input"/><button disabled={Boolean(p.amount_paid)} onClick={()=>setPeople(people.filter((_,j)=>j!==i))} className="text-destructive disabled:opacity-30"><Trash2 size={15}/></button>{mode==="custom"&&<input value={p.amount_due} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,amount_due:e.target.value}:x))} placeholder="Parte em R$" inputMode="decimal" className="input col-span-2"/>}</div>)}<div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setPeople([...people,{name:"",phone_e164:"",amount_due:""}])} className="inline-flex items-center gap-1 text-xs text-primary"><Plus size={13}/> Adicionar pessoa</button>{typeof navigator!=="undefined" && "contacts" in navigator && (<button type="button" onClick={async()=>{try{const c=await (navigator as any).contacts.select(["name","tel"],{multiple:true});const add=(c||[]).map((x:any)=>({name:(x.name?.[0]??"").toString(),phone_e164:(x.tel?.[0]??"").toString(),amount_due:""})).filter((x:any)=>x.phone_e164);if(add.length)setPeople([...people.filter((p)=>p.name||p.phone_e164),...add]);}catch{}}} className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-[11px] font-medium"><Users size={12}/> Contatos</button>)}</div><div className="border-t pt-3 text-xs">{shares.map((s,i)=><p key={i} className="flex justify-between"><span>{s.name}</span><strong>{formatBRL(s.amount)}</strong></p>)}<p className={`mt-2 flex justify-between ${Math.round(sharesTotal*100)===Math.round(totalNum*100)?"text-success":"text-destructive"}`}><span>Soma</span><strong>{formatBRL(sharesTotal)}</strong></p></div></div>
+      <div className="surface-card space-y-3 p-4">{people.map((p,i)=><div key={p.id??i} className="grid grid-cols-[1fr_8rem_auto] gap-2"><input value={p.name} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Nome" className="input"/><input value={p.phone_e164} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,phone_e164:e.target.value}:x))} placeholder="+55…" className="input"/><button disabled={Boolean(p.amount_paid)} onClick={()=>setPeople(people.filter((_,j)=>j!==i))} className="text-destructive disabled:opacity-30"><Trash2 size={15}/></button>{mode==="custom"&&<input value={p.amount_due} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,amount_due:e.target.value}:x))} placeholder="Parte em R$" inputMode="decimal" className="input col-span-2"/>}</div>)}<div className="flex flex-wrap items-center gap-2"><button type="button" onClick={()=>setPeople([...people,{name:"",phone_e164:"",amount_due:""}])} className="inline-flex items-center gap-1 text-xs text-primary"><Plus size={13}/> Adicionar pessoa</button><ContactPickerButton onPicked={({name,phone_e164})=>{const dup=people.some((p)=>p.phone_e164&&normalizeBrPhone(p.phone_e164)===phone_e164);if(dup){toast.error("Esta pessoa já está no rolê.");return;}const empty=people.findIndex((p)=>!p.name&&!p.phone_e164);const row={name,phone_e164,amount_due:""};if(empty>=0)setPeople(people.map((x,i)=>i===empty?{...x,...row}:x));else setPeople([...people,row]);}}/></div><div className="border-t pt-3 text-xs">{shares.map((s,i)=><p key={i} className="flex justify-between"><span>{s.name}</span><strong>{formatBRL(s.amount)}</strong></p>)}<p className={`mt-2 flex justify-between ${Math.round(sharesTotal*100)===Math.round(totalNum*100)?"text-success":"text-destructive"}`}><span>Soma</span><strong>{formatBRL(sharesTotal)}</strong></p></div></div>
     </section>}
     {(editing||step===3)&&<section className="surface-card space-y-3 p-4">
       <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">Para manter seu saldo correto, toda divisão registra o gasto na conta ou no cartão usado no pagamento.</div>
