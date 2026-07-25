@@ -5,6 +5,7 @@
 // caller cai para fallback textual.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { renderArtifactPng } from "../_shared/artifacts/png.ts";
 // deno-lint-ignore no-explicit-any
 let canvasMod: any = null;
 async function getCanvas() {
@@ -111,23 +112,15 @@ Deno.serve(async (req) => {
       return json({ ok: true, media_url: art.media_url, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
     }
 
-    const mod = await getCanvas();
-    if (!mod) {
-      // sem canvas disponível — devolve fallback textual
-      return json({
-        ok: false, error: "canvas_unavailable",
-        fallback_text: art.fallback_text ?? art.summary_text ?? "",
-      }, 200);
-    }
-
     const payload: ArtifactPayload = {
       ...(art.payload as any),
       summary_text: art.summary_text ?? (art.payload as any)?.summary_text,
       fallback_text: art.fallback_text ?? (art.payload as any)?.fallback_text,
       provenance: (art.payload as any)?.provenance ?? { formula_version: art.formula_version },
     };
-    const png = renderPng(payload, mod);
-    if (!png) return json({ ok: false, error: "render_failed" }, 500);
+    // Pure TypeScript encoder: compatible with Supabase Edge/Deno and does not
+    // require @napi-rs/canvas, the source of canvas_unavailable in WhatsApp.
+    const png = await renderArtifactPng(payload as any);
 
     // upload
     const path = `${art.user_id}/${art.id}.png`;

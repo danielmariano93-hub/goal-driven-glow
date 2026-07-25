@@ -1,12 +1,12 @@
 // Edge Function: agent-proactive-tick
-// Cron endpoint that scans users for proactive suggestions.
-// Can be called with { user_id } to scan a single user, or without body
-// to scan the top-N active users. Requires x-cron-secret matching
-// INTERNAL_CRON_SECRET, OR a platform_admin bearer token.
+// Scans users, creates proactive candidates and dispatches them through the
+// central communication policy. Global proactive_enabled remains the kill switch.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { scanUser } from "../_shared/agent/core/ProactiveEngine.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
+import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
+import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -17,8 +17,6 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-
-  // AuthN: cron secret OR platform_admin bearer.
   const cron = req.headers.get("x-cron-secret") ?? "";
   const bearer = req.headers.get("Authorization") ?? "";
   let authorised = CRON_SECRET !== "" && cron === CRON_SECRET;
@@ -38,26 +36,35 @@ Deno.serve(async (req) => {
   let body: any = {};
   try { body = await req.json(); } catch { /* ignore */ }
 
+  const { data: settings } = await sb.from("agent_settings")
+    .select("proactive_enabled").eq("id", 1).maybeSingle();
+  if (!(settings as any)?.proactive_enabled && body?.force !== true) {
+    return json({ ok: true, disabled: true, reason: "proactive_enabled_is_false", scanned: 0, results: [] });
+  }
+
   let userIds: string[] = [];
   if (body?.user_id) {
     userIds = [String(body.user_id)];
   } else {
-    // Pick top-N users active in the last 14 days (best-effort).
-    const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
-    const { data } = await sb.from("agent_runs")
-      .select("user_id").gte("started_at", cutoff).limit(500);
-    userIds = Array.from(new Set(((data as any[]) ?? []).map(r => r.user_id))).slice(0, 30);
+    // Inclui cadastro, uso do produto, lançamentos e conversas com o assessor.
+    userIds = await selectProactiveUserIds(sb, { limit: 100, activityDays: 60, onboardingDays: 45 });
   }
 
-  const results: Array<{ user_id: string; suggestions: number; error?: string }> = [];
+  const results: Array<{ user_id: string; suggestions: number; deliveries: number; errors: string[] }> = [];
   for (const uid of userIds) {
+    const errors: string[] = [];
+    let suggestions = 0, deliveries = 0;
     try {
       await recomputeProfile(sb, uid);
-      const s = await scanUser(sb, uid);
-      results.push({ user_id: uid, suggestions: s.length });
+      const generated = await scanUser(sb, uid);
+      suggestions = generated.length;
+      const dispatched = await dispatchSuggestions(sb, uid, { max: 3 });
+      deliveries = dispatched.filter(d => d.status === "delivered").length;
+      errors.push(...dispatched.filter(d => d.status === "failed").map(d => d.reason ?? "dispatch_failed"));
     } catch (e) {
-      results.push({ user_id: uid, suggestions: 0, error: String((e as Error).message).slice(0, 160) });
+      errors.push(String((e as Error).message).slice(0, 160));
     }
+    results.push({ user_id: uid, suggestions, deliveries, errors });
   }
-  return json({ scanned: userIds.length, results });
+  return json({ ok: true, scanned: userIds.length, results });
 });
