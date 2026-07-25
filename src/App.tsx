@@ -112,6 +112,8 @@ const App = () => (
                 <Route path="metas" element={<Metas />} />
                 <Route path="dividas" element={<Dividas />} />
                 <Route path="planejamento" element={<Planejamento />} />
+                <Route path="metas-conjuntas" element={<MetasConjuntas />} />
+                <Route path="metas-conjuntas/:id" element={<MetaConjuntaDetalhe />} />
                 <Route path="relatorios" element={<Relatorios />} />
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
