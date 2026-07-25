@@ -6620,6 +6620,10 @@ export type Database = {
         Args: { _goal_id: string; _user_id: string }
         Returns: boolean
       }
+      is_split_participant: {
+        Args: { _expense_id: string; _user_id: string }
+        Returns: boolean
+      }
       join_challenge: { Args: { p_slug: string }; Returns: string }
       learn_transaction_category: {
         Args: { p_category_id: string; p_transaction_id: string }
