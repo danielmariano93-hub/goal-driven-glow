@@ -1394,7 +1394,56 @@ export const AGENT_TOOLS: ToolSpec[] = [
     },
     execute: generate_report_from_template,
   },
+  {
+    name: "list_shared_goals",
+    description: "Lista as metas conjuntas visíveis ao usuário (owner ou membro).",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_shared_goals,
+  },
+  {
+    name: "get_shared_goal_progress",
+    description: "Retorna progresso agregado (total contribuído, restante, %) e ranking de contribuintes de uma meta conjunta.",
+    parameters: { type: "object", properties: { goal: optionalStr, goal_id: optionalStr }, additionalProperties: false },
+    execute: get_shared_goal_progress,
+  },
+  {
+    name: "simulate_shared_goal_pace",
+    description: "Simula a data de conclusão de uma meta conjunta considerando um aporte mensal hipotético.",
+    parameters: {
+      type: "object",
+      properties: { goal: optionalStr, goal_id: optionalStr, monthly_contribution: num },
+      required: ["monthly_contribution"], additionalProperties: false,
+    },
+    execute: simulate_shared_goal_pace,
+  },
+  {
+    name: "create_shared_goal_draft",
+    description: "Cria uma PROPOSTA de meta conjunta. Requer confirmação do usuário antes de persistir.",
+    parameters: {
+      type: "object",
+      properties: { title: requiredStr, target_amount: num, deadline: optionalStr },
+      required: ["title", "target_amount"], additionalProperties: false,
+    },
+    execute: create_shared_goal_draft,
+  },
+  {
+    name: "add_shared_goal_contribution_draft",
+    description: "Cria uma PROPOSTA de contribuição em uma meta conjunta existente. Requer confirmação.",
+    parameters: {
+      type: "object",
+      properties: { goal: requiredStr, amount: num, occurred_at: optionalStr, note: optionalStr },
+      required: ["goal", "amount"], additionalProperties: false,
+    },
+    execute: add_shared_goal_contribution_draft,
+  },
+  {
+    name: "explain_shared_goal_ranking",
+    description: "Explica o ranking de contribuintes de uma meta conjunta destacando os três primeiros.",
+    parameters: { type: "object", properties: { goal: optionalStr, goal_id: optionalStr }, additionalProperties: false },
+    execute: explain_shared_goal_ranking,
+  },
 ];
+
 
 export function toolByName(name: string): ToolSpec | null {
   return AGENT_TOOLS.find(t => t.name === name) ?? null;
