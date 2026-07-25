@@ -5491,9 +5491,10 @@ export type Database = {
         Returns: Json
       }
       admin_v2_clients_list: { Args: { _limit?: number }; Returns: Json }
-      admin_v2_cockpit:
-        | { Args: never; Returns: Json }
-        | { Args: { _from?: string; _to?: string }; Returns: Json }
+      admin_v2_cockpit: {
+        Args: { _from?: string; _to?: string }
+        Returns: Json
+      }
       admin_v2_daily_evolution: {
         Args: { _from?: string; _to?: string }
         Returns: Json
