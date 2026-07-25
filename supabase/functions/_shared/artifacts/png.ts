@@ -54,8 +54,11 @@ function line(buf: Uint8Array, x0: number, y0: number, x1: number, y1: number, c
   }
 }
 async function deflate(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const compression = new CompressionStream("deflate");
+  const writer = compression.writable.getWriter();
+  await writer.write(data);
+  await writer.close();
+  return new Uint8Array(await new Response(compression.readable).arrayBuffer());
 }
 
 export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8Array> {
