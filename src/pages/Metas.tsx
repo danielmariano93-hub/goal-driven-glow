@@ -95,21 +95,25 @@ export default function Metas() {
           <p className="text-sm text-muted-foreground">Guarde dinheiro ou controle um gasto por categoria.</p>
         </div>
         <button
-          onClick={() => {
-            if (tab === "save") { setEditing(null); setOpenGoal(true); }
-            else if (tab === "category") { setEditingCatGoal(null); setOpenCatGoal(true); }
-            else { window.location.href = "/app/metas-conjuntas"; }
-          }}
+          onClick={() => setOpenNewSelector(true)}
           className="btn-brand inline-flex items-center gap-2"
         >
           <Plus size={14} /> Nova meta
         </button>
       </header>
 
-      <div className="mb-4 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
+      <PendingInvitesBanner />
+
+      <div className="mb-3 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
         <button
-          onClick={() => setTab("save")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "save" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          onClick={() => setTab("all")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Todas
+        </button>
+        <button
+          onClick={() => setTab("individual")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "individual" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
         >
           Individuais
         </button>
@@ -119,43 +123,51 @@ export default function Metas() {
         >
           Conjuntas
         </button>
+      </div>
+
+      <div className="mb-4 flex items-center justify-end">
         <button
-          onClick={() => setTab("category")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "category" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          onClick={() => setOpenCatList((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
         >
-          Controlar gasto
+          <Sliders size={12} /> Controlar gasto por categoria
         </button>
       </div>
 
+      {openCatList && (
+        <div className="mb-4 rounded-2xl border border-border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold">Controle de gasto por categoria</p>
+            <button
+              onClick={() => { setEditingCatGoal(null); setOpenCatGoal(true); }}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium"
+            >
+              <Plus size={12} /> Novo teto
+            </button>
+          </div>
+          {catGoalEvals.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Defina um teto de gasto e acompanhe seu ritmo em tempo real.</p>
+          ) : (
+            <ul className="space-y-3">
+              {catGoalEvals.map((ev) => (
+                <CategoryGoalCard
+                  key={ev.goal.id}
+                  evaluation={ev}
+                  onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
+                  onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}
+                  onToggleStatus={() => toggleCatGoal.mutate({ id: ev.goal.id, status: ev.goal.status === "active" ? "paused" : "active" })}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {tab === "shared" ? (
         <SharedGoalsInline />
-      ) : tab === "category" ? (
-        catGoalEvals.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
-            <Target className="mx-auto h-8 w-8 text-muted-foreground" />
-            <p className="mt-3 text-sm font-medium">Qual categoria você quer controlar?</p>
-            <p className="mt-1 text-xs text-muted-foreground">Defina um teto de gasto e acompanhe seu ritmo em tempo real.</p>
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {catGoalEvals.map((ev) => (
-              <CategoryGoalCard
-                key={ev.goal.id}
-                evaluation={ev}
-                onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
-                onDelete={() => {
-                  if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") });
-                }}
-                onToggleStatus={() => toggleCatGoal.mutate({
-                  id: ev.goal.id,
-                  status: ev.goal.status === "active" ? "paused" : "active",
-                })}
-              />
-            ))}
-          </ul>
-        )
       ) : (
         <>
+
       {isLoading ? (
         <div className="grid place-items-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
