@@ -1,13 +1,20 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Plus, Send, Trash2, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Send, Trash2, UserPlus, Users, LogOut, XCircle, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import {
   useSharedGoal,
   useSharedGoalMembers,
   useSharedGoalContribs,
+  useSharedGoalRole,
   useAddContribution,
   useInviteSharedGoal,
+  useAcceptSharedGoalInvite,
+  useDeclineSharedGoalInvite,
+  useLeaveSharedGoal,
+  useRemoveSharedGoalMember,
+  useCancelSharedGoal,
+  useUpdateSharedGoal,
 } from "@/lib/db/sharedGoals";
 import { formatBRL } from "@/lib/engine/facts";
 import { normalizeBrPhone, maskBrPhone } from "@/lib/phone";
@@ -17,19 +24,29 @@ export default function MetaConjuntaDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const { user } = useAuth();
-  const { data: goal, isLoading } = useSharedGoal(id);
+  const { data: goal, isLoading, error: goalError } = useSharedGoal(id);
   const { data: members = [] } = useSharedGoalMembers(id);
   const { data: contribs = [] } = useSharedGoalContribs(id);
+  const { data: role = "outsider" } = useSharedGoalRole(id, user?.id);
   const addC = useAddContribution(id ?? "");
   const invite = useInviteSharedGoal(id ?? "");
+  const accept = useAcceptSharedGoalInvite();
+  const decline = useDeclineSharedGoalInvite();
+  const leave = useLeaveSharedGoal();
+  const removeMember = useRemoveSharedGoalMember(id ?? "");
+  const cancel = useCancelSharedGoal();
+  const update = useUpdateSharedGoal(id ?? "");
   const [openContrib, setOpenContrib] = useState(false);
   const [openInvite, setOpenInvite] = useState(false);
+  const [openEdit, setOpenEdit] = useState(false);
 
   const total = useMemo(() => contribs.reduce((s, c) => s + Number(c.amount), 0), [contribs]);
   const pct = goal ? Math.min(1, total / Number(goal.target_amount)) : 0;
-  const isOwner = goal && user && goal.created_by === user.id;
+  const isOwner = role === "owner";
+  const isMember = role === "owner" || role === "member";
+  const isPending = role === "pending";
 
-  if (isLoading || !goal) {
+  if (isLoading) {
     return (
       <div className="grid place-items-center py-16">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -37,10 +54,20 @@ export default function MetaConjuntaDetalhe() {
     );
   }
 
+  if (goalError || !goal) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-6 text-center">
+        <p className="text-sm font-medium">Não foi possível abrir esta meta</p>
+        <p className="mt-1 text-xs text-muted-foreground">{goalError ? String((goalError as Error).message) : "Meta não encontrada ou sem acesso."}</p>
+        <button onClick={() => nav("/app/metas")} className="btn-brand mt-4 text-xs">Voltar para metas</button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <header className="mb-4 flex items-center gap-2">
-        <button onClick={() => nav("/app/metas-conjuntas")} className="rounded-full border border-border bg-card p-2" aria-label="Voltar">
+        <button onClick={() => nav("/app/metas")} className="rounded-full border border-border bg-card p-2" aria-label="Voltar">
           <ArrowLeft size={14} />
         </button>
         <div className="min-w-0 flex-1">
@@ -48,9 +75,31 @@ export default function MetaConjuntaDetalhe() {
           <p className="text-xs text-muted-foreground">
             Meta: {formatBRL(Number(goal.target_amount))}
             {goal.deadline ? ` · ${new Date(goal.deadline + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
+            {goal.status === "cancelled" ? " · cancelada" : goal.status === "completed" ? " · concluída" : ""}
           </p>
         </div>
       </header>
+
+      {isPending && (
+        <div className="mb-4 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          <p className="text-sm font-semibold">Você foi convidado para esta meta</p>
+          <p className="mt-1 text-xs text-muted-foreground">Aceite para acompanhar o progresso e contribuir.</p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => id && accept.mutate(id, { onSuccess: () => toast.success("Convite aceito") })}
+              className="btn-brand px-3 py-1.5 text-xs"
+            >
+              Aceitar
+            </button>
+            <button
+              onClick={() => id && decline.mutate(id, { onSuccess: () => { toast.success("Convite recusado"); nav("/app/metas"); } })}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs"
+            >
+              Recusar
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
         <div className="h-2 overflow-hidden rounded-full bg-secondary">
@@ -62,20 +111,51 @@ export default function MetaConjuntaDetalhe() {
             de {formatBRL(Number(goal.target_amount))} · faltam {formatBRL(Math.max(0, Number(goal.target_amount) - total))}
           </span>
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button onClick={() => setOpenContrib(true)} className="btn-brand inline-flex items-center gap-2 text-xs">
-            <Plus size={12} /> Contribuir
-          </button>
-          {isOwner && (
-            <button
-              onClick={() => setOpenInvite(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
-            >
-              <UserPlus size={12} /> Convidar
+        {isMember && goal.status === "active" && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => setOpenContrib(true)} className="btn-brand inline-flex items-center gap-2 text-xs">
+              <Plus size={12} /> Contribuir
             </button>
-          )}
-        </div>
+            {isOwner && (
+              <>
+                <button
+                  onClick={() => setOpenInvite(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
+                >
+                  <UserPlus size={12} /> Convidar
+                </button>
+                <button
+                  onClick={() => setOpenEdit(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
+                >
+                  <Pencil size={12} /> Editar
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("Cancelar esta meta conjunta?")) {
+                      cancel.mutate(id!, { onSuccess: () => { toast.success("Cancelada"); nav("/app/metas"); } });
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-destructive"
+                >
+                  <XCircle size={12} /> Cancelar
+                </button>
+              </>
+            )}
+            {!isOwner && (
+              <button
+                onClick={() => {
+                  if (confirm("Sair desta meta?")) leave.mutate(id!, { onSuccess: () => { toast.success("Você saiu da meta"); nav("/app/metas"); } });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-destructive"
+              >
+                <LogOut size={12} /> Sair
+              </button>
+            )}
+          </div>
+        )}
       </section>
+
 
       <section className="mt-5">
         <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
