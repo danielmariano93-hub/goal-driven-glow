@@ -8,7 +8,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
-import { renderMessageTemplate, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
+import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
+import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
+
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,7 +34,14 @@ function maskPhone(p?: string | null): string {
   return p.replace(/^(\+\d{2})\d+(\d{4})$/, "$1****$2");
 }
 
-function messageFor(kind: string, p: any, se: any, remaining: number, persona: MessagePersona): string {
+function messageFor(
+  kind: string,
+  p: any,
+  se: any,
+  remaining: number,
+  persona: MessagePersona,
+  linkSentence: string,
+): string {
   const amount = `R$ ${remaining.toFixed(2).replace(".", ",")}`;
   const due = se?.due_date ? new Date(`${se.due_date}T12:00:00`).toLocaleDateString("pt-BR") : null;
   return renderMessageTemplate(kind, persona, {
@@ -44,8 +53,21 @@ function messageFor(kind: string, p: any, se: any, remaining: number, persona: M
     due_sentence: due ? ` O combinado é pagar até ${due}.` : "",
     pix_key: String(se.pix_key ?? ""),
     pix_sentence: se.pix_key ? ` Pix: ${se.pix_key}.` : "",
+    link_sentence: linkSentence,
   });
 }
+
+async function isRegisteredPhone(sb: any, phoneE164: string): Promise<boolean> {
+  if (!phoneE164) return false;
+  const { data } = await sb
+    .from("whatsapp_links")
+    .select("user_id, status")
+    .eq("phone_e164", phoneE164)
+    .eq("status", "active")
+    .maybeSingle();
+  return !!data?.user_id;
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -123,7 +145,13 @@ Deno.serve(async (req) => {
         skipped++;
         continue;
       }
-      const msg = messageFor(kind, p, se, remaining, persona);
+      const isReg = await isRegisteredPhone(sb, String(p.phone_e164 ?? ""));
+      const env = { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") ?? null };
+      const appLink = buildSharedExpenseUrl(env, String(j.shared_expense_id), { ref: "wa_split" });
+      const signupLink = buildSignupUrl(env, { ref: "wa_split", phone: String(p.phone_e164 ?? "") });
+      const linkSentence = buildLinkSentence({ isRegistered: isReg, appLink, signupLink });
+      const msg = messageFor(kind, p, se, remaining, persona, linkSentence);
+
 
       // Uma nova tentativa manual gera um novo job e deve poder enviar no
       // mesmo dia. Reprocessar o MESMO job continua idempotente.
