@@ -60,7 +60,7 @@ export function buildSharedExpenseUrl(
 ): string | null {
   const base = resolveAppPublicUrl(env);
   if (!base || !expenseId) return null;
-  return withParams(`${base}/app/role/${encodeURIComponent(expenseId)}`, {
+  return withParams(`${base}/app/divisao-do-role/${encodeURIComponent(expenseId)}`, {
     ref: opts.ref, t: opts.token,
   });
 }
@@ -73,18 +73,30 @@ export function buildSharedGoalUrl(
 ): string | null {
   const base = resolveAppPublicUrl(env);
   if (!base || !goalId) return null;
-  return withParams(`${base}/app/metas/conjunta/${encodeURIComponent(goalId)}`, {
+  return withParams(`${base}/app/metas-conjuntas/${encodeURIComponent(goalId)}`, {
     ref: opts.ref, t: opts.token,
   });
 }
 
-/** Link para signup com atribuição opcional. */
+/** Link para signup com atribuição opcional.
+ *  Suporta `next` (rota relativa dentro do app) para retornar o convidado ao
+ *  destino esperado após concluir cadastro (ex.: rolê ou meta conjunta). */
 export function buildSignupUrl(
   env: AppUrlEnv,
-  opts: { ref?: string; phone?: string } = {},
+  opts: { ref?: string; phone?: string; next?: string } = {},
 ): string | null {
   const base = resolveAppPublicUrl(env);
   if (!base) return null;
-  return withParams(`${base}/signup`, { ref: opts.ref, phone: opts.phone });
+  // next é uma rota relativa. Rejeita URLs absolutas para evitar open redirect.
+  let nextParam: string | undefined;
+  if (opts.next) {
+    const n = opts.next.trim();
+    if (n.startsWith("/") && !n.startsWith("//")) nextParam = n;
+  }
+  return withParams(`${base}/signup`, {
+    next: nextParam,
+    ref: opts.ref,
+    phone: opts.phone,
+  });
 }
 
