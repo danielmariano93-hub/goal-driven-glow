@@ -2536,6 +2536,8 @@ export type Database = {
           use_chart_templates: boolean
           use_daily_financial_facts: boolean
           use_report_templates: boolean
+          use_v2_artifact_normalizer: boolean
+          use_wave1_bill_payment: boolean
           user_id: string
         }
         Insert: {
@@ -2544,6 +2546,8 @@ export type Database = {
           use_chart_templates?: boolean
           use_daily_financial_facts?: boolean
           use_report_templates?: boolean
+          use_v2_artifact_normalizer?: boolean
+          use_wave1_bill_payment?: boolean
           user_id: string
         }
         Update: {
@@ -2552,6 +2556,8 @@ export type Database = {
           use_chart_templates?: boolean
           use_daily_financial_facts?: boolean
           use_report_templates?: boolean
+          use_v2_artifact_normalizer?: boolean
+          use_wave1_bill_payment?: boolean
           user_id?: string
         }
         Relationships: [
@@ -5173,6 +5179,36 @@ export type Database = {
           },
         ]
       }
+      wave1_pre_snapshot: {
+        Row: {
+          bill_payments: number
+          captured_at: string
+          id: string
+          label: string
+          running_runs: number
+          total_runs: number
+          total_txs: number
+        }
+        Insert: {
+          bill_payments: number
+          captured_at?: string
+          id?: string
+          label: string
+          running_runs: number
+          total_runs: number
+          total_txs: number
+        }
+        Update: {
+          bill_payments?: number
+          captured_at?: string
+          id?: string
+          label?: string
+          running_runs?: number
+          total_runs?: number
+          total_txs?: number
+        }
+        Relationships: []
+      }
       whatsapp_links: {
         Row: {
           consent_at: string
@@ -5340,6 +5376,12 @@ export type Database = {
           _previous: number
           _sample: number
           _value: number
+        }
+        Returns: Json
+      }
+      _exec_credit_card_bill_payment: {
+        Args: {
+          c: Database["public"]["Tables"]["pending_confirmations"]["Row"]
         }
         Returns: Json
       }
@@ -5539,6 +5581,10 @@ export type Database = {
       admin_whatsapp_inbound_health: { Args: never; Returns: Json }
       agent_compile_prompt: { Args: { p_cfg: Json }; Returns: string }
       agent_execute_confirmation: {
+        Args: { p_confirmation_id: string; p_source_message_id?: string }
+        Returns: Json
+      }
+      agent_execute_confirmation_legacy_v1: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
         Returns: Json
       }
@@ -6017,6 +6063,7 @@ export type Database = {
         Args: { p_expense_id: string }
         Returns: string
       }
+      sweep_orphan_agent_runs: { Args: never; Returns: number }
       transaction_delete_direct: {
         Args: { p_expected_version: number; p_id: string; p_scope?: string }
         Returns: Json
