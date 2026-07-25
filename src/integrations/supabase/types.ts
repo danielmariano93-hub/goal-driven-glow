@@ -1546,6 +1546,7 @@ export type Database = {
       }
       conversation_messages: {
         Row: {
+          artifact_ids: string[] | null
           body_masked: string
           conversation_id: string
           created_at: string
@@ -1554,6 +1555,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          artifact_ids?: string[] | null
           body_masked: string
           conversation_id: string
           created_at?: string
@@ -1562,6 +1564,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          artifact_ids?: string[] | null
           body_masked?: string
           conversation_id?: string
           created_at?: string

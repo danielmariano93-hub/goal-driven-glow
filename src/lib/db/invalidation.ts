@@ -18,7 +18,8 @@ export function invalidateFinancialQueries(qc: QueryClient) {
     ["debts"],
     ["goals"],
     ["contributions"],
-    ["credit-cards"],
+    ["credit_cards"],
+    ["credit-cards"], // legado — remover após Onda 3
     ["recurring"],
     ["category_spending_goals"],
     ["financial-snapshot"],
