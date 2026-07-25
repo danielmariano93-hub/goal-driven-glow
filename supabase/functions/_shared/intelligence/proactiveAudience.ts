@@ -2,7 +2,7 @@
 // Includes users active outside the assistant so habits, transactions and
 // onboarding can trigger communication even without a recent agent_run.
 // deno-lint-ignore-file no-explicit-any
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+type SupabaseClient = any;
 
 export function mergeProactiveAudience(
   sources: Array<Array<{ user_id?: string | null }> | null | undefined>,

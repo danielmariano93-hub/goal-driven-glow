@@ -806,6 +806,36 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_model_routes: {
+        Row: {
+          active: boolean
+          fallback_model: string | null
+          max_latency_ms: number
+          max_steps: number
+          primary_model: string
+          task: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          fallback_model?: string | null
+          max_latency_ms?: number
+          max_steps?: number
+          primary_model: string
+          task: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          fallback_model?: string | null
+          max_latency_ms?: number
+          max_steps?: number
+          primary_model?: string
+          task?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       break_glass_sessions: {
         Row: {
           admin_id: string
@@ -1133,6 +1163,59 @@ export type Database = {
           xp_reward?: number
         }
         Relationships: []
+      }
+      communication_deliveries: {
+        Row: {
+          acted_at: string | null
+          channel: string
+          created_at: string
+          dedup_key: string | null
+          delivered_at: string | null
+          evidence: Json
+          id: string
+          kind: string
+          reason: string | null
+          status: string
+          suggestion_id: string | null
+          user_id: string
+        }
+        Insert: {
+          acted_at?: string | null
+          channel: string
+          created_at?: string
+          dedup_key?: string | null
+          delivered_at?: string | null
+          evidence?: Json
+          id?: string
+          kind: string
+          reason?: string | null
+          status: string
+          suggestion_id?: string | null
+          user_id: string
+        }
+        Update: {
+          acted_at?: string | null
+          channel?: string
+          created_at?: string
+          dedup_key?: string | null
+          delivered_at?: string | null
+          evidence?: Json
+          id?: string
+          kind?: string
+          reason?: string | null
+          status?: string
+          suggestion_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_deliveries_suggestion_id_fkey"
+            columns: ["suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "pending_proactive_suggestions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       company_accounts: {
         Row: {
@@ -2583,6 +2666,48 @@ export type Database = {
         }
         Relationships: []
       }
+      intelligence_metric_registry: {
+        Row: {
+          active: boolean
+          default_window_days: number
+          description: string
+          formula: string
+          formula_version: string
+          include_zero_days: boolean
+          label: string
+          metric_key: string
+          minimum_sample: number
+          outlier_policy: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          default_window_days: number
+          description: string
+          formula: string
+          formula_version: string
+          include_zero_days?: boolean
+          label: string
+          metric_key: string
+          minimum_sample: number
+          outlier_policy: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          default_window_days?: number
+          description?: string
+          formula?: string
+          formula_version?: string
+          include_zero_days?: boolean
+          label?: string
+          metric_key?: string
+          minimum_sample?: number
+          outlier_policy?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       investment_movements: {
         Row: {
           amount: number
@@ -2824,35 +2949,56 @@ export type Database = {
         Row: {
           achievement: boolean
           agent_confirmation: boolean
+          emotional_checkin: boolean
           goal_reached: boolean
           import_done: boolean
+          max_proactive_per_week: number
+          proactive_financial: boolean
+          quiet_end: string | null
+          quiet_start: string | null
           recurrence_due: boolean
+          smart_tips: boolean
           split_reminder: boolean
           system: boolean
           updated_at: string
           user_id: string
+          whatsapp_proactive: boolean
         }
         Insert: {
           achievement?: boolean
           agent_confirmation?: boolean
+          emotional_checkin?: boolean
           goal_reached?: boolean
           import_done?: boolean
+          max_proactive_per_week?: number
+          proactive_financial?: boolean
+          quiet_end?: string | null
+          quiet_start?: string | null
           recurrence_due?: boolean
+          smart_tips?: boolean
           split_reminder?: boolean
           system?: boolean
           updated_at?: string
           user_id: string
+          whatsapp_proactive?: boolean
         }
         Update: {
           achievement?: boolean
           agent_confirmation?: boolean
+          emotional_checkin?: boolean
           goal_reached?: boolean
           import_done?: boolean
+          max_proactive_per_week?: number
+          proactive_financial?: boolean
+          quiet_end?: string | null
+          quiet_start?: string | null
           recurrence_due?: boolean
+          smart_tips?: boolean
           split_reminder?: boolean
           system?: boolean
           updated_at?: string
           user_id?: string
+          whatsapp_proactive?: boolean
         }
         Relationships: []
       }
@@ -4852,6 +4998,7 @@ export type Database = {
       admin_v2_growth_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
+      admin_v2_metrics_audit: { Args: never; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
       admin_v2_product_features: { Args: { _days?: number }; Returns: Json }
       admin_v2_product_opportunities: { Args: never; Returns: Json }
