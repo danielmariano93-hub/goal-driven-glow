@@ -145,7 +145,13 @@ Deno.serve(async (req) => {
         skipped++;
         continue;
       }
-      const msg = messageFor(kind, p, se, remaining, persona);
+      const isReg = await isRegisteredPhone(sb, String(p.phone_e164 ?? ""));
+      const env = { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") ?? null };
+      const appLink = buildSharedExpenseUrl(env, String(j.shared_expense_id), { ref: "wa_split" });
+      const signupLink = buildSignupUrl(env, { ref: "wa_split", phone: String(p.phone_e164 ?? "") });
+      const linkSentence = buildLinkSentence({ isRegistered: isReg, appLink, signupLink });
+      const msg = messageFor(kind, p, se, remaining, persona, linkSentence);
+
 
       // Uma nova tentativa manual gera um novo job e deve poder enviar no
       // mesmo dia. Reprocessar o MESMO job continua idempotente.
