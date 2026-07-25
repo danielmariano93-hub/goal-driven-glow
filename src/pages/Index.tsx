@@ -15,6 +15,8 @@ import { EvolucaoFinanceiraCard } from "@/components/home/EvolucaoFinanceiraCard
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
+import { SharedGoalHighlight } from "@/components/home/SharedGoalHighlight";
+
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 
@@ -124,6 +126,9 @@ export default function Index() {
       <QuickActions />
 
       <EvolucaoFinanceiraCard topGoal={snap?.topCategoryGoal ?? null} />
+
+      <SharedGoalHighlight />
+
 
       {loading ? (
         <div className="grid place-items-center py-6">

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Trash2, Loader2, Target, TrendingUp, Users, ArrowRight } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Plus, Trash2, Loader2, Target, TrendingUp, Users, ArrowRight, Sliders } from "lucide-react";
 import { toast } from "sonner";
 import {
   useGoals,
@@ -20,14 +20,21 @@ import {
   type GoalRow,
   type CategorySpendingGoalRow,
 } from "@/lib/db/finance";
-import { useSharedGoals } from "@/lib/db/sharedGoals";
+import {
+  useSharedGoals,
+  useCreateSharedGoal,
+  useAcceptSharedGoalInvite,
+  useDeclineSharedGoalInvite,
+  usePendingSharedGoalInvites,
+} from "@/lib/db/sharedGoals";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
 import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 
-type GoalTab = "save" | "shared" | "category";
+type GoalTab = "all" | "individual" | "shared";
+
 
 export default function Metas() {
   const { data: goals, isLoading } = useGoals();
@@ -48,9 +55,13 @@ export default function Metas() {
   const [editing, setEditing] = useState<GoalRow | null>(null);
   const [contribFor, setContribFor] = useState<GoalRow | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [tab, setTab] = useState<GoalTab>("save");
+  const [tab, setTab] = useState<GoalTab>("all");
   const [openCatGoal, setOpenCatGoal] = useState(false);
+  const [openCatList, setOpenCatList] = useState(false);
+  const [openNewSelector, setOpenNewSelector] = useState(false);
   const [editingCatGoal, setEditingCatGoal] = useState<CategorySpendingGoalRow | null>(null);
+  const navigate = useNavigate();
+
 
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
   const catNameById = useMemo(() => {
@@ -84,21 +95,25 @@ export default function Metas() {
           <p className="text-sm text-muted-foreground">Guarde dinheiro ou controle um gasto por categoria.</p>
         </div>
         <button
-          onClick={() => {
-            if (tab === "save") { setEditing(null); setOpenGoal(true); }
-            else if (tab === "category") { setEditingCatGoal(null); setOpenCatGoal(true); }
-            else { window.location.href = "/app/metas-conjuntas"; }
-          }}
+          onClick={() => setOpenNewSelector(true)}
           className="btn-brand inline-flex items-center gap-2"
         >
           <Plus size={14} /> Nova meta
         </button>
       </header>
 
-      <div className="mb-4 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
+      <PendingInvitesBanner />
+
+      <div className="mb-3 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
         <button
-          onClick={() => setTab("save")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "save" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          onClick={() => setTab("all")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Todas
+        </button>
+        <button
+          onClick={() => setTab("individual")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "individual" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
         >
           Individuais
         </button>
@@ -108,43 +123,51 @@ export default function Metas() {
         >
           Conjuntas
         </button>
+      </div>
+
+      <div className="mb-4 flex items-center justify-end">
         <button
-          onClick={() => setTab("category")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "category" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          onClick={() => setOpenCatList((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
         >
-          Controlar gasto
+          <Sliders size={12} /> Controlar gasto por categoria
         </button>
       </div>
 
+      {openCatList && (
+        <div className="mb-4 rounded-2xl border border-border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold">Controle de gasto por categoria</p>
+            <button
+              onClick={() => { setEditingCatGoal(null); setOpenCatGoal(true); }}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium"
+            >
+              <Plus size={12} /> Novo teto
+            </button>
+          </div>
+          {catGoalEvals.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Defina um teto de gasto e acompanhe seu ritmo em tempo real.</p>
+          ) : (
+            <ul className="space-y-3">
+              {catGoalEvals.map((ev) => (
+                <CategoryGoalCard
+                  key={ev.goal.id}
+                  evaluation={ev}
+                  onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
+                  onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}
+                  onToggleStatus={() => toggleCatGoal.mutate({ id: ev.goal.id, status: ev.goal.status === "active" ? "paused" : "active" })}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {tab === "shared" ? (
         <SharedGoalsInline />
-      ) : tab === "category" ? (
-        catGoalEvals.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
-            <Target className="mx-auto h-8 w-8 text-muted-foreground" />
-            <p className="mt-3 text-sm font-medium">Qual categoria você quer controlar?</p>
-            <p className="mt-1 text-xs text-muted-foreground">Defina um teto de gasto e acompanhe seu ritmo em tempo real.</p>
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {catGoalEvals.map((ev) => (
-              <CategoryGoalCard
-                key={ev.goal.id}
-                evaluation={ev}
-                onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
-                onDelete={() => {
-                  if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") });
-                }}
-                onToggleStatus={() => toggleCatGoal.mutate({
-                  id: ev.goal.id,
-                  status: ev.goal.status === "active" ? "paused" : "active",
-                })}
-              />
-            ))}
-          </ul>
-        )
       ) : (
         <>
+
       {isLoading ? (
         <div className="grid place-items-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -238,8 +261,17 @@ export default function Metas() {
           })}
         </ul>
       )}
+      {tab === "all" && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+            <Users size={12} /> Metas conjuntas
+          </div>
+          <SharedGoalsInline />
+        </div>
+      )}
         </>
       )}
+
 
 
 
@@ -299,9 +331,87 @@ export default function Metas() {
           }
         />
       )}
+
+
+
+      {openNewSelector && (
+        <NewGoalSelector
+          onClose={() => setOpenNewSelector(false)}
+          onIndividual={() => { setOpenNewSelector(false); setEditing(null); setOpenGoal(true); }}
+          onShared={() => { setOpenNewSelector(false); navigate("/app/metas-conjuntas"); }}
+        />
+      )}
     </div>
   );
 }
+
+function NewGoalSelector({ onClose, onIndividual, onShared }: { onClose: () => void; onIndividual: () => void; onShared: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-card">
+        <h2 className="font-display text-base font-bold">Que tipo de meta você quer criar?</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Escolha entre uma meta pessoal ou uma conjunta com outras pessoas.</p>
+        <div className="mt-4 space-y-2">
+          <button onClick={onIndividual} className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left hover:border-primary">
+            <div>
+              <p className="text-sm font-semibold">Meta individual</p>
+              <p className="text-[11px] text-muted-foreground">Guarde dinheiro para um objetivo pessoal.</p>
+            </div>
+            <Target size={16} className="text-muted-foreground" />
+          </button>
+          <button onClick={onShared} className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left hover:border-primary">
+            <div>
+              <p className="text-sm font-semibold">Meta conjunta</p>
+              <p className="text-[11px] text-muted-foreground">Convide outras pessoas e evoluam juntas.</p>
+            </div>
+            <Users size={16} className="text-muted-foreground" />
+          </button>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendingInvitesBanner() {
+  const { data, isLoading } = usePendingSharedGoalInvites();
+  const accept = useAcceptSharedGoalInvite();
+  const decline = useDeclineSharedGoalInvite();
+  if (isLoading || !data || data.length === 0) return null;
+  return (
+    <div className="mb-3 space-y-2">
+      {data.map((inv) => (
+        <div key={inv.id} className="rounded-2xl border border-primary/30 bg-primary/5 p-3">
+          <p className="text-xs font-medium">Você foi convidado para uma meta conjunta</p>
+          <p className="mt-0.5 text-sm font-semibold">{inv.shared_goals?.title ?? "Meta conjunta"}</p>
+          {inv.shared_goals?.target_amount != null && (
+            <p className="text-[11px] text-muted-foreground">Alvo: {formatBRL(Number(inv.shared_goals.target_amount))}</p>
+          )}
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => accept.mutate(inv.goal_id, {
+                onSuccess: () => toast.success("Convite aceito"),
+                onError: (e) => toast.error(String((e as Error).message)),
+              })}
+              className="btn-brand px-3 py-1.5 text-xs"
+            >
+              Aceitar
+            </button>
+            <button
+              onClick={() => decline.mutate(inv.goal_id, { onSuccess: () => toast.success("Convite recusado") })}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs"
+            >
+              Recusar
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 function GoalModal({
   initial,

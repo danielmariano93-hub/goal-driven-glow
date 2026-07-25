@@ -2,13 +2,18 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Plus, Target, Users, Trash2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { useSharedGoals, useCreateSharedGoal, useDeleteSharedGoal, type SharedGoal } from "@/lib/db/sharedGoals";
+import {
+  useSharedGoals,
+  useCreateSharedGoal,
+  useCancelSharedGoal,
+  type SharedGoal,
+} from "@/lib/db/sharedGoals";
 import { formatBRL } from "@/lib/engine/facts";
 
 export default function MetasConjuntas() {
   const { data: goals, isLoading } = useSharedGoals();
   const create = useCreateSharedGoal();
-  const del = useDeleteSharedGoal();
+  const cancel = useCancelSharedGoal();
   const [openNew, setOpenNew] = useState(false);
 
   return (
@@ -39,8 +44,8 @@ export default function MetasConjuntas() {
             <GoalCard
               key={g.id}
               goal={g}
-              onDelete={() => {
-                if (confirm("Excluir esta meta conjunta?")) del.mutate(g.id, { onSuccess: () => toast.success("Excluída") });
+              onCancel={() => {
+                if (confirm("Cancelar esta meta conjunta?")) cancel.mutate(g.id, { onSuccess: () => toast.success("Cancelada") });
               }}
             />
           ))}
@@ -66,7 +71,7 @@ export default function MetasConjuntas() {
   );
 }
 
-function GoalCard({ goal, onDelete }: { goal: SharedGoal; onDelete: () => void }) {
+function GoalCard({ goal, onCancel }: { goal: SharedGoal; onCancel: () => void }) {
   return (
     <li className="rounded-2xl border border-border bg-card p-4 shadow-card">
       <div className="flex items-start justify-between gap-3">
@@ -77,13 +82,15 @@ function GoalCard({ goal, onDelete }: { goal: SharedGoal; onDelete: () => void }
             {goal.deadline ? ` · até ${new Date(goal.deadline + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
           </p>
         </div>
-        <button onClick={onDelete} className="text-muted-foreground hover:text-destructive" aria-label="Excluir">
-          <Trash2 size={14} />
-        </button>
+        {goal.status !== "cancelled" && goal.status !== "completed" && (
+          <button onClick={onCancel} className="text-muted-foreground hover:text-destructive" aria-label="Cancelar">
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
       <div className="mt-3 flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Users size={12} /> conjunta
+          <Users size={12} /> conjunta{goal.status === "cancelled" ? " · cancelada" : goal.status === "completed" ? " · concluída" : ""}
         </span>
         <Link
           to={`/app/metas-conjuntas/${goal.id}`}
