@@ -54,6 +54,27 @@ function saveFilters(f: PersistedFilters) {
   try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch { /* ignore */ }
 }
 
+// Onda 3.1 — Retorna uma descrição legível se a linha salva não bate com os
+// filtros ativos; usada para o banner "salvo mas oculto pelo filtro X".
+function describeHiddenReason(
+  saved: Record<string, unknown> | null,
+  f: PersistedFilters,
+): string | null {
+  if (!saved) return null;
+  const t = String(saved.type ?? "");
+  if (f.type && f.type !== "all" && f.type !== t) return `tipo (${f.type})`;
+  if (f.categoryId && String(saved.category_id ?? "") !== f.categoryId) return "categoria";
+  if (f.accountId && String(saved.account_id ?? "") !== f.accountId) return "conta";
+  if (f.creditCardId && String(saved.credit_card_id ?? "") !== f.creditCardId) return "cartão";
+  const occ = String(saved.occurred_at ?? "").slice(0, 10);
+  if (f.from && occ && occ < f.from) return `data (antes de ${f.from})`;
+  if (f.to && occ && occ > f.to) return `data (depois de ${f.to})`;
+  if (f.search) {
+    const desc = `${saved.description ?? ""}`.toLowerCase();
+    if (!desc.includes(f.search.toLowerCase())) return "busca por texto";
+  }
+  return null;
+
 export default function Lancamentos() {
   const nav = useNavigate();
   const qc = useQueryClient();
