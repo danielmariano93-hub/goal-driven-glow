@@ -66,6 +66,18 @@ export default function MetasConjuntas() {
   );
 }
 
+// (bloco fantasma removido pelo refactor Bloco A — mantido apenas o export)
+function _unused_placeholder() {
+  return null;
+}
+const _keep = () => {};
+_keep();
+{/*
+      )}
+    </div>
+  );
+}
+
 function GoalCard({ goal, onDelete }: { goal: SharedGoal; onDelete: () => void }) {
   return (
     <li className="rounded-2xl border border-border bg-card p-4 shadow-card">
