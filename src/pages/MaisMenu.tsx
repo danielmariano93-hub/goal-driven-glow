@@ -21,6 +21,7 @@ type Item = { path: string; label: string; desc: string; icon: any };
 
 const highlight: Item[] = [
   { path: "/app/divisao-do-role", label: "Divisão do Rolê", desc: "Divida contas com quem foi junto", icon: Users },
+  { path: "/app/metas-conjuntas", label: "Metas conjuntas", desc: "Junte dinheiro em grupo", icon: PiggyBank },
   { path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy },
 ];
 

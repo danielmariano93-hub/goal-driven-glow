@@ -1,0 +1,287 @@
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Loader2, Plus, Send, Trash2, UserPlus, Users } from "lucide-react";
+import { toast } from "sonner";
+import {
+  useSharedGoal,
+  useSharedGoalMembers,
+  useSharedGoalContribs,
+  useAddContribution,
+  useInviteSharedGoal,
+} from "@/lib/db/sharedGoals";
+import { formatBRL } from "@/lib/engine/facts";
+import { normalizeBrPhone, maskBrPhone } from "@/lib/phone";
+import { useAuth } from "@/context/AuthContext";
+
+export default function MetaConjuntaDetalhe() {
+  const { id } = useParams();
+  const nav = useNavigate();
+  const { user } = useAuth();
+  const { data: goal, isLoading } = useSharedGoal(id);
+  const { data: members = [] } = useSharedGoalMembers(id);
+  const { data: contribs = [] } = useSharedGoalContribs(id);
+  const addC = useAddContribution(id ?? "");
+  const invite = useInviteSharedGoal(id ?? "");
+  const [openContrib, setOpenContrib] = useState(false);
+  const [openInvite, setOpenInvite] = useState(false);
+
+  const total = useMemo(() => contribs.reduce((s, c) => s + Number(c.amount), 0), [contribs]);
+  const pct = goal ? Math.min(1, total / Number(goal.target_amount)) : 0;
+  const isOwner = goal && user && goal.created_by === user.id;
+
+  if (isLoading || !goal) {
+    return (
+      <div className="grid place-items-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <header className="mb-4 flex items-center gap-2">
+        <button onClick={() => nav("/app/metas-conjuntas")} className="rounded-full border border-border bg-card p-2" aria-label="Voltar">
+          <ArrowLeft size={14} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-display text-xl font-bold tracking-tight">{goal.title}</h1>
+          <p className="text-xs text-muted-foreground">
+            Meta: {formatBRL(Number(goal.target_amount))}
+            {goal.deadline ? ` · ${new Date(goal.deadline + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
+          </p>
+        </div>
+      </header>
+
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
+        <div className="h-2 overflow-hidden rounded-full bg-secondary">
+          <div className="h-full rounded-full bg-gradient-brand transition-all" style={{ width: `${Math.round(pct * 100)}%` }} />
+        </div>
+        <p className="mt-2 text-xs">
+          <span className="font-semibold tabular-nums">{formatBRL(total)}</span>{" "}
+          <span className="text-muted-foreground">
+            de {formatBRL(Number(goal.target_amount))} · faltam {formatBRL(Math.max(0, Number(goal.target_amount) - total))}
+          </span>
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button onClick={() => setOpenContrib(true)} className="btn-brand inline-flex items-center gap-2 text-xs">
+            <Plus size={12} /> Contribuir
+          </button>
+          {isOwner && (
+            <button
+              onClick={() => setOpenInvite(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
+            >
+              <UserPlus size={12} /> Convidar
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <Users size={12} /> Participantes ({members.length})
+        </h2>
+        {members.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-xs text-muted-foreground">
+            Convide alguém para participar.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {members.map((m) => (
+              <li key={m.id} className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {m.user_id === user?.id ? "Você" : m.phone_e164 ? maskBrPhone(m.phone_e164) : "Membro"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {m.role === "owner" ? "criador(a)" : m.invite_status}
+                    {m.contribution_total > 0 ? ` · ${formatBRL(Number(m.contribution_total))}` : ""}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-5">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contribuições</h2>
+        {contribs.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-xs text-muted-foreground">
+            Nenhuma contribuição ainda.
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {contribs.map((c) => (
+              <li key={c.id} className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-xs">
+                <span className="text-muted-foreground">
+                  {new Date(c.occurred_at + "T00:00:00").toLocaleDateString("pt-BR")}
+                  {c.user_id === user?.id ? " · você" : ""}
+                </span>
+                <span className="font-medium tabular-nums">{formatBRL(Number(c.amount))}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {openContrib && (
+        <ContribModal
+          saving={addC.isPending}
+          onClose={() => setOpenContrib(false)}
+          onSubmit={(v) =>
+            addC.mutate(v, {
+              onSuccess: () => {
+                toast.success("Contribuição registrada");
+                setOpenContrib(false);
+              },
+              onError: (e) => toast.error("Erro", { description: String((e as Error).message) }),
+            })
+          }
+        />
+      )}
+
+      {openInvite && (
+        <InviteModal
+          saving={invite.isPending}
+          onClose={() => setOpenInvite(false)}
+          onSubmit={(phone) =>
+            invite.mutate(phone, {
+              onSuccess: () => {
+                toast.success("Convite registrado. Assim que a pessoa entrar com esse telefone, ela participa automaticamente.");
+                setOpenInvite(false);
+              },
+              onError: (e) => toast.error("Erro", { description: String((e as Error).message) }),
+            })
+          }
+        />
+      )}
+
+      <p className="mt-6 text-center text-[11px] text-muted-foreground">
+        <Link to="/app/metas" className="underline">Ver metas individuais</Link>
+      </p>
+    </div>
+  );
+}
+
+function ContribModal({
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (v: { amount: number; occurred_at: string; note: string }) => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const n = Number(amount.replace(",", "."));
+    if (!Number.isFinite(n) || n <= 0) {
+      setError("Valor inválido");
+      return;
+    }
+    onSubmit({ amount: n, occurred_at: date, note });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Contribuir</h2>
+        <div className="mt-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Valor</label>
+              <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Data</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input-base" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">Nota (opcional)</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} className="input-base" />
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : (<><Send size={12} /> Contribuir</>)}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function InviteModal({
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (phone: string) => void;
+}) {
+  const [phone, setPhone] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const canPick = typeof navigator !== "undefined" && "contacts" in navigator && "ContactsManager" in window;
+
+  async function pickContact() {
+    try {
+      // deno-lint-ignore no-explicit-any
+      const contacts = await (navigator as any).contacts.select(["tel"], { multiple: false });
+      const first = contacts?.[0]?.tel?.[0];
+      if (first) setPhone(first);
+    } catch (e) {
+      // usuário cancelou ou API indisponível
+    }
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const n = normalizeBrPhone(phone);
+    if (!n) {
+      setError("Telefone inválido. Use DDD + número.");
+      return;
+    }
+    onSubmit(n);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Convidar</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Quando a pessoa entrar no Meu Nino com esse telefone, ela participa automaticamente.</p>
+        <div className="mt-4 space-y-3">
+          <label className="mb-1 block text-xs font-medium">Telefone (WhatsApp)</label>
+          <div className="flex gap-2">
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} className="input-base flex-1" placeholder="(11) 99999-9999" />
+            {canPick && (
+              <button type="button" onClick={pickContact} className="rounded-full border border-border bg-background px-3 text-xs">
+                Contatos
+              </button>
+            )}
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">
+            Cancelar
+          </button>
+          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Convidar"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

@@ -44,6 +44,8 @@ const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
 const Assessor = lazy(() => import("./pages/Assessor"));
+const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
+const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
 // Platform admin (lazy)
 const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
@@ -110,6 +112,8 @@ const App = () => (
                 <Route path="metas" element={<Metas />} />
                 <Route path="dividas" element={<Dividas />} />
                 <Route path="planejamento" element={<Planejamento />} />
+                <Route path="metas-conjuntas" element={<MetasConjuntas />} />
+                <Route path="metas-conjuntas/:id" element={<MetaConjuntaDetalhe />} />
                 <Route path="relatorios" element={<Relatorios />} />
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
