@@ -5351,6 +5351,7 @@ export type Database = {
         Args: { p_description: string; p_name: string; p_value: string }
         Returns: string
       }
+      activity_events: { Args: never; Returns: string[] }
       admin_active_break_glass: {
         Args: never
         Returns: {
@@ -5490,18 +5491,32 @@ export type Database = {
         Args: { _pseudo_ids: string[] }
         Returns: Json
       }
-      admin_v2_clients_list: { Args: { _limit?: number }; Returns: Json }
-      admin_v2_cockpit:
-        | { Args: never; Returns: Json }
-        | { Args: { _from?: string; _to?: string }; Returns: Json }
-      admin_v2_daily_evolution: {
+      admin_v2_clients_list: {
+        Args: {
+          _financial?: string
+          _from?: string
+          _lifecycle?: string
+          _limit?: number
+          _to?: string
+          _tz?: string
+        }
+        Returns: Json
+      }
+      admin_v2_cockpit: {
         Args: { _from?: string; _to?: string }
+        Returns: Json
+      }
+      admin_v2_daily_evolution: {
+        Args: { _from: string; _to: string; _tz?: string }
         Returns: Json
       }
       admin_v2_governance_summary: { Args: never; Returns: Json }
       admin_v2_growth_cohorts: { Args: { _weeks?: number }; Returns: Json }
       admin_v2_growth_funnel: { Args: { _days?: number }; Returns: Json }
-      admin_v2_growth_summary: { Args: { _days?: number }; Returns: Json }
+      admin_v2_growth_summary: {
+        Args: { _from: string; _to: string; _tz?: string }
+        Returns: Json
+      }
       admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
@@ -6030,6 +6045,7 @@ export type Database = {
       }
       user_export_data: { Args: never; Returns: Json }
       user_request_deletion: { Args: { p_reason: string }; Returns: string }
+      value_events: { Args: never; Returns: string[] }
     }
     Enums: {
       account_type: "checking" | "savings" | "cash" | "investment" | "other"

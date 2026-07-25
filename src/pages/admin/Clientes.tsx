@@ -3,10 +3,12 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
-import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
 import { usePlatformPermissions } from "@/hooks/usePlatformPermissions";
 import { dict } from "@/lib/admin/displayDictionary";
 import { formatDateTime } from "@/lib/admin/formulas";
+import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
+import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 
 type Lifecycle = "new" | "activated" | "active" | "dormant" | "deleted";
 
@@ -47,6 +49,8 @@ type FinancialFilter = "all" | "with" | "without";
 
 export default function Clientes() {
   const { can, loading: permissionsLoading } = usePlatformPermissions();
+  const [preset, setPreset] = useState<PeriodPresetKey>("30d");
+  const [range, setRange] = useState<PeriodRange>(() => resolvePreset("30d"));
   const [rows, setRows] = useState<Client[] | null>(null);
   const [totals, setTotals] = useState<ClientResponse["totals"]>();
   const [formulaVersion, setFormulaVersion] = useState<string | undefined>();
@@ -60,13 +64,23 @@ export default function Clientes() {
   useEffect(() => {
     if (permissionsLoading) return;
     setLoading(true);
-    callAdminRpc<ClientResponse>("admin_v2_clients_list", { _limit: 200 })
+    callAdminRpc<ClientResponse>(
+      "admin_v2_clients_list",
+      withPeriod(range, {
+        _limit: 200,
+        _lifecycle: lifecycleFilter === "all" ? null : lifecycleFilter,
+        _financial: financialFilter === "all" ? null : financialFilter,
+      }),
+    )
       .then(async (response) => {
         setRows(response.clients);
         setTotals(response.totals);
         setFormulaVersion(response.formula_version);
         const ids = response.clients.map((client) => client.pseudo_id);
-        if (!ids.length) return;
+        if (!ids.length) {
+          setIdentities({});
+          return;
+        }
 
         if (can("clients.identity.read")) {
           const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity", { _pseudo_ids: ids });
@@ -78,17 +92,9 @@ export default function Clientes() {
       })
       .catch((e) => setError(e?.message ?? "Falha ao carregar clientes"))
       .finally(() => setLoading(false));
-  }, [permissionsLoading, can]);
+  }, [permissionsLoading, can, range.from, range.to, lifecycleFilter, financialFilter]);
 
-  const clients = useMemo(() => {
-    const base = rows ?? [];
-    return base.filter((row) => {
-      if (lifecycleFilter !== "all" && row.lifecycle_status !== lifecycleFilter) return false;
-      if (financialFilter === "with" && !row.has_financial_data) return false;
-      if (financialFilter === "without" && row.has_financial_data) return false;
-      return true;
-    });
-  }, [rows, lifecycleFilter, financialFilter]);
+  const clients = useMemo(() => rows ?? [], [rows]);
 
   if (loading || permissionsLoading) return <AdminSkeleton />;
   if (error) return <EmptyState title="Não foi possível carregar os clientes" description={error} />;
@@ -98,6 +104,16 @@ export default function Clientes() {
       <PageHeader
         title="Clientes"
         description="Clientes reais do produto — administradores da plataforma não aparecem aqui."
+        actions={
+          <AdminDateFilter
+            preset={preset}
+            value={range}
+            onChange={({ preset: p, range: r }) => {
+              setPreset(p);
+              setRange(r);
+            }}
+          />
+        }
         status={
           formulaVersion && (
             <span className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground">
@@ -106,6 +122,7 @@ export default function Clientes() {
           )
         }
       />
+
 
       {totals && (
         <div className="grid grid-cols-3 gap-3">

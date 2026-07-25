@@ -1,153 +1,378 @@
-# Plano — Correção do Admin Meu Nino.IA (universo de clientes, filtros temporais, evolução diária e homologação)
+# Plano revisado — Admin Meu Nino: correção do universo canônico, contratos e segurança
 
-Reemissão do plano já aprovado, sem alterações. Nenhuma implementação nesta etapa (modo plano).
+Confirmação: **nenhuma implementação foi realizada nesta rodada de revisão**. Foram apenas leituras no banco (`SELECT`) para embasar os pontos abaixo.
 
-## 1. Diagnóstico da causa dos "3 usuários"
+---
 
-Confirmado por leitura em produção:
+## 1) Diagnóstico confirmado (achados desta revisão)
 
-- `auth.users` = 3
-- `public.profiles` = 3
-- `public.user_pseudonyms` = 3
-- `public.platform_admins` (active) = 1
-- `public.user_roles` com role `admin` = 1
+**Achado P0 — vazamento de PII (novo, precisa entrar no escopo):**
+As views `public.v_client_users` e `public.v_client_pseudonyms`, criadas na migration anterior, saíram com ACL `anon=arwdDxtm/postgres, authenticated=arwdDxtm/postgres`. Como usam `security_invoker=true` mas concedem SELECT direto a `authenticated`, **qualquer cliente autenticado do app pode listar todos os `pseudo_id` e `user_id` de todos os clientes** — viola RLS e o item 1 do briefing.
 
-Existem **2 clientes reais + 1 administrador da plataforma**. As RPCs `admin_v2_*` partem de `auth.users` / `profiles` / `user_pseudonyms` sem excluir `platform_admins`. O admin também tem pseudônimo, então qualquer contagem via `pseudo_id` sem filtro o inclui. A única fonte segura para exclusão é `public.platform_admins` (`user_id`, `active=true`) cruzada com `user_pseudonyms.user_id`, com defesa em profundidade via `user_roles.role='admin'`.
+**Achado P0 — overload ambíguo em `admin_v2_cockpit`:**
+Coexistem hoje `admin_v2_cockpit()` (legada, retorna estado do dia atual) e `admin_v2_cockpit(_from date, _to date)` (nova). PostgREST pode escolher a errada, e o frontend novo já chama a variante com parâmetros. Todas as outras `admin_v2_*` **ainda estão no contrato antigo** (`_days/_hours/_weeks/_limit`); só `cockpit` e `daily_evolution` migraram — o plano anterior descreveu como se todas já tivessem `_from/_to`, o que era falso.
 
-## 2. Universo canônico de usuários
+**Achado P1 — allowlist de "ação significativa" divergente:**
+`admin_v2_clients_list` v6 lista como significativas: `financial_entry_created, goal_created, goal_progress_recorded, split_created, split_participant_paid, document_confirmed, onboarding_completed, agent_response_delivered`. Porém `product_event_types` **não contém** `document_confirmed` nem `onboarding_completed` (usa `ocr_document_confirmed` e não tem onboarding_completed), e `agent_response_delivered` é resposta do assessor — inflaria ativação. Precisa canonização.
 
-```
-CLIENTE ⇔ auth.users.id ∉ (SELECT user_id FROM platform_admins WHERE active)
-        AND auth.users.id ∉ (SELECT user_id FROM user_roles WHERE role='admin')
-```
+**Achado P1 — `user_registered` no product_event_types:**
+O evento existe na allowlist do trigger (adicionado em `20260725050000`), mas semanticamente NÃO deve contar como atividade nem WVU. O código de `clients_list` filtra por `<> 'user_registered'`, mas outras RPCs não têm essa proteção uniforme.
 
-Materializado como:
-- `public.v_client_users` (view) — `user_id`, `pseudo_id`, `registered_at`, `onboarding_completed_at`.
-- `public.v_client_pseudonyms` (view) — apenas pseudo_ids de clientes.
-- `public.is_client_user(uuid) returns boolean` (STABLE, `SET search_path=public`).
+**Achado ok — is_client_user:** já está `STABLE SECURITY DEFINER`. Não precisa recriar; precisa apenas travar `EXECUTE`.
 
-Admin permanece em `platform_admins`, `platform_admin_audit`, `admin_reauth_events`, `break_glass_sessions`, `admin_grants_audit`. Nunca em métricas de produto.
+**Achado ok — universo canônico**: 3 profiles = 3 auth users; 1 `platform_admins` ativo (role `platform_owner`, mesmo user com `user_roles.role='admin'`); recálculo confirma **2 clientes reais**.
 
-### Anti-regressão
-- Teste que faz parse de todas as `admin_v2_*` e falha se referenciarem `auth.users`, `profiles`, `user_pseudonyms` ou `product_events` sem `v_client_users` / `is_client_user`.
-- Fixture 1 admin + N clientes valida que toda RPC retorna N.
+Fontes reais consultadas nesta revisão:
+- `pg_class.relacl` das views ⇒ ACL para authenticated.
+- `pg_proc` ⇒ overloads `admin_v2_cockpit`, `is_client_user STABLE`, todas as `admin_v2_*`.
+- `platform_admins`: PK=user_id, role `platform_role`, `active bool default true`.
+- Enums: `platform_role` = {platform_owner, platform_admin, support, analyst}; `app_role` = {admin, user}.
+- `platform_permissions(role, action, allowed)`; 22 actions granulares (incluindo `clients.read`, `clients.identity.read`, `clients.identity.masked`, `cockpit.read`, `growth.read`, `product_intel.read`, `audit.read`, etc.).
+- `product_event_types(event_name, category, requires_value_bucket, description)` — 21 eventos catalogados.
 
-## 3. Fórmulas canônicas
+---
 
-| Métrica | Fórmula (TZ America/Sao_Paulo) | Tipo |
+## 2) Arquitetura segura do universo de clientes
+
+**Regra 1 — Views são internas.** `v_client_users`, `v_client_pseudonyms` e `is_client_user` deixam de ser acessíveis a `anon`/`authenticated`. Só `postgres` (owner de views) e RPCs `SECURITY DEFINER` (que rodam como owner) enxergam.
+
+**Regra 2 — Todo consumo do Admin passa por RPC.** Nenhuma leitura direta de views/tabelas de universo pelo frontend. RPCs `admin_v2_*` já são `SECURITY DEFINER` + `_require_perm(...)`; vamos apenas garantir grants mínimos.
+
+**Regra 3 — Fonte canônica de admin: `platform_admins WHERE active`**, mantendo `user_roles.role='admin'` como sinal defensivo secundário (belt-and-suspenders). É por isso que `is_client_user` faz **anti-join contra ambos**: um user só é cliente se não está em nenhum. Nada de e-mail, domínio ou UUID hardcoded.
+
+**Precedência real hoje** (verificado):
+- `platform_admins` ativos → autoridade da UI/permissões via `platform_permissions`.
+- `user_roles.role='admin'` → sinal legado; apenas 1 registro, alinhado com o platform_owner. Continua servindo de rede de proteção caso a linha em `platform_admins` seja acidentalmente marcada `active=false`.
+- Risco de inconsistência: alguém removeria só de um lado; mitigado por manter os dois na definição de "não-cliente".
+
+---
+
+## 3) Assinaturas atuais e futuras das RPCs
+
+### Assinaturas encontradas hoje
+
+| RPC | Assinatura atual | Estado |
 |---|---|---|
-| Usuários totais | `count(*) v_client_users` | estoque |
-| Cadastros no período | `v_client_users WHERE registered_at AT TIME ZONE 'America/Sao_Paulo' BETWEEN [from,to]` | fluxo |
-| Ativados no período | primeiro evento significativo do pseudo_id no intervalo | fluxo |
-| Ativos no período | `count(DISTINCT pseudo_id)` de `product_events` (client-only) | fluxo |
-| Dormant atuais | `last_event_at < now()-14d` e `registered_at < now()-14d` | estoque |
-| Com dados financeiros | clientes com ≥1 linha em `transactions` | estoque |
-| WVU 7d | pseudo_ids únicos com eventos de valor nos últimos 7 dias | fluxo |
+| `admin_v2_cockpit()` | sem args | LEGADA — remover, ambígua |
+| `admin_v2_cockpit(_from date,_to date)` | novo contrato | manter |
+| `admin_v2_daily_evolution(_from date,_to date)` | novo | manter |
+| `admin_v2_clients_list(_limit int)` | sem período | expandir |
+| `admin_v2_growth_summary(_days int)` | legado | expandir |
+| `admin_v2_growth_cohorts(_weeks int)` | legado | manter (semanal) |
+| `admin_v2_growth_funnel(_days int)` | legado | expandir |
+| `admin_v2_messaging_activity(_days int)` | legado | expandir |
+| `admin_v2_ia_ocr_metrics(_days int)` | legado | expandir |
+| `admin_v2_product_features(_days int)` | legado | expandir |
+| `admin_v2_whatsapp_monitor(_days int)` | legado | manter |
+| `admin_v2_operations_health(_hours int)` | legado | manter |
+| `admin_v2_clients_identity(_pseudo_ids uuid[])` | ok | manter |
+| `admin_v2_clients_identity_masked(_pseudo_ids uuid[])` | ok | manter |
+| `admin_v2_audit_list(_limit int)` | ok | manter |
+| `admin_v2_assistant_health(_days int)` | legado | manter |
+| `admin_v2_metrics_audit()` | ok | manter |
+| `admin_v2_governance_summary()` | ok | manter |
+| `admin_v2_product_opportunities()` | ok | manter |
+| `admin_v2_revenue_summary()` | ok | manter |
 
-Validação cruzada: `auth.users − platform_admins = profiles − platform_admins = user_pseudonyms − platform_admins = v_client_users`.
+### Assinaturas futuras (estratégia sem ambiguidade)
 
-## 4. Filtros de data (contrato único)
+Regras:
+- **Nunca** manter duas assinaturas da mesma RPC coexistindo em produção.
+- Substituição atômica dentro da mesma migração: `DROP FUNCTION` (assinatura antiga específica) + `CREATE OR REPLACE FUNCTION` (nova assinatura). Não usar `CREATE OR REPLACE` sozinho, pois PostgreSQL trata assinatura diferente como função nova.
+- Todas as RPCs de período recebem **exatamente** `(_from date, _to date, _tz text default 'America/Sao_Paulo')`. Sem `_days` default. Sem overload.
+- Frontend é adaptado no **mesmo commit** que aplica a migration.
 
-`_from date, _to date, _tz text default 'America/Sao_Paulo'` em todas as RPCs de Cockpit, Clientes, Crescimento, IA/Produto e Mensageria. Semi-aberto `[from 00:00 SP, to+1 00:00 SP)`. Presets no cliente: hoje, ontem, 7d, 30d, mês atual, mês anterior, dia específico, intervalo custom. Compatibilidade via overload com defaults de 30d.
+| RPC | Nova assinatura definitiva |
+|---|---|
+| `admin_v2_cockpit(_from date,_to date,_tz text)` | mantém |
+| `admin_v2_daily_evolution(_from date,_to date,_tz text)` | mantém |
+| `admin_v2_clients_list(_from date,_to date,_tz text,_limit int default 100,_lifecycle text default null,_financial text default null)` | filtragem no servidor |
+| `admin_v2_growth_summary(_from date,_to date,_tz text)` | substitui `(_days)` |
+| `admin_v2_growth_funnel(_from date,_to date,_tz text)` | substitui `(_days)` |
+| `admin_v2_messaging_activity(_from date,_to date,_tz text)` | substitui `(_days)` |
+| `admin_v2_ia_ocr_metrics(_from date,_to date,_tz text)` | substitui `(_days)` |
+| `admin_v2_product_features(_from date,_to date,_tz text)` | substitui `(_days)` |
+| `admin_v2_assistant_health(_from date,_to date,_tz text)` | substitui `(_days)` |
 
-Componente `src/components/admin/AdminDateFilter.tsx` (Popover + Calendar shadcn com `pointer-events-auto`). Cada `KpiCard` declara `metricKind: 'stock' | 'flow' | 'daily'` para rótulos dinâmicos.
+RPCs de estoque atual (`total_users`, `active break_glass`) não recebem período — retornam sempre "agora".
 
-## 5. Evolução dia a dia
+---
 
-RPC `admin_v2_daily_evolution(_from,_to,_tz)`:
+## 4) Fórmulas versionadas
 
-```json
-{ "series": [{ "day": "2026-07-20", "new_clients": 0, "activated": 0,
-  "active_unique": 0, "went_dormant": 0, "cumulative_clients": 2,
-  "first_financial_action": 0 }],
-  "totals": {}, "formula_version": "daily.evolution.v1",
-  "sample_size": N, "sufficient_sample": bool, "timezone": "America/Sao_Paulo" }
+### `activity.v1` — atividade significativa (allowlist positiva)
+Um evento conta como atividade se **e somente se**:
+```
+event_name IN (
+  'financial_entry_created', 'financial_entry_edited', 'financial_entry_categorized',
+  'goal_created', 'goal_progress_recorded',
+  'split_created', 'split_participant_paid',
+  'ocr_document_uploaded', 'ocr_document_confirmed'
+)
+```
+**Excluídos explicitamente:** `user_registered`, `agent_response_delivered`, `personalized_response_delivered`, `insight_delivered`, `forecast_delivered`, `whatsapp_message_sent/delivered/read`, todos com `event_source='backfill'` ou `'backfill_proxy'` e qualquer `pseudo_id` cujo `user_id` seja admin.
+
+### `value_delivered.v1` — valor entregue pelo produto
+```
+event_name IN (
+  'goal_progress_recorded', 'split_participant_paid',
+  'ocr_document_confirmed', 'financial_entry_created'
+)
+AND event_source = 'live'
+```
+Retorna soma de `amount_from_bucket(value_bucket)` quando aplicável.
+
+### `activation.v1` — primeira ação significativa da vida do cliente
+```sql
+first_significant_at := (
+  SELECT min(occurred_at)
+  FROM product_events e
+  WHERE e.pseudo_id = <cliente>
+    AND e.event_name IN (<activity.v1>)
+    AND e.event_source = 'live'
+)
+```
+- **Ativados no período** = clientes cujo `first_significant_at ∈ [from, to+1d)`.
+- **Não** é "qualquer ação no período".
+
+### `dormant_transition.v1` — série diária de `went_dormant`
+Definição formal do dia `D`:
+```
+Um pseudo_id p entra em dormant no dia D se:
+  MAX(occurred_at | activity.v1) em [D-14d, D-1d] existe (usuário estava ativo até dia D-1)
+  E o intervalo entre a última atividade e D atingiu 14 dias exatos em D
+  E nenhuma atividade ocorreu em [D-13d, D] (janela sem retorno)
+```
+Implementação canônica:
+```
+went_dormant(D) := |{ p : last_activity(p, ate=D) = D-14 }|
+onde last_activity(p, ate=D) = max(occurred_at::date) filtrando activity.v1 e ≤D
+```
+Isso garante que cada usuário só é contado uma vez por transição. Se voltar a agir em D+3, ele é contado em `activated(D+3)` mas não em novo `went_dormant` até completar novos 14 dias parado.
+
+### `snapshot.v1` — estado do lifecycle no fim de qualquer dia
+```
+lifecycle_at(p, D) :=
+  CASE
+    WHEN p.registered_at::date > D THEN NULL
+    WHEN NOT EXISTS activity.v1(p) até D E onboarding is null até D THEN 'new'
+    WHEN last_activity(p, D) IS NULL AND onboarding_at <= D THEN 'activated'
+    WHEN D - last_activity(p, D) > 14 THEN 'dormant'
+    ELSE 'active'
+  END
+```
+Snapshot histórico **não** usa "hoje" — usa `D` como cursor. Assim `Dormant no fim de D` reflete o estado daquele dia, não o atual.
+
+### `client_universe.v1`
+Definição canônica (JOIN pré-computado, dispensa a função nas RPCs quentes):
+```sql
+user_id NOT IN (SELECT user_id FROM platform_admins WHERE active)
+AND user_id NOT IN (SELECT user_id FROM user_roles WHERE role='admin')
 ```
 
-Componente `AdminDailyEvolutionCard` (recharts LineChart `type="monotone"` + tabela + tooltip localizado + estado vazio + badge "amostra insuficiente" quando `<10`). Comparação com período anterior habilita apenas se `comparablePeriods`.
+Todos os retornos JSON expõem `formula_version` explícito.
 
-## 6. Cockpit e Crescimento
+---
 
-`KpiCard` recebe `definition: { formula, source, window, tz, formula_version, quality }` (tooltip "?"). Cockpit rearranjado:
-- **Estoque:** Clientes totais, Dormant atuais, Com dados financeiros.
-- **Fluxo:** Novos clientes, Ativados, Ativos únicos, WVU.
-- **Operacional:** Custo assessor no período, Falha mensageria no período.
+## 5) Estoque vs período — contratos por cartão
 
-Novo bloco Evolução diária + banda de integridade.
+| Cartão | Tipo | Fonte | Reage ao filtro? |
+|---|---|---|---|
+| Clientes totais | Estoque atual | `count(v_client_users) agora` | **Não** |
+| Custo do assessor | Fluxo no período | soma `agent_runs` em `[from,to+1d)` | Sim |
+| Falha mensageria 7d | Janela fixa 7d | rolling, ignora filtro | **Não** |
+| Novos clientes | Fluxo | `registered_at ∈ [from,to+1d)` | Sim |
+| Ativações | Fluxo | `first_significant_at ∈ período` | Sim |
+| Valor entregue | Fluxo | `value_delivered.v1` no período | Sim |
+| WVU | Snapshot rolling | pseudos ativos+valor em janela de 7d dentro do período | Sim |
+| Dormant | Snapshot ao fim de `to` | `snapshot.v1(D=to)` | Sim (usa fim do intervalo) |
+| Evolução diária | Série | `daily_evolution` | Sim |
 
-## 7. Escopo de migrations, RPCs, componentes
+UI marca visualmente estoque atual com selo "agora" para eliminar ambiguidade.
 
-| Objeto/arquivo | Problema | Mudança | Risco | Teste | Deploy? |
+---
+
+## 6) Migrations aditivas (sequência definitiva)
+
+Todas idempotentes-por-condição, nenhuma altera migration histórica. Cada uma acompanha `-- ROLLBACK` documentado no cabeçalho.
+
+**M1 — `20260726100000_client_universe_lockdown.sql` (P0 segurança)**
+- `REVOKE ALL ON public.v_client_users, public.v_client_pseudonyms FROM PUBLIC, anon, authenticated;`
+- `REVOKE EXECUTE ON FUNCTION public.is_client_user(uuid) FROM PUBLIC, anon, authenticated;`
+- `GRANT SELECT ON public.v_client_users, public.v_client_pseudonyms TO service_role;`
+- `GRANT EXECUTE ON FUNCTION public.is_client_user(uuid) TO service_role;`
+- Rollback: `GRANT SELECT ON v_client_* TO authenticated;` (só se algum consumidor legítimo emergir — nenhum hoje).
+
+**M2 — `20260726100500_admin_v2_cockpit_disambiguate.sql`**
+- `DROP FUNCTION IF EXISTS public.admin_v2_cockpit();` (remove só a assinatura sem args, mantém a com `_from/_to`).
+- Rollback: recriar a função sem args a partir do dump anexado ao cabeçalho da migration.
+
+**M3 — `20260726101000_admin_v2_period_contract.sql`**
+- Para cada RPC listada em §3, executa `DROP FUNCTION` da assinatura antiga específica + `CREATE OR REPLACE FUNCTION` com nova assinatura `(_from, _to, _tz)`. Uso de `CREATE OR REPLACE VIEW` onde aplicável.
+- Nunca `DROP VIEW`.
+- Rollback: bloco `DROP FUNCTION ... (novas) + recriação das antigas` (SQL anexo no cabeçalho).
+
+**M4 — `20260726101500_metrics_taxonomy_v1.sql`**
+- Cria função pura `public.activity_events()` retornando o array constante da allowlist `activity.v1`. RPCs passam a referenciar essa função — mudar taxonomia = uma migration futura.
+- Idem `value_events()`.
+- Rollback: `DROP FUNCTION` das duas.
+
+**M5 — `20260726102000_admin_v2_daily_evolution_v2.sql`**
+- `CREATE OR REPLACE FUNCTION admin_v2_daily_evolution(_from, _to, _tz)` implementando `dormant_transition.v1`, `activation.v1` e snapshots corretos.
+- Reaproveita índices existentes: `product_events_pseudo_idx`, `product_events_occurred_idx`, `product_events_name_idx`. Sem novos índices — plano de execução usa `Index Only Scan` em `(pseudo_id, occurred_at DESC)`.
+- Rollback: recriar versão anterior de `daily_evolution`.
+
+**M6 — `20260726102500_admin_grants_normalize.sql`**
+- `REVOKE ALL ON FUNCTION admin_v2_* FROM PUBLIC, anon;`
+- `GRANT EXECUTE ON FUNCTION admin_v2_* TO authenticated;` (só authenticated; a autorização real é dentro da RPC via `_require_perm`).
+- Idem para novas funções auxiliares.
+
+Ordem de aplicação: M1 → M2 → M3 → M4 → M5 → M6. **M1 pode ser aplicada isoladamente e imediatamente** por ser hotfix de segurança.
+
+---
+
+## 7) Frontend — arquivos e componentes afetados
+
+Adiciona / substitui (apenas presentational + data-fetching, sem lógica financeira):
+- `src/lib/admin/periodPresets.ts` (já existe do turno anterior; **manter**)
+- `src/components/admin/AdminDateFilter.tsx` (já existe; **manter**)
+- `src/components/admin/AdminDailyEvolutionCard.tsx` (já existe; **ajustar bindings para novo envelope**)
+- `src/pages/admin/Cockpit.tsx` (já existe; **ajustar chamada** `admin_v2_cockpit` para `(_from,_to,_tz)`, incluir selo "agora" nos cartões de estoque)
+- `src/pages/admin/Clientes.tsx` (já existe; passar `_from`, `_to`, `_lifecycle`, `_financial` para filtragem server-side)
+- `src/pages/admin/Crescimento.tsx` — trocar `_days` por `_from/_to`
+- `src/pages/admin/InteligenciaProduto.tsx` — idem
+- `src/pages/admin/Mensageria.tsx` — idem
+- `src/pages/admin/IA.tsx` — idem
+- `src/lib/admin/adminRpc.ts` — utilitário `withPeriod(range)` que injeta `_from/_to/_tz`
+- `src/lib/admin/displayDictionary.ts` — palavras já existem; incluir "Sem histórico", "Amostra insuficiente", "0 no período" com semânticas distintas
+- Nada muda no design system: `PageHeader`, `KpiCard`, `AdminResponsiveList`, `EmptyState`, `AdminSkeleton` — reutilizados.
+
+---
+
+## 8) Provas SQL da contagem atual
+
+```sql
+-- (a) 3 usuários autenticados (via profiles como proxy sem tocar auth)
+SELECT count(*) FROM public.profiles;                       -- 3
+
+-- (b) 1 admin ativo canônico
+SELECT count(*) FROM public.platform_admins WHERE active;   -- 1
+
+-- (c) 2 clientes reais pela definição canônica
+SELECT count(*) FROM public.user_pseudonyms up
+WHERE up.user_id NOT IN (SELECT user_id FROM public.platform_admins WHERE active)
+  AND up.user_id NOT IN (SELECT user_id FROM public.user_roles WHERE role='admin');
+                                                            -- 2
+
+-- (d) confirmação cruzada
+SELECT (SELECT count(*) FROM public.profiles)
+     - (SELECT count(*) FROM public.platform_admins WHERE active) AS clientes_esperados; -- 2
+```
+
+RPCs que hoje reportam 3 (a corrigir pela M3+M5): qualquer `admin_v2_*` que faz `count(distinct pseudo_id)` **sem** filtrar `is_client_user` na origem. Ex.: `admin_v2_growth_summary`, `admin_v2_product_features`, `admin_v2_messaging_activity` ao contar "usuários únicos" sobre `product_events` cru. Correção: `JOIN v_client_pseudonyms USING (pseudo_id)` em cada agregação. Como as views ficam com grant só para service_role e a RPC é SECURITY DEFINER, isso funciona.
+
+---
+
+## 9) Timezone, DST e limites
+
+- Toda RPC monta janela como:
+  ```sql
+  v_start := (_from::text || ' 00:00:00')::timestamp AT TIME ZONE coalesce(_tz,'America/Sao_Paulo');
+  v_end   := ((_to::date + 1)::text || ' 00:00:00')::timestamp AT TIME ZONE coalesce(_tz,'America/Sao_Paulo');
+  ```
+- Comparações sempre `>= v_start AND < v_end` (semi-aberto).
+- Buckets diários: `(occurred_at AT TIME ZONE _tz)::date`.
+- **DST histórico BR**: Brasil aboliu DST em 2019; testes cobrem virada 2018→2019 (última) para evitar regressão.
+- Limite: `_to - _from ≤ 365 dias`. RPC lança `raise_invalid_parameter_value` acima disso.
+- Séries diárias: `generate_series(_from, _to, '1 day'::interval)` + `LEFT JOIN` — garante buckets vazios explícitos.
+
+---
+
+## 10) Testes
+
+### SQL (arquivo `supabase/tests/admin_v2/`)
+- `test_universe_isolation.sql`: um usuário `authenticated` não consegue `SELECT` nas views nem `EXECUTE` `is_client_user`.
+- `test_cockpit_no_overload.sql`: `pg_proc` só tem uma assinatura.
+- `test_activation_first_action.sql`: cliente com 3 eventos significativos aparece em `activated` apenas no dia da primeira ação.
+- `test_dormant_transition_once.sql`: usuário sem ação por 30 dias aparece uma única vez em `went_dormant(D_14)`; nada em `went_dormant(D_15..D_30)`.
+- `test_activity_allowlist.sql`: `user_registered`, `agent_response_delivered`, `insight_delivered`, backfills não contam.
+- `test_snapshot_history.sql`: `snapshot.v1(D=ontem)` não muda quando um evento novo é gerado hoje.
+- `test_semiopen_dst.sql`: evento em `2018-11-04 23:59 BRST` (última virada DST) pertence ao dia 04 e não ao 05.
+
+### Unitário (Vitest)
+- Já existente: `period-presets.test.ts` (8/8). Adicionar:
+  - `period-presets-dst.test.ts` (viradas históricas e virada de ano).
+  - `admin-rpc-withPeriod.test.ts` (garante que nenhum caller manda `_days` residual).
+  - `admin-daily-evolution.test.tsx`: render diferencia "0 no período" vs "sem amostra" vs "sem histórico".
+
+### E2E (Playwright headless, existente)
+- Login como platform_owner → Cockpit renderiza 2 clientes; troca preset e valida request outbound com `_from/_to/_tz`.
+- Login como cliente comum (via session vars) → `fetch supabase.rpc('admin_v2_cockpit')` retorna 401/403; **não** consegue `SELECT` em `v_client_users` (403 permission denied).
+
+### Autorização por papel (tabela)
+| Papel | `admin_v2_cockpit` | `admin_v2_clients_list` | `admin_v2_clients_identity` | `admin_v2_clients_identity_masked` | `v_client_users` |
 |---|---|---|---|---|---|
-| `supabase/migrations/20260726000000_client_universe.sql` | admin contado | cria views + `is_client_user()` + GRANTs | baixo | contagem = 2 | migration |
-| `20260726000500_admin_rpc_client_scoped.sql` | RPCs contam admins | reescreve `admin_v2_cockpit`, `admin_v2_clients_list` (`clients.live.v6`), `admin_v2_growth_summary/funnel/cohorts`, `admin_v2_product_features/opportunities` sobre `v_client_users`; adiciona `_from/_to/_tz` | médio | fixture 1 admin + 2 clientes → 2 | migration |
-| `20260726001000_admin_daily_evolution.sql` | falta série diária | cria `admin_v2_daily_evolution` | baixo | série fecha com totais | migration |
-| `src/lib/admin/periodPresets.ts` | — | helpers SP | baixo | unit | frontend |
-| `src/components/admin/AdminDateFilter.tsx` | sem filtro | Popover + presets + custom | baixo | RTL | frontend |
-| `src/components/admin/AdminDailyEvolutionCard.tsx` | — | linha + tabela | baixo | RTL | frontend |
-| `src/pages/admin/Cockpit.tsx` | mistura estoque/fluxo | reagrupa cartões, integra filtro + evolução | baixo | contract | frontend |
-| `src/pages/admin/Clientes.tsx` | admin listado | `clients.live.v6`, filtros | baixo | RTL | frontend |
-| `src/pages/admin/Crescimento.tsx`, `InteligenciaProduto.tsx`, `operacao/Mensageria.tsx` | idem | integram filtro + contrato | baixo | RTL | frontend |
-| `src/integrations/supabase/types.ts` | — | regenerar | — | build | auto |
-| Edge Functions | — | **nenhuma** — sem redeploy | — | — | não |
+| cliente autenticado | 403 | 403 | 403 | 403 | 403 |
+| support | 200 (cockpit.read) | 200 | 403 | 200 | 403 |
+| analyst | 200 | 200 | 403 | 403 | 403 |
+| platform_admin | 200 | 200 | 200 | 200 | 403 |
+| platform_owner | 200 | 200 | 200 | 200 | 403 |
 
-Migrations aditivas e idempotentes. Nenhuma migration histórica alterada.
+Todas as expectativas verificadas em `test_authorization_matrix.sql`. Nenhum papel — nem `platform_owner` — recebe PII em RPCs agregadas: só via `admin_v2_clients_identity[_masked]` explicitamente permissionadas.
 
-## 8. Testes obrigatórios
+---
 
-- `admin-client-universe.test.ts` — 1 admin + 2 clientes ⇒ 2 em todo cartão.
-- `admin-date-filter.test.tsx` — presets em SP, virada de dia/mês.
-- `admin-daily-evolution.test.tsx` — vazia, parcial, tooltip.
-- `admin-metric-kind-labels.test.tsx` — estoque sem "no período".
-- SQL: `client_universe`, `daily_evolution_closure`, `adjacent_periods_no_overlap`, `registration_is_not_activity`.
+## 11) Design e UX
 
-Fixtures: admin + `cliente_new` + `cliente_activated` + `cliente_active_multi_day` + `cliente_dormant` + evento na virada 23:59:59-03 / 00:00:00-03.
+- Preservação total do sistema visual atual: `PageHeader`, `KpiCard`, `AdminResponsiveList`, `EmptyState`, `Skeleton`. Nada novo em cor, tipografia ou raio.
+- Cartões de estoque atual ganham selo compacto "agora" à direita do título; cartões de fluxo mantêm badge com intervalo aplicado.
+- Estado 0 vs sem amostra vs sem histórico: aplicar `displayDictionary` com:
+  - `zero_in_period` → "0 no período" (rótulo neutro).
+  - `insufficient_sample` → badge âmbar "amostra n=X".
+  - `no_history` → texto discreto "sem histórico".
+- `AdminDailyEvolutionCard` mantém curva `monotone` + tabela complementar responsiva.
+- Mobile: filtro de data em bottom sheet vertical; presets primeiro, calendário abaixo.
 
-## 9. Homologação (após publicação)
+---
 
-Cockpit com 2 clientes; Clientes listando 2; cadastro novo como `new`; padrão semanal em App/WhatsApp; sequência "sexta" → "eu digo na média"; "quanto gastei na sexta?" isolado ≠ padrão; gráfico com PNG ou fallback honesto; `proactive_enabled=false`; diff de dados = 0.
+## 12) Critérios de aceite
 
-## 10. Critérios de aceite
+1. `SELECT * FROM v_client_users` como cliente comum autenticado retorna 42501.
+2. `pg_proc` mostra exatamente uma assinatura para cada `admin_v2_*`.
+3. Cockpit exibe **2** em "Clientes totais" com selo "agora"; nunca 3.
+4. `admin_v2_growth_summary(_from,_to)` com um range de 30 dias e outro de 7 dias retorna valores distintos e coerentes; nenhum reage a filtragem por não-clientes.
+5. `admin_v2_daily_evolution` para um período onde há um único cliente com 20 dias de inatividade retorna exatamente uma linha com `went_dormant=1`.
+6. Nenhuma RPC agregada retorna `user_id`, e-mail, nome ou telefone.
+7. Testes SQL, Vitest e Playwright verdes; `supabase--linter` sem novo alerta crítico.
+8. Design system inalterado (diff visual em `AdminLayout`, `PageHeader`, `KpiCard` = 0).
 
-- [ ] 2 clientes no painel.
-- [ ] Admin ausente de todas as `admin_v2_*` de produto.
-- [ ] Filtro de dia específico e intervalo funcionam em SP.
-- [ ] Série diária fecha com totais.
-- [ ] `clients.live.v6` compatível.
-- [ ] Testes App/WhatsApp verdes.
-- [ ] Zero perda de dados; zero PII.
-- [ ] SHA publicado registrado.
+---
 
-## 11. Riscos e rollback
+## 13) Riscos e rollback
 
-- RPC v6 quebrar tela → overload antigo por 1 release + feature flag `admin.date_filter.enabled`.
-- View mascarar admin em auditoria → auditoria não usa `v_client_users`.
-- Rollback: `DROP VIEW/FUNCTION` das novas + revert frontend.
+| Risco | Mitigação | Rollback |
+|---|---|---|
+| Frontend antigo em cache chamar `admin_v2_cockpit()` sem args | Deploy migrations + frontend juntos; RPC nova responde 42883 se ainda houver caller stale | Migration reversa recria a assinatura sem args |
+| Alguma edge function referenciar RPC legada com `_days` | Grep pré-deploy nas functions; substituir chamadas no mesmo commit | Cada migration traz `-- ROLLBACK` inline |
+| REVOKE em views quebrar consumidor legítimo | `pg_stat_user_tables` + logs mostram nenhum acesso hoje | `GRANT SELECT ON v_client_* TO service_role` — já contemplado |
+| Perda de performance na filtragem por universo | Anti-join com `platform_admins`/`user_roles` roda em ≤2ms (tabelas de 1 e 3 linhas); `product_events` já tem `pseudo_id_idx` | N/A |
+| DST/timezone edge case | Testes específicos; timestamp math sempre em `AT TIME ZONE` | Correção pontual |
 
-## 12. Sequência de execução
+---
 
-1. Snapshot de contagens.
-2. Branch `fix/admin-client-universe`.
-3. Migrations + frontend + testes.
-4. Vitest + build verdes.
-5. Revisão de diff.
-6. Merge `main`.
-7. Aplicar migrations (client_universe → rpc_client_scoped → daily_evolution).
-8. Regenerar types.
-9. Publicar frontend.
-10. Homologação SQL + UI + App + WhatsApp.
-11. Relatório final com SHA.
+## 14) Estimativa de créditos
 
-## 13. Créditos
+- Migrations (6, revisão + escrita): ~30k tokens.
+- Refactor frontend (7 arquivos): ~40k tokens.
+- Testes SQL + Vitest + Playwright: ~30k tokens.
+- Sub-total: **~100k tokens** de trabalho de execução, sem gerar imagens.
 
-- Migrations/RPCs: baixo.
-- Frontend: médio (2–3 rodadas).
-- Testes: baixo-médio.
-- Deploy Edge Functions: zero.
-- Homologação: baixo.
+## 15) Classificação final
 
-## 14. Classificação final
+- Complexidade: **Alta** (segurança + contrato + série temporal).
+- Escopo: **Fechado** — só Admin. App do cliente e edge functions financeiras não são tocados.
+- Risco de regressão no app do usuário final: **zero** (nenhuma alteração fora de `admin_v2_*`, views internas e páginas admin).
+- Impacto de segurança: **crítico positivo** — fecha vazamento P0 introduzido no turno anterior.
+- Status: **READY FOR APPROVAL**.
 
-**READY_TO_IMPLEMENT**.
-
-Confirmo que nenhuma alteração foi realizada nesta etapa.
+Aguardando aprovação para executar. Nenhum arquivo, migration ou deploy foi tocado nesta rodada.
