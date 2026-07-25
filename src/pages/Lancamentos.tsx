@@ -74,6 +74,8 @@ function describeHiddenReason(
     if (!desc.includes(f.search.toLowerCase())) return "busca por texto";
   }
   return null;
+}
+
 
 export default function Lancamentos() {
   const nav = useNavigate();
