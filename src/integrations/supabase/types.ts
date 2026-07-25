@@ -4982,6 +4982,7 @@ export type Database = {
           created_at: string
           goal_id: string
           id: string
+          idempotency_key: string | null
           note: string | null
           occurred_at: string
           transaction_id: string | null
@@ -4992,6 +4993,7 @@ export type Database = {
           created_at?: string
           goal_id: string
           id?: string
+          idempotency_key?: string | null
           note?: string | null
           occurred_at?: string
           transaction_id?: string | null
@@ -5002,6 +5004,7 @@ export type Database = {
           created_at?: string
           goal_id?: string
           id?: string
+          idempotency_key?: string | null
           note?: string | null
           occurred_at?: string
           transaction_id?: string | null
@@ -5176,10 +5179,13 @@ export type Database = {
       }
       shared_goals: {
         Row: {
+          cancelled_at: string | null
+          completed_at: string | null
           created_at: string
           created_by: string
           deadline: string | null
           id: string
+          last_milestone_pct: number
           referral_source: string | null
           status: string
           target_amount: number
@@ -5187,10 +5193,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          cancelled_at?: string | null
+          completed_at?: string | null
           created_at?: string
           created_by: string
           deadline?: string | null
           id?: string
+          last_milestone_pct?: number
           referral_source?: string | null
           status?: string
           target_amount: number
@@ -5198,10 +5207,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          cancelled_at?: string | null
+          completed_at?: string | null
           created_at?: string
           created_by?: string
           deadline?: string | null
           id?: string
+          last_milestone_pct?: number
           referral_source?: string | null
           status?: string
           target_amount?: number
@@ -6188,7 +6200,19 @@ export type Database = {
       _mask_email: { Args: { _email: string }; Returns: string }
       _mask_name: { Args: { _name: string }; Returns: string }
       _require_perm: { Args: { _action: string }; Returns: undefined }
+      _sg_notify: {
+        Args: {
+          _body: string
+          _dedup: string
+          _title: string
+          _type: Database["public"]["Enums"]["notification_type"]
+          _url: string
+          _user_id: string
+        }
+        Returns: undefined
+      }
       _split_claim_for_user: { Args: { p_user_id: string }; Returns: number }
+      _test_shared_goals_matrix: { Args: never; Returns: Json }
       _test_split_link_matrix: {
         Args: never
         Returns: {
@@ -6745,6 +6769,17 @@ export type Database = {
       }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
       shared_goal_accept_invite: { Args: { p_goal_id: string }; Returns: Json }
+      shared_goal_add_contribution: {
+        Args: {
+          p_amount: number
+          p_goal_id: string
+          p_idempotency_key?: string
+          p_note?: string
+          p_occurred_at?: string
+        }
+        Returns: string
+      }
+      shared_goal_cancel: { Args: { p_goal_id: string }; Returns: Json }
       shared_goal_contribute: {
         Args: {
           p_amount: number
@@ -6754,7 +6789,16 @@ export type Database = {
         }
         Returns: string
       }
+      shared_goal_create: {
+        Args: { p_deadline?: string; p_target_amount: number; p_title: string }
+        Returns: string
+      }
       shared_goal_decline_invite: { Args: { p_goal_id: string }; Returns: Json }
+      shared_goal_invite: {
+        Args: { p_goal_id: string; p_phone_e164: string; p_token_hash: string }
+        Returns: string
+      }
+      shared_goal_leave: { Args: { p_goal_id: string }; Returns: Json }
       shared_goal_pending_invites: {
         Args: never
         Returns: {
@@ -6765,6 +6809,23 @@ export type Database = {
           target_amount: number
           title: string
         }[]
+      }
+      shared_goal_remove_member: {
+        Args: { p_goal_id: string; p_member_id: string }
+        Returns: Json
+      }
+      shared_goal_role: {
+        Args: { _goal_id: string; _user_id: string }
+        Returns: string
+      }
+      shared_goal_update: {
+        Args: {
+          p_deadline?: string
+          p_goal_id: string
+          p_target_amount?: number
+          p_title?: string
+        }
+        Returns: Json
       }
       split_add_payment: {
         Args: { p_amount: number; p_participant_id: string }
