@@ -922,7 +922,128 @@ const periodSchema = {
   additionalProperties: false,
 };
 
+// ---------- Shared Goals (Metas Conjuntas) ----------
+
+async function resolveSharedGoal(ctx: ToolContext, hint: string): Promise<{ id: string; title: string; target_amount: number; deadline: string | null } | null> {
+  const h = String(hint ?? "").trim();
+  if (!h) return null;
+  if (/^[0-9a-f-]{36}$/i.test(h)) {
+    const { data } = await ctx.sb.from("shared_goals").select("id,title,target_amount,deadline").eq("id", h).maybeSingle();
+    return data ? { id: data.id, title: data.title, target_amount: Number(data.target_amount), deadline: data.deadline } : null;
+  }
+  const { data } = await ctx.sb.from("shared_goals").select("id,title,target_amount,deadline");
+  const low = h.toLowerCase();
+  const m = (data ?? []).find((g: any) => String(g.title ?? "").toLowerCase().includes(low));
+  return m ? { id: m.id, title: m.title, target_amount: Number(m.target_amount), deadline: m.deadline } : null;
+}
+
+export async function list_shared_goals(ctx: ToolContext): Promise<ToolResult> {
+  const { data, error } = await ctx.sb
+    .from("shared_goals")
+    .select("id,title,target_amount,deadline,created_by,status")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, result: { goals: data ?? [] } };
+}
+
+export async function get_shared_goal_progress(ctx: ToolContext, args: { goal?: string; goal_id?: string }): Promise<ToolResult> {
+  const g = await resolveSharedGoal(ctx, args.goal_id ?? args.goal ?? "");
+  if (!g) return { ok: false, error: "goal_not_found" };
+  const { data: contribs } = await ctx.sb
+    .from("shared_goal_contributions")
+    .select("user_id, amount, occurred_at")
+    .eq("goal_id", g.id);
+  const total = (contribs ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
+  const ranking = new Map<string, number>();
+  for (const r of contribs ?? []) {
+    ranking.set(r.user_id, (ranking.get(r.user_id) ?? 0) + Number(r.amount ?? 0));
+  }
+  const rankingArr = Array.from(ranking.entries())
+    .map(([user_id, amount]) => ({ user_id, amount }))
+    .sort((a, b) => b.amount - a.amount);
+  return {
+    ok: true,
+    result: {
+      goal: g,
+      total_contributed: total,
+      remaining: Math.max(0, Number(g.target_amount) - total),
+      progress_pct: g.target_amount > 0 ? Math.min(100, (total / Number(g.target_amount)) * 100) : 0,
+      ranking: rankingArr,
+    },
+  };
+}
+
+export async function simulate_shared_goal_pace(ctx: ToolContext, args: { goal?: string; goal_id?: string; monthly_contribution: number }): Promise<ToolResult> {
+  const g = await resolveSharedGoal(ctx, args.goal_id ?? args.goal ?? "");
+  if (!g) return { ok: false, error: "goal_not_found" };
+  const monthly = Number(args.monthly_contribution);
+  if (!Number.isFinite(monthly) || monthly <= 0) return { ok: false, error: "invalid_amount" };
+  const { data: contribs } = await ctx.sb
+    .from("shared_goal_contributions").select("amount").eq("goal_id", g.id);
+  const total = (contribs ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
+  const remaining = Math.max(0, Number(g.target_amount) - total);
+  const months = remaining > 0 ? Math.ceil(remaining / monthly) : 0;
+  const projected = new Date();
+  projected.setMonth(projected.getMonth() + months);
+  return {
+    ok: true,
+    result: {
+      goal_id: g.id, title: g.title,
+      remaining, monthly_contribution: monthly, months_to_complete: months,
+      projected_completion: projected.toISOString().slice(0, 10),
+      deadline: g.deadline,
+    },
+  };
+}
+
+export async function create_shared_goal_draft(ctx: ToolContext, args: {
+  title: string; target_amount: number; deadline?: string;
+}): Promise<ToolResult> {
+  const title = String(args?.title ?? "").trim();
+  const target = Number(args?.target_amount);
+  if (!title) return { ok: false, error: "invalid_title" };
+  if (!Number.isFinite(target) || target <= 0) return { ok: false, error: "invalid_amount" };
+  const deadline = /^\d{4}-\d{2}-\d{2}$/.test(args.deadline ?? "") ? args.deadline : null;
+  const summary = `Meta conjunta “${title}” com objetivo de ${BRL.format(target)}${deadline ? ` até ${deadline}` : ""}.`;
+  const id = await upsertDraft(ctx, "shared_goal_create", { title, target_amount: target, deadline }, summary);
+  if (!id) return { ok: false, error: "draft_failed" };
+  return { ok: true, result: { draft_id: id, summary } };
+}
+
+export async function add_shared_goal_contribution_draft(ctx: ToolContext, args: {
+  goal: string; amount: number; occurred_at?: string; note?: string;
+}): Promise<ToolResult> {
+  const amount = Number(args?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
+  const g = await resolveSharedGoal(ctx, args.goal ?? "");
+  if (!g) return { ok: false, error: "goal_not_found" };
+  const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
+  const summary = `Contribuição de ${BRL.format(amount)} para meta conjunta “${g.title}” em ${occurred_at}.`;
+  const id = await upsertDraft(ctx, "shared_goal_contribution", {
+    goal_id: g.id, amount, occurred_at, note: args.note ?? null,
+  }, summary);
+  if (!id) return { ok: false, error: "draft_failed" };
+  return { ok: true, result: { draft_id: id, summary } };
+}
+
+export async function explain_shared_goal_ranking(ctx: ToolContext, args: { goal?: string; goal_id?: string }): Promise<ToolResult> {
+  const progress = await get_shared_goal_progress(ctx, args);
+  if (!progress.ok) return progress;
+  const { ranking, goal, total_contributed } = (progress as any).result;
+  const top = (ranking as any[]).slice(0, 3);
+  return {
+    ok: true,
+    result: {
+      goal_id: goal.id, title: goal.title,
+      total_contributed, top_contributors: top,
+      remaining: Math.max(0, Number(goal.target_amount) - Number(total_contributed)),
+    },
+  };
+}
+
 export const AGENT_TOOLS: ToolSpec[] = [
+
   {
     name: "list_accounts",
     description: "Lista as contas ativas do usuário.",
