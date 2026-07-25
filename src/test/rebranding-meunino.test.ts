@@ -42,6 +42,11 @@ const ALLOWLIST: Array<{ file: string; match: RegExp; reason: string }> = [
     reason: "fallback de variável de ambiente da sessão WAHA",
   },
   {
+    file: "supabase/functions/whatsapp-send/index.ts",
+    match: /NOCONTROLE_CRON_SECRET/,
+    reason: "fallback de variável de ambiente do cron interno (transição)",
+  },
+  {
     file: "supabase/functions/admin-bootstrap/index.ts",
     match: /daniel\.assis@nocontrole\.com\.br/,
     reason: "e-mail bootstrap existente do owner (dado operacional preservado)",
