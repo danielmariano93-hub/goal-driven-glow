@@ -261,8 +261,17 @@ export default function Metas() {
           })}
         </ul>
       )}
+      {tab === "all" && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+            <Users size={12} /> Metas conjuntas
+          </div>
+          <SharedGoalsInline />
+        </div>
+      )}
         </>
       )}
+
 
 
 
