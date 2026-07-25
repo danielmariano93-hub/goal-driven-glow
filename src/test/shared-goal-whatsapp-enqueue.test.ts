@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { enqueueGoalInvite } from "../../supabase/functions/shared-goal-notify-invite/index.ts";
+import { enqueueGoalInvite } from "../../supabase/functions/_shared/messaging/sharedGoalInviteEnqueue.ts";
 
 // Small in-memory Supabase-like mock focused on outbound_messages + whatsapp_links.
 function makeSb(opts: { registeredPhones?: string[]; failInsertKind?: string; duplicateOnce?: boolean } = {}) {
