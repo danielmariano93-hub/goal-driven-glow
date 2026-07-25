@@ -373,12 +373,15 @@ ${JSON.stringify(hints)}
   const successfulMutation = toolCallLog.some(c => c.ok && (
     /_draft$/.test(String(c.tool_name)) || c.tool_name === "confirm_pending_action"
   ));
+  const chartRequested = /\b(gr[aá]fico|chart|visualiza|em\s+barras?|em\s+linha|em\s+pizza|evolu[çc][aã]o|tend[eê]ncia|dia\s+a\s+dia|por\s+dia)\b/i.test(String(input.text ?? ""));
   const validated = await timeStage(metrics, "validate", async () => validate(reply, {
     expectedKind: kind, hasDraft: !!draft_id,
     hasSuccessfulMutation: successfulMutation,
     toolCallErrors: toolCallLog.filter(c => !c.ok).length,
     userText: input.text,
     toolCalls: toolCallLog,
+    artifactExpected: chartRequested,
+    artifactReady: !!metrics.artifact_id,
   }));
   metrics.validations = validated.reasons.length;
   if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {

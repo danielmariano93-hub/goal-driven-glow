@@ -313,6 +313,26 @@ export function useSaveTransaction() {
   return useMutation({
     mutationFn: async (input: TransactionInput & { id?: string }) => {
       if (!user) throw new Error("not authenticated");
+      // Deriva competência da fatura no cliente quando for despesa de cartão.
+      // Um trigger no banco cobre o mesmo caso como rede de segurança, mas
+      // preencher aqui garante que a UI reflita a competência correta sem
+      // esperar refetch.
+      let competence_date: string | null = null;
+      if (input.payment_method === "credit_card" && input.credit_card_id) {
+        const { data: card } = await supabase
+          .from("credit_cards")
+          .select("closing_day")
+          .eq("id", input.credit_card_id)
+          .maybeSingle();
+        const closing = Number((card as { closing_day?: number } | null)?.closing_day ?? 0);
+        if (closing > 0 && input.occurred_at) {
+          const { data: comp } = await supabase.rpc("credit_card_competence", {
+            p_closing_day: closing,
+            p_purchase: input.occurred_at,
+          } as never);
+          if (typeof comp === "string" && comp) competence_date = comp;
+        }
+      }
       const payload = {
         user_id: user.id,
         account_id: input.payment_method === "credit_card" ? null : input.account_id,
@@ -325,6 +345,7 @@ export function useSaveTransaction() {
         occurred_at: input.occurred_at,
         description: input.description || null,
         notes: input.notes || null,
+        ...(competence_date ? { competence_date } : {}),
       };
       if (input.id) {
         const { error } = await supabase.from("transactions").update(payload).eq("id", input.id);
@@ -341,10 +362,7 @@ export function useSaveTransaction() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -363,10 +381,7 @@ export function useDeleteTransaction() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -383,10 +398,7 @@ export function useCreateTransfer() {
       });
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
