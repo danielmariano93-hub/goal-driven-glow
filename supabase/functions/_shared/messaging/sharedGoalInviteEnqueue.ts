@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Pure helper (no Deno dependencies) for enqueueing WhatsApp goal invites.
 // Reused by the shared-goal-notify-invite edge function and by tests.
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../agent/messageTemplates.ts";
