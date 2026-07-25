@@ -2,11 +2,16 @@
 // Avoids native canvas packages, which are unavailable in the Edge runtime.
 // The WhatsApp caption carries labels/values; the image provides the visual trend.
 // deno-lint-ignore-file no-explicit-any
+import { toRenderableSeries, type RenderableSeries } from "./normalize.ts";
 
 type ArtifactPayload = {
   kind?: string;
   data?: { series?: Array<{ name: string; value: number }>; [k: string]: any };
+  chart?: any;
+  [k: string]: any;
 };
+
+
 
 const W = 900, H = 520;
 const RGBA = 4;
@@ -65,39 +70,41 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
   const buf = new Uint8Array(W * H * RGBA);
   fillRect(buf, 0, 0, W, H, [248, 247, 252, 255]);
   fillRect(buf, 36, 32, W - 72, H - 64, [255, 255, 255, 255]);
-  const series = (payload.data?.series ?? []).filter(s => Number.isFinite(Number(s.value))).slice(0, 31);
+
+  // Contrato unificado v1/v2 via normalize.ts.
+  const norm: RenderableSeries = toRenderableSeries(payload);
+  const values = norm.values.slice(0, 31);
+
   const chart = { x: 70, y: 105, w: W - 140, h: H - 175 };
   line(buf, chart.x, chart.y + chart.h, chart.x + chart.w, chart.y + chart.h, [210, 206, 220, 255], 2);
   line(buf, chart.x, chart.y, chart.x, chart.y + chart.h, [210, 206, 220, 255], 2);
 
-  if (series.length) {
-    const values = series.map(s => Number(s.value));
+  if (values.length) {
     const min = Math.min(0, ...values), max = Math.max(1, ...values);
     const span = Math.max(1, max - min);
     const point = (v: number, i: number) => ({
-      x: Math.round(chart.x + (series.length === 1 ? chart.w / 2 : i * chart.w / (series.length - 1))),
+      x: Math.round(chart.x + (values.length === 1 ? chart.w / 2 : i * chart.w / (values.length - 1))),
       y: Math.round(chart.y + chart.h - ((v - min) / span) * (chart.h - 20)),
     });
-    const isLine = /time|trend|forecast|average|line/i.test(String(payload.kind ?? "")) || series.length > 12;
-    if (isLine) {
-      for (let i = 1; i < series.length; i++) {
+    if (norm.isLine) {
+      for (let i = 1; i < values.length; i++) {
         const a = point(values[i - 1], i - 1), b = point(values[i], i);
         line(buf, a.x, a.y, b.x, b.y, [109, 59, 255, 255], 5);
       }
-      for (let i = 0; i < series.length; i++) {
+      for (let i = 0; i < values.length; i++) {
         const p = point(values[i], i); fillRect(buf, p.x - 5, p.y - 5, 10, 10, [109, 59, 255, 255]);
       }
     } else {
       const gap = 10;
-      const bw = Math.max(12, Math.floor((chart.w - gap * (series.length + 1)) / series.length));
-      series.forEach((s, i) => {
-        const value = Number(s.value);
+      const bw = Math.max(12, Math.floor((chart.w - gap * (values.length + 1)) / values.length));
+      values.forEach((value, i) => {
         const h = Math.max(2, Math.round(Math.abs(value) / Math.max(Math.abs(min), Math.abs(max), 1) * (chart.h - 25)));
         const x = chart.x + gap + i * (bw + gap);
         fillRect(buf, x, chart.y + chart.h - h, bw, h, value < 0 ? [255, 107, 74, 255] : [109, 59, 255, 255]);
       });
     }
   }
+
 
   const raw = new Uint8Array(H * (1 + W * RGBA));
   for (let y = 0; y < H; y++) {

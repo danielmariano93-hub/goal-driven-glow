@@ -93,9 +93,17 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
       run_id_fl = (run as any)?.id as string | undefined;
     }, (m) => metrics.errors.push("runs_insert:" + m), null);
     const started = Date.now();
-    const outcome = await runFastLog(sb, {
-      user_id: input.user_id, conversation_id: input.conversation_id, cleanText: fastLog.cleanText,
-    });
+    let outcome: Awaited<ReturnType<typeof runFastLog>> = { handled: true, reply: "", reply_kind: "info", tool_calls: [] };
+    let fastLogError: string | null = null;
+    try {
+      outcome = await runFastLog(sb, {
+        user_id: input.user_id, conversation_id: input.conversation_id, cleanText: fastLog.cleanText,
+      });
+    } catch (e) {
+      fastLogError = String((e as Error).message ?? "fast_log_error").slice(0, 200);
+      metrics.errors.push("fast_log:" + fastLogError);
+      outcome = { handled: true, reply: "Não consegui registrar direto agora. Tenta de novo em instantes.", reply_kind: "info", tool_calls: [] };
+    }
     metrics.path = "fast_log" as any;
     metrics.tool_call_count = outcome.tool_calls?.length ?? 0;
     for (const c of outcome.tool_calls ?? []) metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
@@ -103,11 +111,14 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     const kind: HandleTurnResult["reply_kind"] = outcome.reply_kind === "receipt" ? "receipt"
       : outcome.reply_kind === "question" ? "question" : "info";
     if (run_id_fl) {
+      // Sempre encerra o run (try/finally garante que status='running' não fica órfão).
       await guard(async () => {
         await sb.from("agent_runs").update({
-          status: "done", ended_at: new Date().toISOString(),
+          status: fastLogError ? "error" : "done",
+          ended_at: new Date().toISOString(),
           path: "fast_log", steps: outcome.tool_calls?.length ?? 0,
           latency_ms: Date.now() - started,
+          error_sanitized: fastLogError, error_masked: fastLogError,
         }).eq("id", run_id_fl);
         if ((outcome.tool_calls?.length ?? 0) > 0) {
           await sb.from("agent_tool_calls").insert(outcome.tool_calls!.map(c => ({
@@ -118,6 +129,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
         }
       }, (m) => metrics.errors.push("persist_fast:" + m), null);
     }
+
     if (input.channel !== "app" && input.to_phone) {
       await enqueueReply(sb, {
         user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body,
