@@ -86,7 +86,8 @@ export default function Metas() {
         <button
           onClick={() => {
             if (tab === "save") { setEditing(null); setOpenGoal(true); }
-            else { setEditingCatGoal(null); setOpenCatGoal(true); }
+            else if (tab === "category") { setEditingCatGoal(null); setOpenCatGoal(true); }
+            else { window.location.href = "/app/metas-conjuntas"; }
           }}
           className="btn-brand inline-flex items-center gap-2"
         >
@@ -94,12 +95,18 @@ export default function Metas() {
         </button>
       </header>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 rounded-full border border-border bg-card p-1">
+      <div className="mb-4 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
         <button
           onClick={() => setTab("save")}
           className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "save" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
         >
-          Juntar dinheiro
+          Individuais
+        </button>
+        <button
+          onClick={() => setTab("shared")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "shared" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Conjuntas
         </button>
         <button
           onClick={() => setTab("category")}
@@ -108,6 +115,8 @@ export default function Metas() {
           Controlar gasto
         </button>
       </div>
+
+      {tab === "shared" && <SharedGoalsInline />}
 
       {tab === "category" ? (
         catGoalEvals.length === 0 ? (
