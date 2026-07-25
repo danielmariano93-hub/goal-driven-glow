@@ -1,28 +1,29 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { qk } from "./queryKeys";
 
 /**
  * Invalida todas as queries que dependem do estado financeiro do usuário.
- * Use após criar/editar/excluir/importar lançamentos, transferências ou saldos
- * para que Home, Pulso, Dicas e Patrimônio reflitam imediatamente.
+ * Fonte única de verdade em `queryKeys.ts` — nunca duplicar chaves aqui.
  */
 export function invalidateFinancialQueries(qc: QueryClient) {
-  const keys = [
-    ["transactions"],
-    ["accounts"],
-    ["account_balance_snapshots"],
-    ["dashboard"],
-    ["pulse"],
-    ["assistant-tip"],
-    ["insights"],
-    ["investments"],
-    ["debts"],
-    ["goals"],
-    ["contributions"],
-    ["credit_cards"],
-    ["credit-cards"], // legado — remover após Onda 3
-    ["recurring"],
-    ["category_spending_goals"],
-    ["financial-snapshot"],
-  ] as const;
+  const keys: readonly (readonly string[])[] = [
+    qk.transactions,
+    qk.accounts,
+    qk.accountBalanceSnapshots,
+    qk.dashboard,
+    qk.pulse,
+    qk.assistantTip,
+    qk.insights,
+    qk.investments,
+    qk.debts,
+    qk.goals,
+    qk.contributions,
+    qk.creditCards,
+    qk.recurring,
+    qk.categorySpendingGoals,
+    qk.financialSnapshot,
+    qk.sharedGoals,
+    qk.sharedExpenses,
+  ];
   for (const key of keys) qc.invalidateQueries({ queryKey: key as unknown as readonly unknown[] });
 }
