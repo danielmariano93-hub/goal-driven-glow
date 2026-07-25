@@ -110,6 +110,8 @@ export default function Lancamentos() {
   const [bulkCategoryId, setBulkCategoryId] = useState<string | null>(null);
   const [bulkName, setBulkName] = useState("");
   const [bulkRunning, setBulkRunning] = useState(false);
+  // Onda 3.1 — banner "lançamento salvo mas oculto pelo filtro X".
+  const [hiddenByFilter, setHiddenByFilter] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectMode) setSelected(new Set());
