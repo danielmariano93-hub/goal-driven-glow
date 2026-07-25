@@ -61,8 +61,8 @@ export default function Cockpit() {
     setLoading(true);
     setError(null);
     Promise.all([
-      callAdminRpc<CockpitData>("admin_v2_cockpit", { _from: range.from, _to: range.to }),
-      callAdminRpc<DailyEvolution>("admin_v2_daily_evolution", { _from: range.from, _to: range.to }),
+      callAdminRpc<CockpitData>("admin_v2_cockpit", withPeriod(range)),
+      callAdminRpc<DailyEvolution>("admin_v2_daily_evolution", withPeriod(range)),
     ])
       .then(([cockpit, evo]) => {
         setData(cockpit);
@@ -113,7 +113,12 @@ export default function Cockpit() {
 
       {/* Estoque atual */}
       <section>
-        <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Estoque atual</h2>
+        <div className="mb-2 flex items-center gap-2">
+          <h2 className="text-xs uppercase tracking-wider text-muted-foreground">Estoque atual</h2>
+          <span className="rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+            agora
+          </span>
+        </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <KpiCard label="Clientes totais" envelope={data.total_users} />
           <KpiCard
