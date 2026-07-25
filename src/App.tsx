@@ -44,6 +44,8 @@ const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
 const Assessor = lazy(() => import("./pages/Assessor"));
+const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
+const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
 // Platform admin (lazy)
 const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
