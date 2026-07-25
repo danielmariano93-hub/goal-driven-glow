@@ -634,10 +634,13 @@ export default function Lancamentos() {
             save.mutate(
               { ...v, id: editing?.id },
               {
-                onSuccess: () => {
+                onSuccess: (saved) => {
                   notifySuccess(editing ? "Atualizado" : "Registrado");
                   invalidateFinancialQueries(qc);
                   setOpenTx(false);
+                  // Detecta se o lançamento salvo cai fora dos filtros ativos.
+                  const reason = describeHiddenReason(saved as Record<string, unknown> | null, filters);
+                  if (reason) setHiddenByFilter(reason);
                 },
                 onError: (e: unknown) => notifyError("Erro ao salvar", humanizeError(e)),
               },
