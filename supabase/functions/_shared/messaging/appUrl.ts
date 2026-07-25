@@ -44,3 +44,47 @@ export function buildAssessorLink(env: AppUrlEnv, source?: string): string | nul
   const qs = params.toString();
   return qs ? `${base}/app/assessor?${qs}` : `${base}/app/assessor`;
 }
+
+function withParams(url: string, params: Record<string, string | undefined>): string {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) usp.set(k, v);
+  const qs = usp.toString();
+  return qs ? `${url}?${qs}` : url;
+}
+
+/** Link para o detalhe de um rolê. */
+export function buildSharedExpenseUrl(
+  env: AppUrlEnv,
+  expenseId: string,
+  opts: { ref?: string; token?: string } = {},
+): string | null {
+  const base = resolveAppPublicUrl(env);
+  if (!base || !expenseId) return null;
+  return withParams(`${base}/app/role/${encodeURIComponent(expenseId)}`, {
+    ref: opts.ref, t: opts.token,
+  });
+}
+
+/** Link para o detalhe de uma meta conjunta. */
+export function buildSharedGoalUrl(
+  env: AppUrlEnv,
+  goalId: string,
+  opts: { ref?: string; token?: string } = {},
+): string | null {
+  const base = resolveAppPublicUrl(env);
+  if (!base || !goalId) return null;
+  return withParams(`${base}/app/metas/conjunta/${encodeURIComponent(goalId)}`, {
+    ref: opts.ref, t: opts.token,
+  });
+}
+
+/** Link para signup com atribuição opcional. */
+export function buildSignupUrl(
+  env: AppUrlEnv,
+  opts: { ref?: string; phone?: string } = {},
+): string | null {
+  const base = resolveAppPublicUrl(env);
+  if (!base) return null;
+  return withParams(`${base}/signup`, { ref: opts.ref, phone: opts.phone });
+}
+
