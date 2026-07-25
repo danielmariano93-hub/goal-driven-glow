@@ -4639,6 +4639,7 @@ export type Database = {
         Row: {
           attempts: number
           created_at: string
+          followup_of: string | null
           id: string
           idempotency_key: string | null
           kind: string
@@ -4655,6 +4656,7 @@ export type Database = {
         Insert: {
           attempts?: number
           created_at?: string
+          followup_of?: string | null
           id?: string
           idempotency_key?: string | null
           kind?: string
@@ -4671,6 +4673,7 @@ export type Database = {
         Update: {
           attempts?: number
           created_at?: string
+          followup_of?: string | null
           id?: string
           idempotency_key?: string | null
           kind?: string
@@ -4685,6 +4688,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "reminder_jobs_followup_of_fkey"
+            columns: ["followup_of"]
+            isOneToOne: false
+            referencedRelation: "reminder_jobs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "reminder_jobs_participant_id_fkey"
             columns: ["participant_id"]
@@ -6554,6 +6564,7 @@ export type Database = {
         Returns: {
           attempts: number
           created_at: string
+          followup_of: string | null
           id: string
           idempotency_key: string | null
           kind: string
@@ -6579,6 +6590,7 @@ export type Database = {
         Returns: {
           attempts: number
           created_at: string
+          followup_of: string | null
           id: string
           idempotency_key: string | null
           kind: string
