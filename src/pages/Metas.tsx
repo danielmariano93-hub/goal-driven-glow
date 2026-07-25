@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, Loader2, Target, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, Trash2, Loader2, Target, TrendingUp, Users, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import {
   useGoals,
@@ -19,13 +20,14 @@ import {
   type GoalRow,
   type CategorySpendingGoalRow,
 } from "@/lib/db/finance";
+import { useSharedGoals } from "@/lib/db/sharedGoals";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
 import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 
-type GoalTab = "save" | "category";
+type GoalTab = "save" | "shared" | "category";
 
 export default function Metas() {
   const { data: goals, isLoading } = useGoals();
@@ -84,7 +86,8 @@ export default function Metas() {
         <button
           onClick={() => {
             if (tab === "save") { setEditing(null); setOpenGoal(true); }
-            else { setEditingCatGoal(null); setOpenCatGoal(true); }
+            else if (tab === "category") { setEditingCatGoal(null); setOpenCatGoal(true); }
+            else { window.location.href = "/app/metas-conjuntas"; }
           }}
           className="btn-brand inline-flex items-center gap-2"
         >
@@ -92,12 +95,18 @@ export default function Metas() {
         </button>
       </header>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 rounded-full border border-border bg-card p-1">
+      <div className="mb-4 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
         <button
           onClick={() => setTab("save")}
           className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "save" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
         >
-          Juntar dinheiro
+          Individuais
+        </button>
+        <button
+          onClick={() => setTab("shared")}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "shared" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Conjuntas
         </button>
         <button
           onClick={() => setTab("category")}
@@ -107,7 +116,9 @@ export default function Metas() {
         </button>
       </div>
 
-      {tab === "category" ? (
+      {tab === "shared" ? (
+        <SharedGoalsInline />
+      ) : tab === "category" ? (
         catGoalEvals.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
             <Target className="mx-auto h-8 w-8 text-muted-foreground" />
@@ -444,6 +455,50 @@ function ContribModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function SharedGoalsInline() {
+  const { data: goals, isLoading } = useSharedGoals();
+  if (isLoading) {
+    return (
+      <div className="grid place-items-center py-10">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!goals || goals.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <Users className="mx-auto h-8 w-8 text-muted-foreground" />
+        <p className="mt-3 text-sm font-medium">Nenhuma meta conjunta ainda</p>
+        <p className="mt-1 text-xs text-muted-foreground">Junte com amigos, família ou parceria para uma meta em comum.</p>
+        <Link to="/app/metas-conjuntas" className="btn-brand mt-4 inline-flex items-center gap-2 text-xs">
+          <Plus size={12} /> Criar meta conjunta
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {goals.map((g) => (
+        <Link key={g.id} to={`/app/metas-conjuntas/${g.id}`} className="surface-card flex items-center justify-between p-4">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{g.title}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Meta {formatBRL(Number(g.target_amount))}
+              {g.deadline ? ` · até ${new Date(g.deadline + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
+            </p>
+          </div>
+          <ArrowRight size={14} className="text-muted-foreground" />
+        </Link>
+      ))}
+      <div className="pt-1 text-center">
+        <Link to="/app/metas-conjuntas" className="text-xs font-medium text-primary underline">
+          Ver todas
+        </Link>
+      </div>
     </div>
   );
 }
