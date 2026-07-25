@@ -1,6 +1,6 @@
 # Plano — Correção do Admin Meu Nino.IA (universo de clientes, filtros temporais, evolução diária e homologação)
 
-Nenhuma alteração foi realizada nesta etapa. Este documento é apenas o plano.
+Reemissão do plano já aprovado, sem alterações. Nenhuma implementação nesta etapa (modo plano).
 
 ## 1. Diagnóstico da causa dos "3 usuários"
 
@@ -12,188 +12,142 @@ Confirmado por leitura em produção:
 - `public.platform_admins` (active) = 1
 - `public.user_roles` com role `admin` = 1
 
-Ou seja: existem **2 clientes reais + 1 administrador da plataforma**. Todas as RPCs `admin_v2_*` atuais (Cockpit, Clientes, Crescimento, Inteligência de Produto) partem de `auth.users` / `profiles` / `user_pseudonyms` sem excluir o conjunto `platform_admins`. Por isso o painel reporta 3.
-
-O `product_events` é pseudonimizado por `user_pseudonyms`; como o admin também tem pseudônimo, qualquer contagem via pseudo_id sem filtro também o inclui.
-
-Não há campo estável em `profiles` ou `auth.users` que identifique admin — a única fonte segura é `public.platform_admins` (chave `user_id`, com `active=true`) cruzada com `user_pseudonyms.user_id`.
+Existem **2 clientes reais + 1 administrador da plataforma**. As RPCs `admin_v2_*` partem de `auth.users` / `profiles` / `user_pseudonyms` sem excluir `platform_admins`. O admin também tem pseudônimo, então qualquer contagem via `pseudo_id` sem filtro o inclui. A única fonte segura para exclusão é `public.platform_admins` (`user_id`, `active=true`) cruzada com `user_pseudonyms.user_id`, com defesa em profundidade via `user_roles.role='admin'`.
 
 ## 2. Universo canônico de usuários
 
-Regra única, aplicada em todo o Admin:
-
 ```
-CLIENTE  ⇔ auth.users.id ∉ (SELECT user_id FROM platform_admins WHERE active)
-         AND auth.users.id ∉ (SELECT user_id FROM user_roles WHERE role IN ('admin'))  -- defesa em profundidade
+CLIENTE ⇔ auth.users.id ∉ (SELECT user_id FROM platform_admins WHERE active)
+        AND auth.users.id ∉ (SELECT user_id FROM user_roles WHERE role='admin')
 ```
 
-Materializada como:
+Materializado como:
+- `public.v_client_users` (view) — `user_id`, `pseudo_id`, `registered_at`, `onboarding_completed_at`.
+- `public.v_client_pseudonyms` (view) — apenas pseudo_ids de clientes.
+- `public.is_client_user(uuid) returns boolean` (STABLE, `SET search_path=public`).
 
-- `public.v_client_users` (view SECURITY INVOKER) — `user_id`, `pseudo_id`, `registered_at`, `onboarding_completed_at`.
-- `public.v_client_pseudonyms` (view) — só pseudo_ids de clientes.
-- Função imutável `public.is_client_user(uuid) returns boolean` (STABLE, `SET search_path=public`) — usada em RPCs e testes.
+Admin permanece em `platform_admins`, `platform_admin_audit`, `admin_reauth_events`, `break_glass_sessions`, `admin_grants_audit`. Nunca em métricas de produto.
 
-Admin continua aparecendo em: `platform_admins`, `platform_admin_audit`, `admin_reauth_events`, `break_glass_sessions`, `admin_grants_audit`. Nunca em métricas de produto.
+### Anti-regressão
+- Teste que faz parse de todas as `admin_v2_*` e falha se referenciarem `auth.users`, `profiles`, `user_pseudonyms` ou `product_events` sem `v_client_users` / `is_client_user`.
+- Fixture 1 admin + N clientes valida que toda RPC retorna N.
 
-### Estratégia anti-regressão
+## 3. Fórmulas canônicas
 
-- Lint SQL: teste que faz `EXPLAIN`/parse de todas as RPCs `admin_v2_*` e falha se qualquer uma referencia `auth.users`, `profiles`, `user_pseudonyms` ou `product_events` sem `JOIN v_client_users` (ou `WHERE ... is_client_user`).
-- Teste de integração: insere 1 admin + N clientes em fixture e valida que toda RPC exposta retorna N (nunca N+1).
-- Docstring canônica em cada RPC apontando para `v_client_users`.
-
-## 3. Correção dos números atuais (fórmulas)
-
-Todas as métricas de produto passam por `v_client_users`:
-
-| Métrica | Fórmula canônica (TZ America/Sao_Paulo) | Tipo |
+| Métrica | Fórmula (TZ America/Sao_Paulo) | Tipo |
 |---|---|---|
 | Usuários totais | `count(*) v_client_users` | estoque |
-| Cadastros no período | `count(*) v_client_users WHERE registered_at AT TIME ZONE 'America/Sao_Paulo' BETWEEN [from, to]` | fluxo |
-| Ativados no período | primeiro `product_events.event_name IN (allow_significant)` do pseudo_id dentro do período | fluxo |
-| Ativos no período | `count(DISTINCT pseudo_id)` em `product_events` (client-only) no período | fluxo |
-| Dormant atuais | clientes cujo `last_event_at < now() - 14 dias` **e** `registered_at < now() - 14 dias` | estoque |
-| Com dados financeiros | clientes com pelo menos 1 linha em `transactions` (client-only) | estoque |
-| WVU 7d | `count(DISTINCT pseudo_id)` em `product_events` (client-only, últimos 7 dias, eventos de valor) | fluxo |
+| Cadastros no período | `v_client_users WHERE registered_at AT TIME ZONE 'America/Sao_Paulo' BETWEEN [from,to]` | fluxo |
+| Ativados no período | primeiro evento significativo do pseudo_id no intervalo | fluxo |
+| Ativos no período | `count(DISTINCT pseudo_id)` de `product_events` (client-only) | fluxo |
+| Dormant atuais | `last_event_at < now()-14d` e `registered_at < now()-14d` | estoque |
+| Com dados financeiros | clientes com ≥1 linha em `transactions` | estoque |
+| WVU 7d | pseudo_ids únicos com eventos de valor nos últimos 7 dias | fluxo |
 
-Validação cruzada obrigatória no teste SQL: `auth.users − platform_admins = profiles − platform_admins = user_pseudonyms − platform_admins = v_client_users`.
+Validação cruzada: `auth.users − platform_admins = profiles − platform_admins = user_pseudonyms − platform_admins = v_client_users`.
 
 ## 4. Filtros de data (contrato único)
 
-Contrato em todas as RPCs de Cockpit, Clientes, Crescimento, Inteligência de Produto e Mensageria:
+`_from date, _to date, _tz text default 'America/Sao_Paulo'` em todas as RPCs de Cockpit, Clientes, Crescimento, IA/Produto e Mensageria. Semi-aberto `[from 00:00 SP, to+1 00:00 SP)`. Presets no cliente: hoje, ontem, 7d, 30d, mês atual, mês anterior, dia específico, intervalo custom. Compatibilidade via overload com defaults de 30d.
 
-```
-_from date, _to date, _tz text default 'America/Sao_Paulo'
-```
-
-- Semi-abertura: `[from 00:00 SP, to+1 00:00 SP)` para evitar duplicação entre períodos adjacentes.
-- Períodos pré-definidos calculados no cliente (`src/lib/admin/periodPresets.ts`): hoje, ontem, 7d, 30d, mês atual, mês anterior, dia específico, intervalo custom.
-- Compatibilidade: RPCs mantêm assinatura antiga como overload que chama a nova com defaults (últimos 30d).
-- Componente compartilhado `AdminDateFilter` (baseado no shadcn Popover + Calendar com `pointer-events-auto`) publicado em `src/components/admin/AdminDateFilter.tsx`, consumido por Cockpit, Clientes, Crescimento e Inteligência de Produto.
-- Cada cartão declara `metricKind: 'stock' | 'flow' | 'daily'` para o rótulo dinâmico ("atual" vs "no período" vs "por dia").
+Componente `src/components/admin/AdminDateFilter.tsx` (Popover + Calendar shadcn com `pointer-events-auto`). Cada `KpiCard` declara `metricKind: 'stock' | 'flow' | 'daily'` para rótulos dinâmicos.
 
 ## 5. Evolução dia a dia
 
-Nova RPC `admin_v2_daily_evolution(_from, _to)` retorna:
+RPC `admin_v2_daily_evolution(_from,_to,_tz)`:
 
 ```json
-{
-  "series": [
-    { "day": "2026-07-20",
-      "new_clients": 0,
-      "activated": 0,
-      "active_unique": 0,
-      "went_dormant": 0,
-      "cumulative_clients": 2,
-      "first_financial_action": 0 }
-  ],
-  "totals": { ... },
-  "formula_version": "daily.evolution.v1",
-  "sample_size": N,
-  "sufficient_sample": bool,
-  "timezone": "America/Sao_Paulo"
-}
+{ "series": [{ "day": "2026-07-20", "new_clients": 0, "activated": 0,
+  "active_unique": 0, "went_dormant": 0, "cumulative_clients": 2,
+  "first_financial_action": 0 }],
+  "totals": {}, "formula_version": "daily.evolution.v1",
+  "sample_size": N, "sufficient_sample": bool, "timezone": "America/Sao_Paulo" }
 ```
 
-Componente `AdminDailyEvolutionCard` (recharts LineChart `type="monotone"`, tabela responsiva abaixo, tooltip com data localizada, estado vazio e badge "amostra insuficiente" quando `sample_size < 10`). Toggle "Comparar período anterior" só habilita quando `comparablePeriods` (helper já existente em `_shared/analytics/periods.ts`).
+Componente `AdminDailyEvolutionCard` (recharts LineChart `type="monotone"` + tabela + tooltip localizado + estado vazio + badge "amostra insuficiente" quando `<10`). Comparação com período anterior habilita apenas se `comparablePeriods`.
 
-## 6. Cockpit e Crescimento — reorganização de cartões
+## 6. Cockpit e Crescimento
 
-Cada `KpiCard` passa a receber `definition: { formula, source, window, tz, formula_version, quality }` (exibido em tooltip "?"). Envelope já suporta `formula_version` e `data_quality`.
+`KpiCard` recebe `definition: { formula, source, window, tz, formula_version, quality }` (tooltip "?"). Cockpit rearranjado:
+- **Estoque:** Clientes totais, Dormant atuais, Com dados financeiros.
+- **Fluxo:** Novos clientes, Ativados, Ativos únicos, WVU.
+- **Operacional:** Custo assessor no período, Falha mensageria no período.
 
-Cockpit rearranjado:
-- Estoque: **Clientes totais**, **Dormant atuais**, **Com dados financeiros**.
-- Fluxo (respeita filtro): **Novos clientes**, **Ativados**, **Ativos únicos**, **WVU**.
-- Operacional: **Custo assessor no período**, **Falha mensageria no período**.
-
-Novo bloco: **Evolução diária** (item 5) + banda de integridade (`auth == profiles == pseudonyms == clients + admins`).
+Novo bloco Evolução diária + banda de integridade.
 
 ## 7. Escopo de migrations, RPCs, componentes
 
-| Objeto/arquivo | Problema | Mudança planejada | Risco | Teste | Deploy? |
+| Objeto/arquivo | Problema | Mudança | Risco | Teste | Deploy? |
 |---|---|---|---|---|---|
-| `supabase/migrations/20260726000000_client_universe.sql` (novo, aditivo) | admin contado como cliente | cria `v_client_users`, `v_client_pseudonyms`, `is_client_user()`; GRANTs para `authenticated`/`service_role` | baixo (só leitura) | SQL: contagem = 2 | migration |
-| `20260726000500_admin_rpc_client_scoped.sql` (novo, aditivo) | RPCs contam admins | reescreve `admin_v2_cockpit`, `admin_v2_clients_list` (`clients.live.v6`), `admin_v2_growth_summary`, `admin_v2_growth_funnel`, `admin_v2_growth_cohorts`, `admin_v2_product_features`, `admin_v2_product_opportunities` usando `v_client_users`; adiciona params `_from/_to/_tz` opcionais com defaults compatíveis | médio (assinaturas) | fixture 1 admin + 2 clientes → todas RPCs retornam 2 | migration |
-| `20260726001000_admin_daily_evolution.sql` (novo) | falta série diária | cria `admin_v2_daily_evolution(_from,_to,_tz)` | baixo | 30 dias fechados batem com totais | migration |
-| `src/components/admin/AdminDateFilter.tsx` (novo) | sem filtro de data | Popover shadcn + presets + range custom | baixo | RTL: presets aplicam ranges corretos em SP | frontend |
-| `src/lib/admin/periodPresets.ts` (novo) | — | helpers SP | baixo | unit | frontend |
-| `src/components/admin/AdminDailyEvolutionCard.tsx` (novo) | — | line chart + tabela | baixo | RTL: renderiza empty state e amostra insuficiente | frontend |
-| `src/pages/admin/Cockpit.tsx` | mistura estoque/fluxo | consome novo contrato, cartões agrupados por tipo, integra filtro + evolução | baixo | contract test | frontend |
-| `src/pages/admin/Clientes.tsx` | admin listado | consome `clients.live.v6`; filtros lifecycle/financeiro/data; paginação | baixo | RTL | frontend |
-| `src/pages/admin/Crescimento.tsx`, `InteligenciaProduto.tsx`, `operacao/Mensageria.tsx` | idem | plugam `AdminDateFilter` e novo contrato | baixo | RTL | frontend |
-| `src/integrations/supabase/types.ts` | — | regenerar após migrations | — | build | auto |
-| Edge Functions | — | **nenhuma** redeploy necessária: correções vivem no banco + frontend; nenhuma função importa `admin_v2_*` | — | — | não |
+| `supabase/migrations/20260726000000_client_universe.sql` | admin contado | cria views + `is_client_user()` + GRANTs | baixo | contagem = 2 | migration |
+| `20260726000500_admin_rpc_client_scoped.sql` | RPCs contam admins | reescreve `admin_v2_cockpit`, `admin_v2_clients_list` (`clients.live.v6`), `admin_v2_growth_summary/funnel/cohorts`, `admin_v2_product_features/opportunities` sobre `v_client_users`; adiciona `_from/_to/_tz` | médio | fixture 1 admin + 2 clientes → 2 | migration |
+| `20260726001000_admin_daily_evolution.sql` | falta série diária | cria `admin_v2_daily_evolution` | baixo | série fecha com totais | migration |
+| `src/lib/admin/periodPresets.ts` | — | helpers SP | baixo | unit | frontend |
+| `src/components/admin/AdminDateFilter.tsx` | sem filtro | Popover + presets + custom | baixo | RTL | frontend |
+| `src/components/admin/AdminDailyEvolutionCard.tsx` | — | linha + tabela | baixo | RTL | frontend |
+| `src/pages/admin/Cockpit.tsx` | mistura estoque/fluxo | reagrupa cartões, integra filtro + evolução | baixo | contract | frontend |
+| `src/pages/admin/Clientes.tsx` | admin listado | `clients.live.v6`, filtros | baixo | RTL | frontend |
+| `src/pages/admin/Crescimento.tsx`, `InteligenciaProduto.tsx`, `operacao/Mensageria.tsx` | idem | integram filtro + contrato | baixo | RTL | frontend |
+| `src/integrations/supabase/types.ts` | — | regenerar | — | build | auto |
+| Edge Functions | — | **nenhuma** — sem redeploy | — | — | não |
 
-Migrations são aditivas e idempotentes (`CREATE OR REPLACE`, `CREATE VIEW IF NOT EXISTS` via `DROP VIEW IF EXISTS` + `CREATE`, `CREATE FUNCTION ... OR REPLACE`). Nenhuma migration histórica é alterada.
+Migrations aditivas e idempotentes. Nenhuma migration histórica alterada.
 
 ## 8. Testes obrigatórios
 
-Unit / RTL (`src/test/`):
-- `admin-client-universe.test.ts` — mock de RPC valida que 1 admin + 2 clientes ⇒ todos os cartões mostram 2.
-- `admin-date-filter.test.tsx` — presets calculam `[from, to]` em SP corretamente, incluindo virada de dia e mês.
-- `admin-daily-evolution.test.tsx` — série vazia, série parcial (amostra insuficiente), tooltip.
-- `admin-metric-kind-labels.test.tsx` — cartões de estoque não mostram sufixo "no período".
+- `admin-client-universe.test.ts` — 1 admin + 2 clientes ⇒ 2 em todo cartão.
+- `admin-date-filter.test.tsx` — presets em SP, virada de dia/mês.
+- `admin-daily-evolution.test.tsx` — vazia, parcial, tooltip.
+- `admin-metric-kind-labels.test.tsx` — estoque sem "no período".
+- SQL: `client_universe`, `daily_evolution_closure`, `adjacent_periods_no_overlap`, `registration_is_not_activity`.
 
-SQL (via script de integração em `supabase/tests/`):
-- `client_universe.sql` — `v_client_users` = `auth.users − platform_admins`.
-- `daily_evolution_closure.sql` — soma da série diária = total do período para cada métrica de fluxo.
-- `adjacent_periods_no_overlap.sql` — evento em 00:00 SP cai em um único período.
-- `registration_is_not_activity.sql` — cliente recém-cadastrado sem eventos aparece como `new`, nunca `active`.
+Fixtures: admin + `cliente_new` + `cliente_activated` + `cliente_active_multi_day` + `cliente_dormant` + evento na virada 23:59:59-03 / 00:00:00-03.
 
-Fixtures em `supabase/tests/fixtures/admin_universe.sql`: 1 admin + cliente_new + cliente_activated + cliente_active_multi_day + cliente_dormant + evento na virada 23:59:59-03 / 00:00:00-03.
+## 9. Homologação (após publicação)
 
-## 9. Homologação (executar após publicação futura)
-
-- Cockpit: **Clientes totais = 2**, alerta de integridade limpo, `formula_version` visível.
-- Clientes: 2 linhas, admin ausente, lifecycle correto.
-- Cadastro novo aparece como `new`.
-- App e WhatsApp: "Qual dia da semana eu mais gasto?" → padrão semanal `weekday.robust.v2`.
-- Sequência "Quanto gastei na sexta?" → "Eu digo na média" preserva contexto.
-- "Quanto gastei na sexta-feira?" isolado responde valor pontual, não padrão.
-- Gráfico App/WhatsApp com PNG real ou fallback textual honesto.
-- `agent_settings.proactive_enabled = false` em todos os clientes.
-- Diff de contagens em `transactions`, `profiles`, `product_events` = 0 antes/depois.
+Cockpit com 2 clientes; Clientes listando 2; cadastro novo como `new`; padrão semanal em App/WhatsApp; sequência "sexta" → "eu digo na média"; "quanto gastei na sexta?" isolado ≠ padrão; gráfico com PNG ou fallback honesto; `proactive_enabled=false`; diff de dados = 0.
 
 ## 10. Critérios de aceite
 
-- [ ] Painel mostra 2 clientes.
-- [ ] Admin ausente de todas as RPCs `admin_v2_*` de produto.
-- [ ] Filtro de dia específico e intervalo custom funcionam em SP.
-- [ ] Série diária fecha com total do período (assert automatizado).
-- [ ] `clients.live.v6` documentado; frontend compatível.
-- [ ] Testes do padrão semanal passam em App e WhatsApp.
-- [ ] Zero perda de dados; zero PII exposta.
+- [ ] 2 clientes no painel.
+- [ ] Admin ausente de todas as `admin_v2_*` de produto.
+- [ ] Filtro de dia específico e intervalo funcionam em SP.
+- [ ] Série diária fecha com totais.
+- [ ] `clients.live.v6` compatível.
+- [ ] Testes App/WhatsApp verdes.
+- [ ] Zero perda de dados; zero PII.
 - [ ] SHA publicado registrado.
 
 ## 11. Riscos e rollback
 
-- **Risco:** RPC v6 quebra tela existente. **Mitigação:** manter overload antigo por 1 release; feature flag `admin.date_filter.enabled` no frontend.
-- **Risco:** view mascarar admin legítimo em auditoria. **Mitigação:** views são exclusivas de métricas; auditoria continua em `platform_admins`.
-- **Rollback:** `DROP VIEW`/`DROP FUNCTION` das novas + revert do frontend; migrations antigas permanecem intactas.
+- RPC v6 quebrar tela → overload antigo por 1 release + feature flag `admin.date_filter.enabled`.
+- View mascarar admin em auditoria → auditoria não usa `v_client_users`.
+- Rollback: `DROP VIEW/FUNCTION` das novas + revert frontend.
 
-## 12. Sequência de execução (futura, não agora)
+## 12. Sequência de execução
 
-1. Snapshot: `SELECT count(*) FROM auth.users, platform_admins, profiles, product_events`.
+1. Snapshot de contagens.
 2. Branch `fix/admin-client-universe`.
-3. Implementar migrations + frontend + testes.
-4. `vitest run` + build verdes.
+3. Migrations + frontend + testes.
+4. Vitest + build verdes.
 5. Revisão de diff.
-6. Merge na `main`.
-7. Aplicar migrations em ordem (client_universe → rpc_client_scoped → daily_evolution).
-8. Regenerar types Supabase.
+6. Merge `main`.
+7. Aplicar migrations (client_universe → rpc_client_scoped → daily_evolution).
+8. Regenerar types.
 9. Publicar frontend.
 10. Homologação SQL + UI + App + WhatsApp.
-11. Relatório final com SHA e prints.
+11. Relatório final com SHA.
 
-## 13. Estimativa de créditos
+## 13. Créditos
 
-- Migrations + RPCs: baixo (SQL puro, ~1 rodada).
-- Frontend (filtro + evolução + refactor Cockpit/Clientes/Crescimento/IA/Mensageria): médio (2–3 rodadas).
+- Migrations/RPCs: baixo.
+- Frontend: médio (2–3 rodadas).
 - Testes: baixo-médio.
-- Deploy edge functions: **zero** (nenhuma afetada).
-- Homologação: baixo (leituras + prints).
+- Deploy Edge Functions: zero.
+- Homologação: baixo.
 
 ## 14. Classificação final
 
-**READY_TO_IMPLEMENT** — diagnóstico confirmado em produção, escopo fechado, sem dependências externas, sem necessidade de redeploy de Edge Functions.
+**READY_TO_IMPLEMENT**.
 
 Confirmo que nenhuma alteração foi realizada nesta etapa.
