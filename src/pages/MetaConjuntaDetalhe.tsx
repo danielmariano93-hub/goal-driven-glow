@@ -178,7 +178,21 @@ export default function MetaConjuntaDetalhe() {
                     {m.contribution_total > 0 ? ` · ${formatBRL(Number(m.contribution_total))}` : ""}
                   </p>
                 </div>
+                {isOwner && m.role !== "owner" && m.user_id !== user?.id && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Remover este participante?")) {
+                        removeMember.mutate(m.id, { onSuccess: () => toast.success("Removido") });
+                      }
+                    }}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="Remover"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </li>
+
             ))}
           </ul>
         )}
