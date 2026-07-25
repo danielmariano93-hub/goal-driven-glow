@@ -3477,6 +3477,13 @@ export type Database = {
             referencedRelation: "outbound_messages"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "message_delivery_events_outbound_id_fkey"
+            columns: ["outbound_id"]
+            isOneToOne: false
+            referencedRelation: "v_outbound_sla_breach"
+            referencedColumns: ["id"]
+          },
         ]
       }
       notification_preferences: {
@@ -3613,6 +3620,7 @@ export type Database = {
           context_id: string | null
           context_type: string | null
           created_at: string
+          dead_letter_at: string | null
           delivered_at: string | null
           feature: string | null
           id: string
@@ -3633,6 +3641,7 @@ export type Database = {
           read_at: string | null
           retry_count: number
           sent_at: string | null
+          sla_breach_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           surface: string | null
           to_phone: string
@@ -3649,6 +3658,7 @@ export type Database = {
           context_id?: string | null
           context_type?: string | null
           created_at?: string
+          dead_letter_at?: string | null
           delivered_at?: string | null
           feature?: string | null
           id?: string
@@ -3669,6 +3679,7 @@ export type Database = {
           read_at?: string | null
           retry_count?: number
           sent_at?: string | null
+          sla_breach_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           surface?: string | null
           to_phone: string
@@ -3685,6 +3696,7 @@ export type Database = {
           context_id?: string | null
           context_type?: string | null
           created_at?: string
+          dead_letter_at?: string | null
           delivered_at?: string | null
           feature?: string | null
           id?: string
@@ -3705,6 +3717,7 @@ export type Database = {
           read_at?: string | null
           retry_count?: number
           sent_at?: string | null
+          sla_breach_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           surface?: string | null
           to_phone?: string
@@ -4963,6 +4976,255 @@ export type Database = {
           },
         ]
       }
+      shared_goal_contributions: {
+        Row: {
+          amount: number
+          created_at: string
+          goal_id: string
+          id: string
+          note: string | null
+          occurred_at: string
+          transaction_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          goal_id: string
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          transaction_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          goal_id?: string
+          id?: string
+          note?: string | null
+          occurred_at?: string
+          transaction_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_goal_contributions_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "shared_goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_goal_contributions_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_goal_contributions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_goal_contributions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      shared_goal_invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by_user_id: string | null
+          created_at: string
+          expires_at: string
+          goal_id: string
+          id: string
+          invited_by: string
+          phone_e164: string
+          status: string
+          token_hash: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by_user_id?: string | null
+          created_at?: string
+          expires_at?: string
+          goal_id: string
+          id?: string
+          invited_by: string
+          phone_e164: string
+          status?: string
+          token_hash: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by_user_id?: string | null
+          created_at?: string
+          expires_at?: string
+          goal_id?: string
+          id?: string
+          invited_by?: string
+          phone_e164?: string
+          status?: string
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_goal_invites_accepted_by_user_id_fkey"
+            columns: ["accepted_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_goal_invites_accepted_by_user_id_fkey"
+            columns: ["accepted_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_goal_invites_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "shared_goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_goal_invites_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_goal_invites_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      shared_goal_members: {
+        Row: {
+          contribution_total: number
+          created_at: string
+          goal_id: string
+          id: string
+          invite_status: string
+          joined_at: string | null
+          phone_e164: string | null
+          role: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          contribution_total?: number
+          created_at?: string
+          goal_id: string
+          id?: string
+          invite_status?: string
+          joined_at?: string | null
+          phone_e164?: string | null
+          role?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          contribution_total?: number
+          created_at?: string
+          goal_id?: string
+          id?: string
+          invite_status?: string
+          joined_at?: string | null
+          phone_e164?: string | null
+          role?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_goal_members_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "shared_goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_goal_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_goal_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      shared_goals: {
+        Row: {
+          created_at: string
+          created_by: string
+          deadline: string | null
+          id: string
+          referral_source: string | null
+          status: string
+          target_amount: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          deadline?: string | null
+          id?: string
+          referral_source?: string | null
+          status?: string
+          target_amount: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          deadline?: string | null
+          id?: string
+          referral_source?: string | null
+          status?: string
+          target_amount?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_goals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_goals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           account_id: string | null
@@ -5813,6 +6075,60 @@ export type Database = {
         }
         Relationships: []
       }
+      v_outbound_sla_breach: {
+        Row: {
+          age_seconds: number | null
+          attempts: number | null
+          created_at: string | null
+          id: string | null
+          last_error: string | null
+          next_attempt_at: string | null
+          retry_count: number | null
+          status: Database["public"]["Enums"]["msg_status"] | null
+          to_phone: string | null
+          user_id: string | null
+        }
+        Insert: {
+          age_seconds?: never
+          attempts?: number | null
+          created_at?: string | null
+          id?: string | null
+          last_error?: string | null
+          next_attempt_at?: string | null
+          retry_count?: number | null
+          status?: Database["public"]["Enums"]["msg_status"] | null
+          to_phone?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          age_seconds?: never
+          attempts?: number | null
+          created_at?: string | null
+          id?: string | null
+          last_error?: string | null
+          next_attempt_at?: string | null
+          retry_count?: number | null
+          status?: Database["public"]["Enums"]["msg_status"] | null
+          to_phone?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outbound_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "outbound_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
     }
     Functions: {
       _break_glass_allowed_fields: { Args: never; Returns: string[] }
@@ -6130,6 +6446,7 @@ export type Database = {
           context_id: string | null
           context_type: string | null
           created_at: string
+          dead_letter_at: string | null
           delivered_at: string | null
           feature: string | null
           id: string
@@ -6150,6 +6467,7 @@ export type Database = {
           read_at: string | null
           retry_count: number
           sent_at: string | null
+          sla_breach_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           surface: string | null
           to_phone: string
@@ -6298,6 +6616,10 @@ export type Database = {
       is_client_user: { Args: { _user_id: string }; Returns: boolean }
       is_current_user_admin: { Args: never; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      is_shared_goal_member: {
+        Args: { _goal_id: string; _user_id: string }
+        Returns: boolean
+      }
       join_challenge: { Args: { p_slug: string }; Returns: string }
       learn_transaction_category: {
         Args: { p_category_id: string; p_transaction_id: string }
@@ -6586,6 +6908,10 @@ export type Database = {
         | "import_done"
         | "achievement"
         | "system"
+        | "goal_invite"
+        | "goal_contribution"
+        | "goal_milestone"
+        | "split_participant_linked"
       occurrence_status: "planned" | "confirmed" | "skipped"
       participant_status:
         | "pending"
@@ -6785,6 +7111,10 @@ export const Constants = {
         "import_done",
         "achievement",
         "system",
+        "goal_invite",
+        "goal_contribution",
+        "goal_milestone",
+        "split_participant_linked",
       ],
       occurrence_status: ["planned", "confirmed", "skipped"],
       participant_status: [
