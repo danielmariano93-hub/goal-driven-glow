@@ -59,3 +59,20 @@ export function renderMessageTemplate(
 }
 
 export const DEFAULT_MESSAGE_TEMPLATES = DEFAULTS;
+
+/**
+ * Constrói a sentença de link para injetar em `{{link_sentence}}`.
+ * - Se o destinatário está cadastrado, aponta para o deep link no app.
+ * - Se é convidado (guest), aponta para a página de cadastro com atribuição.
+ * - Se nenhum link válido puder ser construído, retorna string vazia.
+ */
+export function buildLinkSentence(input: {
+  isRegistered: boolean;
+  appLink: string | null;
+  signupLink: string | null;
+}): string {
+  if (input.isRegistered && input.appLink) return ` Abra no app: ${input.appLink}`;
+  if (!input.isRegistered && input.signupLink) return ` Cadastre-se em segundos: ${input.signupLink}`;
+  return "";
+}
+
