@@ -1005,6 +1005,22 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: create_transfer_draft,
   },
   {
+    name: "pay_credit_card_bill_draft",
+    description: "Cria uma proposta de PAGAMENTO DE FATURA de cartão de crédito. Debita a conta informada e liquida o cartão. NÃO conta como consumo do mês.",
+    parameters: {
+      type: "object",
+      properties: {
+        amount: num,
+        account: requiredStr,
+        card: requiredStr,
+        occurred_at: optionalStr,
+        description: optionalStr,
+      },
+      required: ["amount", "account", "card"], additionalProperties: false,
+    },
+    execute: pay_credit_card_bill_draft,
+  },
+  {
     name: "create_goal_draft",
     description: "Cria uma proposta de meta financeira.",
     parameters: {
