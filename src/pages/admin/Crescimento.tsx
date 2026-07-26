@@ -4,7 +4,7 @@ import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton
 import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
-import { callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
+import { adminErrorMessage, callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 import { dict } from "@/lib/admin/displayDictionary";
@@ -45,17 +45,29 @@ export default function Crescimento() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    Promise.all([
+    setCohorts(null);
+    setFunnel(null);
+
+    Promise.allSettled([
       callAdminRpc<Summary>("admin_v2_growth_summary", withPeriod(range)),
       callAdminRpc<Cohorts>("admin_v2_growth_cohorts", { _weeks: 8 }),
       callAdminRpc<Funnel>("admin_v2_growth_funnel", { _days: Math.max(1, daysBetween(range)) }),
     ])
-      .then(([s, c, f]) => {
-        setSummary(s);
-        setCohorts(c);
-        setFunnel(f);
+      .then(([summaryResult, cohortsResult, funnelResult]) => {
+        if (summaryResult.status === "rejected") {
+          setSummary(null);
+          setError(adminErrorMessage(summaryResult.reason, "Falha ao carregar o resumo de crescimento"));
+          return;
+        }
+
+        setSummary(summaryResult.value);
+        if (cohortsResult.status === "fulfilled") {
+          setCohorts(cohortsResult.value);
+        }
+        if (funnelResult.status === "fulfilled") {
+          setFunnel(funnelResult.value);
+        }
       })
-      .catch((e) => setError(e?.message ?? "Falha ao carregar Crescimento"))
       .finally(() => setLoading(false));
   }, [range.from, range.to]);
 
