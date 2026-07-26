@@ -48,7 +48,13 @@ const LIFECYCLE_OPTIONS: Array<{ key: "all" | Lifecycle; label: string }> = [
 type FinancialFilter = "all" | "with" | "without";
 
 export default function Clientes() {
-  const { can, loading: permissionsLoading } = usePlatformPermissions();
+  const { permissions, ready: permsReady } = usePlatformPermissions();
+  // Deps do useEffect precisam ser primitivas estáveis para não recarregar
+  // a lista a cada render. `can` da hook é estável, mas isolamos os flags
+  // aqui para deixar as dependências óbvias e à prova de regressão.
+  const canReadIdentity = permissions.has("clients.identity.read");
+  const canReadMaskedIdentity = permissions.has("clients.identity.masked");
+
   const [preset, setPreset] = useState<PeriodPresetKey>("30d");
   const [range, setRange] = useState<PeriodRange>(() => resolvePreset("30d"));
   const [rows, setRows] = useState<Client[] | null>(null);
@@ -62,7 +68,8 @@ export default function Clientes() {
   const [financialFilter, setFinancialFilter] = useState<FinancialFilter>("all");
 
   useEffect(() => {
-    if (permissionsLoading) return;
+    if (!permsReady) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
     callAdminRpc<ClientResponse>(
@@ -74,6 +81,7 @@ export default function Clientes() {
       }),
     )
       .then(async (response) => {
+        if (cancelled) return;
         setRows(response.clients);
         setTotals(response.totals);
         setFormulaVersion(response.formula_version);
@@ -86,24 +94,25 @@ export default function Clientes() {
         // Identidade é enriquecimento opcional: uma falha aqui não pode apagar
         // a lista operacional de clientes que já foi carregada.
         try {
-          if (can("clients.identity.read")) {
+          if (canReadIdentity) {
             const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity", { _pseudo_ids: ids });
-            setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
-          } else if (can("clients.identity.masked")) {
+            if (!cancelled) setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+          } else if (canReadMaskedIdentity) {
             const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity_masked", { _pseudo_ids: ids });
-            setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+            if (!cancelled) setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
           }
         } catch {
-          setIdentities({});
+          if (!cancelled) setIdentities({});
         }
       })
-      .catch((e) => setError(adminErrorMessage(e, "Falha ao carregar clientes")))
-      .finally(() => setLoading(false));
-  }, [permissionsLoading, can, range.from, range.to, lifecycleFilter, financialFilter]);
+      .catch((e) => { if (!cancelled) setError(adminErrorMessage(e, "Falha ao carregar clientes")); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [permsReady, canReadIdentity, canReadMaskedIdentity, range.from, range.to, lifecycleFilter, financialFilter]);
 
   const clients = useMemo(() => rows ?? [], [rows]);
 
-  if (loading || permissionsLoading) return <AdminSkeleton />;
+  if (loading || !permsReady) return <AdminSkeleton />;
   if (error) return <EmptyState title="Não foi possível carregar os clientes" description={error} />;
 
   return (
