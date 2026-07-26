@@ -1,0 +1,1 @@
+grant execute on function public.is_client_user(uuid) to authenticated, anon, service_role;
