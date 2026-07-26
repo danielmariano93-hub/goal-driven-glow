@@ -162,7 +162,7 @@ export default function ComunicacaoProativa() {
             {q.data!.by_channel.length === 0 ? (
               <EmptyState title="Sem entregas" description="Nenhum canal registrou envio nesta janela." />
             ) : (
-              <StatGrid cols={q.data!.by_channel.length as 1 | 2 | 3 | 4}>
+              <StatGrid cols={(q.data!.by_channel.length >= 3 ? 3 : 2) as 2 | 3}>
                 {q.data!.by_channel.map((c) => (
                   <StatCard
                     key={c.channel}
