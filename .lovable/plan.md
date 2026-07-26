@@ -1,83 +1,61 @@
-# Auditoria Técnica e Correção do Admin — Meu Nino
+## Contexto
 
-Objetivo: encontrar a causa raiz de telas vazias e falhas do painel administrativo antes de propor qualquer correção definitiva. Nada será alterado antes do diagnóstico terminar.
+Auditoria confirmou:
+- `auth.users` = 6, `platform_admins` = 1 → `v_client_users` = 5.
+- Você diz: apenas **2 clientes reais**. Os outros 3 são contas de teste (`t-fu-*@t.test`) que hoje entram em toda contagem ("Clientes totais", Crescimento, etc.).
+- Onde aparecem "5" e (fontes brutas) "6": Cockpit `total_users`, Crescimento `total_clients`, VisãoGeral `total_users`, banner de integridade `auth_users`.
+- Convite de rolê hoje só menciona "sua parte ficou em R$ X" — sem total do rolê nem quantas pessoas participam.
 
-## Fase 1 — Diagnóstico (somente leitura)
+Também restam pendências da Fase 3 da auditoria admin: validar Crescimento/Clientes/Saúde/OCR/Inteligência/Auditoria e remover instrumentação temporária.
 
-### 1.1 Inventário de RPCs consumidos pelo Admin
-- Varredura de `src/pages/admin/**` e `src/lib/admin/**` listando toda chamada `supabase.rpc(...)` e `callAdminRpc(...)`.
-- Montar tabela: tela → RPC → argumentos passados pelo front.
-- Cruzar com `pg_proc` no banco: para cada RPC coletar assinatura real, `security definer`, `search_path`, `volatile/stable`, grants (`has_function_privilege` para `anon`, `authenticated`, `service_role`).
-- Flagar RPCs em que o front envia argumentos que a assinatura do banco não aceita (padrão do bug histórico `_tz` no `admin_v2_cockpit`).
+## O que este plano entrega, de uma vez
 
-### 1.2 Execução direta de cada RPC no banco
-- Rodar cada RPC via `supabase--read_query` (com `SELECT ... FROM rpc(...)`) usando um intervalo curto (últimos 30 dias) e o `user_id` de um admin real.
-- Registrar: retorno resumido, `EXPLAIN ANALYZE` só quando o tempo passar de 500 ms, e mensagens de erro (`code`, `message`, `hint`, `detail`).
-- Marcar cada RPC como OK, LENTA, ERRO ou CONTRATO_DIVERGENTE.
+### 1. Conceito de "cliente real" (exclui admin **e** contas de teste)
 
-### 1.3 Segurança, RLS e roles
-- Ler `platform_admins`, `platform_permissions`, `user_roles` e as políticas de cada tabela consumida pelos RPCs admin.
-- Verificar se `current_platform_permissions()` devolve o conjunto esperado para o admin logado.
-- Rodar `supabase--linter` e anotar findings relevantes ao admin.
-- Confirmar que RPCs admin estão `revoke ... from anon` e apenas `authenticated`/`service_role` executam.
+Migration única `20260726120000_client_universe_excludes_test.sql`:
 
-### 1.4 Deploy vs. main
-- Comparar commit publicado em `https://meunino.com.br` (via header/asset ou build stamp acessível) com o HEAD atual de `main` no sandbox.
-- Se o build publicado for anterior, registrar o gap de commits que afeta o Admin (contrato de RPC, hooks etc.).
+- Adiciona `profiles.is_test boolean not null default false` (backfill).
+- Marca como `is_test = true` os 3 usuários cujo perfil tem `onboarding_completed_at IS NULL` **e** cujo `auth.users.email` termina em `@t.test` (heurística conservadora, dentro de função `security definer` que lê `auth.users`; não deleta ninguém).
+- Atualiza `public.is_client_user(uuid)` para adicionar `AND NOT EXISTS (select 1 from profiles where id=_user_id and is_test)`.
+- Recria `v_client_users` e `v_client_universe` com o mesmo filtro (as views já usam `is_client_user`, então basta `CREATE OR REPLACE`).
+- Adiciona RPC `admin_mark_user_as_test(_user_id uuid, _is_test bool)` restrita a `platform_owner/platform_admin`, para você inverter no futuro (nenhuma UI nova — chamada opcional via SQL/DevTools).
 
-### 1.5 Front-end: React Query, hooks, Suspense, Promise.all
-- Para cada página do Admin listada, revisar:
-  - uso de `useQuery`/`useQueries` (`queryKey`, `enabled`, `retry`, `throwOnError`);
-  - `Promise.all` que derrubam a tela inteira quando um item falha (padrão já corrigido no Cockpit, verificar reincidência);
-  - `Suspense`/`ErrorBoundary` (`AdminErrorBoundary`) e o que ele mascara;
-  - tratamento de `error`, `isLoading`, `data == null` vs. array vazio;
-  - dependência de `usePlatformPermissions` — se `loading` inicial esconde tudo indefinidamente.
-- Instrumentar logs **temporários** (console.debug com prefixo `[admin-audit]`) em cada `queryFn` e em `AdminErrorBoundary` para capturar exatamente onde a cadeia quebra em produção. Esses logs são removidos ao final da Fase 3.
+Efeito automático: todas as métricas que já usam `v_client_users` / `is_client_user` passam a contar **2** (Cockpit `total_users`, Crescimento `total_clients`, admin_v2_growth_summary, admin_v2_cockpit, admin_v2_clients_list, admin_v2_daily_evolution, admin_dashboard_stats via VisãoGeral).
 
-### 1.6 Auditoria de usuários (somente relatório, nada é apagado)
-- Cruzar `auth.users` × `profiles` × `user_roles` × `platform_admins` × `whatsapp_links` × `agent_runs`/`transactions` (sinal de uso real).
-- Classificar cada `user_id` em: **real** (tem atividade financeira/mensagens), **teste interno** (email @meunino/@lovable ou domínios internos), **duplicado** (mesmo email normalizado ou mesmo telefone), **órfão** (`auth.users` sem `profiles` ou vice-versa), **admin** (`platform_admins.active = true`).
-- Entregar CSV em `/mnt/documents/admin-audit-users-2026-07-26.csv` com colunas: `user_id, email_mascarado, created_at, last_sign_in_at, tem_profile, tem_role, is_admin, tem_transacoes, tem_whatsapp, classificacao, motivo`.
+- No `admin_v2_contract_health`, o `auth_users` continua sendo `auth.users` bruto (para o banner detectar divergência); adicionamos `test_users` para clareza. O check de mismatch em `Cockpit.tsx` passa a ser `auth_users !== clientsCount + adminsCount + testCount`.
 
-### 1.7 Validação por tela
-Para cada tela abaixo, registrar estado observado (carrega / vazio / erro), RPCs envolvidas, tempo total e primeiro ponto de quebra:
-Cockpit · Crescimento · Clientes · WhatsApp · Saúde · OCR · Inteligência de Produto · Auditoria.
+### 2. Convite de rolê mais transparente
 
-Evidência: prints via Playwright headless autenticado como admin real (usando a sessão injetada no sandbox), console + network capturados.
+Alteração em `supabase/functions/_shared/agent/messageTemplates.ts` e `supabase/functions/split-reminders-dispatch/index.ts`:
 
-## Fase 2 — Relatório de causa raiz
+- Novos placeholders no template `invite`: `{{participants_count}}` e `{{total_amount}}`.
+- Novo texto default:
+  > "Oi, {{participant_name}}! 👋 {{owner_name}} incluiu você na divisão "{{title}}" (total do rolê: {{total_amount}}, dividido entre {{participants_count}} pessoas). Sua parte ficou em {{amount}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}}"
+- `split-reminders-dispatch/index.ts::messageFor` recebe `participantsCount` e `totalAmount` (calculados uma vez por `shared_expense_id`: `count(shared_expense_participants)` + `sum(amount_due)`), formata em pt-BR (`Intl.NumberFormat`), e injeta nos values.
+- Reminder/due_soon/overdue ganham a mesma sentença opcional entre parênteses (mais leve, sem repetição de "total do rolê" no já-pago), para manter tom coerente sem inflar o texto.
+- Templates administráveis (`persona.contexts.split_invite.template`) permanecem com precedência — só o fallback DEFAULT muda; não quebra personalizações existentes.
 
-Entrego um único documento `docs/admin-audit-2026-07-26.md` com:
-- tabela RPC × contrato × resultado direto no banco;
-- lista de contratos divergentes e permissões faltantes;
-- gap deploy vs. main (se houver);
-- pontos exatos de quebra no front (arquivo + linha);
-- relatório de usuários (link para o CSV);
-- causa raiz consolidada por tela.
+### 3. Encerrar as pendências abertas da auditoria admin
 
-**Nenhuma correção é aplicada antes deste relatório existir e ser aprovado.**
+- **Validar RPCs restantes** com impersonação do admin (`SET request.jwt.claims`), rodando `admin_v2_growth_summary`, `admin_v2_clients_list`, `admin_v2_governance_summary`, `admin_v2_operations_health`, `admin_v2_message_intelligence`, `admin_v2_ia_ocr_metrics`, `admin_v2_product_features`, `admin_v2_audit_list`. Registrar retorno em `docs/admin-audit-2026-07-26.md` (append à seção já iniciada).
+- **Blindar telas** que ainda usam `Promise.all` puro: aplicar mesmo padrão do Cockpit (`Promise.allSettled` + `adminErrorMessage`) em `Crescimento.tsx`, `Clientes.tsx`, `Operacao.tsx`, `IAInteligencia.tsx`, `GovernancaAuditoria.tsx`. Nada de novo layout — só resiliência a falha parcial.
+- **Relatório final de usuários** em `/mnt/documents/admin-audit-users-2026-07-26.csv` (regenerado após marcação `is_test`), listando: id, e-mail mascarado, `is_test`, `is_admin`, `onboarding_completed_at`, `whatsapp_linked`, origem inferida.
+- Nenhum registro é apagado — apenas classificado.
 
-## Fase 3 — Correção definitiva (após aprovação do relatório)
+## Notas técnicas
 
-Só entra em execução depois que a Fase 2 identificar as causas. O escopo será limitado ao que o relatório apontar, tipicamente:
-- alinhar assinatura front↔RPC (argumentos, tipos, nomes);
-- isolar falhas em cargas paralelas (substituir `Promise.all` por `Promise.allSettled` onde derruba a tela);
-- corrigir grants/RLS que estejam bloqueando o admin real;
-- consertar hooks que travam em `loading` eterno;
-- republicar o frontend se o deploy estiver atrás de `main`;
-- remover os logs `[admin-audit]` temporários.
+Arquivos alterados:
+- `supabase/migrations/20260726120000_client_universe_excludes_test.sql` (novo).
+- `supabase/functions/_shared/agent/messageTemplates.ts` (DEFAULTS.invite + doc).
+- `supabase/functions/split-reminders-dispatch/index.ts` (fetch counts, `messageFor` recebe extras).
+- `src/pages/admin/Cockpit.tsx` (usa `client_users + admins + test_users` no check de integridade; label "Clientes reais").
+- `src/pages/admin/{Crescimento,Clientes,Operacao,IAInteligencia,GovernancaAuditoria}.tsx` (`Promise.allSettled`).
+- `docs/admin-audit-2026-07-26.md` (append de validação end-to-end).
+- `/mnt/documents/admin-audit-users-2026-07-26.csv` (regenerado).
 
-Ao final: re-executar a bateria da Fase 1.7 (todas as telas), anexar prints pós-correção, resultado da suíte de testes e as queries SQL usadas como evidência.
+Fora de escopo (não mexer): frontend do app do usuário, LP, autenticação, backend financeiro, layout admin. Nenhuma deploy automático — apenas migration + edits.
 
-## Fora de escopo
+## Perguntas de segurança antes de executar
 
-- Nenhuma nova feature.
-- Nenhuma exclusão automática de usuários (o relatório apenas classifica).
-- Nenhuma mudança em landing page, app do usuário final, agente, WhatsApp de produção ou billing.
-
-## Entregáveis
-
-1. `docs/admin-audit-2026-07-26.md` — relatório de causa raiz.
-2. `/mnt/documents/admin-audit-users-2026-07-26.csv` — auditoria de usuários.
-3. Patch cirúrgico de correção (Fase 3), com diff mínimo.
-4. Evidências: prints Playwright por tela (antes/depois), saídas SQL, logs.
+1. Posso classificar como `is_test=true` os 3 perfis com `onboarding_completed_at IS NULL` e e-mail `@t.test`? (Reversível via RPC, nada é deletado.)
+2. Confirma "2 clientes reais" = Daniel + Lucas? Se sim, seguem assim; se outro par, me diga os IDs.
