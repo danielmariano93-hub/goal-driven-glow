@@ -6757,6 +6757,10 @@ export type Database = {
         Returns: undefined
       }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
+      notifications_mark_interacted: {
+        Args: { _action?: string; _notification_id: string }
+        Returns: Json
+      }
       notify_upsert: {
         Args: {
           p_action_url: string
