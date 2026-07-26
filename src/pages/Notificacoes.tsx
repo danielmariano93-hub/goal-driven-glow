@@ -64,11 +64,11 @@ export default function Notificacoes() {
               </>
             );
             const content = n.action_url ? (
-              <Link to={n.action_url} onClick={() => markRead(n.id)} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/40">
+              <Link to={n.action_url} onClick={() => markRead(n.id, "click")} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/40">
                 {Body}
               </Link>
             ) : (
-              <button onClick={() => markRead(n.id)} className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-secondary/40">
+              <button onClick={() => markRead(n.id, "open")} className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-secondary/40">
                 {Body}
               </button>
             );
@@ -79,3 +79,4 @@ export default function Notificacoes() {
     </div>
   );
 }
+
