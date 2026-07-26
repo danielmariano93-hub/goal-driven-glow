@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
-import { callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
+import { adminErrorMessage, callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
 import { usePlatformPermissions } from "@/hooks/usePlatformPermissions";
 import { dict } from "@/lib/admin/displayDictionary";
 import { formatDateTime } from "@/lib/admin/formulas";
@@ -64,6 +64,7 @@ export default function Clientes() {
   useEffect(() => {
     if (permissionsLoading) return;
     setLoading(true);
+    setError(null);
     callAdminRpc<ClientResponse>(
       "admin_v2_clients_list",
       withPeriod(range, {
@@ -82,15 +83,21 @@ export default function Clientes() {
           return;
         }
 
-        if (can("clients.identity.read")) {
-          const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity", { _pseudo_ids: ids });
-          setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
-        } else if (can("clients.identity.masked")) {
-          const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity_masked", { _pseudo_ids: ids });
-          setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+        // Identidade é enriquecimento opcional: uma falha aqui não pode apagar
+        // a lista operacional de clientes que já foi carregada.
+        try {
+          if (can("clients.identity.read")) {
+            const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity", { _pseudo_ids: ids });
+            setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+          } else if (can("clients.identity.masked")) {
+            const result = await callAdminRpc<{ clients: Identity[] }>("admin_v2_clients_identity_masked", { _pseudo_ids: ids });
+            setIdentities(Object.fromEntries(result.clients.map((item) => [item.pseudo_id, item])));
+          }
+        } catch {
+          setIdentities({});
         }
       })
-      .catch((e) => setError(e?.message ?? "Falha ao carregar clientes"))
+      .catch((e) => setError(adminErrorMessage(e, "Falha ao carregar clientes")))
       .finally(() => setLoading(false));
   }, [permissionsLoading, can, range.from, range.to, lifecycleFilter, financialFilter]);
 

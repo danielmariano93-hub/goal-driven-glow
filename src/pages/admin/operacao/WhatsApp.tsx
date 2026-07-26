@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
 import { Button } from "@/components/ui/button";
-import { callAdminRpc } from "@/lib/admin/adminRpc";
+import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { formatDateTime, formatRate, rate } from "@/lib/admin/formulas";
 
 type Day = { day: string; attempts: number; sent: number; failed: number };
@@ -62,18 +62,27 @@ export default function OperacaoWhatsApp() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [monitorData, intelligenceData] = await Promise.all([
-        callAdminRpc<MonitorResponse>("admin_v2_whatsapp_monitor", { _days: 14 }),
-        callAdminRpc<IntelligenceResponse>("admin_v2_message_intelligence", { _days: 30 }),
-      ]);
-      setMonitor(monitorData);
-      setIntelligence(intelligenceData);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao carregar WhatsApp");
-    } finally {
-      setLoading(false);
+    const [monitorResult, intelligenceResult] = await Promise.allSettled([
+      callAdminRpc<MonitorResponse>("admin_v2_whatsapp_monitor", { _days: 14 }),
+      callAdminRpc<IntelligenceResponse>("admin_v2_message_intelligence", { _days: 30 }),
+    ]);
+
+    if (monitorResult.status === "fulfilled") {
+      setMonitor(monitorResult.value);
+    } else {
+      setMonitor(null);
+      setError(adminErrorMessage(monitorResult.reason, "Falha ao carregar o monitor operacional"));
     }
+
+    if (intelligenceResult.status === "fulfilled") {
+      setIntelligence(intelligenceResult.value);
+    } else {
+      // Inteligência é complementar. O monitor principal continua visível.
+      setIntelligence(null);
+      toast.error(adminErrorMessage(intelligenceResult.reason, "Inteligência de mensagens indisponível"));
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -94,10 +103,9 @@ export default function OperacaoWhatsApp() {
   };
 
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Não foi possível carregar o monitoramento do WhatsApp" description={error} />;
 
   const totals = monitor?.totals;
-  if (!totals) return <EmptyState title="Sem dados do WhatsApp" />;
+  if (!totals) return <EmptyState title="Não foi possível carregar o monitoramento do WhatsApp" description={error ?? "Sem dados do WhatsApp"} />;
 
   return (
     <div className="space-y-6">

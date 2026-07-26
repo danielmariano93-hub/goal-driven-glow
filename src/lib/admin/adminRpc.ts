@@ -14,9 +14,32 @@ export async function callAdminRpc<T = any>(
   return data as T;
 }
 
-/** Injeta _from/_to/_tz no formato canônico das RPCs `admin_v2_*` com contrato de período. */
+/** RPCs cujo contrato declara _from, _to e _tz. */
 export function withPeriod(range: PeriodRange, extras: Record<string, unknown> = {}) {
   return { _from: range.from, _to: range.to, _tz: "America/Sao_Paulo", ...extras };
+}
+
+/** RPCs cujo contrato declara apenas _from e _to. */
+export function withDateRange(range: PeriodRange, extras: Record<string, unknown> = {}) {
+  return { _from: range.from, _to: range.to, ...extras };
+}
+
+export function adminErrorMessage(error: unknown, fallback: string): string {
+  if (!error || typeof error !== "object") return fallback;
+
+  const candidate = error as {
+    message?: string;
+    details?: string;
+    hint?: string;
+    code?: string;
+  };
+
+  const parts = [candidate.message, candidate.details, candidate.hint]
+    .filter((part): part is string => Boolean(part?.trim()));
+
+  return parts.length
+    ? `${parts.join(" · ")}${candidate.code ? ` [${candidate.code}]` : ""}`
+    : fallback;
 }
 
 export type Envelope = {
