@@ -4231,6 +4231,7 @@ export type Database = {
           hide_financial_values: boolean
           id: string
           is_sandbox: boolean
+          is_test: boolean
           onboarding_completed_at: string | null
           timezone: string
           updated_at: string
@@ -4242,6 +4243,7 @@ export type Database = {
           hide_financial_values?: boolean
           id: string
           is_sandbox?: boolean
+          is_test?: boolean
           onboarding_completed_at?: string | null
           timezone?: string
           updated_at?: string
@@ -4253,6 +4255,7 @@ export type Database = {
           hide_financial_values?: boolean
           id?: string
           is_sandbox?: boolean
+          is_test?: boolean
           onboarding_completed_at?: string | null
           timezone?: string
           updated_at?: string
@@ -6313,6 +6316,10 @@ export type Database = {
           role: Database["public"]["Enums"]["platform_role"]
           user_id: string
         }[]
+      }
+      admin_mark_user_as_test: {
+        Args: { _is_test: boolean; _user_id: string }
+        Returns: Json
       }
       admin_message_activity: {
         Args: {

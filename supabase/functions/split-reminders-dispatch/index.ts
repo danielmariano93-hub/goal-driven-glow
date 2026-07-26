@@ -34,6 +34,10 @@ function maskPhone(p?: string | null): string {
   return p.replace(/^(\+\d{2})\d+(\d{4})$/, "$1****$2");
 }
 
+function formatBRL(v: number): string {
+  return `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`;
+}
+
 function messageFor(
   kind: string,
   p: any,
@@ -41,14 +45,24 @@ function messageFor(
   remaining: number,
   persona: MessagePersona,
   linkSentence: string,
+  split: { participantsCount: number; totalAmount: number },
 ): string {
-  const amount = `R$ ${remaining.toFixed(2).replace(".", ",")}`;
+  const amount = formatBRL(remaining);
   const due = se?.due_date ? new Date(`${se.due_date}T12:00:00`).toLocaleDateString("pt-BR") : null;
+  const participantsCount = Math.max(1, Number(split.participantsCount || 0));
+  const totalAmount = Number(split.totalAmount || 0);
+  const showContext = participantsCount > 0 && totalAmount > 0;
+  const splitContextSentence = showContext
+    ? ` (total do rolê: ${formatBRL(totalAmount)}, dividido entre ${participantsCount} ${participantsCount === 1 ? "pessoa" : "pessoas"})`
+    : "";
   return renderMessageTemplate(kind, persona, {
     participant_name: String(p.name ?? "").trim() || "tudo bem",
     owner_name: String(se.owner_name ?? "A pessoa responsável pelo rolê"),
     title: String(se.title ?? "seu rolê"),
     amount,
+    total_amount: formatBRL(totalAmount),
+    participants_count: String(participantsCount),
+    split_context_sentence: splitContextSentence,
     due_date: due ?? "",
     due_sentence: due ? ` O combinado é pagar até ${due}.` : "",
     pix_key: String(se.pix_key ?? ""),
@@ -104,6 +118,21 @@ Deno.serve(async (req) => {
   const persona = ((activePrompt?.structured_config ?? {}) as MessagePersona);
   const ownerNames = new Map<string, string>();
 
+  const splitContextCache = new Map<string, { participantsCount: number; totalAmount: number }>();
+  async function getSplitContext(sharedExpenseId: string) {
+    const cached = splitContextCache.get(sharedExpenseId);
+    if (cached) return cached;
+    const { data: rows } = await sb
+      .from("shared_expense_participants")
+      .select("amount_due")
+      .eq("shared_expense_id", sharedExpenseId);
+    const list = (rows as Array<{ amount_due: number | null }> | null) ?? [];
+    const totalAmount = list.reduce((sum, r) => sum + Number(r.amount_due ?? 0), 0);
+    const ctx = { participantsCount: list.length, totalAmount };
+    splitContextCache.set(sharedExpenseId, ctx);
+    return ctx;
+  }
+
   let enqueued = 0, skipped = 0, failed = 0;
   const targetOutboundIds: string[] = [];
   for (const j of jobs) {
@@ -154,7 +183,8 @@ Deno.serve(async (req) => {
         next: `/app/divisao-do-role/${String(j.shared_expense_id)}`,
       });
       const linkSentence = buildLinkSentence({ isRegistered: isReg, appLink, signupLink });
-      const msg = messageFor(kind, p, se, remaining, persona, linkSentence);
+      const splitCtx = await getSplitContext(String(j.shared_expense_id));
+      const msg = messageFor(kind, p, se, remaining, persona, linkSentence, splitCtx);
 
 
       // Uma nova tentativa manual gera um novo job e deve poder enviar no

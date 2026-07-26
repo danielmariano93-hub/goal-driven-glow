@@ -18,6 +18,7 @@ type MetricsHealth = {
   pseudonyms: number;
   client_users?: number;
   platform_admins?: number;
+  test_users?: number;
   measured_at: string;
 };
 
@@ -93,8 +94,9 @@ export default function Cockpit() {
   const health = data.metrics_health;
   const clientsCount = health?.client_users ?? null;
   const adminsCount = health?.platform_admins ?? null;
+  const testCount = health?.test_users ?? 0;
   const contractsMismatch = health && clientsCount !== null && adminsCount !== null
-    && health.auth_users !== clientsCount + adminsCount;
+    && health.auth_users !== clientsCount + adminsCount + testCount;
 
   return (
     <div className="space-y-6">
@@ -119,7 +121,7 @@ export default function Cockpit() {
           <p className="mt-1">
             {health?.stale ? "Agregação atrasada. Cartões usam fontes live. " : ""}
             {contractsMismatch
-              ? `Divergência: auth=${health?.auth_users}, clientes=${clientsCount}, admins=${adminsCount}.`
+              ? `Divergência: auth=${health?.auth_users}, clientes=${clientsCount}, admins=${adminsCount}, teste=${testCount}.`
               : ""}
           </p>
         </div>

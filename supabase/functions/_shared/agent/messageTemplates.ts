@@ -11,10 +11,10 @@ export type MessagePersona = {
 };
 
 const DEFAULTS: Record<string, string> = {
-  invite: "Oi, {{participant_name}}! 👋 {{owner_name}} incluiu você na divisão “{{title}}”. Sua parte ficou em {{amount}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
-  reminder: "Oi, {{participant_name}}! Passando com um lembrete leve: ainda faltam {{amount}} da sua parte em “{{title}}”.{{due_sentence}}{{pix_sentence}}{{link_sentence}} Se você já pagou, pode desconsiderar e avisar quem criou o rolê 💛",
-  due_soon: "Oi, {{participant_name}}! Sua parte de {{amount}} em “{{title}}” vence em breve.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
-  overdue: "Oi, {{participant_name}}. Sua parte de {{amount}} em “{{title}}” ainda aparece em aberto. Se você já pagou, avise quem criou o rolê para atualizar por lá 💛{{pix_sentence}}{{link_sentence}}",
+  invite: "Oi, {{participant_name}}! 👋 {{owner_name}} incluiu você na divisão “{{title}}”{{split_context_sentence}}. Sua parte ficou em {{amount}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
+  reminder: "Oi, {{participant_name}}! Passando com um lembrete leve: ainda faltam {{amount}} da sua parte em “{{title}}”{{split_context_sentence}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}} Se você já pagou, pode desconsiderar e avisar quem criou o rolê 💛",
+  due_soon: "Oi, {{participant_name}}! Sua parte de {{amount}} em “{{title}}”{{split_context_sentence}} vence em breve.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
+  overdue: "Oi, {{participant_name}}. Sua parte de {{amount}} em “{{title}}”{{split_context_sentence}} ainda aparece em aberto. Se você já pagou, avise quem criou o rolê para atualizar por lá 💛{{pix_sentence}}{{link_sentence}}",
   payment_confirmation: "Tudo certo, {{participant_name}}! Seu pagamento em “{{title}}” foi registrado. Obrigado por organizar esse rolê com a gente 🙌",
   completed: "Rolê fechado! 🎉 Todo mundo acertou a divisão “{{title}}”.",
   goal_invite: "Oi, {{participant_name}}! 👋 {{owner_name}} convidou você para a meta conjunta “{{title}}” (objetivo: {{amount}}).{{link_sentence}} Bora juntos?",
