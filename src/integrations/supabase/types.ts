@@ -6398,6 +6398,7 @@ export type Database = {
         Args: { _from?: string; _to?: string }
         Returns: Json
       }
+      admin_v2_contract_health: { Args: never; Returns: Json }
       admin_v2_daily_evolution: {
         Args: { _from: string; _to: string; _tz?: string }
         Returns: Json
