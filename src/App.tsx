@@ -67,6 +67,7 @@ const AdminOpMensageria = lazy(() => import("./pages/admin/operacao/Mensageria")
 const AdminOpIaOcr = lazy(() => import("./pages/admin/operacao/IaOcr"));
 const AdminOpWhatsApp = lazy(() => import("./pages/admin/operacao/WhatsApp"));
 const AdminOpAssistente = lazy(() => import("./pages/admin/operacao/Assistente"));
+const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
