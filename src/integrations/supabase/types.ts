@@ -6410,11 +6410,16 @@ export type Database = {
         Returns: Json
       }
       admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
+      admin_v2_message_intelligence: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
       admin_v2_product_features: { Args: { _days?: number }; Returns: Json }
       admin_v2_product_opportunities: { Args: never; Returns: Json }
+      admin_v2_retry_failed_outbound: {
+        Args: { _limit?: number }
+        Returns: Json
+      }
       admin_v2_revenue_summary: { Args: never; Returns: Json }
       admin_v2_whatsapp_monitor: { Args: { _days?: number }; Returns: Json }
       admin_waha_config_status: { Args: never; Returns: Json }
