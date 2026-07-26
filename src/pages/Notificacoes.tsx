@@ -20,10 +20,17 @@ export default function Notificacoes() {
     await supabase.rpc("mark_all_notifications_read" as any);
     await load();
   };
-  const markRead = async (id: string) => {
-    await supabase.from("notifications" as any).update({ read_at: new Date().toISOString() }).eq("id", id);
+  const markRead = async (id: string, action: "open" | "click" = "open") => {
+    // Fecha o feedback loop: marca lida + reflete em communication_deliveries.
+    const { error } = await supabase.rpc("notifications_mark_interacted" as any, {
+      _notification_id: id, _action: action,
+    });
+    if (error) {
+      await supabase.from("notifications" as any).update({ read_at: new Date().toISOString() }).eq("id", id);
+    }
     await load();
   };
+
 
   if (items === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
