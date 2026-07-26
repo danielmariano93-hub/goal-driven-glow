@@ -1401,6 +1401,7 @@ export type Database = {
         Row: {
           acted_at: string | null
           channel: string
+          cost_usd: number | null
           created_at: string
           dedup_key: string | null
           delivered_at: string | null
@@ -1415,6 +1416,7 @@ export type Database = {
         Insert: {
           acted_at?: string | null
           channel: string
+          cost_usd?: number | null
           created_at?: string
           dedup_key?: string | null
           delivered_at?: string | null
@@ -1429,6 +1431,7 @@ export type Database = {
         Update: {
           acted_at?: string | null
           channel?: string
+          cost_usd?: number | null
           created_at?: string
           dedup_key?: string | null
           delivered_at?: string | null
@@ -6422,6 +6425,10 @@ export type Database = {
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
+      admin_v2_proactive_summary: {
+        Args: { _channel?: string; _days?: number; _kind?: string }
+        Returns: Json
+      }
       admin_v2_product_features: { Args: { _days?: number }; Returns: Json }
       admin_v2_product_opportunities: { Args: never; Returns: Json }
       admin_v2_retry_failed_outbound: {

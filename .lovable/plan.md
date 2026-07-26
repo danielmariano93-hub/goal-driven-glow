@@ -1,234 +1,160 @@
+# Plano fechado — Admin estável, Divisão do Rolê e Comunicações Proativas v1
 
-# Plano consolidado — Estabilização do Admin + Núcleo estratégico do Nino
-
-Somente PLAN MODE. Nada implementado agora.
-
----
-
-## A. Diagnóstico atual (auditoria do que já existe)
-
-Auditoria feita sobre `supabase/functions/_shared/agent/core/`, `supabase/functions/*`, `src/pages/admin/*`, hooks e schema. Resumo:
-
-**Já existe e é reaproveitável (evita segunda fonte de verdade):**
-- **Agent Core unificado**: `AgentCore.ts`, `IntentRouter`, `PolicyEngine`, `ActionPlanner`, `ToolRuntime`, `ContextPipeline`, `SessionManager`, `StateManager`, `ResponseValidator`, `ResponseGenerator`, `DeterministicFallback`, `ErrorRecovery`. Adapters App/WhatsApp.
-- **Memória e perfil**: `MemoryStore.ts` (`agent_memory`), `UserProfile.ts` (`user_profiles_snapshot`), `PersonalizationEngine.ts` (`user_ai_preferences`), `LearningLoop.ts`.
-- **Insights e proativo**: `InsightsEngine.ts` (8 detectores), `ProactiveEngine.ts`, `NotificationDispatcher.ts`, `CommunicationDispatcherV2.ts`, `ChannelGuard.ts`, tabelas `user_insights`, `pending_proactive_suggestions`, `communication_deliveries`, `reminder_jobs`, `notifications`. Edge `agent-proactive-tick` com cron.
-- **Contexto 360**: `FinancialContext360.ts` (snapshot), `financial_daily_facts`, `financial_current_snapshots`, `financial_daily_category_facts`.
-- **Emocional**: `emotional_checkins` (existe, sem cruzamento explícito com eventos financeiros hoje).
-- **Conversas**: `conversations`, `conversation_messages`, `ConversationHistory.ts`.
-- **Mensageria**: WAHA (`whatsapp-*`), templates (`messageTemplates.ts`), fila outbound, watchdog ACK, reminder jobs.
-- **Admin V2**: 15+ RPCs `admin_v2_*`, RBAC (`platform_permissions`, `has_platform_perm`), break-glass, `AdminResponsiveList`, `PageHeader`, `AdminDateFilter`, `adminRpc.ts`.
-
-**Parcial / desalinhado:**
-- **Memória comportamental**: `agent_memory` existe mas não há detectores comportamentais explícitos (impulsividade, ansiedade, recaída). `emotional_checkins` não é cruzado com transações.
-- **Plano financeiro do assessor**: `FinancialPlanner.ts` gera plano por objetivo, mas não há visão consolidada "acompanhamento semanal/mensal" nem tela dedicada de Assessor além do chat.
-- **Explicabilidade de insight**: `user_insights` tem `evidence` JSON, mas UI do usuário não expõe "por que recebi este alerta" nem correção.
-- **Governança de proativa**: cooldown/dedup existe em `NotificationDispatcher`, mas não há painel Admin unificado com KPIs (envio, entrega, ação, opt-out, falso positivo).
-- **Admin Clientes pisca**: `useEffect` em `Clientes.tsx:64-102` depende de `can` — função recriada a cada render de `usePlatformPermissions` (retorno `{ can: (a) => permissions.has(a) }` novo objeto por render). Cada render dispara RPC → setState → re-render → loop. `permissionsLoading` também está no deps mas o gatilho real é `can`.
-- **Logs temporários**: `console.log("[agent-core]…")` em `AgentCore.ts:141,497`. Precisam virar log estruturado ou serem removidos.
-
-**Não existe:**
-- Detectores comportamentais dedicados (impulsividade / procrastinação / recaída) cruzando emoção × transação.
-- Tela "Assessor — acompanhamento" no app (revisão semanal/mensal, agenda, evolução).
-- Painel Admin de qualidade da comunicação proativa (utilidade, ação, falso positivo).
-- Confirmação explícita de hipóteses comportamentais pelo usuário ("isso faz sentido? sim/não/parcial").
-- Relatório final de classificação de usuários (2 reais, 3 teste, 1 admin) versionado em `docs/`.
-
-**Riscos identificados:**
-- **Custo IA**: proativa sem KPI de utilidade real pode gastar tokens sem retorno.
-- **Spam WhatsApp**: cooldown existe mas sem monitoramento de opt-out no Admin.
-- **Alucinação**: `ResponseValidator` mitiga, mas hipóteses comportamentais precisam ser explicitamente marcadas como hipótese.
-- **Dupla contabilização**: fluxos financeiros já foram unificados em `commitMovement`; qualquer nova ação proativa deve reusar isso.
-- **Loop de renders** (Clientes) é sintoma de um antipattern reproduzível em qualquer tela que dependa de `can` no `useEffect`.
+Diagnóstico feito lendo `usePlatformPermissions.ts`, `ProactiveEngine.ts`, `CommunicationDispatcherV2.ts`, `ChannelGuard.ts`, `communicationPolicy.ts`, `agent-proactive-tick`, `split-reminders-dispatch`, `messageTemplates.ts`, `Cockpit.tsx`, `Clientes.tsx`, `AdminLayout.tsx` e páginas `operacao/*`. Nada nesta seção é especulação — cada afirmação corresponde a um trecho confirmado nos arquivos citados.
 
 ---
 
-## B. Mapa de features
+## 1. Estado atual por feature
 
-### FEATURE 1 — Nino Inteligente (memória + contexto)
-- **Objetivo**: agente com memória factual, comportamental, preferências, decisões e conversas, usada em toda resposta.
-- **Reaproveita**: `MemoryStore`, `UserProfile`, `PersonalizationEngine`, `ContextPipeline`, `FinancialContext360`.
-- **Novo**: (a) `memory_kind` `behavior_hypothesis` + `decision_log`; (b) API `MemoryStore.correctFact()` para correção pelo usuário; (c) UI "Meu Nino sabe sobre mim" (visualizar/corrigir/apagar); (d) política de expiração/decay por tipo.
-- **Aceite**: agente cita fatos armazenados nas respostas; usuário consegue corrigir/apagar; auditoria registra origem e confidence.
-- **Risco**: privacidade/LGPD → precisa endpoint de export/delete (já existe `user-data-export`, estender).
-- **Complexidade**: M.
+### Frente 1 — Admin
+- `usePlatformPermissions`: já corrigido — `permissions` é `Set` estável e `can` é `useCallback([permissions])`. Único consumidor com `useEffect` é `Clientes.tsx`, que agora depende de flags primitivas (`canReadIdentity`, `canReadMaskedIdentity`). `AdminLayout.tsx` usa `can` no filtro do render (estável). **≈ 80%**.
+- Cockpit / Crescimento / Operação (WhatsApp, Saúde, IaOcr, Assistente) / IA / Governança: RPCs `admin_v2_*` chamados diretos via `callAdminRpc`. Falta padrão consistente de `Promise.allSettled`, EmptyState e mensagem de erro (Cockpit já usa; demais telas ainda derrubam a tela num único `throw`). **≈ 60%**.
+- Universo de clientes reais: migration `20260726120000_client_universe_excludes_test.sql` aplicada, mas ainda não há relatório versionado consolidando 1 admin / 3 teste / 2 reais com evidência SQL. **≈ 50%**.
+- E2E autenticado das 8 telas do Admin: **inexistente**. **0%**.
+- Instrumentação temporária: restam `console.warn` em `Cockpit.tsx:83` (aceitável, é fallback) e um punhado em módulos do agente que precisam ser auditados. **≈ 70%**.
 
-### FEATURE 2 — Comunicação Proativa
-- **Objetivo**: Nino inicia conversas úteis, priorizadas, sem spam.
-- **Reaproveita**: `ProactiveEngine`, `InsightsEngine`, `NotificationDispatcher`, `communication_deliveries`, `pending_proactive_suggestions`, `agent-proactive-tick`.
-- **Novo**: (a) scoring de relevância + confidence unificado em `PolicyEngine.decideProactive`; (b) cooldown/dedup formalizados por `kind` + `dedup_key` com TTL; (c) evento `communication_action` (usuário respondeu / ignorou / opt-out) e KPI de utilidade; (d) opt-in/opt-out granular por `kind` em `notification_preferences`; (e) template versionado por evento.
-- **Aceite**: 0 duplicatas em janela 24h; opt-out por tipo; log de decisão auditável; KPI "úteis / enviadas" no Admin.
-- **Risco**: spam WhatsApp → guardrail em `ChannelGuard` + limite diário por usuário.
-- **Complexidade**: M.
+### Frente 2 — Divisão do Rolê
+- Migration de templates com `participants_count`, `total_amount` e `split_context_sentence` está em `messageTemplates.ts` (DEFAULTS) e `split-reminders-dispatch/index.ts` (função `messageFor` + `getSplitContext`). Código presente. **≈ 85%**.
+- Não há evidência de deploy da Edge Function após a última alteração nem envio real registrando o novo texto em `outbound_messages`.
+- Templates administráveis (`agent_prompt_versions.structured_config.contexts.split_*`) têm precedência sobre os DEFAULTS: se um template ativo antigo não contém `{{split_context_sentence}}`, o contexto não aparece. Isso é um risco silencioso.
 
-### FEATURE 3 — Ecossistema do Assessor
-- **Objetivo**: mais que chat — acompanhamento contínuo com plano, agenda e evolução.
-- **Reaproveita**: `FinancialPlanner`, `AgentCore`, insights, metas, `Assessor.tsx`.
-- **Novo**: (a) tabela `advisor_reviews` (semanal/mensal, snapshot + recomendações + status); (b) job cron `advisor-review-tick` que gera revisão; (c) tela `/app/assessor/acompanhamento` com plano, próximos passos, evolução, decisões passadas; (d) card Admin "qualidade do assessor" (adesão, decisões, resultado).
-- **Aceite**: revisão semanal gerada domingo; usuário vê plano e evolução; decisões registradas com follow-up.
-- **Risco**: mistura entre cálculo determinístico (facts) e texto IA — separar visualmente.
-- **Complexidade**: M-L.
-
-### FEATURE 4 — Inteligência Comportamental
-- **Objetivo**: hipóteses (não diagnóstico) sobre impulsividade, ansiedade, procrastinação, disciplina, evolução, recaída; adaptar tom e metas.
-- **Reaproveita**: `emotional_checkins`, `transactions`, `LearningLoop`, `PersonalizationEngine`, `MemoryStore`.
-- **Novo**: (a) detector `BehaviorDetectors.ts` (cruza checkin × gasto × frequência); (b) `behavior_hypothesis` em `agent_memory` com `confidence` e `explanation`; (c) UI de confirmação "isso faz sentido?"; (d) ajuste automático de tom/severidade via `PersonalizationEngine`.
-- **Aceite**: hipóteses são explicáveis, corrigíveis, versionadas; nunca aparecem como diagnóstico; tom se adapta após confirmação.
-- **Risco**: rotulagem indevida → texto sempre em forma de hipótese + botão "não é isso".
-- **Complexidade**: L.
+### Frente 3 — Comunicações Proativas
+- `ProactiveEngine.scanUser` cria `pending_proactive_suggestions` (`≈` 80%).
+- `InsightsEngine` implementa detectores base; a cobertura real dos 5 casos-alvo precisa auditoria explícita.
+- `CommunicationDispatcherV2` entrega in-app e enfileira WhatsApp, grava `communication_deliveries`, respeita `notification_preferences`. **≈ 70%**.
+- `communicationPolicy.decideCommunication` faz cooldown/quiet-hours/quota — precisa validar dedup por `dedup_key` e limite diário (hoje há apenas semanal).
+- `agent-proactive-tick` roda por cron; não há painel Admin de comunicações proativas com KPIs. **0%**.
+- Métricas de utilidade (respondida, ação executada, custo estimado) ainda não são registradas no fluxo — `communication_deliveries` guarda status/reason mas não interação.
 
 ---
 
-## C. Roadmap por fases
+## 2. Causas raiz e riscos
 
-### Fase 0 — Estabilização Admin (pré-requisito)
-Escopo:
-- **Corrigir `usePlatformPermissions`**: memoizar `permissions` (Set estável via `useMemo`) e `can` (`useCallback` dependente só de `permissions`); expor `ready` além de `loading`.
-- **Padronizar consumidores**: em `Clientes.tsx`, `Seguranca.tsx`, `IAInteligencia.tsx`, `AdminLayout.tsx`, remover `can` do `useEffect deps`; usar `permissions` (Set) ou `ready`.
-- **Regressão-guard**: teste unitário do hook (referência estável entre renders) + lint rule/comentário em `adminRpc.ts`.
-- **Validação E2E autenticada** de: Cockpit, Crescimento, Clientes, WhatsApp/Operação, Saúde, OCR, IA/Inteligência de Produto, Governança/Auditoria — via Playwright com sessão Supabase injetada, screenshots por tela, checagem de console/network.
-- **Relatório de usuários** em `docs/admin-audit-users-2026-07-27.md` + CSV: `auth.users × profiles × platform_admins × user_roles × sinais de uso`, classificação (2 reais, 3 teste, 1 admin), órfãos/duplicados; nenhuma exclusão automática.
-- **Remoção de logs**: dois `console.log` em `AgentCore.ts:141,497` → substituir por `DecisionLogger` ou remover; varredura final em `src/pages/admin` e `src/components/admin` (4 arquivos já mapeados).
-- Critério de pronto: todas as telas Admin renderizam com dados reais em produção, sem flicker, sem erros de console, com evidência anexada.
-
-### Fase 1 — Memória e contexto unificado (Nino Inteligente MVP)
-Escopo:
-- Estender `MemoryStore` com `correctFact`, `forgetFact`, decay por `kind`.
-- Novo `kind`: `decision_log`, `behavior_hypothesis` (usado na Fase 4).
-- UI `/app/perfil/memoria`: ver/corrigir/apagar fatos.
-- Estender `user-data-export` para incluir memória.
-- Injetar top-N memórias relevantes em `ContextPipeline` (já parcial).
-- Testes: unit de decay, correção; integração com Agent Core.
-- Pronto: agente cita memória; usuário corrige; export inclui.
-
-### Fase 2 — Comunicação Proativa robusta
-Escopo:
-- Consolidar decisão em `PolicyEngine.decideProactive` (score, cooldown, dedup, canal).
-- `notification_preferences` granular por `kind`.
-- Evento `communication_action` (respondeu/ignorou/opt-out) → alimenta `LearningLoop`.
-- Admin: aba "Comunicação Proativa" (envio/entrega/leitura/ação/opt-out/custo).
-- Testes: dedup em 24h, cooldown por kind, opt-out efetivo, canal fallback.
-- Pronto: KPI "úteis/enviadas" visível; 0 duplicatas; opt-out honrado.
-
-### Fase 3 — Ecossistema do Assessor
-Escopo:
-- Tabela `advisor_reviews` (weekly/monthly) + RPC + job cron.
-- Tela `/app/assessor/acompanhamento`: plano, próximos passos, evolução, decisões, alertas priorizados.
-- Reuso: `FinancialPlanner`, `InsightsEngine`, metas conjuntas, `financial_daily_facts`.
-- Separação visual determinístico × IA (badge "cálculo" vs "sugestão do Nino").
-- Admin: card qualidade do assessor.
-- Testes: geração de review, idempotência, RLS.
-- Pronto: usuário recebe review semanal e vê plano/evolução.
-
-### Fase 4 — Inteligência Comportamental adaptativa
-Escopo:
-- `BehaviorDetectors.ts` (impulsividade = gasto pós checkin negativo; procrastinação = pagamento no último dia recorrente; recaída = quebra de tendência positiva; disciplina = adesão a metas).
-- Persistência como `behavior_hypothesis` em `agent_memory` com `confidence` + `explanation`.
-- UI "Percepções do Nino": lista de hipóteses + "faz sentido?" (sim/parcial/não) → alimenta `LearningLoop`.
-- Ajuste de tom via `PersonalizationEngine` após confirmação.
-- Testes: nunca rotular sem `confidence>=medium`; sempre "hipótese".
-- Pronto: hipóteses aparecem, são corrigíveis, tom adapta após confirmação.
-
-### Fase 5 — Observabilidade, avaliação e otimização
-Escopo:
-- Painel Admin "Qualidade IA": custo por interação, latência, tokens, taxa de fallback, taxa de resposta útil, falso positivo declarado pelo usuário.
-- Metric registry unificado (`intelligence_metric_registry` já existe).
-- Retenção, engajamento, KPIs de produto por feature.
-- Alertas SRE para falhas de canal, custo fora do orçamento, taxa de erro.
+- **Admin flicker (Clientes)**: causa raiz confirmada era `can` recriada por render entrando em `useEffect`. Corrigido; risco residual = qualquer novo consumidor voltar a colocar `can` como dep. Mitigação: teste unitário de estabilidade + lint local (regra ad hoc em revisão de PR).
+- **RPCs sem allSettled** em Crescimento/Operação: uma RPC quebrada derruba a página inteira. Risco de regressão médio.
+- **Template ativo pisando fallback** na Divisão do Rolê: sem migração/checagem, admins que já publicaram um template antigo continuarão enviando texto sem contexto.
+- **Proativas — spam WhatsApp**: sem dedup real por `dedup_key` no dispatcher (hoje o `record` faz upsert por `suggestion_id,channel`, mas a política não checa entrega prévia com mesmo `dedup_key`). Risco alto se `scanUser` gerar nova sugestão com mesmo dedup após expiração.
+- **Custo IA**: nada mede custo por sugestão hoje. Precisa gancho em `agent_runs`/logger.
+- **Segurança**: `agent-proactive-tick` está atrás de `CRON_SECRET` + admin JWT — ok. Precisa manter.
 
 ---
 
-## D. Plano de implementação (ordem)
+## 3. Plano de implementação fechado
 
-Sequencial obrigatório: **Fase 0 → 1 → 2**. Paralelizável: **Fase 3** com **Fase 4** após Fase 2. **Fase 5** contínua a partir da Fase 2.
+Ordem estrita, blocos pequenos e verificáveis. Cada bloco só começa depois que o anterior tem evidência.
 
-Não fazer antes:
-- Fase 2 antes da Fase 1 (memória alimenta decisão proativa).
-- Fase 4 antes da Fase 1 (hipóteses vivem na memória).
-- Novas features antes da Fase 0 (Admin instável quebra observabilidade).
+### Bloco A — Fechamento Admin (Fase 0 residual)
+1. **Resiliência das telas Admin** — arquivos: `src/pages/admin/Crescimento.tsx`, `src/pages/admin/InteligenciaProduto.tsx`, `src/pages/admin/GovernancaAuditoria.tsx`, `src/pages/admin/operacao/{WhatsApp,Saude,IaOcr,Assistente}.tsx`.
+   - Migrar múltiplas chamadas para `Promise.allSettled` (padrão Cockpit).
+   - Falha isolada mostra `EmptyState` com `adminErrorMessage`, resto da tela renderiza.
+   - Reaproveitar `EmptyState`, `Section`, `StatCard`, `AdminErrorBoundary`.
+2. **Teste unitário de estabilidade** — `src/hooks/__tests__/usePlatformPermissions.test.ts`: mock RPC, renderiza duas vezes com mesma resposta e afirma `Object.is(prev.can, next.can)` e `prev.permissions === next.permissions`.
+3. **Relatório de usuários** — `docs/admin-audit-users-2026-07-27.md` já existe; complementar com CSV opcional em `docs/admin-audit-users-2026-07-27.csv` gerado por query determinística (`v_client_universe`, `platform_admins`, `profiles.is_test`). Anexar SQL exato no doc.
+4. **Higiene de logs** — grep `console.(log|debug)` em `supabase/functions/_shared/agent/core/*` e `src/pages/admin/*`; remover diagnósticos; manter `console.warn/error` estruturado.
+5. **E2E autenticado (Playwright via shell)** — script em `/tmp/browser/admin-e2e/` que:
+   - Restaura sessão Supabase do admin injetada;
+   - Navega Cockpit → Crescimento → Clientes → Operação (WhatsApp/Saúde/OCR/Assistente) → IA → Governança;
+   - Espera cada tela ficar estável 3s (sem novas requests em `page.on('request')`);
+   - Falha se surgir "Erro"/"Algo deu errado" ou console.error;
+   - Salva screenshots em `/mnt/documents/admin-e2e/*.png` e um `report.json`.
 
-Como evitar retrabalho:
-- Reusar `AgentCore` e `PolicyEngine` (proibido criar segundo pipeline).
-- Reusar `commitMovement` para toda escrita financeira.
-- Reusar `NotificationDispatcher` para todo envio proativo.
-- Reusar `AdminResponsiveList`/`PageHeader`/`AdminDateFilter` no Admin.
+### Bloco B — Divisão do Rolê comprovada
+1. **Auditoria de templates ativos** — script SQL read-only listando `agent_prompt_versions` com `status='active'` cujo `structured_config->'contexts'->'split_*'` não contenha `split_context_sentence`. Documentar em `docs/split-templates-audit-2026-07-27.md`.
+2. **Migração de templates ativos (não-destrutiva)** — se a auditoria mostrar templates antigos, criar migration idempotente que insere uma nova versão `draft` com placeholders atualizados (nunca sobrescreve `active`). Admin publica manualmente.
+3. **Redeploy `split-reminders-dispatch`** via `supabase--deploy_edge_functions`.
+4. **Teste real E2E de envio** — criar rolê de teste com 2 participantes fictícios (números do time), disparar `claim_reminder_jobs`, verificar em `outbound_messages` o campo `body` contendo `total do rolê:` e `dividido entre N pessoas`. Guardar `outbound_messages.id` + screenshot do WhatsApp.
+5. **Teste unitário `messageFor`** — novo `supabase/functions/_shared/agent/__tests__/splitMessage.test.ts` cobrindo invite/reminder/due_soon/overdue com N=1/2/5 e pagamento parcial.
+6. **Singular/plural + BRL**: já implementado (`participantsCount === 1 ? 'pessoa' : 'pessoas'`, `formatBRL`). Coberto pelo teste unitário acima.
 
----
+### Bloco C — Comunicações Proativas v1
+Reaproveita 100% do que existe. Nada de motor paralelo.
 
-## E. Plano de testes
-
-- **Unit**: `usePlatformPermissions` (referência estável), `MemoryStore` (decay, correção), `PolicyEngine.decideProactive` (cooldown/dedup), `BehaviorDetectors` (thresholds).
-- **Integração**: `agent-chat` com memória; `agent-proactive-tick` com preferências opt-out; `advisor-review-tick` idempotente.
-- **Contrato RPC**: snapshot `admin_v2_*` frontend↔backend (params + shape).
-- **E2E autenticado**: fluxo Admin 8 telas; fluxo usuário (chat → memória → correção → hipótese → confirmação → adaptação de tom).
-- **Mensageria**: WAHA sandbox, dedup 24h, opt-out.
-- **Segurança/RLS**: memória/hypothesis só acessível pelo dono; RPC admin só com `platform_permissions`.
-- **Comportamento**: falso positivo declarado reduz score da hipótese; nunca virar rótulo.
-- Evidência por fase: screenshots, logs estruturados, resultado SQL, relatório.
-
----
-
-## F. Indicadores de sucesso
-
-Produto:
-- % de mensagens proativas com ação do usuário (meta MVP ≥ 25%).
-- % de hipóteses confirmadas (baseline após 4 semanas).
-- Adesão a revisão semanal (open rate ≥ 40%).
-- Metas atingidas / criadas.
-- Retenção D7/D30, frequência semanal.
-Operação:
-- Custo IA por usuário ativo / dia.
-- Latência p50/p95 do turn.
-- Taxa de fallback determinístico.
-- Falha por canal WhatsApp/App.
-- Opt-out por tipo (< 5% ao mês, meta MVP).
+1. **Cobertura dos 5 gatilhos em `InsightsEngine`** — auditar `runAllDetectors`. Para cada gatilho ausente (gasto atípico, vencimento, meta em risco, engajamento, padrão recorrente), adicionar detector puro (função `Insight`) com evidência e `dedup_key` determinístico (`kind:user:contexto:janela`). Amostra mínima ≥ 10 tx / 21 dias para evitar falso positivo.
+2. **Política reforçada** — em `supabase/functions/_shared/intelligence/communicationPolicy.ts`:
+   - checar `dedup_key` nos últimos 14 dias (não apenas 7);
+   - `daily_cap` novo (default 1);
+   - respeitar `opt_out` granular por tipo (nova coluna? ou usar `notification_preferences`).
+3. **Métricas de utilidade** — adicionar em `communication_deliveries` colunas (via migration idempotente `ALTER TABLE ADD COLUMN IF NOT EXISTS`): `interacted_at`, `action_taken`, `cost_usd`. Dispatcher preenche `cost_usd` a partir de `agent_runs` quando aplicável.
+4. **Feedback loop** — evento no app quando o usuário clica na notificação → `notifications.action_url` → registrar `interacted_at` via RPC `notifications_mark_interacted`.
+5. **Admin — tela "Comunicação Proativa"** — nova página `src/pages/admin/ComunicacaoProativa.tsx` reutilizando `Section`, `KpiCard`, `DataTable`, `FilterBar`. Consome nova RPC `admin_v2_proactive_summary(_days, _type, _channel)` retornando: gerada / bloqueada / enfileirada / entregue / falhou / respondida / opt_out / ação / custo. Rota adicionada em `AdminLayout` (item `Proatividade` sob "Operação").
+6. **Deploy** `agent-proactive-tick` e verificação manual: chamar com `force=true` para um `user_id` de teste, conferir `pending_proactive_suggestions` + `communication_deliveries` + notificação in-app.
 
 ---
 
-## G. MVP × V1 × Evolução
+## 4. Plano de testes e evidências
 
-**MVP (Fase 0 + Fase 1 + Fase 2 mínima):**
-- Admin estável + relatório usuários + logs limpos.
-- Memória com correção e uso no chat.
-- Proativa: 3 kinds já existentes (spike, vencimento, meta próxima) com cooldown/dedup/opt-out e KPI mínimo.
-- Uma tela "Meu Nino sabe sobre mim".
-
-**V1 (Fase 3 + Fase 4):**
-- Revisão semanal do assessor com plano visível.
-- Hipóteses comportamentais explicáveis e corrigíveis, adaptando tom.
-
-**Fora do primeiro ciclo:**
-- Diagnóstico clínico (jamais).
-- Onboarding proativo por outros canais além de WhatsApp/App.
-- Modelos custom fine-tune.
-- Métricas comparativas entre usuários (privacidade).
-- Automação de execução financeira sem confirmação.
+- **Unitários** (Vitest):
+  - `usePlatformPermissions.test.ts` — estabilidade de referência.
+  - `splitMessage.test.ts` — 6 kinds × 3 cenários de N + parcial.
+  - `communicationPolicy.test.ts` — daily cap, dedup 14d, opt-out por tipo.
+  - `InsightsEngine.test.ts` — cada detector com/sem amostra suficiente.
+- **Integração**: script `deno test` em `supabase/functions/_shared/agent/__tests__/proactiveFlow.test.ts` com Supabase mock cobrindo `scanUser → dispatchSuggestions`.
+- **Contratos RPC**: `supabase--read_query` executando `select * from admin_v2_*(...)` com args reais e conferindo shape esperado.
+- **E2E autenticado** (Playwright, headless, sessão admin injetada): 8 telas Admin + Comunicação Proativa nova. Screenshots em `/mnt/documents/admin-e2e/`.
+- **Teste real WhatsApp**: envio de convite Divisão do Rolê + captura em `outbound_messages` (`body` contendo campos novos) + screenshot do WhatsApp real. Guardar em `docs/split-evidencia-2026-07-27.md`.
+- **Evidência de deploy**: output de `supabase--deploy_edge_functions` para `split-reminders-dispatch` e `agent-proactive-tick`.
 
 ---
 
-## H. Status executivo
+## 5. Critérios de aceite por frente
 
-```text
-Feature                         | Hoje | +F0  | +F1  | +F2  | +F3  | +F4  | Prio | Dep crítica              | Risco principal
-Admin estável                   |  70% |  95% |  95% |  95% |  95% |  95% |  P0  | Fase 0                   | flicker/regressão
-Nino Inteligente (memória)      |  45% |  45% |  85% |  85% |  90% |  95% |  P0  | Fase 1                   | privacidade/LGPD
-Comunicação Proativa            |  55% |  55% |  60% |  90% |  90% |  95% |  P0  | Fase 1 + preferências    | spam / custo
-Ecossistema Assessor            |  35% |  35% |  40% |  50% |  85% |  90% |  P1  | Fase 2 + FinancialPlanner| mistura calc x IA
-Inteligência Comportamental     |  20% |  20% |  30% |  40% |  50% |  85% |  P1  | Fase 1 + emotional×fin   | rotulagem indevida
-Observabilidade IA/Comm         |  40% |  55% |  60% |  80% |  85% |  90% |  P1  | Fase 2                   | custo cegueira
-```
+**Admin**
+- Nenhuma tela quebra por RPC única com erro; degradação parcial visível.
+- Aba Clientes carrega 1× por mudança real (verificado via `page.on('request')`).
+- E2E aprovado com 8 telas + screenshots anexados.
+- Teste unitário de estabilidade de `usePlatformPermissions` passa.
+- Relatório de usuários versionado com SQL rastreável.
+
+**Divisão do Rolê**
+- Template ativo contém `{{split_context_sentence}}` OU fallback usado.
+- Envio real registra em `outbound_messages` texto com `total do rolê: R$ ...` e `dividido entre N pessoas`.
+- Testes unitários dos 6 kinds passam.
+- Edge function redeployada (log de deploy anexado).
+
+**Proativas**
+- 5 gatilhos executando em ao menos 1 usuário real com evidência (`pending_proactive_suggestions` + `communication_deliveries`).
+- Dedup 14d funcionando (mesmo `dedup_key` não gera 2 entregas).
+- Daily cap + opt-out respeitados em teste manual.
+- Tela Admin renderiza KPIs com dados reais.
+- Custo IA registrado em `communication_deliveries.cost_usd` (mesmo que 0 quando puramente determinístico).
 
 ---
 
-## Regras de execução (quando aprovado)
+## 6. Checklist final de execução
 
-- Blocos pequenos e verificáveis; cada fase exige evidência funcional em produção.
-- Migrations idempotentes, sem apagar dados.
-- Sem sistemas paralelos de memória, insights ou mensageria (reusar Agent Core).
-- Sem `Promise.all` derrubando tela; usar `allSettled` + `adminErrorMessage`.
-- Toda automação proativa: dedup + cooldown + opt-out + auditoria.
-- Toda inferência comportamental: apresentada como hipótese, corrigível.
-- Determinístico vs IA sempre separados visualmente.
-- Design system atual preservado.
+Admin
+- [ ] `Promise.allSettled` + EmptyState em Crescimento, InteligenciaProduto, GovernancaAuditoria, operacao/{WhatsApp,Saude,IaOcr,Assistente}.
+- [ ] Teste `usePlatformPermissions.test.ts` verde.
+- [ ] `console.log`/`debug` removidos de `agent/core/*` (mantendo `warn`/`error`).
+- [ ] Relatório de usuários + CSV + SQL versionado.
+- [ ] Playwright E2E autenticado passando; screenshots anexados.
 
-Aguardo aprovação para executar Fase 0.
+Divisão do Rolê
+- [ ] Auditoria de templates ativos documentada.
+- [ ] Testes unitários `splitMessage.test.ts` verdes.
+- [ ] `split-reminders-dispatch` redeployado.
+- [ ] Envio real registrado com evidência (`outbound_messages` + screenshot).
+
+Proativas
+- [ ] 5 detectores confirmados em `InsightsEngine`.
+- [ ] `communicationPolicy` com dedup 14d + daily cap + opt-out por tipo (teste verde).
+- [ ] Migration idempotente para `communication_deliveries.interacted_at/action_taken/cost_usd`.
+- [ ] RPC `admin_v2_proactive_summary` criada + GRANT.
+- [ ] Tela `ComunicacaoProativa.tsx` no AdminLayout, com dados reais.
+- [ ] `agent-proactive-tick` redeployado; run manual com `force=true` documentado.
+
+---
+
+## 7. Estimativa
+
+| Bloco | Complexidade | Depende de | Paraleliza com |
+|---|---|---|---|
+| A. Admin resiliência + logs | M | — | B1, B5 |
+| A5. E2E Playwright | M | A1 | C6 |
+| B. Divisão do Rolê | S | — | A1 |
+| C1–C4. Proativas backend | L | — | A1 |
+| C5. Admin Proatividade UI | M | C1–C4 | A5 |
+
+Ordem recomendada: **A1 ∥ B1–B5 ∥ C1–C4** → **A2/A3/A4** → **C5** → **A5 (E2E) cobrindo tudo**.
+
+Percentual esperado ao final: **Admin 100%**, **Divisão do Rolê 100% (com evidência)**, **Proativas v1 100%** (v2 — reinforcement/aprendizado — fica para próxima rodada explicitamente fora deste plano).
