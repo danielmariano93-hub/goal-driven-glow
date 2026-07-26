@@ -110,7 +110,7 @@ export default function ComunicacaoProativa() {
               <StatCard label="Geradas" value={totals.generated} tone="primary" />
               <StatCard label="Entregues" value={totals.delivered} tone="success" hint={`${deliveryRate}% do gerado`} />
               <StatCard label="Interações" value={totals.acted} tone="success" hint={`${actionRate}% das entregues`} />
-              <StatCard label="Custo (USD)" value={`$${(totals.cost_usd ?? 0).toFixed(4)}`} tone="neutral" />
+              <StatCard label="Custo (USD)" value={`$${(totals.cost_usd ?? 0).toFixed(4)}`} />
             </StatGrid>
           </Section>
 
