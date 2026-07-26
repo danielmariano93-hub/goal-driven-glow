@@ -20,10 +20,17 @@ export default function Notificacoes() {
     await supabase.rpc("mark_all_notifications_read" as any);
     await load();
   };
-  const markRead = async (id: string) => {
-    await supabase.from("notifications" as any).update({ read_at: new Date().toISOString() }).eq("id", id);
+  const markRead = async (id: string, action: "open" | "click" = "open") => {
+    // Fecha o feedback loop: marca lida + reflete em communication_deliveries.
+    const { error } = await supabase.rpc("notifications_mark_interacted" as any, {
+      _notification_id: id, _action: action,
+    });
+    if (error) {
+      await supabase.from("notifications" as any).update({ read_at: new Date().toISOString() }).eq("id", id);
+    }
     await load();
   };
+
 
   if (items === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
@@ -57,11 +64,11 @@ export default function Notificacoes() {
               </>
             );
             const content = n.action_url ? (
-              <Link to={n.action_url} onClick={() => markRead(n.id)} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/40">
+              <Link to={n.action_url} onClick={() => markRead(n.id, "click")} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/40">
                 {Body}
               </Link>
             ) : (
-              <button onClick={() => markRead(n.id)} className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-secondary/40">
+              <button onClick={() => markRead(n.id, "open")} className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-secondary/40">
                 {Body}
               </button>
             );
@@ -72,3 +79,4 @@ export default function Notificacoes() {
     </div>
   );
 }
+
