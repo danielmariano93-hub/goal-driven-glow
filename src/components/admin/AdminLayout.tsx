@@ -47,6 +47,7 @@ const GROUPS: Group[] = [
       { to: "/admin/operacao/whatsapp", label: "WhatsApp", icon: MessageCircle, action: "whatsapp.read" },
       { to: "/admin/operacao/assistente", label: "Assessor", icon: Bot, action: "agent.read" },
       { to: "/admin/operacao/assistente/simulador", label: "Simulador", icon: Play, action: "agent.read" },
+      { to: "/admin/operacao/comunicacao-proativa", label: "Comunicação Proativa", icon: Bell, action: "messaging.read" },
     ],
   },
   {
