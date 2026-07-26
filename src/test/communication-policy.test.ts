@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { decideCommunication, type CommunicationPreferences } from "../../supabase/functions/_shared/intelligence/communicationPolicy.ts";
 
 const baseCandidate = {
+  id: "cand-1",
   user_id: "u1",
   kind: "spending_spike",
   severity: "attention" as const,
