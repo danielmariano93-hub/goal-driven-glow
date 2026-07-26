@@ -138,7 +138,6 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
       });
     }
     metrics.stages.total = Date.now() - t0;
-    console.log("[agent-core] fast_log", JSON.stringify(summarize(metrics)));
     return { reply: body, reply_kind: kind, path: "deterministic_fallback", draft_id: outcome.draft_id, run_id: run_id_fl, session_id };
   }
 
@@ -494,7 +493,6 @@ ${JSON.stringify(hints)}
   } catch (e) {
     console.error("[agent-core] turn_event insert failed", String((e as Error).message).slice(0, 200));
   }
-  console.log("[agent-core] turn", JSON.stringify(summarize(metrics)));
 
   // ---- Learning loop (Fase 3, best-effort) ------------------------------
   await guard(() => learnFromTurn(sb, {
