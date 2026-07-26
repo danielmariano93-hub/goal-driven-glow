@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { KpiCard } from "@/components/admin/KpiCard";
-import { callAdminRpc, withPeriod, type Envelope } from "@/lib/admin/adminRpc";
+import { callAdminRpc, withPeriod, withDateRange, adminErrorMessage, type Envelope } from "@/lib/admin/adminRpc";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
@@ -58,18 +58,32 @@ export default function Cockpit() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([
-      callAdminRpc<CockpitData>("admin_v2_cockpit", withPeriod(range)),
+    // Contratos distintos: admin_v2_cockpit aceita apenas (_from,_to);
+    // admin_v2_daily_evolution aceita (_from,_to,_tz). Usar allSettled para que
+    // uma falha em uma carga não zere a tela toda.
+    Promise.allSettled([
+      callAdminRpc<CockpitData>("admin_v2_cockpit", withDateRange(range)),
       callAdminRpc<DailyEvolution>("admin_v2_daily_evolution", withPeriod(range)),
-    ])
-      .then(([cockpit, evo]) => {
-        setData(cockpit);
-        setEvolution(evo);
-      })
-      .catch((e) => setError(e?.message ?? "Falha ao carregar Cockpit"))
-      .finally(() => setLoading(false));
+    ]).then(([cockpitRes, evoRes]) => {
+      if (cancelled) return;
+      if (cockpitRes.status === "fulfilled") {
+        setData(cockpitRes.value);
+      } else {
+        setError(adminErrorMessage(cockpitRes.reason, "Falha ao carregar Cockpit"));
+      }
+      if (evoRes.status === "fulfilled") {
+        setEvolution(evoRes.value);
+      } else {
+        setEvolution(null);
+        // eslint-disable-next-line no-console
+        console.warn("[admin_v2_daily_evolution]", adminErrorMessage(evoRes.reason, "falha ao carregar evolução"));
+      }
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
   }, [range.from, range.to]);
 
   if (loading) return <AdminSkeleton />;
