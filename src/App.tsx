@@ -153,6 +153,7 @@ const App = () => (
                 <Route path="operacao/whatsapp" element={<AdminOpWhatsApp />} />
                 <Route path="operacao/assistente" element={<AdminOpAssistente />} />
                 <Route path="operacao/assistente/simulador" element={<AdminAgenteSimulador />} />
+                <Route path="operacao/comunicacao-proativa" element={<AdminComunicacaoProativa />} />
                 <Route path="governanca/seguranca" element={<AdminGovernancaSeguranca />} />
                 <Route path="governanca/auditoria" element={<AdminGovernancaAuditoria />} />
                 <Route path="governanca/configuracoes" element={<AdminConfiguracoes />} />
