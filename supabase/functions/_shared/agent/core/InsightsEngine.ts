@@ -3,13 +3,14 @@
 // prioritises by severity * score * recency and applies cooldown via memory.
 // deno-lint-ignore-file no-explicit-any
 import type { UserProfile } from "./UserProfile.ts";
+import { detectEngagementDrop, detectRecurringPattern, type ActivityWindow } from "./ProactiveDetectors.ts";
 
 export type InsightSeverity = "info" | "attention" | "critical";
 export type InsightKind =
   | "spending_spike" | "duplicate_expense" | "underused_subscription"
   | "above_average" | "growing_category" | "saving_opportunity"
   | "goal_at_risk" | "forgotten_bill" | "investment_opportunity"
-  | "concentration_risk";
+  | "concentration_risk" | "engagement_drop" | "recurring_pattern";
 
 export type Insight = {
   id: string;
@@ -28,6 +29,7 @@ export type DetectorCtx = {
   subscriptions?: Array<{ id: string; description: string; last_used?: string | null; amount: number }>;
   goals?: Array<{ id: string; name: string; target: number; current: number; deadline?: string | null }>;
   bills?: Array<{ id: string; name: string; due_date: string; amount: number; paid: boolean }>;
+  activity?: ActivityWindow;
   cooldowns?: Set<string>;
 };
 
@@ -193,6 +195,8 @@ export function runAllDetectors(profile: UserProfile, ctx: DetectorCtx = {}): In
     ...detectForgottenBills(ctx),
     ...detectUnderusedSubscription(ctx),
     ...detectSavingOpportunity(profile),
+    ...detectEngagementDrop(ctx.activity),
+    ...detectRecurringPattern(ctx.transactions ?? []),
   ];
 }
 

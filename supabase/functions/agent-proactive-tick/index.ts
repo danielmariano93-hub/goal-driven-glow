@@ -7,6 +7,8 @@ import { scanUser } from "../_shared/agent/core/ProactiveEngine.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
+import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
+import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewService.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -50,21 +52,41 @@ Deno.serve(async (req) => {
     userIds = await selectProactiveUserIds(sb, { limit: 100, activityDays: 60, onboardingDays: 45 });
   }
 
-  const results: Array<{ user_id: string; suggestions: number; deliveries: number; errors: string[] }> = [];
+  const results: Array<{
+    user_id: string;
+    suggestions: number;
+    deliveries: number;
+    behavior_hypotheses: number;
+    advisor_reviews: number;
+    errors: string[];
+  }> = [];
   for (const uid of userIds) {
     const errors: string[] = [];
-    let suggestions = 0, deliveries = 0;
+    let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, advisorReviews = 0;
     try {
       await recomputeProfile(sb, uid);
+      const [behavior, reviews] = await Promise.all([
+        refreshBehaviorHypotheses(sb, uid),
+        generateAdvisorReviews(sb, uid),
+      ]);
+      behaviorHypotheses = behavior.persisted;
+      advisorReviews = reviews.weekly + reviews.monthly;
       const generated = await scanUser(sb, uid);
       suggestions = generated.length;
       const dispatched = await dispatchSuggestions(sb, uid, { max: 3 });
-      deliveries = dispatched.filter(d => d.status === "delivered").length;
+      deliveries = dispatched.filter(d => d.status === "delivered" || d.status === "queued").length;
       errors.push(...dispatched.filter(d => d.status === "failed").map(d => d.reason ?? "dispatch_failed"));
     } catch (e) {
       errors.push(String((e as Error).message).slice(0, 160));
     }
-    results.push({ user_id: uid, suggestions, deliveries, errors });
+    results.push({
+      user_id: uid,
+      suggestions,
+      deliveries,
+      behavior_hypotheses: behaviorHypotheses,
+      advisor_reviews: advisorReviews,
+      errors,
+    });
   }
   return json({ ok: true, scanned: userIds.length, results });
 });

@@ -44,6 +44,8 @@ const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
 const Assessor = lazy(() => import("./pages/Assessor"));
+const AssessorAcompanhamento = lazy(() => import("./pages/AssessorAcompanhamento"));
+const NinoContexto = lazy(() => import("./pages/NinoContexto"));
 const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
@@ -132,6 +134,8 @@ const App = () => (
                 <Route path="cobrancas" element={<CobrancasRecebidas />} />
                 <Route path="cartoes" element={<Cartoes />} />
                 <Route path="assessor" element={<Assessor />} />
+                <Route path="assessor/acompanhamento" element={<AssessorAcompanhamento />} />
+                <Route path="nino-contexto" element={<NinoContexto />} />
               </Route>
 
               {/* Platform admin — separate application */}

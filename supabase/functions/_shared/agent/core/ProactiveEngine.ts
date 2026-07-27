@@ -22,10 +22,10 @@ export type ProactiveSuggestion = {
 export async function scanUser(sb: SupabaseClient, user_id: string): Promise<ProactiveSuggestion[]> {
   const profile = await loadProfile(sb, user_id);
 
-  const [txResp, goalsResp, recResp] = await Promise.all([
+  const [txResp, goalsResp, recResp, runsResp] = await Promise.all([
     sb.from("transactions").select("id, amount, description, category_id, occurred_at, type, movement_kind")
       .eq("user_id", user_id)
-      .gte("occurred_at", new Date(Date.now() - 45 * 86400000).toISOString())
+      .gte("occurred_at", new Date(Date.now() - 75 * 86400000).toISOString())
       .limit(1000),
     sb.from("goals").select("id, name, target_amount, target_date").eq("user_id", user_id),
     sb.from("recurring_occurrences")
@@ -34,6 +34,11 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
       .limit(50),
+    sb.from("agent_runs")
+      .select("created_at")
+      .eq("user_id", user_id)
+      .gte("created_at", new Date(Date.now() - 75 * 86400000).toISOString())
+      .limit(1000),
   ]);
 
   // Goal contributions (sum per goal)
@@ -46,6 +51,22 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       contribByGoal.set(c.goal_id, (contribByGoal.get(c.goal_id) ?? 0) + Number(c.amount || 0));
     }
   }
+
+  const activityDates = [
+    ...((txResp.data as any[] | null) ?? []).map((row) => String(row.occurred_at)),
+    ...((runsResp.data as any[] | null) ?? []).map((row) => String(row.created_at)),
+  ].filter(Boolean);
+  const uniqueActivityDays = new Set(activityDates.map((value) => value.slice(0, 10)));
+  const now = Date.now();
+  const currentStart = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
+  const previousStart = new Date(now - 60 * 86400000).toISOString().slice(0, 10);
+  const currentActivity = [...uniqueActivityDays].filter((day) => day >= currentStart).length;
+  const previousActivity = [...uniqueActivityDays]
+    .filter((day) => day >= previousStart && day < currentStart).length;
+  const lastActivityAt = activityDates.sort().at(-1) ?? null;
+  const daysSinceLastActivity = lastActivityAt
+    ? Math.max(0, Math.floor((now - new Date(lastActivityAt).getTime()) / 86400000))
+    : null;
 
   const ctx: DetectorCtx = {
     transactions: ((txResp.data as any[] | null) ?? []).map(t => ({
@@ -60,6 +81,12 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       id: r.id, name: r.recurring_rules?.description ?? "Conta", due_date: r.due_date,
       amount: Number(r.recurring_rules?.amount) || 0, paid: r.status === "paid",
     })),
+    activity: {
+      last_30_days: currentActivity,
+      previous_30_days: previousActivity,
+      days_since_last_activity: daysSinceLastActivity,
+      last_activity_at: lastActivityAt,
+    },
   };
 
   // Cooldowns: fetch already-open suggestions to avoid duplicates.

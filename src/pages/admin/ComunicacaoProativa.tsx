@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Mail, Radio, ShieldAlert, DollarSign, MousePointerClick } from "lucide-react";
+import { Bell, Mail, Radio, ShieldAlert, DollarSign, MousePointerClick, BrainCircuit } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Section } from "@/components/admin/Section";
@@ -18,6 +18,13 @@ type Summary = {
   by_kind: Array<{ kind: string; total: number; delivered: number; failed: number; suppressed: number; acted: number; cost_usd: number }>;
   by_channel: Array<{ channel: string; total: number; delivered: number; failed: number; suppressed: number; acted: number; cost_usd: number }>;
   daily?: Array<{ day: string; total: number; delivered: number; failed: number }>;
+};
+
+type QualitySummary = {
+  communications: { total: number; useful: number; not_useful: number; suppressed: number };
+  behavior: { pending: number; confirmed: number; partial: number; rejected: number };
+  advisor: { weekly: number; monthly: number; completed: number };
+  measured_at: string;
 };
 
 const PERIODS = [
@@ -49,6 +56,19 @@ export default function ComunicacaoProativa() {
       return (data as Summary) ?? { totals: {} as Summary["totals"], by_kind: [], by_channel: [] };
     },
     staleTime: 30_000,
+  });
+
+  const quality = useQuery({
+    queryKey: ["admin_nino_quality", days],
+    queryFn: async (): Promise<QualitySummary> => {
+      const { data, error } = await supabase.rpc("admin_v2_nino_quality_summary" as any, {
+        _days: days,
+      } as any);
+      if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar qualidade do Nino"));
+      return data as unknown as QualitySummary;
+    },
+    staleTime: 30_000,
+    retry: 1,
   });
 
   const kindOptions = useMemo(() => {
@@ -130,6 +150,25 @@ export default function ComunicacaoProativa() {
               <StatCard label="Bloqueadas totais" value={totals.suppressed} />
             </StatGrid>
           </Section>
+
+          {quality.data && (
+            <Section
+              title="Qualidade e aprendizado"
+              icon={BrainCircuit}
+              description="Confirmações do usuário, falsos positivos e acompanhamento do assessor."
+            >
+              <StatGrid cols={4}>
+                <StatCard label="Alertas úteis" value={quality.data.communications.useful} tone="success" />
+                <StatCard
+                  label="Não úteis"
+                  value={quality.data.communications.not_useful}
+                  tone={quality.data.communications.not_useful > 0 ? "warning" : "default"}
+                />
+                <StatCard label="Hipóteses confirmadas" value={quality.data.behavior.confirmed} />
+                <StatCard label="Revisões concluídas" value={quality.data.advisor.completed} />
+              </StatGrid>
+            </Section>
+          )}
 
           <Section title="Por tipo" icon={Mail} description="Ordenado pelas mais frequentes no período.">
             {q.data!.by_kind.length === 0 ? (

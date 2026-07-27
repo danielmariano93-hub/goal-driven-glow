@@ -13,6 +13,8 @@ import {
   Trophy,
   BarChart3,
   LogOut,
+  BrainCircuit,
+  ClipboardCheck,
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
@@ -36,6 +38,8 @@ const organize: Item[] = [
 const understand: Item[] = [
   { path: "/app/relatorios", label: "Relatórios", desc: "Padrões do seu dinheiro", icon: BarChart3 },
   { path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart },
+  { path: "/app/assessor/acompanhamento", label: "Acompanhamento", desc: "Plano semanal e próximos passos", icon: ClipboardCheck },
+  { path: "/app/nino-contexto", label: "O que o Nino sabe", desc: "Memórias, hipóteses e preferências", icon: BrainCircuit },
 ];
 
 const account: Item[] = [
