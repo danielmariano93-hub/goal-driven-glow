@@ -12,7 +12,9 @@ import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServi
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
+const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET")
+  ?? Deno.env.get("CRON_SECRET")
+  ?? "";
 
 function stageError(stage: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
