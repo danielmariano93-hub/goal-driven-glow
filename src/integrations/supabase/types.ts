@@ -271,6 +271,63 @@ export type Database = {
           },
         ]
       }
+      advisor_reviews: {
+        Row: {
+          actions: Json
+          formula_version: string
+          generated_at: string
+          id: string
+          period_end: string
+          period_kind: string
+          period_start: string
+          status: string
+          summary: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actions?: Json
+          formula_version?: string
+          generated_at?: string
+          id?: string
+          period_end: string
+          period_kind: string
+          period_start: string
+          status?: string
+          summary?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actions?: Json
+          formula_version?: string
+          generated_at?: string
+          id?: string
+          period_end?: string
+          period_kind?: string
+          period_start?: string
+          status?: string
+          summary?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "advisor_reviews_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "advisor_reviews_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       agent_artifacts: {
         Row: {
           conversation_id: string | null
@@ -997,6 +1054,72 @@ export type Database = {
         }
         Relationships: []
       }
+      behavior_hypotheses: {
+        Row: {
+          confidence: number
+          confirmed_at: string | null
+          created_at: string
+          dedup_key: string
+          evidence: Json
+          expires_at: string | null
+          explanation: string
+          id: string
+          kind: string
+          status: string
+          title: string
+          updated_at: string
+          user_feedback: string | null
+          user_id: string
+        }
+        Insert: {
+          confidence?: number
+          confirmed_at?: string | null
+          created_at?: string
+          dedup_key: string
+          evidence?: Json
+          expires_at?: string | null
+          explanation: string
+          id?: string
+          kind: string
+          status?: string
+          title: string
+          updated_at?: string
+          user_feedback?: string | null
+          user_id: string
+        }
+        Update: {
+          confidence?: number
+          confirmed_at?: string | null
+          created_at?: string
+          dedup_key?: string
+          evidence?: Json
+          expires_at?: string | null
+          explanation?: string
+          id?: string
+          kind?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          user_feedback?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "behavior_hypotheses_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "behavior_hypotheses_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       break_glass_sessions: {
         Row: {
           admin_id: string
@@ -1400,47 +1523,62 @@ export type Database = {
       communication_deliveries: {
         Row: {
           acted_at: string | null
+          action_taken: string | null
+          block_context: Json
           channel: string
           cost_usd: number | null
           created_at: string
           dedup_key: string | null
           delivered_at: string | null
           evidence: Json
+          false_positive: boolean | null
           id: string
+          interacted_at: string | null
           kind: string
           reason: string | null
           status: string
           suggestion_id: string | null
+          user_feedback: string | null
           user_id: string
         }
         Insert: {
           acted_at?: string | null
+          action_taken?: string | null
+          block_context?: Json
           channel: string
           cost_usd?: number | null
           created_at?: string
           dedup_key?: string | null
           delivered_at?: string | null
           evidence?: Json
+          false_positive?: boolean | null
           id?: string
+          interacted_at?: string | null
           kind: string
           reason?: string | null
           status: string
           suggestion_id?: string | null
+          user_feedback?: string | null
           user_id: string
         }
         Update: {
           acted_at?: string | null
+          action_taken?: string | null
+          block_context?: Json
           channel?: string
           cost_usd?: number | null
           created_at?: string
           dedup_key?: string | null
           delivered_at?: string | null
           evidence?: Json
+          false_positive?: boolean | null
           id?: string
+          interacted_at?: string | null
           kind?: string
           reason?: string | null
           status?: string
           suggestion_id?: string | null
+          user_feedback?: string | null
           user_id?: string
         }
         Relationships: [
@@ -3496,7 +3634,9 @@ export type Database = {
           emotional_checkin: boolean
           goal_reached: boolean
           import_done: boolean
+          max_proactive_per_day: number
           max_proactive_per_week: number
+          muted_proactive_kinds: string[]
           proactive_financial: boolean
           quiet_end: string | null
           quiet_start: string | null
@@ -3514,7 +3654,9 @@ export type Database = {
           emotional_checkin?: boolean
           goal_reached?: boolean
           import_done?: boolean
+          max_proactive_per_day?: number
           max_proactive_per_week?: number
+          muted_proactive_kinds?: string[]
           proactive_financial?: boolean
           quiet_end?: string | null
           quiet_start?: string | null
@@ -3532,7 +3674,9 @@ export type Database = {
           emotional_checkin?: boolean
           goal_reached?: boolean
           import_done?: boolean
+          max_proactive_per_day?: number
           max_proactive_per_week?: number
+          muted_proactive_kinds?: string[]
           proactive_financial?: boolean
           quiet_end?: string | null
           quiet_start?: string | null
@@ -6424,6 +6568,7 @@ export type Database = {
       admin_v2_message_intelligence: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
+      admin_v2_nino_quality_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
       admin_v2_proactive_summary: {
         Args: { _channel?: string; _days?: number; _kind?: string }
@@ -6755,6 +6900,35 @@ export type Database = {
       mark_outbound_sent: {
         Args: { p_id: string; p_provider_message_id: string }
         Returns: undefined
+      }
+      my_advisor_action_feedback: {
+        Args: { _action_key: string; _review_id: string; _status: string }
+        Returns: Json
+      }
+      my_behavior_hypothesis_feedback: {
+        Args: { _feedback?: string; _hypothesis_id: string; _verdict: string }
+        Returns: Json
+      }
+      my_communication_feedback: {
+        Args: { _delivery_id: string; _feedback: string }
+        Returns: Json
+      }
+      my_nino_context: { Args: never; Returns: Json }
+      my_nino_memory_delete: { Args: { _memory_id: string }; Returns: boolean }
+      my_nino_memory_update: {
+        Args: { _expires_at?: string; _memory_id: string; _value: Json }
+        Returns: Json
+      }
+      my_proactive_preferences_update: {
+        Args: {
+          _emotional?: boolean
+          _financial?: boolean
+          _max_per_day?: number
+          _muted?: string[]
+          _smart_tips?: boolean
+          _whatsapp?: boolean
+        }
+        Returns: Json
       }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
       notifications_mark_interacted: {
