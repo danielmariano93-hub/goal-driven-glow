@@ -61,7 +61,7 @@ export async function refreshBehaviorHypotheses(
       .order("occurred_at", { ascending: true })
       .limit(1000),
     sb.from("recurring_occurrences")
-      .select("id,due_date,status,recurring_rules(description,amount)")
+      .select("id,due_date,status,recurring_rules(name,amount)")
       .eq("user_id", user_id)
       .gte("due_date", recurringFrom)
       .order("due_date", { ascending: true })
@@ -98,7 +98,7 @@ export async function refreshBehaviorHypotheses(
         id: String(row.id),
         due_date: String(row.due_date),
         status: String(row.status),
-        description: typeof rule.description === "string" ? rule.description : "Compromisso",
+        description: typeof rule.name === "string" ? rule.name : "Compromisso",
         amount: Number(rule.amount) || 0,
       };
     });
