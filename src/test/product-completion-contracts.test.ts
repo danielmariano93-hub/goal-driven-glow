@@ -9,6 +9,14 @@ const migration = readFileSync(
 );
 const contextPage = readFileSync(resolve(root, "src/pages/NinoContexto.tsx"), "utf8");
 const advisorPage = readFileSync(resolve(root, "src/pages/AssessorAcompanhamento.tsx"), "utf8");
+const behaviorService = readFileSync(
+  resolve(root, "supabase/functions/_shared/agent/core/BehaviorService.ts"),
+  "utf8",
+);
+const proactiveTick = readFileSync(
+  resolve(root, "supabase/functions/agent-proactive-tick/index.ts"),
+  "utf8",
+);
 
 describe("product completion contracts", () => {
   it("mantém notificações e entregas nas estruturas canônicas", () => {
@@ -28,6 +36,19 @@ describe("product completion contracts", () => {
     expect(migration).toContain("perform public._require_perm('messaging.read')");
     expect(migration).not.toContain("'phone_e164'");
     expect(migration).not.toContain("'body', d.");
+  });
+
+  it("não trata falha de evidência como ausência real de dados", () => {
+    expect(behaviorService).toContain("if (txResp.error) throw queryError");
+    expect(behaviorService).toContain("if (checkinResp.error) throw queryError");
+    expect(behaviorService).toContain("if (recurringResp.error) throw queryError");
+  });
+
+  it("isola as novas inteligências do pipeline proativo existente", () => {
+    expect(proactiveTick).toContain("Promise.allSettled");
+    expect(proactiveTick).toContain('stageError("behavior"');
+    expect(proactiveTick).toContain('stageError("advisor"');
+    expect(proactiveTick).toContain("const generated = await scanUser");
   });
 
   it("expõe memória editável, hipóteses e acompanhamento no frontend", () => {

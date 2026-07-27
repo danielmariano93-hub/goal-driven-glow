@@ -1,8 +1,8 @@
-// Persists explainable behavioral hypotheses and mirrors approved candidates
-// into the canonical agent_memory store.
+// Persists explainable behavioral hypotheses and mirrors only user-approved
+// hypotheses into the canonical agent_memory store.
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { decay, remember } from "./MemoryStore.ts";
+import { decay, forget, remember } from "./MemoryStore.ts";
 import {
   runBehaviorDetectors,
   type BehaviorHypothesisCandidate,
@@ -11,10 +11,12 @@ import {
   type RecurringOccurrence,
 } from "./BehaviorDetectors.ts";
 
+type HypothesisStatus = "pending" | "confirmed" | "partial" | "rejected" | "expired";
+
 type ExistingHypothesis = {
   id: string;
   dedup_key: string;
-  status: "pending" | "confirmed" | "partial" | "rejected" | "expired";
+  status: HypothesisStatus;
   user_feedback?: string | null;
 };
 
@@ -23,6 +25,18 @@ export type BehaviorRefreshResult = {
   persisted: number;
   remembered: number;
 };
+
+function queryError(scope: string, error: unknown): Error {
+  const candidate = error && typeof error === "object"
+    ? error as { message?: string; code?: string; details?: string }
+    : {};
+  const detail = candidate.message ?? candidate.details ?? "query_failed";
+  return new Error(`${scope}: ${detail}${candidate.code ? ` [${candidate.code}]` : ""}`);
+}
+
+export function shouldPersistBehaviorMemory(status: HypothesisStatus): boolean {
+  return status === "confirmed" || status === "partial";
+}
 
 export async function refreshBehaviorHypotheses(
   sb: SupabaseClient,
@@ -53,6 +67,12 @@ export async function refreshBehaviorHypotheses(
       .order("due_date", { ascending: true })
       .limit(500),
   ]);
+
+  // Never interpret an unavailable source as a real empty data set. A partial
+  // evidence package could otherwise create or expire hypotheses incorrectly.
+  if (txResp.error) throw queryError("behavior_transactions_query_failed", txResp.error);
+  if (checkinResp.error) throw queryError("behavior_checkins_query_failed", checkinResp.error);
+  if (recurringResp.error) throw queryError("behavior_recurring_query_failed", recurringResp.error);
 
   const transactions: BehaviorTransaction[] = ((txResp.data as Record<string, unknown>[] | null) ?? [])
     .map((row) => ({
@@ -85,19 +105,22 @@ export async function refreshBehaviorHypotheses(
 
   const detected = runBehaviorDetectors({ transactions, checkins, recurring });
   if (detected.length === 0) {
-    await sb.from("behavior_hypotheses")
+    const { error } = await sb.from("behavior_hypotheses")
       .update({ status: "expired", updated_at: new Date().toISOString() })
       .eq("user_id", user_id)
       .eq("status", "pending")
       .lt("expires_at", new Date().toISOString());
+    if (error) throw queryError("behavior_expiration_failed", error);
     return { detected: 0, persisted: 0, remembered: 0 };
   }
 
   const keys = detected.map((candidate) => candidate.dedup_key);
-  const { data: existingRows } = await sb.from("behavior_hypotheses")
+  const { data: existingRows, error: existingError } = await sb.from("behavior_hypotheses")
     .select("id,dedup_key,status,user_feedback")
     .eq("user_id", user_id)
     .in("dedup_key", keys);
+  if (existingError) throw queryError("behavior_existing_query_failed", existingError);
+
   const existing = new Map(
     ((existingRows as ExistingHypothesis[] | null) ?? []).map((row) => [row.dedup_key, row]),
   );
@@ -106,7 +129,7 @@ export async function refreshBehaviorHypotheses(
   let remembered = 0;
   for (const candidate of detected) {
     const current = existing.get(candidate.dedup_key);
-    const effectiveStatus = current?.status === "expired"
+    const effectiveStatus: HypothesisStatus = current?.status === "expired"
       ? "pending"
       : current?.status ?? "pending";
     const payload = {
@@ -125,9 +148,10 @@ export async function refreshBehaviorHypotheses(
 
     const { error } = await sb.from("behavior_hypotheses")
       .upsert(payload, { onConflict: "user_id,dedup_key" });
-    if (!error) persisted++;
+    if (error) throw queryError("behavior_hypothesis_upsert_failed", error);
+    persisted++;
 
-    if (current?.status !== "rejected") {
+    if (shouldPersistBehaviorMemory(effectiveStatus)) {
       const memory = await remember(sb, {
         user_id,
         kind: "behavior_hypothesis",
@@ -138,40 +162,49 @@ export async function refreshBehaviorHypotheses(
           evidence: candidate.evidence,
           status: effectiveStatus,
         },
-        confidence: effectiveStatus === "confirmed" ? 1 : candidate.confidence,
-        source: effectiveStatus === "confirmed" || effectiveStatus === "partial"
-          ? "correction"
-          : "inferred",
+        confidence: effectiveStatus === "confirmed" ? 1 : Math.max(candidate.confidence, 0.75),
+        source: "correction",
         expires_at: candidate.expires_at,
       });
       if (memory) remembered++;
+    } else {
+      // Remove any memory created by an older implementation while the item was
+      // still pending, rejected or expired. The hypothesis remains visible in
+      // its own table, but cannot silently influence the agent.
+      await forget(sb, {
+        user_id,
+        kind: "behavior_hypothesis",
+        key: candidate.dedup_key,
+      }).catch(() => 0);
+    }
 
-      if (candidate.confidence >= 0.72 && effectiveStatus !== "rejected") {
-        await sb.from("pending_proactive_suggestions").upsert({
-          user_id,
-          kind: candidate.kind,
-          severity: candidate.confidence >= 0.85 ? "attention" : "info",
-          title: candidate.title,
-          body: candidate.explanation,
-          action: { route: "/app/nino-contexto" },
-          evidence: candidate.evidence,
-          channel_ready: "app",
-          dedup_key: candidate.dedup_key,
-          expires_at: candidate.expires_at,
-          status: "pending",
-        }, {
-          onConflict: "user_id,dedup_key",
-          ignoreDuplicates: true,
-        });
-      }
+    if (candidate.confidence >= 0.72 && effectiveStatus === "pending") {
+      const { error: suggestionError } = await sb.from("pending_proactive_suggestions").upsert({
+        user_id,
+        kind: candidate.kind,
+        severity: candidate.confidence >= 0.85 ? "attention" : "info",
+        title: candidate.title,
+        body: candidate.explanation,
+        action: { route: "/app/nino-contexto" },
+        evidence: candidate.evidence,
+        channel_ready: "app",
+        dedup_key: candidate.dedup_key,
+        expires_at: candidate.expires_at,
+        status: "pending",
+      }, {
+        onConflict: "user_id,dedup_key",
+        ignoreDuplicates: true,
+      });
+      if (suggestionError) throw queryError("behavior_suggestion_upsert_failed", suggestionError);
     }
   }
 
-  await sb.from("behavior_hypotheses")
+  const { error: expirationError } = await sb.from("behavior_hypotheses")
     .update({ status: "expired", updated_at: new Date().toISOString() })
     .eq("user_id", user_id)
     .eq("status", "pending")
     .lt("expires_at", new Date().toISOString());
+  if (expirationError) throw queryError("behavior_expiration_failed", expirationError);
 
   return { detected: detected.length, persisted, remembered };
 }

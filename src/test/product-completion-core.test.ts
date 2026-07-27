@@ -9,6 +9,7 @@ import {
   runBehaviorDetectors,
 } from "../../supabase/functions/_shared/agent/core/BehaviorDetectors";
 import { buildAdvisorReview } from "../../supabase/functions/_shared/agent/core/AdvisorReviewService";
+import { shouldPersistBehaviorMemory } from "../../supabase/functions/_shared/agent/core/BehaviorService";
 import { decideCommunication } from "../../supabase/functions/_shared/intelligence/communicationPolicy";
 
 const now = new Date("2026-07-28T12:00:00-03:00");
@@ -184,6 +185,14 @@ describe("product completion core", () => {
     const review = buildAdvisorReview(profile, null, "weekly", now);
     expect(review.actions.length).toBeGreaterThan(0);
     expect(review.summary.indicators).not.toHaveProperty("risk_level");
+  });
+
+  it("só transforma hipótese comportamental em memória após confirmação", () => {
+    expect(shouldPersistBehaviorMemory("pending")).toBe(false);
+    expect(shouldPersistBehaviorMemory("rejected")).toBe(false);
+    expect(shouldPersistBehaviorMemory("expired")).toBe(false);
+    expect(shouldPersistBehaviorMemory("confirmed")).toBe(true);
+    expect(shouldPersistBehaviorMemory("partial")).toBe(true);
   });
 
   it("não gera hipóteses abaixo do limiar de confiança", () => {
