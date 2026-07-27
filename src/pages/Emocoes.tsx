@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { correlateByMoodCategory, MIN_SAMPLE, type CorrelationRow } from "@/lib/emotions/correlations";
 import { formatBRL } from "@/lib/split/math";
+import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
 
 const MOODS = [
   { v: 1, label: "Péssimo", emoji: "😞" },
@@ -130,6 +131,7 @@ export default function Emocoes() {
       </section>
 
       <Correlations />
+      <BehavioralInsightsCard />
     </div>
   );
 }

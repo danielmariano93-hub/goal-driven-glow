@@ -7,10 +7,17 @@ import { scanUser } from "../_shared/agent/core/ProactiveEngine.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
+import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
+import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewService.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
+
+function stageError(stage: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${stage}:${message}`.slice(0, 160);
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -50,21 +57,65 @@ Deno.serve(async (req) => {
     userIds = await selectProactiveUserIds(sb, { limit: 100, activityDays: 60, onboardingDays: 45 });
   }
 
-  const results: Array<{ user_id: string; suggestions: number; deliveries: number; errors: string[] }> = [];
+  const results: Array<{
+    user_id: string;
+    suggestions: number;
+    deliveries: number;
+    behavior_hypotheses: number;
+    advisor_reviews: number;
+    errors: string[];
+  }> = [];
   for (const uid of userIds) {
     const errors: string[] = [];
-    let suggestions = 0, deliveries = 0;
+    let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, advisorReviews = 0;
+
+    // Profile refresh is useful but not allowed to suppress the existing
+    // proactive pipeline; scanUser can still load/recompute its own context.
     try {
       await recomputeProfile(sb, uid);
+    } catch (error) {
+      errors.push(stageError("profile", error));
+    }
+
+    // New intelligence stages are isolated from each other and from the
+    // pre-existing scan/dispatch flow.
+    const [behaviorResult, reviewsResult] = await Promise.allSettled([
+      refreshBehaviorHypotheses(sb, uid),
+      generateAdvisorReviews(sb, uid),
+    ]);
+
+    if (behaviorResult.status === "fulfilled") {
+      behaviorHypotheses = behaviorResult.value.persisted;
+    } else {
+      errors.push(stageError("behavior", behaviorResult.reason));
+    }
+
+    if (reviewsResult.status === "fulfilled") {
+      advisorReviews = reviewsResult.value.weekly + reviewsResult.value.monthly;
+    } else {
+      errors.push(stageError("advisor", reviewsResult.reason));
+    }
+
+    try {
       const generated = await scanUser(sb, uid);
       suggestions = generated.length;
       const dispatched = await dispatchSuggestions(sb, uid, { max: 3 });
-      deliveries = dispatched.filter(d => d.status === "delivered").length;
-      errors.push(...dispatched.filter(d => d.status === "failed").map(d => d.reason ?? "dispatch_failed"));
-    } catch (e) {
-      errors.push(String((e as Error).message).slice(0, 160));
+      deliveries = dispatched.filter(d => d.status === "delivered" || d.status === "queued").length;
+      errors.push(...dispatched
+        .filter(d => d.status === "failed")
+        .map(d => stageError("dispatch", d.reason ?? "dispatch_failed")));
+    } catch (error) {
+      errors.push(stageError("proactive", error));
     }
-    results.push({ user_id: uid, suggestions, deliveries, errors });
+
+    results.push({
+      user_id: uid,
+      suggestions,
+      deliveries,
+      behavior_hypotheses: behaviorHypotheses,
+      advisor_reviews: advisorReviews,
+      errors,
+    });
   }
   return json({ ok: true, scanned: userIds.length, results });
 });

@@ -7,7 +7,8 @@ export type MemoryKind =
   | "favorite_category" | "frequent_merchant" | "recurring_bill"
   | "preferred_card" | "favorite_investment" | "goal"
   | "spending_pattern" | "habit" | "language" | "alias"
-  | "correction" | "response_preference" | "context";
+  | "correction" | "response_preference" | "context"
+  | "behavior_hypothesis" | "decision_log" | "advisor_review";
 
 export type MemorySource = "user" | "inferred" | "correction";
 
@@ -61,6 +62,31 @@ export async function remember(sb: SupabaseClient, rec: MemoryRecord): Promise<M
   return (data as MemoryFact | null) ?? null;
 }
 
+export async function correctFact(
+  sb: SupabaseClient,
+  args: {
+    user_id: string;
+    id: string;
+    value: Record<string, unknown>;
+    expires_at?: string | null;
+  },
+): Promise<MemoryFact | null> {
+  if (!args.user_id || !args.id || !args.value) return null;
+  const { data } = await sb.from("agent_memory")
+    .update({
+      value: args.value,
+      source: "correction",
+      confidence: 1,
+      expires_at: args.expires_at ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", args.id)
+    .eq("user_id", args.user_id)
+    .select("*")
+    .maybeSingle();
+  return (data as MemoryFact | null) ?? null;
+}
+
 export async function recall(
   sb: SupabaseClient,
   user_id: string,
@@ -77,7 +103,6 @@ export async function recall(
 }
 
 export async function touch(sb: SupabaseClient, id: string): Promise<void> {
-  await sb.rpc("noop", {}).then(() => null).catch(() => null); // ignore
   await sb.from("agent_memory")
     .update({ last_used_at: new Date().toISOString() })
     .eq("id", id);
@@ -92,8 +117,8 @@ export async function forget(sb: SupabaseClient, args: { user_id: string; id?: s
   if (args.id) q = q.eq("id", args.id);
   if (args.kind) q = q.eq("kind", args.kind);
   if (args.key) q = q.eq("key", normalizeKey(args.key));
-  const { count } = await q.select("id", { count: "exact", head: true });
-  return count ?? 0;
+  const { data } = await q.select("id");
+  return Array.isArray(data) ? data.length : 0;
 }
 
 /** Merges duplicates that map to the same normalized key. Keeps highest confidence. */

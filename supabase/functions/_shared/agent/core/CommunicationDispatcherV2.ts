@@ -8,7 +8,7 @@ import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 export type DispatchOutcome = {
   id: string;
   channel: string;
-  status: "delivered" | "skipped" | "failed";
+  status: "delivered" | "queued" | "skipped" | "failed";
   reason?: string;
 };
 
@@ -21,7 +21,7 @@ function notificationType(kind: string): string {
 
 async function loadPreferences(sb: SupabaseClient, user_id: string): Promise<CommunicationPreferences> {
   const { data } = await sb.from("notification_preferences")
-    .select("proactive_financial,emotional_checkin,smart_tips,whatsapp_proactive,quiet_start,quiet_end,max_proactive_per_week")
+    .select("proactive_financial,emotional_checkin,smart_tips,whatsapp_proactive,quiet_start,quiet_end,max_proactive_per_week,max_proactive_per_day,muted_proactive_kinds")
     .eq("user_id", user_id).maybeSingle();
   return {
     proactive_financial: (data as any)?.proactive_financial ?? true,
@@ -31,14 +31,18 @@ async function loadPreferences(sb: SupabaseClient, user_id: string): Promise<Com
     quiet_start: (data as any)?.quiet_start ?? "21:00",
     quiet_end: (data as any)?.quiet_end ?? "08:00",
     max_proactive_per_week: Number((data as any)?.max_proactive_per_week ?? 3),
+    max_proactive_per_day: Number((data as any)?.max_proactive_per_day ?? 1),
+    muted_proactive_kinds: Array.isArray((data as any)?.muted_proactive_kinds)
+      ? (data as any).muted_proactive_kinds
+      : [],
   };
 }
 
 async function history(sb: SupabaseClient, user_id: string): Promise<DeliveryHistory[]> {
   const { data } = await sb.from("communication_deliveries")
-    .select("created_at,kind,channel,status")
+    .select("created_at,kind,channel,status,dedup_key")
     .eq("user_id", user_id)
-    .gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString())
+    .gte("created_at", new Date(Date.now() - 14 * 86400000).toISOString())
     .order("created_at", { ascending: false }).limit(100);
   return (data as DeliveryHistory[] | null) ?? [];
 }
@@ -46,6 +50,7 @@ async function history(sb: SupabaseClient, user_id: string): Promise<DeliveryHis
 async function record(sb: SupabaseClient, args: {
   user_id: string; suggestion_id: string; kind: string; channel: string;
   status: string; reason?: string; dedup_key?: string; evidence?: unknown;
+  block_context?: Record<string, unknown>;
 }) {
   await sb.from("communication_deliveries").upsert({
     user_id: args.user_id,
@@ -56,6 +61,8 @@ async function record(sb: SupabaseClient, args: {
     reason: args.reason ?? null,
     dedup_key: args.dedup_key ?? null,
     evidence: args.evidence ?? {},
+    cost_usd: 0,
+    block_context: args.block_context ?? {},
     delivered_at: args.status === "delivered" ? new Date().toISOString() : null,
   }, { onConflict: "suggestion_id,channel" });
 }
@@ -89,6 +96,7 @@ export async function dispatchSuggestions(
           user_id, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
           status: "suppressed", reason: decision.reason, dedup_key: candidate.dedup_key,
           evidence: candidate.evidence,
+          block_context: { policy_reason: decision.reason, target },
         });
         results.push({ id: candidate.id, channel: target, status: "skipped", reason: decision.reason });
         continue;
@@ -118,6 +126,7 @@ export async function dispatchSuggestions(
               user_id, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
               status: "suppressed", reason: "no_active_whatsapp_link",
               dedup_key: candidate.dedup_key, evidence: candidate.evidence,
+              block_context: { policy_reason: "no_active_whatsapp_link", target },
             });
             results.push({ id: candidate.id, channel: target, status: "skipped", reason: "no_active_whatsapp_link" });
             continue;
@@ -143,7 +152,7 @@ export async function dispatchSuggestions(
             dedup_key: candidate.dedup_key, evidence: candidate.evidence,
           });
           anyQueued = true;
-          results.push({ id: candidate.id, channel: target, status: "delivered" });
+          results.push({ id: candidate.id, channel: target, status: "queued" });
         }
       } catch (e) {
         const reason = String((e as Error).message).slice(0, 160);

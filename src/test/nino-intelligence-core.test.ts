@@ -53,7 +53,7 @@ describe("Nino Intelligence Core", () => {
     expect(decideCommunication({
       candidate, target: "whatsapp", preferences: { whatsapp_proactive: false }, history: [],
     }).reason).toBe("whatsapp_opt_out");
-    const history = [0, 1, 2].map(i => ({ created_at: new Date(Date.now() - i * 86400000).toISOString(), kind: `k${i}`, channel: "app", status: "delivered" }));
+    const history = [1, 2, 3].map(i => ({ created_at: new Date(Date.now() - i * 86400000).toISOString(), kind: `k${i}`, channel: "app", status: "delivered" }));
     expect(decideCommunication({
       candidate, target: "app", preferences: { max_proactive_per_week: 3 }, history,
     }).reason).toBe("weekly_frequency_cap");

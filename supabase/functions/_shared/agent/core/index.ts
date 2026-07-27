@@ -41,7 +41,7 @@ export {
 
 // Fase 3 intelligence layer
 export {
-  remember, recall, touch, forget, consolidate, decay, normalizeKey,
+  remember, recall, touch, forget, consolidate, decay, normalizeKey, correctFact,
   type MemoryKind, type MemorySource, type MemoryRecord, type MemoryFact,
 } from "./MemoryStore.ts";
 export {
@@ -55,6 +55,23 @@ export {
   type Insight, type InsightKind, type InsightSeverity, type DetectorCtx,
 } from "./InsightsEngine.ts";
 export { buildPlan, type PlanObjective, type FinancialPlan, type Milestone } from "./FinancialPlanner.ts";
+export {
+  detectEngagementDrop,
+  detectRecurringPattern,
+  type ActivityWindow,
+} from "./ProactiveDetectors.ts";
+export {
+  runBehaviorDetectors,
+  type BehaviorHypothesisCandidate,
+  type BehaviorHypothesisKind,
+} from "./BehaviorDetectors.ts";
+export { refreshBehaviorHypotheses, type BehaviorRefreshResult } from "./BehaviorService.ts";
+export {
+  buildAdvisorReview,
+  generateAdvisorReviews,
+  type AdvisorAction,
+  type AdvisorReviewPayload,
+} from "./AdvisorReviewService.ts";
 export { scanUser, type ProactiveSuggestion } from "./ProactiveEngine.ts";
 export {
   loadPreferences, savePreferences, applyPreferencesToPrompt, inferPreferencesFromMemory,
