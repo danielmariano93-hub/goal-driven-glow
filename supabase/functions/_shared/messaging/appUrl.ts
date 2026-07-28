@@ -29,9 +29,14 @@ export function resolveAppPublicUrl(env: AppUrlEnv): string | null {
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname)) return null;
   // Descarta credenciais embutidas — nunca devem ir para o WhatsApp.
   if (u.username || u.password) return null;
-  const origin = `${u.protocol}//${u.host}`;
+  // O WhatsApp reconhece melhor hosts com `www.`; o apex costuma ficar sem
+  // link clicável. Normalizamos domínios de segundo nível para o subdomínio www.
+  const labels = u.hostname.split(".");
+  const host = labels.length === 2 ? `www.${u.host}` : u.host;
+  const origin = `${u.protocol}//${host}`;
   const path = u.pathname.replace(/\/+$/, "");
   return path ? `${origin}${path}` : origin;
+
 }
 
 /** Constrói o deep link do Assessor sobre a base validada.

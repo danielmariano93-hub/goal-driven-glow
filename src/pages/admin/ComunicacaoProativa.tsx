@@ -9,6 +9,8 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage } from "@/lib/admin/adminRpc";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
+import { dict } from "@/lib/admin/displayDictionary";
+
 
 type Summary = {
   totals: {
@@ -117,8 +119,9 @@ export default function ComunicacaoProativa() {
           className="px-3 py-1.5 rounded-lg text-sm border bg-white border-neutral-200"
         >
           {kindOptions.map((k) => (
-            <option key={k || "all"} value={k}>{k ? k : "Todos os tipos"}</option>
+            <option key={k || "all"} value={k}>{k ? dict.commKind(k) : "Todos os tipos"}</option>
           ))}
+
         </select>
       </div>
 
@@ -185,7 +188,8 @@ export default function ComunicacaoProativa() {
                   <tbody className="divide-y divide-neutral-100">
                     {q.data!.by_kind.map((row) => (
                       <tr key={row.kind}>
-                        <td className="py-2 pr-4 font-medium text-neutral-800">{row.kind}</td>
+                        <td className="py-2 pr-4 font-medium text-neutral-800">{dict.commKind(row.kind)}</td>
+
                         <td className="text-right pr-4">{row.total}</td>
                         <td className="text-right pr-4 text-emerald-600">{row.delivered}</td>
                         <td className="text-right pr-4">{row.acted}</td>
@@ -208,8 +212,9 @@ export default function ComunicacaoProativa() {
                 {q.data!.by_channel.map((c) => (
                   <StatCard
                     key={c.channel}
-                    label={c.channel === "app" ? "App" : c.channel === "whatsapp" ? "WhatsApp" : c.channel}
+                    label={dict.channel(c.channel)}
                     value={c.total}
+
                     hint={`${c.delivered} entregues · ${c.failed} falhas`}
                   />
                 ))}

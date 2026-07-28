@@ -36,8 +36,49 @@ function notificationTitle(kind: string, title: string): string {
   if (kind === "payment_confirmation") return `Pagamento registrado em “${title}”`;
   if (kind === "completed") return `Rolê “${title}” concluído`;
   if (kind === "invite") return `Você foi incluído em “${title}”`;
+  if (kind === "owner_digest") return `Quem ainda não pagou em “${title}”`;
   return `Lembrete de “${title}”`;
 }
+
+type PendingParticipant = {
+  id: string;
+  name: string | null;
+  amount_due: number | null;
+  amount_paid: number | null;
+  reminder_count: number | null;
+  status: string;
+};
+
+/** Resumo para o dono: quem já foi cobrado e continua em aberto. */
+function ownerDigestMessage(
+  expenseTitle: string,
+  pending: PendingParticipant[],
+  persona: MessagePersona,
+  linkSentence: string,
+): string {
+  const total = pending.reduce(
+    (sum, p) => sum + Math.max(0, Number(p.amount_due ?? 0) - Number(p.amount_paid ?? 0)),
+    0,
+  );
+  const lines = pending.map((p) => {
+    const remaining = Math.max(0, Number(p.amount_due ?? 0) - Number(p.amount_paid ?? 0));
+    const reminders = Number(p.reminder_count ?? 0);
+    const cobranca = reminders > 0
+      ? ` — ${reminders} ${reminders === 1 ? "cobrança enviada" : "cobranças enviadas"}`
+      : " — ainda sem cobrança enviada";
+    return `• ${String(p.name ?? "Participante").trim() || "Participante"}: ${formatBRL(remaining)}${cobranca}`;
+  });
+
+  return renderMessageTemplate("owner_digest", persona, {
+    title: expenseTitle,
+    amount: formatBRL(total),
+    pending_count: String(pending.length),
+    pending_word: pending.length === 1 ? "pessoa" : "pessoas",
+    pending_list: `${lines.join("\n")}\n`,
+    link_sentence: linkSentence,
+  });
+}
+
 
 function messageFor(
   kind: string,
@@ -140,7 +181,100 @@ Deno.serve(async (req) => {
   for (const job of jobs) {
     try {
       const kind = String(job.kind ?? "reminder");
+
+      // ---- Resumo para o dono do rolê (não tem participante alvo) ----
+      if (kind === "owner_digest") {
+        const { data: expenseRow, error: expErr } = await sb.from("shared_expenses")
+          .select("title,due_date,owner_user_id,status,deleted_at")
+          .eq("id", job.shared_expense_id)
+          .single();
+        if (expErr || !expenseRow) throw new Error(expErr?.message ?? "split_not_found");
+        if (["cancelled", "settled"].includes(String(expenseRow.status)) || expenseRow.deleted_at) {
+          await sb.from("reminder_jobs").update({ status: "skipped", last_error: "split_closed", lease_expires_at: null }).eq("id", job.id);
+          skipped++;
+          continue;
+        }
+
+        const { data: pendingRows, error: pendErr } = await sb.from("shared_expense_participants")
+          .select("id,name,amount_due,amount_paid,reminder_count,status")
+          .eq("shared_expense_id", job.shared_expense_id)
+          .in("status", ["pending", "partial", "notified"]);
+        if (pendErr) throw new Error(`owner_digest:${pendErr.message}`);
+        const pending = ((pendingRows as PendingParticipant[] | null) ?? []).filter(
+          (p) => Math.max(0, Number(p.amount_due ?? 0) - Number(p.amount_paid ?? 0)) > 0,
+        );
+        if (pending.length === 0) {
+          await sb.from("reminder_jobs").update({ status: "skipped", last_error: "no_pending_participants", lease_expires_at: null }).eq("id", job.id);
+          skipped++;
+          continue;
+        }
+
+        const envDigest = { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") ?? null };
+        const ownerLink = buildSharedExpenseUrl(envDigest, String(job.shared_expense_id), { ref: "owner_digest" });
+        const ownerLinkSentence = buildLinkSentence({ isRegistered: true, appLink: ownerLink, signupLink: null });
+        const digest = ownerDigestMessage(String(expenseRow.title ?? "seu rolê"), pending, persona, ownerLinkSentence);
+
+        const { error: notifyError } = await sb.from("notifications").upsert({
+          user_id: expenseRow.owner_user_id,
+          type: "split_reminder",
+          title: notificationTitle(kind, String(expenseRow.title)),
+          body: digest,
+          action_url: `/app/divisao-do-role/${String(job.shared_expense_id)}`,
+          dedup_key: `split-job:${job.id}:owner`,
+        }, { onConflict: "user_id,dedup_key" });
+        if (notifyError) throw new Error(`notification:${notifyError.message}`);
+        appDelivered++;
+
+        let ownerOutboundId: string | null = null;
+        const { data: ownerLinkRow } = await sb.from("whatsapp_links")
+          .select("phone_e164").eq("user_id", expenseRow.owner_user_id).eq("status", "active")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const ownerPhone = String(ownerLinkRow?.phone_e164 ?? "");
+        if (ownerPhone) {
+          const idem = `split:owner_digest:${job.shared_expense_id}:${job.id}`;
+          const { data: ob, error: obErr } = await sb.from("outbound_messages").insert({
+            channel: "whatsapp",
+            user_id: expenseRow.owner_user_id,
+            to_phone: ownerPhone,
+            body: digest,
+            status: "queued",
+            kind: "split_owner_digest",
+            idempotency_key: idem,
+            context_type: "shared_expense",
+            context_id: job.shared_expense_id,
+            metadata: { job_id: job.id, origin: "split_reminder_v2", template: kind },
+            surface: "whatsapp",
+            feature: "split_reminder",
+          }).select("id").single();
+          if (obErr) {
+            const duplicate = String(obErr.code) === "23505" || String(obErr.message).toLowerCase().includes("duplicate");
+            if (!duplicate) throw new Error(`outbound:${obErr.message}`);
+            const { data: existing } = await sb.from("outbound_messages").select("id").eq("idempotency_key", idem).maybeSingle();
+            ownerOutboundId = existing?.id ?? null;
+          } else {
+            ownerOutboundId = ob.id;
+            whatsappQueued++;
+          }
+        }
+
+        await sb.from("reminder_jobs").update({
+          status: "enqueued",
+          outbound_message_id: ownerOutboundId,
+          last_error: ownerOutboundId ? null : "app_only",
+          lease_expires_at: null,
+        }).eq("id", job.id);
+
+        await sb.from("shared_expense_events").insert({
+          shared_expense_id: job.shared_expense_id,
+          owner_user_id: expenseRow.owner_user_id,
+          event_type: "message_enqueued",
+          payload: { kind, job_id: job.id, outbound_message_id: ownerOutboundId, pending: pending.length, worker: "v2" },
+        });
+        continue;
+      }
+
       const terminal = ["payment_confirmation", "completed"].includes(kind);
+
       const { data: participant, error: participantError } = await sb.from("shared_expense_participants")
         .select("id,name,phone_e164,amount_due,amount_paid,opt_out_at,status,linked_user_id,reminder_count")
         .eq("id", job.participant_id)

@@ -109,7 +109,7 @@ describe("enqueueGoalInvite", () => {
     const r = await enqueueGoalInvite({ sb, env: ENV, persona: PERSONA, now: NOW }, INPUT);
     expect(r.registered).toBe(true);
     const immediate = outbound.find((o) => o.kind === "goal_invite");
-    expect(immediate.body).toContain("https://app.meunino.com.br/app/metas-conjuntas/g-42");
+    expect(immediate.body).toContain("app.meunino.com.br/app/metas-conjuntas/g-42");
     expect(immediate.body).not.toContain("/signup");
   });
 

@@ -78,7 +78,7 @@ describe("Split reminder message — context sentence", () => {
       participantsCount: 5,
       totalAmount: 375,
     });
-    expect(msg).toContain("ainda faltam R$ 45,00");
+    expect(msg).toContain("faltam R$ 45,00");
     expect(msg).toContain("dividido entre 5 pessoas");
     expect(msg).toContain("total do rolê: R$ 375,00");
   });

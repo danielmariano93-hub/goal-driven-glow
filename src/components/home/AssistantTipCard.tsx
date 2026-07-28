@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { copy } from "@/lib/copy/strings";
 import {
   pickFallback,
+  candidates as buildLocalCandidates,
   CTA_ROUTE_RX,
   type InsightFacts,
   type InsightPayload,
@@ -15,6 +16,7 @@ import {
 import { useAllTransactions, useGoals } from "@/lib/db/finance";
 import { sendTipFeedback } from "@/lib/nino/client";
 import { computeMonthlyTotals, type TransactionRow } from "@/lib/engine/facts";
+
 
 type Insight = {
   id: string;
@@ -32,6 +34,33 @@ type Insight = {
 };
 
 const SEEN_KEY = "noc:insights-seen";
+const DISMISSED_KEY = "noc:insights-dismissed";
+const DISMISS_TTL_MS = 72 * 3600 * 1000;
+
+type DismissedEntry = { key: string; at: number };
+
+/** Chave de assunto usada para não repetir o tema recém-dispensado. */
+export function tipSubjectKey(p: { type: string; title: string }): string {
+  return `${p.type}:${(p.title ?? "").trim().toLowerCase()}`;
+}
+
+function loadDismissed(): DismissedEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    const list = raw ? (JSON.parse(raw) as DismissedEntry[]) : [];
+    const cutoff = Date.now() - DISMISS_TTL_MS;
+    return list.filter((e) => e && typeof e.key === "string" && e.at > cutoff);
+  } catch { return []; }
+}
+
+function rememberDismissed(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const next = [...loadDismissed().filter((e) => e.key !== key), { key, at: Date.now() }].slice(-40);
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
+  } catch { /* noop */ }
+}
 
 function isRenderable(i: Pick<Insight, "title" | "body"> | null | undefined): boolean {
   return !!i && typeof i.title === "string" && !!i.title.trim() && typeof i.body === "string" && !!i.body.trim();
@@ -48,6 +77,7 @@ function saveSeen(set: Set<string>) {
   if (typeof window === "undefined") return;
   try { sessionStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(set).slice(-50))); } catch { /* noop */ }
 }
+
 
 function deepLinkForInsight(i: Insight): string | null {
   const txId = (i.evidence as any)?.transaction_id;
@@ -98,6 +128,8 @@ export function AssistantTipCard() {
   const [generating, setGenerating] = useState(false);
   const [nonce, setNonce] = useState(0);
   const [seenVersion, setSeenVersion] = useState(0);
+  const [dismissVersion, setDismissVersion] = useState(0);
+
 
   const { data: txs } = useAllTransactions();
   const { data: goals } = useGoals();
@@ -166,21 +198,29 @@ export function AssistantTipCard() {
 
   const dismiss = async () => {
     if (!current) {
-      // Local fallback dismiss → rotate
+      // Fallback local: registra o assunto dispensado e rotaciona o tema.
+      rememberDismissed(tipSubjectKey({ type: localFallback.type, title: localFallback.title }));
       setNonce((n) => n + 1);
+      setDismissVersion((v) => v + 1);
       return;
     }
+    rememberDismissed(tipSubjectKey({ type: current.type, title: current.title }));
     try {
       await sendTipFeedback(current.id, "dismissed");
     } catch (e) {
       console.warn("[tip-feedback]", (e as Error).message);
     }
     const next = new Set(seen); next.add(current.id); saveSeen(next); setSeenVersion((v) => v + 1);
-    // Não forçamos nova geração aqui: a política de dicas respeita a janela
-    // mínima e o cooldown por família, evitando o loop de dicas repetidas.
+    setDismissVersion((v) => v + 1);
+    // Remove imediatamente da lista local para o card não repetir a mesma dica.
+    qc.setQueryData<Insight[]>(["assistant-tip", user?.id], (prev) => (prev ?? []).filter((i) => i.id !== current.id));
     toast.success(copy.tip.thanks);
+    // O usuário pediu outro assunto: geramos uma nova dica agora, respeitando
+    // apenas os cooldowns de feedback (o servidor relaxa a diversidade).
+    await generate(true);
     qc.invalidateQueries({ queryKey: ["assistant-tip"] });
   };
+
 
   const markUseful = async () => {
     if (!current) return;
@@ -195,12 +235,20 @@ export function AssistantTipCard() {
   };
 
   const localFallback: InsightPayload = useMemo(() => {
+    const dismissed = new Set(loadDismissed().map((e) => e.key));
     const lastKey = typeof window !== "undefined" ? sessionStorage.getItem("noc:last-tip") : null;
-    const p = pickFallback(facts, { skipKey: lastKey ?? undefined });
-    if (typeof window !== "undefined") sessionStorage.setItem("noc:last-tip", `${p.type}:${p.title}`);
+    const pool = buildLocalCandidates(facts);
+    // Nunca repete um assunto dispensado nas últimas 72h nem o último exibido.
+    const fresh = pool.find((c) => {
+      const key = tipSubjectKey(c);
+      return !dismissed.has(key) && key !== (lastKey ?? "");
+    });
+    const p = fresh ?? pickFallback(facts, { skipKey: lastKey ?? undefined });
+    if (typeof window !== "undefined") sessionStorage.setItem("noc:last-tip", tipSubjectKey(p));
     return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facts, nonce]);
+  }, [facts, nonce, dismissVersion]);
+
 
   const usingLocal = !current;
   const title = usingLocal ? localFallback.title : current!.title;

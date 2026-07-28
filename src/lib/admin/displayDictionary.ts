@@ -84,6 +84,59 @@ const JOB: Record<string, string> = {
   refresh_cohorts: "Coortes semanais",
 };
 
+const COMM_KIND: Record<string, string> = {
+  duplicate_expense: "Possível gasto duplicado",
+  spending_spike: "Gasto acima do normal",
+  budget_risk: "Risco de estourar o orçamento",
+  goal_progress: "Progresso de meta",
+  goal_at_risk: "Meta em risco",
+  recurring_due: "Recorrência a vencer",
+  recurring_missing: "Recorrência não lançada",
+  split_pending: "Divisão do rolê em aberto",
+  uncategorized_transactions: "Lançamentos sem categoria",
+  weekly_digest: "Resumo semanal",
+  monthly_digest: "Resumo mensal",
+  emotional_checkin: "Convite de check-in emocional",
+  cashflow_alert: "Alerta de fluxo de caixa",
+  celebration: "Comemoração de conquista",
+  onboarding_nudge: "Estímulo de primeiros passos",
+};
+
+const COMM_REASON: Record<string, string> = {
+  rollout_channel_disabled: "Canal ainda não liberado para o cliente",
+  candidate_channel_not_ready: "Conteúdo ainda não pronto para este canal",
+  kind_disabled_in_catalog: "Tipo desativado no catálogo",
+  channel_disabled_in_catalog: "Canal desativado para este tipo",
+  awaiting_manual_approval: "Aguardando aprovação manual",
+  no_active_whatsapp_link: "Cliente sem WhatsApp conectado",
+  kind_cooldown_24h: "Já enviado nas últimas 24 horas",
+  daily_cap_reached: "Limite diário de mensagens atingido",
+  quiet_hours: "Fora do horário permitido",
+  user_opted_out: "Cliente optou por não receber",
+  duplicate_dedup_key: "Mensagem repetida (mesmo assunto)",
+  low_priority: "Prioridade baixa para o momento",
+};
+
+const CHANNEL: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  inapp: "Aplicativo",
+  app: "Aplicativo",
+  both: "Aplicativo e WhatsApp",
+  email: "E-mail",
+};
+
+const COMM_STATUS: Record<string, string> = {
+  queued: "Na fila",
+  sent: "Enviada",
+  delivered: "Entregue",
+  read: "Lida",
+  failed: "Falhou",
+  suppressed: "Não enviada",
+  skipped: "Ignorada",
+  acted: "Gerou ação",
+  dry_run: "Simulação",
+};
+
 function humanize(raw: string) {
   return raw.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim();
 }
@@ -95,4 +148,9 @@ export const dict = {
   status: (v?: string | null) => (v && STATUS[v]) || (v ? humanize(v) : "—"),
   action: (v?: string | null) => (v && ACTION[v]) || (v ? humanize(v) : "—"),
   job: (v?: string | null) => (v && JOB[v]) || (v ? humanize(v) : "—"),
+  commKind: (v?: string | null) => (v && COMM_KIND[v]) || (v ? humanize(v) : "—"),
+  commReason: (v?: string | null) => (v && COMM_REASON[v]) || (v ? humanize(v) : "—"),
+  channel: (v?: string | null) => (v && CHANNEL[v]) || (v ? humanize(v) : "—"),
+  commStatus: (v?: string | null) => (v && COMM_STATUS[v]) || (v ? humanize(v) : "—"),
 };
+
