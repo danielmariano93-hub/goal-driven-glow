@@ -70,7 +70,7 @@ function expiry(now: Date, days = 60): string {
 function expenses(input: BehaviorDetectorInput): BehaviorTransaction[] {
   return input.transactions.filter((row) =>
     row.type === "expense" &&
-    row.movement_kind !== "transfer" &&
+    (row.movement_kind ?? "transaction") === "transaction" &&
     Number(row.amount) > 0,
   );
 }
@@ -149,8 +149,8 @@ export function detectImpulsiveSpending(input: BehaviorDetectorInput): BehaviorH
   return [{
     kind: "impulsive_spending",
     title: "Há sinais de gastos concentrados em poucos momentos",
-    explanation: `Em ${burstDays.length} dias você fez três ou mais gastos e superou bastante o seu dia típico. Vale confirmar se esses momentos foram planejados ou aconteceram por impulso.`,
-    confidence: Math.min(0.88, 0.5 + burstDays.length * 0.06 + rows.length / 250),
+    explanation: `Em ${burstDays.length} dias você fez três ou mais gastos e superou o seu dia típico. Isso também pode acontecer por contas fixas, viagens, eventos ou registros feitos em lote; confirme quais dias foram realmente não planejados.`,
+    confidence: Math.min(0.78, 0.48 + Math.min(burstDays.length, 5) * 0.035 + Math.min(rows.length, 120) / 1200),
     evidence: {
       transaction_sample: rows.length,
       observed_days: byDay.size,
@@ -209,7 +209,7 @@ export function detectFinancialDiscipline(input: BehaviorDetectorInput): Behavio
     const key = monday.toISOString().slice(0, 10);
     const item = weekly.get(key) ?? { income: 0, expense: 0 };
     if (row.type === "income") item.income += Number(row.amount);
-    if (row.type === "expense" && row.movement_kind !== "transfer") item.expense += Number(row.amount);
+    if (row.type === "expense" && (row.movement_kind ?? "transaction") === "transaction") item.expense += Number(row.amount);
     weekly.set(key, item);
   }
 

@@ -44,8 +44,9 @@ const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
 const Assessor = lazy(() => import("./pages/Assessor"));
-const AssessorAcompanhamento = lazy(() => import("./pages/AssessorAcompanhamento"));
-const NinoContexto = lazy(() => import("./pages/NinoContexto"));
+const AssessorAcompanhamento = lazy(() => import("./pages/AssessorAcompanhamentoV2"));
+const NinoContexto = lazy(() => import("./pages/NinoContextoV2"));
+const ProactiveAlertDetail = lazy(() => import("./pages/ProactiveAlertDetail"));
 const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
@@ -136,6 +137,7 @@ const App = () => (
                 <Route path="assessor" element={<Assessor />} />
                 <Route path="assessor/acompanhamento" element={<AssessorAcompanhamento />} />
                 <Route path="nino-contexto" element={<NinoContexto />} />
+                <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
               </Route>
 
               {/* Platform admin — separate application */}

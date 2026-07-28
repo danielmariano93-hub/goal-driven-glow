@@ -45,7 +45,10 @@ export type AdvisorReview = {
   summary: {
     headline?: string;
     explanation?: string;
+    period_label?: string;
+    highlights?: string[];
     indicators?: Record<string, number | null>;
+    comparison?: Record<string, number | null>;
     limitations?: string[];
   };
   actions: AdvisorAction[];
@@ -53,6 +56,7 @@ export type AdvisorReview = {
   formula_version: string;
   generated_at: string;
   updated_at: string;
+  last_generated_at?: string;
 };
 
 export type CommunicationDelivery = {

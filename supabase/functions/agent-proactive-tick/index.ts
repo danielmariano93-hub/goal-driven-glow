@@ -8,12 +8,12 @@
 //  3. Bearer de usuário comum com { self: true } — processa apenas a si mesmo.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { scanUser } from "../_shared/agent/core/ProactiveEngine.ts";
+import { scanUser } from "../_shared/agent/core/ProactiveEngineV2.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
-import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewService.ts";
+import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -122,6 +122,14 @@ Deno.serve(async (req) => {
     behavior_hypotheses: number;
     advisor_reviews: number;
     advisor_skipped?: unknown;
+    preview?: Array<{
+      kind: string;
+      channel_ready: string;
+      title: string;
+      body: string;
+      dedup_key: string;
+      evidence: Record<string, unknown>;
+    }>;
     errors: string[];
   }> = [];
 
@@ -129,8 +137,9 @@ Deno.serve(async (req) => {
     const errors: string[] = [];
     let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, advisorReviews = 0;
     let advisorSkipped: unknown = undefined;
+    let preview: Array<{ kind: string; channel_ready: string; title: string; body: string; dedup_key: string; evidence: Record<string, unknown> }> = [];
 
-    if (stages.includes("profile")) {
+    if (!dryRun && stages.includes("profile")) {
       try {
         await recomputeProfile(sb, uid);
       } catch (error) {
@@ -139,12 +148,12 @@ Deno.serve(async (req) => {
     }
 
     const tasks: Array<Promise<unknown>> = [];
-    if (stages.includes("behavior")) tasks.push(refreshBehaviorHypotheses(sb, uid));
-    if (stages.includes("advisor")) tasks.push(generateAdvisorReviews(sb, uid));
+    if (!dryRun && stages.includes("behavior")) tasks.push(refreshBehaviorHypotheses(sb, uid));
+    if (!dryRun && stages.includes("advisor")) tasks.push(generateAdvisorReviews(sb, uid));
     const settled = await Promise.allSettled(tasks);
     let cursor = 0;
 
-    if (stages.includes("behavior")) {
+    if (!dryRun && stages.includes("behavior")) {
       const behaviorResult = settled[cursor++];
       if (behaviorResult?.status === "fulfilled") {
         behaviorHypotheses = (behaviorResult.value as { persisted: number }).persisted;
@@ -153,7 +162,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (stages.includes("advisor")) {
+    if (!dryRun && stages.includes("advisor")) {
       const reviewsResult = settled[cursor++];
       if (reviewsResult?.status === "fulfilled") {
         const value = reviewsResult.value as { weekly: number; monthly: number; skipped?: unknown };
@@ -166,17 +175,27 @@ Deno.serve(async (req) => {
 
     if (stages.includes("proactive")) {
       try {
-        const generated = await scanUser(sb, uid);
+        const generated = await scanUser(sb, uid, { persist: !dryRun, maxSuggestions: 8 });
         suggestions = generated.length;
-        const dispatched = await dispatchSuggestions(sb, uid, {
-          max: 3,
-          channels: effectiveChannels,
-          dryRun,
-        });
-        deliveries = dispatched.filter((d) => d.status === "delivered" || d.status === "queued").length;
-        errors.push(...dispatched
-          .filter((d) => d.status === "failed")
-          .map((d) => stageError("dispatch", d.reason ?? "dispatch_failed")));
+        if (dryRun) {
+          preview = generated.map((item) => ({
+            kind: item.kind,
+            channel_ready: item.channel_ready,
+            title: item.title,
+            body: item.body,
+            dedup_key: item.dedup_key,
+            evidence: item.evidence,
+          }));
+        } else {
+          const dispatched = await dispatchSuggestions(sb, uid, {
+            max: 3,
+            channels: effectiveChannels,
+          });
+          deliveries = dispatched.filter((d) => d.status === "delivered" || d.status === "queued").length;
+          errors.push(...dispatched
+            .filter((d) => d.status === "failed")
+            .map((d) => stageError("dispatch", d.reason ?? "dispatch_failed")));
+        }
       } catch (error) {
         errors.push(stageError("proactive", error));
       }
@@ -189,6 +208,7 @@ Deno.serve(async (req) => {
       behavior_hypotheses: behaviorHypotheses,
       advisor_reviews: advisorReviews,
       advisor_skipped: advisorSkipped,
+      preview,
       errors,
     });
   }

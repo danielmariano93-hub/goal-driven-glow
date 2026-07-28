@@ -8,7 +8,7 @@ import { StatCard, StatGrid } from "@/components/admin/StatCard";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage } from "@/lib/admin/adminRpc";
-import { ProactiveEnginePanel } from "@/components/admin/ProactiveEnginePanel";
+import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 
 type Summary = {
   totals: {
@@ -90,7 +90,7 @@ export default function ComunicacaoProativa() {
         description="Motor de sugestões proativas: geração, entrega, ações e custo. Dados de communication_deliveries."
       />
 
-      <ProactiveEnginePanel />
+      <ProactiveEnginePanelV2 />
 
       <div className="flex flex-wrap gap-2">
         {PERIODS.map((p) => (
