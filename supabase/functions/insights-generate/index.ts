@@ -15,7 +15,7 @@ import {
 } from "../_shared/insights/fallbacks.ts";
 import { computeBehavioralSignals } from "../_shared/insights/facts.ts";
 import { computeAccountStatementTotals, computeMonthlyTotals, type TransactionRow } from "../_shared/engine/facts.ts";
-import { canGenerateNow, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
+import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -75,7 +75,9 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Janela mínima entre gerações: impede "dispensou → nova dica na hora".
+  // Janela mínima entre gerações. Quando o usuário pede outro assunto
+  // ("Agora não"), a janela é dispensada — os cooldowns de feedback seguem
+  // valendo e continuam impedindo repetir o mesmo tema.
   const { data: lastRow } = await supa
     .from("user_insights")
     .select("generated_at")
@@ -83,10 +85,12 @@ Deno.serve(async (req) => {
     .order("generated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!canGenerateNow((lastRow as { generated_at?: string } | null)?.generated_at ?? null)) {
+  const minGapConfig = force ? { minGapMinutes: 0 } : undefined;
+  if (!canGenerateNow((lastRow as { generated_at?: string } | null)?.generated_at ?? null, { config: minGapConfig })) {
     logEvent({ event: "throttled" });
     return json({ insight: usable ?? null, cached: !!usable, throttled: true });
   }
+
 
   // Histórico unificado (dicas + entregas proativas) para a política.
   const since = new Date(Date.now() - 60 * 86400_000).toISOString();
@@ -219,14 +223,23 @@ Deno.serve(async (req) => {
   };
 
   // ------- seleção pela política única -------
-  const pool = buildCandidates(facts) as TipCandidate[];
-  const selection = selectTip(pool, ledger);
+  const fullPool = buildCandidates(facts) as TipCandidate[];
+  // Em "Agora não", nunca reapresentamos o assunto que está ativo agora.
+  const activeKeys = new Set(
+    active.map((r) => String(r.dedup_key ?? "")).filter(Boolean),
+  );
+  const pool = force && activeKeys.size > 0
+    ? fullPool.filter((c) => !activeKeys.has(dedupKeyForTip(c)))
+    : fullPool;
+  const selection = selectTip(pool.length > 0 ? pool : fullPool, ledger);
   const chosen = selection.chosen;
 
   if (!chosen) {
-    logEvent({ event: "no_eligible_tip" });
-    return json({ insight: usable ?? null, cached: !!usable, no_candidate: true });
+    logEvent({ event: "no_eligible_tip", force });
+    // Com force, devolver o cache reapresentaria a dica dispensada.
+    return json({ insight: force ? null : (usable ?? null), cached: !force && !!usable, no_candidate: true });
   }
+
 
   let payload = { ...chosen.candidate };
   let fallbackReason: string | null = null;

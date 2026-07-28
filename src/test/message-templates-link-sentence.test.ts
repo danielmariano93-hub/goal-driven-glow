@@ -11,14 +11,14 @@ describe("buildLinkSentence", () => {
       isRegistered: true,
       appLink: "https://app.x/app/role/1",
       signupLink: "https://app.x/signup",
-    })).toBe(" Abra no app: https://app.x/app/role/1");
+    })).toBe(" Abra no app: app.x/app/role/1");
   });
   it("usa signup quando não cadastrado", () => {
     expect(buildLinkSentence({
       isRegistered: false,
       appLink: null,
       signupLink: "https://app.x/signup?ref=wa",
-    })).toBe(" Cadastre-se em segundos: https://app.x/signup?ref=wa");
+    })).toBe(" Cadastre-se em segundos: app.x/signup?ref=wa");
   });
   it("retorna vazio quando nenhum link válido", () => {
     expect(buildLinkSentence({ isRegistered: true, appLink: null, signupLink: null })).toBe("");
@@ -34,9 +34,9 @@ describe("renderMessageTemplate com link_sentence", () => {
       amount: "R$ 50,00",
       due_sentence: "",
       pix_sentence: "",
-      link_sentence: " Abra no app: https://app.x/app/role/1",
+      link_sentence: " Abra no app: app.x/app/role/1",
     });
-    expect(out).toContain("Abra no app: https://app.x/app/role/1");
+    expect(out).toContain("Abra no app: app.x/app/role/1");
   });
 
   it("tem template default para convite de meta conjunta", () => {
@@ -55,7 +55,7 @@ describe("renderMessageTemplate com link_sentence", () => {
     const out = renderMessageTemplate("goal_invite_followup", null, {
       participant_name: "Ana", owner_name: "João",
       title: "Viagem",
-      link_sentence: " Cadastre-se em segundos: https://app.x/signup",
+      link_sentence: " Cadastre-se em segundos: app.x/signup",
     });
     expect(out).toContain("lembrar do convite");
     expect(out).toContain("Cadastre-se");

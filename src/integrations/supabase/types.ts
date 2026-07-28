@@ -4973,7 +4973,7 @@ export type Database = {
           lease_expires_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
-          participant_id: string
+          participant_id: string | null
           scheduled_for: string
           shared_expense_id: string
           status: Database["public"]["Enums"]["reminder_status"]
@@ -4990,7 +4990,7 @@ export type Database = {
           lease_expires_at?: string | null
           outbound_message_id?: string | null
           owner_user_id: string
-          participant_id: string
+          participant_id?: string | null
           scheduled_for?: string
           shared_expense_id: string
           status?: Database["public"]["Enums"]["reminder_status"]
@@ -5007,7 +5007,7 @@ export type Database = {
           lease_expires_at?: string | null
           outbound_message_id?: string | null
           owner_user_id?: string
-          participant_id?: string
+          participant_id?: string | null
           scheduled_for?: string
           shared_expense_id?: string
           status?: Database["public"]["Enums"]["reminder_status"]
@@ -6973,7 +6973,7 @@ export type Database = {
           lease_expires_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
-          participant_id: string
+          participant_id: string | null
           scheduled_for: string
           shared_expense_id: string
           status: Database["public"]["Enums"]["reminder_status"]
@@ -6999,7 +6999,7 @@ export type Database = {
           lease_expires_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
-          participant_id: string
+          participant_id: string | null
           scheduled_for: string
           shared_expense_id: string
           status: Database["public"]["Enums"]["reminder_status"]

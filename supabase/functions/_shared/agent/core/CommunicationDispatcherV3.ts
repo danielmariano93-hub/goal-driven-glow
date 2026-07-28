@@ -195,7 +195,12 @@ export async function dispatchSuggestions(
         ? "awaiting_manual_approval"
         : null;
       if (gate) {
-        if (!dryRun) {
+        // Canal desligado por rollout/catálogo é configuração intencional, não
+        // bloqueio de política: não vira "mensagem bloqueada" no painel.
+        const configuredOff = gate === "rollout_channel_disabled"
+          || gate === "kind_disabled_in_catalog"
+          || gate === "channel_disabled_in_catalog";
+        if (!dryRun && !configuredOff) {
           await record(sb, {
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "suppressed", reason: gate, dedup_key: candidate.dedup_key,
@@ -205,6 +210,7 @@ export async function dispatchSuggestions(
         results.push({ id: candidate.id, channel: target, status: "skipped", reason: gate });
         continue;
       }
+
 
       const decision = decideCommunication({ candidate, target, preferences: prefs, history: recent });
       if (!decision.allowed) {
