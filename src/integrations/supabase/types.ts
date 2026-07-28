@@ -1728,6 +1728,59 @@ export type Database = {
         }
         Relationships: []
       }
+      communication_templates: {
+        Row: {
+          active: boolean
+          allowed_variables: string[]
+          body_template: string
+          channel: string
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          title_template: string
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          active?: boolean
+          allowed_variables?: string[]
+          body_template: string
+          channel: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind: string
+          title_template: string
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          active?: boolean
+          allowed_variables?: string[]
+          body_template?: string
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          title_template?: string
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "communication_templates_kind_fkey"
+            columns: ["kind"]
+            isOneToOne: false
+            referencedRelation: "communication_catalog"
+            referencedColumns: ["kind"]
+          },
+        ]
+      }
       company_accounts: {
         Row: {
           created_at: string
@@ -6583,6 +6636,17 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_communication_template_upsert: {
+        Args: {
+          _active?: boolean
+          _body_template: string
+          _channel: string
+          _kind: string
+          _title_template: string
+        }
+        Returns: Json
+      }
+      admin_communication_templates: { Args: { _kind?: string }; Returns: Json }
       admin_consumer_users_set: {
         Args: never
         Returns: {
@@ -7095,6 +7159,11 @@ export type Database = {
         }
         Returns: Json
       }
+      my_proactive_suggestion: { Args: { _dedup_key: string }; Returns: Json }
+      my_proactive_suggestion_feedback: {
+        Args: { _dedup_key: string; _feedback: string }
+        Returns: undefined
+      }
       my_tip_feedback: {
         Args: { _feedback: string; _insight_id: string }
         Returns: undefined
@@ -7116,6 +7185,7 @@ export type Database = {
         Returns: string
       }
       prune_product_events: { Args: { _days?: number }; Returns: number }
+      reconcile_agent_memory_categories: { Args: never; Returns: number }
       reconcile_document_balance: {
         Args: { p_account_id: string; p_document_id: string }
         Returns: Json
@@ -7153,6 +7223,10 @@ export type Database = {
       rollback_document_import: {
         Args: { p_document_id: string }
         Returns: Json
+      }
+      schedule_split_due_reminders: {
+        Args: { p_expense_id?: string }
+        Returns: number
       }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
       shared_goal_accept_invite: { Args: { p_goal_id: string }; Returns: Json }
@@ -7280,6 +7354,10 @@ export type Database = {
       split_delivery_diagnosis: {
         Args: { p_expense_id: string }
         Returns: Json
+      }
+      split_due_timestamp: {
+        Args: { p_date: string; p_hour?: number }
+        Returns: string
       }
       split_enqueue_message: {
         Args: {
