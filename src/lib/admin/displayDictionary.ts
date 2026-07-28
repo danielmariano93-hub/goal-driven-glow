@@ -123,6 +123,9 @@ const COMM_REASON: Record<string, string> = {
   channel_disabled_in_catalog: "Canal desativado para este tipo",
   awaiting_manual_approval: "Aguardando aprovação manual",
   no_active_whatsapp_link: "Cliente sem WhatsApp conectado",
+  channel_not_ready: "Conteúdo ainda não pronto para este canal",
+  in_app_notification_created: "Notificação criada no aplicativo",
+
   kind_cooldown_24h: "Já enviado nas últimas 24 horas",
   daily_cap_reached: "Limite diário de mensagens atingido",
   quiet_hours: "Fora do horário permitido",
