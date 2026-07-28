@@ -13,6 +13,7 @@ import {
   type InsightPayload,
 } from "@/lib/insights/fallbacks";
 import { useAllTransactions, useGoals } from "@/lib/db/finance";
+import { sendTipFeedback } from "@/lib/nino/client";
 import { computeMonthlyTotals, type TransactionRow } from "@/lib/engine/facts";
 
 type Insight = {
@@ -169,12 +170,28 @@ export function AssistantTipCard() {
       setNonce((n) => n + 1);
       return;
     }
-    await (supabase.from("user_insights" as never) as any).update({ feedback: "not_useful", status: "dismissed" }).eq("id", current.id);
+    try {
+      await sendTipFeedback(current.id, "dismissed");
+    } catch (e) {
+      console.warn("[tip-feedback]", (e as Error).message);
+    }
     const next = new Set(seen); next.add(current.id); saveSeen(next); setSeenVersion((v) => v + 1);
-    const remaining = activeList.filter((i) => i.id !== current.id && !next.has(i.id));
-    if (remaining.length === 0) void generate(true);
+    // Não forçamos nova geração aqui: a política de dicas respeita a janela
+    // mínima e o cooldown por família, evitando o loop de dicas repetidas.
     toast.success(copy.tip.thanks);
     qc.invalidateQueries({ queryKey: ["assistant-tip"] });
+  };
+
+  const markUseful = async () => {
+    if (!current) return;
+    try {
+      await sendTipFeedback(current.id, "acted");
+      const next = new Set(seen); next.add(current.id); saveSeen(next); setSeenVersion((v) => v + 1);
+      toast.success(copy.tip.thanks);
+      qc.invalidateQueries({ queryKey: ["assistant-tip"] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   const localFallback: InsightPayload = useMemo(() => {
@@ -241,6 +258,16 @@ export function AssistantTipCard() {
         >
           {ctaLabel}
         </Link>
+        {!usingLocal && (
+          <button
+            type="button"
+            onClick={markUseful}
+            className="text-[12px] font-semibold hover:underline"
+            style={{ color: "var(--home-text-2)" }}
+          >
+            Útil
+          </button>
+        )}
         <button
           type="button"
           onClick={dismiss}
