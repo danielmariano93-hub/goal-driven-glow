@@ -277,6 +277,7 @@ export type Database = {
           formula_version: string
           generated_at: string
           id: string
+          last_generated_at: string
           period_end: string
           period_kind: string
           period_start: string
@@ -290,6 +291,7 @@ export type Database = {
           formula_version?: string
           generated_at?: string
           id?: string
+          last_generated_at?: string
           period_end: string
           period_kind: string
           period_start: string
@@ -303,6 +305,7 @@ export type Database = {
           formula_version?: string
           generated_at?: string
           id?: string
+          last_generated_at?: string
           period_end?: string
           period_kind?: string
           period_start?: string
@@ -476,6 +479,7 @@ export type Database = {
           use_count: number
           user_id: string
           value: Json
+          visibility: string
         }
         Insert: {
           confidence?: number
@@ -490,6 +494,7 @@ export type Database = {
           use_count?: number
           user_id: string
           value?: Json
+          visibility?: string
         }
         Update: {
           confidence?: number
@@ -504,6 +509,7 @@ export type Database = {
           use_count?: number
           user_id?: string
           value?: Json
+          visibility?: string
         }
         Relationships: [
           {
@@ -819,9 +825,16 @@ export type Database = {
           default_retention_days: number | null
           default_technical_level: string | null
           id: number
+          last_tick_at: string | null
+          last_tick_duration_ms: number | null
+          last_tick_errors: Json
+          last_tick_users: number | null
           max_steps: number
           model: string
+          next_tick_at: string | null
+          proactive_channels: string[]
           proactive_enabled: boolean
+          proactive_rollout_user_ids: string[]
           temperature: number
           timeout_ms: number
           updated_at: string
@@ -832,9 +845,16 @@ export type Database = {
           default_retention_days?: number | null
           default_technical_level?: string | null
           id?: number
+          last_tick_at?: string | null
+          last_tick_duration_ms?: number | null
+          last_tick_errors?: Json
+          last_tick_users?: number | null
           max_steps?: number
           model?: string
+          next_tick_at?: string | null
+          proactive_channels?: string[]
           proactive_enabled?: boolean
+          proactive_rollout_user_ids?: string[]
           temperature?: number
           timeout_ms?: number
           updated_at?: string
@@ -845,9 +865,16 @@ export type Database = {
           default_retention_days?: number | null
           default_technical_level?: string | null
           id?: number
+          last_tick_at?: string | null
+          last_tick_duration_ms?: number | null
+          last_tick_errors?: Json
+          last_tick_users?: number | null
           max_steps?: number
           model?: string
+          next_tick_at?: string | null
+          proactive_channels?: string[]
           proactive_enabled?: boolean
+          proactive_rollout_user_ids?: string[]
           temperature?: number
           timeout_ms?: number
           updated_at?: string
@@ -1520,6 +1547,63 @@ export type Database = {
         }
         Relationships: []
       }
+      communication_catalog: {
+        Row: {
+          active: boolean
+          allowed_channels: string[]
+          audience_note: string | null
+          base_priority: number
+          content_mode: string
+          cooldown_hours: number
+          created_at: string
+          description: string | null
+          dismiss_cooldown_days: number
+          family: string
+          kind: string
+          label: string
+          max_per_day: number
+          not_useful_cooldown_days: number
+          requires_manual_approval: boolean
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          allowed_channels?: string[]
+          audience_note?: string | null
+          base_priority?: number
+          content_mode?: string
+          cooldown_hours?: number
+          created_at?: string
+          description?: string | null
+          dismiss_cooldown_days?: number
+          family: string
+          kind: string
+          label: string
+          max_per_day?: number
+          not_useful_cooldown_days?: number
+          requires_manual_approval?: boolean
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          allowed_channels?: string[]
+          audience_note?: string | null
+          base_priority?: number
+          content_mode?: string
+          cooldown_hours?: number
+          created_at?: string
+          description?: string | null
+          dismiss_cooldown_days?: number
+          family?: string
+          kind?: string
+          label?: string
+          max_per_day?: number
+          not_useful_cooldown_days?: number
+          requires_manual_approval?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       communication_deliveries: {
         Row: {
           acted_at: string | null
@@ -1604,6 +1688,45 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      communication_feedback: {
+        Row: {
+          created_at: string
+          dedup_key: string | null
+          family: string | null
+          feedback: string
+          id: string
+          kind: string
+          source_id: string | null
+          source_table: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dedup_key?: string | null
+          family?: string | null
+          feedback: string
+          id?: string
+          kind: string
+          source_id?: string | null
+          source_table: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dedup_key?: string | null
+          family?: string | null
+          feedback?: string
+          id?: string
+          kind?: string
+          source_id?: string | null
+          source_table?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       company_accounts: {
         Row: {
@@ -5823,11 +5946,13 @@ export type Database = {
           dedup_key: string | null
           evidence: Json
           expires_at: string
+          family: string | null
           feedback: string | null
           generated_at: string
           id: string
           model: string | null
           prompt_version: string | null
+          resolved_at: string | null
           score: number | null
           severity: string | null
           status: string
@@ -5844,11 +5969,13 @@ export type Database = {
           dedup_key?: string | null
           evidence?: Json
           expires_at?: string
+          family?: string | null
           feedback?: string | null
           generated_at?: string
           id?: string
           model?: string | null
           prompt_version?: string | null
+          resolved_at?: string | null
           score?: number | null
           severity?: string | null
           status?: string
@@ -5865,11 +5992,13 @@ export type Database = {
           dedup_key?: string | null
           evidence?: Json
           expires_at?: string
+          family?: string | null
           feedback?: string | null
           generated_at?: string
           id?: string
           model?: string | null
           prompt_version?: string | null
+          resolved_at?: string | null
           score?: number | null
           severity?: string | null
           status?: string
@@ -6283,6 +6412,22 @@ export type Database = {
         }
         Relationships: []
       }
+      v_communication_ledger: {
+        Row: {
+          channel: string | null
+          cost_usd: number | null
+          created_at: string | null
+          dedup_key: string | null
+          family: string | null
+          feedback: string | null
+          kind: string | null
+          source_id: string | null
+          source_table: string | null
+          status: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       v_outbound_sla_breach: {
         Row: {
           age_seconds: number | null
@@ -6425,6 +6570,19 @@ export type Database = {
         Args: { _id: string; _reason?: string }
         Returns: boolean
       }
+      admin_communication_catalog: { Args: never; Returns: Json }
+      admin_communication_catalog_update: {
+        Args: {
+          _active?: boolean
+          _allowed_channels?: string[]
+          _base_priority?: number
+          _cooldown_hours?: number
+          _kind: string
+          _max_per_day?: number
+          _requires_manual_approval?: boolean
+        }
+        Returns: Json
+      }
       admin_consumer_users_set: {
         Args: never
         Returns: {
@@ -6500,6 +6658,12 @@ export type Database = {
       }
       admin_ops_health: { Args: never; Returns: Json }
       admin_platform_status: { Args: never; Returns: Json }
+      admin_proactive_engine_status: { Args: never; Returns: Json }
+      admin_proactive_engine_toggle: {
+        Args: { _channels?: string[]; _enabled?: boolean }
+        Returns: Json
+      }
+      admin_proactive_queue: { Args: { _limit?: number }; Returns: Json }
       admin_process_deletion_request: {
         Args: { p_id: string }
         Returns: string
@@ -6905,6 +7069,7 @@ export type Database = {
         Args: { _action_key: string; _review_id: string; _status: string }
         Returns: Json
       }
+      my_advisor_readiness: { Args: never; Returns: Json }
       my_behavior_hypothesis_feedback: {
         Args: { _feedback?: string; _hypothesis_id: string; _verdict: string }
         Returns: Json
@@ -6929,6 +7094,10 @@ export type Database = {
           _whatsapp?: boolean
         }
         Returns: Json
+      }
+      my_tip_feedback: {
+        Args: { _feedback: string; _insight_id: string }
+        Returns: undefined
       }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
       notifications_mark_interacted: {

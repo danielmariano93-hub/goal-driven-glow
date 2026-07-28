@@ -68,7 +68,7 @@ function keyOf(p: InsightPayload): string {
   return `${p.type}:${p.title}`;
 }
 
-function candidates(f: InsightFacts): InsightPayload[] {
+export function candidates(f: InsightFacts): InsightPayload[] {
   const list: InsightPayload[] = [];
   const total = f.total_tx_ever ?? 0;
 

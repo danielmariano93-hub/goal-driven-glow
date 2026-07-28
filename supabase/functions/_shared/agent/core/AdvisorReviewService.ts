@@ -184,11 +184,54 @@ export function buildAdvisorReview(
   };
 }
 
+/** Critérios mínimos de dados para uma revisão honesta. */
+export const REVIEW_MIN_TRANSACTIONS = 20;
+export const REVIEW_MIN_MONTHS_OBSERVED = 1;
+
+export type ReviewReadiness = {
+  eligible: boolean;
+  transactions_90d: number;
+  months_observed: number;
+  missing: string[];
+};
+
+export function evaluateReadiness(transactions90d: number, monthsObserved: number): ReviewReadiness {
+  const missing: string[] = [];
+  if (transactions90d < REVIEW_MIN_TRANSACTIONS) {
+    missing.push(`Registrar ao menos ${REVIEW_MIN_TRANSACTIONS} lançamentos (você tem ${transactions90d}).`);
+  }
+  if (monthsObserved < REVIEW_MIN_MONTHS_OBSERVED) {
+    missing.push("Ter ao menos um mês de histórico registrado.");
+  }
+  return {
+    eligible: missing.length === 0,
+    transactions_90d: transactions90d,
+    months_observed: monthsObserved,
+    missing,
+  };
+}
+
 export async function generateAdvisorReviews(
   sb: SupabaseClient,
   user_id: string,
-): Promise<{ weekly: number; monthly: number }> {
+): Promise<{ weekly: number; monthly: number; skipped?: ReviewReadiness }> {
   const profile = await loadProfile(sb, user_id);
+
+  // Guarda de dados mínimos: melhor não ter revisão do que ter indicadores
+  // zerados apresentados como diagnóstico.
+  const { count: txCount } = await sb.from("transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user_id)
+    .eq("status", "confirmed")
+    .gte("occurred_at", new Date(Date.now() - 90 * DAY).toISOString().slice(0, 10));
+  const readiness = evaluateReadiness(
+    Number(txCount ?? 0),
+    Number(profile.indicators.months_observed ?? 0),
+  );
+  if (!readiness.eligible) {
+    return { weekly: 0, monthly: 0, skipped: readiness };
+  }
+
 
   const { data: goalsData } = await sb.from("goals")
     .select("id,name,target_amount,target_date")
@@ -253,6 +296,7 @@ export async function generateAdvisorReviews(
         ? "completed"
         : "active",
       formula_version: review.formula_version,
+      last_generated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,period_kind,period_start" });
 
@@ -297,6 +341,7 @@ export async function generateAdvisorReviews(
       },
       confidence: 1,
       source: "inferred",
+      visibility: "internal",
       expires_at: new Date(Date.now() + 180 * DAY).toISOString(),
     });
   }
