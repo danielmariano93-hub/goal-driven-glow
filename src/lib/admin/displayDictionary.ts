@@ -85,7 +85,21 @@ const JOB: Record<string, string> = {
 };
 
 const COMM_KIND: Record<string, string> = {
+  advisor_review_weekly: "Acompanhamento semanal do Nino",
+  advisor_review_monthly: "Acompanhamento mensal do Nino",
+  categorize_transaction: "Categorizar lançamento",
+  emotional_spending: "Gasto ligado à emoção",
+  engagement_drop: "Queda de uso do app",
+  financial_discipline: "Disciplina financeira",
+  financial_procrastination: "Adiamento de decisões financeiras",
+  forgotten_bill: "Conta possivelmente esquecida",
+  impulsive_spending: "Gasto por impulso",
+  recurring_pattern: "Padrão recorrente identificado",
+  relapse_risk: "Risco de recaída de hábito",
+  saving_opportunity: "Oportunidade de economia",
+  underused_subscription: "Assinatura pouco usada",
   duplicate_expense: "Possível gasto duplicado",
+
   spending_spike: "Gasto acima do normal",
   budget_risk: "Risco de estourar o orçamento",
   goal_progress: "Progresso de meta",
