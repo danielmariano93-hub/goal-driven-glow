@@ -81,6 +81,39 @@ function matchByName(candidates: CategoryCandidate[], name: string): string | nu
   return partial ? partial.id : null;
 }
 
+function tokens(value: string): Set<string> {
+  return new Set((value ?? "").split(/\s+/).map((item) => item.trim()).filter((item) => item.length >= 2));
+}
+
+export function tokenSimilarity(left: string, right: string): number {
+  const a = tokens(left);
+  const b = tokens(right);
+  if (a.size === 0 || b.size === 0) return 0;
+  const intersection = [...a].filter((item) => b.has(item)).length;
+  const union = new Set([...a, ...b]).size;
+  return union > 0 ? intersection / union : 0;
+}
+
+export function decideByFuzzyAlias(pattern: string, aliases: AliasRow[]): CategoryDecision | null {
+  if (!pattern) return null;
+  const candidates = aliases
+    .filter((item) => item.category_id)
+    .map((item) => ({ item, similarity: tokenSimilarity(pattern, item.pattern) }))
+    .filter((entry) => entry.similarity >= 0.8)
+    .sort((a, b) => b.similarity - a.similarity);
+  const best = candidates[0];
+  if (!best) return null;
+  const second = candidates[1];
+  if (second && second.item.category_id !== best.item.category_id && best.similarity - second.similarity < 0.08) return null;
+  const confidence = Math.min(0.94, 0.86 + Math.max(0, best.similarity - 0.8) * 0.4);
+  return {
+    category_id: best.item.category_id,
+    category_source: "alias",
+    category_confidence: round2(confidence),
+    category_reason: `alias semelhante (${Math.round(best.similarity * 100)}% de tokens em comum)`,
+  };
+}
+
 export function decideExplicit(userChoice: string | null | undefined, candidates: CategoryCandidate[]): CategoryDecision | null {
   if (!userChoice) return null;
   const id = matchByName(candidates, userChoice);
@@ -145,6 +178,7 @@ export function decideCategoryDeterministic(input: {
 
   return decideExplicit(input.explicit, input.candidates)
       ?? decideByAlias(pattern, input.aliases)
+      ?? decideByFuzzyAlias(pattern, input.aliases)
       ?? decideByHistory(pattern, input.history)
       ?? decideByRule(input.description, input.candidates);
 }

@@ -9,6 +9,12 @@ verify_jwt = false
 [functions.split-reminders-dispatch]
 verify_jwt = false
 
+[functions.split-reminders-dispatch-v2]
+verify_jwt = false
+
+[functions.agent-proactive-tick]
+verify_jwt = false
+
 [functions.user-data-export]
 verify_jwt = true
 

@@ -3,4 +3,4 @@
 export {
   dispatchSuggestions,
   type DispatchOutcome,
-} from "./CommunicationDispatcherV2.ts";
+} from "./CommunicationDispatcherV3.ts";
