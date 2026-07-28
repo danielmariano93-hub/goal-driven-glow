@@ -21,6 +21,8 @@ export type MemoryRecord = {
   confidence?: number;
   source?: MemorySource;
   expires_at?: string | null;
+  /** "internal" nunca aparece na tela "O que o Nino sabe sobre mim". */
+  visibility?: "user" | "internal";
 };
 
 export type MemoryFact = MemoryRecord & {
@@ -54,6 +56,7 @@ export async function remember(sb: SupabaseClient, rec: MemoryRecord): Promise<M
     value: rec.value ?? {},
     confidence: Math.max(0, Math.min(1, rec.confidence ?? 0.6)),
     source,
+    visibility: rec.visibility ?? "user",
     expires_at: rec.expires_at ?? null,
     updated_at: new Date().toISOString(),
   };

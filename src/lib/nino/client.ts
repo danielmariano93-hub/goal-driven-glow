@@ -97,3 +97,45 @@ export async function sendCommunicationFeedback(
   });
   if (error) fail(error, "Não foi possível registrar o feedback.");
 }
+
+export type AdvisorReadiness = {
+  eligible: boolean;
+  transactions_90d: number;
+  months_observed: number;
+  missing: string[];
+  weekly_last_generated_at: string | null;
+  monthly_last_generated_at: string | null;
+};
+
+export async function loadAdvisorReadiness(): Promise<AdvisorReadiness> {
+  const { data, error } = await untypedRpc("my_advisor_readiness");
+  if (error) fail(error, "Não foi possível verificar sua revisão.");
+  const raw = (data ?? {}) as Record<string, unknown>;
+  return {
+    eligible: raw.eligible === true,
+    transactions_90d: Number(raw.transactions_90d ?? 0),
+    months_observed: Number(raw.months_observed ?? 0),
+    missing: Array.isArray(raw.missing) ? raw.missing.map(String) : [],
+    weekly_last_generated_at: (raw.weekly_last_generated_at as string | null) ?? null,
+    monthly_last_generated_at: (raw.monthly_last_generated_at as string | null) ?? null,
+  };
+}
+
+/** Gera revisão/insights sob demanda apenas para o próprio usuário (canal app). */
+export async function requestNinoRefresh(): Promise<void> {
+  const { error } = await supabase.functions.invoke("agent-proactive-tick", {
+    body: { self: true, only: ["profile", "behavior", "advisor", "proactive"] },
+  });
+  if (error) throw new Error(error.message || "Não foi possível atualizar agora.");
+}
+
+export async function sendTipFeedback(
+  insightId: string,
+  feedback: "useful" | "not_useful" | "dismissed" | "acted",
+): Promise<void> {
+  const { error } = await untypedRpc("my_tip_feedback", {
+    _insight_id: insightId,
+    _feedback: feedback,
+  });
+  if (error) fail(error, "Não foi possível registrar o feedback.");
+}

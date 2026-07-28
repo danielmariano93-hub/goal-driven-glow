@@ -8,9 +8,24 @@ import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 export type DispatchOutcome = {
   id: string;
   channel: string;
-  status: "delivered" | "queued" | "skipped" | "failed";
+  status: "delivered" | "queued" | "skipped" | "failed" | "simulated";
   reason?: string;
 };
+
+export type CatalogEntry = {
+  kind: string;
+  active: boolean;
+  allowed_channels: string[];
+  requires_manual_approval: boolean;
+};
+
+async function loadCatalog(sb: SupabaseClient): Promise<Map<string, CatalogEntry>> {
+  const { data } = await sb.from("communication_catalog")
+    .select("kind,active,allowed_channels,requires_manual_approval");
+  const map = new Map<string, CatalogEntry>();
+  for (const row of ((data as CatalogEntry[] | null) ?? [])) map.set(row.kind, row);
+  return map;
+}
 
 function notificationType(kind: string): string {
   if (/achievement|celebr|streak|improvement/i.test(kind)) return "achievement";
@@ -70,7 +85,14 @@ async function record(sb: SupabaseClient, args: {
 export async function dispatchSuggestions(
   sb: SupabaseClient,
   user_id: string,
-  opts: { channel?: "app" | "whatsapp"; max?: number } = {},
+  opts: {
+    channel?: "app" | "whatsapp";
+    /** canais liberados pelo rollout global (agent_settings.proactive_channels) */
+    channels?: Array<"app" | "whatsapp">;
+    max?: number;
+    /** simulação: nada é gravado nem enviado */
+    dryRun?: boolean;
+  } = {},
 ): Promise<DispatchOutcome[]> {
   const { data } = await sb.from("pending_proactive_suggestions")
     .select("id,user_id,channel_ready,kind,title,body,severity,dedup_key,action,evidence")
@@ -80,7 +102,10 @@ export async function dispatchSuggestions(
   const rows = ((data as any[] | null) ?? []) as CommunicationCandidate[];
   const prefs = await loadPreferences(sb, user_id);
   const recent = await history(sb, user_id);
+  const catalog = await loadCatalog(sb);
+  const rollout: Array<"app" | "whatsapp"> = (opts.channels?.length ? opts.channels : ["app", "whatsapp"]);
   const targets: Array<"app" | "whatsapp"> = opts.channel ? [opts.channel] : ["app", "whatsapp"];
+  const dryRun = opts.dryRun === true;
   const results: DispatchOutcome[] = [];
 
   const { data: link } = await sb.from("whatsapp_links")
@@ -90,8 +115,35 @@ export async function dispatchSuggestions(
   for (const candidate of rows) {
     let anyQueued = false;
     for (const target of targets) {
+      const entry = catalog.get(candidate.kind);
+      const gate = !rollout.includes(target)
+        ? "rollout_channel_disabled"
+        : entry && entry.active === false
+        ? "kind_disabled_in_catalog"
+        : entry && Array.isArray(entry.allowed_channels) && !entry.allowed_channels.includes(target)
+        ? "channel_disabled_in_catalog"
+        : entry?.requires_manual_approval && (candidate as unknown as { approved_at?: string }).approved_at == null
+        ? "awaiting_manual_approval"
+        : null;
+      if (gate) {
+        if (!dryRun) {
+          await record(sb, {
+            user_id, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
+            status: "suppressed", reason: gate, dedup_key: candidate.dedup_key,
+            evidence: candidate.evidence,
+            block_context: { policy_reason: gate, target },
+          });
+        }
+        results.push({ id: candidate.id, channel: target, status: "skipped", reason: gate });
+        continue;
+      }
+
       const decision = decideCommunication({ candidate, target, preferences: prefs, history: recent });
       if (!decision.allowed) {
+        if (dryRun) {
+          results.push({ id: candidate.id, channel: target, status: "skipped", reason: decision.reason });
+          continue;
+        }
         await record(sb, {
           user_id, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
           status: "suppressed", reason: decision.reason, dedup_key: candidate.dedup_key,
@@ -99,6 +151,11 @@ export async function dispatchSuggestions(
           block_context: { policy_reason: decision.reason, target },
         });
         results.push({ id: candidate.id, channel: target, status: "skipped", reason: decision.reason });
+        continue;
+      }
+
+      if (dryRun) {
+        results.push({ id: candidate.id, channel: target, status: "simulated", reason: "dry_run" });
         continue;
       }
 
@@ -163,6 +220,7 @@ export async function dispatchSuggestions(
         results.push({ id: candidate.id, channel: target, status: "failed", reason });
       }
     }
+    if (dryRun) continue;
     await sb.from("pending_proactive_suggestions").update({
       status: anyQueued ? "dispatched" : "dismissed",
       dispatched_at: anyQueued ? new Date().toISOString() : null,

@@ -7,11 +7,17 @@ import {
   ClipboardCheck,
   Loader2,
   MessageCircle,
+  RefreshCw,
   Target,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { loadNinoContext, updateAdvisorAction } from "@/lib/nino/client";
+import {
+  loadAdvisorReadiness,
+  loadNinoContext,
+  requestNinoRefresh,
+  updateAdvisorAction,
+} from "@/lib/nino/client";
 import type { AdvisorReview } from "@/lib/nino/contracts";
 
 function formatBRL(value: number | null | undefined): string {
@@ -38,6 +44,24 @@ export default function AssessorAcompanhamento() {
       .filter((item) => item.period_kind === period)
       .sort((a, b) => b.period_start.localeCompare(a.period_start))[0] ?? null;
   }, [period, query.data]);
+
+  const readiness = useQuery({
+    queryKey: ["nino-advisor-readiness"],
+    queryFn: loadAdvisorReadiness,
+    staleTime: 30_000,
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: requestNinoRefresh,
+    onSuccess: async () => {
+      toast.success("Nino atualizado com seus dados mais recentes.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["nino-context"] }),
+        queryClient.invalidateQueries({ queryKey: ["nino-advisor-readiness"] }),
+      ]);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
   const actionMutation = useMutation({
     mutationFn: async (args: {
@@ -79,6 +103,23 @@ export default function AssessorAcompanhamento() {
         <p className="mt-1 text-sm text-muted-foreground">
           Revisões objetivas, próximos passos e progresso das decisões financeiras.
         </p>
+        <button
+          type="button"
+          onClick={() => refreshMutation.mutate()}
+          disabled={refreshMutation.isPending}
+          className="mt-3 inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-xs font-semibold disabled:opacity-60"
+        >
+          <RefreshCw size={13} className={refreshMutation.isPending ? "animate-spin" : ""} />
+          {refreshMutation.isPending ? "Atualizando..." : "Atualizar agora"}
+        </button>
+        {(readiness.data?.weekly_last_generated_at || readiness.data?.monthly_last_generated_at) && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Última revisão semanal:{" "}
+            {readiness.data?.weekly_last_generated_at
+              ? new Date(readiness.data.weekly_last_generated_at).toLocaleString("pt-BR")
+              : "ainda não gerada"}
+          </p>
+        )}
       </header>
 
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary p-1">
@@ -102,10 +143,19 @@ export default function AssessorAcompanhamento() {
       {!review ? (
         <section className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
           <ClipboardCheck className="mx-auto h-8 w-8 text-primary" />
-          <h2 className="mt-3 text-sm font-semibold">Sua primeira revisão está sendo preparada</h2>
+          <h2 className="mt-3 text-sm font-semibold">
+            {readiness.data && !readiness.data.eligible
+              ? "Ainda não há dados suficientes para uma revisão honesta"
+              : "Sua primeira revisão está sendo preparada"}
+          </h2>
           <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-            O Nino gera revisões com base nos lançamentos, metas e informações registradas. Continue usando o app para aumentar a precisão.
+            O Nino só gera revisões quando os números representam a sua realidade. Nada de indicadores zerados.
           </p>
+          {readiness.data && readiness.data.missing.length > 0 && (
+            <ul className="mx-auto mt-4 max-w-md space-y-1 text-left text-xs text-muted-foreground">
+              {readiness.data.missing.map((item) => <li key={item}>• {item}</li>)}
+            </ul>
+          )}
           <button
             type="button"
             onClick={() => navigate("/app/assessor")}

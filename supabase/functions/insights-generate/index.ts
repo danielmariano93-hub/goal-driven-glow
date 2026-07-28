@@ -1,19 +1,27 @@
 // Edge function: insights-generate
-// Gera uma dica personalizada, com validação estrita e fallback determinístico.
+// Gera UMA dica do Nino usando a política única de seleção (tipPolicy).
 // - JWT obrigatório.
-// - Cache: reaproveita apenas insights ativos, não vazios e recém-gerados.
-// - IA opcional via Lovable Gateway; qualquer falha cai em fallback contextual.
+// - Sem short-circuit de categorização: ela concorre como qualquer outra dica.
+// - "Agora não" e "não útil" viram cooldown real; diversidade por família.
+// - `force` nunca gera duas dicas em sequência (janela mínima).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { InsightSchema, pickFallback, parseInsightResponse, type InsightFacts } from "../_shared/insights/fallbacks.ts";
+import {
+  InsightSchema,
+  candidates as buildCandidates,
+  pickFallback,
+  parseInsightResponse,
+  type InsightFacts,
+} from "../_shared/insights/fallbacks.ts";
 import { computeBehavioralSignals } from "../_shared/insights/facts.ts";
 import { computeAccountStatementTotals, computeMonthlyTotals, type TransactionRow } from "../_shared/engine/facts.ts";
+import { canGenerateNow, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
-const PROMPT_VERSION = "v4-behavioral-signals";
+const PROMPT_VERSION = "v5-tip-policy";
 const ACCOUNTING_SCOPE = "behavioral_v1";
 const MODEL = "google/gemini-2.5-flash";
 const AI_TIMEOUT_MS = 8000;
@@ -43,29 +51,59 @@ Deno.serve(async (req) => {
 
   const supa = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-  // Cache reuse (6h) — only real content.
-  if (!force) {
-    const cutoff = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
-    const nowIso = new Date().toISOString();
-    const { data: existing } = await supa
-      .from("user_insights")
-      .select("*")
-      .eq("user_id", uid)
-      .eq("status", "active")
-      .gt("expires_at", nowIso)
-      .gt("generated_at", cutoff)
-      .order("generated_at", { ascending: false })
-      .limit(5);
-    const usable = (existing ?? []).find(
-      (r: any) => typeof r.title === "string" && r.title.trim() && typeof r.body === "string" && r.body.trim(),
-    );
-    if (usable) {
+  const nowIso = new Date().toISOString();
+
+  // Insight ativo mais recente (cache e controle de janela mínima).
+  const { data: activeRows } = await supa
+    .from("user_insights")
+    .select("*")
+    .eq("user_id", uid)
+    .eq("status", "active")
+    .gt("expires_at", nowIso)
+    .order("generated_at", { ascending: false })
+    .limit(5);
+  const active = (activeRows ?? []) as Record<string, unknown>[];
+  const usable = active.find(
+    (r) => typeof r.title === "string" && r.title.trim() && typeof r.body === "string" && r.body.trim(),
+  );
+
+  if (!force && usable) {
+    const cutoff = Date.now() - 6 * 3600 * 1000;
+    if (new Date(String(usable.generated_at)).getTime() > cutoff) {
       logEvent({ event: "cached", latency_ms: Date.now() - started });
       return json({ insight: usable, cached: true });
     }
   }
 
-  // Aggregate facts
+  // Janela mínima entre gerações: impede "dispensou → nova dica na hora".
+  const { data: lastRow } = await supa
+    .from("user_insights")
+    .select("generated_at")
+    .eq("user_id", uid)
+    .order("generated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!canGenerateNow((lastRow as { generated_at?: string } | null)?.generated_at ?? null)) {
+    logEvent({ event: "throttled" });
+    return json({ insight: usable ?? null, cached: !!usable, throttled: true });
+  }
+
+  // Histórico unificado (dicas + entregas proativas) para a política.
+  const since = new Date(Date.now() - 60 * 86400_000).toISOString();
+  const [{ data: ledgerRows }, { data: feedbackRows }] = await Promise.all([
+    supa.from("v_communication_ledger")
+      .select("kind,family,dedup_key,created_at,feedback,status")
+      .eq("user_id", uid).gte("created_at", since).limit(300),
+    supa.from("communication_feedback")
+      .select("kind,family,dedup_key,created_at,feedback")
+      .eq("user_id", uid).gte("created_at", since).limit(300),
+  ]);
+  const ledger: LedgerRow[] = [
+    ...(((ledgerRows as LedgerRow[] | null) ?? [])),
+    ...(((feedbackRows as LedgerRow[] | null) ?? []).map((row) => ({ ...row, status: row.feedback ?? null }))),
+  ];
+
+  // ------- fatos -------
   const now0 = new Date();
   const ym = now0.toISOString().slice(0, 7);
   const prevYm = new Date(now0.getFullYear(), now0.getMonth() - 1, 1).toISOString().slice(0, 7);
@@ -79,7 +117,6 @@ Deno.serve(async (req) => {
     { data: recurring },
     { data: uncategorized },
     { data: categoriesRows },
-    { data: recentInsights },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", uid).eq("status", "active"),
@@ -102,73 +139,63 @@ Deno.serve(async (req) => {
     supa.from("recurring_entries").select("id,next_due_date,active").eq("user_id", uid).eq("active", true),
     supa
       .from("transactions")
-      .select("id,description,amount,occurred_at")
+      .select("id,description,amount,occurred_at,movement_kind")
       .eq("user_id", uid)
       .eq("status", "confirmed")
-      .in("type", ["income", "expense"] as any)
+      .in("type", ["income", "expense"] as never)
       .is("category_id", null)
       .gte("occurred_at", new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10))
       .order("occurred_at", { ascending: false })
       .limit(20),
     supa.from("categories").select("id,name").or(`user_id.eq.${uid},user_id.is.null`),
-    supa.from("user_insights").select("id,title,type")
-      .eq("user_id", uid).eq("status", "active")
-      .order("generated_at", { ascending: false }).limit(10),
   ]);
 
-  const { data: previousActive } = await supa.from("user_insights")
-    .select("id,evidence,title").eq("user_id",uid).eq("status","active")
-    .order("generated_at",{ascending:false}).limit(1).maybeSingle();
-  const previousTxId = (previousActive?.evidence as any)?.transaction_id as string | undefined;
-  const chosenUncategorized = (uncategorized ?? []).find((row: any) => row.id !== previousTxId) ?? (uncategorized ?? [])[0] ?? null;
-
   const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
-  const allTx = [...((recentTx ?? []) as any[]), ...((prevMonthTx ?? []) as any[])] as unknown as TransactionRow[];
+  const allTx = [...((recentTx ?? []) as unknown[]), ...((prevMonthTx ?? []) as unknown[])] as TransactionRow[];
   const behavioral = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
   const gross = computeAccountStatementTotals(
     (recentTx ?? []) as unknown as TransactionRow[],
     { start: `${ym}-01`, end: monthEnd },
   );
-  const income = behavioral.income;
-  const expense = behavioral.expense;
-  const totalCount = txCount ?? 0;
 
   const in7 = Date.now() + 7 * 86400_000;
-  const upcoming7 = (recurring ?? []).filter((r: any) => {
+  const upcoming7 = ((recurring ?? []) as Array<{ next_due_date?: string }>).filter((r) => {
     if (!r?.next_due_date) return false;
     const d = new Date(r.next_due_date + "T00:00:00").getTime();
     return d >= Date.now() - 86400_000 && d <= in7;
   }).length;
 
-  const uncategorized_tx = chosenUncategorized
-    ? { id: chosenUncategorized.id as string, description: (chosenUncategorized.description as string) ?? null, amount: Number(chosenUncategorized.amount), occurred_at: chosenUncategorized.occurred_at as string }
+  // Apenas movimentos comuns podem virar dica de categorização.
+  const categorizable = ((uncategorized ?? []) as Array<Record<string, unknown>>).filter(
+    (row) => (String(row.movement_kind ?? "transaction")) === "transaction",
+  );
+  const uncategorized_tx = categorizable[0]
+    ? {
+      id: String(categorizable[0].id),
+      description: (categorizable[0].description as string) ?? null,
+      amount: Number(categorizable[0].amount),
+      occurred_at: String(categorizable[0].occurred_at),
+    }
     : null;
 
-  // Ao forçar nova dica, dispensa TODAS as ativas para evitar rotação estagnada.
-  if (force) {
-    await supa.from("user_insights").update({ status: "dismissed" })
-      .eq("user_id", uid).eq("status", "active");
-  }
-
   const catNames = new Map<string, string>();
-  for (const c of (categoriesRows ?? []) as any[]) catNames.set(c.id, c.name);
+  for (const c of (categoriesRows ?? []) as Array<{ id: string; name: string }>) catNames.set(c.id, c.name);
   const signals = computeBehavioralSignals(
     allTx,
     catNames,
-    (goals ?? []) as any[],
-    (contribs ?? []) as any[],
+    (goals ?? []) as never[],
+    (contribs ?? []) as never[],
     now0,
   );
-  const recentTitles = ((recentInsights ?? []) as any[]).map((r) => r.title).filter(Boolean).slice(0, 8);
 
   const facts: InsightFacts = {
-    total_tx_ever: totalCount,
+    total_tx_ever: txCount ?? 0,
     month: ym,
-    income_month: Number(income.toFixed(2)),
-    expense_month: Number(expense.toFixed(2)),
+    income_month: Number(behavioral.income.toFixed(2)),
+    expense_month: Number(behavioral.expense.toFixed(2)),
     balance_month: Number(behavioral.net.toFixed(2)),
     active_goals: (goals ?? []).length,
-    goal_names: (goals ?? []).slice(0, 3).map((g: any) => g.name).filter(Boolean),
+    goal_names: ((goals ?? []) as Array<{ name?: string }>).slice(0, 3).map((g) => g.name ?? "").filter(Boolean),
     has_credit_card: (cardCount ?? 0) > 0,
     upcoming_recurring_7d: upcoming7,
     top_expense_category: signals.top_expense_category,
@@ -181,7 +208,6 @@ Deno.serve(async (req) => {
     uncategorized_tx,
   };
 
-  // Evidence extra (auditoria): mantém fluxo bruto separado para observabilidade.
   const evidenceExtra = {
     accounting_scope: ACCOUNTING_SCOPE,
     behavioral_income: behavioral.income,
@@ -192,51 +218,30 @@ Deno.serve(async (req) => {
     gross_card_out: gross.cardOut,
   };
 
-  // Deep-link determinístico: sempre que existir uncategorized_tx, priorizamos
-  // o card de categorização, mesmo com a IA disponível.
-  if (uncategorized_tx) {
-    const fb = pickFallback(facts);
-    const now = new Date();
-    const { data: inserted, error } = await supa
-      .from("user_insights")
-      .insert({
-        user_id: uid, type: fb.type, title: fb.title, body: fb.body,
-        cta_label: fb.cta_label, cta_route: fb.cta_route, model: fb.model,
-        evidence: { ...facts, ...evidenceExtra, transaction_id: uncategorized_tx.id },
-        prompt_version: PROMPT_VERSION,
-        generated_at: now.toISOString(),
-        expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
-        status: "active",
-      })
-      .select("*")
-      .single();
-    if (error) {
-      logEvent({ event: "insert_error_categorize", err: error.message });
-      return json({ error: "insert_failed" }, 500);
-    }
-    logEvent({ event: "categorize_priority", latency_ms: Date.now() - started });
-    return json({ insight: inserted, cached: false, fallback: false, prioritized: true });
+  // ------- seleção pela política única -------
+  const pool = buildCandidates(facts) as TipCandidate[];
+  const selection = selectTip(pool, ledger);
+  const chosen = selection.chosen;
+
+  if (!chosen) {
+    logEvent({ event: "no_eligible_tip" });
+    return json({ insight: usable ?? null, cached: !!usable, no_candidate: true });
   }
 
-
-  // Try AI
-  let insight: any = null;
+  let payload = { ...chosen.candidate };
   let fallbackReason: string | null = null;
+  const allowAi = LOVABLE_API_KEY && chosen.family !== "categorizacao";
 
-  if (LOVABLE_API_KEY) {
-    const system = `Você é o assistente do MeuNino. Escreva UMA dica curta em português brasileiro baseada estritamente nos dados fornecidos. Regras rígidas:
-- Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos de investimento, pagamento de fatura e crédito de empréstimo. NUNCA diga "gastou mais do que recebeu" comparando com fluxo bancário bruto. Se balance_month >= 0, não é déficit.
-- Priorize sinais comportamentais quando existirem: top_expense_category (+pct), category_growth (categoria que mais cresceu vs mês anterior), weekday_hotspot (dia da semana concentra mais gastos), merchant_repeat (mesmo estabelecimento >= 3x), days_without_entry (dias sem lançar), goal_pace (ritmo da meta vs prazo).
-- Se possível, quantifique impacto (ex.: "reduzir 10% em X economiza ~R$ Y"). Nunca invente valores fora dos fatos.
-- title: 4 a 80 caracteres, não vazio, sem "null"/"undefined".
-- body: 10 a 240 caracteres, não vazio.
-- type: um de habit, alert, celebration, onboarding, opportunity.
-- cta_label: 2 a 40 caracteres.
-- cta_route: começa com /app/ (ex: /app/lancamentos, /app/metas, /app/relatorios, /app/cartoes, /app/recorrencias).
-- NÃO repita títulos da lista recent_titles. Traga um ângulo diferente.
-- Tom caloroso, direto, aliado. Sem julgamento. Sem promessa de retorno financeiro. Sem conselho de investimento regulado.
+  if (allowAi) {
+    const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
+- Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos, pagamento de fatura e crédito de empréstimo. Se balance_month >= 0, não é déficit.
+- Não mude o assunto nem o cta_route da dica base. Só melhore clareza e personalização.
+- Nunca invente valores fora dos fatos.
+- title: 4 a 80 caracteres. body: 10 a 240 caracteres. cta_label: 2 a 40 caracteres.
+- type deve ser "${payload.type}".
+- Tom caloroso, direto, aliado. Sem julgamento, sem promessa de retorno e sem conselho de investimento regulado.
 Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
-    const userMsg = `Dados (JSON): ${JSON.stringify(facts)}. recent_titles: ${JSON.stringify(recentTitles)}. Gere UMA dica nova e específica.`;
+    const userMsg = `Dica base: ${JSON.stringify(payload)}. Fatos: ${JSON.stringify(facts)}.`;
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
@@ -244,16 +249,10 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
       const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         signal: ctrl.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
         body: JSON.stringify({
           model: MODEL,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: userMsg },
-          ],
+          messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
           response_format: { type: "json_object" },
         }),
       });
@@ -267,12 +266,11 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
         if (!validated) {
           fallbackReason = "ai_invalid_schema";
         } else {
-          insight = {
-            type: validated.type ?? (facts.total_tx_ever < 3 ? "onboarding" : "habit"),
+          payload = {
+            ...payload,
             title: validated.title,
             body: validated.body,
-            cta_label: validated.cta_label ?? "Ver detalhes",
-            cta_route: validated.cta_route ?? "/app/lancamentos",
+            cta_label: validated.cta_label ?? payload.cta_label,
             model: MODEL,
           };
         }
@@ -283,18 +281,15 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
       clearTimeout(timer);
     }
   } else {
-    fallbackReason = "no_api_key";
+    fallbackReason = LOVABLE_API_KEY ? "deterministic_family" : "no_api_key";
   }
 
-  if (!insight) {
-    insight = pickFallback(facts);
-  }
-
-  // Defensive revalidation before insert
-  const finalCheck = InsightSchema.safeParse(insight);
+  const finalCheck = InsightSchema.safeParse(payload);
   if (!finalCheck.success) {
-    insight = pickFallback(facts);
-    fallbackReason = (fallbackReason ?? "") + "|final_invalid";
+    payload = { ...chosen.candidate };
+    fallbackReason = `${fallbackReason ?? ""}|final_invalid`;
+    const guard = InsightSchema.safeParse(payload);
+    if (!guard.success) payload = pickFallback(facts);
   }
 
   const now = new Date();
@@ -302,13 +297,20 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
     .from("user_insights")
     .insert({
       user_id: uid,
-      type: insight.type,
-      title: insight.title,
-      body: insight.body,
-      cta_label: insight.cta_label,
-      cta_route: insight.cta_route,
-      model: insight.model,
-      evidence: { ...facts, ...evidenceExtra },
+      type: payload.type,
+      title: payload.title,
+      body: payload.body,
+      cta_label: payload.cta_label,
+      cta_route: payload.cta_route,
+      model: payload.model,
+      family: chosen.family,
+      dedup_key: chosen.dedup_key,
+      evidence: {
+        ...facts,
+        ...evidenceExtra,
+        ...(uncategorized_tx && chosen.family === "categorizacao" ? { transaction_id: uncategorized_tx.id } : {}),
+        selection: { score: chosen.score, relaxed: selection.relaxed, family: chosen.family },
+      },
       prompt_version: PROMPT_VERSION,
       generated_at: now.toISOString(),
       expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
@@ -325,10 +327,12 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
   logEvent({
     event: fallbackReason ? "fallback" : "generated",
     fallback_reason: fallbackReason,
-    model: insight.model,
+    family: chosen.family,
+    dedup_key: chosen.dedup_key,
+    relaxed: selection.relaxed,
     latency_ms: Date.now() - started,
   });
-  return json({ insight: inserted, cached: false, fallback: !!fallbackReason });
+  return json({ insight: inserted, cached: false, fallback: !!fallbackReason, family: chosen.family });
 });
 
 function safeJson(s: string): unknown {

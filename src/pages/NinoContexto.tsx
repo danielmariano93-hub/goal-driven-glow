@@ -39,6 +39,48 @@ const KIND_LABELS: Record<string, string> = {
   relapse_risk: "Mudança recente de hábito",
 };
 
+const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+
+const VALUE_LABELS: Record<string, string> = {
+  amount: "Valor",
+  value: "Valor",
+  category: "Categoria",
+  category_name: "Categoria",
+  merchant: "Estabelecimento",
+  description: "Descrição",
+  frequency: "Frequência",
+  day: "Dia",
+  weekday: "Dia da semana",
+  goal: "Meta",
+  note: "Observação",
+};
+
+function humanizeValueEntry(key: string, raw: unknown): string | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (typeof raw === "object") return null;
+  const label = VALUE_LABELS[key] ?? key.replace(/_/g, " ");
+  if (typeof raw === "number" && /amount|valor|value|total/i.test(key)) {
+    return `${label}: ${BRL.format(raw)}`;
+  }
+  if (typeof raw === "boolean") return `${label}: ${raw ? "sim" : "não"}`;
+  return `${label}: ${String(raw)}`;
+}
+
+/** Converte o payload da memória em texto legível — nunca mostramos JSON cru. */
+export function humanizeMemoryValue(value: unknown): string {
+  if (value === null || value === undefined) return "Sem detalhes registrados.";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => (typeof v === "object" ? null : String(v))).filter(Boolean);
+    return parts.length > 0 ? parts.join(", ") : "Sem detalhes registrados.";
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([k, v]) => humanizeValueEntry(k, v))
+    .filter((item): item is string => Boolean(item));
+  return entries.length > 0 ? entries.join(" · ") : "Sem detalhes registrados.";
+}
+
 function confidenceLabel(value: number): string {
   if (value >= 0.85) return "confiança alta";
   if (value >= 0.65) return "confiança média";
@@ -168,7 +210,7 @@ export default function NinoContexto() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{memoryLabel(memory)}</p>
                     <p className="mt-1 break-words text-xs text-muted-foreground">
-                      {JSON.stringify(memory.value)}
+                      {humanizeMemoryValue(memory.value)}
                     </p>
                     <p className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground">
                       {memory.source === "correction" ? "Confirmado por você" : "Inferido pelo Nino"}

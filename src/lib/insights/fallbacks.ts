@@ -73,7 +73,7 @@ function keyOf(p: InsightPayload): string {
  * `pickFallback` escolhe o primeiro; se `skipKey` bater com o topo e houver
  * outro candidato, pula para o próximo (anti-repetição da mesma dica).
  */
-function candidates(f: InsightFacts): InsightPayload[] {
+export function candidates(f: InsightFacts): InsightPayload[] {
   const list: InsightPayload[] = [];
   const total = f.total_tx_ever ?? 0;
 
