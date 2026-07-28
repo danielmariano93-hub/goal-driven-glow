@@ -16,7 +16,9 @@ describe("product quality hardening", () => {
   it("agenda a divisão pelo vencimento e continua depois dele", () => {
     expect(migration).toContain("'due_soon'");
     expect(migration).toContain("'due_today'");
-    expect(migration).toContain("CROSS JOIN (VALUES (1), (3), (7))");
+    expect(migration.toLowerCase()).toContain(
+  "cross join (values (1), (3), (7))",
+);
     expect(migration).toContain("split:catchup");
     expect(splitWorker).toContain("participant.linked_user_id");
     expect(splitWorker).toContain("split_reminder");
