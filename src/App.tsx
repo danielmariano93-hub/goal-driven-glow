@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import { AuthProvider } from "@/context/AuthContext";
@@ -51,26 +51,16 @@ const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
 // Platform admin (lazy)
-const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
-const AdminUsuarios = lazy(() => import("./pages/admin/Usuarios"));
-const AdminEngajamento = lazy(() => import("./pages/admin/Engajamento"));
-const AdminFinanceiro = lazy(() => import("./pages/admin/Financeiro"));
-const AdminAgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
-const AdminConfiguracoes = lazy(() => import("./pages/admin/Configuracoes"));
-// Control Center v2
 const AdminCockpit = lazy(() => import("./pages/admin/Cockpit"));
-const AdminCrescimento = lazy(() => import("./pages/admin/Crescimento"));
-const AdminInteligenciaProduto = lazy(() => import("./pages/admin/InteligenciaProduto"));
+const AdminCrescimentoHub = lazy(() => import("./pages/admin/CrescimentoHub"));
 const AdminClientes = lazy(() => import("./pages/admin/Clientes"));
-const AdminReceita = lazy(() => import("./pages/admin/Receita"));
 const AdminGovernancaSeguranca = lazy(() => import("./pages/admin/GovernancaSeguranca"));
-const AdminGovernancaAuditoria = lazy(() => import("./pages/admin/GovernancaAuditoria"));
+const AdminAuditoriaHub = lazy(() => import("./pages/admin/AuditoriaHub"));
 const AdminOpSaude = lazy(() => import("./pages/admin/operacao/Saude"));
-const AdminOpMensageria = lazy(() => import("./pages/admin/operacao/Mensageria"));
-const AdminOpIaOcr = lazy(() => import("./pages/admin/operacao/IaOcr"));
 const AdminOpWhatsApp = lazy(() => import("./pages/admin/operacao/WhatsApp"));
-const AdminOpAssistente = lazy(() => import("./pages/admin/operacao/Assistente"));
+const AdminAssessorHub = lazy(() => import("./pages/admin/operacao/AssessorHub"));
 const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
+
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -145,38 +135,39 @@ const App = () => (
                 path="/admin"
                 element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}
               >
-                {/* Control Center v2 */}
+                {/* Control Center v3 — 9 destinos */}
                 <Route index element={<AdminCockpit />} />
                 <Route path="cockpit" element={<AdminCockpit />} />
-                <Route path="crescimento" element={<AdminCrescimento />} />
-                <Route path="inteligencia-produto" element={<AdminInteligenciaProduto />} />
                 <Route path="clientes" element={<AdminClientes />} />
-                <Route path="receita" element={<AdminReceita />} />
+                <Route path="crescimento" element={<AdminCrescimentoHub />} />
                 <Route path="operacao" element={<AdminOpSaude />} />
                 <Route path="operacao/saude" element={<AdminOpSaude />} />
-                <Route path="operacao/mensageria" element={<AdminOpMensageria />} />
-                <Route path="operacao/ia-ocr" element={<AdminOpIaOcr />} />
                 <Route path="operacao/whatsapp" element={<AdminOpWhatsApp />} />
-                <Route path="operacao/assistente" element={<AdminOpAssistente />} />
-                <Route path="operacao/assistente/simulador" element={<AdminAgenteSimulador />} />
+                <Route path="operacao/assistente" element={<AdminAssessorHub />} />
                 <Route path="operacao/comunicacao-proativa" element={<AdminComunicacaoProativa />} />
                 <Route path="governanca/seguranca" element={<AdminGovernancaSeguranca />} />
-                <Route path="governanca/auditoria" element={<AdminGovernancaAuditoria />} />
-                <Route path="governanca/configuracoes" element={<AdminConfiguracoes />} />
+                <Route path="governanca/auditoria" element={<AdminAuditoriaHub />} />
 
-                {/* Legado — mantido acessível por 1 release (rollback), removido do menu */}
-                <Route path="legado/visao-geral" element={<AdminVisaoGeral />} />
-                <Route path="usuarios" element={<AdminUsuarios />} />
-                <Route path="engajamento" element={<AdminEngajamento />} />
-                <Route path="financeiro" element={<AdminFinanceiro />} />
-                <Route path="agente" element={<AdminOpAssistente />} />
-                <Route path="agente/simulador" element={<AdminAgenteSimulador />} />
-                <Route path="mensagens" element={<AdminOpMensageria />} />
-                <Route path="ia" element={<AdminInteligenciaProduto />} />
-                <Route path="whatsapp" element={<AdminOpWhatsApp />} />
-                <Route path="produto" element={<AdminInteligenciaProduto />} />
-                <Route path="seguranca" element={<AdminGovernancaSeguranca />} />
-                <Route path="configuracoes" element={<AdminConfiguracoes />} />
+                {/* Rotas antigas → destinos atuais */}
+                <Route path="inteligencia-produto" element={<Navigate to="/admin/crescimento?aba=produto" replace />} />
+                <Route path="receita" element={<Navigate to="/admin/crescimento?aba=receita" replace />} />
+                <Route path="produto" element={<Navigate to="/admin/crescimento?aba=produto" replace />} />
+                <Route path="ia" element={<Navigate to="/admin/crescimento?aba=produto" replace />} />
+                <Route path="operacao/mensageria" element={<Navigate to="/admin/operacao/whatsapp" replace />} />
+                <Route path="mensagens" element={<Navigate to="/admin/operacao/whatsapp" replace />} />
+                <Route path="whatsapp" element={<Navigate to="/admin/operacao/whatsapp" replace />} />
+                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/operacao/assistente?aba=documentos" replace />} />
+                <Route path="operacao/assistente/simulador" element={<Navigate to="/admin/operacao/assistente?aba=simulador" replace />} />
+                <Route path="agente" element={<Navigate to="/admin/operacao/assistente" replace />} />
+                <Route path="agente/simulador" element={<Navigate to="/admin/operacao/assistente?aba=simulador" replace />} />
+                <Route path="governanca/configuracoes" element={<Navigate to="/admin/governanca/auditoria?aba=configuracoes" replace />} />
+                <Route path="configuracoes" element={<Navigate to="/admin/governanca/auditoria?aba=configuracoes" replace />} />
+                <Route path="seguranca" element={<Navigate to="/admin/governanca/seguranca" replace />} />
+                <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />
+                <Route path="engajamento" element={<Navigate to="/admin/crescimento" replace />} />
+                <Route path="financeiro" element={<Navigate to="/admin/crescimento?aba=receita" replace />} />
+                <Route path="legado/visao-geral" element={<Navigate to="/admin/cockpit" replace />} />
+
               </Route>
 
               <Route path="*" element={<NotFound />} />

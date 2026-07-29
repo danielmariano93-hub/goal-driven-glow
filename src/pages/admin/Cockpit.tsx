@@ -7,6 +7,59 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { AdminDailyEvolutionCard } from "@/components/admin/AdminDailyEvolutionCard";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
+import { dict } from "@/lib/admin/displayDictionary";
+import { Link } from "react-router-dom";
+import { StatusChip } from "@/components/admin/StatusChip";
+import { mapWhatsAppStatus, mapAgentStatus } from "@/lib/admin/statusMapper";
+import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
+
+/** Faixa operacional: o que precisa de ação agora, com atalho direto. */
+function OperationStrip() {
+  const { data } = useAdminPlatformStatus();
+  if (!data) return null;
+
+  const failingJobs = Object.values(data.jobs ?? {}).filter((j) => j?.status === "failing" || j?.status === "delayed").length;
+  const waConnected = data.whatsapp?.status === "connected";
+
+  return (
+    <section className="grid gap-3 md:grid-cols-3">
+      <div className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Canal WhatsApp</p>
+          <div className="mt-1"><StatusChip view={mapWhatsAppStatus(data.whatsapp?.status)} size="sm" /></div>
+        </div>
+        {!waConnected && (
+          <Link
+            to="/admin/operacao/whatsapp"
+            className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+          >
+            Reconectar
+          </Link>
+        )}
+      </div>
+
+      <div className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Assessor</p>
+          <div className="mt-1"><StatusChip view={mapAgentStatus(data.agent?.status)} size="sm" /></div>
+        </div>
+        <Link to="/admin/operacao/assistente" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
+      </div>
+
+      <div className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Automações e fila</p>
+          <p className="mt-1 text-sm font-medium">
+            {failingJobs > 0 ? `${failingJobs} com problema` : "Todas em dia"}
+            {data.outbox?.failed ? ` · ${data.outbox.failed} envios falhos` : ""}
+          </p>
+        </div>
+        <Link to="/admin/operacao/saude" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
+      </div>
+    </section>
+  );
+}
+
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -119,41 +172,35 @@ export default function Cockpit() {
         <div className="rounded-2xl border border-amber-300/50 bg-amber-50 p-4 text-sm text-amber-950">
           <p className="font-semibold">Atenção à integridade dos indicadores</p>
           <p className="mt-1">
-            {health?.stale ? "Agregação atrasada. Cartões usam fontes live. " : ""}
-            {contractsMismatch
-              ? `Divergência: auth=${health?.auth_users}, clientes=${clientsCount}, admins=${adminsCount}, teste=${testCount}.`
-              : ""}
+            {health?.stale ? "A agregação está atrasada; os cartões abaixo usam dados ao vivo. " : ""}
+            {contractsMismatch ? "Há divergência entre contas cadastradas e clientes contabilizados." : ""}
           </p>
         </div>
       )}
 
-      {/* Estoque atual */}
+      <OperationStrip />
+
+      {/* Situação atual */}
       <section>
-        <div className="mb-2 flex items-center gap-2">
-          <h2 className="text-xs uppercase tracking-wider text-muted-foreground">Estoque atual</h2>
-          <span className="rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-            agora
-          </span>
-        </div>
+        <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Situação atual</h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <KpiCard label="Clientes totais" envelope={data.total_users} />
+          <KpiCard label="Clientes ativos na base" envelope={data.total_users} />
           <KpiCard
-            label="Custo assessor no período"
+            label="Custo do assessor no período"
             envelope={data.agent_cost_cents_today}
             format={(v) => (v === null ? "—" : BRL.format(v / 100))}
           />
-          <KpiCard label="Falha mensageria 7d" envelope={data.messaging_failure_rate_7d} suffix="%" />
+          <KpiCard label="Mensagens que falharam (7 dias)" envelope={data.messaging_failure_rate_7d} suffix="%" />
         </div>
       </section>
 
-      {/* Fluxo no período */}
+      {/* Movimento no período */}
       <section>
-        <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Fluxo no período</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Movimento no período</h2>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <KpiCard label="Novos clientes" envelope={data.registered_today} />
-          <KpiCard label="Ativações" envelope={data.activation} />
-          <KpiCard label="Valor entregue" envelope={data.value_delivered} />
-          <KpiCard label="WVU" envelope={data.wvu} />
+          <KpiCard label="Clientes que começaram a usar" envelope={data.activation} />
+          <KpiCard label="Clientes usando na semana" envelope={data.wvu} />
         </div>
       </section>
 
@@ -181,13 +228,14 @@ export default function Cockpit() {
                       : "bg-emerald-500"
                   }`}
                 />
-                <span className="capitalize">{a.key.replace(/_/g, " ")}</span>
+                <span>{dict.feature(a.key)}</span>
                 <span className="text-muted-foreground">— {a.value}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
+
     </div>
   );
 }
