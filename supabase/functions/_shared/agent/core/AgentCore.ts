@@ -141,8 +141,53 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     return { reply: body, reply_kind: kind, path: "deterministic_fallback", draft_id: outcome.draft_id, run_id: run_id_fl, session_id };
   }
 
-  // ---- IntentRouter -------------------------------------------------------
+  // ---- Registro em lote (lista/fatura colada) ----------------------------
+  // Precisa vir antes do IntentRouter: a confirmação de um lote é executada
+  // em TypeScript (a RPC agent_execute_confirmation só conhece kinds simples).
   const routed = await timeStage(metrics, "intent", async () => routeIntent(input.text));
+
+  if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
+    const bulkPending = await guard(
+      () => findBulkPending(sb, input.conversation_id, input.user_id),
+      (m) => metrics.errors.push("bulk_lookup:" + m), null,
+    );
+    if (bulkPending) {
+      let body: string;
+      if (routed.intent.kind === "cancel") {
+        await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", bulkPending.id);
+        body = "Combinado, descartei essa lista de lançamentos.";
+      } else {
+        const exec = await executeBulkPending(sb, bulkPending);
+        body = exec.reply;
+      }
+      if (input.channel !== "app" && input.to_phone) {
+        await enqueueReply(sb, {
+          user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body,
+          idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+          source: input.channel === "simulator" ? "simulator" : "whatsapp",
+        });
+      }
+      metrics.stages.total = Date.now() - t0;
+      return { reply: body, reply_kind: routed.intent.kind === "cancel" ? "cancelled" : "receipt", path: "deterministic_fallback", session_id };
+    }
+  } else {
+    const bulk = await guard(
+      () => tryBulkDraft(sb, { user_id: input.user_id, conversation_id: input.conversation_id, text: input.text }),
+      (m) => metrics.errors.push("bulk_draft:" + m), null,
+    );
+    if (bulk) {
+      if (input.channel !== "app" && input.to_phone) {
+        await enqueueReply(sb, {
+          user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone, body: bulk.reply,
+          idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+          source: input.channel === "simulator" ? "simulator" : "whatsapp",
+        });
+      }
+      metrics.stages.total = Date.now() - t0;
+      return { reply: bulk.reply, reply_kind: "draft", path: "deterministic_fallback", draft_id: bulk.pending_id ?? undefined, session_id };
+    }
+  }
+
 
   // ---- PolicyEngine (confirm/cancel interception) -------------------------
   const policyReply = await timeStage(metrics, "policy", async () => {
