@@ -61,8 +61,10 @@ export default function Cockpit() {
   const [range, setRange] = useState<PeriodRange>(() => resolvePreset("30d"));
   const [data, setData] = useState<CockpitData | null>(null);
   const [evolution, setEvolution] = useState<DailyEvolution | null>(null);
+  const [universe, setUniverse] = useState<AdminUniverse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { data: platformStatus } = useAdminPlatformStatus();
 
   useEffect(() => {
     let cancelled = false;
