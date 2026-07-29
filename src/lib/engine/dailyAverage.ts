@@ -113,7 +113,8 @@ export function computeCardSpendingComparison(
   range: DateRange,
 ): CardSpendingComparison {
   const current = computeCardSpending(txs, range);
-  const prevRange = shiftRangePrevMonth(range);
+  // Comparação sempre com período anterior de MESMO tamanho (fonte canônica).
+  const prevRange = previousComparableRange(range);
   const previous = computeCardSpending(txs, prevRange);
   let deltaPct: number | null = null;
   let trend: Trend = "stable";
