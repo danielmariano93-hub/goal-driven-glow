@@ -393,7 +393,6 @@ export function WhatsAppSessionPanel() {
             <div className="h-3 w-56 rounded bg-muted/70" />
           </div>
         </div>
-        <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
       </section>
     );
   }
