@@ -1,7 +1,8 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Users, TrendingUp, Wallet, Bot, MessageCircle,
-  Activity, Package, ShieldCheck, Settings, LogOut, Menu, Sparkles, Play,
+  LayoutDashboard, Users, TrendingUp, Bot, MessageCircle,
+  Activity, ShieldCheck, Settings, LogOut, Menu,
+
   PanelLeftClose, PanelLeftOpen, X, Bell,
 } from "lucide-react";
 import { useEffect, useState } from "react";
