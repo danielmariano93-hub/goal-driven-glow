@@ -1,9 +1,9 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Users, TrendingUp, Bot, MessageCircle,
-  Activity, ShieldCheck, Settings, LogOut, Menu,
+  LayoutDashboard, Users, Sparkles, MessageCircle,
+  Activity, ShieldCheck, LogOut, Menu,
 
-  PanelLeftClose, PanelLeftOpen, X, Bell,
+  PanelLeftClose, PanelLeftOpen, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
@@ -23,32 +23,35 @@ type Item = {
 
 type Group = { title: string; items: Item[] };
 
+/**
+ * Arquitetura de informação por decisão, não por subsistema interno.
+ * Seis destinos, na ordem em que o administrador precisa deles:
+ * o que exige ação agora primeiro, configuração por último.
+ */
 const GROUPS: Group[] = [
   {
-    title: "Negócio",
+    title: "Decisão",
     items: [
-      { to: "/admin/cockpit", label: "Cockpit", icon: LayoutDashboard, action: "cockpit.read" },
+      { to: "/admin/visao-geral", label: "Visão geral", icon: LayoutDashboard, action: "cockpit.read" },
       { to: "/admin/clientes", label: "Clientes", icon: Users, action: "clients.read" },
-      { to: "/admin/crescimento", label: "Crescimento", icon: TrendingUp, action: "growth.read" },
+      { to: "/admin/produto", label: "Produto", icon: Sparkles, action: "growth.read" },
     ],
   },
   {
     title: "Operação",
     items: [
-      { to: "/admin/operacao/saude", label: "Saúde", icon: Activity, action: "operations.read" },
-      { to: "/admin/operacao/whatsapp", label: "WhatsApp", icon: MessageCircle, action: "whatsapp.read" },
-      { to: "/admin/operacao/assistente", label: "Assessor", icon: Bot, action: "agent.read" },
-      { to: "/admin/operacao/comunicacao-proativa", label: "Comunicação", icon: Bell, action: "messaging.read" },
+      { to: "/admin/operacoes", label: "Operações", icon: Activity, action: "operations.read" },
+      { to: "/admin/comunicacoes", label: "Comunicações", icon: MessageCircle, action: "messaging.read" },
     ],
   },
   {
-    title: "Governança",
+    title: "Plataforma",
     items: [
-      { to: "/admin/governanca/seguranca", label: "Segurança", icon: ShieldCheck, action: "security.read" },
-      { to: "/admin/governanca/auditoria", label: "Auditoria", icon: Settings, action: "audit.read" },
+      { to: "/admin/administracao", label: "Administração", icon: ShieldCheck, action: "security.read" },
     ],
   },
 ];
+
 
 
 const COLLAPSED_KEY = "admin.sidebar.collapsed";
