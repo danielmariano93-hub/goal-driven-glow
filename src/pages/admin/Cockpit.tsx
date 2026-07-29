@@ -76,7 +76,8 @@ export default function Cockpit() {
     Promise.allSettled([
       callAdminRpc<CockpitData>("admin_v2_cockpit", withDateRange(range)),
       callAdminRpc<DailyEvolution>("admin_v2_daily_evolution", withPeriod(range)),
-    ]).then(([cockpitRes, evoRes]) => {
+      callAdminRpc<AdminUniverse>("admin_v2_metrics_universe"),
+    ]).then(([cockpitRes, evoRes, universeRes]) => {
       if (cancelled) return;
       if (cockpitRes.status === "fulfilled") {
         setData(cockpitRes.value);
@@ -90,6 +91,7 @@ export default function Cockpit() {
         // eslint-disable-next-line no-console
         console.warn("[admin_v2_daily_evolution]", adminErrorMessage(evoRes.reason, "falha ao carregar evolução"));
       }
+      setUniverse(universeRes.status === "fulfilled" ? universeRes.value : null);
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -105,6 +107,15 @@ export default function Cockpit() {
   const testCount = health?.test_users ?? 0;
   const contractsMismatch = health && clientsCount !== null && adminsCount !== null
     && health.auth_users !== clientsCount + adminsCount + testCount;
+
+  const incidents = groupBySeverity(
+    buildIncidents({
+      status: platformStatus,
+      universe,
+      attention: data.attention,
+      messagingFailureRate: data.messaging_failure_rate_7d?.value ?? null,
+    }),
+  );
 
   return (
     <div className="space-y-6">
