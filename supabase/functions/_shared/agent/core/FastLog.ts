@@ -139,12 +139,26 @@ export async function runFastLog(
 
   const isCard = spans.payment_method === "credit_card";
   const description = spans.description || (intent.kind === "transaction" ? intent.description : undefined);
+  // Hint VAZIO ≠ hint ausente. Notificações bancárias terminam em "Conta corrente"
+  // (sem o nome do banco): isso significa "a conta padrão/única do usuário" e a
+  // resolução real acontece em resolveAccountId. Só perguntamos quando o texto
+  // não indica método algum ou quando o resolvedor de fato não encontrar.
+  const hasAccountSignal = spans.payment_method === "account"
+    || (intent.kind === "transaction" && intent.account_hint != null);
   const accountHint = spans.payment_method === "account"
     ? (spans.account_hint ?? "")
     : (intent.kind === "transaction" ? (intent.account_hint ?? "") : "");
 
-  if (!isCard && !accountHint) {
-    return { handled: true, reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", reply_kind: "question", tool_calls: calls };
+  const askAccount = async () => {
+    const { data } = await ctx.sb.from("accounts")
+      .select("name").eq("user_id", ctx.user_id).eq("active", true).order("name");
+    const names = ((data ?? []) as Array<{ name: string }>).map(a => a.name).filter(Boolean);
+    const suffix = names.length ? ` (${names.join(", ")})` : "";
+    return `Em qual conta eu registro?${suffix}`;
+  };
+
+  if (!isCard && !hasAccountSignal && !accountHint) {
+    return { handled: true, reply: await askAccount(), reply_kind: "question", tool_calls: calls };
   }
 
   const t0 = Date.now();
@@ -159,11 +173,12 @@ export async function runFastLog(
   });
   await record("create_transaction_draft", { type, amount }, draft, t0);
   if (!draft.ok) {
-    if (draft.error === "account_not_found") return { handled: true, reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", reply_kind: "question", tool_calls: calls };
+    if (draft.error === "account_not_found") return { handled: true, reply: await askAccount(), reply_kind: "question", tool_calls: calls };
     if (draft.error === "card_not_found") return { handled: true, reply: "Em qual cartão eu registro?", reply_kind: "question", tool_calls: calls };
     if (draft.error === "needs_description") return { handled: true, reply: "Faltou a descrição. Em quê foi essa compra?", reply_kind: "question", tool_calls: calls };
     return { handled: true, reply: "Não consegui registrar direto. Tente descrever com mais detalhes.", reply_kind: "info", tool_calls: calls };
   }
+
   const draftId = (draft.result as any).draft_id as string;
   const t1 = Date.now();
   const conf = await confirm_pending_action(ctx, { id: draftId });
