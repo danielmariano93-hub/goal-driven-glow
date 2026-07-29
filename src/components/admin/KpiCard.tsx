@@ -1,11 +1,14 @@
 import type { Envelope } from "@/lib/admin/adminRpc";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Info } from "lucide-react";
+import { kpiProvenance } from "@/lib/admin/kpiRegistry";
 
 type Props = {
   label: string;
   envelope?: Envelope | null;
   format?: (v: number | null) => string;
   suffix?: string;
+  /** Chave no dicionário de KPIs — habilita a explicação "como calculamos". */
+  metaKey?: string;
 };
 
 function defaultFormat(v: number | null): string {
@@ -14,7 +17,7 @@ function defaultFormat(v: number | null): string {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 }
 
-export function KpiCard({ label, envelope, format = defaultFormat, suffix }: Props) {
+export function KpiCard({ label, envelope, format = defaultFormat, suffix, metaKey }: Props) {
   const v = envelope?.value ?? null;
   const delta = envelope?.delta_pct ?? null;
   const polarity = envelope?.polarity ?? "neutral";
@@ -31,10 +34,23 @@ export function KpiCard({ label, envelope, format = defaultFormat, suffix }: Pro
   const tone =
     isGood === null ? "text-muted-foreground" : isGood ? "text-emerald-600" : "text-rose-600";
 
+  const provenance = metaKey ? kpiProvenance(metaKey) : null;
+
   return (
     <div className="surface-card p-4">
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground truncate">
-        {label}
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground truncate">
+          {label}
+        </div>
+        {provenance && (
+          <span
+            className="shrink-0 text-muted-foreground/70"
+            title={provenance}
+            aria-label={`Como calculamos: ${provenance}`}
+          >
+            <Info size={12} aria-hidden />
+          </span>
+        )}
       </div>
       <div className="mt-1.5 flex items-baseline gap-1">
         <span className="font-display text-xl md:text-2xl font-bold tabular-nums">
@@ -46,13 +62,13 @@ export function KpiCard({ label, envelope, format = defaultFormat, suffix }: Pro
         <Icon size={12} aria-hidden />
         <span>
           {delta === null
-            ? "sem histórico"
+            ? "primeira medição deste período"
             : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}% vs período anterior`}
         </span>
       </div>
       {envelope && !envelope.sufficient_sample && (
         <div className="mt-1 text-[10px] text-amber-600">
-          amostra {envelope.data_quality} (n={envelope.sample_size})
+          Ainda com poucos dados para conclusão
         </div>
       )}
     </div>
