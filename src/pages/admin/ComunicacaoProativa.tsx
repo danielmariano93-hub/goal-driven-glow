@@ -43,6 +43,26 @@ const CHANNELS = [
 ];
 
 export default function ComunicacaoProativa() {
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Comunicações"
+        description="O que o Nino tentou comunicar, o que chegou ao cliente e o que foi retido por regra de convivência."
+      />
+
+      <AdminTabs
+        tabs={[
+          { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
+          { id: "fluxos", label: "Fluxos", render: () => <ProactiveEnginePanelV2 sections={["catalog"]} /> },
+          { id: "templates", label: "Templates", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
+          { id: "fila", label: "Fila e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
+        ]}
+      />
+    </div>
+  );
+}
+
+function Overview() {
   const [days, setDays] = useState(30);
   const [channel, setChannel] = useState("");
   const [kind, setKind] = useState("");
@@ -88,26 +108,6 @@ export default function ComunicacaoProativa() {
   const actionRate = totals && totals.delivered > 0
     ? Math.round((totals.acted / totals.delivered) * 100) : 0;
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Comunicações"
-        description="O que o Nino tentou comunicar, o que chegou ao cliente e o que foi retido por regra de convivência."
-      />
-
-      <AdminTabs
-        tabs={[
-          { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
-          { id: "fluxos", label: "Fluxos", render: () => <ProactiveEnginePanelV2 sections={["catalog"]} /> },
-          { id: "templates", label: "Templates", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
-          { id: "fila", label: "Fila e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
-        ]}
-      />
-    </div>
-  );
-}
-
-function Overview() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
