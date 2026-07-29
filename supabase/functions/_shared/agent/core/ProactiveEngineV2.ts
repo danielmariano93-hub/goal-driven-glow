@@ -116,7 +116,7 @@ export async function scanUser(
       .limit(1000),
     sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", userId).eq("status", "active"),
     sb.from("recurring_occurrences")
-      .select("id,due_date,status,recurring_rules(description,amount)")
+      .select("id,due_date,status,recurring_rules(name,amount)")
       .eq("user_id", userId)
       .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
@@ -171,7 +171,7 @@ export async function scanUser(
     })),
     bills: ((recResp.data as any[] | null) ?? []).map((row) => ({
       id: row.id,
-      name: row.recurring_rules?.description ?? "Conta",
+      name: row.recurring_rules?.name ?? "Conta",
       due_date: row.due_date,
       amount: Number(row.recurring_rules?.amount) || 0,
       paid: row.status === "paid",

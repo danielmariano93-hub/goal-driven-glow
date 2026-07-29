@@ -1,0 +1,1017 @@
+diff --git a/src/components/admin/ProactiveEnginePanelV2.tsx b/src/components/admin/ProactiveEnginePanelV2.tsx
+index 54bb9ff..fe46c81 100644
+--- a/src/components/admin/ProactiveEnginePanelV2.tsx
++++ b/src/components/admin/ProactiveEnginePanelV2.tsx
+@@ -69,18 +69,7 @@ function dateTime(value: string | null): string {
+ }
+ 
+ function readableReason(reason: string | null): string {
+-  const labels: Record<string, string> = {
+-    rollout_channel_disabled: "Canal não liberado no rollout",
+-    candidate_channel_not_ready: "A sugestão não foi preparada para este canal",
+-    kind_disabled_in_catalog: "Tipo desativado no catálogo",
+-    channel_disabled_in_catalog: "Canal desativado para este tipo",
+-    awaiting_manual_approval: "Aguardando aprovação manual",
+-    daily_frequency_cap: "Limite diário atingido",
+-    weekly_frequency_cap: "Limite semanal atingido",
+-    quiet_hours: "Horário silencioso",
+-    dedup_cooldown: "Assunto já enviado recentemente",
+-  };
+-  return labels[reason ?? ""] ?? reason ?? "Sem motivo registrado";
++  return reason ? dict.commReason(reason) : "Sem motivo registrado";
+ }
+ 
+ export type CommSection = "engine" | "simulation" | "queue" | "catalog" | "templates";
+@@ -105,6 +94,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+       return data as EngineStatus;
+     },
+     staleTime: 15_000,
++    enabled: show("engine"),
+   });
+   const queue = useQuery({
+     queryKey: ["admin_proactive_queue"],
+@@ -114,6 +104,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+       return data as QueueData;
+     },
+     staleTime: 15_000,
++    enabled: show("queue"),
+   });
+   const catalog = useQuery({
+     queryKey: ["admin_communication_catalog"],
+@@ -122,6 +113,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+       if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar catálogo"));
+       return (data as CatalogRow[]) ?? [];
+     },
++    enabled: show("catalog"),
+   });
+   const templates = useQuery({
+     queryKey: ["admin_communication_templates"],
+@@ -130,6 +122,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+       if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar templates"));
+       return (data as TemplateRow[]) ?? [];
+     },
++    enabled: show("templates"),
+   });
+ 
+   const refresh = async () => Promise.all([
+@@ -234,7 +227,12 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+               </button>
+             </div>
+             <p className="mt-3 text-xs text-neutral-500">Agendamento: {s?.cron?.map((item) => `${item.jobname} (${item.schedule})`).join(", ") || "nenhum"}</p>
+-            {(s?.last_tick_errors ?? []).length > 0 && <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">{(s?.last_tick_errors ?? []).slice(0, 5).map((item, index) => <p key={index}>{item.user_id?.slice(0, 8)}… — {item.error}</p>)}</div>}
++            {(s?.last_tick_errors ?? []).length > 0 && (
++              <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
++                A última execução encontrou {(s?.last_tick_errors ?? []).length} erro(s).
++                Abra a observabilidade técnica para investigar sem expor dados nesta tela.
++              </div>
++            )}
+           </>
+         )}
+       </Section>
+diff --git a/src/hooks/useAdminPlatformStatus.ts b/src/hooks/useAdminPlatformStatus.ts
+index ea59aa6..d12f067 100644
+--- a/src/hooks/useAdminPlatformStatus.ts
++++ b/src/hooks/useAdminPlatformStatus.ts
+@@ -3,13 +3,25 @@ import { supabase } from "@/integrations/supabase/client";
+ 
+ export type JobKey = "whatsapp-send" | "whatsapp-ack-watchdog" | "split-reminders-dispatch" | "recurring-generate";
+ 
++export type WhatsAppOperationalStatus =
++  | "connected"
++  | "unstable"
++  | "unverifiable"
++  | "awaiting_qr"
++  | "connecting"
++  | "disconnected"
++  | "needs_attention"
++  | "unavailable"
++  | "not_configured";
++
+ export type PlatformStatus = {
+   whatsapp: {
+-    status: "connected" | "awaiting_qr" | "connecting" | "disconnected" | "needs_attention" | "unavailable" | "not_configured";
++    status: WhatsAppOperationalStatus;
+     error_code: string | null;
+     latency_ms: number | null;
+     last_seen_at: string | null;
+     active_links: number;
++    source?: "live_session" | "provider_health";
+   };
+   agent: {
+     status: "working" | "attention" | "unavailable" | "not_setup";
+@@ -27,13 +39,50 @@ export type PlatformStatus = {
+   outbox: { queued: number; failed: number };
+ };
+ 
++type LiveWhatsAppStatus = {
++  status?: WhatsAppOperationalStatus;
++  error_code?: string | null;
++  latency_ms?: number | null;
++  last_seen_at?: string | null;
++};
++
++function isLiveStatus(value: unknown): value is LiveWhatsAppStatus {
++  if (!value || typeof value !== "object") return false;
++  const status = (value as LiveWhatsAppStatus).status;
++  return typeof status === "string";
++}
++
+ export function useAdminPlatformStatus() {
+   return useQuery({
+     queryKey: ["admin_platform_status"],
+     queryFn: async () => {
+-      const { data, error } = await supabase.rpc("admin_platform_status");
+-      if (error) throw error;
+-      return data as unknown as PlatformStatus;
++      const [snapshotResult, liveResult] = await Promise.allSettled([
++        supabase.rpc("admin_platform_status"),
++        supabase.functions.invoke("whatsapp-session", {
++          body: { action: "operational_status" },
++        }),
++      ]);
++
++      if (snapshotResult.status === "rejected") throw snapshotResult.reason;
++      const snapshot = snapshotResult.value;
++      if (snapshot.error) throw snapshot.error;
++      const result = snapshot.data as unknown as PlatformStatus;
++
++      // The live session is authoritative for connectivity. A failed live
++      // probe does not overwrite the safer heartbeat fallback from the RPC.
++      const live = liveResult.status === "fulfilled" ? liveResult.value : null;
++      if (live && !live.error && isLiveStatus(live.data)) {
++        result.whatsapp = {
++          ...result.whatsapp,
++          status: live.data.status ?? result.whatsapp.status,
++          error_code: live.data.error_code ?? null,
++          latency_ms: live.data.latency_ms ?? null,
++          last_seen_at: live.data.last_seen_at ?? result.whatsapp.last_seen_at,
++          source: "live_session",
++        };
++      }
++
++      return result;
+     },
+     refetchInterval: 30_000,
+     staleTime: 20_000,
+diff --git a/src/lib/admin/adminRpc.test.ts b/src/lib/admin/adminRpc.test.ts
+index 4ad1796..8892ae1 100644
+--- a/src/lib/admin/adminRpc.test.ts
++++ b/src/lib/admin/adminRpc.test.ts
+@@ -26,10 +26,13 @@ describe("admin RPC contracts", () => {
+     });
+   });
+ 
+-  it("exposes useful PostgREST diagnostics", () => {
+-    expect(adminErrorMessage(
+-      { message: "Function not found", details: "signature mismatch", code: "PGRST202" },
+-      "fallback",
+-    )).toContain("PGRST202");
++  it("does not expose PostgREST or schema details in the interface", () => {
++    const message = adminErrorMessage(
++      { message: "column target_type does not exist", details: "signature mismatch", code: "42703" },
++      "Não foi possível carregar",
++    );
++    expect(message).toContain("Não foi possível carregar");
++    expect(message).not.toContain("target_type");
++    expect(message).not.toContain("42703");
+   });
+ });
+diff --git a/src/lib/admin/adminRpc.ts b/src/lib/admin/adminRpc.ts
+index a22cc19..e59a0c8 100644
+--- a/src/lib/admin/adminRpc.ts
++++ b/src/lib/admin/adminRpc.ts
+@@ -31,21 +31,10 @@ export function withDateRange(range: PeriodRange, extras: Record<string, unknown
+ }
+ 
+ export function adminErrorMessage(error: unknown, fallback: string): string {
+-  if (!error || typeof error !== "object") return fallback;
+-
+-  const candidate = error as {
+-    message?: string;
+-    details?: string;
+-    hint?: string;
+-    code?: string;
+-  };
+-
+-  const parts = [candidate.message, candidate.details, candidate.hint]
+-    .filter((part): part is string => Boolean(part?.trim()));
+-
+-  return parts.length
+-    ? `${parts.join(" · ")}${candidate.code ? ` [${candidate.code}]` : ""}`
+-    : fallback;
++  // SQL, schema names and provider responses are implementation details and
++  // must never be rendered in the administrative interface.
++  void error;
++  return `${fallback}. Tente novamente em instantes.`;
+ }
+ 
+ export type Envelope = {
+diff --git a/src/lib/admin/incidents.tsx b/src/lib/admin/incidents.tsx
+index ce380a8..e01ac04 100644
+--- a/src/lib/admin/incidents.tsx
++++ b/src/lib/admin/incidents.tsx
+@@ -1,6 +1,7 @@
+ import type { AdminIncident } from "@/components/admin/AttentionCard";
+ import type { PlatformStatus } from "@/hooks/useAdminPlatformStatus";
+ import { dict } from "@/lib/admin/displayDictionary";
++import { mapWhatsAppStatus } from "@/lib/admin/statusMapper";
+ import { universeNotes, type AdminUniverse } from "@/lib/admin/universe";
+ 
+ /**
+@@ -27,22 +28,24 @@ export function buildIncidents({
+ 
+   // --- Canal WhatsApp -------------------------------------------------
+   const wa = status?.whatsapp;
+-  if (wa) {
+-    const connected = wa.status === "connected";
++  if (wa && wa.status !== "connected") {
++    const disconnected = wa.status === "disconnected";
++    const statusView = mapWhatsAppStatus(wa.status);
+     list.push({
+       id: "whatsapp-channel",
+-      severity: connected ? "healthy" : wa.status === "connecting" || wa.status === "awaiting_qr" ? "warning" : "critical",
+-      title: connected
+-        ? "WhatsApp conectado e respondendo"
+-        : "O Nino não consegue falar no WhatsApp",
+-      impact: connected
+-        ? `${wa.active_links} cliente(s) com WhatsApp ativo.`
+-        : "Clientes que usam o WhatsApp ficam sem resposta e sem lembretes enquanto o canal estiver fora.",
++      severity: disconnected ? "critical" : "warning",
++      title: disconnected
++        ? "WhatsApp desconectado"
++        : "A conexão do WhatsApp precisa ser confirmada",
++      impact: disconnected
++        ? "Clientes que usam o WhatsApp ficam sem resposta e sem lembretes enquanto o canal estiver fora."
++        : statusView.impact,
+       lastCheckedAt: wa.last_seen_at,
+-      probableCause: connected ? undefined : dict.status(wa.status) || undefined,
+-      action: connected
+-        ? { label: "Ver canal", to: "/admin/operacoes?secao=whatsapp" }
+-        : { label: "Reconectar agora", to: "/admin/operacoes?secao=whatsapp" },
++      probableCause: statusView.label,
++      action: {
++        label: disconnected ? "Reconectar agora" : "Verificar canal",
++        to: "/admin/operacoes?secao=whatsapp",
++      },
+       technical: (
+         <span>
+           status={wa.status} · error_code={wa.error_code ?? "—"} · latency={wa.latency_ms ?? "—"}ms
+@@ -53,12 +56,11 @@ export function buildIncidents({
+ 
+   // --- Motor do Nino --------------------------------------------------
+   const agent = status?.agent;
+-  if (agent) {
+-    const ok = agent.status === "working";
++  if (agent && agent.status !== "working") {
+     list.push({
+       id: "agent-engine",
+-      severity: ok ? "healthy" : agent.status === "attention" ? "warning" : "critical",
+-      title: ok ? "Nino respondendo normalmente" : "O Nino está com dificuldade para responder",
++      severity: agent.status === "attention" ? "warning" : "critical",
++      title: "O Nino está com dificuldade para responder",
+       impact: agent.failures_24h
+         ? `${agent.failures_24h} conversa(s) falharam nas últimas 24 horas.`
+         : "Nenhuma falha registrada nas últimas 24 horas.",
+@@ -88,13 +90,6 @@ export function buildIncidents({
+         </ul>
+       ),
+     });
+-  } else if (jobs.length) {
+-    list.push({
+-      id: "jobs",
+-      severity: "healthy",
+-      title: "Automações rodando em dia",
+-      action: { label: "Ver automações", to: "/admin/operacoes?secao=incidentes" },
+-    });
+   }
+ 
+   // --- Fila de envios ---------------------------------------------------
+@@ -136,9 +131,10 @@ export function buildIncidents({
+ 
+   // --- Sinais vindos do próprio cockpit ---------------------------------
+   for (const item of attention ?? []) {
++    if (item.severity !== "high" && item.severity !== "medium") continue;
+     list.push({
+       id: `cockpit-${item.key}`,
+-      severity: item.severity === "high" ? "critical" : item.severity === "medium" ? "warning" : "healthy",
++      severity: item.severity === "high" ? "critical" : "warning",
+       title: `${dict.feature(item.key)} precisa de atenção`,
+       impact: `Indicador em ${item.value}.`,
+       action: { label: "Ver produto", to: "/admin/produto" },
+diff --git a/src/lib/admin/rpcContracts.ts b/src/lib/admin/rpcContracts.ts
+index 37550ee..750ec94 100644
+--- a/src/lib/admin/rpcContracts.ts
++++ b/src/lib/admin/rpcContracts.ts
+@@ -41,18 +41,25 @@ export const ADMIN_RPC_ARGS = {
+   admin_v2_metrics_audit: [],
+   admin_v2_retry_failed_outbound: ["_limit"],
+   admin_communication_catalog: [],
+-  admin_communication_catalog_update: ["_kind", "_active"],
++  admin_communication_catalog_update: [
++    "_kind",
++    "_active",
++    "_base_priority",
++    "_allowed_channels",
++    "_cooldown_hours",
++    "_max_per_day",
++    "_requires_manual_approval",
++  ],
+   admin_communication_templates: ["_kind"],
+   admin_communication_template_upsert: [
+     "_kind",
+     "_channel",
+     "_title_template",
+     "_body_template",
+-    "_allowed_variables",
+     "_active",
+   ],
+   admin_proactive_engine_status: [],
+-  admin_proactive_engine_toggle: ["_enabled"],
++  admin_proactive_engine_toggle: ["_enabled", "_channels"],
+   admin_proactive_queue: ["_limit"],
+ } as const;
+ 
+diff --git a/src/lib/admin/statusMapper.ts b/src/lib/admin/statusMapper.ts
+index bff0e09..8959d81 100644
+--- a/src/lib/admin/statusMapper.ts
++++ b/src/lib/admin/statusMapper.ts
+@@ -11,6 +11,8 @@ export type StatusView = {
+ 
+ const WHATSAPP: Record<string, StatusView> = {
+   connected: { label: "Conectado", tone: "success", impact: "O assistente pode conversar pelo WhatsApp normalmente." },
++  unstable: { label: "Conexão instável", tone: "warn", impact: "A conexão oscilou, mas isso não confirma uma desconexão." },
++  unverifiable: { label: "Não foi possível confirmar agora", tone: "warn", impact: "A última verificação ao vivo não respondeu. Tente novamente em instantes." },
+   awaiting_qr: { label: "Aguardando leitura do QR Code", tone: "info", impact: "Escaneie o código no aparelho para concluir a conexão." },
+   connecting: { label: "Conectando", tone: "info", impact: "A conexão está sendo estabelecida." },
+   disconnected: { label: "Desconectado", tone: "warn", impact: "O assistente não pode responder pelo WhatsApp agora." },
+@@ -194,4 +196,3 @@ export function mapPairingError(code: string | null | undefined): PairingErrorVi
+   if (!code) return PAIRING_FALLBACK;
+   return PAIRING_ERRORS[code] ?? PAIRING_FALLBACK;
+ }
+-
+diff --git a/src/test/admin-p0-operational-contracts.test.ts b/src/test/admin-p0-operational-contracts.test.ts
+new file mode 100644
+index 0000000..78a8009
+--- /dev/null
++++ b/src/test/admin-p0-operational-contracts.test.ts
+@@ -0,0 +1,62 @@
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++import { describe, expect, it } from "vitest";
++import { ADMIN_RPC_ARGS, buildArgs } from "@/lib/admin/rpcContracts";
++import { mapWhatsAppStatus } from "@/lib/admin/statusMapper";
++
++function source(path: string): string {
++  return readFileSync(resolve(process.cwd(), path), "utf8");
++}
++
++describe("P0 — contratos operacionais do admin", () => {
++  it("mantém os argumentos do frontend iguais às assinaturas reais do banco", () => {
++    expect(ADMIN_RPC_ARGS.admin_communication_catalog_update).toContain("_cooldown_hours");
++    expect(ADMIN_RPC_ARGS.admin_communication_catalog_update).toContain("_max_per_day");
++    expect(ADMIN_RPC_ARGS.admin_communication_template_upsert).not.toContain("_allowed_variables");
++    expect(ADMIN_RPC_ARGS.admin_proactive_engine_toggle).toEqual(["_enabled", "_channels"]);
++
++    expect(buildArgs("admin_proactive_engine_toggle", {
++      _enabled: true,
++      _channels: ["app"],
++      _unknown: "drop",
++    })).toEqual({ _enabled: true, _channels: ["app"] });
++  });
++
++  it("consulta o nome canônico das recorrências nos dois motores", () => {
++    for (const path of [
++      "supabase/functions/_shared/agent/core/ProactiveEngine.ts",
++      "supabase/functions/_shared/agent/core/ProactiveEngineV2.ts",
++    ]) {
++      const content = source(path);
++      expect(content).toContain("recurring_rules(name");
++      expect(content).not.toContain("recurring_rules(description");
++    }
++  });
++
++  it("consulta a sessão ao vivo sem tornar o painel dependente da sonda", () => {
++    const hook = source("src/hooks/useAdminPlatformStatus.ts");
++    expect(hook).toContain('action: "operational_status"');
++    expect(hook).toContain("Promise.allSettled");
++    expect(hook).toContain('source: "live_session"');
++  });
++
++  it("não classifica os jobs por uma janela fixa de 30 minutos", () => {
++    const migration = source("supabase/migrations/20260729220000_admin_operations_p0.sql");
++    expect(migration).toContain("due_count > 0");
++    expect(migration).toContain("oldest_due < now() - tolerance");
++    expect(migration).not.toContain("last_run_at < now() - interval '30 minutes'");
++  });
++
++  it("grava auditoria usando as colunas que existem em produção", () => {
++    const migration = source("supabase/migrations/20260729220000_admin_operations_p0.sql");
++    expect(migration).toContain("platform_admin_audit (actor_user_id, action, meta)");
++    expect(migration).not.toContain(
++      "platform_admin_audit (actor_user_id, action, target_type",
++    );
++  });
++
++  it("traduz estados de incerteza sem declarar desconexão", () => {
++    expect(mapWhatsAppStatus("unstable").label).toBe("Conexão instável");
++    expect(mapWhatsAppStatus("unverifiable").tone).toBe("warn");
++  });
++});
+diff --git a/src/test/admin-universe-incidents.test.ts b/src/test/admin-universe-incidents.test.ts
+index 7367a12..5e13d39 100644
+--- a/src/test/admin-universe-incidents.test.ts
++++ b/src/test/admin-universe-incidents.test.ts
+@@ -49,6 +49,33 @@ describe("universo canônico do admin", () => {
+ });
+ 
+ describe("incidentes acionáveis", () => {
++  it("não cria alerta quando o WhatsApp ao vivo está conectado", () => {
++    const incidents = buildIncidents({
++      status: {
++        whatsapp: { status: "connected", error_code: null, latency_ms: 80, last_seen_at: new Date().toISOString(), active_links: 2 },
++        agent: { status: "working", active_prompt: true, failures_24h: 0 },
++        jobs: {} as never,
++        outbox: { queued: 0, failed: 0 },
++      },
++    });
++    expect(incidents.find((i) => i.id === "whatsapp-channel")).toBeUndefined();
++    expect(incidents.find((i) => i.id === "agent-engine")).toBeUndefined();
++  });
++
++  it("trata oscilação ou ausência de confirmação como aviso, não desconexão", () => {
++    for (const status of ["unstable", "unverifiable"] as const) {
++      const incidents = buildIncidents({
++        status: {
++          whatsapp: { status, error_code: "test", latency_ms: null, last_seen_at: null, active_links: 2 },
++          agent: { status: "working", active_prompt: true, failures_24h: 0 },
++          jobs: {} as never,
++          outbox: { queued: 0, failed: 0 },
++        },
++      });
++      expect(incidents.find((i) => i.id === "whatsapp-channel")?.severity).toBe("warning");
++    }
++  });
++
+   it("transforma WhatsApp desconectado em ação crítica com destino", () => {
+     const incidents = buildIncidents({
+       status: {
+diff --git a/supabase/functions/_shared/agent/core/ProactiveEngine.ts b/supabase/functions/_shared/agent/core/ProactiveEngine.ts
+index bc70616..0b56b82 100644
+--- a/supabase/functions/_shared/agent/core/ProactiveEngine.ts
++++ b/supabase/functions/_shared/agent/core/ProactiveEngine.ts
+@@ -29,7 +29,7 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
+       .limit(1000),
+     sb.from("goals").select("id, name, target_amount, target_date").eq("user_id", user_id),
+     sb.from("recurring_occurrences")
+-      .select("id, due_date, status, recurring_rules(description, amount)")
++      .select("id, due_date, status, recurring_rules(name, amount)")
+       .eq("user_id", user_id)
+       .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
+       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
+@@ -78,7 +78,7 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
+       current: contribByGoal.get(g.id) ?? 0, deadline: g.target_date,
+     })),
+     bills: ((recResp.data as any[] | null) ?? []).map(r => ({
+-      id: r.id, name: r.recurring_rules?.description ?? "Conta", due_date: r.due_date,
++      id: r.id, name: r.recurring_rules?.name ?? "Conta", due_date: r.due_date,
+       amount: Number(r.recurring_rules?.amount) || 0, paid: r.status === "paid",
+     })),
+     activity: {
+diff --git a/supabase/functions/_shared/agent/core/ProactiveEngineV2.ts b/supabase/functions/_shared/agent/core/ProactiveEngineV2.ts
+index ba0eaa3..fc626ce 100644
+--- a/supabase/functions/_shared/agent/core/ProactiveEngineV2.ts
++++ b/supabase/functions/_shared/agent/core/ProactiveEngineV2.ts
+@@ -116,7 +116,7 @@ export async function scanUser(
+       .limit(1000),
+     sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", userId).eq("status", "active"),
+     sb.from("recurring_occurrences")
+-      .select("id,due_date,status,recurring_rules(description,amount)")
++      .select("id,due_date,status,recurring_rules(name,amount)")
+       .eq("user_id", userId)
+       .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
+       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
+@@ -171,7 +171,7 @@ export async function scanUser(
+     })),
+     bills: ((recResp.data as any[] | null) ?? []).map((row) => ({
+       id: row.id,
+-      name: row.recurring_rules?.description ?? "Conta",
++      name: row.recurring_rules?.name ?? "Conta",
+       due_date: row.due_date,
+       amount: Number(row.recurring_rules?.amount) || 0,
+       paid: row.status === "paid",
+diff --git a/supabase/functions/whatsapp-session/index.ts b/supabase/functions/whatsapp-session/index.ts
+index 09b246a..edd0acb 100644
+--- a/supabase/functions/whatsapp-session/index.ts
++++ b/supabase/functions/whatsapp-session/index.ts
+@@ -80,6 +80,34 @@ async function buildPublicStatus() {
+   };
+ }
+ 
++// Lightweight, authoritative probe for the admin cockpit. It reads the WAHA
++// session once and never exposes credentials, webhook configuration or phone.
++async function buildOperationalStatus() {
++  const provider = getProvider();
++  if (!provider.configured || !isWahaConfigured()) {
++    return {
++      status: "not_configured",
++      last_seen_at: null,
++      latency_ms: null,
++      error_code: null,
++    };
++  }
++
++  const startedAt = performance.now();
++  const session = await provider.getSessionStatus();
++  const latencyMs = Math.round(performance.now() - startedAt);
++  const status = mapStatus(session?.status, null);
++
++  return {
++    status,
++    last_seen_at: new Date().toISOString(),
++    latency_ms: latencyMs,
++    error_code: ["connected", "connecting", "awaiting_qr"].includes(status)
++      ? null
++      : "session_not_working",
++  };
++}
++
+ async function rateOk(sb: ReturnType<typeof createClient>, action: string): Promise<boolean> {
+   const { data, error } = await sb.rpc("admin_rate_check", { p_action: action, p_limit: 10 });
+   if (error) return true; // fail-open on limit itself; never leak
+@@ -195,6 +223,7 @@ Deno.serve(async (req) => {
+       }
+ 
+       case "status": return json(await buildPublicStatus(), 200, extraHeaders);
++      case "operational_status": return json(await buildOperationalStatus(), 200, extraHeaders);
+       case "create": {
+         if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+         const r = await provider.createOrUpdateSession(webhookUrl());
+diff --git a/supabase/migrations/20260729220000_admin_operations_p0.sql b/supabase/migrations/20260729220000_admin_operations_p0.sql
+new file mode 100644
+index 0000000..ce3b5cb
+--- /dev/null
++++ b/supabase/migrations/20260729220000_admin_operations_p0.sql
+@@ -0,0 +1,463 @@
++-- Meu Nino P0 — operational truth, admin commands and queue contracts.
++-- Additive/idempotent migration. No user data is deleted or rewritten.
++
++CREATE OR REPLACE FUNCTION public.admin_platform_status()
++RETURNS jsonb
++LANGUAGE plpgsql
++STABLE
++SECURITY DEFINER
++SET search_path TO 'public', 'cron'
++AS $function$
++DECLARE
++  res jsonb;
++  v_active_prompt boolean;
++  v_last_health record;
++  v_recent_health_failures integer := 0;
++  v_outbox_queued integer := 0;
++  v_outbox_failed integer := 0;
++  v_due_outbox integer := 0;
++  v_oldest_due_outbox timestamptz;
++  v_due_split integer := 0;
++  v_oldest_due_split timestamptz;
++  v_wa_status text;
++  v_wa_error_code text;
++  v_agent_failures_24h integer := 0;
++  v_agent_status text;
++  v_active_links integer := 0;
++BEGIN
++  IF NOT public.is_platform_admin() THEN
++    RAISE EXCEPTION 'not_authorized';
++  END IF;
++
++  SELECT EXISTS (
++    SELECT 1 FROM public.agent_prompt_versions WHERE status = 'active'
++  ) INTO v_active_prompt;
++
++  SELECT *
++    INTO v_last_health
++    FROM public.provider_health_events
++   WHERE provider = 'waha'
++   ORDER BY occurred_at DESC
++   LIMIT 1;
++
++  SELECT count(*) FILTER (WHERE NOT h.ok)
++    INTO v_recent_health_failures
++    FROM (
++      SELECT ok
++        FROM public.provider_health_events
++       WHERE provider = 'waha'
++       ORDER BY occurred_at DESC
++       LIMIT 2
++    ) h;
++
++  SELECT
++    count(*) FILTER (WHERE status = 'queued'),
++    count(*) FILTER (WHERE status IN ('failed', 'dead'))
++    INTO v_outbox_queued, v_outbox_failed
++    FROM public.outbound_messages
++   WHERE created_at > now() - interval '24 hours';
++
++  SELECT count(*), min(coalesce(next_attempt_at, created_at))
++    INTO v_due_outbox, v_oldest_due_outbox
++    FROM public.outbound_messages
++   WHERE status IN ('queued', 'processing')
++     AND coalesce(next_attempt_at, created_at) <= now();
++
++  SELECT count(*), min(coalesce(next_attempt_at, created_at))
++    INTO v_due_split, v_oldest_due_split
++    FROM public.outbound_messages
++   WHERE status IN ('queued', 'processing')
++     AND coalesce(next_attempt_at, created_at) <= now()
++     AND (
++       coalesce(kind, '') LIKE 'split%'
++       OR coalesce(context_type, '') LIKE 'split%'
++       OR coalesce(feature, '') IN ('split', 'split_invite', 'split_reminder')
++     );
++
++  SELECT count(*)
++    INTO v_active_links
++    FROM public.whatsapp_links
++   WHERE status = 'active';
++
++  SELECT count(*)
++    INTO v_agent_failures_24h
++    FROM public.agent_runs
++   WHERE started_at > now() - interval '24 hours'
++     AND status = 'error';
++
++  -- A customer link is not a provider session. Never infer that the official
++  -- WhatsApp is disconnected from whatsapp_links.
++  IF v_last_health IS NULL THEN
++    v_wa_status := 'unverifiable';
++    v_wa_error_code := 'no_health_signal';
++  ELSIF v_last_health.occurred_at < now() - interval '15 minutes' THEN
++    v_wa_status := 'unverifiable';
++    v_wa_error_code := 'stale_health';
++  ELSIF v_last_health.ok THEN
++    v_wa_status := 'connected';
++    v_wa_error_code := NULL;
++  ELSIF upper(coalesce(v_last_health.error_masked, '')) = 'STOPPED' THEN
++    v_wa_status := 'disconnected';
++    v_wa_error_code := 'session_stopped';
++  ELSE
++    -- A single transient STARTING/FAILED event is not a disconnection.
++    v_wa_status := 'unstable';
++    v_wa_error_code := CASE
++      WHEN v_recent_health_failures >= 2
++        THEN coalesce(v_last_health.error_masked, 'provider_unstable')
++      ELSE 'transient_health_failure'
++    END;
++  END IF;
++
++  -- The Nino engine and the WhatsApp transport are independent capabilities.
++  IF NOT v_active_prompt THEN
++    v_agent_status := 'not_setup';
++  ELSIF v_agent_failures_24h > 10 THEN
++    v_agent_status := 'attention';
++  ELSE
++    v_agent_status := 'working';
++  END IF;
++
++  WITH expected_jobs(job_key, cron_job, due_count, oldest_due, tolerance) AS (
++    VALUES
++      ('whatsapp-send', 'whatsapp-send-dispatch-1m', v_due_outbox, v_oldest_due_outbox, interval '5 minutes'),
++      ('split-reminders-dispatch', 'split-message-pipeline-1m', v_due_split, v_oldest_due_split, interval '10 minutes'),
++      ('whatsapp-ack-watchdog', NULL::text, 0::integer, NULL::timestamptz, interval '10 minutes'),
++      ('recurring-generate', NULL::text, 0::integer, NULL::timestamptz, interval '10 minutes')
++  ),
++  merged AS (
++    SELECT
++      e.job_key,
++      h.last_run_at,
++      h.last_ok,
++      h.last_error_code,
++      coalesce(h.processed, 0) AS processed,
++      coalesce(h.failed, 0) AS failed,
++      h.next_run_at,
++      e.due_count,
++      e.oldest_due,
++      e.tolerance,
++      CASE
++        WHEN e.cron_job IS NULL THEN false
++        ELSE EXISTS (
++          SELECT 1 FROM cron.job c
++           WHERE c.jobname = e.cron_job AND c.active
++        )
++      END AS cron_active
++    FROM expected_jobs e
++    LEFT JOIN public.job_heartbeats h USING (job_key)
++  ),
++  classified AS (
++    SELECT
++      *,
++      CASE
++        WHEN NOT cron_active AND job_key IN ('whatsapp-ack-watchdog', 'recurring-generate')
++          THEN 'not_scheduled'
++        WHEN NOT cron_active THEN 'failing'
++        WHEN last_ok = false THEN 'failing'
++        WHEN due_count > 0 AND oldest_due < now() - tolerance THEN 'delayed'
++        WHEN due_count = 0 THEN 'idle'
++        ELSE 'healthy'
++      END AS job_status,
++      CASE
++        WHEN NOT cron_active AND job_key NOT IN ('whatsapp-ack-watchdog', 'recurring-generate')
++          THEN 'cron_inactive'
++        ELSE last_error_code
++      END AS effective_error
++    FROM merged
++  )
++  SELECT jsonb_build_object(
++    'whatsapp', jsonb_build_object(
++      'status', v_wa_status,
++      'error_code', v_wa_error_code,
++      'latency_ms', v_last_health.latency_ms,
++      'last_seen_at', v_last_health.occurred_at,
++      'active_links', v_active_links,
++      'source', 'provider_health'
++    ),
++    'agent', jsonb_build_object(
++      'status', v_agent_status,
++      'active_prompt', v_active_prompt,
++      'failures_24h', v_agent_failures_24h
++    ),
++    'jobs', (
++      SELECT jsonb_object_agg(job_key, jsonb_build_object(
++        'status', job_status,
++        'last_run_at', last_run_at,
++        'next_run_at', next_run_at,
++        'last_error_code', effective_error,
++        'processed', processed,
++        'failed', failed
++      ))
++      FROM classified
++    ),
++    'outbox', jsonb_build_object(
++      'queued', v_outbox_queued,
++      'failed', v_outbox_failed
++    )
++  ) INTO res;
++
++  RETURN res;
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.admin_communication_catalog_update(
++  _kind text,
++  _active boolean DEFAULT NULL,
++  _base_priority integer DEFAULT NULL,
++  _allowed_channels text[] DEFAULT NULL,
++  _cooldown_hours integer DEFAULT NULL,
++  _max_per_day integer DEFAULT NULL,
++  _requires_manual_approval boolean DEFAULT NULL
++)
++RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  v_row public.communication_catalog%ROWTYPE;
++BEGIN
++  PERFORM public._require_perm('messaging.write');
++
++  UPDATE public.communication_catalog SET
++    active = coalesce(_active, active),
++    base_priority = coalesce(_base_priority, base_priority),
++    allowed_channels = coalesce(_allowed_channels, allowed_channels),
++    cooldown_hours = coalesce(_cooldown_hours, cooldown_hours),
++    max_per_day = coalesce(_max_per_day, max_per_day),
++    requires_manual_approval = coalesce(_requires_manual_approval, requires_manual_approval),
++    updated_at = now()
++  WHERE kind = _kind
++  RETURNING * INTO v_row;
++
++  IF NOT FOUND THEN
++    RAISE EXCEPTION 'kind_not_found' USING errcode = 'P0002';
++  END IF;
++
++  INSERT INTO public.platform_admin_audit (actor_user_id, action, meta)
++  VALUES (
++    auth.uid(),
++    'communication_catalog_update',
++    jsonb_build_object(
++      'target_type', 'communication_catalog',
++      'target_id', _kind,
++      'active', v_row.active,
++      'base_priority', v_row.base_priority,
++      'allowed_channels', to_jsonb(v_row.allowed_channels),
++      'cooldown_hours', v_row.cooldown_hours,
++      'max_per_day', v_row.max_per_day,
++      'requires_manual_approval', v_row.requires_manual_approval
++    )
++  );
++
++  RETURN to_jsonb(v_row);
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.admin_communication_template_upsert(
++  _kind text,
++  _channel text,
++  _title_template text,
++  _body_template text,
++  _active boolean DEFAULT true
++)
++RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  v_version integer;
++  v_row public.communication_templates%ROWTYPE;
++  v_unknown text[];
++  v_allowed constant text[] := ARRAY[
++    'title','body','kind','severity','dedup_key','action_url',
++    'amount','count','description','remaining','days_left','monthly_needed',
++    'category','share','current','avg','due','occurred_at'
++  ];
++BEGIN
++  PERFORM public._require_perm('messaging.write');
++  IF _channel NOT IN ('app', 'whatsapp') THEN
++    RAISE EXCEPTION 'invalid_channel';
++  END IF;
++  IF NOT EXISTS (SELECT 1 FROM public.communication_catalog WHERE kind = _kind) THEN
++    RAISE EXCEPTION 'kind_not_found';
++  END IF;
++  IF length(trim(coalesce(_title_template, ''))) = 0
++     OR length(trim(coalesce(_body_template, ''))) = 0 THEN
++    RAISE EXCEPTION 'template_required';
++  END IF;
++
++  SELECT array_agg(DISTINCT variable_name)
++    INTO v_unknown
++    FROM (
++      SELECT variable_match[1] AS variable_name
++      FROM regexp_matches(
++        _title_template || ' ' || _body_template,
++        '\{\{\s*([a-zA-Z0-9_]+)\s*\}\}',
++        'g'
++      ) AS m(variable_match)
++    ) vars
++   WHERE NOT (variable_name = ANY(v_allowed));
++
++  IF coalesce(array_length(v_unknown, 1), 0) > 0 THEN
++    RAISE EXCEPTION 'unknown_template_variables:%', array_to_string(v_unknown, ',');
++  END IF;
++
++  SELECT coalesce(max(version), 0) + 1
++    INTO v_version
++    FROM public.communication_templates
++   WHERE kind = _kind AND channel = _channel;
++
++  IF _active THEN
++    UPDATE public.communication_templates
++       SET active = false, updated_by = auth.uid(), updated_at = now()
++     WHERE kind = _kind AND channel = _channel AND active;
++  END IF;
++
++  INSERT INTO public.communication_templates (
++    kind, channel, title_template, body_template, allowed_variables,
++    active, version, created_by, updated_by
++  ) VALUES (
++    _kind, _channel, trim(_title_template), trim(_body_template), v_allowed,
++    _active, v_version, auth.uid(), auth.uid()
++  )
++  RETURNING * INTO v_row;
++
++  INSERT INTO public.platform_admin_audit (actor_user_id, action, meta)
++  VALUES (
++    auth.uid(),
++    'communication_template_upsert',
++    jsonb_build_object(
++      'target_type', 'communication_template',
++      'target_id', v_row.id,
++      'kind', _kind,
++      'channel', _channel,
++      'version', v_version,
++      'active', _active
++    )
++  );
++
++  RETURN to_jsonb(v_row);
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.admin_proactive_engine_toggle(
++  _enabled boolean DEFAULT NULL,
++  _channels text[] DEFAULT NULL
++)
++RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  v_row public.agent_settings%ROWTYPE;
++BEGIN
++  PERFORM public._require_perm('operations.write');
++
++  IF _channels IS NOT NULL
++     AND EXISTS (
++       SELECT 1 FROM unnest(_channels) channel_name
++       WHERE channel_name NOT IN ('app', 'whatsapp')
++     ) THEN
++    RAISE EXCEPTION 'invalid_channel';
++  END IF;
++
++  UPDATE public.agent_settings SET
++    proactive_enabled = coalesce(_enabled, proactive_enabled),
++    proactive_channels = coalesce(_channels, proactive_channels),
++    updated_by = auth.uid(),
++    updated_at = now()
++  WHERE id = 1
++  RETURNING * INTO v_row;
++
++  IF NOT FOUND THEN
++    RAISE EXCEPTION 'agent_settings_not_found' USING errcode = 'P0002';
++  END IF;
++
++  INSERT INTO public.platform_admin_audit (actor_user_id, action, meta)
++  VALUES (
++    auth.uid(),
++    'proactive_engine_toggle',
++    jsonb_build_object(
++      'target_type', 'agent_settings',
++      'target_id', 1,
++      'enabled', v_row.proactive_enabled,
++      'channels', to_jsonb(v_row.proactive_channels)
++    )
++  );
++
++  RETURN jsonb_build_object(
++    'enabled', v_row.proactive_enabled,
++    'channels', to_jsonb(v_row.proactive_channels)
++  );
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.admin_message_reprocess(p_id uuid)
++RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  actor uuid := auth.uid();
++  cur record;
++BEGIN
++  IF NOT public.is_current_user_admin() THEN
++    RAISE EXCEPTION 'forbidden' USING errcode = '42501';
++  END IF;
++
++  SELECT id, user_id, status, attempts, metadata, channel
++    INTO cur
++    FROM public.outbound_messages
++   WHERE id = p_id
++   FOR UPDATE;
++
++  IF cur.id IS NULL THEN
++    RAISE EXCEPTION 'not_found' USING errcode = 'P0002';
++  END IF;
++  IF cur.channel = 'inapp' THEN
++    RAISE EXCEPTION 'inapp_not_reprocessable' USING errcode = '22023';
++  END IF;
++  IF cur.status::text NOT IN ('failed', 'dead') THEN
++    RAISE EXCEPTION 'not_reprocessable_state' USING errcode = '22023';
++  END IF;
++
++  UPDATE public.outbound_messages
++     SET status = 'queued'::msg_status,
++         next_attempt_at = now(),
++         last_error = NULL,
++         claimed_at = NULL,
++         lease_expires_at = NULL,
++         metadata = coalesce(metadata, '{}'::jsonb)
++           || jsonb_build_object(
++             'reprocessed_at', to_jsonb(now()),
++             'reprocessed_by', to_jsonb(actor),
++             'reprocessed_count', coalesce((metadata->>'reprocessed_count')::integer, 0) + 1
++           ),
++         updated_at = now()
++   WHERE id = p_id;
++
++  INSERT INTO public.platform_admin_audit (
++    actor_user_id, target_user_id, action, meta
++  ) VALUES (
++    actor,
++    cur.user_id,
++    'message_reprocess',
++    jsonb_build_object(
++      'target_type', 'outbound_message',
++      'target_id', p_id,
++      'previous_status', cur.status::text,
++      'attempts', cur.attempts
++    )
++  );
++
++  RETURN jsonb_build_object('ok', true, 'id', p_id);
++END;
++$function$;
++
++COMMENT ON FUNCTION public.admin_platform_status() IS
++  'Canonical admin snapshot. Provider session, customer links and agent health are independent signals.';

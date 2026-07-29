@@ -49,6 +49,33 @@ describe("universo canônico do admin", () => {
 });
 
 describe("incidentes acionáveis", () => {
+  it("não cria alerta quando o WhatsApp ao vivo está conectado", () => {
+    const incidents = buildIncidents({
+      status: {
+        whatsapp: { status: "connected", error_code: null, latency_ms: 80, last_seen_at: new Date().toISOString(), active_links: 2 },
+        agent: { status: "working", active_prompt: true, failures_24h: 0 },
+        jobs: {} as never,
+        outbox: { queued: 0, failed: 0 },
+      },
+    });
+    expect(incidents.find((i) => i.id === "whatsapp-channel")).toBeUndefined();
+    expect(incidents.find((i) => i.id === "agent-engine")).toBeUndefined();
+  });
+
+  it("trata oscilação ou ausência de confirmação como aviso, não desconexão", () => {
+    for (const status of ["unstable", "unverifiable"] as const) {
+      const incidents = buildIncidents({
+        status: {
+          whatsapp: { status, error_code: "test", latency_ms: null, last_seen_at: null, active_links: 2 },
+          agent: { status: "working", active_prompt: true, failures_24h: 0 },
+          jobs: {} as never,
+          outbox: { queued: 0, failed: 0 },
+        },
+      });
+      expect(incidents.find((i) => i.id === "whatsapp-channel")?.severity).toBe("warning");
+    }
+  });
+
   it("transforma WhatsApp desconectado em ação crítica com destino", () => {
     const incidents = buildIncidents({
       status: {

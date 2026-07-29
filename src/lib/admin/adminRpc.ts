@@ -31,21 +31,10 @@ export function withDateRange(range: PeriodRange, extras: Record<string, unknown
 }
 
 export function adminErrorMessage(error: unknown, fallback: string): string {
-  if (!error || typeof error !== "object") return fallback;
-
-  const candidate = error as {
-    message?: string;
-    details?: string;
-    hint?: string;
-    code?: string;
-  };
-
-  const parts = [candidate.message, candidate.details, candidate.hint]
-    .filter((part): part is string => Boolean(part?.trim()));
-
-  return parts.length
-    ? `${parts.join(" · ")}${candidate.code ? ` [${candidate.code}]` : ""}`
-    : fallback;
+  // SQL, schema names and provider responses are implementation details and
+  // must never be rendered in the administrative interface.
+  void error;
+  return `${fallback}. Tente novamente em instantes.`;
 }
 
 export type Envelope = {

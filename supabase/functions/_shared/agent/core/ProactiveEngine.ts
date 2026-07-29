@@ -29,7 +29,7 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       .limit(1000),
     sb.from("goals").select("id, name, target_amount, target_date").eq("user_id", user_id),
     sb.from("recurring_occurrences")
-      .select("id, due_date, status, recurring_rules(description, amount)")
+      .select("id, due_date, status, recurring_rules(name, amount)")
       .eq("user_id", user_id)
       .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
@@ -78,7 +78,7 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       current: contribByGoal.get(g.id) ?? 0, deadline: g.target_date,
     })),
     bills: ((recResp.data as any[] | null) ?? []).map(r => ({
-      id: r.id, name: r.recurring_rules?.description ?? "Conta", due_date: r.due_date,
+      id: r.id, name: r.recurring_rules?.name ?? "Conta", due_date: r.due_date,
       amount: Number(r.recurring_rules?.amount) || 0, paid: r.status === "paid",
     })),
     activity: {

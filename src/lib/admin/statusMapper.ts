@@ -11,6 +11,8 @@ export type StatusView = {
 
 const WHATSAPP: Record<string, StatusView> = {
   connected: { label: "Conectado", tone: "success", impact: "O assistente pode conversar pelo WhatsApp normalmente." },
+  unstable: { label: "Conexão instável", tone: "warn", impact: "A conexão oscilou, mas isso não confirma uma desconexão." },
+  unverifiable: { label: "Não foi possível confirmar agora", tone: "warn", impact: "A última verificação ao vivo não respondeu. Tente novamente em instantes." },
   awaiting_qr: { label: "Aguardando leitura do QR Code", tone: "info", impact: "Escaneie o código no aparelho para concluir a conexão." },
   connecting: { label: "Conectando", tone: "info", impact: "A conexão está sendo estabelecida." },
   disconnected: { label: "Desconectado", tone: "warn", impact: "O assistente não pode responder pelo WhatsApp agora." },
@@ -194,4 +196,3 @@ export function mapPairingError(code: string | null | undefined): PairingErrorVi
   if (!code) return PAIRING_FALLBACK;
   return PAIRING_ERRORS[code] ?? PAIRING_FALLBACK;
 }
-

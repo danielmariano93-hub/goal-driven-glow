@@ -80,6 +80,34 @@ async function buildPublicStatus() {
   };
 }
 
+// Lightweight, authoritative probe for the admin cockpit. It reads the WAHA
+// session once and never exposes credentials, webhook configuration or phone.
+async function buildOperationalStatus() {
+  const provider = getProvider();
+  if (!provider.configured || !isWahaConfigured()) {
+    return {
+      status: "not_configured",
+      last_seen_at: null,
+      latency_ms: null,
+      error_code: null,
+    };
+  }
+
+  const startedAt = performance.now();
+  const session = await provider.getSessionStatus();
+  const latencyMs = Math.round(performance.now() - startedAt);
+  const status = mapStatus(session?.status, null);
+
+  return {
+    status,
+    last_seen_at: new Date().toISOString(),
+    latency_ms: latencyMs,
+    error_code: ["connected", "connecting", "awaiting_qr"].includes(status)
+      ? null
+      : "session_not_working",
+  };
+}
+
 async function rateOk(sb: ReturnType<typeof createClient>, action: string): Promise<boolean> {
   const { data, error } = await sb.rpc("admin_rate_check", { p_action: action, p_limit: 10 });
   if (error) return true; // fail-open on limit itself; never leak
@@ -195,6 +223,7 @@ Deno.serve(async (req) => {
       }
 
       case "status": return json(await buildPublicStatus(), 200, extraHeaders);
+      case "operational_status": return json(await buildOperationalStatus(), 200, extraHeaders);
       case "create": {
         if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
         const r = await provider.createOrUpdateSession(webhookUrl());

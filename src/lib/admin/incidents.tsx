@@ -1,6 +1,7 @@
 import type { AdminIncident } from "@/components/admin/AttentionCard";
 import type { PlatformStatus } from "@/hooks/useAdminPlatformStatus";
 import { dict } from "@/lib/admin/displayDictionary";
+import { mapWhatsAppStatus } from "@/lib/admin/statusMapper";
 import { universeNotes, type AdminUniverse } from "@/lib/admin/universe";
 
 /**
@@ -27,22 +28,24 @@ export function buildIncidents({
 
   // --- Canal WhatsApp -------------------------------------------------
   const wa = status?.whatsapp;
-  if (wa) {
-    const connected = wa.status === "connected";
+  if (wa && wa.status !== "connected") {
+    const disconnected = wa.status === "disconnected";
+    const statusView = mapWhatsAppStatus(wa.status);
     list.push({
       id: "whatsapp-channel",
-      severity: connected ? "healthy" : wa.status === "connecting" || wa.status === "awaiting_qr" ? "warning" : "critical",
-      title: connected
-        ? "WhatsApp conectado e respondendo"
-        : "O Nino não consegue falar no WhatsApp",
-      impact: connected
-        ? `${wa.active_links} cliente(s) com WhatsApp ativo.`
-        : "Clientes que usam o WhatsApp ficam sem resposta e sem lembretes enquanto o canal estiver fora.",
+      severity: disconnected ? "critical" : "warning",
+      title: disconnected
+        ? "WhatsApp desconectado"
+        : "A conexão do WhatsApp precisa ser confirmada",
+      impact: disconnected
+        ? "Clientes que usam o WhatsApp ficam sem resposta e sem lembretes enquanto o canal estiver fora."
+        : statusView.impact,
       lastCheckedAt: wa.last_seen_at,
-      probableCause: connected ? undefined : dict.status(wa.status) || undefined,
-      action: connected
-        ? { label: "Ver canal", to: "/admin/operacoes?secao=whatsapp" }
-        : { label: "Reconectar agora", to: "/admin/operacoes?secao=whatsapp" },
+      probableCause: statusView.label,
+      action: {
+        label: disconnected ? "Reconectar agora" : "Verificar canal",
+        to: "/admin/operacoes?secao=whatsapp",
+      },
       technical: (
         <span>
           status={wa.status} · error_code={wa.error_code ?? "—"} · latency={wa.latency_ms ?? "—"}ms
@@ -53,12 +56,11 @@ export function buildIncidents({
 
   // --- Motor do Nino --------------------------------------------------
   const agent = status?.agent;
-  if (agent) {
-    const ok = agent.status === "working";
+  if (agent && agent.status !== "working") {
     list.push({
       id: "agent-engine",
-      severity: ok ? "healthy" : agent.status === "attention" ? "warning" : "critical",
-      title: ok ? "Nino respondendo normalmente" : "O Nino está com dificuldade para responder",
+      severity: agent.status === "attention" ? "warning" : "critical",
+      title: "O Nino está com dificuldade para responder",
       impact: agent.failures_24h
         ? `${agent.failures_24h} conversa(s) falharam nas últimas 24 horas.`
         : "Nenhuma falha registrada nas últimas 24 horas.",
@@ -87,13 +89,6 @@ export function buildIncidents({
           ))}
         </ul>
       ),
-    });
-  } else if (jobs.length) {
-    list.push({
-      id: "jobs",
-      severity: "healthy",
-      title: "Automações rodando em dia",
-      action: { label: "Ver automações", to: "/admin/operacoes?secao=incidentes" },
     });
   }
 
@@ -136,9 +131,10 @@ export function buildIncidents({
 
   // --- Sinais vindos do próprio cockpit ---------------------------------
   for (const item of attention ?? []) {
+    if (item.severity !== "high" && item.severity !== "medium") continue;
     list.push({
       id: `cockpit-${item.key}`,
-      severity: item.severity === "high" ? "critical" : item.severity === "medium" ? "warning" : "healthy",
+      severity: item.severity === "high" ? "critical" : "warning",
       title: `${dict.feature(item.key)} precisa de atenção`,
       impact: `Indicador em ${item.value}.`,
       action: { label: "Ver produto", to: "/admin/produto" },

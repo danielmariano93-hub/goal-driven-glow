@@ -26,10 +26,13 @@ describe("admin RPC contracts", () => {
     });
   });
 
-  it("exposes useful PostgREST diagnostics", () => {
-    expect(adminErrorMessage(
-      { message: "Function not found", details: "signature mismatch", code: "PGRST202" },
-      "fallback",
-    )).toContain("PGRST202");
+  it("does not expose PostgREST or schema details in the interface", () => {
+    const message = adminErrorMessage(
+      { message: "column target_type does not exist", details: "signature mismatch", code: "42703" },
+      "Não foi possível carregar",
+    );
+    expect(message).toContain("Não foi possível carregar");
+    expect(message).not.toContain("target_type");
+    expect(message).not.toContain("42703");
   });
 });
