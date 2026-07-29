@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, Mail, Radio, ShieldAlert, DollarSign, MousePointerClick, BrainCircuit } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Section } from "@/components/admin/Section";
 import { StatCard, StatGrid } from "@/components/admin/StatCard";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
-import { adminErrorMessage } from "@/lib/admin/adminRpc";
+import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
+import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 import { dict } from "@/lib/admin/displayDictionary";
 
