@@ -24,41 +24,31 @@ type Group = { title: string; items: Item[] };
 
 const GROUPS: Group[] = [
   {
-    title: "Cockpit",
+    title: "Negócio",
     items: [
       { to: "/admin/cockpit", label: "Cockpit", icon: LayoutDashboard, action: "cockpit.read" },
-    ],
-  },
-  {
-    title: "Crescimento",
-    items: [
-      { to: "/admin/crescimento", label: "Crescimento", icon: TrendingUp, action: "growth.read" },
-      { to: "/admin/inteligencia-produto", label: "Inteligência de Produto", icon: Sparkles, action: "product_intel.read" },
       { to: "/admin/clientes", label: "Clientes", icon: Users, action: "clients.read" },
-      { to: "/admin/receita", label: "Receita", icon: Wallet, action: "revenue.read" },
+      { to: "/admin/crescimento", label: "Crescimento", icon: TrendingUp, action: "growth.read" },
     ],
   },
   {
     title: "Operação",
     items: [
       { to: "/admin/operacao/saude", label: "Saúde", icon: Activity, action: "operations.read" },
-      { to: "/admin/operacao/mensageria", label: "Mensageria", icon: MessageCircle, action: "messaging.read" },
-      { to: "/admin/operacao/ia-ocr", label: "IA & OCR", icon: Package, action: "operations.read" },
       { to: "/admin/operacao/whatsapp", label: "WhatsApp", icon: MessageCircle, action: "whatsapp.read" },
       { to: "/admin/operacao/assistente", label: "Assessor", icon: Bot, action: "agent.read" },
-      { to: "/admin/operacao/assistente/simulador", label: "Simulador", icon: Play, action: "agent.read" },
-      { to: "/admin/operacao/comunicacao-proativa", label: "Comunicação Proativa", icon: Bell, action: "messaging.read" },
+      { to: "/admin/operacao/comunicacao-proativa", label: "Comunicação", icon: Bell, action: "messaging.read" },
     ],
   },
   {
     title: "Governança",
     items: [
-      { to: "/admin/governanca/seguranca", label: "Segurança & Break-glass", icon: ShieldCheck, action: "security.read" },
-      { to: "/admin/governanca/auditoria", label: "Auditoria", icon: ShieldCheck, action: "audit.read" },
-      { to: "/admin/governanca/configuracoes", label: "Configurações", icon: Settings, action: "settings.read" },
+      { to: "/admin/governanca/seguranca", label: "Segurança", icon: ShieldCheck, action: "security.read" },
+      { to: "/admin/governanca/auditoria", label: "Auditoria", icon: Settings, action: "audit.read" },
     ],
   },
 ];
+
 
 const COLLAPSED_KEY = "admin.sidebar.collapsed";
 
