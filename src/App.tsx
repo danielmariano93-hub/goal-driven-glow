@@ -51,26 +51,16 @@ const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
 // Platform admin (lazy)
-const AdminVisaoGeral = lazy(() => import("./pages/admin/VisaoGeral"));
-const AdminUsuarios = lazy(() => import("./pages/admin/Usuarios"));
-const AdminEngajamento = lazy(() => import("./pages/admin/Engajamento"));
-const AdminFinanceiro = lazy(() => import("./pages/admin/Financeiro"));
-const AdminAgenteSimulador = lazy(() => import("./pages/admin/AgenteSimulador"));
-const AdminConfiguracoes = lazy(() => import("./pages/admin/Configuracoes"));
-// Control Center v2
 const AdminCockpit = lazy(() => import("./pages/admin/Cockpit"));
-const AdminCrescimento = lazy(() => import("./pages/admin/Crescimento"));
-const AdminInteligenciaProduto = lazy(() => import("./pages/admin/InteligenciaProduto"));
+const AdminCrescimentoHub = lazy(() => import("./pages/admin/CrescimentoHub"));
 const AdminClientes = lazy(() => import("./pages/admin/Clientes"));
-const AdminReceita = lazy(() => import("./pages/admin/Receita"));
 const AdminGovernancaSeguranca = lazy(() => import("./pages/admin/GovernancaSeguranca"));
-const AdminGovernancaAuditoria = lazy(() => import("./pages/admin/GovernancaAuditoria"));
+const AdminAuditoriaHub = lazy(() => import("./pages/admin/AuditoriaHub"));
 const AdminOpSaude = lazy(() => import("./pages/admin/operacao/Saude"));
-const AdminOpMensageria = lazy(() => import("./pages/admin/operacao/Mensageria"));
-const AdminOpIaOcr = lazy(() => import("./pages/admin/operacao/IaOcr"));
 const AdminOpWhatsApp = lazy(() => import("./pages/admin/operacao/WhatsApp"));
-const AdminOpAssistente = lazy(() => import("./pages/admin/operacao/Assistente"));
+const AdminAssessorHub = lazy(() => import("./pages/admin/operacao/AssessorHub"));
 const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
+
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
