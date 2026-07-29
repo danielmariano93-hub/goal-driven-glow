@@ -7,6 +7,59 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { AdminDailyEvolutionCard } from "@/components/admin/AdminDailyEvolutionCard";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
+import { dict } from "@/lib/admin/displayDictionary";
+import { Link } from "react-router-dom";
+import { StatusChip } from "@/components/admin/StatusChip";
+import { mapWhatsAppStatus, mapAgentStatus } from "@/lib/admin/statusMapper";
+import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
+
+/** Faixa operacional: o que precisa de ação agora, com atalho direto. */
+function OperationStrip() {
+  const { data } = useAdminPlatformStatus();
+  if (!data) return null;
+
+  const failingJobs = Object.values(data.jobs ?? {}).filter((j) => j?.status === "failing" || j?.status === "delayed").length;
+  const waConnected = data.whatsapp?.status === "connected";
+
+  return (
+    <section className="grid gap-3 md:grid-cols-3">
+      <div className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Canal WhatsApp</p>
+          <div className="mt-1"><StatusChip view={mapWhatsAppStatus(data.whatsapp?.status)} size="sm" /></div>
+        </div>
+        {!waConnected && (
+          <Link
+            to="/admin/operacao/whatsapp"
+            className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+          >
+            Reconectar
+          </Link>
+        )}
+      </div>
+
+      <div className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Assessor</p>
+          <div className="mt-1"><StatusChip view={mapAgentStatus(data.agent?.status)} size="sm" /></div>
+        </div>
+        <Link to="/admin/operacao/assistente" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
+      </div>
+
+      <div className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Automações e fila</p>
+          <p className="mt-1 text-sm font-medium">
+            {failingJobs > 0 ? `${failingJobs} com problema` : "Todas em dia"}
+            {data.outbox?.failed ? ` · ${data.outbox.failed} envios falhos` : ""}
+          </p>
+        </div>
+        <Link to="/admin/operacao/saude" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
+      </div>
+    </section>
+  );
+}
+
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
