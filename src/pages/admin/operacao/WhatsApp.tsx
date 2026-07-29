@@ -9,6 +9,18 @@ import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
 import { Button } from "@/components/ui/button";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { formatDateTime, formatRate, rate } from "@/lib/admin/formulas";
+import { AdminTabs } from "@/components/admin/AdminTabs";
+import { WhatsAppSessionPanel } from "@/pages/admin/WhatsAppSessionPanel";
+import { WhatsAppValidateCard } from "@/components/admin/WhatsAppValidateCard";
+
+function ConexaoTab() {
+  return (
+    <div className="space-y-6">
+      <WhatsAppValidateCard />
+      <WhatsAppSessionPanel />
+    </div>
+  );
+}
 
 type Day = { day: string; attempts: number; sent: number; failed: number };
 type Totals = { attempts: number; sent: number; delivered: number; read: number; failed: number; backlog: number };
@@ -52,7 +64,7 @@ type IntelligenceResponse = {
   }>;
 };
 
-export default function OperacaoWhatsApp() {
+function MessageIntelligence() {
   const [monitor, setMonitor] = useState<MonitorResponse | null>(null);
   const [intelligence, setIntelligence] = useState<IntelligenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -243,6 +255,23 @@ export default function OperacaoWhatsApp() {
           ]}
         />
       </section>
+    </div>
+  );
+}
+
+export default function OperacaoWhatsApp() {
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="WhatsApp"
+        description="Conexão do aparelho e saúde das mensagens. Ações críticas exigem confirmação e ficam auditadas."
+      />
+      <AdminTabs
+        tabs={[
+          { id: "conexao", label: "Conexão", render: () => <ConexaoTab /> },
+          { id: "inteligencia", label: "Inteligência de mensagens", render: () => <MessageIntelligence /> },
+        ]}
+      />
     </div>
   );
 }
