@@ -72,7 +72,7 @@ const ERR_HINT: Record<string, string> = {
 
 const WIZARD_STORAGE_KEY = "nc:wa-wizard";
 
-const PAIRING_RETRY_CODES = new Set(["qr_not_ready", "prepare_failed"]);
+
 
 function canManageFromConfig(config: ConfigStatus | null): boolean {
   return config?.can_manage_config === true || config?.admin_role === "platform_owner";
