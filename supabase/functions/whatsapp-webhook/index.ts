@@ -82,6 +82,17 @@ function readAckEvent(payload: unknown): { providerMessageId: string; status: "s
   return { providerMessageId, status };
 }
 
+/** Lê eventos `session.status` do WAHA e normaliza para saúde do canal. */
+export function readSessionStatus(payload: unknown): { status: string; ok: boolean } | null {
+  const root = (payload ?? {}) as Record<string, any>;
+  const event = String(root.event ?? root.type ?? "").toLowerCase();
+  if (event !== "session.status") return null;
+  const p = (root.payload ?? root.data ?? {}) as Record<string, any>;
+  const status = String(p.status ?? p.state ?? root.status ?? "unknown").toUpperCase();
+  return { status, ok: status === "WORKING" };
+}
+
+
 /** Extract a 6-digit verification code from either the legacy `VINCULAR NNNN`
  *  format or a friendlier phrasing that anchors on "código de verificação".
  *  Never matches loose numbers in ordinary conversation. */
@@ -211,8 +222,23 @@ Deno.serve(async (req) => {
     return json({ ok: true, ack: ack.status, matched });
   }
 
+  // Eventos de status da sessão não são mensagens, mas são o único sinal de
+  // que o número parou de receber. Persistimos o estado para o painel admin
+  // conseguir mostrar "sessão desconectada desde X" (antes eram descartados).
+  const sessionStatus = readSessionStatus(payload);
+  if (sessionStatus) {
+    try {
+      await sb.from("provider_health_events").insert({
+        provider: "waha",
+        ok: sessionStatus.ok,
+        error_masked: sessionStatus.status.slice(0, 120),
+      });
+    } catch (_) { /* diagnóstico — nunca bloqueia */ }
+  }
+
   const expected = getSessionName();
   const classified = classifyInbound(payload, expected);
+
   if (!classified.ok) {
     await logDrop(sb, {
       reason: classified.reason,

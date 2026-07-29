@@ -12,6 +12,8 @@ import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
 import { buildReceipt } from "../ReceiptBuilder.ts";
 import { loadHistory } from "../ConversationHistory.ts";
+import { findBulkPending, executeBulkPending } from "../BulkEntry.ts";
+
 import { analyze_spending, create_transaction_draft, generate_chart_artifact, resolveCreditCardFull } from "../../tools.ts";
 import { extractSpans } from "../../extract.ts";
 
@@ -68,6 +70,23 @@ export async function handleAppAction(args: {
     body_masked: args.action === "confirm" ? "[Confirmar]" : "[Cancelar]",
   } as any);
 
+  // Lote (kind bulk_transactions) é executado em TypeScript, não pela RPC.
+  const bulkPending = await findBulkPending(sb, args.conversation_id, args.user_id, args.pending_id);
+  if (bulkPending) {
+    let replyBulk: string;
+    if (args.action === "cancel") {
+      await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", bulkPending.id);
+      replyBulk = "Combinado, descartei essa lista de lançamentos.";
+    } else {
+      replyBulk = (await executeBulkPending(sb, bulkPending)).reply;
+    }
+    await sb.from("conversation_messages").insert({
+      conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: replyBulk,
+    } as any);
+    await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
+    return { reply: replyBulk, pending: null, executed: null };
+  }
+
   const pending = await findPendingApp(sb, args.conversation_id, args.user_id, args.pending_id);
   let reply = "";
   let executed: any = null;
@@ -78,6 +97,7 @@ export async function handleAppAction(args: {
     await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", pending.id);
     reply = "Combinado, cancelei este pedido.";
   } else {
+
     const { data: exec, error: execErr } = await sb.rpc("agent_execute_confirmation", {
       p_confirmation_id: pending.id, p_source_message_id: null,
     });
@@ -120,7 +140,23 @@ export async function handleAppMessage(args: {
   // Free-text CONFIRMAR / CANCELAR (parity with WhatsApp: PolicyEngine)
   const routed = routeIntent(args.text);
   if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
+    const bulkPending = await findBulkPending(sb, args.conversation_id, args.user_id);
+    if (bulkPending) {
+      let bulkReply: string;
+      if (routed.intent.kind === "cancel") {
+        await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", bulkPending.id);
+        bulkReply = "Combinado, descartei essa lista de lançamentos.";
+      } else {
+        bulkReply = (await executeBulkPending(sb, bulkPending)).reply;
+      }
+      await sb.from("conversation_messages").insert({
+        conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: bulkReply,
+      } as any);
+      await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
+      return { reply: bulkReply, pending: null, executed: null };
+    }
     const decision = await evaluatePolicy(sb, {
+
       user_id: args.user_id, conversation_id: args.conversation_id,
       inbound_message_id: null, intent: routed.intent,
     });
