@@ -345,7 +345,7 @@ export function WhatsAppSessionPanel() {
   const [wizard, setWizard] = useState(false);
   const [wizardMode, setWizardMode] = useState<WizardMode>("initial");
   const [replacing, setReplacing] = useState(false);
-  const [forceConnect, setForceConnect] = useState(false);
+  const [pairingOpen, setPairingOpen] = useState(false);
 
 
   const loadConfig = useCallback(async (opts?: { silent?: boolean }) => {
