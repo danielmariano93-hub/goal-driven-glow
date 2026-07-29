@@ -1,74 +1,64 @@
 
-# Plano de correção — Nino (app), Divisão do Rolê e Admin
+# Nino: por que parou de responder e por que os gastos não entraram
 
-Diagnósticos abaixo foram confirmados por leitura de código e consulta ao banco.
+## O que a investigação mostrou (dados reais)
 
-## 1. "Agora não" não troca a dica
+**1. Nenhuma mensagem chegou desde 28/07 15:28**
+- Última mensagem recebida (`inbound_messages`): 28/07 15:28. Última resposta enviada: 28/07 15:56.
+- Depois disso o webhook só recebeu eventos de **status da sessão** do WhatsApp: 220 registros `event_ignored` (todos `session.status`), com uma rajada entre 22:05 e 22:07 de 28/07.
+- Os robôs de envio e os agendamentos continuam rodando normalmente (crons ativos, funções iniciando a cada minuto). Ou seja: **o problema não é o app nem a fila — é a sessão do WhatsApp, que caiu/desconectou** e desde então nenhuma mensagem do usuário é entregue ao Nino.
+- Hoje não existe nenhum alerta quando isso acontece: o número simplesmente fica mudo e ninguém é avisado.
 
-Confirmado no banco: as últimas 12 dicas do usuário são todas `categorize_transaction` (família `categorizacao`), várias já com `dismissed` / `not_useful`.
+**2. Quando as mensagens chegavam, o valor era registrado errado**
+Os lançamentos criados pelo atalho `!ja` gravaram valores truncados e descrição suja:
 
-Causa raiz (dupla):
-- Ao dispensar, o card não pede nova dica ao servidor de propósito; a lista fica vazia e ele cai no **fallback local** (`pickFallback` em `src/lib/insights/fallbacks.ts`), que não conhece dispensas nem cooldown de família — logo repete o mesmo assunto de categorização.
-- No servidor, quando nada é elegível, `insights-generate` devolve a dica ativa em cache (`insight: usable`), o que também reapresenta o mesmo tema.
+| Mensagem recebida | Registrado |
+|---|---|
+| Valor R$ 5.40 – Autopass | R$ 5,00 — "esse novo valor Valor .40 Estabelecimento Autopass..." |
+| Valor R$ 8.99 – Pão de Açúcar | R$ 8,00 — descrição suja |
+| Valor R$ 5.40 (2ª vez) | R$ 5,00 — descrição suja |
 
-Correções:
-- No `AssistantTipCard`: após "Agora não", registrar o feedback, remover a dica da lista local e **solicitar uma nova geração** (`generate(true)`), com estado de carregamento no card.
-- Aplicar filtro de família/dedup no fallback local: guardar em `sessionStorage` as famílias/chaves dispensadas nas últimas 72h e passar como `skip` para `pickFallback`, garantindo assunto diferente do dispensado.
-- Em `insights-generate`: quando o usuário acabou de dispensar (`force: true`), ignorar o retorno em cache e relaxar apenas o cooldown de família (nunca os cooldowns de feedback), devolvendo a melhor candidata de **outra** família. Reduzir `minGapMinutes` para não bloquear a rotação pedida explicitamente pelo usuário.
-- Se realmente não existir outra família elegível, exibir estado honesto ("sem novas dicas por agora") em vez de repetir a mesma.
+Causa raiz (confirmada no código `_shared/agent/extract.ts`):
+- Os rótulos só são reconhecidos **com dois-pontos** (`Valor:`). As notificações do banco chegam como `Valor R$ 5.40` (sem `:`), então o caminho confiável é ignorado.
+- A regra genérica de valor prefere o formato brasileiro e casa `5` antes de `5.40` — decimal com **ponto** sem milhar não é tratado. O resto (`.40`) sobra e vira descrição.
 
-## 2. Mensagem e link do lembrete do rolê
+**3. A fatura do Itaú (27/07) nunca foi registrada**
+Em 28/07 o usuário enviou a lista completa da fatura Itaú (competência 2026-07, ~40 lançamentos, total R$ 5.209,73) pedindo registro em 27/07. O agente pediu esclarecimento de conta/cartão duas vezes e a conversa terminou em "Cancela" — **zero lançamentos gravados**.
 
-- Remover o meta-comentário "Passando com um lembrete leve" do template `reminder` em `_shared/agent/messageTemplates.ts` — a leveza fica no tom, não descrita. Revisar os demais templates de rolê para o mesmo padrão.
-- Link: hoje `APP_PUBLIC_URL` aponta para `https://meunino.com.br` e a frase de link imprime a URL com `https://`. Ajustes:
-  - passar a usar o host `www.meunino.com.br`;
-  - em `buildLinkSentence`, imprimir o link em formato `www.meunino.com.br/...` (sem o prefixo `https://`), que o WhatsApp reconhece e abre corretamente;
-  - manter a validação de segurança atual (somente HTTPS, sem hosts privados) na construção interna.
-- Validar a rota `/app/divisao-do-role/:id` e `/signup?next=...` respondendo no domínio com `www`.
+**4. Ruído de telemetria**
+Todo turno `!ja` fica com execução "órfã" marcada como erro (`orphan_sweep:running_over_5min`), porque o caminho FastLog nunca fecha o registro da execução. Isso polui as métricas do admin.
 
-## 3. Régua de lembretes da Divisão do Rolê
+---
 
-Hoje (função `schedule_split_due_reminders`): D-1, D0, **D+1, D+3 e D+7**.
+# Plano de correção
 
-Nova régua, via migration:
-- Participantes: **D-1, D0, D+1, D+3** — remover o estágio D+7 (e cancelar jobs D+7 ainda na fila).
-- **Dono do rolê**: novo lembrete `owner_digest`, disparado após o estágio D+1 e novamente após D+3, listando os participantes já cobrados que continuam em aberto (nome, valor pendente, quantas cobranças receberam). Entregue no app (notificação) e no WhatsApp quando o dono tiver número ativo.
-- Ajustes técnicos: incluir `owner_digest` no `reminder_jobs_kind_check`, manter idempotência por `idempotency_key`, e tratar o novo tipo no worker `split-reminders-dispatch-v2` (montagem do resumo, texto próprio e registro em `shared_expense_events`).
-- Regra de silêncio: sem participantes em aberto, o job é marcado como `skipped` e nada é enviado.
+## A. Sessão do WhatsApp (voltar a responder)
+1. Verificar o estado real da sessão e reconectar (novo pareamento/QR pelo painel admin em Operação → WhatsApp).
+2. Persistir o estado da sessão: hoje os eventos `session.status` são descartados sem guardar o valor. Passar a gravar o status em `provider_health_events` e expor no admin "Sessão conectada / desconectada desde X".
+3. Alerta automático: se não houver nenhuma mensagem recebida e a sessão não estiver `WORKING` por mais de 30 minutos, gerar um aviso no painel admin (e notificação para o dono).
 
-## 4. Admin — nomes técnicos em Comunicação Proativa
+## B. Leitura correta de valor e descrição
+1. Aceitar rótulos **sem dois-pontos** (`Valor R$ 5.40`, `Estabelecimento Pão de Açúcar`, `Data 27 de jul...`, `Conta corrente`).
+2. Corrigir a regra de valor para tratar decimal com ponto (`5.40`, `1234.56`) sem quebrar o formato brasileiro (`1.234,56`).
+3. Descrição: quando houver rótulo de estabelecimento, usar só ele; nunca deixar sobras como "esse novo valor Valor .40".
+4. Testes cobrindo exatamente os formatos reais das notificações Itaú/Autopass/Pão de Açúcar que falharam.
 
-`src/pages/admin/ComunicacaoProativa.tsx` imprime `row.kind` e canais crus (`duplicate_expense`, `advisor_review_weekly`, `app`, `whatsapp`).
+## C. Registro em lote (fatura / lista de lançamentos)
+1. Reconhecer quando a mensagem traz **vários lançamentos** (lista ou JSON) e, em vez de perguntar item a item, gerar um resumo único: "42 lançamentos, total R$ 5.209,73, em 27/07 — em qual cartão/conta?" e registrar tudo após um único CONFIRMAR.
+2. Itens sem valor não bloqueiam o lote: são separados e listados no fim para o usuário completar.
 
-- Ampliar `src/lib/admin/displayDictionary.ts` com todos os `kind` reais de `communication_deliveries` (gasto duplicado, revisão semanal/mensal do assessor, lembretes do rolê, dicas etc.), canais e motivos de bloqueio.
-- Aplicar `dict.*` em todas as tabelas/filtros da página (tipo, canal, motivo), com fallback humanizado para valores novos.
+## D. Telemetria
+Fechar a execução do FastLog ao final do turno (sucesso ou erro), eliminando os falsos "erros" no painel.
 
-## 5. Admin — "mensagens bloqueadas"
-
-Consulta ao banco mostra que os bloqueios atuais são de política, não falhas:
-
-| Tipo | Canal | Motivo | Qtde |
-|---|---|---|---|
-| Gasto duplicado | WhatsApp | rollout do canal desligado | 6 |
-| Gasto duplicado | App | cooldown de 24h do mesmo tipo | 3 |
-| Revisão semanal/mensal | WhatsApp | canal não habilitado | 2 |
-
-Correções:
-- Parar de gravar entrega "bloqueada" quando o canal WhatsApp está desligado por rollout: nesses casos o canal simplesmente não é alvo, então não deve contar como bloqueio.
-- Separar no painel: **Suprimido por política** (cooldown, dedup, preferência do usuário) vs **Falha** (erro real), com motivo legível e sem tom de alerta para supressões saudáveis.
-- Depurar o duplo registro por sugestão (linhas duplicadas no mesmo segundo) para não inflar contagens.
-
-## 6. Entregáveis finais solicitados
-
-Ao concluir, apresentarei:
-1. Lista objetiva do que foi corrigido, item a item.
-2. Lista das comunicações que o Nino **tentou enviar** (extraída de `communication_deliveries` + `outbound_messages`, com tipo, canal, status e motivo legível).
-3. Lista das comunicações que o Nino **já consegue gerar sozinho hoje** (gatilhos ativos: gasto duplicado, revisão semanal/mensal do assessor, dicas do Nino, convites e lembretes do rolê, convites de meta conjunta), indicando canal disponível e o que ainda depende de liberação do WhatsApp.
+## E. Registro retroativo do que ficou de fora
+1. **Corrigir os 3 lançamentos truncados** (5,00→5,40; 8,00→8,99; 5,00→5,40) e limpar as descrições para o nome do estabelecimento.
+2. **Registrar a fatura Itaú de 27/07**: todos os lançamentos da lista enviada, como despesas no cartão Itaú, com data 27/07, descrição e categoria informadas (inclusive o estorno de −1,46 como crédito), com chave de idempotência para não duplicar caso o usuário reenvie.
+3. Ao final, o Nino envia uma mensagem de recibo com o total registrado.
 
 ## Detalhes técnicos
+- Arquivos: `supabase/functions/_shared/agent/extract.ts` (rótulos + valor), `_shared/agent/core/FastLog.ts` (fechamento de run, descrição), `_shared/agent/core/AgentCore.ts` + `tools.ts` (lote), `whatsapp-webhook/index.ts` (persistir `session.status`), painel `src/pages/admin/operacao/WhatsApp.tsx`.
+- Backfill via ferramenta de dados (UPDATE dos 3 registros + INSERT da fatura), sem migration de schema.
+- Reconexão da sessão do WhatsApp exige uma ação sua no painel (leitura do QR) — o resto é automático.
 
-- Frontend: `AssistantTipCard.tsx`, `lib/insights/fallbacks.ts`, `pages/admin/ComunicacaoProativa.tsx`, `lib/admin/displayDictionary.ts`.
-- Edge Functions: `insights-generate`, `split-reminders-dispatch-v2`, `_shared/agent/messageTemplates.ts`, `_shared/messaging/appUrl.ts`, `_shared/intelligence/communicationPolicy.ts`.
-- Banco: migration alterando `schedule_split_due_reminders`, o check de `kind` em `reminder_jobs` e limpeza dos jobs D+7 pendentes.
-- Config: `APP_PUBLIC_URL` para o host com `www`.
-- Testes: cobertura nova para política de rotação de dicas, nova régua de lembretes, digest do dono e formatação de link.
+## Ponto que preciso confirmar antes do backfill
+A fatura Itaú deve ser lançada como **uma despesa por item na data 27/07** (recomendado, mantém categorias e o total de R$ 5.209,73), ou você prefere um único lançamento consolidado de fatura? Se não responder, sigo com uma despesa por item.
