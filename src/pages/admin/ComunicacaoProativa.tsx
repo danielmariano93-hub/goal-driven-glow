@@ -225,7 +225,7 @@ export default function ComunicacaoProativa() {
           </Section>
 
           {totals.cost_usd > 0 && (
-            <Section title="Custo" icon={DollarSign} description="Quanto o Nino gastou para comunicar no período.">>
+            <Section title="Custo" icon={DollarSign} description="Quanto o Nino gastou para comunicar no período.">
               <StatGrid cols={2}>
                 <StatCard label="Custo no período" value={`$${totals.cost_usd.toFixed(4)}`} />
                 <StatCard label="Custo médio por entrega" value={`$${(totals.delivered > 0 ? totals.cost_usd / totals.delivered : 0).toFixed(6)}`} />
