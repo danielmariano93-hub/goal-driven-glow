@@ -448,7 +448,8 @@ export function WhatsAppSessionPanel() {
           </button>
           {!canManageConfig && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode concluir essa configuração. Peça a ele para revisar as credenciais.</p>}
         </div>
-        {hasCredentials && <ConnectDeviceCard status={snap?.status} onConnected={refresh} />}
+        {hasCredentials && <PairingLauncher onOpen={() => setPairingOpen(true)} />}
+        <WhatsAppPairingDialog open={pairingOpen} onOpenChange={setPairingOpen} status={snap?.status} onConnected={refresh} />
       </section>
     );
   }
