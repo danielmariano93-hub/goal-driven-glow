@@ -9,6 +9,26 @@ import {
 import { StatusChip } from "@/components/admin/StatusChip";
 import { mapWhatsAppStatus, humanizeRelative } from "@/lib/admin/statusMapper";
 import { mapAdminActionError } from "@/lib/admin/errorMapper";
+import { WhatsAppPairingDialog } from "@/components/admin/WhatsAppPairingDialog";
+
+function PairingLauncher({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="surface-card p-5 flex flex-wrap items-center gap-3">
+      <div className="flex-1 min-w-[200px]">
+        <p className="text-sm font-semibold">Conectar aparelho</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Abra o pareamento por QR Code ou código de 8 dígitos.
+        </p>
+      </div>
+      <button
+        onClick={onOpen}
+        className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium"
+      >
+        <QrCode className="h-3 w-3" /> Conectar aparelho
+      </button>
+    </div>
+  );
+}
 
 type ConfigStatus = {
   configured: boolean;
