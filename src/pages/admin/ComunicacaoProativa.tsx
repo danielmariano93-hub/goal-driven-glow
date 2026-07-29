@@ -91,7 +91,7 @@ export default function ComunicacaoProativa() {
     <div className="space-y-6">
       <PageHeader
         title="Comunicação Proativa"
-        description="Motor de sugestões proativas: geração, entrega, ações e custo. Dados de communication_deliveries."
+        description="O que o Nino tentou comunicar, o que chegou ao cliente e o que foi retido por regra de convivência."
       />
 
       <ProactiveEnginePanelV2 />
