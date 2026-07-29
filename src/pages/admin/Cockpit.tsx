@@ -30,7 +30,7 @@ function OperationStrip() {
         </div>
         {!waConnected && (
           <Link
-            to="/admin/operacao/whatsapp"
+            to="/admin/operacoes?secao=whatsapp"
             className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
           >
             Reconectar
@@ -43,7 +43,7 @@ function OperationStrip() {
           <p className="text-xs text-muted-foreground">Assessor</p>
           <div className="mt-1"><StatusChip view={mapAgentStatus(data.agent?.status)} size="sm" /></div>
         </div>
-        <Link to="/admin/operacao/assistente" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
+        <Link to="/admin/operacoes?secao=nino" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
       </div>
 
       <div className="surface-card flex items-center justify-between gap-3 p-4">
@@ -54,7 +54,7 @@ function OperationStrip() {
             {data.outbox?.failed ? ` · ${data.outbox.failed} envios falhos` : ""}
           </p>
         </div>
-        <Link to="/admin/operacao/saude" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
+        <Link to="/admin/operacoes?secao=incidentes" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
       </div>
     </section>
   );
@@ -126,7 +126,7 @@ export default function Cockpit() {
       if (cockpitRes.status === "fulfilled") {
         setData(cockpitRes.value);
       } else {
-        setError(adminErrorMessage(cockpitRes.reason, "Falha ao carregar Cockpit"));
+        setError(adminErrorMessage(cockpitRes.reason, "Falha ao carregar a visão geral"));
       }
       if (evoRes.status === "fulfilled") {
         setEvolution(evoRes.value);
@@ -141,7 +141,7 @@ export default function Cockpit() {
   }, [range.from, range.to]);
 
   if (loading) return <AdminSkeleton />;
-  if (error) return <EmptyState title="Erro ao carregar Cockpit" description={error} />;
+  if (error) return <EmptyState title="Não foi possível carregar a visão geral" description={error} />;
   if (!data) return null;
 
   const health = data.metrics_health;
@@ -154,7 +154,7 @@ export default function Cockpit() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Cockpit"
+        title="Visão geral"
         description="Métricas dos clientes reais do Meu Nino — administradores da plataforma não são contabilizados."
         actions={
           <AdminDateFilter
@@ -184,13 +184,13 @@ export default function Cockpit() {
       <section>
         <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Situação atual</h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <KpiCard label="Clientes ativos na base" envelope={data.total_users} />
+          <KpiCard label="Clientes ativos na base" metaKey="total_users" envelope={data.total_users} />
           <KpiCard
             label="Custo do assessor no período"
-            envelope={data.agent_cost_cents_today}
+            metaKey="agent_cost_cents_today" envelope={data.agent_cost_cents_today}
             format={(v) => (v === null ? "—" : BRL.format(v / 100))}
           />
-          <KpiCard label="Mensagens que falharam (7 dias)" envelope={data.messaging_failure_rate_7d} suffix="%" />
+          <KpiCard label="Mensagens que falharam (7 dias)" metaKey="messaging_failure_rate_7d" envelope={data.messaging_failure_rate_7d} suffix="%" />
         </div>
       </section>
 
@@ -198,9 +198,9 @@ export default function Cockpit() {
       <section>
         <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Movimento no período</h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <KpiCard label="Novos clientes" envelope={data.registered_today} />
-          <KpiCard label="Clientes que começaram a usar" envelope={data.activation} />
-          <KpiCard label="Clientes usando na semana" envelope={data.wvu} />
+          <KpiCard label="Novos clientes" metaKey="registered_today" envelope={data.registered_today} />
+          <KpiCard label="Clientes que começaram a usar" metaKey="activation" envelope={data.activation} />
+          <KpiCard label="Clientes usando na semana" metaKey="wvu" envelope={data.wvu} />
         </div>
       </section>
 

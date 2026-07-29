@@ -2,18 +2,14 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 const TITLES: Record<string, string> = {
-  "/admin": "Cockpit",
-  "/admin/cockpit": "Cockpit",
+  "/admin": "Visão geral",
+  "/admin/visao-geral": "Visão geral",
   "/admin/clientes": "Clientes",
-  "/admin/crescimento": "Crescimento",
-  "/admin/operacao/saude": "Saúde",
-  "/admin/operacao/whatsapp": "WhatsApp",
-  "/admin/operacao/assistente": "Assessor",
-  "/admin/operacao/comunicacao-proativa": "Comunicação",
-  "/admin/governanca/seguranca": "Segurança",
-  "/admin/governanca/auditoria": "Auditoria",
+  "/admin/produto": "Produto",
+  "/admin/operacoes": "Operações",
+  "/admin/comunicacoes": "Comunicações",
+  "/admin/administracao": "Administração",
 };
-
 
 export function currentAdminTitle(pathname: string): string {
   return TITLES[pathname] ?? "Admin";
