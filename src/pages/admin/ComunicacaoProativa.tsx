@@ -8,7 +8,6 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
-import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 import { dict } from "@/lib/admin/displayDictionary";
 
 
