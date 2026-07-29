@@ -140,11 +140,9 @@ export async function runFastLog(
   const isCard = spans.payment_method === "credit_card";
   const description = spans.description || (intent.kind === "transaction" ? intent.description : undefined);
   // Hint VAZIO ≠ hint ausente. Notificações bancárias terminam em "Conta corrente"
-  // (sem o nome do banco): isso significa "a conta padrão/única do usuário" e a
-  // resolução real acontece em resolveAccountId. Só perguntamos quando o texto
-  // não indica método algum ou quando o resolvedor de fato não encontrar.
-  const hasAccountSignal = spans.payment_method === "account"
-    || (intent.kind === "transaction" && intent.account_hint != null);
+  // (sem o nome do banco): isso significa "a conta padrão/única do usuário".
+  // A resolução real acontece em resolveAccountId — que já devolve a conta única
+  // quando o hint é genérico. Só perguntamos se ele realmente não resolver.
   const accountHint = spans.payment_method === "account"
     ? (spans.account_hint ?? "")
     : (intent.kind === "transaction" ? (intent.account_hint ?? "") : "");
@@ -157,9 +155,6 @@ export async function runFastLog(
     return `Em qual conta eu registro?${suffix}`;
   };
 
-  if (!isCard && !hasAccountSignal && !accountHint) {
-    return { handled: true, reply: await askAccount(), reply_kind: "question", tool_calls: calls };
-  }
 
   const t0 = Date.now();
   const draft = await create_transaction_draft(ctx, {
