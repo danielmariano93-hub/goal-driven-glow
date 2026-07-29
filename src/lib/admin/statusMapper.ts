@@ -92,3 +92,106 @@ export function mapWahaValidate(code: WahaValidateCode | string | null | undefin
   if (!code) return FALLBACK;
   return VALIDATE_LABELS[code as WahaValidateCode] ?? FALLBACK;
 }
+
+// -----------------------------------------------------------------------------
+// Pairing errors (QR Code / código por telefone). Linguagem simples, sempre com
+// uma próxima ação. Nunca expõe URL, token, provedor ou mensagem crua.
+// -----------------------------------------------------------------------------
+
+export type PairingAction = "retry" | "switch_qr" | "reset" | "none";
+
+export type PairingErrorView = {
+  title: string;
+  description: string;
+  action: PairingAction;
+};
+
+const PAIRING_ERRORS: Record<string, PairingErrorView> = {
+  qr_unavailable: {
+    title: "Não consegui gerar o QR Code",
+    description: "A sessão não devolveu um código agora. Tente de novo em alguns segundos.",
+    action: "retry",
+  },
+  qr_not_ready: {
+    title: "O QR Code ainda está sendo preparado",
+    description: "A sessão está subindo. Aguarde alguns segundos e tente de novo.",
+    action: "retry",
+  },
+  prepare_failed: {
+    title: "Não consegui preparar a sessão",
+    description: "A sessão não iniciou como esperado. Redefinir costuma resolver.",
+    action: "reset",
+  },
+  session_not_ready: {
+    title: "A sessão ainda não está pronta",
+    description: "Aguarde alguns segundos ou redefina a sessão para começar do zero.",
+    action: "reset",
+  },
+  already_connected: {
+    title: "Este número já está conectado",
+    description: "Atualize o painel para ver o estado mais recente do canal.",
+    action: "retry",
+  },
+  method_unsupported: {
+    title: "Código por telefone indisponível",
+    description: "Este servidor ainda não oferece o código de 8 dígitos.",
+    action: "switch_qr",
+  },
+  passkey_required: {
+    title: "O WhatsApp pediu uma chave de acesso",
+    description: "Habilite a chave de acesso no aparelho ou conecte pelo QR Code.",
+    action: "switch_qr",
+  },
+  passkey_confirmation_required: {
+    title: "Confirme a chave de acesso no aparelho",
+    description: "Aprove a solicitação no celular e peça o código novamente.",
+    action: "retry",
+  },
+  invalid_phone: {
+    title: "Número inválido",
+    description: "Confira o DDI e o DDD antes de gerar o código.",
+    action: "retry",
+  },
+  unauthorized: {
+    title: "Credenciais recusadas",
+    description: "As credenciais salvas não foram aceitas. Revise a configuração da conexão.",
+    action: "none",
+  },
+  not_configured: {
+    title: "Conexão ainda não configurada",
+    description: "Cadastre as credenciais antes de parear um aparelho.",
+    action: "none",
+  },
+  unreachable: {
+    title: "Servidor sem resposta",
+    description: "Não consegui falar com o servidor agora. Tente novamente em instantes.",
+    action: "retry",
+  },
+  rate_limited: {
+    title: "Muitas tentativas seguidas",
+    description: "Aguarde alguns instantes antes de tentar de novo.",
+    action: "retry",
+  },
+  network: {
+    title: "Falha de conexão",
+    description: "A requisição não completou. Verifique sua internet e tente de novo.",
+    action: "retry",
+  },
+  provider_error: {
+    title: "Não consegui concluir agora",
+    description: "Algo falhou do lado do servidor. Tente novamente ou redefina a sessão.",
+    action: "reset",
+  },
+};
+
+const PAIRING_FALLBACK: PairingErrorView = {
+  title: "Não consegui concluir agora",
+  description: "Tente novamente em instantes. Se persistir, redefina a sessão.",
+  action: "retry",
+};
+
+export function mapPairingError(code: string | null | undefined): PairingErrorView {
+  if (!code) return PAIRING_FALLBACK;
+  return PAIRING_ERRORS[code] ?? PAIRING_FALLBACK;
+}
+
