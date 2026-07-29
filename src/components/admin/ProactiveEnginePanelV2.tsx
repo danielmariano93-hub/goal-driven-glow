@@ -35,6 +35,9 @@ type CatalogRow = {
   base_priority: number;
   allowed_channels: string[];
   content_mode: string;
+  cooldown_hours: number | null;
+  max_per_day: number | null;
+  requires_manual_approval: boolean | null;
 };
 
 type TemplateRow = {
@@ -80,7 +83,13 @@ function readableReason(reason: string | null): string {
   return labels[reason ?? ""] ?? reason ?? "Sem motivo registrado";
 }
 
-export function ProactiveEnginePanelV2() {
+export type CommSection = "engine" | "simulation" | "queue" | "catalog" | "templates";
+
+const ALL_SECTIONS: CommSection[] = ["engine", "simulation", "queue", "catalog", "templates"];
+
+export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] } = {}) {
+  const visible = new Set(sections ?? ALL_SECTIONS);
+  const show = (id: CommSection) => visible.has(id);
   const queryClient = useQueryClient();
   const [previewUserId, setPreviewUserId] = useState("");
   const [preview, setPreview] = useState<PreviewItem[]>([]);
@@ -142,8 +151,14 @@ export function ProactiveEnginePanelV2() {
   });
 
   const catalogUpdate = useMutation({
-    mutationFn: async (args: { kind: string; active: boolean }) => {
-      const { error } = await rpc("admin_communication_catalog_update", { _kind: args.kind, _active: args.active });
+    mutationFn: async (args: { kind: string; active?: boolean; cooldown_hours?: number; max_per_day?: number; requires_manual_approval?: boolean }) => {
+      const { error } = await rpc("admin_communication_catalog_update", {
+        _kind: args.kind,
+        _active: args.active ?? null,
+        _cooldown_hours: args.cooldown_hours ?? null,
+        _max_per_day: args.max_per_day ?? null,
+        _requires_manual_approval: args.requires_manual_approval ?? null,
+      });
       if (error) throw new Error(adminErrorMessage(error, "Falha ao atualizar tipo"));
     },
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["admin_communication_catalog"] }),
@@ -194,6 +209,7 @@ export function ProactiveEnginePanelV2() {
 
   return (
     <div className="space-y-6">
+      {show("engine") && <>
       <Section title="Motor proativo" icon={Activity} description="Estado real, kill switch, canais e execução automática.">
         {status.isError ? <EmptyState title="Sem acesso ao status" description={(status.error as Error).message} /> : (
           <>
@@ -222,7 +238,9 @@ export function ProactiveEnginePanelV2() {
           </>
         )}
       </Section>
+      </>}
 
+      {show("simulation") && <>
       <Section title="Simulação por usuário" icon={Play} description="Mostra o output que seria gerado. Não grava sugestão, notificação nem WhatsApp.">
         <div className="flex flex-col gap-2 md:flex-row">
           <input value={previewUserId} onChange={(event) => setPreviewUserId(event.target.value)} placeholder="UUID do usuário" className="min-w-0 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
@@ -230,24 +248,99 @@ export function ProactiveEnginePanelV2() {
         </div>
         {preview.length > 0 && <div className="mt-4 space-y-3">{preview.map((item) => <article key={item.dedup_key} className="rounded-xl border border-neutral-200 bg-white p-4"><div className="flex justify-between gap-3"><p className="font-medium">{item.title}</p><span className="text-xs text-neutral-500">{dict.commKind(item.kind)} · {dict.channel(item.channel_ready)}</span></div><p className="mt-2 text-sm text-neutral-600">{item.body}</p><p className="mt-2 break-all text-[11px] text-neutral-400">{item.dedup_key}</p></article>)}</div>}
       </Section>
+      </>}
 
+      {show("queue") && <>
       <Section title="Fila e bloqueios" icon={ListChecks} description="Sugestões pendentes e motivos reais de supressão.">
         <div className="grid gap-4 lg:grid-cols-2">
           <div><h3 className="text-sm font-semibold">Pendentes ({queue.data?.pending.length ?? 0})</h3><div className="mt-2 max-h-72 space-y-2 overflow-auto">{(queue.data?.pending ?? []).slice(0, 20).map((item) => <div key={item.id} className="rounded-lg border border-neutral-200 p-3"><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-neutral-500">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p></div>)}</div></div>
           <div><h3 className="text-sm font-semibold">Bloqueios</h3><div className="mt-2 space-y-2">{(queue.data?.blocks ?? []).map((item) => <div key={item.reason} className="flex justify-between rounded-lg border border-neutral-200 p-3 text-sm"><span>{readableReason(item.reason)}</span><strong>{item.total}</strong></div>)}</div></div>
         </div>
       </Section>
+      </>}
 
-      <Section title="Catálogo de comunicações" icon={Settings2} description="Tipos ativos, família, prioridade e modo de conteúdo.">
-        <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-xs uppercase text-neutral-500"><tr><th className="py-2 text-left">Tipo</th><th className="text-left">Família</th><th className="text-left">Modo</th><th className="text-right">Prioridade</th><th className="text-right">Ação</th></tr></thead><tbody className="divide-y divide-neutral-100">{(catalog.data ?? []).map((item) => <tr key={item.kind} className={item.active ? "" : "opacity-50"}><td className="py-2 font-medium">{item.label || item.kind}</td><td>{item.family}</td><td>{item.content_mode}</td><td className="text-right">{item.base_priority}</td><td className="text-right"><button type="button" onClick={() => catalogUpdate.mutate({ kind: item.kind, active: !item.active })} className="rounded border border-neutral-200 px-2 py-1 text-xs">{item.active ? "Desativar" : "Ativar"}</button></td></tr>)}</tbody></table></div>
+      {show("catalog") && <>
+      <Section title="Fluxos e regras de convivência" icon={Settings2} description="Cada tipo é um fluxo: quando dispara, por quais canais, com que intervalo mínimo e teto diário.">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase text-neutral-500">
+              <tr>
+                <th className="py-2 text-left">Fluxo</th>
+                <th className="text-left">Família</th>
+                <th className="text-left">Canais</th>
+                <th className="text-right">Intervalo mínimo</th>
+                <th className="text-right">Máx./dia</th>
+                <th className="text-right">Aprovação</th>
+                <th className="text-right">Ação</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {(catalog.data ?? []).map((item) => (
+                <tr key={item.kind} className={item.active ? "" : "opacity-50"}>
+                  <td className="py-2 font-medium">{item.label || dict.commKind(item.kind)}</td>
+                  <td className="text-neutral-600">{item.family}</td>
+                  <td className="text-neutral-600">{(item.allowed_channels ?? []).map((c) => dict.channel(c)).join(" + ") || "—"}</td>
+                  <td className="text-right">
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={item.cooldown_hours ?? 0}
+                      onBlur={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isFinite(value) && value !== (item.cooldown_hours ?? 0)) {
+                          catalogUpdate.mutate({ kind: item.kind, cooldown_hours: value });
+                        }
+                      }}
+                      className="w-16 rounded border border-neutral-200 px-2 py-1 text-right text-xs"
+                      aria-label={`Intervalo mínimo em horas para ${item.label || item.kind}`}
+                    />
+                    <span className="ml-1 text-xs text-neutral-400">h</span>
+                  </td>
+                  <td className="text-right">
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={item.max_per_day ?? 0}
+                      onBlur={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isFinite(value) && value !== (item.max_per_day ?? 0)) {
+                          catalogUpdate.mutate({ kind: item.kind, max_per_day: value });
+                        }
+                      }}
+                      className="w-14 rounded border border-neutral-200 px-2 py-1 text-right text-xs"
+                      aria-label={`Máximo por dia para ${item.label || item.kind}`}
+                    />
+                  </td>
+                  <td className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => catalogUpdate.mutate({ kind: item.kind, requires_manual_approval: !item.requires_manual_approval })}
+                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                    >
+                      {item.requires_manual_approval ? "Manual" : "Automático"}
+                    </button>
+                  </td>
+                  <td className="text-right">
+                    <button type="button" onClick={() => catalogUpdate.mutate({ kind: item.kind, active: !item.active })} className="rounded border border-neutral-200 px-2 py-1 text-xs">
+                      {item.active ? "Desativar" : "Ativar"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Section>
+      </>}
 
+      {show("templates") && <>
       <Section title="Templates e prévia" icon={FileText} description="Edite app e WhatsApp com versionamento e validação de variáveis.">
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <div className="max-h-[420px] space-y-2 overflow-auto">{activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-lg border p-3 text-left ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-neutral-200"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-neutral-500">{dict.channel(item.channel)} · versão {item.version}</p></button>)}</div>
-          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um tipo e canal para editar e visualizar." /> : <div className="space-y-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">{selectedTemplate.kind} · {selectedTemplate.channel}</p><span className="text-xs text-neutral-500">Variáveis: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</span></div><input value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><textarea value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><p className="mt-2 font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "/app/alertas/exemplo")}</p></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
+          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um tipo e canal para editar e visualizar." /> : <div className="space-y-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">{selectedTemplate.kind} · {selectedTemplate.channel}</p><span className="text-xs text-neutral-500">Variáveis: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</span></div><input value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><textarea value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
         </div>
       </Section>
+      </>}
     </div>
   );
 }

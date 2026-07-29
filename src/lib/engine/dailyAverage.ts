@@ -1,4 +1,5 @@
 import { computeBehavioralExpense, round2, isGrossCardMovement, type TransactionRow } from "./facts";
+import { previousComparableRange } from "./spendingRhythm";
 
 export interface DateRange { start: string; end: string }
 export interface DailyAverage { total: number; days: number; avg: number }
@@ -113,7 +114,8 @@ export function computeCardSpendingComparison(
   range: DateRange,
 ): CardSpendingComparison {
   const current = computeCardSpending(txs, range);
-  const prevRange = shiftRangePrevMonth(range);
+  // Comparação sempre com período anterior de MESMO tamanho (fonte canônica).
+  const prevRange = previousComparableRange(range);
   const previous = computeCardSpending(txs, prevRange);
   let deltaPct: number | null = null;
   let trend: Trend = "stable";

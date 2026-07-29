@@ -11,7 +11,7 @@ import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoCard } from "@/components/home/RitmoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
-import { EvolucaoFinanceiraCard } from "@/components/home/EvolucaoFinanceiraCard";
+import { RitmoGastosCard } from "@/components/home/RitmoGastosCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
@@ -108,11 +108,7 @@ export default function Index() {
 
 
       <RitmoCard
-        daily={{
-          value: snap?.currentAverageDailyConsumption ?? 0,
-          trend: (snap?.averageDailyVariationPct ?? 0) > 0 ? "up" : (snap?.averageDailyVariationPct ?? 0) < 0 ? "down" : "stable",
-          deltaPct: snap?.averageDailyVariationPct ?? null,
-        }}
+        rhythm={snap?.rhythm ?? null}
         card={{
           value: snap?.currentCardSpend ?? 0,
           trend: (snap?.cardSpendVariationPct ?? 0) > 0 ? "up" : (snap?.cardSpendVariationPct ?? 0) < 0 ? "down" : "stable",
@@ -121,11 +117,11 @@ export default function Index() {
         loading={loading}
       />
 
+      <RitmoGastosCard rhythm={snap?.rhythm ?? null} loading={loading} />
+
       <AssistantTipCard />
 
       <QuickActions />
-
-      <EvolucaoFinanceiraCard topGoal={snap?.topCategoryGoal ?? null} />
 
       <SharedGoalHighlight />
 
