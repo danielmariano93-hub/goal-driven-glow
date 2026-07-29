@@ -56,10 +56,13 @@ const AdminCrescimentoHub = lazy(() => import("./pages/admin/CrescimentoHub"));
 const AdminClientes = lazy(() => import("./pages/admin/Clientes"));
 const AdminGovernancaSeguranca = lazy(() => import("./pages/admin/GovernancaSeguranca"));
 const AdminAuditoriaHub = lazy(() => import("./pages/admin/AuditoriaHub"));
+const AdminOperacoesHub = lazy(() => import("./pages/admin/OperacoesHub"));
+const AdminAdministracaoHub = lazy(() => import("./pages/admin/AdministracaoHub"));
 const AdminOpSaude = lazy(() => import("./pages/admin/operacao/Saude"));
 const AdminOpWhatsApp = lazy(() => import("./pages/admin/operacao/WhatsApp"));
 const AdminAssessorHub = lazy(() => import("./pages/admin/operacao/AssessorHub"));
 const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
+
 
 
 const queryClient = new QueryClient({
