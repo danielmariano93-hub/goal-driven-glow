@@ -19,6 +19,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
+import { maskLid, resolveLidToPhone } from "../_shared/messaging/lidResolver.ts";
 import { buildAssessorLink } from "../_shared/messaging/appUrl.ts";
 import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/mediaFallback.ts";
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
@@ -237,7 +238,20 @@ Deno.serve(async (req) => {
   }
 
   const expected = getSessionName();
-  const classified = classifyInbound(payload, expected);
+  let classified = classifyInbound(payload, expected);
+
+  // WAHA 2026.x pode entregar apenas o identificador interno `@lid`.
+  // Resolvemos o telefone real (cache + API do provedor) e reclassificamos.
+  if (!classified.ok && classified.reason === "lid_pending" && classified.sender_lid) {
+    const lid = classified.sender_lid;
+    const resolvedPhone = await resolveLidToPhone(sb as unknown as Parameters<typeof resolveLidToPhone>[0], lid);
+    classified = classifyInbound(payload, expected, { resolvedPhone: resolvedPhone ?? null });
+    if (!classified.ok) {
+      console.warn("[webhook] lid_unresolved", maskLid(lid));
+    } else {
+      console.info("[webhook] lid_resolved", maskLid(lid));
+    }
+  }
 
   if (!classified.ok) {
     await logDrop(sb, {
@@ -247,6 +261,7 @@ Deno.serve(async (req) => {
       jid_domains: classified.jid_domains,
       has_alt: classified.has_alt,
       has_key: classified.has_key,
+      lid_masked: classified.sender_lid ? maskLid(classified.sender_lid) : null,
     });
     console.log(`[webhook] dropped reason=${classified.reason} event=${classified.event ?? ""} jids=${classified.jid_domains.join(",")}`);
     return json({ ok: true, ignored: classified.reason }, 200);
