@@ -479,9 +479,15 @@ export function WhatsAppSessionPanel() {
         } catch { toast.error("Não consegui sincronizar o webhook."); }
       }} />
 
-      {(!isConnected || forceConnect) && (
-        <ConnectDeviceCard status={forceConnect ? "needs_attention" : snap?.status} onConnected={() => { setForceConnect(false); refresh(); }} />
-      )}
+      {!isConnected && <PairingLauncher onOpen={() => setPairingOpen(true)} />}
+
+      <WhatsAppPairingDialog
+        open={pairingOpen}
+        onOpenChange={setPairingOpen}
+        status={snap?.status}
+        onConnected={refresh}
+      />
+
 
       <div className="surface-card p-5 space-y-4">
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
