@@ -82,6 +82,17 @@ function readAckEvent(payload: unknown): { providerMessageId: string; status: "s
   return { providerMessageId, status };
 }
 
+/** Lê eventos `session.status` do WAHA e normaliza para saúde do canal. */
+export function readSessionStatus(payload: unknown): { status: string; ok: boolean } | null {
+  const root = (payload ?? {}) as Record<string, any>;
+  const event = String(root.event ?? root.type ?? "").toLowerCase();
+  if (event !== "session.status") return null;
+  const p = (root.payload ?? root.data ?? {}) as Record<string, any>;
+  const status = String(p.status ?? p.state ?? root.status ?? "unknown").toUpperCase();
+  return { status, ok: status === "WORKING" };
+}
+
+
 /** Extract a 6-digit verification code from either the legacy `VINCULAR NNNN`
  *  format or a friendlier phrasing that anchors on "código de verificação".
  *  Never matches loose numbers in ordinary conversation. */
