@@ -1,33 +1,43 @@
-## Situação atual (verificada)
+## Diagnóstico (confirmado com dados reais)
 
-`src/pages/admin/WhatsAppSessionPanel.tsx` já possui um `ConnectDeviceCard` inline com QR, código por telefone, polling de status e reset de sessão. O que falta é o formato **modal**: hoje o pareamento aparece como card empilhado na página (renderizado em 4 pontos diferentes), o botão "Reconectar aparelho" apenas alterna um estado `forceConnect`, e as mensagens de erro são códigos crus (`qr_unavailable`, `network`, `provider_error`) tratados de forma dispersa.
+A sessão está conectada, mas **nenhuma mensagem chega ao Nino**. Evidências:
 
-## O que será feito
+- `provider_inbound_drops` (últimos 3 dias): os únicos eventos de mensagem recebidos hoje (29/07, 09:58) foram descartados com `reason=no_real_jid`, `jid_domains=["lid"]`, `has_alt=false`, `has_key=false`.
+- `inbound_messages`: última mensagem processada em **28/07 15:28** — ou seja, nada entrou depois da atualização do WAHA.
+- O classificador `supabase/functions/_shared/messaging/wahaInbound.ts` só aceita telefone quando o domínio do JID é `c.us` ou `s.whatsapp.net`, ou quando existem campos `remoteJidAlt`/`participantAlt`. A nova versão do WAHA entrega apenas `@lid` (identificador interno do WhatsApp) e não envia mais os campos `*Alt` nesse formato — por isso todo evento vira `no_real_jid` e a conversa nunca chega ao Agent Core.
 
-### 1. Novo componente `src/components/admin/WhatsAppPairingDialog.tsx`
-Move a lógica do `ConnectDeviceCard` para um `Dialog` (shadcn), mobile-first:
-- Props: `open`, `onOpenChange`, `status`, `onConnected`.
-- Abas internas: **QR Code** e **Código de 8 dígitos** (entrada de telefone + botão copiar).
-- Cabeçalho com faixa de estado ao vivo: "Aguardando leitura", "Conectando", "Conectado", "Sessão fora do ar" — usando `mapWhatsAppStatus` do `statusMapper.ts` (nada de código cru na tela).
-- Ao detectar `connected` no polling: mostra confirmação verde por ~1,5s, fecha o modal e chama `onConnected()`.
-- QR expira: contador regressivo e regeneração automática, com botão manual "Gerar outro QR Code".
-- Polling só ativo enquanto o modal está aberto (evita chamadas em background).
+Ou seja: não é o agente nem a sessão — é o contrato de payload do WAHA que mudou. Confirmado também na documentação/discussões do WAHA: o número real precisa ser resolvido via `GET /api/{session}/lids/{lid}` (retorna o `pn`) ou lido de novos campos de "phone number" no payload.
 
-### 2. Mensagens de erro claras
-Novo mapa `PAIRING_ERRORS` em `src/lib/admin/statusMapper.ts`, no mesmo padrão de `mapWahaValidate`, cobrindo: `qr_unavailable`, `prepare_failed`, `qr_not_ready`, `unauthorized`, `unreachable`, `not_configured`, `pairing_unsupported`, `invalid_phone`, `provider_error`, `network`.
-Cada erro rende: título curto, explicação em linguagem simples e **próxima ação** (tentar de novo / trocar para QR / redefinir sessão / revisar credenciais). Nenhuma URL, token ou nome de provedor exposto.
+## Correção proposta
 
-### 3. Integração no painel
-- Em `WhatsAppSessionPanel.tsx`, substituir as 4 renderizações do card por um único `WhatsAppPairingDialog` controlado por estado `pairingOpen`.
-- "Reconectar aparelho" (com o AlertDialog de confirmação já existente) passa a abrir o modal.
-- Quando não há sessão conectada, um botão primário "Conectar aparelho" abre o mesmo modal.
-- Se as credenciais não estiverem completas, o botão fica desabilitado com aviso explicativo em vez de abrir um modal que falharia.
+### 1. Resolver `@lid` no classificador (núcleo da correção)
+Em `wahaInbound.ts`:
+- Aceitar novos campos de telefone que o WAHA/Baileys atual pode enviar: `senderPn`, `participantPn`, `key.senderPn`, `key.participantPn`, `_data.key.senderPn`, além dos `*Alt` já suportados.
+- Quando nada disso existir, **não descartar**: retornar a classificação com o `lid` capturado (`sender_lid`), para o webhook resolver.
+- Manter intactas as regras de segurança atuais: grupos/broadcast/newsletter continuam descartados, `fromMe` continua descartado.
 
-### 4. Validação de status
-- Antes de gerar QR/código, o modal chama `status`; se já estiver `connected`, mostra o estado conectado em vez de um QR inútil.
-- Mantida a sequência de retry existente (`begin_qr` → `prepare_pairing` → até 4 tentativas), agora com feedback textual de progresso ("Preparando a sessão…").
+### 2. Resolução de LID no webhook, com cache
+Em `supabase/functions/whatsapp-webhook/index.ts` (e um helper novo `_shared/messaging/lidResolver.ts`):
+1. Consultar cache local (nova tabela `whatsapp_lid_map`: `lid` → `phone_e164`, `last_seen_at`).
+2. Se não houver, chamar `GET {WAHA_API_URL}/api/{session}/lids/{lid}` autenticado (usando `getWahaAccess()`, com o mesmo `safeFetch`/guard SSRF já usado no projeto e timeout curto).
+3. Normalizar com `normalizeBrPhone` e gravar no cache.
+4. Se ainda assim não resolver, registrar drop com razão específica `lid_unresolved` (diagnóstico claro no admin) — sem quebrar o webhook.
+
+O restante do fluxo (vínculo, conversa, orquestrador, resposta) permanece igual, pois passa a receber um telefone real.
+
+### 3. Diagnóstico melhor
+- Nova razão de drop `lid_unresolved` + coluna opcional para o `lid` mascarado, para o painel mostrar o motivo real em vez de "no_real_jid" genérico.
+- Log estruturado (sem dados sensíveis) quando a resolução via API falhar.
+
+### 4. Reprocessamento
+Como as mensagens descartadas não foram persistidas (só o drop), não há corpo para reprocessar automaticamente. Após o deploy, faremos um teste real end-to-end: enviar uma mensagem para o número e confirmar `inbound_messages` → `outbound_messages` com resposta do Nino. Se você tiver lançamentos enviados nesse intervalo, me diga e eu registro como fizemos antes.
+
+### 5. Testes
+- Novos casos em vitest para `classifyInbound`: payload só com `@lid`; payload com `senderPn`; payload com `@lid` de grupo (deve continuar descartado); `fromMe` com `@lid`.
+- Teste unitário do resolver com cache hit / API hit / falha.
 
 ## Detalhes técnicos
-- Nenhuma mudança em Edge Functions, banco ou contratos: as ações `status`, `begin_qr`, `prepare_pairing`, `request_pairing_code`, `reset_session` continuam iguais.
-- Trabalho restrito a frontend/apresentação, dentro da paleta e do design system atuais.
-- Typecheck + suíte de testes ao final.
+
+- Nova migration: tabela `public.whatsapp_lid_map` (`lid text primary key`, `phone_e164 text not null`, `updated_at timestamptz`), com `GRANT` para `service_role` apenas, RLS habilitada e sem policies para clientes (acesso só via edge function service-role).
+- `provider_inbound_drops`: adicionar `lid_masked text null` (idempotente).
+- Sem alterações na LP, no app autenticado ou na autenticação.
