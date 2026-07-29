@@ -34,6 +34,7 @@ type DropCtx = {
   jid_domains: string[];
   has_alt: boolean;
   has_key: boolean;
+  lid_masked?: string | null;
 };
 
 async function logDrop(
@@ -49,6 +50,7 @@ async function logDrop(
       jid_domains: ctx.jid_domains,
       has_alt: ctx.has_alt,
       has_key: ctx.has_key,
+      lid_masked: ctx.lid_masked ?? null,
     });
   } catch (_) { /* diagnostic — never blocks the response */ }
 }
