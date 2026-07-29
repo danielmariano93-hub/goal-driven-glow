@@ -1,0 +1,298 @@
+/**
+ * FONTE CANÔNICA — Média diária e Ritmo de gastos.
+ * =================================================
+ * Versão da fórmula: `spending_rhythm.v1`.
+ *
+ * Regras determinísticas (mesmas para Home, Relatórios, Assessor e WhatsApp):
+ *
+ * 1. Elegibilidade: só entra o que `behavioralMetricAmount(t,"expense")` considera
+ *    consumo real. Ficam de fora transferências entre contas próprias, aplicações
+ *    e resgates de investimento, aportes em metas e PAGAMENTO DE FATURA do cartão.
+ *    A COMPRA no cartão entra no dia da compra (regime de competência do gasto);
+ *    o pagamento da fatura é movimento de caixa, nunca despesa.
+ * 2. Denominador: dias corridos do período, incluindo dias sem nenhum gasto.
+ *    O período nunca passa de hoje — não projetamos dias futuros.
+ * 3. Média total  = consumo elegível ÷ dias corridos.
+ * 4. Ritmo típico = (consumo elegível − fixas − atípicos) ÷ dias corridos.
+ *    - "fixas": lançamentos recorrentes, parcelados e categorias estruturais
+ *      (moradia, escola, seguro, assinatura...). Não representam decisão diária.
+ *    - "atípicos": outliers estatísticos (Tukey, Q3 + 1,5·IIQ) do próprio período,
+ *      só aplicados com amostra mínima de 8 lançamentos.
+ * 5. Comparação: período anterior de MESMO tamanho, imediatamente antes do início.
+ *    Nunca "mês anterior" com número de dias diferente.
+ * 6. Uma queda no ritmo é sempre positiva; uma alta é sempre negativa.
+ */
+import { behavioralMetricAmount, round2, type TransactionRow } from "./facts";
+
+export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v1";
+
+export interface DateRange { start: string; end: string }
+export type Trend = "up" | "down" | "stable";
+
+export type ExclusionReason = "fixed" | "installment" | "recurring" | "outlier";
+
+export type RhythmTx = TransactionRow & {
+  origin?: string | null;
+  installments_total?: number | null;
+  friendly_description?: string | null;
+};
+
+export interface RhythmExcludedItem {
+  id: string;
+  date: string;
+  amount: number;
+  label: string;
+  reason: ExclusionReason;
+}
+
+export interface DailyPoint {
+  date: string;
+  amount: number;
+  cumulative: number;
+  /** média acumulada até o dia (cumulative / dias decorridos) */
+  runningAverage: number;
+}
+
+export interface RhythmResult {
+  range: DateRange;
+  days: number;
+  /** consumo elegível total do período */
+  total: number;
+  /** média total = total / days */
+  average: number;
+  /** consumo depois de remover fixas e atípicos */
+  typicalTotal: number;
+  /** ritmo típico = typicalTotal / days */
+  typicalAverage: number;
+  excludedTotal: number;
+  excluded: RhythmExcludedItem[];
+  series: DailyPoint[];
+  formulaVersion: string;
+}
+
+export interface RhythmComparison {
+  current: RhythmResult;
+  previous: RhythmResult;
+  /** variação da média total */
+  averageDeltaPct: number | null;
+  averageTrend: Trend;
+  /** variação do ritmo típico */
+  typicalDeltaPct: number | null;
+  typicalTrend: Trend;
+}
+
+// ── datas ───────────────────────────────────────────────────────────────────
+
+function parseLocal(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
+  if (!m) return new Date(NaN);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+export function isoLocal(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
+
+export function daysInclusive(start: string, end: string): number {
+  const s = parseLocal(start);
+  const e = parseLocal(end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime()) || e < s) return 0;
+  return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+}
+
+function addDays(iso: string, delta: number): string {
+  const d = parseLocal(iso);
+  if (isNaN(d.getTime())) return iso;
+  d.setDate(d.getDate() + delta);
+  return isoLocal(d);
+}
+
+/** Nunca projetar para o futuro: o fim do período é limitado a hoje. */
+export function clampRangeToToday(range: DateRange, today = isoLocal(new Date())): DateRange {
+  const end = range.end > today ? today : range.end;
+  return { start: range.start, end };
+}
+
+/** Período anterior com EXATAMENTE o mesmo número de dias, colado ao início. */
+export function previousComparableRange(range: DateRange): DateRange {
+  const n = daysInclusive(range.start, range.end);
+  if (n <= 0) return range;
+  const end = addDays(range.start, -1);
+  const start = addDays(end, -(n - 1));
+  return { start, end };
+}
+
+// ── classificação de fixas / atípicos ───────────────────────────────────────
+
+const FIXED_CATEGORY_PATTERNS = [
+  "aluguel", "moradia", "condom", "financiamento", "prestac", "prestaç",
+  "mensalidade", "escola", "faculdade", "educac", "educaç",
+  "plano de saude", "plano de saúde", "saude/plano", "seguro",
+  "energia", "luz", "agua", "água", "gas", "gás", "internet", "telefone",
+  "assinatura", "streaming", "academia", "emprestimo", "empréstimo", "consorcio", "consórcio",
+];
+
+function normalize(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function isFixedCategory(name?: string | null): boolean {
+  if (!name) return false;
+  const n = normalize(name);
+  return FIXED_CATEGORY_PATTERNS.some((p) => n.includes(normalize(p)));
+}
+
+function labelOf(t: RhythmTx): string {
+  return (t.friendly_description || t.description || "Lançamento").toString();
+}
+
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const next = sorted[base + 1];
+  return next !== undefined ? sorted[base] + rest * (next - sorted[base]) : sorted[base];
+}
+
+const MIN_SAMPLE_FOR_OUTLIERS = 8;
+
+// ── cálculo ─────────────────────────────────────────────────────────────────
+
+export interface RhythmOptions {
+  /** id -> nome da categoria, para detectar despesas estruturais */
+  categoryNameById?: Record<string, string>;
+  /** desligar a exclusão de fixas/atípicos (retorna typical == average) */
+  disableTypical?: boolean;
+}
+
+export function computeRhythm(
+  txs: RhythmTx[],
+  rawRange: DateRange,
+  opts: RhythmOptions = {},
+): RhythmResult {
+  const range = rawRange;
+  const days = daysInclusive(range.start, range.end);
+  const categoryNameById = opts.categoryNameById ?? {};
+
+  const byDay = new Map<string, number>();
+  const positives: Array<{ t: RhythmTx; amount: number }> = [];
+  let total = 0;
+
+  for (const t of txs) {
+    const d = String(t.occurred_at ?? "").slice(0, 10);
+    if (!d || d < range.start || d > range.end) continue;
+    const signed = behavioralMetricAmount(t, "expense");
+    if (signed === 0) continue;
+    total += signed;
+    byDay.set(d, (byDay.get(d) ?? 0) + signed);
+    if (signed > 0) positives.push({ t, amount: signed });
+  }
+  total = round2(Math.max(0, total));
+
+  // outliers de Tukey sobre lançamentos não-fixos
+  const fixedFlag = new Map<string, ExclusionReason>();
+  for (const { t } of positives) {
+    if ((t.origin ?? "") === "recurring") fixedFlag.set(t.id, "recurring");
+    else if (Number(t.installments_total ?? 0) > 1) fixedFlag.set(t.id, "installment");
+    else if (isFixedCategory(t.category_id ? categoryNameById[t.category_id] : null)) fixedFlag.set(t.id, "fixed");
+  }
+
+  const variable = positives.filter((p) => !fixedFlag.has(p.t.id));
+  let outlierThreshold = Infinity;
+  if (variable.length >= MIN_SAMPLE_FOR_OUTLIERS) {
+    const sorted = variable.map((p) => p.amount).sort((a, b) => a - b);
+    const q1 = quantile(sorted, 0.25);
+    const q3 = quantile(sorted, 0.75);
+    const iqr = q3 - q1;
+    outlierThreshold = q3 + 1.5 * iqr;
+  }
+
+  const excluded: RhythmExcludedItem[] = [];
+  let excludedTotal = 0;
+  if (!opts.disableTypical) {
+    for (const { t, amount } of positives) {
+      const fixed = fixedFlag.get(t.id);
+      const isOutlier = !fixed && amount > outlierThreshold;
+      if (!fixed && !isOutlier) continue;
+      excluded.push({
+        id: t.id,
+        date: String(t.occurred_at).slice(0, 10),
+        amount: round2(amount),
+        label: labelOf(t),
+        reason: fixed ?? "outlier",
+      });
+      excludedTotal += amount;
+    }
+  }
+  excludedTotal = round2(excludedTotal);
+  excluded.sort((a, b) => b.amount - a.amount);
+
+  const typicalTotal = round2(Math.max(0, total - excludedTotal));
+
+  const series: DailyPoint[] = [];
+  let cumulative = 0;
+  for (let i = 0; i < days; i++) {
+    const date = addDays(range.start, i);
+    const amount = round2(Math.max(0, byDay.get(date) ?? 0));
+    cumulative = round2(cumulative + amount);
+    series.push({ date, amount, cumulative, runningAverage: round2(cumulative / (i + 1)) });
+  }
+
+  return {
+    range,
+    days,
+    total,
+    average: days > 0 ? round2(total / days) : 0,
+    typicalTotal,
+    typicalAverage: days > 0 ? round2(typicalTotal / days) : 0,
+    excludedTotal,
+    excluded,
+    series,
+    formulaVersion: RHYTHM_FORMULA_VERSION,
+  };
+}
+
+function delta(current: number, previous: number): { pct: number | null; trend: Trend } {
+  if (previous > 0) {
+    const pct = round2(((current - previous) / previous) * 100);
+    if (Math.abs(pct) < 1) return { pct, trend: "stable" };
+    return { pct, trend: pct > 0 ? "up" : "down" };
+  }
+  return { pct: null, trend: current > 0 ? "up" : "stable" };
+}
+
+export function computeRhythmComparison(
+  txs: RhythmTx[],
+  range: DateRange,
+  opts: RhythmOptions = {},
+): RhythmComparison {
+  const current = computeRhythm(txs, range, opts);
+  const previous = computeRhythm(txs, previousComparableRange(range), opts);
+  const a = delta(current.average, previous.average);
+  const t = delta(current.typicalAverage, previous.typicalAverage);
+  return {
+    current,
+    previous,
+    averageDeltaPct: a.pct,
+    averageTrend: a.trend,
+    typicalDeltaPct: t.pct,
+    typicalTrend: t.trend,
+  };
+}
+
+const MONTHS_SHORT = ["jan.", "fev.", "mar.", "abr.", "mai.", "jun.", "jul.", "ago.", "set.", "out.", "nov.", "dez."];
+
+export function formatRangeShort(range: DateRange): string {
+  const s = parseLocal(range.start);
+  const e = parseLocal(range.end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return "";
+  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
+    if (s.getDate() === e.getDate()) return `${s.getDate()} ${MONTHS_SHORT[s.getMonth()]}`;
+    return `${s.getDate()}–${e.getDate()} ${MONTHS_SHORT[s.getMonth()]}`;
+  }
+  return `${s.getDate()} ${MONTHS_SHORT[s.getMonth()]} – ${e.getDate()} ${MONTHS_SHORT[e.getMonth()]}`;
+}

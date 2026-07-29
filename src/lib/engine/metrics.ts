@@ -17,7 +17,13 @@ import {
   type RecurringRow,
   type TransactionRow,
 } from "./facts";
-import { computeDailyAverageComparison, computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
+import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
+import {
+  clampRangeToToday,
+  computeRhythmComparison,
+  type RhythmComparison,
+  type RhythmTx,
+} from "./spendingRhythm";
 
 export type CategoryGoalMode = "percent_reduction" | "fixed_limit";
 export type CategoryGoalBaselineKind = "prev_month" | "avg_3m" | "custom";
@@ -127,6 +133,8 @@ export interface FinancialSnapshot {
   currentAverageDailyConsumption: number;
   previousAverageDailyConsumption: number;
   averageDailyVariationPct: number | null;
+  /** Fonte canônica de ritmo (média total + ritmo típico + série acumulada). */
+  rhythm: RhythmComparison;
   currentCardSpend: number;
   previousCardSpend: number;
   cardSpendVariationPct: number | null;
@@ -393,8 +401,11 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const availableToday = computeTotalCash(input.accounts, input.txs, input.snapshots);
   const netWorth = computeNetWorth(input.accounts, input.txs, input.investments, input.debts, input.snapshots);
-  const daily = computeDailyAverageComparison(input.txs, input.period);
-  const card = computeCardSpendingComparison(input.txs, input.period);
+  const effectivePeriod = clampRangeToToday(input.period, todayIso);
+  const rhythm = computeRhythmComparison(input.txs as RhythmTx[], effectivePeriod, {
+    categoryNameById: input.categoryNameById ?? {},
+  });
+  const card = computeCardSpendingComparison(input.txs, effectivePeriod);
 
   const monthRange = monthRangeOf(today);
   const monthToDateRange: DateRange = { start: monthRange.start, end: todayIso };
@@ -433,9 +444,10 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     period: input.period,
     availableToday,
     netWorth,
-    currentAverageDailyConsumption: daily.current.avg,
-    previousAverageDailyConsumption: daily.previous.avg,
-    averageDailyVariationPct: daily.deltaPct,
+    currentAverageDailyConsumption: rhythm.current.average,
+    previousAverageDailyConsumption: rhythm.previous.average,
+    averageDailyVariationPct: rhythm.averageDeltaPct,
+    rhythm,
     currentCardSpend: card.current,
     previousCardSpend: card.previous,
     cardSpendVariationPct: card.deltaPct,
