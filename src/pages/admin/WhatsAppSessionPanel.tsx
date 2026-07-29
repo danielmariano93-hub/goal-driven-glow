@@ -521,7 +521,7 @@ export function WhatsAppSessionPanel() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={() => setForceConnect(true)}>Abrir conexão</AlertDialogAction>
+                <AlertDialogAction onClick={() => setPairingOpen(true)}>Abrir conexão</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
