@@ -705,26 +705,34 @@ export function WhatsAppSessionPanel() {
   const canManageConfig = canManageFromConfig(config);
   const isConnected = snap?.status === "connected";
 
+  const hasCredentials = config?.has_url === true && config?.has_api_key === true;
+
   if (notConfigured) {
     return (
-      <div className="surface-card p-5 space-y-3">
-        <div className="flex items-start gap-3">
-          <LockKeyhole className="h-5 w-5 text-muted-foreground mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold">Configurar conexão</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Nenhuma credencial cadastrada ainda. Um dono da plataforma pode conectar em poucos passos.
-            </p>
+      <section className="space-y-4">
+        <div className="surface-card p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <LockKeyhole className="h-5 w-5 text-muted-foreground mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold">Configurar conexão</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {hasCredentials
+                  ? "As credenciais já estão salvas, mas a configuração ainda não está completa. Você pode tentar conectar o aparelho abaixo."
+                  : "Nenhuma credencial cadastrada ainda. Um dono da plataforma pode conectar em poucos passos."}
+              </p>
+            </div>
           </div>
+          <button onClick={() => { setWizardMode("initial"); setWizard(true); }} disabled={!canManageConfig}
+            className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50">
+            Configurar conexão
+          </button>
+          {!canManageConfig && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode concluir essa configuração. Peça a ele para revisar as credenciais.</p>}
         </div>
-        <button onClick={() => { setWizardMode("initial"); setWizard(true); }} disabled={!canManageConfig}
-          className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-4 py-2 text-xs font-medium disabled:opacity-50">
-          Configurar conexão
-        </button>
-        {!canManageConfig && <p className="text-[11px] text-muted-foreground">Apenas o dono da plataforma pode fazer essa configuração.</p>}
-      </div>
+        {hasCredentials && <ConnectDeviceCard status={snap?.status} onConnected={refresh} />}
+      </section>
     );
   }
+
 
   return (
     <section className="space-y-4">
