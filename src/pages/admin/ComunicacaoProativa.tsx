@@ -1,13 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, Mail, Radio, ShieldAlert, DollarSign, MousePointerClick, BrainCircuit } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Section } from "@/components/admin/Section";
 import { StatCard, StatGrid } from "@/components/admin/StatCard";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
-import { adminErrorMessage } from "@/lib/admin/adminRpc";
+import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 import { dict } from "@/lib/admin/displayDictionary";
 
@@ -50,13 +49,16 @@ export default function ComunicacaoProativa() {
   const q = useQuery({
     queryKey: ["admin_proactive_summary", days, channel, kind],
     queryFn: async (): Promise<Summary> => {
-      const { data, error } = await supabase.rpc("admin_v2_proactive_summary", {
-        _days: days,
-        _channel: channel || null,
-        _kind: kind || null,
-      });
-      if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar resumo proativo"));
-      return (data as Summary) ?? { totals: {} as Summary["totals"], by_kind: [], by_channel: [] };
+      try {
+        const data = await callAdminRpc<Summary>("admin_v2_proactive_summary", {
+          _days: days,
+          _channel: channel || null,
+          _kind: kind || null,
+        });
+        return data ?? { totals: {} as Summary["totals"], by_kind: [], by_channel: [] };
+      } catch (error) {
+        throw new Error(adminErrorMessage(error, "Falha ao carregar o resumo de comunicações"));
+      }
     },
     staleTime: 30_000,
   });
@@ -64,11 +66,11 @@ export default function ComunicacaoProativa() {
   const quality = useQuery({
     queryKey: ["admin_nino_quality", days],
     queryFn: async (): Promise<QualitySummary> => {
-      const { data, error } = await supabase.rpc("admin_v2_nino_quality_summary" as any, {
-        _days: days,
-      } as any);
-      if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar qualidade do Nino"));
-      return data as unknown as QualitySummary;
+      try {
+        return await callAdminRpc<QualitySummary>("admin_v2_nino_quality_summary", { _days: days });
+      } catch (error) {
+        throw new Error(adminErrorMessage(error, "Falha ao carregar a qualidade do Nino"));
+      }
     },
     staleTime: 30_000,
     retry: 1,
@@ -89,7 +91,7 @@ export default function ComunicacaoProativa() {
     <div className="space-y-6">
       <PageHeader
         title="Comunicação Proativa"
-        description="Motor de sugestões proativas: geração, entrega, ações e custo. Dados de communication_deliveries."
+        description="O que o Nino tentou comunicar, o que chegou ao cliente e o que foi retido por regra de convivência."
       />
 
       <ProactiveEnginePanelV2 />
@@ -145,7 +147,7 @@ export default function ComunicacaoProativa() {
               <StatCard label="Enfileiradas" value={totals.queued} />
               <StatCard label="Enviadas" value={totals.sent} />
               <StatCard label="Falhas" value={totals.failed} tone={totals.failed > 0 ? "warning" : "default"} />
-              <StatCard label="Bloqueadas (política)" value={totals.suppressed} tone="warning" />
+              <StatCard label="Retidas por regra de convivência" value={totals.suppressed} tone="warning" />
             </StatGrid>
           </Section>
 
@@ -153,7 +155,7 @@ export default function ComunicacaoProativa() {
             <StatGrid cols={3}>
               <StatCard label="Opt-out (usuário)" value={totals.opt_out} />
               <StatCard label="Dispensadas" value={totals.dismissed} />
-              <StatCard label="Bloqueadas totais" value={totals.suppressed} />
+              <StatCard label="Retidas no total" value={totals.suppressed} />
             </StatGrid>
           </Section>
 
@@ -223,7 +225,7 @@ export default function ComunicacaoProativa() {
           </Section>
 
           {totals.cost_usd > 0 && (
-            <Section title="Custo" icon={DollarSign} description="Somatório de cost_usd em communication_deliveries.">
+            <Section title="Custo" icon={DollarSign} description="Quanto o Nino gastou para comunicar no período.">
               <StatGrid cols={2}>
                 <StatCard label="Custo no período" value={`$${totals.cost_usd.toFixed(4)}`} />
                 <StatCard label="Custo médio por entrega" value={`$${(totals.delivered > 0 ? totals.cost_usd / totals.delivered : 0).toFixed(6)}`} />

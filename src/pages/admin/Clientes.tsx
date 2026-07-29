@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
@@ -211,10 +212,12 @@ export default function Clientes() {
                 render: (row) => {
                   const identity = identities[row.pseudo_id];
                   return (
-                    <div>
-                      <p className="font-semibold">{identity?.display_name || `Cliente ${row.pseudo_id.slice(0, 6)}`}</p>
+                    <Link to={`/admin/clientes/${row.pseudo_id}`} className="block focus-visible:ring-2 focus-visible:ring-primary/40">
+                      <p className="font-semibold underline-offset-2 hover:underline">
+                        {identity?.display_name || `Cliente ${row.pseudo_id.slice(0, 6)}`}
+                      </p>
                       <p className="text-xs text-muted-foreground">{identity?.email || "Identidade protegida"}</p>
-                    </div>
+                    </Link>
                   );
                 },
               },

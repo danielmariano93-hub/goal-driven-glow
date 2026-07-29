@@ -6778,6 +6778,7 @@ export type Database = {
       }
       admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
       admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
+      admin_v2_client_profile: { Args: { _pseudo_id: string }; Returns: Json }
       admin_v2_clients_identity: {
         Args: { _pseudo_ids: string[] }
         Returns: Json
@@ -6817,6 +6818,7 @@ export type Database = {
       admin_v2_message_intelligence: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
+      admin_v2_metrics_universe: { Args: never; Returns: Json }
       admin_v2_nino_quality_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
       admin_v2_proactive_summary: {
