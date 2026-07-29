@@ -50,13 +50,16 @@ export default function ComunicacaoProativa() {
   const q = useQuery({
     queryKey: ["admin_proactive_summary", days, channel, kind],
     queryFn: async (): Promise<Summary> => {
-      const { data, error } = await supabase.rpc("admin_v2_proactive_summary", {
-        _days: days,
-        _channel: channel || null,
-        _kind: kind || null,
-      });
-      if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar resumo proativo"));
-      return (data as Summary) ?? { totals: {} as Summary["totals"], by_kind: [], by_channel: [] };
+      try {
+        const data = await callAdminRpc<Summary>("admin_v2_proactive_summary", {
+          _days: days,
+          _channel: channel || null,
+          _kind: kind || null,
+        });
+        return data ?? { totals: {} as Summary["totals"], by_kind: [], by_channel: [] };
+      } catch (error) {
+        throw new Error(adminErrorMessage(error, "Falha ao carregar o resumo de comunicações"));
+      }
     },
     staleTime: 30_000,
   });
@@ -64,11 +67,11 @@ export default function ComunicacaoProativa() {
   const quality = useQuery({
     queryKey: ["admin_nino_quality", days],
     queryFn: async (): Promise<QualitySummary> => {
-      const { data, error } = await supabase.rpc("admin_v2_nino_quality_summary" as any, {
-        _days: days,
-      } as any);
-      if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar qualidade do Nino"));
-      return data as unknown as QualitySummary;
+      try {
+        return await callAdminRpc<QualitySummary>("admin_v2_nino_quality_summary", { _days: days });
+      } catch (error) {
+        throw new Error(adminErrorMessage(error, "Falha ao carregar a qualidade do Nino"));
+      }
     },
     staleTime: 30_000,
     retry: 1,
