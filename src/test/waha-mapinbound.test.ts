@@ -46,7 +46,7 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
     if (r.ok) expect(r.from_phone).toBe("+5521977776666");
   });
 
-  it("drops NOWEB @lid without any alt field with reason=no_real_jid", () => {
+  it("marca NOWEB @lid sem alt como lid_pending (resolução externa)", () => {
     const r = classifyInbound(base({
       id: "id4",
       from: "444@lid",
@@ -55,7 +55,8 @@ describe("classifyInbound (WAHA NOWEB parser)", () => {
     }), SESSION);
     expect(r.ok).toBe(false);
     if (r.ok === false) {
-      expect(r.reason).toBe("no_real_jid");
+      expect(r.reason).toBe("lid_pending");
+      expect(r.sender_lid).toBe("444@lid");
       expect(r.jid_domains).toContain("lid");
     }
   });
