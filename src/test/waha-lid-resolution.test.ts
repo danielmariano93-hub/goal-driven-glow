@@ -18,7 +18,7 @@ describe("classifyInbound — WAHA 2026.x @lid", () => {
   it("sinaliza lid_pending (não descarta) quando só há @lid", () => {
     const r = classifyInbound(base(lidOnly), SESSION);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
+    if (r.ok === false) {
       expect(r.reason).toBe("lid_pending");
       expect(r.sender_lid).toBe("31142858252478@lid");
     }
@@ -36,7 +36,7 @@ describe("classifyInbound — WAHA 2026.x @lid", () => {
   it("cai em lid_unresolved quando a resolução externa falha", () => {
     const r = classifyInbound(base(lidOnly), SESSION, { resolvedPhone: null });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe("lid_unresolved");
+    if (r.ok === false) expect(r.reason).toBe("lid_unresolved");
   });
 
   it("usa senderPn quando presente, sem precisar resolver", () => {
@@ -52,11 +52,11 @@ describe("classifyInbound — WAHA 2026.x @lid", () => {
   it("continua descartando grupos e fromMe mesmo com @lid", () => {
     const grupo = classifyInbound(base({ ...lidOnly, from: "12345@g.us" }), SESSION);
     expect(grupo.ok).toBe(false);
-    if (!grupo.ok) expect(grupo.reason).toBe("group");
+    if (grupo.ok === false) expect(grupo.reason).toBe("group");
 
     const meu = classifyInbound(base({ ...lidOnly, fromMe: true }), SESSION);
     expect(meu.ok).toBe(false);
-    if (!meu.ok) expect(meu.reason).toBe("from_me");
+    if (meu.ok === false) expect(meu.reason).toBe("from_me");
   });
 
   it("extractSenderLid encontra o lid em diferentes formatos", () => {
