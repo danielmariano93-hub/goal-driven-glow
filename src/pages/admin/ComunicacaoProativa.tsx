@@ -147,7 +147,7 @@ export default function ComunicacaoProativa() {
               <StatCard label="Enfileiradas" value={totals.queued} />
               <StatCard label="Enviadas" value={totals.sent} />
               <StatCard label="Falhas" value={totals.failed} tone={totals.failed > 0 ? "warning" : "default"} />
-              <StatCard label="Bloqueadas (política)" value={totals.suppressed} tone="warning" />
+              <StatCard label="Retidas por regra de convivência" value={totals.suppressed} tone="warning" />
             </StatGrid>
           </Section>
 
