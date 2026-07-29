@@ -211,8 +211,23 @@ Deno.serve(async (req) => {
     return json({ ok: true, ack: ack.status, matched });
   }
 
+  // Eventos de status da sessão não são mensagens, mas são o único sinal de
+  // que o número parou de receber. Persistimos o estado para o painel admin
+  // conseguir mostrar "sessão desconectada desde X" (antes eram descartados).
+  const sessionStatus = readSessionStatus(payload);
+  if (sessionStatus) {
+    try {
+      await sb.from("provider_health_events").insert({
+        provider: "waha",
+        ok: sessionStatus.ok,
+        error_masked: sessionStatus.status.slice(0, 120),
+      });
+    } catch (_) { /* diagnóstico — nunca bloqueia */ }
+  }
+
   const expected = getSessionName();
   const classified = classifyInbound(payload, expected);
+
   if (!classified.ok) {
     await logDrop(sb, {
       reason: classified.reason,
