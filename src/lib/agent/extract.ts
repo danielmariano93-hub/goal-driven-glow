@@ -122,29 +122,32 @@ export function extractSpans(raw: string): ExtractedSpans {
   const labeledAmount = original.match(LABELED_AMOUNT_RX)?.[1];
   const labeledDesc = cleanLabelValue(original.match(LABELED_DESC_RX)?.[1]);
   const labeledCard = cleanLabelValue(original.match(LABELED_CARD_RX)?.[1]);
-  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1])
-    ?? (() => {
-      const m = original.match(LINE_ACCOUNT_RX);
-      return cleanLabelValue(m?.[1] ?? null);
-    })();
+  const accountLabel = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1]);
+  const bareAccountLine = original.match(LINE_ACCOUNT_RX);
+  const labeledAccount = accountLabel
+    ?? (bareAccountLine ? (cleanLabelValue(bareAccountLine[1]) ?? "") : null);
   const labeledDate = cleanLabelValue(original.match(LABELED_DATE_RX)?.[1]);
   if (labeledAmount) {
     const parsed = parseBrAmount(labeledAmount);
     if (parsed != null && parsed > 0) out.amount = parsed;
   }
+  // Quando há rótulo de estabelecimento/descrição, ele é a descrição final —
+  // o restante do texto (ruído do encaminhamento) nunca deve sobrescrever.
+  const descLocked = Boolean(labeledDesc);
   if (labeledDesc) out.description = labeledDesc;
   if (labeledCard) {
     out.payment_method = "credit_card";
     out.card_hint = labeledCard;
   }
-  if (labeledAccount && out.payment_method !== "credit_card") {
+  if (labeledAccount !== null && out.payment_method !== "credit_card") {
     out.payment_method = "account";
     out.account_hint = labeledAccount;
   }
   if (labeledDate) out.occurred_at = parseDateLabel(labeledDate);
-  if (out.amount !== null && out.description && (out.card_hint || out.account_hint)) {
+  if (out.amount !== null && out.description && (out.card_hint !== null || out.account_hint !== null)) {
     return out;
   }
+
 
 
   // 1) amount
