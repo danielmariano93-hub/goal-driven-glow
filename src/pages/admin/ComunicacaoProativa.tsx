@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
+import { AdminTabs } from "@/components/admin/AdminTabs";
 import { dict } from "@/lib/admin/displayDictionary";
 
 
@@ -90,12 +91,25 @@ export default function ComunicacaoProativa() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Comunicação Proativa"
+        title="Comunicações"
         description="O que o Nino tentou comunicar, o que chegou ao cliente e o que foi retido por regra de convivência."
       />
 
-      <ProactiveEnginePanelV2 />
+      <AdminTabs
+        tabs={[
+          { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
+          { id: "fluxos", label: "Fluxos", render: () => <ProactiveEnginePanelV2 sections={["catalog"]} /> },
+          { id: "templates", label: "Templates", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
+          { id: "fila", label: "Fila e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
+        ]}
+      />
+    </div>
+  );
+}
 
+function Overview() {
+  return (
+    <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
         {PERIODS.map((p) => (
           <button
