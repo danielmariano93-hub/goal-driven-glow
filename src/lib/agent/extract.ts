@@ -224,7 +224,8 @@ export function extractSpans(raw: string): ExtractedSpans {
   desc = collapse(desc);
   while (CONNECTORS_BARE.test(desc)) { desc = desc.replace(CONNECTORS_BARE, ""); desc = collapse(desc); }
   desc = desc.replace(/\s+(de|do|da)\s*$/i, "").trim();
-  out.description = desc;
+  if (!descLocked) out.description = desc;
+
 
   return out;
 }
