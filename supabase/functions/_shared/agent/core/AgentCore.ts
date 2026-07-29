@@ -309,6 +309,25 @@ ${JSON.stringify(hints)}
     `o sistema já registrou direto — não repita o fluxo.\n\n` +
     systemPrompt;
 
+  // Conta única: nunca perguntar algo que já está determinado.
+  await guard(async () => {
+    const { data: accs } = await sb.from("accounts")
+      .select("name").eq("user_id", input.user_id).eq("active", true);
+    const names = ((accs as Array<{ name: string }> | null) ?? []).map(a => a.name).filter(Boolean);
+    if (names.length === 1) {
+      systemPrompt =
+        `[CONTAS DO USUÁRIO]\n` +
+        `Ele tem apenas uma conta ativa: "${names[0]}". Termos genéricos como "conta corrente" ` +
+        `se referem a ela. NUNCA pergunte em qual conta registrar nem sugira outra conta.\n\n` +
+        systemPrompt;
+    } else if (names.length > 1) {
+      systemPrompt =
+        `[CONTAS DO USUÁRIO]\n` +
+        `Contas ativas: ${names.join(", ")}. Use apenas esses nomes; se precisar perguntar, ofereça essa lista.\n\n` +
+        systemPrompt;
+    }
+  }, (m) => metrics.errors.push("accounts_prompt:" + m), null);
+
 
   // Safety net: if there's a pending confirmation and the parser did not
   // intercept (loose "sim pode" / "manda" wasn't detected), prepend an
