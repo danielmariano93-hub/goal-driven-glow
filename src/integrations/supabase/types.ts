@@ -4634,6 +4634,7 @@ export type Database = {
           has_key: boolean
           id: string
           jid_domains: string[]
+          lid_masked: string | null
           occurred_at: string
           provider: string
           reason: string
@@ -4645,6 +4646,7 @@ export type Database = {
           has_key?: boolean
           id?: string
           jid_domains?: string[]
+          lid_masked?: string | null
           occurred_at?: string
           provider: string
           reason: string
@@ -4656,6 +4658,7 @@ export type Database = {
           has_key?: boolean
           id?: string
           jid_domains?: string[]
+          lid_masked?: string | null
           occurred_at?: string
           provider?: string
           reason?: string
@@ -6263,6 +6266,24 @@ export type Database = {
           running_runs?: number
           total_runs?: number
           total_txs?: number
+        }
+        Relationships: []
+      }
+      whatsapp_lid_map: {
+        Row: {
+          lid: string
+          phone_e164: string
+          updated_at: string
+        }
+        Insert: {
+          lid: string
+          phone_e164: string
+          updated_at?: string
+        }
+        Update: {
+          lid?: string
+          phone_e164?: string
+          updated_at?: string
         }
         Relationships: []
       }
