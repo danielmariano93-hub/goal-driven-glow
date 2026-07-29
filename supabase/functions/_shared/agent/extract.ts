@@ -17,22 +17,29 @@ export type ExtractedSpans = {
   raw: string;
 };
 
-const AMOUNT_RX = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
+// Ordem importa: milhar com ponto → decimal com vírgula → decimal com ponto → inteiro.
+// Sem essa ordem, "5.40" casava apenas "5" e o ".40" sobrava na descrição.
+const AMOUNT_RX = /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+,\d{1,2}|\d+\.\d{1,2}|\d+)/i;
 const INSTALLMENT_RX = /\b(?:em\s+)?(\d{1,2})\s*x\b/i;
 const CARD_METHOD_RX = /\bno\s+cart[aã]o(?:\s+de\s+cr[eé]dito)?\b|\bcart[aã]o\s+de\s+cr[eé]dito\b|\bno\s+cr[eé]dito\b/i;
 const DEBIT_METHOD_RX = /\b(?:no\s+d[eé]bito|na\s+conta(?:\s+corrente)?|em\s+dinheiro|no\s+dinheiro|no\s+pix)\b/i;
 const RELATIVE_DATE_RX = /\b(hoje|ontem|anteontem)\b/i;
 const ISO_DATE_RX = /\b(20\d{2})-(\d{2})-(\d{2})\b/;
 const PT_DATE_RX = /\b(\d{1,2})\s+de\s+(jan\.?|janeiro|fev\.?|fevereiro|mar\.?|março|marco|abr\.?|abril|mai\.?|maio|jun\.?|junho|jul\.?|julho|ago\.?|agosto|set\.?|setembro|out\.?|outubro|nov\.?|novembro|dez\.?|dezembro)\s+de\s+(20\d{2})\b/i;
-const LABELED_AMOUNT_RX = /(?:^|\n)\s*valor\s*:\s*(?:r\$\s*)?([^\n]+)/i;
-const LABELED_DESC_RX = /(?:^|\n)\s*(?:estabelecimento|descri[cç][aã]o|descricao|local|finalidade)\s*:\s*([^\n]+)/i;
-const LABELED_CARD_RX = /(?:^|\n)\s*cart[aã]o\s*:\s*([^\n]+)/i;
+// Notificações bancárias reais chegam SEM dois-pontos ("Valor R$ 5,40").
+// Por isso o `:` é opcional — mas o conteúdo capturado precisa começar com
+// dígito (valor/data) ou ter corpo real (descrição/cartão) para não casar frases soltas.
+const LABELED_AMOUNT_RX = /(?:^|\n)\s*valor(?:\s+total)?\s*:?\s*(?:r\$\s*)?(\d[^\n]*)/i;
+const LABELED_DESC_RX = /(?:^|\n)\s*(?:estabelecimento|descri[cç][aã]o|descricao|local|finalidade)\s*:?\s*([^\n]{2,})/i;
+const LABELED_CARD_RX = /(?:^|\n)\s*cart[aã]o(?:\s+de\s+cr[eé]dito)?\s*:?\s*([^\n]{2,})/i;
 const LABELED_ACCOUNT_RX = /(?:^|\n)\s*(?:conta(?:\s+corrente|\s+poupan[çc]a)?|origem|banco)\s*:\s*([^\n]+)/i;
 // Notificações bancárias frequentemente terminam com uma linha isolada
-// (sem rótulo `:`) tipo "Conta Corrente Itaú" ou "Conta Poupança Nubank".
-const LINE_ACCOUNT_RX = /(?:^|\n)\s*(conta(?:\s+corrente|\s+poupan[çc]a)?\s+[^\n:]{2,})\s*$/i;
+// (sem rótulo `:`) tipo "Conta Corrente Itaú", "Conta Poupança Nubank" ou
+// simplesmente "Conta corrente" (conta única do usuário).
+const LINE_ACCOUNT_RX = /(?:^|\n)\s*conta(?:\s+corrente|\s+poupan[çc]a)?\s*([^\n:]{0,40}?)\s*$/i;
 
-const LABELED_DATE_RX = /(?:^|\n)\s*data\s*:\s*([^\n]+)/i;
+const LABELED_DATE_RX = /(?:^|\n)\s*data\s*:?\s*(\d[^\n]*)/i;
+
 // Marcas: sem \b trailing para funcionar com acentos (ú, é). Início: início-de-string ou espaço.
 const CARD_BRAND_RX = /(?:^|\s)(itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa|banco do brasil|bb|next)(?=$|[\s.,;!?])/i;
 
@@ -115,31 +122,32 @@ export function extractSpans(raw: string): ExtractedSpans {
   const labeledAmount = original.match(LABELED_AMOUNT_RX)?.[1];
   const labeledDesc = cleanLabelValue(original.match(LABELED_DESC_RX)?.[1]);
   const labeledCard = cleanLabelValue(original.match(LABELED_CARD_RX)?.[1]);
-  const labeledAccount = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1])
-    ?? (() => {
-      // Fallback: última linha isolada "Conta Corrente Itaú" — comum em
-      // notificações bancárias encaminhadas pelo WhatsApp.
-      const m = original.match(LINE_ACCOUNT_RX);
-      return cleanLabelValue(m?.[1] ?? null);
-    })();
+  const accountLabel = cleanLabelValue(original.match(LABELED_ACCOUNT_RX)?.[1]);
+  const bareAccountLine = original.match(LINE_ACCOUNT_RX);
+  const labeledAccount = accountLabel
+    ?? (bareAccountLine ? (cleanLabelValue(bareAccountLine[1]) ?? "") : null);
   const labeledDate = cleanLabelValue(original.match(LABELED_DATE_RX)?.[1]);
   if (labeledAmount) {
     const parsed = parseBrAmount(labeledAmount);
     if (parsed != null && parsed > 0) out.amount = parsed;
   }
+  // Quando há rótulo de estabelecimento/descrição, ele é a descrição final —
+  // o restante do texto (ruído do encaminhamento) nunca deve sobrescrever.
+  const descLocked = Boolean(labeledDesc);
   if (labeledDesc) out.description = labeledDesc;
   if (labeledCard) {
     out.payment_method = "credit_card";
     out.card_hint = labeledCard;
   }
-  if (labeledAccount && out.payment_method !== "credit_card") {
+  if (labeledAccount !== null && out.payment_method !== "credit_card") {
     out.payment_method = "account";
     out.account_hint = labeledAccount;
   }
   if (labeledDate) out.occurred_at = parseDateLabel(labeledDate);
-  if (out.amount !== null && out.description && (out.card_hint || out.account_hint)) {
+  if (out.amount !== null && out.description && (out.card_hint !== null || out.account_hint !== null)) {
     return out;
   }
+
 
 
   // 1) amount
@@ -216,7 +224,8 @@ export function extractSpans(raw: string): ExtractedSpans {
   desc = collapse(desc);
   while (CONNECTORS_BARE.test(desc)) { desc = desc.replace(CONNECTORS_BARE, ""); desc = collapse(desc); }
   desc = desc.replace(/\s+(de|do|da)\s*$/i, "").trim();
-  out.description = desc;
+  if (!descLocked) out.description = desc;
+
 
   return out;
 }
