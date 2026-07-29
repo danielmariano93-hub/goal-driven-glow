@@ -41,18 +41,25 @@ export const ADMIN_RPC_ARGS = {
   admin_v2_metrics_audit: [],
   admin_v2_retry_failed_outbound: ["_limit"],
   admin_communication_catalog: [],
-  admin_communication_catalog_update: ["_kind", "_active"],
+  admin_communication_catalog_update: [
+    "_kind",
+    "_active",
+    "_base_priority",
+    "_allowed_channels",
+    "_cooldown_hours",
+    "_max_per_day",
+    "_requires_manual_approval",
+  ],
   admin_communication_templates: ["_kind"],
   admin_communication_template_upsert: [
     "_kind",
     "_channel",
     "_title_template",
     "_body_template",
-    "_allowed_variables",
     "_active",
   ],
   admin_proactive_engine_status: [],
-  admin_proactive_engine_toggle: ["_enabled"],
+  admin_proactive_engine_toggle: ["_enabled", "_channels"],
   admin_proactive_queue: ["_limit"],
 } as const;
 

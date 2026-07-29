@@ -69,18 +69,7 @@ function dateTime(value: string | null): string {
 }
 
 function readableReason(reason: string | null): string {
-  const labels: Record<string, string> = {
-    rollout_channel_disabled: "Canal não liberado no rollout",
-    candidate_channel_not_ready: "A sugestão não foi preparada para este canal",
-    kind_disabled_in_catalog: "Tipo desativado no catálogo",
-    channel_disabled_in_catalog: "Canal desativado para este tipo",
-    awaiting_manual_approval: "Aguardando aprovação manual",
-    daily_frequency_cap: "Limite diário atingido",
-    weekly_frequency_cap: "Limite semanal atingido",
-    quiet_hours: "Horário silencioso",
-    dedup_cooldown: "Assunto já enviado recentemente",
-  };
-  return labels[reason ?? ""] ?? reason ?? "Sem motivo registrado";
+  return reason ? dict.commReason(reason) : "Sem motivo registrado";
 }
 
 export type CommSection = "engine" | "simulation" | "queue" | "catalog" | "templates";
@@ -105,6 +94,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       return data as EngineStatus;
     },
     staleTime: 15_000,
+    enabled: show("engine"),
   });
   const queue = useQuery({
     queryKey: ["admin_proactive_queue"],
@@ -114,6 +104,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       return data as QueueData;
     },
     staleTime: 15_000,
+    enabled: show("queue"),
   });
   const catalog = useQuery({
     queryKey: ["admin_communication_catalog"],
@@ -122,6 +113,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar catálogo"));
       return (data as CatalogRow[]) ?? [];
     },
+    enabled: show("catalog"),
   });
   const templates = useQuery({
     queryKey: ["admin_communication_templates"],
@@ -130,6 +122,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar templates"));
       return (data as TemplateRow[]) ?? [];
     },
+    enabled: show("templates"),
   });
 
   const refresh = async () => Promise.all([
@@ -234,7 +227,12 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
               </button>
             </div>
             <p className="mt-3 text-xs text-neutral-500">Agendamento: {s?.cron?.map((item) => `${item.jobname} (${item.schedule})`).join(", ") || "nenhum"}</p>
-            {(s?.last_tick_errors ?? []).length > 0 && <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">{(s?.last_tick_errors ?? []).slice(0, 5).map((item, index) => <p key={index}>{item.user_id?.slice(0, 8)}… — {item.error}</p>)}</div>}
+            {(s?.last_tick_errors ?? []).length > 0 && (
+              <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                A última execução encontrou {(s?.last_tick_errors ?? []).length} erro(s).
+                Abra a observabilidade técnica para investigar sem expor dados nesta tela.
+              </div>
+            )}
           </>
         )}
       </Section>
