@@ -14,6 +14,8 @@ export type DropReason =
   | "from_me"
   | "group"
   | "no_real_jid"
+  | "lid_pending"
+  | "lid_unresolved"
   | "no_message_id";
 
 export type MediaHint = {
@@ -52,6 +54,8 @@ export type ClassifiedInbound =
       jid_domains: string[];
       has_alt: boolean;
       has_key: boolean;
+      /** Identificador @lid do remetente, quando o payload só traz `@lid`. */
+      sender_lid?: string;
     };
 
 const REAL_PHONE_DOMAINS = new Set(["c.us", "s.whatsapp.net"]);
@@ -112,6 +116,14 @@ function collectPhoneCandidates(pl: unknown): unknown[] {
   const _data = get(pl, "_data");
   const _dkey = get(_data, "key");
   return [
+    // WAHA/Baileys 2026.x: campos "phone number" que substituem os *Alt.
+    get(pl, "senderPn"),
+    get(pl, "participantPn"),
+    get(key, "senderPn"),
+    get(key, "participantPn"),
+    get(_dkey, "senderPn"),
+    get(_dkey, "participantPn"),
+    get(_data, "senderPn"),
     get(pl, "remoteJidAlt"),
     get(pl, "participantAlt"),
     get(_dkey, "remoteJidAlt"),
@@ -255,9 +267,31 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
   return undefined;
 }
 
+/** Extrai o `@lid` do remetente (identificador interno do WhatsApp). */
+export function extractSenderLid(payload: unknown): string | null {
+  const pl = get(payload, "payload") ?? payload;
+  const key = get(pl, "key");
+  const _dkey = get(get(pl, "_data"), "key");
+  const candidates = [
+    get(pl, "from"),
+    get(key, "remoteJid"),
+    get(pl, "participant"),
+    get(key, "participant"),
+    get(_dkey, "remoteJid"),
+    get(pl, "senderLid"),
+    get(key, "senderLid"),
+  ];
+  for (const raw of candidates) {
+    const j = parseJid(raw);
+    if (j && j.domain === "lid" && j.local) return `${j.local}@lid`;
+  }
+  return null;
+}
+
 export function classifyInbound(
   payload: unknown,
   expectedSession: string,
+  opts?: { resolvedPhone?: string | null },
 ): ClassifiedInbound {
   const p = (payload && typeof payload === "object" ? payload : {}) as P;
   const event = typeof p.event === "string" ? (p.event as string) : null;
@@ -270,8 +304,9 @@ export function classifyInbound(
   ].some((_) => collectPhoneCandidates(pl).slice(0, 7).some((v) => typeof v === "string" && v));
   const has_key = Boolean(get(pl, "key") || get(get(pl, "_data"), "key"));
 
-  const drop = (reason: DropReason): ClassifiedInbound => ({
+  const drop = (reason: DropReason, sender_lid?: string): ClassifiedInbound => ({
     ok: false, reason, event, session, jid_domains, has_alt, has_key,
+    ...(sender_lid ? { sender_lid } : {}),
   });
 
   if (session && expectedSession && session !== expectedSession) return drop("foreign_session");
@@ -311,7 +346,17 @@ export function classifyInbound(
       if (normalized) { realDigits = normalized; break; }
     }
   }
-  if (!realDigits) return drop("no_real_jid");
+  if (!realDigits && opts?.resolvedPhone) {
+    realDigits = normalizeBrPhone(opts.resolvedPhone);
+  }
+  if (!realDigits) {
+    // WAHA 2026.x pode entregar apenas o identificador interno `@lid`.
+    // Nesse caso não descartamos: sinalizamos para o webhook resolver o
+    // telefone real via API do provedor e reclassificar.
+    const lid = extractSenderLid(p);
+    if (lid) return drop(opts?.resolvedPhone === undefined ? "lid_pending" : "lid_unresolved", lid);
+    return drop("no_real_jid");
+  }
 
   const msgId = resolveMessageId(pl);
   if (!msgId) return drop("no_message_id");
