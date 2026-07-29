@@ -27,7 +27,7 @@ describe("correções definitivas do assessor e mensageria", () => {
   });
 
   it("processa ACK de entrega antes do classificador inbound", () => {
-    expect(webhook.indexOf("const ack = readAckEvent(payload)")).toBeLessThan(webhook.indexOf("const classified = classifyInbound"));
+    expect(webhook.indexOf("const ack = readAckEvent(payload)")).toBeLessThan(webhook.indexOf("classifyInbound(payload, expected)"));
   });
 
   it("renderiza template sem forçar nome", () => {
