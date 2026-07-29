@@ -108,11 +108,7 @@ export default function Index() {
 
 
       <RitmoCard
-        daily={{
-          value: snap?.currentAverageDailyConsumption ?? 0,
-          trend: (snap?.averageDailyVariationPct ?? 0) > 0 ? "up" : (snap?.averageDailyVariationPct ?? 0) < 0 ? "down" : "stable",
-          deltaPct: snap?.averageDailyVariationPct ?? null,
-        }}
+        rhythm={snap?.rhythm ?? null}
         card={{
           value: snap?.currentCardSpend ?? 0,
           trend: (snap?.cardSpendVariationPct ?? 0) > 0 ? "up" : (snap?.cardSpendVariationPct ?? 0) < 0 ? "down" : "stable",
@@ -120,6 +116,8 @@ export default function Index() {
         }}
         loading={loading}
       />
+
+      <RitmoGastosCard rhythm={snap?.rhythm ?? null} loading={loading} />
 
       <AssistantTipCard />
 
