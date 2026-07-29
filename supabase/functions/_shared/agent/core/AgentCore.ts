@@ -27,6 +27,8 @@ import { guard } from "./ErrorRecovery.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { isLLMConfigured } from "../llm.ts";
 import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
+import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.ts";
+
 import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
 import { asEvidence } from "../../intelligence/evidence.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
