@@ -758,8 +758,8 @@ export function WhatsAppSessionPanel() {
         } catch { toast.error("Não consegui sincronizar o webhook."); }
       }} />
 
-      {!isConnected && (
-        <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
+      {(!isConnected || forceConnect) && (
+        <ConnectDeviceCard status={forceConnect ? "needs_attention" : snap?.status} onConnected={() => { setForceConnect(false); refresh(); }} />
       )}
 
       <div className="surface-card p-5 space-y-4">
@@ -779,6 +779,27 @@ export function WhatsAppSessionPanel() {
         )}
 
         <div className="flex flex-wrap gap-2">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium">
+                <QrCode className="h-3 w-3" /> Reconectar aparelho
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Conectar outro aparelho?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Vamos abrir o QR Code e o código de pareamento. Se houver um aparelho conectado agora, ele será substituído ao concluir.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={() => setForceConnect(true)}>Abrir conexão</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+
           {canSend && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
