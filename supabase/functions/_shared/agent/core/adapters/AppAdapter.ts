@@ -68,6 +68,23 @@ export async function handleAppAction(args: {
     body_masked: args.action === "confirm" ? "[Confirmar]" : "[Cancelar]",
   } as any);
 
+  // Lote (kind bulk_transactions) é executado em TypeScript, não pela RPC.
+  const bulkPending = await findBulkPending(sb, args.conversation_id, args.user_id, args.pending_id);
+  if (bulkPending) {
+    let replyBulk: string;
+    if (args.action === "cancel") {
+      await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", bulkPending.id);
+      replyBulk = "Combinado, descartei essa lista de lançamentos.";
+    } else {
+      replyBulk = (await executeBulkPending(sb, bulkPending)).reply;
+    }
+    await sb.from("conversation_messages").insert({
+      conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: replyBulk,
+    } as any);
+    await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
+    return { reply: replyBulk, pending: null, executed: null };
+  }
+
   const pending = await findPendingApp(sb, args.conversation_id, args.user_id, args.pending_id);
   let reply = "";
   let executed: any = null;
@@ -78,6 +95,7 @@ export async function handleAppAction(args: {
     await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", pending.id);
     reply = "Combinado, cancelei este pedido.";
   } else {
+
     const { data: exec, error: execErr } = await sb.rpc("agent_execute_confirmation", {
       p_confirmation_id: pending.id, p_source_message_id: null,
     });
