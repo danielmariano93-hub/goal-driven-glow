@@ -155,7 +155,7 @@ export default function ComunicacaoProativa() {
             <StatGrid cols={3}>
               <StatCard label="Opt-out (usuário)" value={totals.opt_out} />
               <StatCard label="Dispensadas" value={totals.dismissed} />
-              <StatCard label="Bloqueadas totais" value={totals.suppressed} />
+              <StatCard label="Retidas no total" value={totals.suppressed} />
             </StatGrid>
           </Section>
 
