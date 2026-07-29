@@ -12,6 +12,8 @@ import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
 import { buildReceipt } from "../ReceiptBuilder.ts";
 import { loadHistory } from "../ConversationHistory.ts";
+import { findBulkPending, executeBulkPending } from "../BulkEntry.ts";
+
 import { analyze_spending, create_transaction_draft, generate_chart_artifact, resolveCreditCardFull } from "../../tools.ts";
 import { extractSpans } from "../../extract.ts";
 
