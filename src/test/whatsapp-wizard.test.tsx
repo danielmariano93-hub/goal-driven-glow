@@ -151,7 +151,7 @@ describe("WhatsAppSetupWizard — fluxo e segurança", () => {
 
 describe("WhatsAppSessionPanel — Conectar aparelho (QR + código)", () => {
   async function openPairing() {
-    fireEvent.click(await screen.findByRole("button", { name: /Conectar aparelho/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Conectar aparelho$/ }));
     await screen.findByRole("dialog");
   }
 

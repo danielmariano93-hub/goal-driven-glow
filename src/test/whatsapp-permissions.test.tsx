@@ -58,7 +58,7 @@ describe("WhatsAppSessionPanel — permissões", () => {
   it("platform_admin configurado sem can_manage_config ainda vê pareamento", async () => {
     setup({ configured: true, has_url: true, has_api_key: true, has_webhook_secret: true, session_name: "default", updated_at: new Date().toISOString(), admin_role: "platform_admin" }, { sessionStatus: "needs_attention" });
     render(<WhatsAppSessionPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: /Conectar aparelho/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Conectar aparelho$/ }));
     await screen.findByRole("dialog");
     expect(screen.getByRole("tab", { name: /QR Code/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Código pelo telefone/i })).toBeInTheDocument();
