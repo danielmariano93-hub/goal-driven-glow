@@ -135,38 +135,45 @@ const App = () => (
                 path="/admin"
                 element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}
               >
-                {/* Control Center v3 — 9 destinos */}
+                {/* Centro de decisão — 6 destinos */}
                 <Route index element={<AdminCockpit />} />
-                <Route path="cockpit" element={<AdminCockpit />} />
+                <Route path="visao-geral" element={<AdminCockpit />} />
                 <Route path="clientes" element={<AdminClientes />} />
-                <Route path="crescimento" element={<AdminCrescimentoHub />} />
-                <Route path="operacao" element={<AdminOpSaude />} />
-                <Route path="operacao/saude" element={<AdminOpSaude />} />
-                <Route path="operacao/whatsapp" element={<AdminOpWhatsApp />} />
-                <Route path="operacao/assistente" element={<AdminAssessorHub />} />
-                <Route path="operacao/comunicacao-proativa" element={<AdminComunicacaoProativa />} />
-                <Route path="governanca/seguranca" element={<AdminGovernancaSeguranca />} />
-                <Route path="governanca/auditoria" element={<AdminAuditoriaHub />} />
+                <Route path="produto" element={<AdminCrescimentoHub />} />
+                <Route path="operacoes" element={<AdminOperacoesHub />} />
+                <Route path="comunicacoes" element={<AdminComunicacaoProativa />} />
+                <Route path="administracao" element={<AdminAdministracaoHub />} />
 
                 {/* Rotas antigas → destinos atuais */}
-                <Route path="inteligencia-produto" element={<Navigate to="/admin/crescimento?aba=produto" replace />} />
-                <Route path="receita" element={<Navigate to="/admin/crescimento?aba=receita" replace />} />
-                <Route path="produto" element={<Navigate to="/admin/crescimento?aba=produto" replace />} />
-                <Route path="ia" element={<Navigate to="/admin/crescimento?aba=produto" replace />} />
-                <Route path="operacao/mensageria" element={<Navigate to="/admin/operacao/whatsapp" replace />} />
-                <Route path="mensagens" element={<Navigate to="/admin/operacao/whatsapp" replace />} />
-                <Route path="whatsapp" element={<Navigate to="/admin/operacao/whatsapp" replace />} />
-                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/operacao/assistente?aba=documentos" replace />} />
-                <Route path="operacao/assistente/simulador" element={<Navigate to="/admin/operacao/assistente?aba=simulador" replace />} />
-                <Route path="agente" element={<Navigate to="/admin/operacao/assistente" replace />} />
-                <Route path="agente/simulador" element={<Navigate to="/admin/operacao/assistente?aba=simulador" replace />} />
-                <Route path="governanca/configuracoes" element={<Navigate to="/admin/governanca/auditoria?aba=configuracoes" replace />} />
-                <Route path="configuracoes" element={<Navigate to="/admin/governanca/auditoria?aba=configuracoes" replace />} />
-                <Route path="seguranca" element={<Navigate to="/admin/governanca/seguranca" replace />} />
+                <Route path="cockpit" element={<Navigate to="/admin/visao-geral" replace />} />
+                <Route path="legado/visao-geral" element={<Navigate to="/admin/visao-geral" replace />} />
+                <Route path="crescimento" element={<Navigate to="/admin/produto" replace />} />
+                <Route path="engajamento" element={<Navigate to="/admin/produto" replace />} />
+                <Route path="inteligencia-produto" element={<Navigate to="/admin/produto?aba=produto" replace />} />
+                <Route path="ia" element={<Navigate to="/admin/produto?aba=produto" replace />} />
+                <Route path="receita" element={<Navigate to="/admin/produto?aba=receita" replace />} />
+                <Route path="financeiro" element={<Navigate to="/admin/produto?aba=receita" replace />} />
                 <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />
-                <Route path="engajamento" element={<Navigate to="/admin/crescimento" replace />} />
-                <Route path="financeiro" element={<Navigate to="/admin/crescimento?aba=receita" replace />} />
-                <Route path="legado/visao-geral" element={<Navigate to="/admin/cockpit" replace />} />
+
+                <Route path="operacao" element={<Navigate to="/admin/operacoes" replace />} />
+                <Route path="operacao/saude" element={<Navigate to="/admin/operacoes?secao=incidentes" replace />} />
+                <Route path="operacao/whatsapp" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
+                <Route path="whatsapp" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
+                <Route path="mensagens" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
+                <Route path="operacao/mensageria" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
+                <Route path="operacao/assistente" element={<Navigate to="/admin/operacoes?secao=nino" replace />} />
+                <Route path="agente" element={<Navigate to="/admin/operacoes?secao=nino" replace />} />
+                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/operacoes?secao=nino&aba=documentos" replace />} />
+                <Route path="operacao/assistente/simulador" element={<Navigate to="/admin/operacoes?secao=nino&aba=simulador" replace />} />
+                <Route path="agente/simulador" element={<Navigate to="/admin/operacoes?secao=nino&aba=simulador" replace />} />
+                <Route path="operacao/comunicacao-proativa" element={<Navigate to="/admin/comunicacoes" replace />} />
+
+                <Route path="governanca/seguranca" element={<Navigate to="/admin/administracao?secao=acessos" replace />} />
+                <Route path="seguranca" element={<Navigate to="/admin/administracao?secao=acessos" replace />} />
+                <Route path="governanca/auditoria" element={<Navigate to="/admin/administracao?secao=auditoria" replace />} />
+                <Route path="governanca/configuracoes" element={<Navigate to="/admin/administracao?secao=configuracoes" replace />} />
+                <Route path="configuracoes" element={<Navigate to="/admin/administracao?secao=configuracoes" replace />} />
+
 
               </Route>
 
