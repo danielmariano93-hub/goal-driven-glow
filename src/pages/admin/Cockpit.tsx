@@ -131,7 +131,20 @@ export default function Cockpit() {
         </div>
       )}
 
-      <OperationStrip />
+      <section>
+        <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+          O que precisa da sua atenção hoje
+        </h2>
+        <div className="space-y-4">
+          <IncidentGroup
+            severity="critical"
+            incidents={incidents.critical}
+            emptyLabel={incidents.warning.length ? undefined : "Nada exige ação imediata agora."}
+          />
+          <IncidentGroup severity="warning" incidents={incidents.warning} />
+          <IncidentGroup severity="healthy" incidents={incidents.healthy} />
+        </div>
+      </section>
 
       {/* Situação atual */}
       <section>
