@@ -7,58 +7,11 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { AdminDailyEvolutionCard } from "@/components/admin/AdminDailyEvolutionCard";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
-import { dict } from "@/lib/admin/displayDictionary";
-import { Link } from "react-router-dom";
-import { StatusChip } from "@/components/admin/StatusChip";
-import { mapWhatsAppStatus, mapAgentStatus } from "@/lib/admin/statusMapper";
 import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
-
-/** Faixa operacional: o que precisa de ação agora, com atalho direto. */
-function OperationStrip() {
-  const { data } = useAdminPlatformStatus();
-  if (!data) return null;
-
-  const failingJobs = Object.values(data.jobs ?? {}).filter((j) => j?.status === "failing" || j?.status === "delayed").length;
-  const waConnected = data.whatsapp?.status === "connected";
-
-  return (
-    <section className="grid gap-3 md:grid-cols-3">
-      <div className="surface-card flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">Canal WhatsApp</p>
-          <div className="mt-1"><StatusChip view={mapWhatsAppStatus(data.whatsapp?.status)} size="sm" /></div>
-        </div>
-        {!waConnected && (
-          <Link
-            to="/admin/operacoes?secao=whatsapp"
-            className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
-          >
-            Reconectar
-          </Link>
-        )}
-      </div>
-
-      <div className="surface-card flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">Assessor</p>
-          <div className="mt-1"><StatusChip view={mapAgentStatus(data.agent?.status)} size="sm" /></div>
-        </div>
-        <Link to="/admin/operacoes?secao=nino" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
-      </div>
-
-      <div className="surface-card flex items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">Automações e fila</p>
-          <p className="mt-1 text-sm font-medium">
-            {failingJobs > 0 ? `${failingJobs} com problema` : "Todas em dia"}
-            {data.outbox?.failed ? ` · ${data.outbox.failed} envios falhos` : ""}
-          </p>
-        </div>
-        <Link to="/admin/operacoes?secao=incidentes" className="shrink-0 text-xs underline text-muted-foreground">Ver</Link>
-      </div>
-    </section>
-  );
-}
+import { IncidentGroup } from "@/components/admin/AttentionCard";
+import { TechnicalDetails } from "@/components/admin/TechnicalDetails";
+import { buildIncidents, groupBySeverity } from "@/lib/admin/incidents";
+import { universeCaption, universeNotes, type AdminUniverse } from "@/lib/admin/universe";
 
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -213,28 +166,17 @@ export default function Cockpit() {
         />
       )}
 
-      {data.attention?.length > 0 && (
-        <div className="surface-card p-4">
-          <h3 className="mb-2 font-display text-base font-semibold">Pontos de atenção</h3>
-          <ul className="space-y-1 text-sm">
-            {data.attention.map((a) => (
-              <li key={a.key} className="flex items-center gap-2">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${
-                    a.severity === "high"
-                      ? "bg-rose-500"
-                      : a.severity === "medium"
-                      ? "bg-amber-500"
-                      : "bg-emerald-500"
-                  }`}
-                />
-                <span>{dict.feature(a.key)}</span>
-                <span className="text-muted-foreground">— {a.value}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <TechnicalDetails label="Como estes números são contados">
+        <p>{universeCaption(universe)}</p>
+        <ul className="mt-2 space-y-1">
+          {universeNotes(universe).map((n) => (
+            <li key={n.id}>
+              <strong>{n.title}.</strong> {n.detail}
+            </li>
+          ))}
+        </ul>
+      </TechnicalDetails>
+
 
     </div>
   );

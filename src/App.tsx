@@ -54,6 +54,7 @@ const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 const AdminCockpit = lazy(() => import("./pages/admin/Cockpit"));
 const AdminCrescimentoHub = lazy(() => import("./pages/admin/CrescimentoHub"));
 const AdminClientes = lazy(() => import("./pages/admin/Clientes"));
+const AdminClienteFicha = lazy(() => import("./pages/admin/ClienteFicha"));
 const AdminOperacoesHub = lazy(() => import("./pages/admin/OperacoesHub"));
 const AdminAdministracaoHub = lazy(() => import("./pages/admin/AdministracaoHub"));
 const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
@@ -138,6 +139,7 @@ const App = () => (
                 <Route index element={<AdminCockpit />} />
                 <Route path="visao-geral" element={<AdminCockpit />} />
                 <Route path="clientes" element={<AdminClientes />} />
+                <Route path="clientes/:pseudoId" element={<AdminClienteFicha />} />
                 <Route path="produto" element={<AdminCrescimentoHub />} />
                 <Route path="operacoes" element={<AdminOperacoesHub />} />
                 <Route path="comunicacoes" element={<AdminComunicacaoProativa />} />
