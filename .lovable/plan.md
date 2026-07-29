@@ -1,64 +1,93 @@
+## Objetivo
 
-# Nino: por que parou de responder e por que os gastos não entraram
-
-## O que a investigação mostrou (dados reais)
-
-**1. Nenhuma mensagem chegou desde 28/07 15:28**
-- Última mensagem recebida (`inbound_messages`): 28/07 15:28. Última resposta enviada: 28/07 15:56.
-- Depois disso o webhook só recebeu eventos de **status da sessão** do WhatsApp: 220 registros `event_ignored` (todos `session.status`), com uma rajada entre 22:05 e 22:07 de 28/07.
-- Os robôs de envio e os agendamentos continuam rodando normalmente (crons ativos, funções iniciando a cada minuto). Ou seja: **o problema não é o app nem a fila — é a sessão do WhatsApp, que caiu/desconectou** e desde então nenhuma mensagem do usuário é entregue ao Nino.
-- Hoje não existe nenhum alerta quando isso acontece: o número simplesmente fica mudo e ninguém é avisado.
-
-**2. Quando as mensagens chegavam, o valor era registrado errado**
-Os lançamentos criados pelo atalho `!ja` gravaram valores truncados e descrição suja:
-
-| Mensagem recebida | Registrado |
-|---|---|
-| Valor R$ 5.40 – Autopass | R$ 5,00 — "esse novo valor Valor .40 Estabelecimento Autopass..." |
-| Valor R$ 8.99 – Pão de Açúcar | R$ 8,00 — descrição suja |
-| Valor R$ 5.40 (2ª vez) | R$ 5,00 — descrição suja |
-
-Causa raiz (confirmada no código `_shared/agent/extract.ts`):
-- Os rótulos só são reconhecidos **com dois-pontos** (`Valor:`). As notificações do banco chegam como `Valor R$ 5.40` (sem `:`), então o caminho confiável é ignorado.
-- A regra genérica de valor prefere o formato brasileiro e casa `5` antes de `5.40` — decimal com **ponto** sem milhar não é tratado. O resto (`.40`) sobra e vira descrição.
-
-**3. A fatura do Itaú (27/07) nunca foi registrada**
-Em 28/07 o usuário enviou a lista completa da fatura Itaú (competência 2026-07, ~40 lançamentos, total R$ 5.209,73) pedindo registro em 27/07. O agente pediu esclarecimento de conta/cartão duas vezes e a conversa terminou em "Cancela" — **zero lançamentos gravados**.
-
-**4. Ruído de telemetria**
-Todo turno `!ja` fica com execução "órfã" marcada como erro (`orphan_sweep:running_over_5min`), porque o caminho FastLog nunca fecha o registro da execução. Isso polui as métricas do admin.
+1. Garantir que o painel de WhatsApp **sempre** ofereça um caminho visível para conectar/reconectar (QR ou código de pareamento).
+2. Auditar todas as abas e indicadores do Admin, remover o que é ruído/duplicado e reconstruir cada tela em torno de indicadores que geram decisão.
 
 ---
 
-# Plano de correção
+## Parte 1 — WhatsApp: conexão sempre acessível
 
-## A. Sessão do WhatsApp (voltar a responder)
-1. Verificar o estado real da sessão e reconectar (novo pareamento/QR pelo painel admin em Operação → WhatsApp).
-2. Persistir o estado da sessão: hoje os eventos `session.status` são descartados sem guardar o valor. Passar a gravar o status em `provider_health_events` e expor no admin "Sessão conectada / desconectada desde X".
-3. Alerta automático: se não houver nenhuma mensagem recebida e a sessão não estiver `WORKING` por mais de 30 minutos, gerar um aviso no painel admin (e notificação para o dono).
+### O que existe hoje (verificado no código)
 
-## B. Leitura correta de valor e descrição
-1. Aceitar rótulos **sem dois-pontos** (`Valor R$ 5.40`, `Estabelecimento Pão de Açúcar`, `Data 27 de jul...`, `Conta corrente`).
-2. Corrigir a regra de valor para tratar decimal com ponto (`5.40`, `1234.56`) sem quebrar o formato brasileiro (`1.234,56`).
-3. Descrição: quando houver rótulo de estabelecimento, usar só ele; nunca deixar sobras como "esse novo valor Valor .40".
-4. Testes cobrindo exatamente os formatos reais das notificações Itaú/Autopass/Pão de Açúcar que falharam.
+`src/pages/admin/WhatsAppSessionPanel.tsx`:
+- O card `ConnectDeviceCard` (QR + código de pareamento + "Redefinir sessão") só é renderizado quando `configured === true` **e** `status !== "connected"`.
+- Se `config_status` retorna `configured: false`, a tela mostra **apenas** o botão "Configurar conexão", desabilitado para quem não é dono da plataforma — sem QR, sem código, sem alternativa. É um beco sem saída.
+- Se o provedor responde `WORKING` mas o aparelho está de fato deslogado (caso já observado: a sessão parou em 28/07), o painel considera `connected`, esconde o `ConnectDeviceCard` e só oferece "Reiniciar" / "Desconectar" — nenhuma ação chamada "Reconectar".
+- Diagnóstico exato de qual dos dois casos está ativo hoje ainda **não está confirmado**; a primeira ação da implementação é checar `config_status` + `status` reais.
 
-## C. Registro em lote (fatura / lista de lançamentos)
-1. Reconhecer quando a mensagem traz **vários lançamentos** (lista ou JSON) e, em vez de perguntar item a item, gerar um resumo único: "42 lançamentos, total R$ 5.209,73, em 27/07 — em qual cartão/conta?" e registrar tudo após um único CONFIRMAR.
-2. Itens sem valor não bloqueiam o lote: são separados e listados no fim para o usuário completar.
+### Correções
 
-## D. Telemetria
-Fechar a execução do FastLog ao final do turno (sucesso ou erro), eliminando os falsos "erros" no painel.
+1. **Diagnóstico primeiro**: chamar `config_status` e `status` e registrar o retorno, para saber se o painel está em estado `not_configured` ou `connected` falso.
+2. **Ação "Reconectar aparelho" sempre visível**: no estado conectado, incluir botão que abre o `ConnectDeviceCard` (com aviso de que o aparelho atual será desconectado). Nada mais fica escondido atrás do status.
+3. **Fim do beco sem saída em `not_configured`**: manter o wizard de credenciais, mas explicar em texto claro o que falta e para quem pedir, e — quando as credenciais existirem mas a sessão não — mostrar o card de conexão mesmo assim.
+4. **Estado de erro/indisponível**: quando não for possível ler o status, exibir o card de conexão com aviso, em vez de bloquear a tela.
+5. **Feedback honesto de permissão**: se o papel não pode parear, dizer isso na própria ação, não sumir com ela.
+6. Unificar `WhatsAppValidateCard` + painel de sessão numa única tela com ordem lógica: Status → Conectar/Reconectar → Recebimento de mensagens → Credenciais.
 
-## E. Registro retroativo do que ficou de fora
-1. **Corrigir os 3 lançamentos truncados** (5,00→5,40; 8,00→8,99; 5,00→5,40) e limpar as descrições para o nome do estabelecimento.
-2. **Registrar a fatura Itaú de 27/07**: todos os lançamentos da lista enviada, como despesas no cartão Itaú, com data 27/07, descrição e categoria informadas (inclusive o estorno de −1,46 como crédito), com chave de idempotência para não duplicar caso o usuário reenvie.
-3. Ao final, o Nino envia uma mensagem de recibo com o total registrado.
+*Sem alteração de backend prevista; se o diagnóstico apontar erro no mapeamento de status do provedor, a correção entra na Edge Function `whatsapp-session`.*
+
+---
+
+## Parte 2 — Auditoria e redesenho do Admin
+
+### Problemas encontrados na estrutura atual
+
+- 14 itens de menu em 4 grupos, com duplicação real: **Mensageria** (`operacao/Mensageria.tsx`) é apenas um `export { default } from "./WhatsApp"` — duas abas para a mesma tela.
+- **Simulador** ocupa item de menu próprio, sendo uma ferramenta interna do Assessor.
+- Páginas legadas ainda no bundle e sem entrada de menu: `VisaoGeral`, `Usuarios`, `Engajamento`, `Financeiro`, `Produto`, `Mensagens`, `Seguranca`, `IAInteligencia`, `Agente`, `Operacao`, `NinoContexto` (v1), `AssessorAcompanhamento` (v1), `ProactiveEnginePanel` (v1).
+- Indicadores repetidos entre Cockpit / Crescimento / Inteligência de Produto, muitos com base amostral de 2 usuários reais — número sem significado estatístico apresentado como métrica.
+
+### Estrutura proposta (9 itens, 3 grupos)
+
+```text
+NEGÓCIO
+  Cockpit            visão única do dia
+  Clientes           lista real de usuários + ficha individual
+  Crescimento        ativação, retenção e receita (fundidos)
+
+OPERAÇÃO
+  Saúde              automações, filas, erros
+  WhatsApp           conexão, recebimento, envios  (absorve Mensageria)
+  Assessor           qualidade, custo IA, OCR, simulador em aba interna
+  Comunicação        proativas: enviadas, bloqueadas, agendadas
+
+GOVERNANÇA
+  Segurança          break-glass, permissões
+  Auditoria          trilha de ações + configurações
+```
+
+### Princípio para cada indicador
+
+Cada card precisa passar em três testes, senão sai da tela:
+- responde a uma pergunta que o founder faz de verdade;
+- tem uma ação associada quando o número está ruim;
+- é confiável na base atual (com 2 usuários reais, percentuais e coortes viram texto absoluto: "2 de 2 ativos", nunca "100% de retenção").
+
+### Indicadores por aba (proposta)
+
+- **Cockpit**: canal WhatsApp no ar (com ação de reconectar), mensagens hoje (recebidas/respondidas/falhas), lançamentos registrados hoje, automações em falha, custo de IA no mês. Nada além disso.
+- **Clientes**: lista real com último uso, nº de lançamentos, canal vinculado, estado do onboarding. Ficha individual com linha do tempo de mensagens.
+- **Crescimento**: cadastros, ativação (primeiro lançamento), usuários ativos na semana, receita — todos em números absolutos com série temporal.
+- **Saúde**: um card por job (última execução, processados, falhas) com ação de reprocessar — já existe, será apenas enxugado e ordenado por criticidade.
+- **WhatsApp**: conforme Parte 1.
+- **Assessor**: respostas por dia, taxa de falha, tempo de resposta, custo/tokens por dia e por conversa, documentos processados e taxa de extração, simulador em aba.
+- **Comunicação**: fila, enviadas, bloqueadas com motivo em linguagem clara, próximas agendadas.
+- **Segurança / Auditoria**: sessões break-glass, ações sensíveis, últimas alterações de configuração.
+
+### Design
+
+Mobile-first, DM Sans, paleta oficial Meu Nino, primitivos existentes (`PageHeader`, `KpiCard`, `StatusChip`, `DataTable`, `EmptyState`). Cada tela: cabeçalho → 3–5 KPIs → 1 gráfico ou tabela → ações. Todo rótulo em linguagem de produto, sem termos técnicos.
+
+---
 
 ## Detalhes técnicos
-- Arquivos: `supabase/functions/_shared/agent/extract.ts` (rótulos + valor), `_shared/agent/core/FastLog.ts` (fechamento de run, descrição), `_shared/agent/core/AgentCore.ts` + `tools.ts` (lote), `whatsapp-webhook/index.ts` (persistir `session.status`), painel `src/pages/admin/operacao/WhatsApp.tsx`.
-- Backfill via ferramenta de dados (UPDATE dos 3 registros + INSERT da fatura), sem migration de schema.
-- Reconexão da sessão do WhatsApp exige uma ação sua no painel (leitura do QR) — o resto é automático.
 
-## Ponto que preciso confirmar antes do backfill
-A fatura Itaú deve ser lançada como **uma despesa por item na data 27/07** (recomendado, mantém categorias e o total de R$ 5.209,73), ou você prefere um único lançamento consolidado de fatura? Se não responder, sigo com uma despesa por item.
+- Edições concentradas em `src/components/admin/AdminLayout.tsx` (menu), `src/App.tsx` (rotas), páginas em `src/pages/admin/**` e `src/pages/admin/operacao/**`.
+- Remoção dos arquivos legados listados acima e da rota/arquivo `operacao/Mensageria.tsx`.
+- RPCs `admin_v2_*` existentes serão reaproveitados; indicadores removidos não exigem mudança de banco. Se algum card novo precisar de agregado inexistente, será criada uma migration aditiva com GRANTs e RLS por permissão de plataforma.
+- App do usuário, autenticação, agente e integrações não são tocados.
+- Sem publicação em produção sem autorização explícita.
+
+## Fora de escopo
+
+Alterar identidade visual da marca, mudar a Landing Page, ou remover permissões/RBAC já implantados.
