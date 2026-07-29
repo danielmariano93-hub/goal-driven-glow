@@ -11,7 +11,7 @@ import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoCard } from "@/components/home/RitmoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
-import { EvolucaoFinanceiraCard } from "@/components/home/EvolucaoFinanceiraCard";
+import { RitmoGastosCard } from "@/components/home/RitmoGastosCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
@@ -122,8 +122,6 @@ export default function Index() {
       <AssistantTipCard />
 
       <QuickActions />
-
-      <EvolucaoFinanceiraCard topGoal={snap?.topCategoryGoal ?? null} />
 
       <SharedGoalHighlight />
 
