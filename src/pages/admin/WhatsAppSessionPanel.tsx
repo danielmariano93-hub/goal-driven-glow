@@ -413,7 +413,8 @@ export function WhatsAppSessionPanel() {
             <RefreshCw className="h-3 w-3" /> Tentar novamente
           </button>
         </div>
-        <ConnectDeviceCard status={snap?.status} onConnected={refresh} />
+        <PairingLauncher onOpen={() => setPairingOpen(true)} />
+        <WhatsAppPairingDialog open={pairingOpen} onOpenChange={setPairingOpen} status={snap?.status} onConnected={refresh} />
       </section>
     );
   }
