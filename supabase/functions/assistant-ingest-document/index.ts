@@ -869,26 +869,39 @@ async function processDocument(documentId: string, userId: string, guidance: str
       counters.batches_completed = batchIndex;
       counters.partial = counters.partial || out.partial;
       if (out.result.notes) notes.push(`Lote ${batchIndex}: ${out.result.notes}`);
+      // O tipo do documento precisa ser conhecido ANTES de resolver o destino:
+      // fatura resolve cartão, extrato resolve conta. Sem isso, "Itaú" casava
+      // com a conta corrente e a fatura virava despesa de caixa.
+      if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
       if (out.statement && !statement) {
         statement = out.statement;
+        const bankDoc = allowsBankBalance(documentKind);
         const statementPatch = {
           statement_bank: statement.bank,
-          statement_opening_balance: statement.opening_balance,
-          statement_closing_balance: statement.closing_balance,
-          statement_balance_date: statement.balance_date,
+          // Saldo informado só existe em documento bancário compatível.
+          statement_opening_balance: bankDoc ? statement.opening_balance : null,
+          statement_closing_balance: bankDoc ? statement.closing_balance : null,
+          statement_balance_date: bankDoc ? statement.balance_date : null,
           statement_period_start: statement.period_start,
           statement_period_end: statement.period_end,
           period_start: statement.period_start,
           period_end: statement.period_end,
         };
         await sb.from("document_imports").update(statementPatch).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
-        const afterMetadata = await resolveSourceContext(sb, userId, { ...doc, ...statementPatch }, statement);
-        if ((afterMetadata.source_context_confidence ?? 0) > (srcCtx.source_context_confidence ?? 0)) {
-          srcCtx = afterMetadata;
+        const afterMetadata = await resolveSourceContext(
+          sb, userId, { ...doc, ...statementPatch, document_kind: documentKind }, statement,
+        );
+        const better = (afterMetadata.source_context_confidence ?? 0) > (srcCtx.source_context_confidence ?? 0);
+        // Em fatura, um contexto que aponta para conta corrente é sempre inválido.
+        const currentIsWrongLedger = isCardDocument(documentKind) && !!srcCtx.source_account_id;
+        if (better || currentIsWrongLedger) {
+          srcCtx = isCardDocument(documentKind)
+            ? { ...afterMetadata, source_account_id: null }
+            : afterMetadata;
           await sb.from("document_imports").update(srcCtx).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
         }
       }
-      if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
+
 
       const periodStart = out.statement?.period_start ?? statement?.period_start ?? doc.statement_period_start ?? doc.period_start ?? null;
       const periodEnd = out.statement?.period_end ?? statement?.period_end ?? doc.statement_period_end ?? doc.period_end ?? null;
