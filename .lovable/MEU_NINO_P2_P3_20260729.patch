@@ -1,0 +1,380 @@
+From d6f553d991d08cb935edef526ec582a789823bf2 Mon Sep 17 00:00:00 2001
+From: Codex Patch Builder <codex@local.invalid>
+Date: Wed, 29 Jul 2026 23:41:45 +0000
+Subject: [PATCH] feat(admin): make communications workspace actionable
+
+---
+ .../admin/ProactiveEnginePanelV2.tsx          | 103 ++++++++++++--
+ src/pages/admin/ComunicacaoProativa.tsx       |  24 ++++
+ ...min-communications-workspace-p2-p3.test.ts |  43 ++++++
+ ...0_admin_communications_workspace_p2_p3.sql | 127 ++++++++++++++++++
+ 4 files changed, 289 insertions(+), 8 deletions(-)
+ create mode 100644 src/test/admin-communications-workspace-p2-p3.test.ts
+ create mode 100644 supabase/migrations/20260730003000_admin_communications_workspace_p2_p3.sql
+
+diff --git a/src/components/admin/ProactiveEnginePanelV2.tsx b/src/components/admin/ProactiveEnginePanelV2.tsx
+index fe46c81..a7613a5 100644
+--- a/src/components/admin/ProactiveEnginePanelV2.tsx
++++ b/src/components/admin/ProactiveEnginePanelV2.tsx
+@@ -1,6 +1,6 @@
+ import { useMemo, useState } from "react";
+ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+-import { Activity, Eye, FileText, ListChecks, Play, Save, Settings2 } from "lucide-react";
++import { Activity, Eye, FileText, ListChecks, Play, Plus, Save, Search, Settings2 } from "lucide-react";
+ import { supabase } from "@/integrations/supabase/client";
+ import { Section } from "@/components/admin/Section";
+ import { StatCard, StatGrid } from "@/components/admin/StatCard";
+@@ -85,6 +85,8 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+   const [selectedTemplate, setSelectedTemplate] = useState<TemplateRow | null>(null);
+   const [titleTemplate, setTitleTemplate] = useState("");
+   const [bodyTemplate, setBodyTemplate] = useState("");
++  const [templateSearch, setTemplateSearch] = useState("");
++  const [templateChannel, setTemplateChannel] = useState<"all" | "app" | "whatsapp">("all");
+ 
+   const status = useQuery({
+     queryKey: ["admin_proactive_engine_status"],
+@@ -196,7 +198,17 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+     onError: (error: Error) => adminToast.error(error.message),
+   });
+ 
+-  const activeTemplates = useMemo(() => (templates.data ?? []).filter((item) => item.active), [templates.data]);
++  const activeTemplates = useMemo(() => {
++    const normalized = templateSearch.trim().toLocaleLowerCase("pt-BR");
++    return (templates.data ?? [])
++      .filter((item) => item.active)
++      .filter((item) => templateChannel === "all" || item.channel === templateChannel)
++      .filter((item) => {
++        if (!normalized) return true;
++        const searchable = `${dict.commKind(item.kind)} ${item.kind} ${dict.channel(item.channel)}`.toLocaleLowerCase("pt-BR");
++        return searchable.includes(normalized);
++      });
++  }, [templates.data, templateChannel, templateSearch]);
+   const s = status.data;
+   const channels = s?.channels ?? [];
+ 
+@@ -250,10 +262,46 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+ 
+       {show("queue") && <>
+       <Section title="Fila e bloqueios" icon={ListChecks} description="Sugestões pendentes e motivos reais de supressão.">
+-        <div className="grid gap-4 lg:grid-cols-2">
+-          <div><h3 className="text-sm font-semibold">Pendentes ({queue.data?.pending.length ?? 0})</h3><div className="mt-2 max-h-72 space-y-2 overflow-auto">{(queue.data?.pending ?? []).slice(0, 20).map((item) => <div key={item.id} className="rounded-lg border border-neutral-200 p-3"><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-neutral-500">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p></div>)}</div></div>
+-          <div><h3 className="text-sm font-semibold">Bloqueios</h3><div className="mt-2 space-y-2">{(queue.data?.blocks ?? []).map((item) => <div key={item.reason} className="flex justify-between rounded-lg border border-neutral-200 p-3 text-sm"><span>{readableReason(item.reason)}</span><strong>{item.total}</strong></div>)}</div></div>
+-        </div>
++        {queue.isLoading ? (
++          <p className="text-sm text-neutral-500">Carregando a operação de mensagens…</p>
++        ) : queue.isError ? (
++          <EmptyState title="Não foi possível carregar a fila" description={(queue.error as Error).message} />
++        ) : (
++          <div className="space-y-5">
++            <StatGrid cols={3}>
++              <StatCard label="Aguardando processamento" value={queue.data?.pending.length ?? 0} tone={(queue.data?.pending.length ?? 0) > 20 ? "warning" : "default"} />
++              <StatCard label="Falhas recentes" value={(queue.data?.recent ?? []).filter((item) => item.status === "failed").length} tone={(queue.data?.recent ?? []).some((item) => item.status === "failed") ? "warning" : "default"} />
++              <StatCard label="Retidas por regra" value={(queue.data?.blocks ?? []).reduce((total, item) => total + item.total, 0)} />
++            </StatGrid>
++            <div className="grid gap-4 lg:grid-cols-2">
++              <div>
++                <h3 className="text-sm font-semibold">Aguardando processamento</h3>
++                <div className="mt-2 max-h-72 space-y-2 overflow-auto">
++                  {(queue.data?.pending ?? []).length === 0 ? (
++                    <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhuma comunicação aguardando processamento.</p>
++                  ) : (queue.data?.pending ?? []).slice(0, 20).map((item) => (
++                    <div key={item.id} className="rounded-xl border border-neutral-200 p-3">
++                      <p className="text-sm font-medium">{item.title}</p>
++                      <p className="mt-1 text-xs text-neutral-500">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p>
++                    </div>
++                  ))}
++                </div>
++              </div>
++              <div>
++                <h3 className="text-sm font-semibold">Por que mensagens foram retidas</h3>
++                <div className="mt-2 space-y-2">
++                  {(queue.data?.blocks ?? []).length === 0 ? (
++                    <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhuma retenção registrada nos últimos 30 dias.</p>
++                  ) : (queue.data?.blocks ?? []).map((item) => (
++                    <div key={item.reason} className="flex justify-between rounded-xl border border-neutral-200 p-3 text-sm">
++                      <span>{readableReason(item.reason)}</span><strong>{item.total}</strong>
++                    </div>
++                  ))}
++                </div>
++              </div>
++            </div>
++          </div>
++        )}
+       </Section>
+       </>}
+ 
+@@ -333,9 +381,48 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[]
+ 
+       {show("templates") && <>
+       <Section title="Templates e prévia" icon={FileText} description="Edite app e WhatsApp com versionamento e validação de variáveis.">
++        <div className="mb-4 flex flex-col gap-2 sm:flex-row">
++          <label className="relative min-w-0 flex-1">
++            <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-neutral-400" />
++            <input
++              value={templateSearch}
++              onChange={(event) => setTemplateSearch(event.target.value)}
++              placeholder="Buscar por nome ou caso de uso"
++              className="w-full rounded-xl border border-neutral-200 py-2 pl-9 pr-3 text-sm"
++            />
++          </label>
++          <select
++            value={templateChannel}
++            onChange={(event) => setTemplateChannel(event.target.value as typeof templateChannel)}
++            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
++            aria-label="Filtrar templates por canal"
++          >
++            <option value="all">Todos os canais</option>
++            <option value="app">App</option>
++            <option value="whatsapp">WhatsApp</option>
++          </select>
++          <button
++            type="button"
++            onClick={() => {
++              const first = activeTemplates[0] ?? (templates.data ?? []).find((item) => item.active);
++              if (!first) {
++                adminToast.error("Nenhum caso de uso disponível para criar um template.");
++                return;
++              }
++              setSelectedTemplate(first);
++              setTitleTemplate(first.title_template);
++              setBodyTemplate(first.body_template);
++            }}
++            className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-medium text-primary"
++          >
++            <Plus size={16} /> Criar template
++          </button>
++        </div>
+         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+-          <div className="max-h-[420px] space-y-2 overflow-auto">{activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-lg border p-3 text-left ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-neutral-200"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-neutral-500">{dict.channel(item.channel)} · versão {item.version}</p></button>)}</div>
+-          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um tipo e canal para editar e visualizar." /> : <div className="space-y-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">{selectedTemplate.kind} · {selectedTemplate.channel}</p><span className="text-xs text-neutral-500">Variáveis: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</span></div><input value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><textarea value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
++          <div className="max-h-[420px] space-y-2 overflow-auto">
++            {templates.isLoading ? <p className="p-3 text-sm text-neutral-500">Carregando templates…</p> : activeTemplates.length === 0 ? <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhum template corresponde aos filtros.</p> : activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-xl border p-3 text-left transition ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-neutral-200 hover:border-neutral-300"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-neutral-500">{dict.channel(item.channel)} · versão {item.version}</p></button>)}
++          </div>
++          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um caso de uso e canal para editar e visualizar." /> : <div className="space-y-3"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-medium text-neutral-600">Caso de uso<select value={selectedTemplate.kind} onChange={(event) => { const next = (templates.data ?? []).find((item) => item.active && item.kind === event.target.value && item.channel === selectedTemplate.channel); if (next) { setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); } }} className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900">{Array.from(new Set((templates.data ?? []).filter((item) => item.active && item.channel === selectedTemplate.channel).map((item) => item.kind))).map((item) => <option key={item} value={item}>{dict.commKind(item)}</option>)}</select></label><label className="text-xs font-medium text-neutral-600">Canal<select value={selectedTemplate.channel} onChange={(event) => { const nextChannel = event.target.value as TemplateRow["channel"]; const next = (templates.data ?? []).find((item) => item.active && item.kind === selectedTemplate.kind && item.channel === nextChannel); if (!next) { adminToast.error("Este caso de uso ainda não está liberado para esse canal."); return; } setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); }} className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"><option value="app">App</option><option value="whatsapp">WhatsApp</option></select></label></div><p className="text-xs text-neutral-500">Versão atual {selectedTemplate.version} · variáveis permitidas: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</p><input aria-label="Título do template" value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" /><textarea aria-label="Mensagem do template" value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
+         </div>
+       </Section>
+       </>}
+diff --git a/src/pages/admin/ComunicacaoProativa.tsx b/src/pages/admin/ComunicacaoProativa.tsx
+index cc2d85a..6b0c1dd 100644
+--- a/src/pages/admin/ComunicacaoProativa.tsx
++++ b/src/pages/admin/ComunicacaoProativa.tsx
+@@ -9,6 +9,7 @@ import { SkeletonStats } from "@/components/admin/AdminSkeleton";
+ import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
+ import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
+ import { AdminTabs } from "@/components/admin/AdminTabs";
++import { AdminChart } from "@/components/admin/AdminChart";
+ import { dict } from "@/lib/admin/displayDictionary";
+ 
+ 
+@@ -165,6 +166,29 @@ function Overview() {
+             </StatGrid>
+           </Section>
+ 
++          <Section
++            title="Evolução das comunicações"
++            icon={Radio}
++            description="Tentativas, entregas e falhas por dia no período selecionado."
++          >
++            <AdminChart
++              data={(q.data?.daily ?? []).map((item) => ({
++                ...item,
++                day: new Date(`${item.day}T12:00:00`).toLocaleDateString("pt-BR", {
++                  day: "2-digit",
++                  month: "2-digit",
++                }),
++              }))}
++              xKey="day"
++              series={[
++                { key: "total", label: "Tentativas", color: "#6D4AFF" },
++                { key: "delivered", label: "Entregues", color: "#2FC99A" },
++                { key: "failed", label: "Falhas", color: "#FF6B5F" },
++              ]}
++              caption={`${days} dias · ${channel ? dict.channel(channel) : "todos os canais"} · dados de entrega reais`}
++            />
++          </Section>
++
+           <Section title="Preferências e dispensa" icon={ShieldAlert}>
+             <StatGrid cols={3}>
+               <StatCard label="Opt-out (usuário)" value={totals.opt_out} />
+diff --git a/src/test/admin-communications-workspace-p2-p3.test.ts b/src/test/admin-communications-workspace-p2-p3.test.ts
+new file mode 100644
+index 0000000..f609c71
+--- /dev/null
++++ b/src/test/admin-communications-workspace-p2-p3.test.ts
+@@ -0,0 +1,43 @@
++import { describe, expect, it } from "vitest";
++import fs from "node:fs";
++import path from "node:path";
++
++const root = path.resolve(__dirname, "../..");
++const page = fs.readFileSync(path.join(root, "src/pages/admin/ComunicacaoProativa.tsx"), "utf8");
++const panel = fs.readFileSync(path.join(root, "src/components/admin/ProactiveEnginePanelV2.tsx"), "utf8");
++const migration = fs.readFileSync(
++  path.join(root, "supabase/migrations/20260730003000_admin_communications_workspace_p2_p3.sql"),
++  "utf8",
++);
++
++describe("workspace de Comunicações P2+P3", () => {
++  it("expõe evolução diária com contexto de período, canal e fonte", () => {
++    expect(page).toContain('title="Evolução das comunicações"');
++    expect(page).toContain('label: "Tentativas"');
++    expect(page).toContain('label: "Entregues"');
++    expect(page).toContain('label: "Falhas"');
++    expect(page).toContain("dados de entrega reais");
++  });
++
++  it("oferece busca, filtro de canal e criação orientada de template", () => {
++    expect(panel).toContain("Buscar por nome ou caso de uso");
++    expect(panel).toContain("Filtrar templates por canal");
++    expect(panel).toContain("Criar template");
++    expect(panel).toContain("Nenhum template corresponde aos filtros");
++  });
++
++  it("traduz a fila para indicadores operacionais acionáveis", () => {
++    expect(panel).toContain("Aguardando processamento");
++    expect(panel).toContain("Falhas recentes");
++    expect(panel).toContain("Retidas por regra");
++    expect(panel).not.toContain("SQLSTATE");
++  });
++
++  it("semeia conteúdo leve e preserva templates personalizados", () => {
++    expect(migration).toContain("Vamos organizar esse gasto?");
++    expect(migration).toContain("Sem bronca");
++    expect(migration).toContain("Consistência vale mais que perfeição");
++    expect(migration).toContain("NOT EXISTS");
++    expect(migration).not.toMatch(/\bDELETE\s+FROM\b/i);
++  });
++});
+diff --git a/supabase/migrations/20260730003000_admin_communications_workspace_p2_p3.sql b/supabase/migrations/20260730003000_admin_communications_workspace_p2_p3.sql
+new file mode 100644
+index 0000000..0f83107
+--- /dev/null
++++ b/supabase/migrations/20260730003000_admin_communications_workspace_p2_p3.sql
+@@ -0,0 +1,127 @@
++-- Meu Nino P2+P3 — conteúdo inicial do workspace de Comunicações.
++-- Migração aditiva e idempotente: preserva templates personalizados.
++
++WITH curated(kind, channel, title_template, body_template) AS (
++  VALUES
++    ('categorize_transaction', 'app',
++      'Vamos organizar esse gasto?',
++      E'{{body}}\n\nLeva poucos segundos para categorizar e deixar sua visão mais fiel.'),
++    ('duplicate_expense', 'app',
++      'Esse gasto apareceu duas vezes',
++      E'{{body}}\n\nDê uma olhada e confirme se foram duas compras diferentes.'),
++    ('duplicate_expense', 'whatsapp',
++      'Rapidinho: esse gasto está certo?',
++      E'{{body}}\n\nSe forem compras diferentes, é só confirmar. Se não, o Nino ajuda a ajustar.'),
++    ('goal_at_risk', 'app',
++      'Sua meta pediu um pouco de atenção',
++      E'{{body}}\n\nVeja o que mudou e escolha um próximo passo possível para hoje.'),
++    ('goal_at_risk', 'whatsapp',
++      'Vamos cuidar da sua meta?',
++      E'{{body}}\n\nAbra o Meu Nino para ver uma sugestão simples de ajuste.'),
++    ('spending_spike', 'app',
++      'Um gasto saiu do seu ritmo',
++      E'{{body}}\n\nPode estar tudo certo — vale conferir para manter sua leitura realista.'),
++    ('spending_spike', 'whatsapp',
++      'Notei algo diferente nos seus gastos',
++      E'{{body}}\n\nSem bronca: confira no Meu Nino se esse movimento faz sentido.'),
++    ('forgotten_bill', 'app',
++      'Tem uma conta pedindo atenção',
++      E'{{body}}\n\nConfira o vencimento e marque como resolvida quando pagar.'),
++    ('forgotten_bill', 'whatsapp',
++      'Lembrete leve de uma conta',
++      E'{{body}}\n\nSe você já resolveu, pode desconsiderar e atualizar no Meu Nino.'),
++    ('engagement_drop', 'app',
++      'Que tal colocar o Nino em dia?',
++      E'{{body}}\n\nRegistre o que ficou para trás e retome de onde parou.'),
++    ('recurring_pattern', 'app',
++      'Isso parece acontecer todo mês',
++      E'{{body}}\n\nTransforme em recorrência para não precisar registrar sempre.'),
++    ('saving_opportunity', 'app',
++      'Encontrei uma chance de economizar',
++      E'{{body}}\n\nVeja a sugestão e decida se ela combina com sua rotina.'),
++    ('underused_subscription', 'app',
++      'Essa assinatura ainda faz sentido?',
++      E'{{body}}\n\nConfira o uso antes de decidir manter ou cancelar.'),
++    ('emotional_spending', 'app',
++      'Seus gastos contam uma história',
++      E'{{body}}\n\nObserve o padrão com curiosidade, sem julgamento.'),
++    ('impulsive_spending', 'app',
++      'Muitos gastos em pouco tempo',
++      E'{{body}}\n\nUma pausa rápida agora pode ajudar nas próximas escolhas.'),
++    ('financial_procrastination', 'app',
++      'Vamos tirar uma pendência do caminho?',
++      E'{{body}}\n\nEscolha uma ação pequena para avançar hoje.'),
++    ('financial_discipline', 'app',
++      'Boa: você manteve o ritmo',
++      E'{{body}}\n\nConsistência vale mais que perfeição. Continue assim.'),
++    ('relapse_risk', 'app',
++      'Seu ritmo mudou um pouco',
++      E'{{body}}\n\nSem culpa: confira o que aconteceu e escolha como retomar.'),
++    ('advisor_review_weekly', 'app',
++      'Seu resumo da semana está pronto',
++      E'{{body}}\n\nVeja os principais movimentos e o que merece atenção.'),
++    ('advisor_review_monthly', 'app',
++      'Seu fechamento do mês chegou',
++      E'{{body}}\n\nConfira avanços, mudanças de ritmo e próximos passos.')
++),
++eligible AS (
++  SELECT
++    c.*,
++    coalesce((
++      SELECT max(t.version)
++      FROM public.communication_templates t
++      WHERE t.kind = c.kind AND t.channel = c.channel
++    ), 0) + 1 AS next_version
++  FROM curated c
++  WHERE EXISTS (
++    SELECT 1
++    FROM public.communication_catalog catalog
++    WHERE catalog.kind = c.kind
++      AND c.channel = ANY(catalog.allowed_channels)
++  )
++  AND NOT EXISTS (
++    SELECT 1
++    FROM public.communication_templates current_template
++    WHERE current_template.kind = c.kind
++      AND current_template.channel = c.channel
++      AND current_template.title_template = c.title_template
++      AND current_template.body_template = c.body_template
++  )
++),
++deactivated AS (
++  UPDATE public.communication_templates current_template
++     SET active = false,
++         updated_at = now()
++   WHERE current_template.active
++     AND EXISTS (
++       SELECT 1 FROM eligible e
++       WHERE e.kind = current_template.kind
++         AND e.channel = current_template.channel
++     )
++  RETURNING current_template.id
++)
++INSERT INTO public.communication_templates (
++  kind,
++  channel,
++  title_template,
++  body_template,
++  allowed_variables,
++  active,
++  version
++)
++SELECT
++  e.kind,
++  e.channel,
++  e.title_template,
++  e.body_template,
++  ARRAY[
++    'title','body','kind','severity','dedup_key','action_url',
++    'amount','count','description','remaining','days_left','monthly_needed',
++    'category','share','current','avg','due','occurred_at'
++  ]::text[],
++  true,
++  e.next_version
++FROM eligible e;
++
++COMMENT ON TABLE public.communication_templates IS
++  'Templates versionados para app e WhatsApp. Conteúdo inicial P2+P3 preserva versões personalizadas e ativa apenas uma versão por caso de uso/canal.';
