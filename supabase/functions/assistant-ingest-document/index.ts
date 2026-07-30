@@ -1160,6 +1160,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const finalStatus = counters.total_items === 0
       ? (lastErrorTag ? "failed" : "needs_review")
       : (counters.partial ? "partial" : "needs_review");
+
+    // Período: metadata quando existe, senão inferido pelas datas dos itens
+    // (evita o "Período — a —" na revisão).
+    const { data: persistedDates } = await sb.from("extracted_items")
+      .select("occurred_at").eq("document_id", documentId).eq("user_id", userId).limit(1000);
+    const period = derivePeriod({
+      metadata_start: statement?.period_start ?? null,
+      metadata_end: statement?.period_end ?? null,
+      dates: (persistedDates ?? []).map((r: { occurred_at: string | null }) => r.occurred_at),
+    });
+    const bankDoc = allowsBankBalance(documentKind);
+
     await finish({
       status: finalStatus,
       document_kind: documentKind,
@@ -1168,14 +1180,15 @@ async function processDocument(documentId: string, userId: string, guidance: str
       tokens_out,
       extraction_ms: ms,
       user_instructions: (guidance ?? "").slice(0, 2000) || null,
-      statement_opening_balance: statement?.opening_balance ?? null,
-      statement_closing_balance: statement?.closing_balance ?? null,
-      statement_balance_date: statement?.balance_date ?? null,
-      period_start: statement?.period_start ?? null,
-      period_end: statement?.period_end ?? null,
-      statement_period_start: statement?.period_start ?? null,
-      statement_period_end: statement?.period_end ?? null,
+      statement_opening_balance: bankDoc ? (statement?.opening_balance ?? null) : null,
+      statement_closing_balance: bankDoc ? (statement?.closing_balance ?? null) : null,
+      statement_balance_date: bankDoc ? (statement?.balance_date ?? null) : null,
+      period_start: period.start,
+      period_end: period.end,
+      statement_period_start: period.start,
+      statement_period_end: period.end,
       statement_bank: statement?.bank ?? null,
+
       counters: { ...counters, notes: notes.slice(0, 6), stopped_after_error: lastErrorTag ?? null },
       error: finalStatus === "failed" && lastErrorTag ? encodeError(lastErrorTag, correlationId) : null,
     });
