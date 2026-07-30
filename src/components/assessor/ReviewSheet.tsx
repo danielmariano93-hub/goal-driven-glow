@@ -626,23 +626,31 @@ export function ReviewSheet({
                 );
               })}
             </div>
-            <footer className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-card p-3">
-              <button
-                onClick={cancelImport}
-                disabled={confirming}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-xs hover:bg-secondary"
-              >
-                <Ban size={12} /> Cancelar
-              </button>
-              <button
-                onClick={confirmSelection}
-                disabled={confirming || selected.size === 0}
-                className="btn-brand ml-auto inline-flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check size={14} />}
-                Confirmar {selected.size} lançamento(s)
-              </button>
+            <footer className="sticky bottom-0 space-y-2 border-t border-border bg-card p-3">
+              {blockers.length > 0 && (
+                <ul className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-2 text-[11px]">
+                  {blockers.map((b) => <li key={b} className="flex items-start gap-1"><AlertTriangle size={11} className="mt-0.5 shrink-0" /> {b}</li>)}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cancelImport}
+                  disabled={confirming}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-xs hover:bg-secondary"
+                >
+                  <Ban size={12} /> Cancelar
+                </button>
+                <button
+                  onClick={confirmSelection}
+                  disabled={confirming || selected.size === 0 || blockers.length > 0}
+                  className="btn-brand ml-auto inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check size={14} />}
+                  Confirmar {selected.size} lançamento(s)
+                </button>
+              </div>
             </footer>
+
           </>
         )}
       </div>
