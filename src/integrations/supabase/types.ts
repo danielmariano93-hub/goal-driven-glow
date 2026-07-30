@@ -2056,6 +2056,472 @@ export type Database = {
           },
         ]
       }
+      credit_card_installments: {
+        Row: {
+          amount: number
+          competence_month: string
+          created_at: string
+          credit_card_id: string
+          due_date: string | null
+          id: string
+          installment_number: number
+          legacy_transaction_id: string | null
+          purchase_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          competence_month: string
+          created_at?: string
+          credit_card_id: string
+          due_date?: string | null
+          id?: string
+          installment_number: number
+          legacy_transaction_id?: string | null
+          purchase_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          competence_month?: string
+          created_at?: string
+          credit_card_id?: string
+          due_date?: string | null
+          id?: string
+          installment_number?: number
+          legacy_transaction_id?: string | null
+          purchase_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_installments_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_installments_legacy_transaction_id_fkey"
+            columns: ["legacy_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_installments_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_purchases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_installments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_installments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      credit_card_payment_allocations: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          payment_id: string
+          statement_id: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          payment_id: string
+          statement_id: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          payment_id?: string
+          statement_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_payment_allocations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_payment_allocations_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_statements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_payment_allocations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_payment_allocations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      credit_card_payments: {
+        Row: {
+          account_id: string | null
+          amount: number
+          created_at: string
+          credit_card_id: string
+          id: string
+          idempotency_key: string | null
+          paid_at: string
+          transaction_id: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          amount: number
+          created_at?: string
+          credit_card_id: string
+          id?: string
+          idempotency_key?: string | null
+          paid_at: string
+          transaction_id?: string | null
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          amount?: number
+          created_at?: string
+          credit_card_id?: string
+          id?: string
+          idempotency_key?: string | null
+          paid_at?: string
+          transaction_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_payments_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_payments_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_payments_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      credit_card_purchases: {
+        Row: {
+          category_id: string | null
+          confidence: number | null
+          created_at: string
+          credit_card_id: string
+          id: string
+          inferred_total: boolean
+          installments_total: number
+          legacy_purchase_group_id: string | null
+          merchant: string
+          purchase_date: string
+          source: string
+          source_document_id: string | null
+          status: string
+          total_amount: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          credit_card_id: string
+          id?: string
+          inferred_total?: boolean
+          installments_total?: number
+          legacy_purchase_group_id?: string | null
+          merchant: string
+          purchase_date: string
+          source?: string
+          source_document_id?: string | null
+          status?: string
+          total_amount: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          credit_card_id?: string
+          id?: string
+          inferred_total?: boolean
+          installments_total?: number
+          legacy_purchase_group_id?: string | null
+          merchant?: string
+          purchase_date?: string
+          source?: string
+          source_document_id?: string | null
+          status?: string
+          total_amount?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_purchases_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_purchases_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_purchases_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_purchases_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_purchases_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      credit_card_statement_items: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string
+          id: string
+          installment_id: string | null
+          item_kind: string
+          legacy_transaction_id: string | null
+          occurred_at: string | null
+          statement_id: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description: string
+          id?: string
+          installment_id?: string | null
+          item_kind?: string
+          legacy_transaction_id?: string | null
+          occurred_at?: string | null
+          statement_id: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string
+          id?: string
+          installment_id?: string | null
+          item_kind?: string
+          legacy_transaction_id?: string | null
+          occurred_at?: string | null
+          statement_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_statement_items_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_installments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statement_items_legacy_transaction_id_fkey"
+            columns: ["legacy_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statement_items_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_statements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statement_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_statement_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      credit_card_statements: {
+        Row: {
+          closing_date: string | null
+          competence_month: string
+          created_at: string
+          credit_card_id: string
+          due_date: string
+          id: string
+          outstanding_amount: number | null
+          paid_amount: number
+          period_end: string | null
+          period_start: string | null
+          reconciled_total: number
+          reconciliation_difference: number | null
+          source_document_id: string | null
+          stated_total: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          closing_date?: string | null
+          competence_month: string
+          created_at?: string
+          credit_card_id: string
+          due_date: string
+          id?: string
+          outstanding_amount?: number | null
+          paid_amount?: number
+          period_end?: string | null
+          period_start?: string | null
+          reconciled_total?: number
+          reconciliation_difference?: number | null
+          source_document_id?: string | null
+          stated_total?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          closing_date?: string | null
+          competence_month?: string
+          created_at?: string
+          credit_card_id?: string
+          due_date?: string
+          id?: string
+          outstanding_amount?: number | null
+          paid_amount?: number
+          period_end?: string | null
+          period_start?: string | null
+          reconciled_total?: number
+          reconciliation_difference?: number | null
+          source_document_id?: string | null
+          stated_total?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_statements_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statements_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_statements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       credit_cards: {
         Row: {
           active: boolean
@@ -2119,48 +2585,162 @@ export type Database = {
           },
         ]
       }
+      debt_payments: {
+        Row: {
+          account_id: string | null
+          amount: number
+          amount_applied: number
+          created_at: string
+          debt_id: string
+          fee_amount: number
+          id: string
+          idempotency_key: string | null
+          installments_covered: number
+          interest_amount: number
+          notes: string | null
+          paid_at: string
+          transaction_id: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          amount: number
+          amount_applied: number
+          created_at?: string
+          debt_id: string
+          fee_amount?: number
+          id?: string
+          idempotency_key?: string | null
+          installments_covered?: number
+          interest_amount?: number
+          notes?: string | null
+          paid_at?: string
+          transaction_id?: string | null
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          amount?: number
+          amount_applied?: number
+          created_at?: string
+          debt_id?: string
+          fee_amount?: number
+          id?: string
+          idempotency_key?: string | null
+          installments_covered?: number
+          interest_amount?: number
+          notes?: string | null
+          paid_at?: string
+          transaction_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "debt_payments_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "debt_payments_debt_id_fkey"
+            columns: ["debt_id"]
+            isOneToOne: false
+            referencedRelation: "debts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "debt_payments_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "debt_payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "debt_payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       debts: {
         Row: {
+          accounting_method: string
+          amount_was_inferred: boolean
+          contract_total_amount: number
           created_at: string
           creditor: string | null
           due_day: number | null
+          first_due_date: string | null
+          formula_version: string
           id: string
           installment_amount: number | null
+          installments_paid: number
+          installments_total: number | null
           interest_rate_pct: number | null
           name: string
           notes: string | null
           original_amount: number
           outstanding_balance: number
+          principal_amount: number
+          start_date: string | null
           status: Database["public"]["Enums"]["debt_status"]
           updated_at: string
           user_id: string
         }
         Insert: {
+          accounting_method?: string
+          amount_was_inferred?: boolean
+          contract_total_amount: number
           created_at?: string
           creditor?: string | null
           due_day?: number | null
+          first_due_date?: string | null
+          formula_version?: string
           id?: string
           installment_amount?: number | null
+          installments_paid?: number
+          installments_total?: number | null
           interest_rate_pct?: number | null
           name: string
           notes?: string | null
           original_amount: number
           outstanding_balance: number
+          principal_amount: number
+          start_date?: string | null
           status?: Database["public"]["Enums"]["debt_status"]
           updated_at?: string
           user_id: string
         }
         Update: {
+          accounting_method?: string
+          amount_was_inferred?: boolean
+          contract_total_amount?: number
           created_at?: string
           creditor?: string | null
           due_day?: number | null
+          first_due_date?: string | null
+          formula_version?: string
           id?: string
           installment_amount?: number | null
+          installments_paid?: number
+          installments_total?: number | null
           interest_rate_pct?: number | null
           name?: string
           notes?: string | null
           original_amount?: number
           outstanding_balance?: number
+          principal_amount?: number
+          start_date?: string | null
           status?: Database["public"]["Enums"]["debt_status"]
           updated_at?: string
           user_id?: string
@@ -2655,6 +3235,7 @@ export type Database = {
           duplicate_of: string | null
           duplicate_reason: string | null
           friendly_description: string | null
+          historical_installments_paid_assumption: boolean | null
           id: string
           idx: number
           installment_number: number | null
@@ -2695,6 +3276,7 @@ export type Database = {
           duplicate_of?: string | null
           duplicate_reason?: string | null
           friendly_description?: string | null
+          historical_installments_paid_assumption?: boolean | null
           id?: string
           idx: number
           installment_number?: number | null
@@ -2735,6 +3317,7 @@ export type Database = {
           duplicate_of?: string | null
           duplicate_reason?: string | null
           friendly_description?: string | null
+          historical_installments_paid_assumption?: boolean | null
           id?: string
           idx?: number
           installment_number?: number | null
@@ -7213,7 +7796,25 @@ export type Database = {
         Args: { p_account_id: string; p_document_id: string }
         Returns: Json
       }
+      reconcile_imported_installment_history: {
+        Args: { p_document_id: string }
+        Returns: number
+      }
       record_admin_reauth: { Args: { _method?: string }; Returns: string }
+      record_debt_payment: {
+        Args: {
+          p_account_id: string
+          p_amount: number
+          p_debt_id: string
+          p_fee_amount?: number
+          p_idempotency_key?: string
+          p_installments_covered?: number
+          p_interest_amount?: number
+          p_notes?: string
+          p_paid_at: string
+        }
+        Returns: Json
+      }
       recover_expired_outbound_leases: { Args: never; Returns: number }
       recurring_confirm: { Args: { p_occurrence_id: string }; Returns: string }
       recurring_generate_due: {
