@@ -158,10 +158,9 @@ REGRAS ESTRITAS:
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
 - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
-- Em FATURA DE CARTÃO, o bloco "m" deve ter saldos null. Use "f": total é o TOTAL OFICIAL A PAGAR da fatura atual; due_date é o vencimento; closing_date é o fechamento; competence é YYYY-MM-01; card_last4 são os quatro últimos dígitos.
-- Em fatura, extraia somente itens que compõem a fatura atual. EXCLUA total/valor da fatura, pagamento mínimo, limites, parcelas futuras/próximas faturas, encargos meramente projetados e resumos.
-- Em fatura, reconheça parcelas em textos como "03/10", "3 de 10" e "3x". Preencha parcelas_total e parcela_numero. O valor do item é o valor DA PARCELA DESTA FATURA, nunca o valor total da compra.
-- Categoria deve ser uma destas quando houver evidência: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros. Não invente categorias.
+- Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero com o valor da parcela desta fatura.
+- Categoria só com evidência clara: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros.
+- OBRIGATÓRIO: "i" deve conter TODAS as linhas de compra/lançamento do documento. Só devolva i=[] quando o documento realmente não tiver nenhum lançamento.
 - LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
 - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
 - Ordene sempre do mais recente para o mais antigo.
@@ -308,9 +307,15 @@ async function callMultimodal(
   filename: string,
   guidance: string,
   signal: AbortSignal,
-  batch: { index: number; max: number; exclude: string[] },
+  batch: { index: number; max: number; exclude: string[]; strict?: boolean },
 ): Promise<MultimodalOutcome> {
   const start = Date.now();
+  // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
+  // Enviá-la vazia (ou em modo estrito) fazia o modelo escolher a saída
+  // "sem novos lançamentos" e devolver i=[] mesmo em faturas cheias.
+  const exclusion = !batch.strict && batch.exclude.length
+    ? `\nNão repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.join("; ")}.\nSe TODOS os lançamentos do documento já estiverem nessa lista, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.`
+    : `\nNenhum lançamento foi extraído ainda: devolva TODOS os lançamentos deste trecho, sem omitir nenhum.`;
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -326,10 +331,7 @@ async function callMultimodal(
             role: "user",
             content: [
               { type: "text", text: `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
-Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos ainda não extraídos, do mais recente ao mais antigo.
-Não repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.length ? batch.exclude.join("; ") : "nenhum"}.
-Se este for o lote 1, comece pelos lançamentos mais recentes do documento. Se for lote >1, continue com lançamentos mais antigos ou diferentes dos já listados.
-Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.` },
+Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}` },
               mimeType === "application/pdf"
                 ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
                 : { type: "image_url", image_url: { url: publicBase64Url } },
@@ -962,14 +964,34 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }, 20_000);
       let out: MultimodalOutcome;
       try {
+        const dataUrl = bytesToDataUrl(fragment.bytes, doc.mime_type);
+        const filename = doc.storage_path?.split("/").pop() ?? "documento";
+        const guide = (guidance ?? "").slice(0, 500);
         out = await callMultimodal(
-          bytesToDataUrl(fragment.bytes, doc.mime_type),
-          doc.mime_type,
-          doc.storage_path?.split("/").pop() ?? "documento",
-          (guidance ?? "").slice(0, 500),
-          ac.signal,
+          dataUrl, doc.mime_type, filename, guide, ac.signal,
           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
         );
+        // Retry estrito: documento financeiro que volta sem nenhum item e sem
+        // erro quase sempre significa que o modelo pegou o atalho "sem novos
+        // lançamentos". Uma segunda passada sem essa cláusula recupera o lote.
+        const emptyFinancial = !out.errorTag
+          && out.result.items.length === 0
+          && !["non_financial", "illegible"].includes(String(out.result.document_kind));
+        if (emptyFinancial) {
+          console.log(`[assistant-ingest] strict_retry document=${documentId} fragment=${batchIndex}`);
+          const retry = await callMultimodal(
+            dataUrl, doc.mime_type, filename, guide, ac.signal,
+            { index: batchIndex, max: maxBatches, exclude: [], strict: true },
+          );
+          if (retry.result.items.length > 0) {
+            out = {
+              ...retry,
+              tokens_in: out.tokens_in + retry.tokens_in,
+              tokens_out: out.tokens_out + retry.tokens_out,
+              ms: out.ms + retry.ms,
+            };
+          }
+        }
       } finally {
         clearTimeout(timer);
         clearInterval(beat);
