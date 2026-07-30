@@ -94,7 +94,7 @@ export async function tryBulkDraft(sb: SupabaseClient, args: {
 /** Busca a pendência de lote ativa da conversa (se houver). */
 export async function findBulkPending(sb: SupabaseClient, conversation_id: string, user_id: string, pending_id?: string | null) {
   let q = sb.from("pending_confirmations")
-    .select("id, kind, payload, expires_at, status")
+    .select("id, user_id, kind, payload, expires_at, status")
     .eq("conversation_id", conversation_id).eq("user_id", user_id)
     .eq("status", "pending").eq("kind", "bulk_transactions");
   if (pending_id) q = q.eq("id", pending_id);
@@ -114,24 +114,52 @@ export async function executeBulkPending(sb: SupabaseClient, pending: any): Prom
 
   let inserted = 0;
   let failed = 0;
+  const { data: categoryRows } = await sb.from("categories").select("id,name")
+    .is("archived_at", null)
+    .or(`user_id.eq.${pending.user_id},user_id.is.null`);
+  const fold = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const categoryByName = new Map(
+    ((categoryRows ?? []) as Array<{ id: string; name: string }>).map((category) => [fold(category.name), category.id]),
+  );
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const { error } = await sb.rpc("commit_movement", {
+    // Pagamento/antecipação exibido na própria fatura concilia o total, mas
+    // não é uma nova receita nem despesa.
+    if (["card_payment", "payment", "bill_payment"].includes(String(item.movement_kind ?? "").toLowerCase())) {
+      continue;
+    }
+    const categoryId = item.category_hint ? categoryByName.get(fold(item.category_hint)) ?? null : null;
+    const movementKind = String(item.movement_kind ?? "transaction").toLowerCase();
+    const { data, error } = await sb.rpc("commit_movement", {
       p_idempotency_key: `bulk:${pending.id}:${i}`,
-      p_type: "expense",
+      p_type: item.type === "income" || movementKind === "refund" ? "income" : "expense",
       p_amount: item.amount,
       p_occurred_at: occurred_at,
       p_status: "confirmed",
       p_payment_method: payload.target_kind === "credit_card" ? "credit_card" : "account",
       p_account_id: payload.target_kind === "account" ? payload.target_id : null,
       p_credit_card_id: payload.target_kind === "credit_card" ? payload.target_id : null,
-      p_category_id: null,
+      p_category_id: categoryId,
       p_description: item.description,
       p_notes: null,
       p_origin: "agent",
     });
     if (error) { failed++; console.error("[bulk] item_failed", i, String(error.message).slice(0, 160)); }
-    else inserted++;
+    else {
+      inserted++;
+      const row = Array.isArray(data) ? data[0] : data;
+      const transactionId = row?.transaction_id;
+      if (transactionId && (
+        movementKind !== "transaction"
+        || Number(item.installments_total ?? 0) > 1
+      )) {
+        await sb.from("transactions").update({
+          movement_kind: movementKind === "refund" ? "refund" : "transaction",
+          installments_total: item.installments_total ?? null,
+          installment_number: item.installment_number ?? null,
+        }).eq("id", transactionId);
+      }
+    }
   }
 
   await sb.from("pending_confirmations")

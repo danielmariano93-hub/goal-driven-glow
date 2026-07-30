@@ -156,6 +156,7 @@ REGRAS ESTRITAS:
 - RESGATE CDB é resgate de investimento, não receita. Aplicação é investimento, não despesa.
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
+- Em faturas, NÃO omita valores que reduzem o total: pagamento/antecipação da fatura usa income + card_payment; estorno, crédito ou cancelamento parcial usa income + refund. O valor deve ser sempre positivo.
 - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
 - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
 - Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero com o valor da parcela desta fatura.

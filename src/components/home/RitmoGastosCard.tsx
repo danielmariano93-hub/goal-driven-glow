@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowRight } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
 import { formatRangeShort, type RhythmComparison } from "@/lib/engine/spendingRhythm";
@@ -12,16 +12,16 @@ function shortDay(iso: string) {
 type Props = { rhythm: RhythmComparison | null; loading?: boolean };
 
 /**
- * "Ritmo de gastos no período" — linha suave do consumo acumulado dia a dia,
- * com a média acumulada como referência. Substitui a antiga Evolução mensal.
+ * Série canônica: o último ponto coincide com as métricas do resumo superior.
  */
 export function RitmoGastosCard({ rhythm, loading }: Props) {
   const cur = rhythm?.current;
   const data = (cur?.series ?? []).map((p) => ({
     date: p.date,
     label: shortDay(p.date),
-    acumulado: p.cumulative,
-    media: p.runningAverage,
+    gastoDoDia: p.amount,
+    mediaTotal: p.runningAverage,
+    ritmoTipico: p.typicalRunningAverage,
   }));
 
   const hasData = data.length > 0 && (cur?.total ?? 0) > 0;
@@ -38,14 +38,14 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
             Ritmo de gastos no período
           </p>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--home-text-2)" }}>
-            {cur ? `${formatRangeShort(cur.range)} · acumulado até hoje` : "Calculando"}
+            {cur ? `${formatRangeShort(cur.range)} · dias sem gasto entram na média` : "Calculando"}
           </p>
         </div>
         <p
           className="shrink-0 font-display font-extrabold tabular-nums"
           style={{ fontSize: 18, letterSpacing: "-0.02em", color: "var(--home-text-1)" }}
         >
-          {loading || !cur ? "—" : formatBRL(cur.total)}
+          {loading || !cur ? "—" : `${formatBRL(cur.average)}/dia`}
         </p>
       </div>
 
@@ -78,7 +78,11 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
                 cursor={{ stroke: "var(--home-hairline)" }}
                 formatter={(value: number, name: string) => [
                   formatBRL(Number(value)),
-                  name === "acumulado" ? "Acumulado" : "Média por dia",
+                  name === "gastoDoDia"
+                    ? "Gasto do dia"
+                    : name === "mediaTotal"
+                      ? "Média total até o dia"
+                      : "Ritmo típico até o dia",
                 ]}
                 labelFormatter={(l) => `Dia ${l}`}
                 contentStyle={{
@@ -89,21 +93,32 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
               />
               <Area
                 type="monotone"
-                dataKey="acumulado"
+                dataKey="gastoDoDia"
                 stroke="var(--home-brand-violet)"
-                strokeWidth={2.5}
+                strokeWidth={1.5}
                 fill="url(#ritmoFill)"
                 dot={false}
                 activeDot={{ r: 4 }}
               />
-              <Area
+              <Line
                 type="monotone"
-                dataKey="media"
+                dataKey="mediaTotal"
                 stroke="var(--home-text-3)"
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
-                fill="none"
                 dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="ritmoTipico"
+                stroke="var(--home-pos)"
+                strokeWidth={2}
+                dot={false}
+              />
+              <Legend
+                iconType="line"
+                wrapperStyle={{ fontSize: 10 }}
+                formatter={(name) => name === "gastoDoDia" ? "Gasto do dia" : name === "mediaTotal" ? "Média total" : "Ritmo típico"}
               />
             </AreaChart>
           </ResponsiveContainer>

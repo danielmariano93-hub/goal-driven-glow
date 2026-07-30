@@ -4,7 +4,7 @@ import { inferInstallmentDetails } from "./invoice.ts";
 export const CANONICAL_MOVEMENT_KINDS = [
   "transaction", "refund", "internal_transfer",
   "investment_application", "investment_redemption",
-  "investment_yield", "loan_proceeds",
+  "investment_yield", "loan_proceeds", "card_payment",
 ] as const;
 export type MovementKind = typeof CANONICAL_MOVEMENT_KINDS[number];
 
@@ -86,6 +86,18 @@ export function normalizeAmountBR(raw: string | number): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
 
+function normalizeSignedAmountBR(raw: string | number): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.round(raw * 100) / 100;
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().replace(/[R$\s]/g, "");
+  const commaLast = s.lastIndexOf(",");
+  const dotLast = s.lastIndexOf(".");
+  const value = commaLast > dotLast
+    ? Number(s.replace(/\./g, "").replace(",", "."))
+    : Number(s.replace(/,/g, ""));
+  return Number.isFinite(value) && value !== 0 ? Math.round(value * 100) / 100 : null;
+}
+
 export function todaySaoPaulo(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -109,6 +121,9 @@ export function normalizeMovementKind(
     transaction: "transaction", purchase: "transaction", debit: "transaction", credit: "transaction",
     pix: "transaction", pix_in: "transaction", pix_out: "transaction",
     refund: "refund", reimbursement: "refund", estorno: "refund",
+    card_payment: "card_payment", bill_payment: "card_payment",
+    credit_card_bill_payment: "card_payment", payment: "card_payment",
+    pagamento_fatura: "card_payment", antecipacao: "card_payment",
     internal_transfer: "internal_transfer", transfer: "internal_transfer",
     investment_application: "investment_application", investment_apply: "investment_application",
     investment_redemption: "investment_redemption", investment_redeem: "investment_redemption", redeem: "investment_redemption",
@@ -123,7 +138,8 @@ export function normalizeMovementKind(
     const d = description.trim();
     if (/^APLICACAO\s+CDB/i.test(d) || /^APLICA[ÇC][ÃA]O\s+CDB/i.test(d)) kind = "investment_application";
     else if (/^RESGATE\s+CDB/i.test(d)) kind = "investment_redemption";
-    else if (/^(EST|ESTORNO)\b/i.test(d)) kind = "refund";
+    else if (/\b(PAGAMENTO|ANTECIPA[ÇC][ÃA]O)\b.*\b(FATURA|CART[ÃA]O)\b/i.test(d)) kind = "card_payment";
+    else if (/^(EST|ESTORNO)\b/i.test(d) || /\b(CANCELAMENTO PARCIAL|CR[EÉ]DITO DE COMPRA)\b/i.test(d)) kind = "refund";
   }
   return kind;
 }
@@ -160,7 +176,6 @@ const NON_TX_KEYWORDS = [
   "parcelas futuras", "próximas faturas", "proximas faturas", "melhor dia de compra",
   "data de fechamento", "data do fechamento", "data de vencimento", "vencimento",
   "período de visualização", "periodo de visualizacao", "emitido em", "extrato conta", "lançamentos",
-  "pagamento efetuado - fatura", "pagamento fatura", "pagamento da fatura",
 ];
 
 export function isNonTransactionLine(description: string): boolean {
@@ -192,7 +207,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
   for (const raw of rawItems) {
     if (Array.isArray(raw)) {
       const row = raw as CompactRow;
-      const type = row[0] === "income" ? "income" : "expense";
+      let type = row[0] === "income" ? "income" : "expense";
       const description = String(row[3] ?? "").trim();
       if (!description) continue;
       const movementKind = normalizeMovementKind(row[7], type, description);
@@ -202,8 +217,10 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
         continue;
       }
 
-      const amount = normalizeAmountBR(row[2]);
-      if (amount == null) continue;
+      const signedAmount = normalizeSignedAmountBR(row[2]);
+      if (signedAmount == null) continue;
+      if (signedAmount < 0) type = "income";
+      const amount = Math.abs(signedAmount);
       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
       const inferred = inferInstallmentDetails(
         description,
@@ -235,7 +252,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
     if (!description) continue;
-    const type = it.type === "income" ? "income" : "expense";
+    let type = it.type === "income" ? "income" : "expense";
     const movementKind = normalizeMovementKind(it.movement_kind, type, description);
     if (movementKind === "informational") { informational_dropped++; continue; }
     if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
@@ -243,8 +260,10 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
       continue;
     }
 
-    const amount = normalizeAmountBR(it.amount as string | number);
-    if (amount == null) continue;
+    const signedAmount = normalizeSignedAmountBR(it.amount as string | number);
+    if (signedAmount == null) continue;
+    if (signedAmount < 0) type = "income";
+    const amount = Math.abs(signedAmount);
     const inferred = inferInstallmentDetails(
       description,
       typeof it.installment_number === "number" ? it.installment_number : null,

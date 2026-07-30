@@ -77,14 +77,21 @@ const RULES: Array<{ pattern: RegExp; category: string }> = [
   { pattern: /\b(petshop|petz|cobasi|veterinar)\b/, category: "pets" },
   { pattern: /\b(renner|riachuelo|cea\b|c&a|zara|shein|roupa|calcados|calçados)\b/, category: "vestuario" },
   { pattern: /\b(i(o|0)f|tarifa|anuidade|juros|multa|imposto|ipva|iptu)\b/, category: "impostos e taxas" },
-  { pattern: /\b(lovable|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)\b/, category: "servicos" },
+  { pattern: /(lovable(?:\.dev)?|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)/, category: "servicos" },
+  { pattern: /\b(localiza|movida|unidas|turbi)\b/, category: "transporte" },
+  { pattern: /\b(shotgun|sympla|eventim|ticketmaster)\b/, category: "lazer" },
+  { pattern: /\b(apple|google play|microsoft|amazon web services|aws)\b/, category: "servicos" },
 ];
 
+function foldName(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
 function matchByName(candidates: CategoryCandidate[], name: string): string | null {
-  const target = name.toLowerCase();
-  const exact = candidates.find(c => c.name.toLowerCase() === target);
+  const target = foldName(name);
+  const exact = candidates.find(c => foldName(c.name) === target);
   if (exact) return exact.id;
-  const partial = candidates.find(c => c.name.toLowerCase().includes(target) || target.includes(c.name.toLowerCase()));
+  const partial = candidates.find(c => foldName(c.name).includes(target) || target.includes(foldName(c.name)));
   return partial ? partial.id : null;
 }
 

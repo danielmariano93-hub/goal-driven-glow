@@ -143,12 +143,15 @@ Deno.serve(async (req) => {
     if (error) return json({ error: "rpc_failed", details: error.message }, 400);
     const result = (data ?? {}) as Record<string, unknown>;
     if (result.ok === false) return json({ error: "confirmation_rejected", result }, 409);
+    const errors = Array.isArray(result.errors) ? result.errors : [];
+    const idempotentSkips = (Array.isArray(result.skipped) ? result.skipped : [])
+      .filter((row) => ["already_confirmed", "already_imported"].includes(String((row as { reason?: string }).reason ?? ""))).length;
     if (nonLedgerIds.length > 0) {
       await sb.from("extracted_items").update({ status: "confirmed" })
         .eq("document_id", document_id).eq("user_id", user.id).in("id", nonLedgerIds);
     }
     let statementResult: unknown = null;
-    if (!(validation as { not_invoice?: boolean } | null)?.not_invoice) {
+    if (errors.length === 0 && !(validation as { not_invoice?: boolean } | null)?.not_invoice) {
       const finalized = await userClient.rpc("finalize_invoice_statement", {
         p_document_id: document_id, p_item_ids: item_ids,
       });
@@ -160,17 +163,18 @@ Deno.serve(async (req) => {
     const { count: pendingCount } = await sb.from("extracted_items")
       .select("id", { count: "exact", head: true })
       .eq("document_id", document_id).eq("user_id", user.id)
-      .in("status", ["needs_review", "duplicate_suspect"]);
+      .in("status", ["needs_review", "duplicate_suspect", "failed"]);
     if ((pendingCount ?? 0) === 0) {
       await sb.from("document_imports").update({ status: "confirmed" })
         .eq("id", document_id).eq("user_id", user.id);
     }
-    const accounted = Number(result.created_count ?? 0) + nonLedgerIds.length;
+    const accounted = Number(result.created_count ?? 0) + idempotentSkips + nonLedgerIds.length;
     return json({
       ok: true,
       result: {
         ...result,
         non_ledger_count: nonLedgerIds.length,
+        idempotent_count: idempotentSkips,
         accounted_count: accounted,
         total_selected: item_ids.length,
         statement: statementResult,

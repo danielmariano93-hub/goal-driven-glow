@@ -72,31 +72,31 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
       className="rounded-[18px] bg-[color:var(--home-surface)]"
       style={{ border: "1px solid var(--home-hairline)", boxShadow: "var(--shadow-soft)" }}
     >
-      <div className="px-4 pt-3">
+      <div className="px-4 pt-2.5">
         <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
           Seu ritmo neste período
         </p>
       </div>
 
-      <div className="relative flex items-stretch pb-2 pt-2">
+      <div className="relative flex items-stretch pb-1 pt-1">
         <Link
           to="/app/relatorios"
-          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
             Ritmo típico
           </p>
           <p
             className="mt-1 truncate font-display font-extrabold tabular-nums"
-            style={{ fontSize: 22, lineHeight: 1.1, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
+            style={{ fontSize: 20, lineHeight: 1.05, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
           >
             {loading || !cur ? "—" : formatBRL(cur.typicalAverage)}
             <span className="text-[13px] font-semibold" style={{ color: "var(--home-text-2)" }}>/dia</span>
           </p>
-          <div className="mt-1.5 flex items-center gap-1.5">
+          <div className="mt-1 flex items-center gap-1.5">
             <Badge trend={rhythm?.typicalTrend ?? "stable"} deltaPct={rhythm?.typicalDeltaPct ?? null} />
           </div>
-          <p className="mt-1 truncate text-[11px]" style={{ color: "var(--home-text-2)" }}>
+          <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--home-text-2)" }}>
             {loading || !cur
               ? "Calculando"
               : `Média total ${formatBRL(cur.average)}/dia`}
@@ -107,21 +107,21 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
 
         <Link
           to="/app/cartoes"
-          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
             Cartão
           </p>
           <p
             className="mt-1 truncate font-display font-extrabold tabular-nums"
-            style={{ fontSize: 22, lineHeight: 1.1, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
+            style={{ fontSize: 20, lineHeight: 1.05, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
           >
             {loading ? "—" : formatBRL(card.value)}
           </p>
-          <div className="mt-1.5 flex items-center gap-1.5">
+          <div className="mt-1 flex items-center gap-1.5">
             <Badge trend={card.trend} deltaPct={card.deltaPct} />
           </div>
-          <p className="mt-1 truncate text-[11px]" style={{ color: "var(--home-text-2)" }}>
+          <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--home-text-2)" }}>
             {hintFor(card.deltaPct, card.trend, "Acima do anterior", "Abaixo do anterior")}
           </p>
         </Link>
@@ -132,7 +132,7 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex w-full items-center justify-center gap-1 px-4 py-2.5 text-[12px] font-semibold"
+          className="flex w-full items-center justify-center gap-1 px-4 py-1.5 text-[11px] font-semibold"
           style={{ color: "var(--home-text-2)" }}
         >
           <Info size={12} /> {open ? "Ocultar" : "O que entra nesta conta"}

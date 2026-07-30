@@ -21,7 +21,7 @@ import {
 } from "@/lib/reports/aggregations";
 import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
-import { buildDailySpendSeries } from "@/lib/finance/accounting";
+import { clampRangeToToday, computeRhythm } from "@/lib/engine/spendingRhythm";
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
@@ -33,7 +33,7 @@ export default function Relatorios() {
     (async () => {
       const { data } = await supabase
         .from("transactions")
-        .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,categories(name)")
+        .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
         .order("occurred_at", { ascending: false });
       setTxns((data ?? []).map((t: any) => ({
         id: t.id, account_id: t.account_id, type: t.type, status: t.status,
@@ -41,27 +41,38 @@ export default function Relatorios() {
         category_id: t.category_id, category_name: t.categories?.name ?? null,
         transfer_group_id: t.transfer_group_id, payment_method: t.payment_method,
         credit_card_id: t.credit_card_id, settles_card_id: t.settles_card_id,
-        movement_kind: t.movement_kind,
+        movement_kind: t.movement_kind, origin: t.origin,
+        installments_total: t.installments_total, description: t.description,
+        friendly_description: t.friendly_description,
       })));
     })();
   }, []);
 
   if (txns === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
-  const filtered = filterCanonicalReportTransactions(filterPeriod(txns, from, to));
+  const reportRange = clampRangeToToday({ start: from, end: to });
+  const filtered = filterCanonicalReportTransactions(filterPeriod(txns, reportRange.start, reportRange.end));
   const monthly = groupByMonth(filtered);
-  const dailyRhythm = buildDailySpendSeries(
+  const categoryNameById = Object.fromEntries(
+    filtered.filter((transaction) => transaction.category_id && transaction.category_name)
+      .map((transaction) => [transaction.category_id as string, transaction.category_name as string]),
+  );
+  const rhythm = computeRhythm(
     filtered.map((transaction) => ({
       ...transaction,
       id: transaction.id ?? "",
       account_id: transaction.account_id ?? "",
       category_id: transaction.category_id ?? null,
-      description: null,
       transfer_group_id: transaction.transfer_group_id ?? null,
     })),
-    { start: from, end: to },
-  ).map((point) => ({
-    ...point,
+    reportRange,
+    { categoryNameById },
+  );
+  const dailyRhythm = rhythm.series.map((point) => ({
+    date: point.date,
+    gastoDoDia: point.amount,
+    mediaTotal: point.runningAverage,
+    ritmoTipico: point.typicalRunningAverage,
     label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
   }));
   const byCat = byCategory(filtered);
@@ -126,7 +137,7 @@ export default function Relatorios() {
       <section>
         <div className="mb-2">
           <h2 className="text-sm font-semibold">Ritmo de gastos no período</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Picos reais por dia e tendência típica de 7 dias. Dias sem gastos também entram no cálculo.</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Mesma fórmula da Home: picos do dia, média total e ritmo típico acumulados. Dias sem gastos entram no cálculo.</p>
         </div>
         <div className="surface-card mb-3 h-64 p-3">
           <ResponsiveContainer width="100%" height="100%">
@@ -137,7 +148,11 @@ export default function Relatorios() {
               <Tooltip
                 formatter={(value: number, name: string) => [
                   formatBRL(Number(value)),
-                  name === "actual" ? "Gasto do dia" : "Ritmo típico",
+                  name === "gastoDoDia"
+                    ? "Gasto do dia"
+                    : name === "mediaTotal"
+                      ? "Média total até o dia"
+                      : "Ritmo típico até o dia",
                 ]}
                 labelFormatter={(label) => `Dia ${label}`}
                 contentStyle={{
@@ -147,14 +162,16 @@ export default function Relatorios() {
                   fontSize: 12,
                 }}
               />
-              <Line type="monotone" dataKey="actual" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
-              <Line type="monotone" dataKey="rollingTypical" name="Ritmo típico" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
+              <Line type="monotone" dataKey="gastoDoDia" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} />
+              <Line type="monotone" dataKey="mediaTotal" name="Média total até o dia" stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
+              <Line type="monotone" dataKey="ritmoTipico" name="Ritmo típico até o dia" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
         <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Gasto do dia</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico (7 dias)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground" /> Média total até o dia</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico até o dia</span>
         </div>
         <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Resumo mensal do período</h3>
         <div className="surface-card overflow-x-auto">

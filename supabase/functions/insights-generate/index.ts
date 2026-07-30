@@ -21,9 +21,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
-const PROMPT_VERSION = "v5-tip-policy";
+const PROMPT_VERSION = "v6-evidence-action";
 const ACCOUNTING_SCOPE = "behavioral_v1";
-const MODEL = "google/gemini-2.5-flash";
+// Insights exigem raciocínio e síntese; extração continua no modelo rápido.
+// O modelo é configurável para permitir troca controlada e rollback sem deploy.
+const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "google/gemini-2.5-pro";
 const AI_TIMEOUT_MS = 8000;
 
 function logEvent(event: Record<string, unknown>) {
@@ -248,7 +250,8 @@ Deno.serve(async (req) => {
   if (allowAi) {
     const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
 - Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos, pagamento de fatura e crédito de empréstimo. Se balance_month >= 0, não é déficit.
-- Não mude o assunto nem o cta_route da dica base. Só melhore clareza e personalização.
+- Não mude o assunto nem o cta_route da dica base. Transforme o fato em uma leitura específica e uma ação realizável em até 10 minutos.
+- Evite frases genéricas como "acompanhe seus gastos", "continue assim" e "reveja seu orçamento". Cite a evidência mais relevante e diga por que ela importa agora.
 - Nunca invente valores fora dos fatos.
 - title: 4 a 80 caracteres. body: 10 a 240 caracteres. cta_label: 2 a 40 caracteres.
 - type deve ser "${payload.type}".

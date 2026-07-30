@@ -24,7 +24,7 @@
  */
 import { behavioralMetricAmount, round2, type TransactionRow } from "./facts";
 
-export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v1";
+export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v2";
 
 export interface DateRange { start: string; end: string }
 export type Trend = "up" | "down" | "stable";
@@ -47,10 +47,15 @@ export interface RhythmExcludedItem {
 
 export interface DailyPoint {
   date: string;
+  /** consumo elegível ocorrido exclusivamente neste dia */
   amount: number;
+  /** parcela do consumo diário que compõe o ritmo típico */
+  typicalAmount: number;
   cumulative: number;
   /** média acumulada até o dia (cumulative / dias decorridos) */
   runningAverage: number;
+  /** ritmo típico acumulado até o dia, com o mesmo denominador da média total */
+  typicalRunningAverage: number;
 }
 
 export interface RhythmResult {
@@ -179,6 +184,7 @@ export function computeRhythm(
   const categoryNameById = opts.categoryNameById ?? {};
 
   const byDay = new Map<string, number>();
+  const typicalByDay = new Map<string, number>();
   const positives: Array<{ t: RhythmTx; amount: number }> = [];
   let total = 0;
 
@@ -232,14 +238,30 @@ export function computeRhythm(
   excluded.sort((a, b) => b.amount - a.amount);
 
   const typicalTotal = round2(Math.max(0, total - excludedTotal));
+  const excludedIds = new Set(excluded.map((item) => item.id));
+  for (const { t, amount } of positives) {
+    if (excludedIds.has(t.id)) continue;
+    const date = String(t.occurred_at ?? "").slice(0, 10);
+    typicalByDay.set(date, round2((typicalByDay.get(date) ?? 0) + amount));
+  }
 
   const series: DailyPoint[] = [];
   let cumulative = 0;
+  let typicalCumulative = 0;
   for (let i = 0; i < days; i++) {
     const date = addDays(range.start, i);
     const amount = round2(Math.max(0, byDay.get(date) ?? 0));
+    const typicalAmount = round2(Math.max(0, typicalByDay.get(date) ?? 0));
     cumulative = round2(cumulative + amount);
-    series.push({ date, amount, cumulative, runningAverage: round2(cumulative / (i + 1)) });
+    typicalCumulative = round2(typicalCumulative + typicalAmount);
+    series.push({
+      date,
+      amount,
+      typicalAmount,
+      cumulative,
+      runningAverage: round2(cumulative / (i + 1)),
+      typicalRunningAverage: round2(typicalCumulative / (i + 1)),
+    });
   }
 
   return {

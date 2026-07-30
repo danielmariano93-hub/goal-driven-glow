@@ -99,8 +99,38 @@ export default function LancamentoDetalhe() {
 
   async function save() {
     if (!tx) return;
-    if (tx.shared_expense_id) {
+    const isSplitReimbursement = tx.split_transaction_role === "reimbursement";
+    if (tx.shared_expense_id && !isSplitReimbursement) {
       nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`);
+      return;
+    }
+    if (isSplitReimbursement) {
+      if ((tx.category_id ?? "") === categoryId) {
+        toast.message("Nada mudou.");
+        return;
+      }
+      setSaving(true);
+      const { data, error } = await supabase.rpc("split_set_reimbursement_category" as any, {
+        p_transaction_id: tx.id,
+        p_category_id: categoryId || null,
+      });
+      setSaving(false);
+      const result = data as { ok?: boolean; error?: string } | null;
+      if (error || !result?.ok) {
+        console.error("[LancamentoDetalhe] split reimbursement category", error ?? result);
+        return toast.error("Não consegui salvar a categoria do recebimento.");
+      }
+      if (categoryId) {
+        const { error: learnError } = await (supabase.rpc as any)("learn_transaction_category", {
+          p_transaction_id: tx.id,
+          p_category_id: categoryId,
+        });
+        if (learnError) console.warn("[category-learning]", learnError.message);
+      }
+      qc.invalidateQueries({ queryKey: ["transactions"] });
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      toast.success("Categoria do recebimento salva");
+      nav("/app/lancamentos");
       return;
     }
     if (!isTransfer) {
@@ -222,9 +252,13 @@ export default function LancamentoDetalhe() {
       <section className="rounded-2xl border border-border bg-card p-4 space-y-3">
         {tx.shared_expense_id && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
-            <p className="font-semibold">Este lançamento faz parte de uma Divisão do Rolê.</p>
-            <p className="mt-1 text-muted-foreground">Edite ou cancele pela divisão para atualizar participantes, reembolsos e indicadores juntos.</p>
-            <button onClick={() => nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`)} className="mt-2 font-semibold text-primary">Abrir a divisão →</button>
+            <p className="font-semibold">{tx.split_transaction_role === "reimbursement" ? "Recebimento da Divisão do Rolê" : "Este lançamento faz parte de uma Divisão do Rolê."}</p>
+            <p className="mt-1 text-muted-foreground">
+              {tx.split_transaction_role === "reimbursement"
+                ? "Você pode ajustar a categoria aqui. Valor, conta e data continuam protegidos para manter a divisão conciliada."
+                : "Edite ou cancele pela divisão para atualizar participantes, reembolsos e indicadores juntos."}
+            </p>
+            {tx.split_transaction_role !== "reimbursement" && <button onClick={() => nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`)} className="mt-2 font-semibold text-primary">Abrir a divisão →</button>}
           </div>
         )}
         {isTransfer && (
@@ -246,17 +280,17 @@ export default function LancamentoDetalhe() {
 
         <div>
           <label className="text-xs font-medium text-muted-foreground">Descrição</label>
-          <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer} />
+          <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer || tx.split_transaction_role === "reimbursement"} />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="min-w-0">
             <label className="text-xs font-medium text-muted-foreground">Valor (R$)</label>
-            <input className="input-base w-full min-w-0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer} />
+            <input className="input-base w-full min-w-0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer || tx.split_transaction_role === "reimbursement"} />
           </div>
           <div className="min-w-0">
             <label className="text-xs font-medium text-muted-foreground">Data</label>
-            <input type="date" className="input-base w-full min-w-0" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer} />
+            <input type="date" className="input-base w-full min-w-0" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer || tx.split_transaction_role === "reimbursement"} />
           </div>
         </div>
 

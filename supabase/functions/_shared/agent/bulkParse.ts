@@ -1,7 +1,15 @@
 // Parser puro (sem dependências) para registro em lote.
 // Usado pelo AgentCore (Deno) e pelos testes (vitest).
 
-export type BulkItem = { description: string; amount: number };
+export type BulkItem = {
+  description: string;
+  amount: number;
+  type?: "income" | "expense";
+  category_hint?: string | null;
+  installments_total?: number | null;
+  installment_number?: number | null;
+  movement_kind?: string | null;
+};
 export type BulkParseResult = {
   items: BulkItem[];
   skipped: number;
@@ -47,7 +55,15 @@ function fromJson(text: string): BulkItem[] | null {
     if (Array.isArray(row)) {
       const description = cleanDesc(row[3]);
       const amount = parseBrAmountLoose(row[2]);
-      if (description && amount !== null) items.push({ description, amount });
+      if (description && amount !== null) items.push({
+        description,
+        amount,
+        type: row[0] === "income" ? "income" : "expense",
+        movement_kind: typeof row[7] === "string" ? row[7] : null,
+        installments_total: Number.isInteger(row[8]) ? row[8] : null,
+        installment_number: Number.isInteger(row[9]) ? row[9] : null,
+        category_hint: typeof row[12] === "string" ? row[12] : null,
+      });
       continue;
     }
     if (!row || typeof row !== "object") continue;
@@ -58,7 +74,16 @@ function fromJson(text: string): BulkItem[] | null {
       (row as any).valor ?? (row as any).amount ?? (row as any).value ?? (row as any).total,
     );
     if (!description || amount === null) continue;
-    items.push({ description, amount });
+    const rawType = String((row as any).tipo ?? (row as any).type ?? "").toLowerCase();
+    items.push({
+      description,
+      amount,
+      type: ["income", "receita", "entrada"].includes(rawType) ? "income" : "expense",
+      category_hint: (row as any).categoria ?? (row as any).category ?? (row as any).category_hint ?? null,
+      installments_total: Number((row as any).parcelas_total ?? (row as any).installments_total) || null,
+      installment_number: Number((row as any).parcela_numero ?? (row as any).installment_number) || null,
+      movement_kind: (row as any).movimento ?? (row as any).movement_kind ?? null,
+    });
   }
   return items.length ? items : null;
 }
@@ -93,5 +118,10 @@ export function parseBulkItems(text: string, minItems = 3): BulkParseResult {
 }
 
 export function sumItems(items: BulkItem[]): number {
-  return items.reduce((acc, i) => acc + i.amount, 0);
+  return items.reduce((acc, item) => {
+    const movement = String(item.movement_kind ?? "").toLowerCase();
+    const reducesInvoice = item.type === "income"
+      || ["refund", "card_payment", "payment", "bill_payment"].includes(movement);
+    return acc + (reducesInvoice ? -item.amount : item.amount);
+  }, 0);
 }
