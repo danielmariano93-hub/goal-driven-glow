@@ -126,6 +126,7 @@ export function ReviewSheet({
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [recovering, setRecovering] = useState(false);
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +149,7 @@ export function ReviewSheet({
       setDocumentInfo(d.document);
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setDocKind(d.document?.document_kind ?? null);
-      const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review").map((i) => i.id));
+      const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review" || i.status === "failed").map((i) => i.id));
       setSelected(initial);
       setLoading(false);
     })();
@@ -207,13 +208,15 @@ export function ReviewSheet({
   }
 
   async function patchItem(id: string, patch: Partial<Item>) {
+    const previous = items.find((item) => item.id === id);
     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     const { error } = await supabase.functions.invoke("assistant-review-actions", {
       body: { action: "update", item_id: id, patch },
     });
     if (error) {
+      if (previous) setItems((xs) => xs.map((x) => (x.id === id ? previous : x)));
       console.error("[ReviewSheet] update", error);
-      toast.error("Não consegui salvar essa alteração. Tente novamente.");
+      toast.error("A alteração não foi salva", { description: "O valor anterior foi restaurado para você não confirmar dados incorretos." });
     }
   }
 
@@ -331,14 +334,23 @@ export function ReviewSheet({
       if (error) throw error;
       const r = (data as { result: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }).result;
       const accounted = r.accounted_count ?? r.created_count;
-      if (accounted === r.total_selected) {
+      if (accounted === r.total_selected && r.errors.length === 0) {
         toast.success(`${r.created_count} lançamento(s) registrado(s)`, {
           description: r.non_ledger_count ? `${r.non_ledger_count} linha(s) conciliatória(s) não viraram nova despesa.` : undefined,
         });
       } else {
-        toast.warning(`${accounted} de ${r.total_selected} item(ns) contabilizado(s)`, {
-          description: r.errors.length > 0 ? "Alguns itens não puderam ser gravados." : undefined,
+        const firstError = (r.errors[0] as { error?: string } | undefined)?.error;
+        toast.error(`${accounted} de ${r.total_selected} item(ns) contabilizado(s)`, {
+          description: firstError ? `Falha: ${firstError}. Corrija e tente novamente; suas edições foram preservadas.` : "Revise os itens pendentes e tente novamente.",
         });
+        const { data: refreshed } = await supabase.functions.invoke("assistant-review-actions", {
+          body: { action: "list", document_id: documentId },
+        });
+        const next = refreshed as { items?: Item[] };
+        if (next.items) {
+          setItems(next.items);
+          setSelected(new Set(next.items.filter((item) => item.status === "needs_review" || item.status === "failed").map((item) => item.id)));
+        }
       }
       await (supabase as any).rpc("reconcile_imported_installment_history", {
         p_document_id: documentId,
@@ -347,8 +359,10 @@ export function ReviewSheet({
       qc.invalidateQueries({ queryKey: ["home"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["credit_cards"] });
-      onClose();
-      if (r.created_count > 0) nav("/app/lancamentos");
+      if (accounted === r.total_selected && r.errors.length === 0) {
+        onClose();
+        if (r.created_count > 0) nav("/app/lancamentos");
+      }
     } catch (e) {
       console.error("[ReviewSheet] confirm", e);
       toast.error("Não consegui confirmar agora. Seus itens continuam salvos para revisão.");
@@ -434,7 +448,7 @@ export function ReviewSheet({
         ) : (
           <>
             {documentInfo && (
-              <div className="space-y-2 border-b border-border bg-secondary/30 px-4 py-3 text-xs">
+              <div className={`space-y-2 border-b border-border bg-secondary/30 px-4 py-2 text-xs transition-[max-height] ${summaryOpen ? "max-h-[65vh] overflow-y-auto" : "max-h-[92px] overflow-hidden"}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold">
@@ -450,7 +464,12 @@ export function ReviewSheet({
                         : `${fragments.filter(f => f.status === "completed").length}/${fragments.length || 1} fragmento(s) concluído(s)`}
                     </p>
                   </div>
-                  <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
+                  <div className="flex shrink-0 gap-1">
+                    <button type="button" onClick={() => setSummaryOpen((value) => !value)} className="rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]">
+                      {summaryOpen ? "Recolher" : "Ver resumo"}
+                    </button>
+                    <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
+                  </div>
                 </div>
                 {fragments.length > 0 && (
 

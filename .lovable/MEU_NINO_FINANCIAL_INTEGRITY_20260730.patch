@@ -1,0 +1,1424 @@
+From 7d4908fdc39ddc1eda8d45d2c90084c19503de2c Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Thu, 30 Jul 2026 09:47:41 -0300
+Subject: [PATCH] fix(finance): reconcile invoices and unify behavioral
+ insights
+
+---
+ ...INO_FINANCIAL_INTEGRITY_20260730_README.md | 46 +++++++++
+ src/components/assessor/ReviewSheet.tsx       | 37 ++++++--
+ src/components/home/RitmoCard.tsx             | 22 ++---
+ src/components/home/RitmoGastosCard.tsx       | 41 +++++---
+ src/lib/emotions/summary.ts                   | 66 +++++++++++++
+ src/lib/engine/spendingRhythm.ts              | 26 +++++-
+ src/lib/reports/aggregations.ts               | 16 +++-
+ src/pages/Emocoes.tsx                         | 56 ++++++++++-
+ src/pages/LancamentoDetalhe.tsx               | 48 ++++++++--
+ src/pages/Relatorios.tsx                      | 45 ++++++---
+ src/test/financial-integrity-hotfix.test.ts   | 92 ++++++++++++++++++
+ supabase/functions/_shared/agent/bulkParse.ts | 38 +++++++-
+ .../functions/_shared/agent/core/BulkEntry.ts | 38 +++++++-
+ .../_shared/categorization/pipeline.ts        | 15 ++-
+ .../functions/_shared/documents/invoice.ts    |  4 +-
+ supabase/functions/_shared/documents/types.ts | 37 ++++++--
+ .../assistant-ingest-document/index.ts        |  1 +
+ .../assistant-review-actions/index.ts         | 10 +-
+ supabase/functions/insights-generate/index.ts |  9 +-
+ ...3000_financial_import_integrity_hotfix.sql | 93 +++++++++++++++++++
+ 20 files changed, 650 insertions(+), 90 deletions(-)
+ create mode 100644 .lovable/MEU_NINO_FINANCIAL_INTEGRITY_20260730_README.md
+ create mode 100644 src/lib/emotions/summary.ts
+ create mode 100644 src/test/financial-integrity-hotfix.test.ts
+ create mode 100644 supabase/migrations/20260730123000_financial_import_integrity_hotfix.sql
+
+diff --git a/.lovable/MEU_NINO_FINANCIAL_INTEGRITY_20260730_README.md b/.lovable/MEU_NINO_FINANCIAL_INTEGRITY_20260730_README.md
+new file mode 100644
+index 0000000..aed987e
+--- /dev/null
++++ b/.lovable/MEU_NINO_FINANCIAL_INTEGRITY_20260730_README.md
+@@ -0,0 +1,46 @@
++# MeuNino — integridade financeira e experiência
++
++## Objetivo
++
++Este patch corrige a confirmação de faturas, preserva créditos e antecipações,
++melhora a categorização, unifica o cálculo de ritmo entre Home e Relatórios,
++libera a categoria de reembolsos da Divisão do Rolê e reformula a experiência
++emocional.
++
++## Ordem de implantação
++
++1. Aplicar o patch sobre a `main` atual.
++2. Executar a migration
++   `20260730123000_financial_import_integrity_hotfix.sql`.
++3. Implantar as Edge Functions:
++   - `assistant-ingest-document`
++   - `assistant-review-actions`
++   - `insights-generate`
++   - funções que empacotam `_shared/agent` no fluxo do assessor/WhatsApp.
++4. Configurar `AI_MODEL_REASONING` com um modelo de raciocínio suportado pelo
++   gateway. O fallback do código é `google/gemini-2.5-pro`.
++5. Executar `npm test` e `npm run build`.
++6. Validar em homologação antes de publicar.
++
++## Smoke tests obrigatórios
++
++- Importar uma fatura com compra, parcela, estorno e antecipação.
++- Confirmar que `compras - créditos - pagamentos = total oficial`.
++- Simular falha em uma linha e confirmar que a revisão não fecha nem perde
++  edições; corrigir e repetir.
++- Conferir que o último ponto do gráfico tem os mesmos valores de média total e
++  ritmo típico exibidos na Home.
++- Editar somente a categoria de um recebimento da Divisão do Rolê.
++- Criar uma categoria de receita no seletor e aplicá-la ao reembolso.
++- Colar um JSON com categoria, parcela e crédito no assessor e conferir o total
++  líquido antes da confirmação.
++
++## Critérios de aceite
++
++- Nenhuma compra de cartão movimenta conta corrente no momento da compra.
++- Pagamento/antecipação da fatura não vira nova despesa nem receita.
++- Estorno reduz o consumo e a fatura.
++- Dias sem gastos entram no denominador da média.
++- Home e Relatórios usam `spending_rhythm.v2`.
++- Confirmação parcial permanece aberta, informa a falha e permite retry.
++- Categorias editadas pelo usuário têm origem auditável.
+diff --git a/src/components/assessor/ReviewSheet.tsx b/src/components/assessor/ReviewSheet.tsx
+index dc1804b..9cfa83c 100644
+--- a/src/components/assessor/ReviewSheet.tsx
++++ b/src/components/assessor/ReviewSheet.tsx
+@@ -126,6 +126,7 @@ export function ReviewSheet({
+   const [rejections, setRejections] = useState<Rejection[]>([]);
+   const [recovering, setRecovering] = useState(false);
+   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
++  const [summaryOpen, setSummaryOpen] = useState(false);
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -148,7 +149,7 @@ export function ReviewSheet({
+       setDocumentInfo(d.document);
+       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
+       setDocKind(d.document?.document_kind ?? null);
+-      const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review").map((i) => i.id));
++      const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review" || i.status === "failed").map((i) => i.id));
+       setSelected(initial);
+       setLoading(false);
+     })();
+@@ -207,13 +208,15 @@ export function ReviewSheet({
+   }
+ 
+   async function patchItem(id: string, patch: Partial<Item>) {
++    const previous = items.find((item) => item.id === id);
+     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+     const { error } = await supabase.functions.invoke("assistant-review-actions", {
+       body: { action: "update", item_id: id, patch },
+     });
+     if (error) {
++      if (previous) setItems((xs) => xs.map((x) => (x.id === id ? previous : x)));
+       console.error("[ReviewSheet] update", error);
+-      toast.error("Não consegui salvar essa alteração. Tente novamente.");
++      toast.error("A alteração não foi salva", { description: "O valor anterior foi restaurado para você não confirmar dados incorretos." });
+     }
+   }
+ 
+@@ -331,14 +334,23 @@ export function ReviewSheet({
+       if (error) throw error;
+       const r = (data as { result: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }).result;
+       const accounted = r.accounted_count ?? r.created_count;
+-      if (accounted === r.total_selected) {
++      if (accounted === r.total_selected && r.errors.length === 0) {
+         toast.success(`${r.created_count} lançamento(s) registrado(s)`, {
+           description: r.non_ledger_count ? `${r.non_ledger_count} linha(s) conciliatória(s) não viraram nova despesa.` : undefined,
+         });
+       } else {
+-        toast.warning(`${accounted} de ${r.total_selected} item(ns) contabilizado(s)`, {
+-          description: r.errors.length > 0 ? "Alguns itens não puderam ser gravados." : undefined,
++        const firstError = (r.errors[0] as { error?: string } | undefined)?.error;
++        toast.error(`${accounted} de ${r.total_selected} item(ns) contabilizado(s)`, {
++          description: firstError ? `Falha: ${firstError}. Corrija e tente novamente; suas edições foram preservadas.` : "Revise os itens pendentes e tente novamente.",
+         });
++        const { data: refreshed } = await supabase.functions.invoke("assistant-review-actions", {
++          body: { action: "list", document_id: documentId },
++        });
++        const next = refreshed as { items?: Item[] };
++        if (next.items) {
++          setItems(next.items);
++          setSelected(new Set(next.items.filter((item) => item.status === "needs_review" || item.status === "failed").map((item) => item.id)));
++        }
+       }
+       await (supabase as any).rpc("reconcile_imported_installment_history", {
+         p_document_id: documentId,
+@@ -347,8 +359,10 @@ export function ReviewSheet({
+       qc.invalidateQueries({ queryKey: ["home"] });
+       qc.invalidateQueries({ queryKey: ["accounts"] });
+       qc.invalidateQueries({ queryKey: ["credit_cards"] });
+-      onClose();
+-      if (r.created_count > 0) nav("/app/lancamentos");
++      if (accounted === r.total_selected && r.errors.length === 0) {
++        onClose();
++        if (r.created_count > 0) nav("/app/lancamentos");
++      }
+     } catch (e) {
+       console.error("[ReviewSheet] confirm", e);
+       toast.error("Não consegui confirmar agora. Seus itens continuam salvos para revisão.");
+@@ -434,7 +448,7 @@ export function ReviewSheet({
+         ) : (
+           <>
+             {documentInfo && (
+-              <div className="space-y-2 border-b border-border bg-secondary/30 px-4 py-3 text-xs">
++              <div className={`space-y-2 border-b border-border bg-secondary/30 px-4 py-2 text-xs transition-[max-height] ${summaryOpen ? "max-h-[65vh] overflow-y-auto" : "max-h-[92px] overflow-hidden"}`}>
+                 <div className="flex items-center justify-between gap-2">
+                   <div>
+                     <p className="font-semibold">
+@@ -450,7 +464,12 @@ export function ReviewSheet({
+                         : `${fragments.filter(f => f.status === "completed").length}/${fragments.length || 1} fragmento(s) concluído(s)`}
+                     </p>
+                   </div>
+-                  <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
++                  <div className="flex shrink-0 gap-1">
++                    <button type="button" onClick={() => setSummaryOpen((value) => !value)} className="rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]">
++                      {summaryOpen ? "Recolher" : "Ver resumo"}
++                    </button>
++                    <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
++                  </div>
+                 </div>
+                 {fragments.length > 0 && (
+ 
+diff --git a/src/components/home/RitmoCard.tsx b/src/components/home/RitmoCard.tsx
+index aa77c00..b5a5094 100644
+--- a/src/components/home/RitmoCard.tsx
++++ b/src/components/home/RitmoCard.tsx
+@@ -72,31 +72,31 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
+       className="rounded-[18px] bg-[color:var(--home-surface)]"
+       style={{ border: "1px solid var(--home-hairline)", boxShadow: "var(--shadow-soft)" }}
+     >
+-      <div className="px-4 pt-3">
++      <div className="px-4 pt-2.5">
+         <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
+           Seu ritmo neste período
+         </p>
+       </div>
+ 
+-      <div className="relative flex items-stretch pb-2 pt-2">
++      <div className="relative flex items-stretch pb-1 pt-1">
+         <Link
+           to="/app/relatorios"
+-          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
++          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+         >
+           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
+             Ritmo típico
+           </p>
+           <p
+             className="mt-1 truncate font-display font-extrabold tabular-nums"
+-            style={{ fontSize: 22, lineHeight: 1.1, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
++            style={{ fontSize: 20, lineHeight: 1.05, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
+           >
+             {loading || !cur ? "—" : formatBRL(cur.typicalAverage)}
+             <span className="text-[13px] font-semibold" style={{ color: "var(--home-text-2)" }}>/dia</span>
+           </p>
+-          <div className="mt-1.5 flex items-center gap-1.5">
++          <div className="mt-1 flex items-center gap-1.5">
+             <Badge trend={rhythm?.typicalTrend ?? "stable"} deltaPct={rhythm?.typicalDeltaPct ?? null} />
+           </div>
+-          <p className="mt-1 truncate text-[11px]" style={{ color: "var(--home-text-2)" }}>
++          <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--home-text-2)" }}>
+             {loading || !cur
+               ? "Calculando"
+               : `Média total ${formatBRL(cur.average)}/dia`}
+@@ -107,21 +107,21 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
+ 
+         <Link
+           to="/app/cartoes"
+-          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
++          className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+         >
+           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
+             Cartão
+           </p>
+           <p
+             className="mt-1 truncate font-display font-extrabold tabular-nums"
+-            style={{ fontSize: 22, lineHeight: 1.1, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
++            style={{ fontSize: 20, lineHeight: 1.05, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
+           >
+             {loading ? "—" : formatBRL(card.value)}
+           </p>
+-          <div className="mt-1.5 flex items-center gap-1.5">
++          <div className="mt-1 flex items-center gap-1.5">
+             <Badge trend={card.trend} deltaPct={card.deltaPct} />
+           </div>
+-          <p className="mt-1 truncate text-[11px]" style={{ color: "var(--home-text-2)" }}>
++          <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--home-text-2)" }}>
+             {hintFor(card.deltaPct, card.trend, "Acima do anterior", "Abaixo do anterior")}
+           </p>
+         </Link>
+@@ -132,7 +132,7 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
+           type="button"
+           onClick={() => setOpen((v) => !v)}
+           aria-expanded={open}
+-          className="flex w-full items-center justify-center gap-1 px-4 py-2.5 text-[12px] font-semibold"
++          className="flex w-full items-center justify-center gap-1 px-4 py-1.5 text-[11px] font-semibold"
+           style={{ color: "var(--home-text-2)" }}
+         >
+           <Info size={12} /> {open ? "Ocultar" : "O que entra nesta conta"}
+diff --git a/src/components/home/RitmoGastosCard.tsx b/src/components/home/RitmoGastosCard.tsx
+index 761f166..e13333a 100644
+--- a/src/components/home/RitmoGastosCard.tsx
++++ b/src/components/home/RitmoGastosCard.tsx
+@@ -1,5 +1,5 @@
+ import { Link } from "react-router-dom";
+-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
++import { Area, AreaChart, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+ import { ArrowRight } from "lucide-react";
+ import { formatBRL } from "@/lib/engine/facts";
+ import { formatRangeShort, type RhythmComparison } from "@/lib/engine/spendingRhythm";
+@@ -12,16 +12,16 @@ function shortDay(iso: string) {
+ type Props = { rhythm: RhythmComparison | null; loading?: boolean };
+ 
+ /**
+- * "Ritmo de gastos no período" — linha suave do consumo acumulado dia a dia,
+- * com a média acumulada como referência. Substitui a antiga Evolução mensal.
++ * Série canônica: o último ponto coincide com as métricas do resumo superior.
+  */
+ export function RitmoGastosCard({ rhythm, loading }: Props) {
+   const cur = rhythm?.current;
+   const data = (cur?.series ?? []).map((p) => ({
+     date: p.date,
+     label: shortDay(p.date),
+-    acumulado: p.cumulative,
+-    media: p.runningAverage,
++    gastoDoDia: p.amount,
++    mediaTotal: p.runningAverage,
++    ritmoTipico: p.typicalRunningAverage,
+   }));
+ 
+   const hasData = data.length > 0 && (cur?.total ?? 0) > 0;
+@@ -38,14 +38,14 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
+             Ritmo de gastos no período
+           </p>
+           <p className="mt-0.5 text-[11px]" style={{ color: "var(--home-text-2)" }}>
+-            {cur ? `${formatRangeShort(cur.range)} · acumulado até hoje` : "Calculando"}
++            {cur ? `${formatRangeShort(cur.range)} · dias sem gasto entram na média` : "Calculando"}
+           </p>
+         </div>
+         <p
+           className="shrink-0 font-display font-extrabold tabular-nums"
+           style={{ fontSize: 18, letterSpacing: "-0.02em", color: "var(--home-text-1)" }}
+         >
+-          {loading || !cur ? "—" : formatBRL(cur.total)}
++          {loading || !cur ? "—" : `${formatBRL(cur.average)}/dia`}
+         </p>
+       </div>
+ 
+@@ -78,7 +78,11 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
+                 cursor={{ stroke: "var(--home-hairline)" }}
+                 formatter={(value: number, name: string) => [
+                   formatBRL(Number(value)),
+-                  name === "acumulado" ? "Acumulado" : "Média por dia",
++                  name === "gastoDoDia"
++                    ? "Gasto do dia"
++                    : name === "mediaTotal"
++                      ? "Média total até o dia"
++                      : "Ritmo típico até o dia",
+                 ]}
+                 labelFormatter={(l) => `Dia ${l}`}
+                 contentStyle={{
+@@ -89,22 +93,33 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
+               />
+               <Area
+                 type="monotone"
+-                dataKey="acumulado"
++                dataKey="gastoDoDia"
+                 stroke="var(--home-brand-violet)"
+-                strokeWidth={2.5}
++                strokeWidth={1.5}
+                 fill="url(#ritmoFill)"
+                 dot={false}
+                 activeDot={{ r: 4 }}
+               />
+-              <Area
++              <Line
+                 type="monotone"
+-                dataKey="media"
++                dataKey="mediaTotal"
+                 stroke="var(--home-text-3)"
+                 strokeWidth={1.5}
+                 strokeDasharray="4 4"
+-                fill="none"
+                 dot={false}
+               />
++              <Line
++                type="monotone"
++                dataKey="ritmoTipico"
++                stroke="var(--home-pos)"
++                strokeWidth={2}
++                dot={false}
++              />
++              <Legend
++                iconType="line"
++                wrapperStyle={{ fontSize: 10 }}
++                formatter={(name) => name === "gastoDoDia" ? "Gasto do dia" : name === "mediaTotal" ? "Média total" : "Ritmo típico"}
++              />
+             </AreaChart>
+           </ResponsiveContainer>
+         )}
+diff --git a/src/lib/emotions/summary.ts b/src/lib/emotions/summary.ts
+new file mode 100644
+index 0000000..a9d1b76
+--- /dev/null
++++ b/src/lib/emotions/summary.ts
+@@ -0,0 +1,66 @@
++export type EmotionalCheckin = {
++  mood: number | string;
++  occurred_at: string;
++  trigger_label?: string | null;
++};
++
++export type EmotionalSummary = {
++  streakDays: number;
++  checkinsLast7Days: number;
++  weeklyGoal: number;
++  weeklyProgress: number;
++  averageMood30Days: number | null;
++  dominantTrigger: string | null;
++};
++
++function localDay(value: string): string {
++  return String(value ?? "").slice(0, 10);
++}
++
++function addDays(iso: string, delta: number): string {
++  const date = new Date(`${iso}T12:00:00`);
++  date.setDate(date.getDate() + delta);
++  return date.toISOString().slice(0, 10);
++}
++
++export function computeEmotionalSummary(
++  checkins: EmotionalCheckin[],
++  today = new Date().toISOString().slice(0, 10),
++  weeklyGoal = 5,
++): EmotionalSummary {
++  const lastByDay = new Map<string, EmotionalCheckin>();
++  for (const checkin of checkins) {
++    const day = localDay(checkin.occurred_at);
++    if (!day || day > today || lastByDay.has(day)) continue;
++    lastByDay.set(day, checkin);
++  }
++
++  let streakDays = 0;
++  let cursor = today;
++  if (!lastByDay.has(cursor)) cursor = addDays(cursor, -1);
++  while (lastByDay.has(cursor)) {
++    streakDays++;
++    cursor = addDays(cursor, -1);
++  }
++
++  const start7 = addDays(today, -6);
++  const start30 = addDays(today, -29);
++  const last7 = [...lastByDay.entries()].filter(([day]) => day >= start7 && day <= today);
++  const last30 = [...lastByDay.entries()].filter(([day]) => day >= start30 && day <= today);
++  const moods = last30.map(([, row]) => Number(row.mood)).filter(Number.isFinite);
++  const triggers = new Map<string, number>();
++  for (const [, row] of last30) {
++    const trigger = row.trigger_label?.trim();
++    if (trigger) triggers.set(trigger, (triggers.get(trigger) ?? 0) + 1);
++  }
++  const dominantTrigger = [...triggers.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
++
++  return {
++    streakDays,
++    checkinsLast7Days: last7.length,
++    weeklyGoal,
++    weeklyProgress: Math.min(1, last7.length / weeklyGoal),
++    averageMood30Days: moods.length ? moods.reduce((sum, value) => sum + value, 0) / moods.length : null,
++    dominantTrigger,
++  };
++}
+diff --git a/src/lib/engine/spendingRhythm.ts b/src/lib/engine/spendingRhythm.ts
+index b1ab80c..5800811 100644
+--- a/src/lib/engine/spendingRhythm.ts
++++ b/src/lib/engine/spendingRhythm.ts
+@@ -24,7 +24,7 @@
+  */
+ import { behavioralMetricAmount, round2, type TransactionRow } from "./facts";
+ 
+-export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v1";
++export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v2";
+ 
+ export interface DateRange { start: string; end: string }
+ export type Trend = "up" | "down" | "stable";
+@@ -47,10 +47,15 @@ export interface RhythmExcludedItem {
+ 
+ export interface DailyPoint {
+   date: string;
++  /** consumo elegível ocorrido exclusivamente neste dia */
+   amount: number;
++  /** parcela do consumo diário que compõe o ritmo típico */
++  typicalAmount: number;
+   cumulative: number;
+   /** média acumulada até o dia (cumulative / dias decorridos) */
+   runningAverage: number;
++  /** ritmo típico acumulado até o dia, com o mesmo denominador da média total */
++  typicalRunningAverage: number;
+ }
+ 
+ export interface RhythmResult {
+@@ -179,6 +184,7 @@ export function computeRhythm(
+   const categoryNameById = opts.categoryNameById ?? {};
+ 
+   const byDay = new Map<string, number>();
++  const typicalByDay = new Map<string, number>();
+   const positives: Array<{ t: RhythmTx; amount: number }> = [];
+   let total = 0;
+ 
+@@ -232,14 +238,30 @@ export function computeRhythm(
+   excluded.sort((a, b) => b.amount - a.amount);
+ 
+   const typicalTotal = round2(Math.max(0, total - excludedTotal));
++  const excludedIds = new Set(excluded.map((item) => item.id));
++  for (const { t, amount } of positives) {
++    if (excludedIds.has(t.id)) continue;
++    const date = String(t.occurred_at ?? "").slice(0, 10);
++    typicalByDay.set(date, round2((typicalByDay.get(date) ?? 0) + amount));
++  }
+ 
+   const series: DailyPoint[] = [];
+   let cumulative = 0;
++  let typicalCumulative = 0;
+   for (let i = 0; i < days; i++) {
+     const date = addDays(range.start, i);
+     const amount = round2(Math.max(0, byDay.get(date) ?? 0));
++    const typicalAmount = round2(Math.max(0, typicalByDay.get(date) ?? 0));
+     cumulative = round2(cumulative + amount);
+-    series.push({ date, amount, cumulative, runningAverage: round2(cumulative / (i + 1)) });
++    typicalCumulative = round2(typicalCumulative + typicalAmount);
++    series.push({
++      date,
++      amount,
++      typicalAmount,
++      cumulative,
++      runningAverage: round2(cumulative / (i + 1)),
++      typicalRunningAverage: round2(typicalCumulative / (i + 1)),
++    });
+   }
+ 
+   return {
+diff --git a/src/lib/reports/aggregations.ts b/src/lib/reports/aggregations.ts
+index a77a46f..c85fa53 100644
+--- a/src/lib/reports/aggregations.ts
++++ b/src/lib/reports/aggregations.ts
+@@ -14,6 +14,10 @@ export interface ReportTxn {
+   credit_card_id?: string | null;
+   settles_card_id?: string | null;
+   movement_kind?: string | null;
++  origin?: string | null;
++  installments_total?: number | null;
++  description?: string | null;
++  friendly_description?: string | null;
+ }
+ 
+ export interface CategoryBucket {
+@@ -46,7 +50,7 @@ function asCanonicalTransaction(t: ReportTxn): TransactionRow {
+     account_id: t.account_id ?? "",
+     category_id: t.category_id ?? null,
+     status: t.status ?? "confirmed",
+-    description: null,
++    description: t.description ?? null,
+     transfer_group_id: t.transfer_group_id ?? null,
+   };
+ }
+@@ -118,12 +122,22 @@ export function spendingHighlights(categories: CategoryBucket[], totalExpense?:
+ 
+   const highlights: SpendingHighlight[] = [];
+   const top = categories[0];
++  const uncategorized = categories.find((c) => c.category === "Sem categoria");
+   const flexible = categories.find((c) => isFlexible(c.category) && c.total >= Math.max(80, total * 0.03));
+   const frequent = categories.find((c) => c.count >= 8 && c.average <= Math.max(80, total * 0.03));
+   const top3 = categories.slice(0, 3);
+   const top3Total = top3.reduce((sum, c) => sum + c.total, 0);
+   const top3Pct = (top3Total / total) * 100;
+ 
++  if (uncategorized && uncategorized.percentOfExpenses >= 5) {
++    highlights.push({
++      id: "uncategorized",
++      title: `${pct(uncategorized.percentOfExpenses)} ainda está sem categoria`,
++      body: `São ${uncategorized.count} lançamentos que hoje limitam a precisão das leituras. Comece pelos três maiores; esse ajuste melhora todos os gráficos seguintes.`,
++      impact: `${brl(uncategorized.total)} aguardando classificação`,
++    });
++  }
++
+   if (top && top.percentOfExpenses >= 25) {
+     const essential = isEssential(top.category);
+     highlights.push({
+diff --git a/src/pages/Emocoes.tsx b/src/pages/Emocoes.tsx
+index 15c76ff..c8b484d 100644
+--- a/src/pages/Emocoes.tsx
++++ b/src/pages/Emocoes.tsx
+@@ -1,5 +1,5 @@
+ import { useEffect, useState } from "react";
+-import { Loader2, Smile, TrendingUp } from "lucide-react";
++import { Flame, Lightbulb, Loader2, Smile, Sparkles, Target, TrendingUp } from "lucide-react";
+ import { toast } from "sonner";
+ import { supabase } from "@/integrations/supabase/client";
+ import { useAuth } from "@/context/AuthContext";
+@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
+ import { correlateByMoodCategory, MIN_SAMPLE, type CorrelationRow } from "@/lib/emotions/correlations";
+ import { formatBRL } from "@/lib/split/math";
+ import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
++import { computeEmotionalSummary } from "@/lib/emotions/summary";
+ 
+ const MOODS = [
+   { v: 1, label: "Péssimo", emoji: "😞" },
+@@ -15,6 +16,7 @@ const MOODS = [
+   { v: 4, label: "Bom", emoji: "🙂" },
+   { v: 5, label: "Ótimo", emoji: "😄" },
+ ];
++const TRIGGERS = ["Ansiedade", "Tédio", "Impulso", "Celebração", "Segurança", "Culpa", "Tranquilidade"];
+ 
+ export default function Emocoes() {
+   const { user } = useAuth();
+@@ -60,13 +62,39 @@ export default function Emocoes() {
+     toast.success("Check-in registrado");
+   }
+ 
++  const summary = computeEmotionalSummary(history ?? []);
++  const moodLabel = summary.averageMood30Days == null
++    ? "Sem base"
++    : MOODS.reduce((best, item) => Math.abs(item.v - summary.averageMood30Days!) < Math.abs(best.v - summary.averageMood30Days!) ? item : best).label;
++
+   return (
+     <div>
+       <header className="mb-6">
+-        <h1 className="font-display text-2xl font-bold tracking-tight">Check-in emocional</h1>
+-        <p className="text-sm text-muted-foreground">Registre como você se sente ao lidar com dinheiro hoje.</p>
++        <h1 className="font-display text-2xl font-bold tracking-tight">Seu dinheiro também tem contexto</h1>
++        <p className="text-sm text-muted-foreground">Check-ins curtos ajudam a perceber padrões sem culpa e escolher uma próxima ação.</p>
+       </header>
+ 
++      <section className="mb-4 grid grid-cols-3 gap-2">
++        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
++          <Flame className="h-4 w-4 text-orange-500" />
++          <p className="mt-2 text-lg font-bold">{summary.streakDays}</p>
++          <p className="text-[10px] text-muted-foreground">dias de sequência</p>
++        </div>
++        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
++          <Target className="h-4 w-4 text-primary" />
++          <p className="mt-2 text-lg font-bold">{summary.checkinsLast7Days}/{summary.weeklyGoal}</p>
++          <p className="text-[10px] text-muted-foreground">meta semanal</p>
++        </div>
++        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
++          <Sparkles className="h-4 w-4 text-success" />
++          <p className="mt-2 truncate text-sm font-bold">{moodLabel}</p>
++          <p className="text-[10px] text-muted-foreground">humor em 30 dias</p>
++        </div>
++        <div className="col-span-3 h-1.5 overflow-hidden rounded-full bg-secondary">
++          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${summary.weeklyProgress * 100}%` }} />
++        </div>
++      </section>
++
+       <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+         <p className="mb-2 text-sm font-medium">Como está seu humor financeiro?</p>
+         <div className="grid grid-cols-5 gap-2">
+@@ -88,6 +116,18 @@ export default function Emocoes() {
+         <div className="mt-4 space-y-3">
+           <div>
+             <label className="mb-1 block text-xs font-medium">Gatilho (opcional)</label>
++            <div className="mb-2 flex flex-wrap gap-1.5">
++              {TRIGGERS.map((item) => (
++                <button
++                  key={item}
++                  type="button"
++                  onClick={() => setTrigger(item)}
++                  className={`rounded-full border px-2.5 py-1 text-[11px] ${trigger === item ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}
++                >
++                  {item}
++                </button>
++              ))}
++            </div>
+             <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="Ex: ansiedade, tédio, celebração" className="input-base" />
+           </div>
+           <div>
+@@ -103,6 +143,16 @@ export default function Emocoes() {
+         </div>
+       </form>
+ 
++      <section className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
++        <h2 className="flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Próxima ação sugerida</h2>
++        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
++          {summary.dominantTrigger
++            ? `“${summary.dominantTrigger}” foi o gatilho mais registrado nos últimos 30 dias. Na próxima ocorrência, faça uma pausa de 10 minutos antes de decidir e anote se a vontade mudou.`
++            : "Registre o gatilho junto do humor. Com alguns dias de histórico, o Nino transforma repetição em uma ação curta e verificável."}
++        </p>
++        <p className="mt-2 text-[10px] text-muted-foreground">Isso é um padrão descritivo, não um diagnóstico psicológico nem uma relação de causa.</p>
++      </section>
++
+       <section className="mt-6">
+         <h2 className="mb-3 text-sm font-semibold">Histórico recente</h2>
+         {!history || history.length === 0 ? (
+diff --git a/src/pages/LancamentoDetalhe.tsx b/src/pages/LancamentoDetalhe.tsx
+index 806297b..e3ab1c0 100644
+--- a/src/pages/LancamentoDetalhe.tsx
++++ b/src/pages/LancamentoDetalhe.tsx
+@@ -99,10 +99,40 @@ export default function LancamentoDetalhe() {
+ 
+   async function save() {
+     if (!tx) return;
+-    if (tx.shared_expense_id) {
++    const isSplitReimbursement = tx.split_transaction_role === "reimbursement";
++    if (tx.shared_expense_id && !isSplitReimbursement) {
+       nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`);
+       return;
+     }
++    if (isSplitReimbursement) {
++      if ((tx.category_id ?? "") === categoryId) {
++        toast.message("Nada mudou.");
++        return;
++      }
++      setSaving(true);
++      const { data, error } = await supabase.rpc("split_set_reimbursement_category" as any, {
++        p_transaction_id: tx.id,
++        p_category_id: categoryId || null,
++      });
++      setSaving(false);
++      const result = data as { ok?: boolean; error?: string } | null;
++      if (error || !result?.ok) {
++        console.error("[LancamentoDetalhe] split reimbursement category", error ?? result);
++        return toast.error("Não consegui salvar a categoria do recebimento.");
++      }
++      if (categoryId) {
++        const { error: learnError } = await (supabase.rpc as any)("learn_transaction_category", {
++          p_transaction_id: tx.id,
++          p_category_id: categoryId,
++        });
++        if (learnError) console.warn("[category-learning]", learnError.message);
++      }
++      qc.invalidateQueries({ queryKey: ["transactions"] });
++      qc.invalidateQueries({ queryKey: ["categories"] });
++      toast.success("Categoria do recebimento salva");
++      nav("/app/lancamentos");
++      return;
++    }
+     if (!isTransfer) {
+       // Validate coherence before roundtrip
+       if (paymentMethod === "account" && !accountId) {
+@@ -222,9 +252,13 @@ export default function LancamentoDetalhe() {
+       <section className="rounded-2xl border border-border bg-card p-4 space-y-3">
+         {tx.shared_expense_id && (
+           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
+-            <p className="font-semibold">Este lançamento faz parte de uma Divisão do Rolê.</p>
+-            <p className="mt-1 text-muted-foreground">Edite ou cancele pela divisão para atualizar participantes, reembolsos e indicadores juntos.</p>
+-            <button onClick={() => nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`)} className="mt-2 font-semibold text-primary">Abrir a divisão →</button>
++            <p className="font-semibold">{tx.split_transaction_role === "reimbursement" ? "Recebimento da Divisão do Rolê" : "Este lançamento faz parte de uma Divisão do Rolê."}</p>
++            <p className="mt-1 text-muted-foreground">
++              {tx.split_transaction_role === "reimbursement"
++                ? "Você pode ajustar a categoria aqui. Valor, conta e data continuam protegidos para manter a divisão conciliada."
++                : "Edite ou cancele pela divisão para atualizar participantes, reembolsos e indicadores juntos."}
++            </p>
++            {tx.split_transaction_role !== "reimbursement" && <button onClick={() => nav(`/app/divisao-do-role/${tx.shared_expense_id}/editar`)} className="mt-2 font-semibold text-primary">Abrir a divisão →</button>}
+           </div>
+         )}
+         {isTransfer && (
+@@ -246,17 +280,17 @@ export default function LancamentoDetalhe() {
+ 
+         <div>
+           <label className="text-xs font-medium text-muted-foreground">Descrição</label>
+-          <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer} />
++          <input className="input-base w-full" value={description} onChange={e => setDescription(e.target.value)} disabled={isTransfer || tx.split_transaction_role === "reimbursement"} />
+         </div>
+ 
+         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+           <div className="min-w-0">
+             <label className="text-xs font-medium text-muted-foreground">Valor (R$)</label>
+-            <input className="input-base w-full min-w-0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer} />
++            <input className="input-base w-full min-w-0" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} disabled={isTransfer || tx.split_transaction_role === "reimbursement"} />
+           </div>
+           <div className="min-w-0">
+             <label className="text-xs font-medium text-muted-foreground">Data</label>
+-            <input type="date" className="input-base w-full min-w-0" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer} />
++            <input type="date" className="input-base w-full min-w-0" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} disabled={isTransfer || tx.split_transaction_role === "reimbursement"} />
+           </div>
+         </div>
+ 
+diff --git a/src/pages/Relatorios.tsx b/src/pages/Relatorios.tsx
+index d189aff..8a230f8 100644
+--- a/src/pages/Relatorios.tsx
++++ b/src/pages/Relatorios.tsx
+@@ -21,7 +21,7 @@ import {
+ } from "@/lib/reports/aggregations";
+ import { formatBRL } from "@/lib/split/math";
+ import { resolvePeriodRange } from "@/lib/ui/periodStore";
+-import { buildDailySpendSeries } from "@/lib/finance/accounting";
++import { clampRangeToToday, computeRhythm } from "@/lib/engine/spendingRhythm";
+ 
+ export default function Relatorios() {
+   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
+@@ -33,7 +33,7 @@ export default function Relatorios() {
+     (async () => {
+       const { data } = await supabase
+         .from("transactions")
+-        .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,categories(name)")
++        .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
+         .order("occurred_at", { ascending: false });
+       setTxns((data ?? []).map((t: any) => ({
+         id: t.id, account_id: t.account_id, type: t.type, status: t.status,
+@@ -41,27 +41,38 @@ export default function Relatorios() {
+         category_id: t.category_id, category_name: t.categories?.name ?? null,
+         transfer_group_id: t.transfer_group_id, payment_method: t.payment_method,
+         credit_card_id: t.credit_card_id, settles_card_id: t.settles_card_id,
+-        movement_kind: t.movement_kind,
++        movement_kind: t.movement_kind, origin: t.origin,
++        installments_total: t.installments_total, description: t.description,
++        friendly_description: t.friendly_description,
+       })));
+     })();
+   }, []);
+ 
+   if (txns === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
+ 
+-  const filtered = filterCanonicalReportTransactions(filterPeriod(txns, from, to));
++  const reportRange = clampRangeToToday({ start: from, end: to });
++  const filtered = filterCanonicalReportTransactions(filterPeriod(txns, reportRange.start, reportRange.end));
+   const monthly = groupByMonth(filtered);
+-  const dailyRhythm = buildDailySpendSeries(
++  const categoryNameById = Object.fromEntries(
++    filtered.filter((transaction) => transaction.category_id && transaction.category_name)
++      .map((transaction) => [transaction.category_id as string, transaction.category_name as string]),
++  );
++  const rhythm = computeRhythm(
+     filtered.map((transaction) => ({
+       ...transaction,
+       id: transaction.id ?? "",
+       account_id: transaction.account_id ?? "",
+       category_id: transaction.category_id ?? null,
+-      description: null,
+       transfer_group_id: transaction.transfer_group_id ?? null,
+     })),
+-    { start: from, end: to },
+-  ).map((point) => ({
+-    ...point,
++    reportRange,
++    { categoryNameById },
++  );
++  const dailyRhythm = rhythm.series.map((point) => ({
++    date: point.date,
++    gastoDoDia: point.amount,
++    mediaTotal: point.runningAverage,
++    ritmoTipico: point.typicalRunningAverage,
+     label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+   }));
+   const byCat = byCategory(filtered);
+@@ -126,7 +137,7 @@ export default function Relatorios() {
+       <section>
+         <div className="mb-2">
+           <h2 className="text-sm font-semibold">Ritmo de gastos no período</h2>
+-          <p className="mt-0.5 text-[11px] text-muted-foreground">Picos reais por dia e tendência típica de 7 dias. Dias sem gastos também entram no cálculo.</p>
++          <p className="mt-0.5 text-[11px] text-muted-foreground">Mesma fórmula da Home: picos do dia, média total e ritmo típico acumulados. Dias sem gastos entram no cálculo.</p>
+         </div>
+         <div className="surface-card mb-3 h-64 p-3">
+           <ResponsiveContainer width="100%" height="100%">
+@@ -137,7 +148,11 @@ export default function Relatorios() {
+               <Tooltip
+                 formatter={(value: number, name: string) => [
+                   formatBRL(Number(value)),
+-                  name === "actual" ? "Gasto do dia" : "Ritmo típico",
++                  name === "gastoDoDia"
++                    ? "Gasto do dia"
++                    : name === "mediaTotal"
++                      ? "Média total até o dia"
++                      : "Ritmo típico até o dia",
+                 ]}
+                 labelFormatter={(label) => `Dia ${label}`}
+                 contentStyle={{
+@@ -147,14 +162,16 @@ export default function Relatorios() {
+                   fontSize: 12,
+                 }}
+               />
+-              <Line type="monotone" dataKey="actual" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+-              <Line type="monotone" dataKey="rollingTypical" name="Ritmo típico" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
++              <Line type="monotone" dataKey="gastoDoDia" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} />
++              <Line type="monotone" dataKey="mediaTotal" name="Média total até o dia" stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
++              <Line type="monotone" dataKey="ritmoTipico" name="Ritmo típico até o dia" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
+             </LineChart>
+           </ResponsiveContainer>
+         </div>
+         <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Gasto do dia</span>
+-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico (7 dias)</span>
++          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground" /> Média total até o dia</span>
++          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico até o dia</span>
+         </div>
+         <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Resumo mensal do período</h3>
+         <div className="surface-card overflow-x-auto">
+diff --git a/src/test/financial-integrity-hotfix.test.ts b/src/test/financial-integrity-hotfix.test.ts
+new file mode 100644
+index 0000000..730719e
+--- /dev/null
++++ b/src/test/financial-integrity-hotfix.test.ts
+@@ -0,0 +1,92 @@
++import { describe, expect, it } from "vitest";
++import { computeRhythm } from "@/lib/engine/spendingRhythm";
++import { computeEmotionalSummary } from "@/lib/emotions/summary";
++import { sanitize } from "../../supabase/functions/_shared/documents/types";
++import { decideByRule } from "../../supabase/functions/_shared/categorization/pipeline";
++import { parseBulkItems, sumItems } from "../../supabase/functions/_shared/agent/bulkParse";
++
++describe("financial integrity hotfix", () => {
++  it("faz o último ponto da série coincidir com as médias do resumo", () => {
++    const result = computeRhythm([
++      {
++        id: "daily",
++        account_id: "a",
++        category_id: "food",
++        type: "expense",
++        status: "confirmed",
++        amount: 90,
++        occurred_at: "2026-07-01",
++        description: "Mercado",
++        transfer_group_id: null,
++      },
++      {
++        id: "fixed",
++        account_id: "a",
++        category_id: "housing",
++        type: "expense",
++        status: "confirmed",
++        amount: 900,
++        occurred_at: "2026-07-02",
++        description: "Aluguel",
++        transfer_group_id: null,
++      },
++    ], { start: "2026-07-01", end: "2026-07-03" }, {
++      categoryNameById: { food: "Alimentação", housing: "Moradia" },
++    });
++
++    expect(result.days).toBe(3);
++    expect(result.series[2].runningAverage).toBe(result.average);
++    expect(result.series[2].typicalRunningAverage).toBe(result.typicalAverage);
++    expect(result.series[2].amount).toBe(0);
++  });
++
++  it("preserva antecipação negativa de fatura como pagamento positivo", () => {
++    const result = sanitize({
++      k: "invoice",
++      i: [["expense", "2026-07-20", -500, "Antecipação da fatura", "credit_card", null, "4739", "payment"]],
++    }, "2026-07-30");
++
++    expect(result.items).toHaveLength(1);
++    expect(result.items[0]).toMatchObject({
++      type: "income",
++      amount: 500,
++      movement_kind: "card_payment",
++    });
++  });
++
++  it("resolve categorias com acentos usando regra determinística", () => {
++    const decision = decideByRule("Lovablelovable.devus", [
++      { id: "service", name: "Serviços" },
++    ]);
++    expect(decision?.category_id).toBe("service");
++  });
++
++  it("calcula sequência e meta emocional por dias distintos", () => {
++    const summary = computeEmotionalSummary([
++      { mood: 4, occurred_at: "2026-07-30T09:00:00Z", trigger_label: "Tranquilidade" },
++      { mood: 3, occurred_at: "2026-07-30T18:00:00Z", trigger_label: "Tranquilidade" },
++      { mood: 2, occurred_at: "2026-07-29T09:00:00Z", trigger_label: "Ansiedade" },
++    ], "2026-07-30");
++
++    expect(summary.streakDays).toBe(2);
++    expect(summary.checkinsLast7Days).toBe(2);
++    expect(summary.weeklyProgress).toBe(0.4);
++    expect(summary.dominantTrigger).toBe("Tranquilidade");
++  });
++
++  it("preserva metadados do JSON colado e calcula o líquido da fatura", () => {
++    const parsed = parseBulkItems(JSON.stringify({
++      items: [
++        { description: "Mercado 03/10", amount: 120, type: "expense", category: "Mercado", installments_total: 10, installment_number: 3 },
++        { description: "Antecipação da fatura", amount: 50, type: "income", movement_kind: "card_payment" },
++      ],
++    }), 2);
++
++    expect(parsed.items[0]).toMatchObject({
++      category_hint: "Mercado",
++      installments_total: 10,
++      installment_number: 3,
++    });
++    expect(sumItems(parsed.items)).toBe(70);
++  });
++});
+diff --git a/supabase/functions/_shared/agent/bulkParse.ts b/supabase/functions/_shared/agent/bulkParse.ts
+index 2c1666f..cb5b775 100644
+--- a/supabase/functions/_shared/agent/bulkParse.ts
++++ b/supabase/functions/_shared/agent/bulkParse.ts
+@@ -1,7 +1,15 @@
+ // Parser puro (sem dependências) para registro em lote.
+ // Usado pelo AgentCore (Deno) e pelos testes (vitest).
+ 
+-export type BulkItem = { description: string; amount: number };
++export type BulkItem = {
++  description: string;
++  amount: number;
++  type?: "income" | "expense";
++  category_hint?: string | null;
++  installments_total?: number | null;
++  installment_number?: number | null;
++  movement_kind?: string | null;
++};
+ export type BulkParseResult = {
+   items: BulkItem[];
+   skipped: number;
+@@ -47,7 +55,15 @@ function fromJson(text: string): BulkItem[] | null {
+     if (Array.isArray(row)) {
+       const description = cleanDesc(row[3]);
+       const amount = parseBrAmountLoose(row[2]);
+-      if (description && amount !== null) items.push({ description, amount });
++      if (description && amount !== null) items.push({
++        description,
++        amount,
++        type: row[0] === "income" ? "income" : "expense",
++        movement_kind: typeof row[7] === "string" ? row[7] : null,
++        installments_total: Number.isInteger(row[8]) ? row[8] : null,
++        installment_number: Number.isInteger(row[9]) ? row[9] : null,
++        category_hint: typeof row[12] === "string" ? row[12] : null,
++      });
+       continue;
+     }
+     if (!row || typeof row !== "object") continue;
+@@ -58,7 +74,16 @@ function fromJson(text: string): BulkItem[] | null {
+       (row as any).valor ?? (row as any).amount ?? (row as any).value ?? (row as any).total,
+     );
+     if (!description || amount === null) continue;
+-    items.push({ description, amount });
++    const rawType = String((row as any).tipo ?? (row as any).type ?? "").toLowerCase();
++    items.push({
++      description,
++      amount,
++      type: ["income", "receita", "entrada"].includes(rawType) ? "income" : "expense",
++      category_hint: (row as any).categoria ?? (row as any).category ?? (row as any).category_hint ?? null,
++      installments_total: Number((row as any).parcelas_total ?? (row as any).installments_total) || null,
++      installment_number: Number((row as any).parcela_numero ?? (row as any).installment_number) || null,
++      movement_kind: (row as any).movimento ?? (row as any).movement_kind ?? null,
++    });
+   }
+   return items.length ? items : null;
+ }
+@@ -93,5 +118,10 @@ export function parseBulkItems(text: string, minItems = 3): BulkParseResult {
+ }
+ 
+ export function sumItems(items: BulkItem[]): number {
+-  return items.reduce((acc, i) => acc + i.amount, 0);
++  return items.reduce((acc, item) => {
++    const movement = String(item.movement_kind ?? "").toLowerCase();
++    const reducesInvoice = item.type === "income"
++      || ["refund", "card_payment", "payment", "bill_payment"].includes(movement);
++    return acc + (reducesInvoice ? -item.amount : item.amount);
++  }, 0);
+ }
+diff --git a/supabase/functions/_shared/agent/core/BulkEntry.ts b/supabase/functions/_shared/agent/core/BulkEntry.ts
+index 83dfcf3..35528e9 100644
+--- a/supabase/functions/_shared/agent/core/BulkEntry.ts
++++ b/supabase/functions/_shared/agent/core/BulkEntry.ts
+@@ -94,7 +94,7 @@ export async function tryBulkDraft(sb: SupabaseClient, args: {
+ /** Busca a pendência de lote ativa da conversa (se houver). */
+ export async function findBulkPending(sb: SupabaseClient, conversation_id: string, user_id: string, pending_id?: string | null) {
+   let q = sb.from("pending_confirmations")
+-    .select("id, kind, payload, expires_at, status")
++    .select("id, user_id, kind, payload, expires_at, status")
+     .eq("conversation_id", conversation_id).eq("user_id", user_id)
+     .eq("status", "pending").eq("kind", "bulk_transactions");
+   if (pending_id) q = q.eq("id", pending_id);
+@@ -114,24 +114,52 @@ export async function executeBulkPending(sb: SupabaseClient, pending: any): Prom
+ 
+   let inserted = 0;
+   let failed = 0;
++  const { data: categoryRows } = await sb.from("categories").select("id,name")
++    .is("archived_at", null)
++    .or(`user_id.eq.${pending.user_id},user_id.is.null`);
++  const fold = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
++  const categoryByName = new Map(
++    ((categoryRows ?? []) as Array<{ id: string; name: string }>).map((category) => [fold(category.name), category.id]),
++  );
+   for (let i = 0; i < items.length; i++) {
+     const item = items[i];
+-    const { error } = await sb.rpc("commit_movement", {
++    // Pagamento/antecipação exibido na própria fatura concilia o total, mas
++    // não é uma nova receita nem despesa.
++    if (["card_payment", "payment", "bill_payment"].includes(String(item.movement_kind ?? "").toLowerCase())) {
++      continue;
++    }
++    const categoryId = item.category_hint ? categoryByName.get(fold(item.category_hint)) ?? null : null;
++    const movementKind = String(item.movement_kind ?? "transaction").toLowerCase();
++    const { data, error } = await sb.rpc("commit_movement", {
+       p_idempotency_key: `bulk:${pending.id}:${i}`,
+-      p_type: "expense",
++      p_type: item.type === "income" || movementKind === "refund" ? "income" : "expense",
+       p_amount: item.amount,
+       p_occurred_at: occurred_at,
+       p_status: "confirmed",
+       p_payment_method: payload.target_kind === "credit_card" ? "credit_card" : "account",
+       p_account_id: payload.target_kind === "account" ? payload.target_id : null,
+       p_credit_card_id: payload.target_kind === "credit_card" ? payload.target_id : null,
+-      p_category_id: null,
++      p_category_id: categoryId,
+       p_description: item.description,
+       p_notes: null,
+       p_origin: "agent",
+     });
+     if (error) { failed++; console.error("[bulk] item_failed", i, String(error.message).slice(0, 160)); }
+-    else inserted++;
++    else {
++      inserted++;
++      const row = Array.isArray(data) ? data[0] : data;
++      const transactionId = row?.transaction_id;
++      if (transactionId && (
++        movementKind !== "transaction"
++        || Number(item.installments_total ?? 0) > 1
++      )) {
++        await sb.from("transactions").update({
++          movement_kind: movementKind === "refund" ? "refund" : "transaction",
++          installments_total: item.installments_total ?? null,
++          installment_number: item.installment_number ?? null,
++        }).eq("id", transactionId);
++      }
++    }
+   }
+ 
+   await sb.from("pending_confirmations")
+diff --git a/supabase/functions/_shared/categorization/pipeline.ts b/supabase/functions/_shared/categorization/pipeline.ts
+index bb4a0f7..52e0bdf 100644
+--- a/supabase/functions/_shared/categorization/pipeline.ts
++++ b/supabase/functions/_shared/categorization/pipeline.ts
+@@ -77,14 +77,21 @@ const RULES: Array<{ pattern: RegExp; category: string }> = [
+   { pattern: /\b(petshop|petz|cobasi|veterinar)\b/, category: "pets" },
+   { pattern: /\b(renner|riachuelo|cea\b|c&a|zara|shein|roupa|calcados|calçados)\b/, category: "vestuario" },
+   { pattern: /\b(i(o|0)f|tarifa|anuidade|juros|multa|imposto|ipva|iptu)\b/, category: "impostos e taxas" },
+-  { pattern: /\b(lovable|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)\b/, category: "servicos" },
++  { pattern: /(lovable(?:\.dev)?|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)/, category: "servicos" },
++  { pattern: /\b(localiza|movida|unidas|turbi)\b/, category: "transporte" },
++  { pattern: /\b(shotgun|sympla|eventim|ticketmaster)\b/, category: "lazer" },
++  { pattern: /\b(apple|google play|microsoft|amazon web services|aws)\b/, category: "servicos" },
+ ];
+ 
++function foldName(value: string): string {
++  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
++}
++
+ function matchByName(candidates: CategoryCandidate[], name: string): string | null {
+-  const target = name.toLowerCase();
+-  const exact = candidates.find(c => c.name.toLowerCase() === target);
++  const target = foldName(name);
++  const exact = candidates.find(c => foldName(c.name) === target);
+   if (exact) return exact.id;
+-  const partial = candidates.find(c => c.name.toLowerCase().includes(target) || target.includes(c.name.toLowerCase()));
++  const partial = candidates.find(c => foldName(c.name).includes(target) || target.includes(foldName(c.name)));
+   return partial ? partial.id : null;
+ }
+ 
+diff --git a/supabase/functions/_shared/documents/invoice.ts b/supabase/functions/_shared/documents/invoice.ts
+index 382f972..d0564d5 100644
+--- a/supabase/functions/_shared/documents/invoice.ts
++++ b/supabase/functions/_shared/documents/invoice.ts
+@@ -89,12 +89,12 @@ export function classifyStatementItem(line: InvoiceLine): StatementItemKind {
+   ) return "informational";
+   if (
+     movement === "card_payment" ||
+-    /\b(pagamento (efetuado|recebido)?\s*(da|de)?\s*fatura|pagamento cartao)\b/.test(description)
++    /\b(pagamento (efetuado|recebido)?\s*(da|de)?\s*fatura|pagamento cartao|antecipacao (da|de)?\s*(fatura|pagamento)|pagamento antecipado)\b/.test(description)
+   ) return "payment";
+   if (
+     movement === "refund" ||
+     line.type === "income" ||
+-    /\b(estorno|reembolso|credito de compra|credito recebido)\b/.test(description)
++    /\b(estorno|reembolso|credito de compra|credito recebido|cancelamento parcial|credito em fatura)\b/.test(description)
+   ) return "refund";
+   if (/\b(juros|encargos|rotativo)\b/.test(description)) return "interest";
+   if (/\b(tarifa|anuidade|iof|multa)\b/.test(description)) return "fee";
+diff --git a/supabase/functions/_shared/documents/types.ts b/supabase/functions/_shared/documents/types.ts
+index 928f15b..b725511 100644
+--- a/supabase/functions/_shared/documents/types.ts
++++ b/supabase/functions/_shared/documents/types.ts
+@@ -4,7 +4,7 @@ import { inferInstallmentDetails } from "./invoice.ts";
+ export const CANONICAL_MOVEMENT_KINDS = [
+   "transaction", "refund", "internal_transfer",
+   "investment_application", "investment_redemption",
+-  "investment_yield", "loan_proceeds",
++  "investment_yield", "loan_proceeds", "card_payment",
+ ] as const;
+ export type MovementKind = typeof CANONICAL_MOVEMENT_KINDS[number];
+ 
+@@ -86,6 +86,18 @@ export function normalizeAmountBR(raw: string | number): number | null {
+   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+ }
+ 
++function normalizeSignedAmountBR(raw: string | number): number | null {
++  if (typeof raw === "number" && Number.isFinite(raw)) return Math.round(raw * 100) / 100;
++  if (typeof raw !== "string") return null;
++  const s = raw.trim().replace(/[R$\s]/g, "");
++  const commaLast = s.lastIndexOf(",");
++  const dotLast = s.lastIndexOf(".");
++  const value = commaLast > dotLast
++    ? Number(s.replace(/\./g, "").replace(",", "."))
++    : Number(s.replace(/,/g, ""));
++  return Number.isFinite(value) && value !== 0 ? Math.round(value * 100) / 100 : null;
++}
++
+ export function todaySaoPaulo(now = new Date()): string {
+   return new Intl.DateTimeFormat("en-CA", {
+     timeZone: "America/Sao_Paulo",
+@@ -109,6 +121,9 @@ export function normalizeMovementKind(
+     transaction: "transaction", purchase: "transaction", debit: "transaction", credit: "transaction",
+     pix: "transaction", pix_in: "transaction", pix_out: "transaction",
+     refund: "refund", reimbursement: "refund", estorno: "refund",
++    card_payment: "card_payment", bill_payment: "card_payment",
++    credit_card_bill_payment: "card_payment", payment: "card_payment",
++    pagamento_fatura: "card_payment", antecipacao: "card_payment",
+     internal_transfer: "internal_transfer", transfer: "internal_transfer",
+     investment_application: "investment_application", investment_apply: "investment_application",
+     investment_redemption: "investment_redemption", investment_redeem: "investment_redemption", redeem: "investment_redemption",
+@@ -123,7 +138,8 @@ export function normalizeMovementKind(
+     const d = description.trim();
+     if (/^APLICACAO\s+CDB/i.test(d) || /^APLICA[ÇC][ÃA]O\s+CDB/i.test(d)) kind = "investment_application";
+     else if (/^RESGATE\s+CDB/i.test(d)) kind = "investment_redemption";
+-    else if (/^(EST|ESTORNO)\b/i.test(d)) kind = "refund";
++    else if (/\b(PAGAMENTO|ANTECIPA[ÇC][ÃA]O)\b.*\b(FATURA|CART[ÃA]O)\b/i.test(d)) kind = "card_payment";
++    else if (/^(EST|ESTORNO)\b/i.test(d) || /\b(CANCELAMENTO PARCIAL|CR[EÉ]DITO DE COMPRA)\b/i.test(d)) kind = "refund";
+   }
+   return kind;
+ }
+@@ -160,7 +176,6 @@ const NON_TX_KEYWORDS = [
+   "parcelas futuras", "próximas faturas", "proximas faturas", "melhor dia de compra",
+   "data de fechamento", "data do fechamento", "data de vencimento", "vencimento",
+   "período de visualização", "periodo de visualizacao", "emitido em", "extrato conta", "lançamentos",
+-  "pagamento efetuado - fatura", "pagamento fatura", "pagamento da fatura",
+ ];
+ 
+ export function isNonTransactionLine(description: string): boolean {
+@@ -192,7 +207,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+   for (const raw of rawItems) {
+     if (Array.isArray(raw)) {
+       const row = raw as CompactRow;
+-      const type = row[0] === "income" ? "income" : "expense";
++      let type = row[0] === "income" ? "income" : "expense";
+       const description = String(row[3] ?? "").trim();
+       if (!description) continue;
+       const movementKind = normalizeMovementKind(row[7], type, description);
+@@ -202,8 +217,10 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+         continue;
+       }
+ 
+-      const amount = normalizeAmountBR(row[2]);
+-      if (amount == null) continue;
++      const signedAmount = normalizeSignedAmountBR(row[2]);
++      if (signedAmount == null) continue;
++      if (signedAmount < 0) type = "income";
++      const amount = Math.abs(signedAmount);
+       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
+       const inferred = inferInstallmentDetails(
+         description,
+@@ -235,7 +252,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+     const it = raw as Record<string, unknown>;
+     const description = String(it.description ?? "").trim();
+     if (!description) continue;
+-    const type = it.type === "income" ? "income" : "expense";
++    let type = it.type === "income" ? "income" : "expense";
+     const movementKind = normalizeMovementKind(it.movement_kind, type, description);
+     if (movementKind === "informational") { informational_dropped++; continue; }
+     if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
+@@ -243,8 +260,10 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+       continue;
+     }
+ 
+-    const amount = normalizeAmountBR(it.amount as string | number);
+-    if (amount == null) continue;
++    const signedAmount = normalizeSignedAmountBR(it.amount as string | number);
++    if (signedAmount == null) continue;
++    if (signedAmount < 0) type = "income";
++    const amount = Math.abs(signedAmount);
+     const inferred = inferInstallmentDetails(
+       description,
+       typeof it.installment_number === "number" ? it.installment_number : null,
+diff --git a/supabase/functions/assistant-ingest-document/index.ts b/supabase/functions/assistant-ingest-document/index.ts
+index 04f56f0..52f388a 100644
+--- a/supabase/functions/assistant-ingest-document/index.ts
++++ b/supabase/functions/assistant-ingest-document/index.ts
+@@ -156,6 +156,7 @@ REGRAS ESTRITAS:
+ - RESGATE CDB é resgate de investimento, não receita. Aplicação é investimento, não despesa.
+ - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
+ - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
++- Em faturas, NÃO omita valores que reduzem o total: pagamento/antecipação da fatura usa income + card_payment; estorno, crédito ou cancelamento parcial usa income + refund. O valor deve ser sempre positivo.
+ - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
+ - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
+ - Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero com o valor da parcela desta fatura.
+diff --git a/supabase/functions/assistant-review-actions/index.ts b/supabase/functions/assistant-review-actions/index.ts
+index d3e820a..27dbebb 100644
+--- a/supabase/functions/assistant-review-actions/index.ts
++++ b/supabase/functions/assistant-review-actions/index.ts
+@@ -143,12 +143,15 @@ Deno.serve(async (req) => {
+     if (error) return json({ error: "rpc_failed", details: error.message }, 400);
+     const result = (data ?? {}) as Record<string, unknown>;
+     if (result.ok === false) return json({ error: "confirmation_rejected", result }, 409);
++    const errors = Array.isArray(result.errors) ? result.errors : [];
++    const idempotentSkips = (Array.isArray(result.skipped) ? result.skipped : [])
++      .filter((row) => ["already_confirmed", "already_imported"].includes(String((row as { reason?: string }).reason ?? ""))).length;
+     if (nonLedgerIds.length > 0) {
+       await sb.from("extracted_items").update({ status: "confirmed" })
+         .eq("document_id", document_id).eq("user_id", user.id).in("id", nonLedgerIds);
+     }
+     let statementResult: unknown = null;
+-    if (!(validation as { not_invoice?: boolean } | null)?.not_invoice) {
++    if (errors.length === 0 && !(validation as { not_invoice?: boolean } | null)?.not_invoice) {
+       const finalized = await userClient.rpc("finalize_invoice_statement", {
+         p_document_id: document_id, p_item_ids: item_ids,
+       });
+@@ -160,17 +163,18 @@ Deno.serve(async (req) => {
+     const { count: pendingCount } = await sb.from("extracted_items")
+       .select("id", { count: "exact", head: true })
+       .eq("document_id", document_id).eq("user_id", user.id)
+-      .in("status", ["needs_review", "duplicate_suspect"]);
++      .in("status", ["needs_review", "duplicate_suspect", "failed"]);
+     if ((pendingCount ?? 0) === 0) {
+       await sb.from("document_imports").update({ status: "confirmed" })
+         .eq("id", document_id).eq("user_id", user.id);
+     }
+-    const accounted = Number(result.created_count ?? 0) + nonLedgerIds.length;
++    const accounted = Number(result.created_count ?? 0) + idempotentSkips + nonLedgerIds.length;
+     return json({
+       ok: true,
+       result: {
+         ...result,
+         non_ledger_count: nonLedgerIds.length,
++        idempotent_count: idempotentSkips,
+         accounted_count: accounted,
+         total_selected: item_ids.length,
+         statement: statementResult,
+diff --git a/supabase/functions/insights-generate/index.ts b/supabase/functions/insights-generate/index.ts
+index 1e8d1c0..dd493bf 100644
+--- a/supabase/functions/insights-generate/index.ts
++++ b/supabase/functions/insights-generate/index.ts
+@@ -21,9 +21,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+ 
+-const PROMPT_VERSION = "v5-tip-policy";
++const PROMPT_VERSION = "v6-evidence-action";
+ const ACCOUNTING_SCOPE = "behavioral_v1";
+-const MODEL = "google/gemini-2.5-flash";
++// Insights exigem raciocínio e síntese; extração continua no modelo rápido.
++// O modelo é configurável para permitir troca controlada e rollback sem deploy.
++const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "google/gemini-2.5-pro";
+ const AI_TIMEOUT_MS = 8000;
+ 
+ function logEvent(event: Record<string, unknown>) {
+@@ -248,7 +250,8 @@ Deno.serve(async (req) => {
+   if (allowAi) {
+     const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
+ - Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos, pagamento de fatura e crédito de empréstimo. Se balance_month >= 0, não é déficit.
+-- Não mude o assunto nem o cta_route da dica base. Só melhore clareza e personalização.
++- Não mude o assunto nem o cta_route da dica base. Transforme o fato em uma leitura específica e uma ação realizável em até 10 minutos.
++- Evite frases genéricas como "acompanhe seus gastos", "continue assim" e "reveja seu orçamento". Cite a evidência mais relevante e diga por que ela importa agora.
+ - Nunca invente valores fora dos fatos.
+ - title: 4 a 80 caracteres. body: 10 a 240 caracteres. cta_label: 2 a 40 caracteres.
+ - type deve ser "${payload.type}".
+diff --git a/supabase/migrations/20260730123000_financial_import_integrity_hotfix.sql b/supabase/migrations/20260730123000_financial_import_integrity_hotfix.sql
+new file mode 100644
+index 0000000..aa0cbf5
+--- /dev/null
++++ b/supabase/migrations/20260730123000_financial_import_integrity_hotfix.sql
+@@ -0,0 +1,93 @@
++-- Correções de integridade descobertas na confirmação real de faturas.
++-- A origem "import" é legítima para categorias recebidas de um documento,
++-- porém o trigger já a produzia e o CHECK antigo a rejeitava.
++ALTER TABLE public.transactions
++  DROP CONSTRAINT IF EXISTS transactions_category_source_check;
++ALTER TABLE public.transactions
++  ADD CONSTRAINT transactions_category_source_check
++  CHECK (
++    category_source IS NULL OR category_source = ANY (ARRAY[
++      'user'::text,
++      'alias'::text,
++      'history'::text,
++      'rule'::text,
++      'llm'::text,
++      'none'::text,
++      'legacy'::text,
++      'import'::text
++    ])
++  );
++
++-- O catálogo canônico já usa card_payment para pagamento/antecipação de fatura.
++-- Mantemos as constraints alinhadas para que créditos extraídos não sejam
++-- rejeitados entre a revisão e a persistência.
++ALTER TABLE public.extracted_items
++  DROP CONSTRAINT IF EXISTS extracted_items_movement_kind_check;
++ALTER TABLE public.extracted_items
++  ADD CONSTRAINT extracted_items_movement_kind_check
++  CHECK (movement_kind = ANY (ARRAY[
++    'transaction'::text,
++    'refund'::text,
++    'internal_transfer'::text,
++    'investment_application'::text,
++    'investment_redemption'::text,
++    'investment_yield'::text,
++    'loan_proceeds'::text,
++    'card_payment'::text
++  ]));
++
++-- Categorias de recebimentos da Divisão do Rolê podem ser editadas sem liberar
++-- valor, conta, data ou vínculo financeiro do reembolso.
++CREATE OR REPLACE FUNCTION public.split_set_reimbursement_category(
++  p_transaction_id uuid,
++  p_category_id uuid
++)
++RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_tx public.transactions%ROWTYPE;
++  v_category public.categories%ROWTYPE;
++BEGIN
++  IF auth.uid() IS NULL THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'unauthenticated');
++  END IF;
++
++  SELECT * INTO v_tx
++  FROM public.transactions
++  WHERE id = p_transaction_id
++    AND user_id = auth.uid()
++    AND split_transaction_role = 'reimbursement'
++  FOR UPDATE;
++  IF NOT FOUND THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'not_reimbursement');
++  END IF;
++
++  IF p_category_id IS NOT NULL THEN
++    SELECT * INTO v_category
++    FROM public.categories
++    WHERE id = p_category_id
++      AND archived_at IS NULL
++      AND (user_id IS NULL OR user_id = auth.uid())
++      AND type::text IN ('income', 'both');
++    IF NOT FOUND THEN
++      RETURN jsonb_build_object('ok', false, 'error', 'invalid_income_category');
++    END IF;
++  END IF;
++
++  UPDATE public.transactions
++  SET category_id = p_category_id,
++      category_source = CASE WHEN p_category_id IS NULL THEN 'none' ELSE 'user' END,
++      category_confidence = CASE WHEN p_category_id IS NULL THEN 0 ELSE 1 END,
++      category_reason = 'categoria do reembolso editada pelo usuário',
++      user_edited_at = now()
++  WHERE id = v_tx.id;
++
++  RETURN jsonb_build_object('ok', true, 'transaction_id', v_tx.id);
++END;
++$$;
++
++REVOKE ALL ON FUNCTION public.split_set_reimbursement_category(uuid, uuid) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.split_set_reimbursement_category(uuid, uuid) TO authenticated;
+-- 
+2.51.1
+

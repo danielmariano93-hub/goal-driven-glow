@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Smile, TrendingUp } from "lucide-react";
+import { Flame, Lightbulb, Loader2, Smile, Sparkles, Target, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { correlateByMoodCategory, MIN_SAMPLE, type CorrelationRow } from "@/lib/emotions/correlations";
 import { formatBRL } from "@/lib/split/math";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
+import { computeEmotionalSummary } from "@/lib/emotions/summary";
 
 const MOODS = [
   { v: 1, label: "Péssimo", emoji: "😞" },
@@ -15,6 +16,7 @@ const MOODS = [
   { v: 4, label: "Bom", emoji: "🙂" },
   { v: 5, label: "Ótimo", emoji: "😄" },
 ];
+const TRIGGERS = ["Ansiedade", "Tédio", "Impulso", "Celebração", "Segurança", "Culpa", "Tranquilidade"];
 
 export default function Emocoes() {
   const { user } = useAuth();
@@ -60,12 +62,38 @@ export default function Emocoes() {
     toast.success("Check-in registrado");
   }
 
+  const summary = computeEmotionalSummary(history ?? []);
+  const moodLabel = summary.averageMood30Days == null
+    ? "Sem base"
+    : MOODS.reduce((best, item) => Math.abs(item.v - summary.averageMood30Days!) < Math.abs(best.v - summary.averageMood30Days!) ? item : best).label;
+
   return (
     <div>
       <header className="mb-6">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Check-in emocional</h1>
-        <p className="text-sm text-muted-foreground">Registre como você se sente ao lidar com dinheiro hoje.</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight">Seu dinheiro também tem contexto</h1>
+        <p className="text-sm text-muted-foreground">Check-ins curtos ajudam a perceber padrões sem culpa e escolher uma próxima ação.</p>
       </header>
+
+      <section className="mb-4 grid grid-cols-3 gap-2">
+        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
+          <Flame className="h-4 w-4 text-orange-500" />
+          <p className="mt-2 text-lg font-bold">{summary.streakDays}</p>
+          <p className="text-[10px] text-muted-foreground">dias de sequência</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
+          <Target className="h-4 w-4 text-primary" />
+          <p className="mt-2 text-lg font-bold">{summary.checkinsLast7Days}/{summary.weeklyGoal}</p>
+          <p className="text-[10px] text-muted-foreground">meta semanal</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
+          <Sparkles className="h-4 w-4 text-success" />
+          <p className="mt-2 truncate text-sm font-bold">{moodLabel}</p>
+          <p className="text-[10px] text-muted-foreground">humor em 30 dias</p>
+        </div>
+        <div className="col-span-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${summary.weeklyProgress * 100}%` }} />
+        </div>
+      </section>
 
       <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
         <p className="mb-2 text-sm font-medium">Como está seu humor financeiro?</p>
@@ -88,6 +116,18 @@ export default function Emocoes() {
         <div className="mt-4 space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium">Gatilho (opcional)</label>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {TRIGGERS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setTrigger(item)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] ${trigger === item ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
             <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="Ex: ansiedade, tédio, celebração" className="input-base" />
           </div>
           <div>
@@ -102,6 +142,16 @@ export default function Emocoes() {
           </button>
         </div>
       </form>
+
+      <section className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Próxima ação sugerida</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {summary.dominantTrigger
+            ? `“${summary.dominantTrigger}” foi o gatilho mais registrado nos últimos 30 dias. Na próxima ocorrência, faça uma pausa de 10 minutos antes de decidir e anote se a vontade mudou.`
+            : "Registre o gatilho junto do humor. Com alguns dias de histórico, o Nino transforma repetição em uma ação curta e verificável."}
+        </p>
+        <p className="mt-2 text-[10px] text-muted-foreground">Isso é um padrão descritivo, não um diagnóstico psicológico nem uma relação de causa.</p>
+      </section>
 
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-semibold">Histórico recente</h2>

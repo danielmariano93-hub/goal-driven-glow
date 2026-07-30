@@ -89,12 +89,12 @@ export function classifyStatementItem(line: InvoiceLine): StatementItemKind {
   ) return "informational";
   if (
     movement === "card_payment" ||
-    /\b(pagamento (efetuado|recebido)?\s*(da|de)?\s*fatura|pagamento cartao)\b/.test(description)
+    /\b(pagamento (efetuado|recebido)?\s*(da|de)?\s*fatura|pagamento cartao|antecipacao (da|de)?\s*(fatura|pagamento)|pagamento antecipado)\b/.test(description)
   ) return "payment";
   if (
     movement === "refund" ||
     line.type === "income" ||
-    /\b(estorno|reembolso|credito de compra|credito recebido)\b/.test(description)
+    /\b(estorno|reembolso|credito de compra|credito recebido|cancelamento parcial|credito em fatura)\b/.test(description)
   ) return "refund";
   if (/\b(juros|encargos|rotativo)\b/.test(description)) return "interest";
   if (/\b(tarifa|anuidade|iof|multa)\b/.test(description)) return "fee";

@@ -14,6 +14,10 @@ export interface ReportTxn {
   credit_card_id?: string | null;
   settles_card_id?: string | null;
   movement_kind?: string | null;
+  origin?: string | null;
+  installments_total?: number | null;
+  description?: string | null;
+  friendly_description?: string | null;
 }
 
 export interface CategoryBucket {
@@ -46,7 +50,7 @@ function asCanonicalTransaction(t: ReportTxn): TransactionRow {
     account_id: t.account_id ?? "",
     category_id: t.category_id ?? null,
     status: t.status ?? "confirmed",
-    description: null,
+    description: t.description ?? null,
     transfer_group_id: t.transfer_group_id ?? null,
   };
 }
@@ -118,11 +122,21 @@ export function spendingHighlights(categories: CategoryBucket[], totalExpense?: 
 
   const highlights: SpendingHighlight[] = [];
   const top = categories[0];
+  const uncategorized = categories.find((c) => c.category === "Sem categoria");
   const flexible = categories.find((c) => isFlexible(c.category) && c.total >= Math.max(80, total * 0.03));
   const frequent = categories.find((c) => c.count >= 8 && c.average <= Math.max(80, total * 0.03));
   const top3 = categories.slice(0, 3);
   const top3Total = top3.reduce((sum, c) => sum + c.total, 0);
   const top3Pct = (top3Total / total) * 100;
+
+  if (uncategorized && uncategorized.percentOfExpenses >= 5) {
+    highlights.push({
+      id: "uncategorized",
+      title: `${pct(uncategorized.percentOfExpenses)} ainda está sem categoria`,
+      body: `São ${uncategorized.count} lançamentos que hoje limitam a precisão das leituras. Comece pelos três maiores; esse ajuste melhora todos os gráficos seguintes.`,
+      impact: `${brl(uncategorized.total)} aguardando classificação`,
+    });
+  }
 
   if (top && top.percentOfExpenses >= 25) {
     const essential = isEssential(top.category);
