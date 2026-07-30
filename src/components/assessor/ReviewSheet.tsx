@@ -149,6 +149,19 @@ export function ReviewSheet({
     items.filter((i) => selected.has(i.id)).reduce((s, i) => s + Number(i.amount), 0)
   , [items, selected]);
 
+  // Bloqueios de confirmação: nunca confirmar item sem destino contábil válido.
+  const blockers = useMemo(() => {
+    const chosen = items.filter((i) => selected.has(i.id));
+    const reasons = new Set<string>();
+    for (const it of chosen) {
+      const card = isCardDocument(docKind) || it.payment_method === "credit_card" || !!it.credit_card_id;
+      if (card && !it.credit_card_id) reasons.add("missing_credit_card");
+      if (!card && !it.account_id) reasons.add("missing_account");
+    }
+    return [...reasons].map((r) => BLOCK_MESSAGES[r] ?? r);
+  }, [items, selected, docKind]);
+
+
   function toggle(id: string) {
     setSelected((s) => {
       const n = new Set(s);
