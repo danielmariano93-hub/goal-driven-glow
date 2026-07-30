@@ -39,13 +39,20 @@ function fromJson(text: string): BulkItem[] | null {
   try { parsed = JSON.parse(text.slice(first, last + 1)); } catch { return null; }
   const arr = Array.isArray(parsed)
     ? parsed
-    : parsed?.lancamentos ?? parsed?.lançamentos ?? parsed?.itens ?? parsed?.items ?? parsed?.transacoes ?? parsed?.transactions;
+    : parsed?.lancamentos ?? parsed?.lançamentos ?? parsed?.itens ?? parsed?.items ?? parsed?.transacoes ?? parsed?.transactions ?? parsed?.i ?? parsed?.gastos ?? parsed?.despesas;
   if (!Array.isArray(arr)) return null;
   const items: BulkItem[] = [];
   for (const row of arr) {
+    // Linhas compactas [tipo,data,valor,descrição,...] (formato do extrator).
+    if (Array.isArray(row)) {
+      const description = cleanDesc(row[3]);
+      const amount = parseBrAmountLoose(row[2]);
+      if (description && amount !== null) items.push({ description, amount });
+      continue;
+    }
     if (!row || typeof row !== "object") continue;
     const description = cleanDesc(
-      (row as any).descricao ?? (row as any).description ?? (row as any).estabelecimento ?? (row as any).titulo,
+      (row as any).descricao ?? (row as any).descrição ?? (row as any).description ?? (row as any).estabelecimento ?? (row as any).titulo ?? (row as any).title,
     );
     const amount = parseBrAmountLoose(
       (row as any).valor ?? (row as any).amount ?? (row as any).value ?? (row as any).total,
