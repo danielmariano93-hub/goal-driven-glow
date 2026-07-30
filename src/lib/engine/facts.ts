@@ -442,13 +442,16 @@ export function computeNetWorth(
   const cash = computeTotalCash(accounts, txs, snapshots);
   const invested = sumBy(investments, (i) => Number(i.current_value));
   const cardsOwed = computeCreditCardOutstanding(txs);
+  const cashAsset = round2(Math.max(0, cash));
+  const accountOverdraft = round2(Math.max(0, -cash));
   const otherDebts = sumBy(
     debts.filter((d) => d.status === "active"),
     (d) => Number(d.outstanding_balance)
   );
-  const owed = round2(cardsOwed + otherDebts);
-  const net = round2(cash + invested - owed);
-  return { cash, invested, cardsOwed, otherDebts, owed, net };
+  const assets = round2(cashAsset + invested);
+  const owed = round2(accountOverdraft + cardsOwed + otherDebts);
+  const net = round2(assets - owed);
+  return { cash, cashAsset, accountOverdraft, invested, assets, cardsOwed, otherDebts, owed, net };
 }
 
 export function nextRecurringOccurrences(recurring: RecurringRow[], horizonDays: number, today = new Date()) {

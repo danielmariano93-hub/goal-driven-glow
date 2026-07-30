@@ -28,4 +28,14 @@ describe("invoice import safety contract", () => {
     expect(manual).toContain("Valor desta parcela");
     expect(manual).toContain("Compra estimada");
   });
+
+  it("carries the previous invoice balance without duplicating an expense", () => {
+    const migration = read("supabase/migrations/20260730235500_invoice_previous_balance_reconciliation.sql");
+    const ingest = read("supabase/functions/assistant-ingest-document/index.ts");
+    const review = read("src/components/assessor/ReviewSheet.tsx");
+    expect(migration).toContain("coalesce(v_doc.invoice_previous_balance, 0) + v_activity");
+    expect(migration).toContain("Saldo trazido do ciclo anterior, usado apenas na conciliação");
+    expect(ingest).toContain("nunca o infira pela diferença matemática");
+    expect(review).toContain("ele não será lançado como nova despesa");
+  });
 });

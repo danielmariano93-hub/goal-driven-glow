@@ -293,7 +293,11 @@ Deno.serve(async (req) => {
         .eq("id", job.shared_expense_id)
         .single();
       if (expenseError || !expense) throw new Error(expenseError?.message ?? "split_not_found");
-      if (["cancelled", "settled"].includes(String(expense.status)) || expense.deleted_at) {
+      // Confirmação de pagamento e encerramento são mensagens terminais.
+      // Elas são enfileiradas antes de o rolê mudar para "settled"; portanto
+      // precisam continuar válidas depois da quitação. A regra anterior
+      // descartava justamente a mensagem que reconhecia o pagamento.
+      if (String(expense.status) === "cancelled" || expense.deleted_at || (String(expense.status) === "settled" && !terminal)) {
         await sb.from("reminder_jobs").update({ status: "skipped", last_error: "split_closed", lease_expires_at: null }).eq("id", job.id);
         skipped++;
         continue;

@@ -289,18 +289,24 @@ function buildHeadline(facts: PeriodFacts): { headline: string; explanation: str
   }
   if (facts.net < 0) {
     return {
-      headline: `${facts.kind === "weekly" ? "A semana" : "O mês"} fechou ${formatBRL(Math.abs(facts.net))} no negativo`,
-      explanation: `Foram ${formatBRL(facts.income)} de entradas e ${formatBRL(facts.expense)} de despesas no período. Os próximos passos focam apenas gastos ajustáveis e pendências concretas.`,
+      headline: `O consumo superou a renda em ${formatBRL(Math.abs(facts.net))} nesta ${label}`,
+      explanation: `Entraram ${formatBRL(facts.income)} e o consumo somou ${formatBRL(facts.expense)}. Isso é o resultado do período, não o saldo atual das suas contas; os próximos passos focam apenas alavancas ajustáveis.`,
     };
   }
   return {
-    headline: `${facts.kind === "weekly" ? "A semana" : "O mês"} tem saldo de ${formatBRL(facts.net)}`,
-    explanation: `Foram ${formatBRL(facts.income)} de entradas e ${formatBRL(facts.expense)} de despesas. A revisão abaixo separa fatos, comparações e ações possíveis.`,
+    headline: `A renda superou o consumo em ${formatBRL(facts.net)} nesta ${label}`,
+    explanation: `Entraram ${formatBRL(facts.income)} e o consumo somou ${formatBRL(facts.expense)}. A revisão transforma esse resultado em comparações e próximos passos concretos.`,
   };
 }
 
 function buildHighlights(facts: PeriodFacts): string[] {
   const highlights: string[] = [];
+  if (facts.income > 0 && facts.savingsRate != null) {
+    const retained = Math.round(facts.savingsRate * 100);
+    highlights.push(retained >= 0
+      ? `A cada R$ 100 de renda, ${formatBRL(retained)} permaneceram livres neste período.`
+      : `A cada R$ 100 de renda, o consumo passou ${formatBRL(Math.abs(retained))} do que entrou.`);
+  }
   if (facts.expenseChangePct != null) {
     const direction = facts.expenseChangePct >= 0 ? "aumentaram" : "diminuíram";
     highlights.push(`As despesas ${direction} ${Math.abs(Math.round(facts.expenseChangePct))}% em relação ao período anterior (${formatBRL(facts.previousExpense)}).`);
@@ -317,13 +323,27 @@ function buildHighlights(facts: PeriodFacts): string[] {
     }
   }
 
+  const biggestIncrease = facts.categories
+    .filter((category) => category.delta > 0 && category.name !== "Sem categoria")
+    .sort((a, b) => b.delta - a.delta)[0];
+  if (biggestIncrease && biggestIncrease !== top) {
+    highlights.push(`${biggestIncrease.name} foi a maior aceleração: ${formatBRL(biggestIncrease.delta)} acima do período anterior.`);
+  }
+
+  const adjustable = facts.categories
+    .filter((category) => !category.fixed && category.name !== "Sem categoria")
+    .sort((a, b) => b.current - a.current)[0];
+  if (adjustable && adjustable.current >= 100) {
+    highlights.push(`Uma redução de 10% em ${adjustable.name} liberaria cerca de ${formatBRL(adjustable.current * 0.1)}, sem mexer nas despesas classificadas como fixas.`);
+  }
+
   if (facts.uncategorizedCount > 0) {
     highlights.push(`${facts.uncategorizedCount} lançamento(s) ainda estão sem categoria e reduzem a precisão da análise.`);
   }
   if (facts.fixedExpense > 0) {
     highlights.push(`${formatBRL(facts.fixedExpense)} foram classificados como despesas possivelmente fixas e ${formatBRL(facts.flexibleExpense)} como ajustáveis.`);
   }
-  return highlights.slice(0, 4);
+  return highlights.slice(0, 5);
 }
 
 function buildActions(
@@ -446,6 +466,7 @@ function buildReview(
       },
       limitations: [
         "A revisão usa apenas lançamentos confirmados no Meu Nino e exclui transferências, pagamento de fatura e movimentos técnicos.",
+        "Resultado do período significa renda menos consumo; não representa o saldo bancário disponível hoje.",
         "A classificação entre gasto fixo e ajustável é uma aproximação; confirme os lançamentos antes de tomar decisões.",
         "Estimativas de economia não são garantia de resultado.",
       ],

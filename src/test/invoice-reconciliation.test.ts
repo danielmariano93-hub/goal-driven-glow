@@ -32,7 +32,19 @@ describe("credit-card invoice reconciliation", () => {
 
   it("uses a five-cent tolerance and blocks material differences", () => {
     expect(invoiceReconciliation(100, 99.96).reconciled).toBe(true);
-    expect(invoiceReconciliation(100, 99.90)).toEqual({ difference: 0.1, reconciled: false });
+    expect(invoiceReconciliation(100, 99.90)).toEqual({ calculatedTotal: 99.9, difference: 0.1, reconciled: false });
+  });
+
+  it("reconciles a carried balance without recording it as a new expense", () => {
+    const activity = summarizeInvoiceLines([
+      { amount: 5133.94, type: "expense", description: "Compras e encargos" },
+      { amount: 1.46, type: "income", description: "Estorno" },
+      { amount: 4099.34, type: "income", description: "Antecipações e pagamentos", movement_kind: "card_payment" },
+    ]);
+    expect(invoiceReconciliation(4639.73, activity.net, 3606.59)).toEqual({
+      calculatedTotal: 4639.73,
+      difference: 0,
+      reconciled: true,
+    });
   });
 });
-

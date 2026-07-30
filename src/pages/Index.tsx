@@ -98,8 +98,10 @@ export default function Index() {
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
+        assets={snap?.netWorth.assets ?? 0}
         netWorth={snap?.netWorth.net ?? 0}
         cash={snap?.netWorth.cash ?? 0}
+        accountOverdraft={snap?.netWorth.accountOverdraft ?? 0}
         cardsOwed={snap?.netWorth.cardsOwed ?? 0}
         invested={snap?.netWorth.invested ?? 0}
         otherDebts={snap?.netWorth.otherDebts ?? 0}

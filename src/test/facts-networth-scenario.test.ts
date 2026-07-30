@@ -50,6 +50,8 @@ describe("cenário-âncora patrimônio (R$100 / R$198,67 / R$131,51)", () => {
   it("patrimônio líquido separa conta e cartão", () => {
     const nw = computeNetWorth(accounts, txs, [], []);
     expect(nw.cash).toBe(-98.67);
+    expect(nw.assets).toBe(0);
+    expect(nw.accountOverdraft).toBe(98.67);
     expect(nw.cardsOwed).toBe(131.51);
     expect(nw.otherDebts).toBe(0);
     expect(nw.net).toBe(-230.18);

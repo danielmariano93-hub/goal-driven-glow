@@ -63,6 +63,7 @@ type DocumentInfo = {
   source_credit_card_id?: string | null;
   source_context_method?: string | null;
   invoice_total?: number | null;
+  invoice_previous_balance?: number | null;
   invoice_due_date?: string | null;
   invoice_closing_date?: string | null;
   invoice_competence_month?: string | null;
@@ -99,6 +100,18 @@ function parseBRLInput(raw: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function parseBRLSignedInput(raw: string): number | null {
+  const clean = raw.trim().replace(/R\$|\s/g, "");
+  if (!clean) return null;
+  const comma = clean.lastIndexOf(",");
+  const dot = clean.lastIndexOf(".");
+  const normalized = comma > dot
+    ? clean.replace(/\./g, "").replace(",", ".")
+    : clean.replace(/,/g, "");
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function ReviewSheet({
   documentId,
   onClose,
@@ -126,6 +139,7 @@ export function ReviewSheet({
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [recovering, setRecovering] = useState(false);
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
+  const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
 
   useEffect(() => {
@@ -148,6 +162,7 @@ export function ReviewSheet({
       setRejections(d.rejections ?? []);
       setDocumentInfo(d.document);
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
+      setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setDocKind(d.document?.document_kind ?? null);
       const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review" || i.status === "failed").map((i) => i.id));
       setSelected(initial);
@@ -168,7 +183,8 @@ export function ReviewSheet({
   const reconciliation = useMemo(() => invoiceReconciliation(
     documentInfo?.invoice_total,
     invoiceSummary.net,
-  ), [documentInfo?.invoice_total, invoiceSummary.net]);
+    Number(documentInfo?.invoice_previous_balance ?? 0),
+  ), [documentInfo?.invoice_total, documentInfo?.invoice_previous_balance, invoiceSummary.net]);
 
   // Bloqueios de confirmação: nunca confirmar item sem destino contábil válido.
   const blockers = useMemo(() => {
@@ -228,6 +244,16 @@ export function ReviewSheet({
     });
     if (error) return toast.error("Não consegui salvar o total da fatura.");
     setDocumentInfo((current) => current ? { ...current, invoice_total: value } : current);
+  }
+
+  async function saveInvoicePreviousBalance() {
+    const value = parseBRLSignedInput(invoicePreviousBalanceInput);
+    if (value == null) return toast.error("Informe um saldo anterior válido.");
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: { action: "update-document", document_id: documentId, patch: { invoice_previous_balance: value } },
+    });
+    if (error) return toast.error("Não consegui salvar o saldo anterior da fatura.");
+    setDocumentInfo((current) => current ? { ...current, invoice_previous_balance: value } : current);
   }
 
   async function applyBulkTarget() {
@@ -494,7 +520,8 @@ export function ReviewSheet({
                 {isCardDocument(documentInfo.document_kind) && (
                   <div className={`rounded-xl border p-3 ${reconciliation.reconciled ? "border-success/40 bg-success/5" : "border-warning/50 bg-warning/5"}`}>
                     <div className="flex flex-wrap items-end gap-3">
-                      <div className="min-w-[150px] flex-1">
+                      <div className="grid min-w-[220px] flex-1 grid-cols-2 gap-2">
+                        <div>
                         <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Total oficial da fatura</label>
                         <input
                           inputMode="decimal"
@@ -504,12 +531,25 @@ export function ReviewSheet({
                           className="input-base text-sm font-semibold"
                           placeholder="0,00"
                         />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Saldo anterior</label>
+                          <input
+                            inputMode="decimal"
+                            value={invoicePreviousBalanceInput}
+                            onChange={(event) => setInvoicePreviousBalanceInput(event.target.value)}
+                            onBlur={saveInvoicePreviousBalance}
+                            className="input-base text-sm font-semibold"
+                            placeholder="0,00"
+                          />
+                        </div>
                       </div>
-                      <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
+                      <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-5">
+                        <span>Saldo anterior<br/><strong>{formatBRL(Number(documentInfo.invoice_previous_balance ?? 0))}</strong></span>
                         <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
                         <span>Estornos/créditos<br/><strong>−{formatBRL(invoiceSummary.credits)}</strong></span>
                         <span>Pagamentos<br/><strong>−{formatBRL(invoiceSummary.payments)}</strong></span>
-                        <span>Calculado<br/><strong>{formatBRL(invoiceSummary.net)}</strong></span>
+                        <span>Calculado<br/><strong>{formatBRL(reconciliation.calculatedTotal)}</strong></span>
                       </div>
                     </div>
                     <p className={`mt-2 text-[11px] ${reconciliation.reconciled ? "text-success" : "text-warning"}`}>
@@ -517,7 +557,9 @@ export function ReviewSheet({
                         ? "Confira na capa da fatura e informe o total a pagar."
                         : reconciliation.reconciled
                           ? "Fatura conciliada. O total calculado fecha com o total informado."
-                          : `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Nenhum lançamento será gravado até a conciliação.`}
+                          : documentInfo.invoice_previous_balance == null
+                            ? `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Confira se esse é o saldo anterior exibido na fatura; ele não será lançado como nova despesa.`
+                            : `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Nenhum lançamento será gravado até a conciliação.`}
                     </p>
                   </div>
                 )}

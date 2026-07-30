@@ -6,13 +6,15 @@ type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   cash: number;
+  accountOverdraft: number;
   cardsOwed: number;
   invested: number;
+  assets: number;
   otherDebts: number;
   net: number;
 };
 
-export function PatrimonioSheet({ open, onOpenChange, cash, cardsOwed, invested, otherDebts, net }: Props) {
+export function PatrimonioSheet({ open, onOpenChange, cash, accountOverdraft, cardsOwed, invested, assets, otherDebts, net }: Props) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-3xl">
@@ -20,8 +22,16 @@ export function PatrimonioSheet({ open, onOpenChange, cash, cardsOwed, invested,
           <SheetTitle>Composição do patrimônio</SheetTitle>
         </SheetHeader>
         <div className="mt-4 space-y-2">
-          <Row icon={<Wallet size={14} />} label="Em conta" value={cash} tone="positive" />
+          <Row icon={<Wallet size={14} />} label="Em conta" value={Math.max(0, cash)} tone="positive" />
           <Row icon={<LineChart size={14} />} label="Investido" value={invested} tone="positive" />
+          <div className="flex items-center justify-between rounded-[18px] bg-primary/8 px-4 py-3">
+            <span className="text-sm font-semibold text-foreground">Total guardado</span>
+            <span className="font-display text-lg font-bold tabular-nums text-foreground">{formatBRL(assets)}</span>
+          </div>
+          <p className="px-1 pt-2 text-[11px] leading-relaxed text-muted-foreground">
+            Suas dívidas não reduzem o valor que você guardou. Elas aparecem separadas abaixo para mostrar sua posição líquida.
+          </p>
+          {accountOverdraft > 0 && <Row icon={<TrendingDown size={14} />} label="Saldo negativo em conta" value={-accountOverdraft} tone="negative" />}
           <Row icon={<CreditCard size={14} />} label="Na fatura" value={-cardsOwed} tone="negative" />
           <Row icon={<TrendingDown size={14} />} label="Outras dívidas" value={-otherDebts} tone="negative" />
         </div>

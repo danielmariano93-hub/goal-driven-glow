@@ -4,8 +4,10 @@ import { PatrimonioSheet } from "./PatrimonioSheet";
 
 type Props = {
   available: number;
+  assets: number;
   netWorth: number;
   cash: number;
+  accountOverdraft: number;
   cardsOwed: number;
   invested: number;
   otherDebts: number;
@@ -44,9 +46,9 @@ export function HeroDisponivelCard(p: Props) {
             style={{ borderTop: "1px solid rgba(255,255,255,0.16)" }}
           >
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-white/60">Patrimônio total</p>
+              <p className="text-[10px] uppercase tracking-wider text-white/60">Total guardado</p>
               <p className="mt-0.5 truncate font-display text-[15px] font-bold tabular-nums text-white">
-                {p.loading ? "—" : formatBRL(p.netWorth)}
+                {p.loading ? "—" : formatBRL(p.assets)}
               </p>
             </div>
             <button
@@ -65,8 +67,10 @@ export function HeroDisponivelCard(p: Props) {
         open={openSheet}
         onOpenChange={setOpenSheet}
         cash={p.cash}
+        accountOverdraft={p.accountOverdraft}
         cardsOwed={p.cardsOwed}
         invested={p.invested}
+        assets={p.assets}
         otherDebts={p.otherDebts}
         net={p.netWorth}
       />
