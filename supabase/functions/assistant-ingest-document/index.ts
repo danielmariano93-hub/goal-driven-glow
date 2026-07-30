@@ -308,9 +308,15 @@ async function callMultimodal(
   filename: string,
   guidance: string,
   signal: AbortSignal,
-  batch: { index: number; max: number; exclude: string[] },
+  batch: { index: number; max: number; exclude: string[]; strict?: boolean },
 ): Promise<MultimodalOutcome> {
   const start = Date.now();
+  // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
+  // Enviá-la vazia (ou em modo estrito) fazia o modelo escolher a saída
+  // "sem novos lançamentos" e devolver i=[] mesmo em faturas cheias.
+  const exclusion = !batch.strict && batch.exclude.length
+    ? `\nNão repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.join("; ")}.\nSe TODOS os lançamentos do documento já estiverem nessa lista, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.`
+    : `\nNenhum lançamento foi extraído ainda: devolva TODOS os lançamentos deste trecho, sem omitir nenhum.`;
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -326,10 +332,7 @@ async function callMultimodal(
             role: "user",
             content: [
               { type: "text", text: `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
-Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos ainda não extraídos, do mais recente ao mais antigo.
-Não repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.length ? batch.exclude.join("; ") : "nenhum"}.
-Se este for o lote 1, comece pelos lançamentos mais recentes do documento. Se for lote >1, continue com lançamentos mais antigos ou diferentes dos já listados.
-Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.` },
+Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}` },
               mimeType === "application/pdf"
                 ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
                 : { type: "image_url", image_url: { url: publicBase64Url } },
