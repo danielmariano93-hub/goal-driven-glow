@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Eye, FileText, ListChecks, Play, Save, Settings2 } from "lucide-react";
+import { Activity, Eye, FileText, ListChecks, Play, Plus, Save, Search, Settings2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Section } from "@/components/admin/Section";
 import { StatCard, StatGrid } from "@/components/admin/StatCard";
@@ -85,6 +85,8 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateRow | null>(null);
   const [titleTemplate, setTitleTemplate] = useState("");
   const [bodyTemplate, setBodyTemplate] = useState("");
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateChannel, setTemplateChannel] = useState<"all" | "app" | "whatsapp">("all");
 
   const status = useQuery({
     queryKey: ["admin_proactive_engine_status"],
@@ -196,7 +198,17 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
     onError: (error: Error) => adminToast.error(error.message),
   });
 
-  const activeTemplates = useMemo(() => (templates.data ?? []).filter((item) => item.active), [templates.data]);
+  const activeTemplates = useMemo(() => {
+    const normalized = templateSearch.trim().toLocaleLowerCase("pt-BR");
+    return (templates.data ?? [])
+      .filter((item) => item.active)
+      .filter((item) => templateChannel === "all" || item.channel === templateChannel)
+      .filter((item) => {
+        if (!normalized) return true;
+        const searchable = `${dict.commKind(item.kind)} ${item.kind} ${dict.channel(item.channel)}`.toLocaleLowerCase("pt-BR");
+        return searchable.includes(normalized);
+      });
+  }, [templates.data, templateChannel, templateSearch]);
   const s = status.data;
   const channels = s?.channels ?? [];
 
@@ -250,10 +262,46 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
 
       {show("queue") && <>
       <Section title="Fila e bloqueios" icon={ListChecks} description="Sugestões pendentes e motivos reais de supressão.">
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div><h3 className="text-sm font-semibold">Pendentes ({queue.data?.pending.length ?? 0})</h3><div className="mt-2 max-h-72 space-y-2 overflow-auto">{(queue.data?.pending ?? []).slice(0, 20).map((item) => <div key={item.id} className="rounded-lg border border-neutral-200 p-3"><p className="text-sm font-medium">{item.title}</p><p className="mt-1 text-xs text-neutral-500">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p></div>)}</div></div>
-          <div><h3 className="text-sm font-semibold">Bloqueios</h3><div className="mt-2 space-y-2">{(queue.data?.blocks ?? []).map((item) => <div key={item.reason} className="flex justify-between rounded-lg border border-neutral-200 p-3 text-sm"><span>{readableReason(item.reason)}</span><strong>{item.total}</strong></div>)}</div></div>
-        </div>
+        {queue.isLoading ? (
+          <p className="text-sm text-neutral-500">Carregando a operação de mensagens…</p>
+        ) : queue.isError ? (
+          <EmptyState title="Não foi possível carregar a fila" description={(queue.error as Error).message} />
+        ) : (
+          <div className="space-y-5">
+            <StatGrid cols={3}>
+              <StatCard label="Aguardando processamento" value={queue.data?.pending.length ?? 0} tone={(queue.data?.pending.length ?? 0) > 20 ? "warning" : "default"} />
+              <StatCard label="Falhas recentes" value={(queue.data?.recent ?? []).filter((item) => item.status === "failed").length} tone={(queue.data?.recent ?? []).some((item) => item.status === "failed") ? "warning" : "default"} />
+              <StatCard label="Retidas por regra" value={(queue.data?.blocks ?? []).reduce((total, item) => total + item.total, 0)} />
+            </StatGrid>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <h3 className="text-sm font-semibold">Aguardando processamento</h3>
+                <div className="mt-2 max-h-72 space-y-2 overflow-auto">
+                  {(queue.data?.pending ?? []).length === 0 ? (
+                    <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhuma comunicação aguardando processamento.</p>
+                  ) : (queue.data?.pending ?? []).slice(0, 20).map((item) => (
+                    <div key={item.id} className="rounded-xl border border-neutral-200 p-3">
+                      <p className="text-sm font-medium">{item.title}</p>
+                      <p className="mt-1 text-xs text-neutral-500">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Por que mensagens foram retidas</h3>
+                <div className="mt-2 space-y-2">
+                  {(queue.data?.blocks ?? []).length === 0 ? (
+                    <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhuma retenção registrada nos últimos 30 dias.</p>
+                  ) : (queue.data?.blocks ?? []).map((item) => (
+                    <div key={item.reason} className="flex justify-between rounded-xl border border-neutral-200 p-3 text-sm">
+                      <span>{readableReason(item.reason)}</span><strong>{item.total}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </Section>
       </>}
 
@@ -333,9 +381,48 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
 
       {show("templates") && <>
       <Section title="Templates e prévia" icon={FileText} description="Edite app e WhatsApp com versionamento e validação de variáveis.">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+          <label className="relative min-w-0 flex-1">
+            <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-neutral-400" />
+            <input
+              value={templateSearch}
+              onChange={(event) => setTemplateSearch(event.target.value)}
+              placeholder="Buscar por nome ou caso de uso"
+              className="w-full rounded-xl border border-neutral-200 py-2 pl-9 pr-3 text-sm"
+            />
+          </label>
+          <select
+            value={templateChannel}
+            onChange={(event) => setTemplateChannel(event.target.value as typeof templateChannel)}
+            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+            aria-label="Filtrar templates por canal"
+          >
+            <option value="all">Todos os canais</option>
+            <option value="app">App</option>
+            <option value="whatsapp">WhatsApp</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              const first = activeTemplates[0] ?? (templates.data ?? []).find((item) => item.active);
+              if (!first) {
+                adminToast.error("Nenhum caso de uso disponível para criar um template.");
+                return;
+              }
+              setSelectedTemplate(first);
+              setTitleTemplate(first.title_template);
+              setBodyTemplate(first.body_template);
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-medium text-primary"
+          >
+            <Plus size={16} /> Criar template
+          </button>
+        </div>
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-          <div className="max-h-[420px] space-y-2 overflow-auto">{activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-lg border p-3 text-left ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-neutral-200"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-neutral-500">{dict.channel(item.channel)} · versão {item.version}</p></button>)}</div>
-          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um tipo e canal para editar e visualizar." /> : <div className="space-y-3"><div className="flex items-center justify-between"><p className="text-sm font-semibold">{selectedTemplate.kind} · {selectedTemplate.channel}</p><span className="text-xs text-neutral-500">Variáveis: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</span></div><input value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><textarea value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
+          <div className="max-h-[420px] space-y-2 overflow-auto">
+            {templates.isLoading ? <p className="p-3 text-sm text-neutral-500">Carregando templates…</p> : activeTemplates.length === 0 ? <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhum template corresponde aos filtros.</p> : activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-xl border p-3 text-left transition ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-neutral-200 hover:border-neutral-300"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-neutral-500">{dict.channel(item.channel)} · versão {item.version}</p></button>)}
+          </div>
+          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um caso de uso e canal para editar e visualizar." /> : <div className="space-y-3"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-medium text-neutral-600">Caso de uso<select value={selectedTemplate.kind} onChange={(event) => { const next = (templates.data ?? []).find((item) => item.active && item.kind === event.target.value && item.channel === selectedTemplate.channel); if (next) { setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); } }} className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900">{Array.from(new Set((templates.data ?? []).filter((item) => item.active && item.channel === selectedTemplate.channel).map((item) => item.kind))).map((item) => <option key={item} value={item}>{dict.commKind(item)}</option>)}</select></label><label className="text-xs font-medium text-neutral-600">Canal<select value={selectedTemplate.channel} onChange={(event) => { const nextChannel = event.target.value as TemplateRow["channel"]; const next = (templates.data ?? []).find((item) => item.active && item.kind === selectedTemplate.kind && item.channel === nextChannel); if (!next) { adminToast.error("Este caso de uso ainda não está liberado para esse canal."); return; } setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); }} className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"><option value="app">App</option><option value="whatsapp">WhatsApp</option></select></label></div><p className="text-xs text-neutral-500">Versão atual {selectedTemplate.version} · variáveis permitidas: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</p><input aria-label="Título do template" value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" /><textarea aria-label="Mensagem do template" value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
         </div>
       </Section>
       </>}

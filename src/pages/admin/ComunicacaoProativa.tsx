@@ -9,6 +9,7 @@ import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 import { AdminTabs } from "@/components/admin/AdminTabs";
+import { AdminChart } from "@/components/admin/AdminChart";
 import { dict } from "@/lib/admin/displayDictionary";
 
 
@@ -163,6 +164,29 @@ function Overview() {
               <StatCard label="Falhas" value={totals.failed} tone={totals.failed > 0 ? "warning" : "default"} />
               <StatCard label="Retidas por regra de convivência" value={totals.suppressed} tone="warning" />
             </StatGrid>
+          </Section>
+
+          <Section
+            title="Evolução das comunicações"
+            icon={Radio}
+            description="Tentativas, entregas e falhas por dia no período selecionado."
+          >
+            <AdminChart
+              data={(q.data?.daily ?? []).map((item) => ({
+                ...item,
+                day: new Date(`${item.day}T12:00:00`).toLocaleDateString("pt-BR", {
+                  day: "2-digit",
+                  month: "2-digit",
+                }),
+              }))}
+              xKey="day"
+              series={[
+                { key: "total", label: "Tentativas", color: "#6D4AFF" },
+                { key: "delivered", label: "Entregues", color: "#2FC99A" },
+                { key: "failed", label: "Falhas", color: "#FF6B5F" },
+              ]}
+              caption={`${days} dias · ${channel ? dict.channel(channel) : "todos os canais"} · dados de entrega reais`}
+            />
           </Section>
 
           <Section title="Preferências e dispensa" icon={ShieldAlert}>
