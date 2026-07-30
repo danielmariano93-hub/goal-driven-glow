@@ -2368,6 +2368,7 @@ export type Database = {
           item_kind: string
           legacy_transaction_id: string | null
           occurred_at: string | null
+          source_extracted_item_id: string | null
           statement_id: string
           user_id: string
         }
@@ -2380,6 +2381,7 @@ export type Database = {
           item_kind?: string
           legacy_transaction_id?: string | null
           occurred_at?: string | null
+          source_extracted_item_id?: string | null
           statement_id: string
           user_id: string
         }
@@ -2392,6 +2394,7 @@ export type Database = {
           item_kind?: string
           legacy_transaction_id?: string | null
           occurred_at?: string | null
+          source_extracted_item_id?: string | null
           statement_id?: string
           user_id?: string
         }
@@ -2408,6 +2411,13 @@ export type Database = {
             columns: ["legacy_transaction_id"]
             isOneToOne: false
             referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statement_items_source_extracted_item_id_fkey"
+            columns: ["source_extracted_item_id"]
+            isOneToOne: false
+            referencedRelation: "extracted_items"
             referencedColumns: ["id"]
           },
           {
@@ -2893,6 +2903,11 @@ export type Database = {
           external_message_id: string | null
           extraction_ms: number | null
           id: string
+          invoice_card_last4: string | null
+          invoice_closing_date: string | null
+          invoice_competence_month: string | null
+          invoice_due_date: string | null
+          invoice_total: number | null
           message_id: string | null
           mime_type: string
           model: string | null
@@ -2935,6 +2950,11 @@ export type Database = {
           external_message_id?: string | null
           extraction_ms?: number | null
           id?: string
+          invoice_card_last4?: string | null
+          invoice_closing_date?: string | null
+          invoice_competence_month?: string | null
+          invoice_due_date?: string | null
+          invoice_total?: number | null
           message_id?: string | null
           mime_type: string
           model?: string | null
@@ -2977,6 +2997,11 @@ export type Database = {
           external_message_id?: string | null
           extraction_ms?: number | null
           id?: string
+          invoice_card_last4?: string | null
+          invoice_closing_date?: string | null
+          invoice_competence_month?: string | null
+          invoice_due_date?: string | null
+          invoice_total?: number | null
           message_id?: string | null
           mime_type?: string
           model?: string | null
@@ -3238,6 +3263,7 @@ export type Database = {
           historical_installments_paid_assumption: boolean | null
           id: string
           idx: number
+          installment_inferred: boolean
           installment_number: number | null
           installments_total: number | null
           movement_kind: string
@@ -3248,6 +3274,7 @@ export type Database = {
           raw: Json | null
           raw_description: string | null
           source_span: Json | null
+          statement_item_kind: string | null
           status: string
           transaction_id: string | null
           type: string
@@ -3279,6 +3306,7 @@ export type Database = {
           historical_installments_paid_assumption?: boolean | null
           id?: string
           idx: number
+          installment_inferred?: boolean
           installment_number?: number | null
           installments_total?: number | null
           movement_kind?: string
@@ -3289,6 +3317,7 @@ export type Database = {
           raw?: Json | null
           raw_description?: string | null
           source_span?: Json | null
+          statement_item_kind?: string | null
           status?: string
           transaction_id?: string | null
           type: string
@@ -3320,6 +3349,7 @@ export type Database = {
           historical_installments_paid_assumption?: boolean | null
           id?: string
           idx?: number
+          installment_inferred?: boolean
           installment_number?: number | null
           installments_total?: number | null
           movement_kind?: string
@@ -3330,6 +3360,7 @@ export type Database = {
           raw?: Json | null
           raw_description?: string | null
           source_span?: Json | null
+          statement_item_kind?: string | null
           status?: string
           transaction_id?: string | null
           type?: string
@@ -7665,6 +7696,10 @@ export type Database = {
       }
       ensure_profile: { Args: never; Returns: undefined }
       ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
+      finalize_invoice_statement: {
+        Args: { p_document_id: string; p_item_ids: string[] }
+        Returns: Json
+      }
       grant_platform_admin: {
         Args: {
           _role: Database["public"]["Enums"]["platform_role"]
@@ -8087,6 +8122,10 @@ export type Database = {
       }
       user_export_data: { Args: never; Returns: Json }
       user_request_deletion: { Args: { p_reason: string }; Returns: string }
+      validate_invoice_import: {
+        Args: { p_document_id: string; p_item_ids: string[] }
+        Returns: Json
+      }
       value_events: { Args: never; Returns: string[] }
       whatsapp_send_dispatch_tick: { Args: never; Returns: number }
     }
