@@ -116,6 +116,7 @@ describe("computeNetWorth", () => {
     const nw = computeNetWorth(accounts, txs, inv, debts);
     expect(nw.cash).toBe(500);
     expect(nw.invested).toBe(220);
+    expect(nw.assets).toBe(720);
     expect(nw.owed).toBe(100);
     expect(nw.net).toBe(620);
   });

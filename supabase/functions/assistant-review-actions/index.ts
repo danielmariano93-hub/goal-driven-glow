@@ -9,7 +9,7 @@
 //   { action:'rollback', document_id }
 //   { action:'reprocess-rejected', document_id, reason_codes?:[...] }
 //   { action:'set-source-context', document_id, account_id?, credit_card_id?, propagate?:boolean }
-//   { action:'update-document', document_id, patch:{ invoice_total?, invoice_due_date?, invoice_closing_date?, invoice_competence_month? } }
+//   { action:'update-document', document_id, patch:{ invoice_total?, invoice_previous_balance?, invoice_due_date?, invoice_closing_date?, invoice_competence_month? } }
 //   { action:'learn-alias', alias_key, friendly_name, category_id? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
@@ -24,7 +24,7 @@ const ALLOWED_PATCH_KEYS = new Set([
   "statement_item_kind", "installment_inferred",
 ]);
 const ALLOWED_DOCUMENT_PATCH_KEYS = new Set([
-  "invoice_total", "invoice_due_date", "invoice_closing_date",
+  "invoice_total", "invoice_previous_balance", "invoice_due_date", "invoice_closing_date",
   "invoice_competence_month", "invoice_card_last4",
 ]);
 
@@ -194,6 +194,11 @@ Deno.serve(async (req) => {
       const total = Number(clean.invoice_total);
       if (!Number.isFinite(total) || total < 0) return json({ error: "invalid_invoice_total" }, 400);
       clean.invoice_total = Math.round(total * 100) / 100;
+    }
+    if ("invoice_previous_balance" in clean) {
+      const previous = Number(clean.invoice_previous_balance);
+      if (!Number.isFinite(previous)) return json({ error: "invalid_invoice_previous_balance" }, 400);
+      clean.invoice_previous_balance = Math.round(previous * 100) / 100;
     }
     if (Object.keys(clean).length === 0) return json({ error: "empty_patch" }, 400);
     const { data, error } = await sb.from("document_imports").update(clean)

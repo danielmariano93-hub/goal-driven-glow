@@ -143,12 +143,14 @@ export function summarizeInvoiceLines(lines: InvoiceLine[]): InvoiceSummary {
 
 export function invoiceReconciliation(
   statedTotal: number | null | undefined,
-  calculatedTotal: number,
+  currentCycleActivity: number,
+  previousBalance = 0,
   tolerance = 0.05,
-): { difference: number | null; reconciled: boolean } {
+): { calculatedTotal: number; difference: number | null; reconciled: boolean } {
+  const calculatedTotal = roundMoney(previousBalance + currentCycleActivity);
   if (statedTotal == null || !Number.isFinite(Number(statedTotal))) {
-    return { difference: null, reconciled: false };
+    return { calculatedTotal, difference: null, reconciled: false };
   }
   const difference = roundMoney(Number(statedTotal) - calculatedTotal);
-  return { difference, reconciled: Math.abs(difference) <= tolerance };
+  return { calculatedTotal, difference, reconciled: Math.abs(difference) <= tolerance };
 }

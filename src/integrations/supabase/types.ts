@@ -2452,6 +2452,7 @@ export type Database = {
           due_date: string
           id: string
           outstanding_amount: number | null
+          opening_balance: number
           paid_amount: number
           period_end: string | null
           period_start: string | null
@@ -2471,6 +2472,7 @@ export type Database = {
           due_date: string
           id?: string
           outstanding_amount?: number | null
+          opening_balance?: number
           paid_amount?: number
           period_end?: string | null
           period_start?: string | null
@@ -2490,6 +2492,7 @@ export type Database = {
           due_date?: string
           id?: string
           outstanding_amount?: number | null
+          opening_balance?: number
           paid_amount?: number
           period_end?: string | null
           period_start?: string | null
@@ -2907,6 +2910,7 @@ export type Database = {
           invoice_closing_date: string | null
           invoice_competence_month: string | null
           invoice_due_date: string | null
+          invoice_previous_balance: number | null
           invoice_total: number | null
           message_id: string | null
           mime_type: string
@@ -2954,6 +2958,7 @@ export type Database = {
           invoice_closing_date?: string | null
           invoice_competence_month?: string | null
           invoice_due_date?: string | null
+          invoice_previous_balance?: number | null
           invoice_total?: number | null
           message_id?: string | null
           mime_type: string
@@ -3001,6 +3006,7 @@ export type Database = {
           invoice_closing_date?: string | null
           invoice_competence_month?: string | null
           invoice_due_date?: string | null
+          invoice_previous_balance?: number | null
           invoice_total?: number | null
           message_id?: string | null
           mime_type?: string

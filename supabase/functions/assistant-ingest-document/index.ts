@@ -135,7 +135,7 @@ async function getUser(req: Request) {
 const SYSTEM_PROMPT = `Você é um extrator financeiro para o app MeuNino.
 
 Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON PURO, compacto, sem markdown:
-{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null},"f":{"total":null,"due_date":null,"closing_date":null,"competence":null,"card_last4":null}}
+{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null},"f":{"total":null,"previous_balance":null,"due_date":null,"closing_date":null,"competence":null,"card_last4":null}}
 
 Cada item em "i" é EXATAMENTE:
 [tipo,data,valor,descricao,pagamento,conta,cartao,movimento,parcelas_total,parcela_numero,data_compra,competencia,categoria]
@@ -157,6 +157,7 @@ REGRAS ESTRITAS:
 - PIX entre contas da mesma pessoa é transferência interna, não receita/despesa. Se não houver certeza, marque internal_transfer e explique em notes.
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Em faturas, NÃO omita valores que reduzem o total: pagamento/antecipação da fatura usa income + card_payment; estorno, crédito ou cancelamento parcial usa income + refund. O valor deve ser sempre positivo.
+- Em faturas, extraia em f.previous_balance SOMENTE o valor explicitamente rotulado como "saldo anterior", "saldo da fatura anterior" ou equivalente. Não o inclua em "i", não o trate como compra e nunca o infira pela diferença matemática.
 - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
 - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
 - Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero com o valor da parcela desta fatura.
@@ -190,6 +191,7 @@ type MultimodalOutcome = {
 
 type InvoiceMetadata = {
   total: number | null;
+  previous_balance: number | null;
   due_date: string | null;
   closing_date: string | null;
   competence: string | null;
@@ -212,6 +214,7 @@ function extractInvoiceMetadata(parsed: unknown, _fallback: string): InvoiceMeta
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const total = normalizeAmountBR((r.total ?? "") as string | number);
+  const previous_balance = normalizeAmountBR((r.previous_balance ?? "") as string | number);
   const due_date = normalizeInvoiceDate(r.due_date);
   const closing_date = normalizeInvoiceDate(r.closing_date);
   const competenceRaw = typeof r.competence === "string" ? r.competence : null;
@@ -220,8 +223,8 @@ function extractInvoiceMetadata(parsed: unknown, _fallback: string): InvoiceMeta
     : null;
   const digits = String(r.card_last4 ?? "").replace(/\D/g, "");
   const card_last4 = digits.length >= 4 ? digits.slice(-4) : null;
-  return total != null || due_date || closing_date || competence || card_last4
-    ? { total, due_date, closing_date, competence, card_last4 }
+  return total != null || previous_balance != null || due_date || closing_date || competence || card_last4
+    ? { total, previous_balance, due_date, closing_date, competence, card_last4 }
     : null;
 }
 
@@ -1014,6 +1017,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         invoice = invoice
           ? {
               total: invoice.total ?? out.invoice.total,
+              previous_balance: invoice.previous_balance ?? out.invoice.previous_balance,
               due_date: invoice.due_date ?? out.invoice.due_date,
               closing_date: invoice.closing_date ?? out.invoice.closing_date,
               competence: invoice.competence ?? out.invoice.competence,
@@ -1022,6 +1026,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
           : out.invoice;
         await sb.from("document_imports").update({
           invoice_total: invoice.total,
+          invoice_previous_balance: invoice.previous_balance,
           invoice_due_date: invoice.due_date,
           invoice_closing_date: invoice.closing_date,
           invoice_competence_month: invoice.competence,

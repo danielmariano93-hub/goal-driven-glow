@@ -111,7 +111,7 @@ export default function AssessorAcompanhamentoV2() {
       <header>
         <h1 className="font-display text-2xl font-bold tracking-tight">Acompanhamento do Nino</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          A semana mostra mudanças recentes. O mês mostra tendência, margem e decisões de médio prazo.
+          Seu plano de ação financeiro: o que mudou, quanto isso representa e qual decisão tomar agora.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
@@ -196,7 +196,7 @@ export default function AssessorAcompanhamentoV2() {
               <Metric label="Entradas" value={BRL.format(number(indicators.income))} />
               <Metric label="Despesas" value={BRL.format(number(indicators.expense))} />
               <Metric
-                label="Saldo do período"
+                label="Resultado do período"
                 value={BRL.format(number(indicators.net))}
                 tone={number(indicators.net) >= 0 ? "positive" : "negative"}
               />
@@ -221,11 +221,11 @@ export default function AssessorAcompanhamentoV2() {
             <section className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
               <div className="flex items-center gap-2">
                 <Info className="h-5 w-5 text-primary" />
-                <h2 className="text-sm font-semibold">O que realmente mudou</h2>
+                <h2 className="text-sm font-semibold">Highlights para mudar o jogo</h2>
               </div>
               <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                 {highlights.map((highlight) => (
-                  <li key={highlight} className="rounded-xl bg-secondary/50 px-3 py-2">{highlight}</li>
+                  <li key={highlight} className="rounded-xl border border-border/60 bg-secondary/50 px-3 py-2.5 leading-relaxed">{highlight}</li>
                 ))}
               </ul>
             </section>

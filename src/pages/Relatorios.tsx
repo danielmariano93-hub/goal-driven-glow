@@ -22,12 +22,15 @@ import {
 import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { clampRangeToToday, computeRhythm } from "@/lib/engine/spendingRhythm";
+import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
   const initialRange = resolvePeriodRange();
   const [from, setFrom] = useState(initialRange.start);
   const [to, setTo] = useState(initialRange.end);
+  const reportRange = clampRangeToToday({ start: from, end: to });
+  const { data: financialSnapshot, loading: financialLoading } = useFinancialSnapshot(reportRange);
 
   useEffect(() => {
     (async () => {
@@ -50,7 +53,6 @@ export default function Relatorios() {
 
   if (txns === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
-  const reportRange = clampRangeToToday({ start: from, end: to });
   const filtered = filterCanonicalReportTransactions(filterPeriod(txns, reportRange.start, reportRange.end));
   const monthly = groupByMonth(filtered);
   const categoryNameById = Object.fromEntries(
@@ -129,10 +131,17 @@ export default function Relatorios() {
         </label>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Receitas</p><p className="text-sm font-bold text-success">{formatBRL(totalIncome)}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Despesas</p><p className="text-sm font-bold text-destructive">{formatBRL(totalExpense)}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Saldo</p><p className={`text-sm font-bold ${totalIncome-totalExpense>=0?"text-success":"text-destructive"}`}>{formatBRL(totalIncome - totalExpense)}</p></div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Renda no período</p><p className="text-sm font-bold text-success">{formatBRL(totalIncome)}</p></div>
+        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Consumo no período</p><p className="text-sm font-bold text-destructive">{formatBRL(totalExpense)}</p></div>
+        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Resultado do período</p><p className={`text-sm font-bold ${totalIncome-totalExpense>=0?"text-success":"text-destructive"}`}>{formatBRL(totalIncome - totalExpense)}</p></div>
+        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Disponível hoje</p><p className="text-sm font-bold text-foreground">{financialLoading ? "—" : formatBRL(financialSnapshot?.availableToday ?? 0)}</p></div>
+      </div>
+      <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="font-semibold text-foreground">Por que esses números podem ser diferentes?</p>
+        <p className="mt-1">
+          Resultado do período é renda menos consumo — inclusive compras no cartão. Disponível hoje é o dinheiro que está nas contas agora e considera o saldo que já existia antes do período. Por isso, um resultado negativo não significa que sua conta esteja negativa.
+        </p>
       </div>
 
       <section>
@@ -178,7 +187,7 @@ export default function Relatorios() {
         <div className="surface-card overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-secondary/40">
-              <tr><th className="px-3 py-2 text-left">Mês</th><th className="px-3 py-2 text-right">Receitas</th><th className="px-3 py-2 text-right">Despesas</th><th className="px-3 py-2 text-right">Saldo</th></tr>
+              <tr><th className="px-3 py-2 text-left">Mês</th><th className="px-3 py-2 text-right">Renda</th><th className="px-3 py-2 text-right">Consumo</th><th className="px-3 py-2 text-right">Resultado</th></tr>
             </thead>
             <tbody>
               {monthly.map(m => (
