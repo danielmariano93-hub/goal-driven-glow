@@ -1003,7 +1003,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
             ordinal: globalIdx,
           });
 
-          return {
+          // Invariante contábil: em fatura, o item pertence ao cartão e nunca
+          // à conta corrente (não reduz caixa na importação).
+          return applyLedgerInvariants(documentKind, {
             document_id: documentId,
             user_id: userId,
             idx: globalIdx,
@@ -1037,7 +1039,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
             status: effectiveHit ? "duplicate_suspect" : "needs_review",
             duplicate_of: hit?.transaction_id ?? null,
             duplicate_reason: effectiveHit ? `${effectiveHit.strength}:${effectiveHit.reason}` : null,
-          };
+          });
+
         }));
 
 
