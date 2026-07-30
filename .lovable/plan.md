@@ -1,116 +1,137 @@
-## 1. Sincronização confirmada
+## 1. Causa raiz (verificada no HEAD e no banco)
 
-Main local em `5ea8019` (merge do PR #12) sobre `5b52b57 feat(finance): add accounting core for cards and debts`. Os 12 arquivos do commit estão íntegros, incluindo:
+Documento real auditado: `document_imports 2b45c2f9…` (kind `invoice`, origem `app`, status `canceled`), com `source_account_id = 6c1cf814…` (conta Itaú), `source_context_method = statement_bank`, `statement_closing_balance = 4639,73`, `statement_period_start/end = NULL`. Dos 39 `extracted_items`: **39 com `account_id` preenchido** e **37 sem `category_id`**. O usuário tem exatamente **1 cartão ativo ("Cartão Itaú")**.
 
-- `supabase/migrations/20260730020000_financial_accounting_cards_debts.sql` (620 linhas) — **existe**.
-- `supabase/functions/assistant-review-actions/index.ts` — **atualizado**: `ALLOWED_PATCH_KEYS` passou a aceitar `historical_installments_paid_assumption` (única alteração, 1 linha).
-- Frontend: `ReviewSheet.tsx`, `Cartoes.tsx`, `Dividas.tsx`, `Relatorios.tsx`, `finance.ts`, `validation/finance.ts`, novo `src/lib/finance/accounting.ts`.
-- Testes novos: `accounting-core.test.ts`, `financial-accounting-contract.test.ts`.
+Três defeitos concretos:
 
-## 2. Testes e build da main
+1. **Kind estagnado na resolução de origem** — `supabase/functions/assistant-ingest-document/index.ts`
+   - L784: `resolveSourceContext(sb, userId, doc, null)` roda **antes** da extração, com `doc.document_kind = "unknown"`.
+   - L884: a reavaliação usa `{ ...doc, ...statementPatch }`, e `statementPatch` **não inclui `document_kind`**. Como `resolveSourceContext` lê `doc.document_kind` (L72), o ramo `documentKind !== "invoice"` (L79-83) casa "Itaú" com a **conta corrente** e devolve `statement_bank` com confiança 0,92. O ramo de cartão (L84-88), que casaria com "Cartão Itaú", nunca é avaliado.
+   - Consequência: L1015-1016 propagam `source_account_id` para os 39 itens e L1006 grava `payment_method = "account"`.
+2. **Metadata de saldo aplicada a qualquer documento** — `extractStatementMetadata` + patch L873-883 gravam `statement_opening/closing_balance` mesmo em fatura. Isso produz "Saldo informado pelo banco: R$ 4.639,73" na revisão e, pior, ativa o guardrail de conciliação de `confirm_document_import` (L31-53 da função), que compara soma de itens com saldo bancário — semanticamente inválido para fatura.
+3. **Período vazio** — o prompt só pede `period_start/period_end` no bloco `m` de **extrato**; em fatura o modelo devolve saldos mas não período, e não há derivação por fallback (min/max de `occurred_at`, competência ou vencimento). Daí `Período — a —`.
 
-- **Testes:** 753 aprovados / 0 falhos (116 arquivos).
-- **Build:** sucesso em 20,27s (apenas o aviso pré-existente de chunk > 500 kB).
+Defeitos correlatos confirmados:
 
-## 3. Análise de segurança da migration contra o banco atual
+- `confirm_document_import` (RPC) **não conhece `document_kind`**: aceita item de fatura com `account_id` e insere `transactions` com `account_id` preenchido → reduz caixa indevidamente. Não há constraint impedindo isso.
+- `ReviewSheet.tsx` é agnóstico de tipo: sempre exibe bloco "Saldo informado pelo banco" (L410-420), seletor global Conta/Cartão (L430-437) e "Método: Conta/Cartão" por item (L514-533).
+- Categorização na ingestão (`enrichItems`, L470-500) usa apenas alias → regra → histórico → hint, **sem** o pipeline completo `_shared/categorization/pipeline.ts` (que já tem estágios rule/history/alias/llm e thresholds). Em fatura, `category_hint` costuma vir `null` e não há histórico de cartão → 37/39 sem categoria.
+- Nenhum lugar do fluxo cria `credit_card_statements` / `credit_card_purchases` / `credit_card_installments` (tabelas do núcleo financeiro recém-implantado): a fatura confirmada não vira fatura, vira 39 despesas soltas.
 
-Estado atual conferido no banco conectado:
+## 2. Inventário dos fluxos afetados
 
-| Verificação | Resultado |
-|---|---|
-| Tabelas novas (`debt_payments`, 6 × `credit_card_*`) | Nenhuma existe — sem colisão |
-| Funções `record_debt_payment`, `reconcile_imported_installment_history`, `sync_card_accounting_from_transaction` | Nenhuma existe |
-| Trigger `trg_sync_card_accounting_from_transaction` | Não existe; nomes dos 11 triggers atuais de `transactions` não colidem |
-| Colunas novas em `debts` | Nenhuma existe (tabela tem 13 colunas legadas) |
-| `extracted_items.historical_installments_paid_assumption` | Não existe |
-| Colunas exigidas pelo backfill (`purchase_group_id`, `competence_date`, `installment_number`, `installments_total`, `settles_card_id`, `movement_kind`) | Todas presentes |
-| Colunas de `credit_cards` usadas (`closing_day`, `due_day`) | Presentes |
-| `transactions_movement_kind_check` | Hoje aceita 7 valores; a migration **amplia** para 11 (inclui `debt_payment`). Todos os `movement_kind` em uso hoje (7 distintos) continuam válidos → sem violação |
+| Caminho | Arquivo/objeto | Risco |
+|---|---|---|
+| Upload app (chat/anexo) | `AssessorAttachButton.tsx` → `assistant-ingest-document` | destino errado |
+| WhatsApp mídia/JSON | `whatsapp-webhook`, `_shared/messaging/wahaMedia.ts`, `AgentCore.ts` | mesmo pipeline + resposta textual divergente |
+| Lote em texto/JSON | `_shared/agent/core/BulkEntry.ts` | cai em `accounts[0]` quando não há hint de cartão; grava `payment_method: "account"` |
+| FastLog `!ja` | `_shared/agent/core/FastLog.ts` | resolução genérica de conta |
+| Revisão manual | `ReviewSheet.tsx` + `assistant-review-actions` | UI sem noção de tipo |
+| Persistência | RPCs `confirm_document_import`, `commit_movement`, `reconcile_document_balance`, `rollback_document_import` | sem invariantes contábeis |
+| Reprocesso/retentativa | `reprocess_rejected_items`, `document_fragments` | pode reintroduzir destino errado |
+| CSV/OFX | `src/lib/import/csv.ts`, `ofx.ts`, `legacy.ts` | sempre conta (correto para extrato, errado se arquivo for de cartão) |
 
-Riscos sobre dados existentes: **muito baixos**.
-- `debts` tem **0 linhas** → o `UPDATE` retroativo e o `SET NOT NULL` em `contract_total_amount`/`principal_amount` não podem falhar.
-- Apenas **3 transações** com `credit_card_id` e **1 cartão** → backfill de compras/parcelas/faturas é minúsculo e reversível; faturas reconstruídas nascem marcadas para revisão.
-- `document_imports` (35 docs) só ganha a coluna opcional em `extracted_items`; importações concluídas não são reescritas.
-- Migration é aditiva: só usa `IF NOT EXISTS` / `CREATE OR REPLACE` / `DROP CONSTRAINT IF EXISTS` antes de recriar. Reexecução é idempotente, exceto os `INSERT ... SELECT` de backfill, que são protegidos por índices únicos parciais em `legacy_purchase_group_id` e `legacy_transaction_id`.
+## 3. Matriz documento → destino → efeitos → perguntas
 
-Conformidade de segurança: as 7 tabelas novas recebem `ENABLE ROW LEVEL SECURITY`, policy `auth.uid() = user_id` e `GRANT` para `authenticated` + `service_role` (o bloco `DO` no fim cobre as 6 de cartão; `debt_payments` tem grants explícitos). As duas funções `SECURITY DEFINER` têm `search_path = public` e `REVOKE ... FROM PUBLIC, anon`.
+| # | Documento | Ledger | Caixa | Resultado | Passivo | Pergunta obrigatória |
+|---|---|---|---|---|---|---|
+| A | Fatura de cartão | credit_card + statement | não | sim (compras, na data da compra) | +obrigação | "A qual cartão esta fatura pertence?" |
+| B | Extrato bancário | bank_account | sim | sim | — | "Qual conta?" + saldo permitido |
+| C | Comprovante Pix/TED | conta origem/destino | sim | só se contraparte externa | — | "Foi entre suas contas?" |
+| D | Pagamento de fatura | conta + cartão | sim (−) | **não** | −obrigação | "De qual conta saiu?" |
+| E | Recibo/nota | depende do meio | depende | sim | se cartão | "Foi no cartão ou na conta?" |
+| F | Boleto/conta a pagar | payable | só na liquidação | na competência | +obrigação | "Já foi pago?" |
+| G | Empréstimo/financiamento | debt | sim (principal) | só juros/tarifas | +/− | "É novo contrato ou parcela?" |
+| H | Estorno/reembolso | mesmo ledger da compra | conforme ledger | reverte | −obrigação se cartão | "Refere-se a qual compra?" |
+| I | Invoice comercial de fornecedor | payable, não cartão | não | sim | +obrigação | confirmar explicitamente quando ambíguo |
 
-Dependências: nenhuma migration pendente. Todas as anteriores (até `20260730003000`) já foram aplicadas, e todos os objetos referenciados existem.
+Regra transversal: **a classificação vem do conteúdo, não do canal**; app e WhatsApp chamam o mesmo classificador.
 
-Ponto de atenção único: o trigger `trg_sync_card_accounting_from_transaction` é `AFTER INSERT OR UPDATE` em `transactions` — passa a rodar em toda escrita de lançamento (app, agente, importação). O volume atual é baixo, mas é o item a observar no smoke test.
+## 4. Arquitetura canônica proposta
 
-Backup/reconciliação prévia: não é obrigatório dado o volume, mas o plano abaixo captura um snapshot de contagens antes/depois.
+Novo módulo compartilhado `supabase/functions/_shared/ledger/` (espelhado em `src/lib/ledger/` para a UI):
 
-## 4. Plano de implantação (aguardando sua aprovação)
+- `classifyDocument.ts` → `document_kind` com evidências (presença de "fatura/limite/vencimento/melhor dia" vs. "saldo do dia/agência/conta"), score e motivos.
+- `resolveLedger.ts` → para cada item produz o **CanonicalMovement**:
+  `{ document_kind, movement_kind, ledger: 'bank_account'|'credit_card'|'debt'|'cash'|'payable', source_id (obrigatório), cash_effect, result_effect, liability_effect, links{purchase_id, installment_id, statement_id, payment_id, debt_id}, confidence, reasons[], pending_fields[], blocks[] }`.
+- `invariants.ts` → validação pura, reutilizada por Edge Function, UI e testes.
 
-**Ordem exata**
+Invariantes (com espelho no banco):
 
-1. Snapshot pré-migration (somente leitura):
-   ```sql
-   select (select count(*) from transactions) tx,
-          (select count(*) from transactions where credit_card_id is not null) tx_card,
-          (select count(*) from debts) debts,
-          (select count(*) from extracted_items) items;
-   ```
-2. Aplicar `20260730020000_financial_accounting_cards_debts.sql` pela ferramenta de migration (execução única, transacional).
-3. Deploy da Edge Function `assistant-review-actions` (única alterada; nenhuma outra função importa código tocado).
-4. Rodar o linter de segurança do banco e comparar com a linha de base (hoje só avisos INFO pré-existentes).
-5. Frontend: **não publicar** — a main já compila e passa nos testes; publicação só sob autorização explícita.
+1. `ledger='credit_card'` ⇒ `account_id IS NULL` e `cash_effect = 0`.
+2. `movement_kind='card_payment'` ⇒ `result_effect = 0`, `cash_effect < 0`, `liability_effect > 0` (redução).
+3. Total da fatura nunca vira transação — só `credit_card_statements.total_amount`.
+4. `statement_closing_balance` só é aceito quando `document_kind='statement'`.
+5. `internal_transfer` e principal/amortização de empréstimo ⇒ `result_effect = 0`.
+6. `source_id` (`document:<id>:<idx>`) obrigatório e único → idempotência entre canais/reenvios.
+7. Baixa histórica de parcelas anteriores exige `confirmed_by_user_at` ou evidência conciliada.
 
-**Validações SQL pós-migration**
+Mudanças de banco (migration nova, aditiva):
 
-```sql
--- objetos criados
-select tablename from pg_tables where schemaname='public'
-  and tablename in ('debt_payments','credit_card_purchases','credit_card_installments',
-    'credit_card_statements','credit_card_statement_items','credit_card_payments',
-    'credit_card_payment_allocations');
--- RLS + policies + grants
-select relname, relrowsecurity from pg_class where relname like 'credit_card_%' or relname='debt_payments';
-select tablename, policyname from pg_policies where schemaname='public' and tablename like 'credit_card%';
--- funções e trigger
-select proname, prosecdef from pg_proc where proname in
-  ('record_debt_payment','reconcile_imported_installment_history','sync_card_accounting_from_transaction');
-select tgname from pg_trigger where tgrelid='public.transactions'::regclass and tgname like 'trg_sync_card%';
--- constraint ampliada
-select pg_get_constraintdef(oid) from pg_constraint where conname='transactions_movement_kind_check';
--- integridade do backfill: nenhuma transação de cartão órfã, nenhum valor duplicado
-select count(*) from transactions t where t.credit_card_id is not null
-  and not exists (select 1 from credit_card_installments i where i.legacy_transaction_id=t.id);
-select credit_card_id, competence_month, count(*) from credit_card_statements
-  group by 1,2 having count(*)>1;
--- contagens iguais às do snapshot
-select (select count(*) from transactions) tx, (select count(*) from debts) debts;
-```
+- `document_imports`: `document_kind` normalizado + `kind_confidence`, `kind_evidence jsonb`, `credit_card_statement_id`, `blocked_reason`.
+- `extracted_items`: coluna gerada/CHECK `ledger` + `CHECK (ledger <> 'credit_card' OR account_id IS NULL)`.
+- `transactions`: `CHECK (movement_kind <> 'card_payment' OR credit_card_id IS NOT NULL)`; `CHECK (payment_method <> 'credit_card' OR account_id IS NULL)` (validar dados antes com `NOT VALID` + validação posterior).
+- Índice único `(user_id, import_source_id)` em `transactions` para idempotência.
+- `confirm_document_import` v2: recebe `document_kind`, aplica invariantes, cria `credit_card_statements` + `credit_card_purchases` + `credit_card_installments` para faturas, aplica guardrail de saldo **apenas** em extrato, e devolve `blocked_reasons` estruturados.
+- Nova RPC `set_document_target(document_id, card_id|account_id)` que repropaga destino a todos os itens de forma transacional.
 
-**Smoke tests**
+## 5. Mudanças por camada
 
-- Criar um lançamento de cartão parcelado no app → conferir que aparecem 1 linha em `credit_card_purchases`, N em `credit_card_installments` e a fatura correspondente em `credit_card_statements`.
-- Editar valor/data desse lançamento → conferir atualização das parcelas e recálculo de `reconciled_total`.
-- Chamar `record_debt_payment` em uma dívida de teste com principal + juros + tarifa → conferir transação com `movement_kind='debt_payment'`, linha em `debt_payments` e saldo atualizado; repetir com a mesma `idempotency_key` → deve retornar `idempotent: true` sem duplicar.
-- `assistant-review-actions` action `update` enviando `historical_installments_paid_assumption` → deve persistir (antes era descartado).
-- Tela Cartões, Dívidas e Relatórios no preview: carregar sem erro de console e conferir totais versus os valores pré-migration.
-- Registrar um gasto pelo WhatsApp/agente → confirmar que o trigger novo não introduziu latência nem erro nos logs.
+- **Edge ingest**: mover `resolveSourceContext` para depois da classificação, passar `document_kind` real; descartar metadata de saldo em fatura; derivar período por precedência (metadata → vencimento/fechamento → min/max de `occurred_at`); gravar `kind_evidence`.
+- **Agente (app/WhatsApp)**: `BulkEntry`/`FastLog` passam a chamar `resolveLedger`; em fatura, a pergunta é sobre cartão; nunca fallback para `accounts[0]` quando kind = invoice.
+- **WhatsApp**: perguntas curtas e sequenciais ("Essa fatura é do Cartão Itaú? 1-Sim 2-Outro cartão"), mesma intenção canônica do app.
+- **Frontend**: `ReviewSheet` ganha cabeçalho por tipo (`InvoiceHeader`, `StatementHeader`, `ReceiptHeader`); em fatura some "Saldo informado pelo banco" e a lista de contas; item passa a ter classificação compra/crédito/estorno/encargo/pagamento; botão principal desabilitado com motivo textual específico; blocos "O que será registrado" e "O que não movimenta seu saldo agora".
 
-**Rollback**
+Copies finais (pt-BR simples):
 
-Como é aditiva, o rollback é reverso e não destrói dados legados:
-```sql
-DROP TRIGGER IF EXISTS trg_sync_card_accounting_from_transaction ON public.transactions;
-DROP FUNCTION IF EXISTS public.sync_card_accounting_from_transaction();
-DROP FUNCTION IF EXISTS public.record_debt_payment(uuid,uuid,date,numeric,numeric,numeric,integer,text,text);
-DROP FUNCTION IF EXISTS public.reconcile_imported_installment_history(uuid);
-DROP TABLE IF EXISTS public.credit_card_payment_allocations, public.credit_card_payments,
-  public.credit_card_statement_items, public.credit_card_statements,
-  public.credit_card_installments, public.credit_card_purchases, public.debt_payments CASCADE;
-ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS transactions_movement_kind_check;
-ALTER TABLE public.transactions ADD CONSTRAINT transactions_movement_kind_check
-  CHECK (movement_kind IN ('transaction','refund','internal_transfer','investment_application',
-    'investment_redemption','investment_yield','loan_proceeds'));
-ALTER TABLE public.debts ALTER COLUMN contract_total_amount DROP NOT NULL,
-  ALTER COLUMN principal_amount DROP NOT NULL;
-NOTIFY pgrst, 'reload schema';
-```
-As colunas novas de `debts`/`extracted_items` podem ficar (inertes) ou ser removidas com `DROP COLUMN IF EXISTS`. Transações e dívidas legadas permanecem intactas em qualquer cenário. Para reverter a Edge Function, basta redeployar a versão anterior (remoção da chave extra em `ALLOWED_PATCH_KEYS`).
+- Cartão: "A qual cartão essa fatura pertence?" / "Não encontrei esse cartão. Quer cadastrar agora? (emissor, bandeira, final)".
+- Divergência: "A soma dos itens (R$ X) não bate com o total da fatura (R$ Y). Diferença de R$ Z. Quer revisar antes de confirmar?".
+- Parcelas anteriores: "Essa compra é 3/10. Não vou registrar as parcelas 1 e 2 sem sua confirmação. Elas já foram pagas?".
+- Duplicidade: "Parece que essa compra já está registrada em outra fatura. Confirmar mesmo assim?".
+- Pagamento de fatura: "Isso é o pagamento da fatura. Vou tirar da sua conta e abater o cartão — não conta como gasto novo."
 
-Nada foi executado: migration não aplicada, Edge Function não implantada, frontend não publicado.
+## 6. Categorização
+
+Substituir a escada ad hoc de `enrichItems` pelo pipeline existente `_shared/categorization/pipeline.ts` (alias → histórico → regra → LLM em lote, com thresholds), somando: normalização de estabelecimento (remoção de sufixos tipo `*PAG`, cidade, UF, `PARC 03/10`), histórico específico por cartão, dicionário global de merchants para categorias globais (20 já existem) e fallback legível "A classificar". Categoria ausente **não bloqueia** a fatura; só sinaliza.
+
+## 7. Ordem de execução segura
+
+1. Módulo canônico + testes unitários (sem tocar em fluxo).
+2. Correção do `document_kind` na resolução de origem + supressão de saldo em fatura + período derivado.
+3. `ReviewSheet` por tipo de documento e bloqueios com motivo.
+4. Migration de constraints/índices (`NOT VALID` → validação) e `confirm_document_import` v2 com criação de fatura/compras/parcelas.
+5. Agente/WhatsApp usando o classificador canônico.
+6. Categorização via pipeline completo.
+7. Auditoria e reconciliação dos dados existentes.
+
+## 8. Dados já importados — auditoria (somente leitura por enquanto)
+
+Consultas propostas:
+
+- itens de documentos `invoice` com `account_id NOT NULL`;
+- `transactions` com `payment_method='credit_card' AND account_id IS NOT NULL`;
+- `transactions` com `import_source_id LIKE 'document:%'` originados de documento `invoice`;
+- as 2 faturas do backfill em `needs_review` (`credit_card_statements`) versus soma de `credit_card_statement_items`.
+
+Nada será alterado sem sua aprovação; a correção proposta é uma migration de reconciliação idempotente que remove `account_id` de transações de cartão e vincula compras à fatura correta, com tabela de auditoria `document_reconciliation_log` e rollback por `import_source_id`.
+
+## 9. Testes e aceite
+
+Unitários: classificador, `resolveLedger`, invariantes, datas/período, normalização de merchant.
+Integração/RPC: confirmação de fatura não grava `account_id`; guardrail de saldo só em extrato; reenvio não duplica (`import_source_id` único); parcelas em faturas sucessivas não recriam cronograma.
+Contrato: mesma fatura em app e WhatsApp gera o mesmo CanonicalMovement.
+UI: fatura nunca mostra lista de contas nem saldo bancário; botão bloqueado com motivo.
+Banco: RLS impede acesso cruzado; constraints rejeitam combinações proibidas.
+Ponta a ponta: os 39 itens da fatura real não alteram saldo bancário; pagamento da fatura reduz banco e passivo sem novo consumo.
+
+## 10. Observabilidade, riscos e decisões pendentes
+
+Observabilidade: `document_processing_events` com `kind_evidence`, motivo de bloqueio e destino escolhido; métrica de % de itens categorizados e de documentos bloqueados por divergência.
+
+Riscos: constraints podem rejeitar dados legados (mitigado com `NOT VALID`); reclassificação retroativa pode alterar números históricos (mitigado com log e rollback).
+
+Perguntas bloqueantes:
+
+1. Confirmo que a única fatura afetada (`2b45c2f9…`, hoje `canceled`) **não** deve ser reprocessada automaticamente — apenas reenviada por você após a correção?
+2. Para faturas, o gasto deve ser reconhecido na **data da compra** (competência) — confirma essa escolha como padrão?
+3. As 2 faturas do backfill em `needs_review` podem ser mantidas como estão até a reconciliação, ou prefere invalidá-las?

@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
 import { CategorySelect } from "@/components/CategorySelect";
+import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 
 type Item = {
   id: string;
@@ -147,6 +148,19 @@ export function ReviewSheet({
   const total = useMemo(() =>
     items.filter((i) => selected.has(i.id)).reduce((s, i) => s + Number(i.amount), 0)
   , [items, selected]);
+
+  // Bloqueios de confirmação: nunca confirmar item sem destino contábil válido.
+  const blockers = useMemo(() => {
+    const chosen = items.filter((i) => selected.has(i.id));
+    const reasons = new Set<string>();
+    for (const it of chosen) {
+      const card = isCardDocument(docKind) || it.payment_method === "credit_card" || !!it.credit_card_id;
+      if (card && !it.credit_card_id) reasons.add("missing_credit_card");
+      if (!card && !it.account_id) reasons.add("missing_account");
+    }
+    return [...reasons].map((r) => BLOCK_MESSAGES[r] ?? r);
+  }, [items, selected, docKind]);
+
 
   function toggle(id: string) {
     setSelected((s) => {
@@ -382,12 +396,23 @@ export function ReviewSheet({
               <div className="space-y-2 border-b border-border bg-secondary/30 px-4 py-3 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="font-semibold">{documentInfo.statement_bank ?? "Instituição não identificada"}</p>
-                    <p className="text-muted-foreground">{fragments.filter(f => f.status === "completed").length}/{fragments.length || 1} fragmento(s) concluído(s)</p>
+                    <p className="font-semibold">
+                      {isCardDocument(documentInfo.document_kind)
+                        ? `Fatura de cartão${documentInfo.statement_bank ? ` · ${documentInfo.statement_bank}` : ""}`
+                        : documentInfo.document_kind === "statement"
+                          ? `Extrato bancário${documentInfo.statement_bank ? ` · ${documentInfo.statement_bank}` : ""}`
+                          : documentInfo.statement_bank ?? "Documento financeiro"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {isCardDocument(documentInfo.document_kind)
+                        ? "Compras de cartão não saem do saldo agora: entram na fatura."
+                        : `${fragments.filter(f => f.status === "completed").length}/${fragments.length || 1} fragmento(s) concluído(s)`}
+                    </p>
                   </div>
                   <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
                 </div>
                 {fragments.length > 0 && (
+
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {fragments.map((fragment) => <span key={fragment.fragment_index} className={`whitespace-nowrap rounded-full border px-2 py-1 text-[10px] ${fragment.status === "completed" ? "border-success/40 bg-success/10" : fragment.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border bg-card"}`}>p. {fragment.page_start}-{fragment.page_end}: {fragment.status}</span>)}
                   </div>
@@ -407,7 +432,7 @@ export function ReviewSheet({
                   <span>Sem categoria<br/><strong>{documentInfo.counters?.uncategorized ?? items.filter(i => !i.category_id).length}</strong></span>
                 </div>
                 {documentInfo.user_instructions && <p className="text-muted-foreground">Orientação aplicada: {documentInfo.user_instructions}</p>}
-                {documentInfo.statement_closing_balance != null && (
+                {documentInfo.statement_closing_balance != null && !isCardDocument(documentInfo.document_kind) && (
                   <div className="rounded-xl border border-border bg-card p-3">
                     <p className="font-semibold">Saldo informado pelo banco: {formatBRL(Number(documentInfo.statement_closing_balance))}</p>
                     <p className="text-muted-foreground">Data: {documentInfo.statement_balance_date ?? "—"}. Esse saldo vira um marco auditável; lançamentos posteriores continuam sendo somados normalmente.</p>
@@ -601,23 +626,31 @@ export function ReviewSheet({
                 );
               })}
             </div>
-            <footer className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-card p-3">
-              <button
-                onClick={cancelImport}
-                disabled={confirming}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-xs hover:bg-secondary"
-              >
-                <Ban size={12} /> Cancelar
-              </button>
-              <button
-                onClick={confirmSelection}
-                disabled={confirming || selected.size === 0}
-                className="btn-brand ml-auto inline-flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check size={14} />}
-                Confirmar {selected.size} lançamento(s)
-              </button>
+            <footer className="sticky bottom-0 space-y-2 border-t border-border bg-card p-3">
+              {blockers.length > 0 && (
+                <ul className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-2 text-[11px]">
+                  {blockers.map((b) => <li key={b} className="flex items-start gap-1"><AlertTriangle size={11} className="mt-0.5 shrink-0" /> {b}</li>)}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cancelImport}
+                  disabled={confirming}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-xs hover:bg-secondary"
+                >
+                  <Ban size={12} /> Cancelar
+                </button>
+                <button
+                  onClick={confirmSelection}
+                  disabled={confirming || selected.size === 0 || blockers.length > 0}
+                  className="btn-brand ml-auto inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check size={14} />}
+                  Confirmar {selected.size} lançamento(s)
+                </button>
+              </div>
             </footer>
+
           </>
         )}
       </div>
