@@ -965,14 +965,34 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }, 20_000);
       let out: MultimodalOutcome;
       try {
+        const dataUrl = bytesToDataUrl(fragment.bytes, doc.mime_type);
+        const filename = doc.storage_path?.split("/").pop() ?? "documento";
+        const guide = (guidance ?? "").slice(0, 500);
         out = await callMultimodal(
-          bytesToDataUrl(fragment.bytes, doc.mime_type),
-          doc.mime_type,
-          doc.storage_path?.split("/").pop() ?? "documento",
-          (guidance ?? "").slice(0, 500),
-          ac.signal,
+          dataUrl, doc.mime_type, filename, guide, ac.signal,
           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
         );
+        // Retry estrito: documento financeiro que volta sem nenhum item e sem
+        // erro quase sempre significa que o modelo pegou o atalho "sem novos
+        // lançamentos". Uma segunda passada sem essa cláusula recupera o lote.
+        const emptyFinancial = !out.errorTag
+          && out.result.items.length === 0
+          && !["non_financial", "illegible"].includes(String(out.result.document_kind));
+        if (emptyFinancial) {
+          console.log(`[assistant-ingest] strict_retry document=${documentId} fragment=${batchIndex}`);
+          const retry = await callMultimodal(
+            dataUrl, doc.mime_type, filename, guide, ac.signal,
+            { index: batchIndex, max: maxBatches, exclude: [], strict: true },
+          );
+          if (retry.result.items.length > 0) {
+            out = {
+              ...retry,
+              tokens_in: out.tokens_in + retry.tokens_in,
+              tokens_out: out.tokens_out + retry.tokens_out,
+              ms: out.ms + retry.ms,
+            };
+          }
+        }
       } finally {
         clearTimeout(timer);
         clearInterval(beat);
