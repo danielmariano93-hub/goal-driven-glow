@@ -207,7 +207,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
   for (const raw of rawItems) {
     if (Array.isArray(raw)) {
       const row = raw as CompactRow;
-      let type = row[0] === "income" ? "income" : "expense";
+      let type: "income" | "expense" = row[0] === "income" ? "income" : "expense";
       const description = String(row[3] ?? "").trim();
       if (!description) continue;
       const movementKind = normalizeMovementKind(row[7], type, description);
@@ -252,7 +252,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
     const it = raw as Record<string, unknown>;
     const description = String(it.description ?? "").trim();
     if (!description) continue;
-    let type = it.type === "income" ? "income" : "expense";
+    let type: "income" | "expense" = it.type === "income" ? "income" : "expense";
     const movementKind = normalizeMovementKind(it.movement_kind, type, description);
     if (movementKind === "informational") { informational_dropped++; continue; }
     if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
