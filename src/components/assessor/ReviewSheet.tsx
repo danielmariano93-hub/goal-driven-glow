@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
 import { CategorySelect } from "@/components/CategorySelect";
+import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 
 type Item = {
   id: string;
