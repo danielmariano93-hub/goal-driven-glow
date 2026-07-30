@@ -1,0 +1,1614 @@
+diff --git a/src/components/assessor/ReviewSheet.tsx b/src/components/assessor/ReviewSheet.tsx
+index 18e432b..7f420fc 100644
+--- a/src/components/assessor/ReviewSheet.tsx
++++ b/src/components/assessor/ReviewSheet.tsx
+@@ -41,6 +41,7 @@ type Item = {
+   category_source?: string | null;
+   category_confidence?: number | null;
+   movement_kind?: string | null;
++  historical_installments_paid_assumption?: boolean | null;
+ };
+ 
+ type DocumentInfo = {
+@@ -257,6 +258,18 @@ export function ReviewSheet({
+       return;
+     }
+     const uncategorized = items.filter((i) => selected.has(i.id) && !i.category_id && i.movement_kind === "transaction").length;
++    const historyPending = items.filter((i) =>
++      selected.has(i.id)
++      && docKind === "invoice"
++      && (i.installment_number ?? 1) > 1
++      && i.historical_installments_paid_assumption == null
++    ).length;
++    if (historyPending > 0) {
++      toast.error("Confirme o histórico das parcelas", {
++        description: `${historyPending} compra(s) começaram antes desta fatura.`,
++      });
++      return;
++    }
+     if (uncategorized > 0 && !confirm(`${uncategorized} lançamento(s) continuam sem categoria. Deseja confirmar mesmo assim?`)) return;
+     setConfirming(true);
+     try {
+@@ -272,6 +285,9 @@ export function ReviewSheet({
+           description: r.errors.length > 0 ? "Alguns itens não puderam ser gravados." : undefined,
+         });
+       }
++      await (supabase as any).rpc("reconcile_imported_installment_history", {
++        p_document_id: documentId,
++      });
+       qc.invalidateQueries({ queryKey: ["transactions"] });
+       qc.invalidateQueries({ queryKey: ["home"] });
+       qc.invalidateQueries({ queryKey: ["accounts"] });
+@@ -554,8 +570,18 @@ export function ReviewSheet({
+                             </div>
+                           )}
+                           {(it.installments_total ?? 0) > 1 && (
+-                            <div className="col-span-2 text-[11px] text-muted-foreground">
+-                              Parcela {it.installment_number}/{it.installments_total}
++                            <div className="col-span-2 space-y-2 text-[11px] text-muted-foreground">
++                              <p>Parcela {it.installment_number}/{it.installments_total}</p>
++                              {docKind === "invoice" && (it.installment_number ?? 1) > 1 && !disabled && (
++                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
++                                  <p className="font-medium">As {Number(it.installment_number) - 1} parcelas anteriores já foram pagas?</p>
++                                  <p className="mt-1 text-[10px]">Não presumimos pagamento apenas porque esta fatura mostra uma parcela avançada.</p>
++                                  <div className="mt-2 flex gap-2">
++                                    <button type="button" onClick={() => patchItem(it.id, { historical_installments_paid_assumption: true })} className={`rounded-full border px-3 py-1 ${it.historical_installments_paid_assumption === true ? "border-success bg-success/10 text-success" : "border-border bg-card"}`}>Sim, foram pagas</button>
++                                    <button type="button" onClick={() => patchItem(it.id, { historical_installments_paid_assumption: false })} className={`rounded-full border px-3 py-1 ${it.historical_installments_paid_assumption === false ? "border-warning bg-warning/10 text-warning" : "border-border bg-card"}`}>Não / quero revisar</button>
++                                  </div>
++                                </div>
++                              )}
+                             </div>
+                           )}
+                         </div>
+diff --git a/src/lib/db/finance.ts b/src/lib/db/finance.ts
+index de81d10..076927b 100644
+--- a/src/lib/db/finance.ts
++++ b/src/lib/db/finance.ts
+@@ -20,7 +20,31 @@ export type TransactionRow = Database["public"]["Tables"]["transactions"]["Row"]
+ export type GoalRow = Database["public"]["Tables"]["goals"]["Row"];
+ export type ContributionRow = Database["public"]["Tables"]["goal_contributions"]["Row"];
+ export type InvestmentRow = Database["public"]["Tables"]["investments"]["Row"];
+-export type DebtRow = Database["public"]["Tables"]["debts"]["Row"];
++export type DebtRow = Database["public"]["Tables"]["debts"]["Row"] & {
++  installments_total: number | null;
++  installments_paid: number;
++  contract_total_amount: number;
++  principal_amount: number;
++  start_date: string | null;
++  first_due_date: string | null;
++  accounting_method: string;
++  amount_was_inferred: boolean;
++  formula_version: string;
++};
++
++export type DebtPaymentRow = {
++  id: string;
++  debt_id: string;
++  account_id: string | null;
++  paid_at: string;
++  amount: number;
++  amount_applied: number;
++  interest_amount: number;
++  fee_amount: number;
++  installments_covered: number;
++  notes: string | null;
++  created_at: string;
++};
+ 
+ // ================ ACCOUNTS ================
+ export function useAccounts() {
+@@ -598,18 +622,27 @@ export function useSaveDebt() {
+         original_amount: input.original_amount,
+         outstanding_balance: input.outstanding_balance,
+         installment_amount: input.installment_amount ?? null,
++        installments_total: input.installments_total ?? null,
++        installments_paid: input.installments_paid ?? 0,
++        contract_total_amount: input.contract_total_amount ?? input.original_amount,
++        principal_amount: input.principal_amount ?? input.original_amount,
++        start_date: input.start_date ?? null,
++        first_due_date: input.first_due_date ?? null,
++        amount_was_inferred: input.amount_was_inferred ?? false,
++        accounting_method: input.installments_total ? "contractual_schedule" : "open_balance",
++        formula_version: "debt_schedule.v1",
+         due_day: input.due_day ?? null,
+         interest_rate_pct: input.interest_rate_pct ?? null,
+         notes: input.notes || null,
+       };
+       if (input.id) {
+-        const { error } = await supabase
++        const { error } = await (supabase as any)
+           .from("debts")
+           .update({ ...payload, status: (input.status as "active" | "settled" | "defaulted") ?? "active" })
+           .eq("id", input.id);
+         if (error) throw error;
+       } else {
+-        const { error } = await supabase.from("debts").insert(payload);
++        const { error } = await (supabase as any).from("debts").insert(payload);
+         if (error) throw error;
+       }
+     },
+@@ -620,6 +653,59 @@ export function useSaveDebt() {
+   });
+ }
+ 
++export function useDebtPayments(debtId?: string | null) {
++  const { user } = useAuth();
++  return useQuery({
++    queryKey: ["debt_payments", user?.id, debtId],
++    enabled: !!user && !!debtId,
++    queryFn: async () => {
++      const { data, error } = await (supabase as any)
++        .from("debt_payments")
++        .select("*")
++        .eq("debt_id", debtId)
++        .order("paid_at", { ascending: false });
++      if (error) throw error;
++      return (data ?? []) as DebtPaymentRow[];
++    },
++  });
++}
++
++export function useRecordDebtPayment() {
++  const qc = useQueryClient();
++  return useMutation({
++    mutationFn: async (input: {
++      debt_id: string;
++      account_id: string;
++      paid_at: string;
++      amount: number;
++      interest_amount?: number;
++      fee_amount?: number;
++      installments_covered?: number;
++      notes?: string;
++    }) => {
++      const { data, error } = await (supabase as any).rpc("record_debt_payment", {
++        p_debt_id: input.debt_id,
++        p_account_id: input.account_id,
++        p_paid_at: input.paid_at,
++        p_amount: input.amount,
++        p_interest_amount: input.interest_amount ?? 0,
++        p_fee_amount: input.fee_amount ?? 0,
++        p_installments_covered: input.installments_covered ?? 0,
++        p_notes: input.notes || null,
++        p_idempotency_key: crypto.randomUUID(),
++      });
++      if (error) throw error;
++      return data;
++    },
++    onSuccess: () => {
++      qc.invalidateQueries({ queryKey: ["debts"] });
++      qc.invalidateQueries({ queryKey: ["debt_payments"] });
++      qc.invalidateQueries({ queryKey: ["transactions"] });
++      qc.invalidateQueries({ queryKey: ["dashboard"] });
++    },
++  });
++}
++
+ export function useDeleteDebt() {
+   const qc = useQueryClient();
+   return useMutation({
+diff --git a/src/lib/finance/accounting.ts b/src/lib/finance/accounting.ts
+new file mode 100644
+index 0000000..74a098a
+--- /dev/null
++++ b/src/lib/finance/accounting.ts
+@@ -0,0 +1,146 @@
++import { behavioralMetricAmount, round2, type TransactionRow } from "@/lib/engine/facts";
++
++export const ACCOUNTING_FORMULA_VERSION = "personal_finance_accrual.v1";
++export const DEBT_FORMULA_VERSION = "debt_schedule.v1";
++
++export type DebtPlanInput = {
++  originalAmount?: number | null;
++  installmentAmount?: number | null;
++  installmentsTotal?: number | null;
++  installmentsPaid?: number | null;
++};
++
++export type DebtPlan = {
++  originalAmount: number;
++  installmentAmount: number | null;
++  installmentsTotal: number | null;
++  installmentsPaid: number;
++  paidAmount: number;
++  outstandingAmount: number;
++  progressPct: number;
++  inferredOriginal: boolean;
++};
++
++/**
++ * Resolve um plano de dívida sem esconder inferências:
++ * - total informado prevalece;
++ * - sem total, parcela × quantidade pode inferi-lo;
++ * - saldo nunca fica negativo;
++ * - progresso usa valor efetivamente amortizado.
++ */
++export function resolveDebtPlan(input: DebtPlanInput): DebtPlan {
++  const installment = positive(input.installmentAmount);
++  const totalInstallments = positiveInt(input.installmentsTotal);
++  const paidInstallments = Math.min(
++    positiveInt(input.installmentsPaid) ?? 0,
++    totalInstallments ?? Number.MAX_SAFE_INTEGER,
++  );
++  const explicitOriginal = positive(input.originalAmount);
++  const inferred = explicitOriginal == null && installment != null && totalInstallments != null;
++  const original = round2(explicitOriginal ?? ((installment ?? 0) * (totalInstallments ?? 0)));
++  const paid = round2(Math.min(original, installment != null ? installment * paidInstallments : 0));
++  const outstanding = round2(Math.max(0, original - paid));
++  return {
++    originalAmount: original,
++    installmentAmount: installment,
++    installmentsTotal: totalInstallments,
++    installmentsPaid: paidInstallments,
++    paidAmount: paid,
++    outstandingAmount: outstanding,
++    progressPct: original > 0 ? round2((paid / original) * 100) : 0,
++    inferredOriginal: inferred,
++  };
++}
++
++export type DailySpendPoint = {
++  date: string;
++  actual: number;
++  typical: number;
++  rollingTypical: number;
++};
++
++function parseLocal(iso: string): Date {
++  const [year, month, day] = iso.split("-").map(Number);
++  return new Date(year, month - 1, day);
++}
++
++function isoLocal(date: Date): string {
++  const year = date.getFullYear();
++  const month = String(date.getMonth() + 1).padStart(2, "0");
++  const day = String(date.getDate()).padStart(2, "0");
++  return `${year}-${month}-${day}`;
++}
++
++function enumerateDays(start: string, end: string): string[] {
++  const cursor = parseLocal(start);
++  const last = parseLocal(end);
++  const result: string[] = [];
++  while (cursor <= last) {
++    result.push(isoLocal(cursor));
++    cursor.setDate(cursor.getDate() + 1);
++  }
++  return result;
++}
++
++function quantile(sorted: number[], q: number): number {
++  if (!sorted.length) return 0;
++  const position = (sorted.length - 1) * q;
++  const lower = Math.floor(position);
++  const rest = position - lower;
++  return sorted[lower + 1] == null
++    ? sorted[lower]
++    : sorted[lower] + rest * (sorted[lower + 1] - sorted[lower]);
++}
++
++/**
++ * Série factual para Relatórios.
++ * `actual` conserva os picos; `typical` retira somente dias estatisticamente
++ * atípicos quando há amostra suficiente; zeros permanecem no denominador.
++ */
++export function buildDailySpendSeries(
++  txs: TransactionRow[],
++  range: { start: string; end: string },
++  rollingWindow = 7,
++): DailySpendPoint[] {
++  const dates = enumerateDays(range.start, range.end);
++  const byDay = new Map(dates.map((date) => [date, 0]));
++  for (const transaction of txs) {
++    const date = transaction.occurred_at.slice(0, 10);
++    if (!byDay.has(date)) continue;
++    const amount = behavioralMetricAmount(transaction, "expense");
++    byDay.set(date, round2((byDay.get(date) ?? 0) + amount));
++  }
++  const positiveDays = [...byDay.values()].filter((value) => value > 0).sort((a, b) => a - b);
++  let outlierLimit = Number.POSITIVE_INFINITY;
++  if (positiveDays.length >= 8) {
++    const q1 = quantile(positiveDays, 0.25);
++    const q3 = quantile(positiveDays, 0.75);
++    outlierLimit = q3 + 1.5 * (q3 - q1);
++  }
++  const typicalValues = dates.map((date) => {
++    const actual = round2(Math.max(0, byDay.get(date) ?? 0));
++    return actual > outlierLimit ? 0 : actual;
++  });
++  return dates.map((date, index) => {
++    const from = Math.max(0, index - rollingWindow + 1);
++    const sample = typicalValues.slice(from, index + 1);
++    // Divide pela janela civil, portanto dias sem gasto continuam representados.
++    const rollingTypical = round2(sample.reduce((sum, value) => sum + value, 0) / sample.length);
++    return {
++      date,
++      actual: round2(Math.max(0, byDay.get(date) ?? 0)),
++      typical: typicalValues[index],
++      rollingTypical,
++    };
++  });
++}
++
++function positive(value: number | null | undefined): number | null {
++  const parsed = Number(value);
++  return Number.isFinite(parsed) && parsed > 0 ? round2(parsed) : null;
++}
++
++function positiveInt(value: number | null | undefined): number | null {
++  const parsed = Math.trunc(Number(value));
++  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
++}
+diff --git a/src/lib/validation/finance.ts b/src/lib/validation/finance.ts
+index 87727d0..485a37f 100644
+--- a/src/lib/validation/finance.ts
++++ b/src/lib/validation/finance.ts
+@@ -92,8 +92,22 @@ export const debtSchema = z.object({
+   original_amount: z.number().positive(),
+   outstanding_balance: z.number().min(0),
+   installment_amount: z.number().min(0).nullable().optional(),
++  installments_total: z.number().int().min(1).max(600).nullable().optional(),
++  installments_paid: z.number().int().min(0).max(600).default(0),
++  contract_total_amount: z.number().positive().optional(),
++  principal_amount: z.number().positive().optional(),
++  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
++  first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
++  amount_was_inferred: z.boolean().default(false),
+   due_day: z.number().int().min(1).max(31).nullable().optional(),
+   interest_rate_pct: z.number().min(0).max(1000).nullable().optional(),
+   notes: z.string().trim().max(300).optional().or(z.literal("")),
++}).superRefine((value, ctx) => {
++  if (value.installments_total != null && value.installments_paid > value.installments_total) {
++    ctx.addIssue({ code: "custom", path: ["installments_paid"], message: "Parcelas pagas não podem superar o total." });
++  }
++  if (value.installments_total != null && !value.installment_amount) {
++    ctx.addIssue({ code: "custom", path: ["installment_amount"], message: "Informe o valor da parcela." });
++  }
+ });
+ export type DebtInput = z.infer<typeof debtSchema>;
+diff --git a/src/pages/Cartoes.tsx b/src/pages/Cartoes.tsx
+index d2cad1e..808ad09 100644
+--- a/src/pages/Cartoes.tsx
++++ b/src/pages/Cartoes.tsx
+@@ -5,6 +5,8 @@ import { useAllTransactions } from "@/lib/db/finance";
+ import { creditCardSchema } from "@/lib/validation/creditCards";
+ import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
+ import { toast } from "sonner";
++import { useQuery } from "@tanstack/react-query";
++import { supabase } from "@/integrations/supabase/client";
+ 
+ export default function Cartoes() {
+   const { data: cards, isLoading } = useCreditCards();
+@@ -14,19 +16,57 @@ export default function Cartoes() {
+   const save = useSaveCreditCard();
+   const del = useDeleteCreditCard();
+   const ym = currentMonthYM();
++  const { data: statements = [] } = useQuery({
++    queryKey: ["credit_card_statements"],
++    queryFn: async () => {
++      const { data, error } = await (supabase as any)
++        .from("credit_card_statements")
++        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
++        .order("competence_month", { ascending: false });
++      if (error) throw error;
++      return data ?? [];
++    },
++  });
++  const { data: installments = [] } = useQuery({
++    queryKey: ["credit_card_installments"],
++    queryFn: async () => {
++      const { data, error } = await (supabase as any)
++        .from("credit_card_installments")
++        .select("credit_card_id,amount,competence_month,status");
++      if (error) throw error;
++      return data ?? [];
++    },
++  });
+ 
+   const stats = useMemo(() => {
+-    const byCard: Record<string, { current: number; next: number; total: number }> = {};
++    const byCard: Record<string, { current: number; next: number; total: number; paid: number; needsReview: boolean }> = {};
++    for (const statement of statements as any[]) {
++      const cid = statement.credit_card_id;
++      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
++      const month = String(statement.competence_month).slice(0, 7);
++      if (month === ym) {
++        byCard[cid].current = Number(statement.outstanding_amount ?? statement.stated_total ?? 0);
++        byCard[cid].paid = Number(statement.paid_amount ?? 0);
++        byCard[cid].needsReview = statement.status === "needs_review" || Number(statement.reconciliation_difference ?? 0) !== 0;
++      }
++    }
++    for (const installment of installments as any[]) {
++      const cid = installment.credit_card_id;
++      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
++      if (!["paid", "refunded", "cancelled"].includes(installment.status)) {
++        byCard[cid].total += Number(installment.amount ?? 0);
++      }
++    }
+     for (const t of txs ?? []) {
+       const anyT = t as unknown as { credit_card_id?: string | null; competence_date?: string | null; amount: number };
+       const cid = anyT.credit_card_id;
+       const comp = anyT.competence_date;
+       if (!cid || !comp) continue;
+-      byCard[cid] ||= { current: 0, next: 0, total: 0 };
++      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
+       const compYM = comp.slice(0, 7);
+       const amt = Number(anyT.amount) || 0;
+-      byCard[cid].total += amt;
+-      if (compYM === ym) byCard[cid].current += amt;
++      if (installments.length === 0) byCard[cid].total += amt;
++      if (statements.length === 0 && compYM === ym) byCard[cid].current += amt;
+       // próxima fatura
+       const [y, m] = ym.split("-").map(Number);
+       const next0 = m; // m0+1 = m
+@@ -34,7 +74,7 @@ export default function Cartoes() {
+       if (compYM === nextYM) byCard[cid].next += amt;
+     }
+     return byCard;
+-  }, [txs, ym]);
++  }, [installments, statements, txs, ym]);
+ 
+   return (
+     <div>
+@@ -64,7 +104,7 @@ export default function Cartoes() {
+       ) : (
+         <ul className="space-y-3">
+           {cards.map((c) => {
+-            const st = stats[c.id] ?? { current: 0, next: 0, total: 0 };
++            const st = stats[c.id] ?? { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
+             const usedPct = c.total_limit > 0 ? Math.min(1, st.total / Number(c.total_limit)) : 0;
+             const available = Math.max(0, Number(c.total_limit) - st.total);
+             return (
+@@ -98,10 +138,12 @@ export default function Cartoes() {
+                   </div>
+                 </div>
+                 <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
+-                  <Stat label="Fatura atual" value={formatBRL(st.current)} />
++                  <Stat label="Em aberto na fatura" value={formatBRL(st.current)} />
+                   <Stat label="Próxima" value={formatBRL(st.next)} />
+-                  <Stat label="Disponível" value={formatBRL(available)} />
++                  <Stat label="Parcelas futuras" value={formatBRL(st.total)} />
+                 </div>
++                {st.paid > 0 && <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.paid)}</p>}
++                {st.needsReview && <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Fatura reconstruída a partir dos lançamentos. Revise antes de considerar o saldo como conciliado.</p>}
+                 {c.total_limit > 0 && (
+                   <div className="mt-3">
+                     <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+@@ -111,7 +153,7 @@ export default function Cartoes() {
+                       />
+                     </div>
+                     <p className="mt-1 text-[11px] text-muted-foreground">
+-                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))}
++                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))} · disponível {formatBRL(available)}
+                     </p>
+                   </div>
+                 )}
+diff --git a/src/pages/Dividas.tsx b/src/pages/Dividas.tsx
+index 8d5387f..3a3f72f 100644
+--- a/src/pages/Dividas.tsx
++++ b/src/pages/Dividas.tsx
+@@ -1,16 +1,27 @@
+ import { useState } from "react";
+-import { Plus, Trash2, Loader2, Pencil, AlertOctagon } from "lucide-react";
++import { Plus, Trash2, Loader2, Pencil, AlertOctagon, CheckCircle2, Coins } from "lucide-react";
+ import { toast } from "sonner";
+-import { useDebts, useSaveDebt, useDeleteDebt, type DebtRow } from "@/lib/db/finance";
++import {
++  useAccounts,
++  useDebts,
++  useSaveDebt,
++  useDeleteDebt,
++  useRecordDebtPayment,
++  type DebtRow,
++} from "@/lib/db/finance";
+ import { debtSchema } from "@/lib/validation/finance";
+ import { formatBRL } from "@/lib/engine/facts";
++import { resolveDebtPlan } from "@/lib/finance/accounting";
+ 
+ export default function Dividas() {
+   const { data: items, isLoading } = useDebts();
+   const save = useSaveDebt();
+   const del = useDeleteDebt();
++  const payment = useRecordDebtPayment();
++  const { data: accounts = [] } = useAccounts();
+   const [open, setOpen] = useState(false);
+   const [editing, setEditing] = useState<DebtRow | null>(null);
++  const [paying, setPaying] = useState<DebtRow | null>(null);
+ 
+   const totalOutstanding = (items ?? []).filter((d) => d.status === "active").reduce((a, b) => a + Number(b.outstanding_balance), 0);
+ 
+@@ -48,23 +59,40 @@ export default function Dividas() {
+             <p className="mt-1 text-xl font-semibold tabular-nums text-destructive">{formatBRL(totalOutstanding)}</p>
+           </div>
+           <ul className="space-y-2">
+-            {items.map((d) => (
+-              <li key={d.id} className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 shadow-card">
++            {items.map((d) => {
++              const original = Number(d.contract_total_amount ?? d.original_amount);
++              const outstanding = Number(d.outstanding_balance);
++              const paid = Math.max(0, original - outstanding);
++              const progress = original > 0 ? Math.min(100, (paid / original) * 100) : 0;
++              return (
++              <li key={d.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
++                <div className="flex items-start justify-between gap-3">
+                 <div className="min-w-0">
+                   <p className="truncate font-medium">
+                     {d.name}
+                     {d.status !== "active" && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-wide">{d.status === "settled" ? "Quitada" : "Inadimplente"}</span>}
+                   </p>
+                   <p className="text-xs text-muted-foreground">
+-                    {d.creditor ? `${d.creditor} · ` : ""}Original {formatBRL(Number(d.original_amount))}
++                    {d.creditor ? `${d.creditor} · ` : ""}Total contratado {formatBRL(original)}
+                     {d.installment_amount ? ` · parcela ${formatBRL(Number(d.installment_amount))}` : ""}
++                    {d.installments_total ? ` · ${d.installments_paid ?? 0}/${d.installments_total} pagas` : ""}
+                     {d.interest_rate_pct != null ? ` · juros informado ${d.interest_rate_pct}%` : ""}
+                   </p>
+-                  <p className="mt-1 text-xs">
+-                    Saldo pendente <span className="font-semibold">{formatBRL(Number(d.outstanding_balance))}</span>
++                  <p className="mt-2 text-xs">
++                    Já pago <span className="font-semibold text-success">{formatBRL(paid)}</span>
++                    {" · "}Falta <span className="font-semibold">{formatBRL(outstanding)}</span>
+                   </p>
+                 </div>
+                 <div className="flex gap-2">
++                  {d.status === "active" && (
++                    <button
++                      onClick={() => setPaying(d)}
++                      className="rounded-full border border-border p-2 text-primary hover:bg-primary/5"
++                      aria-label="Registrar pagamento"
++                    >
++                      <Coins size={14} />
++                    </button>
++                  )}
+                   <button
+                     onClick={() => {
+                       setEditing(d);
+@@ -83,12 +111,39 @@ export default function Dividas() {
+                     <Trash2 size={14} />
+                   </button>
+                 </div>
++                </div>
++                <div className="mt-3">
++                  <div className="flex justify-between text-[11px]">
++                    <span className="font-medium">{progress.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% quitado</span>
++                    {progress >= 100 ? <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 size={12} /> Concluída</span> : <span className="text-muted-foreground">Continue assim</span>}
++                  </div>
++                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
++                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400 transition-all" style={{ width: `${progress}%` }} />
++                  </div>
++                </div>
+               </li>
+-            ))}
++              );
++            })}
+           </ul>
+         </>
+       )}
+ 
++      {paying && (
++        <DebtPaymentModal
++          debt={paying}
++          accounts={accounts}
++          saving={payment.isPending}
++          onClose={() => setPaying(null)}
++          onSubmit={(value) => payment.mutate(value, {
++            onSuccess: () => {
++              toast.success("Pagamento registrado", { description: "O saldo e o progresso da dívida foram atualizados." });
++              setPaying(null);
++            },
++            onError: (error: unknown) => toast.error("Não foi possível registrar", { description: String((error as Error).message) }),
++          })}
++        />
++      )}
++
+       {open && (
+         <DebtModal
+           initial={editing}
+@@ -128,6 +183,9 @@ function DebtModal({
+   const [original, setOriginal] = useState(initial ? String(initial.original_amount) : "");
+   const [outstanding, setOutstanding] = useState(initial ? String(initial.outstanding_balance) : "");
+   const [installment, setInstallment] = useState(initial?.installment_amount != null ? String(initial.installment_amount) : "");
++  const [isInstallment, setIsInstallment] = useState(Boolean(initial?.installments_total));
++  const [installmentsTotal, setInstallmentsTotal] = useState(initial?.installments_total ? String(initial.installments_total) : "");
++  const [installmentsPaid, setInstallmentsPaid] = useState(initial?.installments_paid ? String(initial.installments_paid) : "0");
+   const [dueDay, setDueDay] = useState(initial?.due_day != null ? String(initial.due_day) : "");
+   const [rate, setRate] = useState(initial?.interest_rate_pct != null ? String(initial.interest_rate_pct) : "");
+   const [status, setStatus] = useState<string>(initial?.status ?? "active");
+@@ -136,12 +194,23 @@ function DebtModal({
+ 
+   function submit(e: React.FormEvent) {
+     e.preventDefault();
++    const plan = resolveDebtPlan({
++      originalAmount: original ? Number(original.replace(",", ".")) : null,
++      installmentAmount: installment ? Number(installment.replace(",", ".")) : null,
++      installmentsTotal: isInstallment ? Number(installmentsTotal) : null,
++      installmentsPaid: isInstallment ? Number(installmentsPaid) : 0,
++    });
+     const parsed = debtSchema.safeParse({
+       name,
+       creditor,
+-      original_amount: Number(original.replace(",", ".")),
+-      outstanding_balance: Number(outstanding.replace(",", ".")),
++      original_amount: plan.originalAmount,
++      outstanding_balance: initial ? Number(outstanding.replace(",", ".")) : plan.outstandingAmount,
+       installment_amount: installment ? Number(installment.replace(",", ".")) : null,
++      installments_total: isInstallment ? Number(installmentsTotal) : null,
++      installments_paid: isInstallment ? Number(installmentsPaid) : 0,
++      contract_total_amount: plan.originalAmount,
++      principal_amount: plan.originalAmount,
++      amount_was_inferred: plan.inferredOriginal,
+       due_day: dueDay ? Number(dueDay) : null,
+       interest_rate_pct: rate ? Number(rate.replace(",", ".")) : null,
+       notes,
+@@ -172,19 +241,43 @@ function DebtModal({
+           </div>
+           <div className="grid grid-cols-2 gap-2">
+             <div>
+-              <label className="mb-1 block text-xs font-medium">Valor original</label>
+-              <input inputMode="decimal" value={original} onChange={(e) => setOriginal(e.target.value)} className="input-base" />
++              <label className="mb-1 block text-xs font-medium">Valor total da dívida</label>
++              <input inputMode="decimal" value={original} onChange={(e) => setOriginal(e.target.value)} className="input-base" placeholder={isInstallment ? "Pode deixar vazio para calcular" : ""} />
+             </div>
+             <div>
+               <label className="mb-1 block text-xs font-medium">Saldo pendente</label>
+               <input inputMode="decimal" value={outstanding} onChange={(e) => setOutstanding(e.target.value)} className="input-base" />
+             </div>
+           </div>
+-          <div className="grid grid-cols-2 gap-2">
+-            <div>
+-              <label className="mb-1 block text-xs font-medium">Parcela (opcional)</label>
+-              <input inputMode="decimal" value={installment} onChange={(e) => setInstallment(e.target.value)} className="input-base" />
++          <label className="flex items-center gap-2 rounded-xl border border-border p-3 text-sm">
++            <input type="checkbox" checked={isInstallment} onChange={(e) => setIsInstallment(e.target.checked)} />
++            Esta dívida foi parcelada
++          </label>
++          {isInstallment && (
++            <div className="rounded-xl bg-secondary/40 p-3">
++              <div className="grid grid-cols-3 gap-2">
++                <div>
++                  <label className="mb-1 block text-xs font-medium">Valor da parcela</label>
++                  <input inputMode="decimal" value={installment} onChange={(e) => setInstallment(e.target.value)} className="input-base" />
++                </div>
++                <div>
++                  <label className="mb-1 block text-xs font-medium">Total</label>
++                  <input type="number" min={1} max={600} value={installmentsTotal} onChange={(e) => setInstallmentsTotal(e.target.value)} className="input-base" />
++                </div>
++                <div>
++                  <label className="mb-1 block text-xs font-medium">Já pagas</label>
++                  <input type="number" min={0} max={Number(installmentsTotal) || 600} value={installmentsPaid} onChange={(e) => setInstallmentsPaid(e.target.value)} className="input-base" />
++                </div>
++              </div>
++              {installment && installmentsTotal && (
++                <p className="mt-2 text-[11px] text-muted-foreground">
++                  Total calculado: <strong className="text-foreground">{formatBRL(Number(installment.replace(",", ".")) * Number(installmentsTotal))}</strong>.
++                  O Nino indicará que esse valor foi inferido se você não preencher o total.
++                </p>
++              )}
+             </div>
++          )}
++          <div className="grid grid-cols-2 gap-2">
+             <div>
+               <label className="mb-1 block text-xs font-medium">Dia venc.</label>
+               <input type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} className="input-base" />
+@@ -222,3 +315,95 @@ function DebtModal({
+     </div>
+   );
+ }
++
++function DebtPaymentModal({
++  debt,
++  accounts,
++  saving,
++  onClose,
++  onSubmit,
++}: {
++  debt: DebtRow;
++  accounts: Array<{ id: string; name: string; active: boolean }>;
++  saving: boolean;
++  onClose: () => void;
++  onSubmit: (value: {
++    debt_id: string;
++    account_id: string;
++    paid_at: string;
++    amount: number;
++    interest_amount: number;
++    fee_amount: number;
++    installments_covered: number;
++    notes: string;
++  }) => void;
++}) {
++  const [accountId, setAccountId] = useState(accounts.find((account) => account.active)?.id ?? "");
++  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
++  const [amount, setAmount] = useState(debt.installment_amount ? String(debt.installment_amount) : "");
++  const [interest, setInterest] = useState("0");
++  const [fees, setFees] = useState("0");
++  const [covered, setCovered] = useState(debt.installments_total ? "1" : "0");
++  const [notes, setNotes] = useState("");
++  const [error, setError] = useState<string | null>(null);
++
++  function submit(event: React.FormEvent) {
++    event.preventDefault();
++    const total = Number(amount.replace(",", "."));
++    const interestAmount = Number(interest.replace(",", ".") || 0);
++    const feeAmount = Number(fees.replace(",", ".") || 0);
++    if (!accountId || !Number.isFinite(total) || total <= 0) {
++      setError("Escolha a conta e informe um pagamento válido.");
++      return;
++    }
++    if (interestAmount + feeAmount > total) {
++      setError("Juros e tarifas não podem superar o pagamento.");
++      return;
++    }
++    onSubmit({
++      debt_id: debt.id,
++      account_id: accountId,
++      paid_at: date,
++      amount: total,
++      interest_amount: interestAmount,
++      fee_amount: feeAmount,
++      installments_covered: Number(covered || 0),
++      notes,
++    });
++  }
++
++  return (
++    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
++      <form onSubmit={submit} onClick={(event) => event.stopPropagation()} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
++        <h2 className="font-display text-lg font-bold">Registrar pagamento</h2>
++        <p className="mt-1 text-xs text-muted-foreground">{debt.name} · saldo {formatBRL(Number(debt.outstanding_balance))}</p>
++        <div className="mt-4 space-y-3">
++          <label className="block text-xs font-medium">Conta usada
++            <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className="input-base mt-1">
++              <option value="">Selecione</option>
++              {accounts.filter((account) => account.active).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
++            </select>
++          </label>
++          <div className="grid grid-cols-2 gap-2">
++            <label className="text-xs font-medium">Valor pago<input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className="input-base mt-1" /></label>
++            <label className="text-xs font-medium">Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="input-base mt-1" /></label>
++          </div>
++          <div className="grid grid-cols-3 gap-2">
++            <label className="text-xs font-medium">Juros extras<input inputMode="decimal" value={interest} onChange={(event) => setInterest(event.target.value)} className="input-base mt-1" /></label>
++            <label className="text-xs font-medium">Tarifas<input inputMode="decimal" value={fees} onChange={(event) => setFees(event.target.value)} className="input-base mt-1" /></label>
++            <label className="text-xs font-medium">Parcelas quitadas<input type="number" min={0} value={covered} onChange={(event) => setCovered(event.target.value)} className="input-base mt-1" /></label>
++          </div>
++          <p className="rounded-xl bg-secondary/50 p-3 text-[11px] text-muted-foreground">
++            O valor aplicado reduz a dívida. Juros e tarifas são separados para não serem confundidos com amortização.
++          </p>
++          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="input-base min-h-16" placeholder="Observação opcional" />
++        </div>
++        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
++        <div className="mt-5 flex justify-end gap-2">
++          <button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Cancelar</button>
++          <button type="submit" disabled={saving} className="btn-brand">{saving ? "Salvando…" : "Registrar"}</button>
++        </div>
++      </form>
++    </div>
++  );
++}
+diff --git a/src/pages/Relatorios.tsx b/src/pages/Relatorios.tsx
+index d051dcc..d189aff 100644
+--- a/src/pages/Relatorios.tsx
++++ b/src/pages/Relatorios.tsx
+@@ -21,6 +21,7 @@ import {
+ } from "@/lib/reports/aggregations";
+ import { formatBRL } from "@/lib/split/math";
+ import { resolvePeriodRange } from "@/lib/ui/periodStore";
++import { buildDailySpendSeries } from "@/lib/finance/accounting";
+ 
+ export default function Relatorios() {
+   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
+@@ -49,6 +50,20 @@ export default function Relatorios() {
+ 
+   const filtered = filterCanonicalReportTransactions(filterPeriod(txns, from, to));
+   const monthly = groupByMonth(filtered);
++  const dailyRhythm = buildDailySpendSeries(
++    filtered.map((transaction) => ({
++      ...transaction,
++      id: transaction.id ?? "",
++      account_id: transaction.account_id ?? "",
++      category_id: transaction.category_id ?? null,
++      description: null,
++      transfer_group_id: transaction.transfer_group_id ?? null,
++    })),
++    { start: from, end: to },
++  ).map((point) => ({
++    ...point,
++    label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
++  }));
+   const byCat = byCategory(filtered);
+   const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
+   const totalExpense = monthly.reduce((s, m) => s + m.expense, 0);
+@@ -109,27 +124,39 @@ export default function Relatorios() {
+       </div>
+ 
+       <section>
+-        <h2 className="mb-2 text-sm font-semibold">Evolução mensal</h2>
++        <div className="mb-2">
++          <h2 className="text-sm font-semibold">Ritmo de gastos no período</h2>
++          <p className="mt-0.5 text-[11px] text-muted-foreground">Picos reais por dia e tendência típica de 7 dias. Dias sem gastos também entram no cálculo.</p>
++        </div>
+         <div className="surface-card mb-3 h-64 p-3">
+           <ResponsiveContainer width="100%" height="100%">
+-            <LineChart data={monthly} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
++            <LineChart data={dailyRhythm} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+-              <XAxis dataKey="ym" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+-              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
++              <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
++              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
+               <Tooltip
+-                formatter={(value: number) => formatBRL(Number(value))}
++                formatter={(value: number, name: string) => [
++                  formatBRL(Number(value)),
++                  name === "actual" ? "Gasto do dia" : "Ritmo típico",
++                ]}
++                labelFormatter={(label) => `Dia ${label}`}
+                 contentStyle={{
+-                  borderRadius: 14,
++                  borderRadius: 16,
+                   border: "1px solid hsl(var(--border))",
+                   background: "hsl(var(--background))",
+                   fontSize: 12,
+                 }}
+               />
+-              <Line type="monotone" dataKey="income" name="Receitas" stroke="hsl(var(--success))" strokeWidth={2.5} dot={false} />
+-              <Line type="monotone" dataKey="expense" name="Consumo real" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
++              <Line type="monotone" dataKey="actual" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
++              <Line type="monotone" dataKey="rollingTypical" name="Ritmo típico" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
+             </LineChart>
+           </ResponsiveContainer>
+         </div>
++        <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
++          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Gasto do dia</span>
++          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico (7 dias)</span>
++        </div>
++        <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Resumo mensal do período</h3>
+         <div className="surface-card overflow-x-auto">
+           <table className="w-full text-xs">
+             <thead className="bg-secondary/40">
+diff --git a/src/test/accounting-core.test.ts b/src/test/accounting-core.test.ts
+new file mode 100644
+index 0000000..7f575c2
+--- /dev/null
++++ b/src/test/accounting-core.test.ts
+@@ -0,0 +1,60 @@
++import { describe, expect, it } from "vitest";
++import { buildDailySpendSeries, resolveDebtPlan } from "@/lib/finance/accounting";
++import type { TransactionRow } from "@/lib/engine/facts";
++
++const tx = (id: string, date: string, amount: number, extra: Partial<TransactionRow> = {}): TransactionRow => ({
++  id,
++  account_id: "account",
++  category_id: "category",
++  type: "expense",
++  status: "confirmed",
++  amount,
++  occurred_at: date,
++  description: id,
++  transfer_group_id: null,
++  movement_kind: "transaction",
++  ...extra,
++});
++
++describe("accounting core", () => {
++  it("infere total, pago, saldo e progresso de uma dívida parcelada", () => {
++    expect(resolveDebtPlan({
++      installmentAmount: 250,
++      installmentsTotal: 12,
++      installmentsPaid: 4,
++    })).toEqual({
++      originalAmount: 3000,
++      installmentAmount: 250,
++      installmentsTotal: 12,
++      installmentsPaid: 4,
++      paidAmount: 1000,
++      outstandingAmount: 2000,
++      progressPct: 33.33,
++      inferredOriginal: true,
++    });
++  });
++
++  it("limita parcelas pagas ao total e nunca cria saldo negativo", () => {
++    const plan = resolveDebtPlan({
++      originalAmount: 1000,
++      installmentAmount: 100,
++      installmentsTotal: 10,
++      installmentsPaid: 15,
++    });
++    expect(plan.installmentsPaid).toBe(10);
++    expect(plan.outstandingAmount).toBe(0);
++    expect(plan.progressPct).toBe(100);
++  });
++
++  it("inclui dias zerados e exclui pagamento de fatura da série diária", () => {
++    const series = buildDailySpendSeries([
++      tx("meal", "2026-07-01", 90),
++      tx("bill", "2026-07-02", 900, {
++        settles_card_id: "card",
++        movement_kind: "credit_card_bill_payment",
++      }),
++    ], { start: "2026-07-01", end: "2026-07-03" });
++    expect(series.map((point) => point.actual)).toEqual([90, 0, 0]);
++    expect(series[2].rollingTypical).toBe(30);
++  });
++});
+diff --git a/src/test/financial-accounting-contract.test.ts b/src/test/financial-accounting-contract.test.ts
+new file mode 100644
+index 0000000..09d6877
+--- /dev/null
++++ b/src/test/financial-accounting-contract.test.ts
+@@ -0,0 +1,34 @@
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++import { describe, expect, it } from "vitest";
++
++const readProjectFile = (path: string) =>
++  readFileSync(resolve(process.cwd(), path), "utf8");
++
++describe("financial accounting integration contract", () => {
++  it("requires explicit confirmation before treating historical card installments as paid", () => {
++    const migration = readProjectFile(
++      "supabase/migrations/20260730020000_financial_accounting_cards_debts.sql",
++    );
++    const reviewSheet = readProjectFile(
++      "src/components/assessor/ReviewSheet.tsx",
++    );
++
++    expect(migration).toContain("historical_installments_paid_assumption");
++    expect(migration).toContain("reconcile_imported_installment_history");
++    expect(reviewSheet).toContain("parcelas anteriores já foram pagas");
++    expect(reviewSheet).toContain("reconcile_imported_installment_history");
++  });
++
++  it("keeps principal, interest and fees independently auditable for debt payments", () => {
++    const migration = readProjectFile(
++      "supabase/migrations/20260730020000_financial_accounting_cards_debts.sql",
++    );
++
++    expect(migration).toContain("record_debt_payment");
++    expect(migration).toContain("principal_amount");
++    expect(migration).toContain("interest_amount");
++    expect(migration).toContain("fee_amount");
++    expect(migration).toContain("'debt_payment'");
++  });
++});
+diff --git a/supabase/functions/assistant-review-actions/index.ts b/supabase/functions/assistant-review-actions/index.ts
+index 74cedb2..e6a3771 100644
+--- a/supabase/functions/assistant-review-actions/index.ts
++++ b/supabase/functions/assistant-review-actions/index.ts
+@@ -19,7 +19,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+ const ALLOWED_PATCH_KEYS = new Set([
+   "description", "friendly_description", "amount", "occurred_at", "category_id", "account_id",
+   "credit_card_id", "payment_method", "installments_total", "installment_number",
+-  "purchase_date", "competence_date",
++  "purchase_date", "competence_date", "historical_installments_paid_assumption",
+ ]);
+ 
+ async function getUser(req: Request) {
+diff --git a/supabase/migrations/20260730020000_financial_accounting_cards_debts.sql b/supabase/migrations/20260730020000_financial_accounting_cards_debts.sql
+new file mode 100644
+index 0000000..24ce795
+--- /dev/null
++++ b/supabase/migrations/20260730020000_financial_accounting_cards_debts.sql
+@@ -0,0 +1,620 @@
++-- Meu Nino — núcleo contábil de cartões, faturas e dívidas.
++-- A migration é aditiva e mantém transactions/debts legados compatíveis.
++
++ALTER TABLE public.debts
++  ADD COLUMN IF NOT EXISTS installments_total integer,
++  ADD COLUMN IF NOT EXISTS installments_paid integer NOT NULL DEFAULT 0,
++  ADD COLUMN IF NOT EXISTS contract_total_amount numeric(14,2),
++  ADD COLUMN IF NOT EXISTS principal_amount numeric(14,2),
++  ADD COLUMN IF NOT EXISTS start_date date,
++  ADD COLUMN IF NOT EXISTS first_due_date date,
++  ADD COLUMN IF NOT EXISTS accounting_method text NOT NULL DEFAULT 'contractual_schedule',
++  ADD COLUMN IF NOT EXISTS amount_was_inferred boolean NOT NULL DEFAULT false,
++  ADD COLUMN IF NOT EXISTS formula_version text NOT NULL DEFAULT 'debt_schedule.v1';
++
++ALTER TABLE public.extracted_items
++  ADD COLUMN IF NOT EXISTS historical_installments_paid_assumption boolean;
++
++UPDATE public.debts
++   SET contract_total_amount = coalesce(contract_total_amount, original_amount),
++       principal_amount = coalesce(principal_amount, original_amount),
++       installments_paid = greatest(0, coalesce(installments_paid, 0))
++ WHERE contract_total_amount IS NULL
++    OR principal_amount IS NULL;
++
++ALTER TABLE public.debts
++  ALTER COLUMN contract_total_amount SET NOT NULL,
++  ALTER COLUMN principal_amount SET NOT NULL;
++
++ALTER TABLE public.debts DROP CONSTRAINT IF EXISTS debts_installments_total_check;
++ALTER TABLE public.debts ADD CONSTRAINT debts_installments_total_check
++  CHECK (installments_total IS NULL OR installments_total BETWEEN 1 AND 600);
++ALTER TABLE public.debts DROP CONSTRAINT IF EXISTS debts_installments_paid_check;
++ALTER TABLE public.debts ADD CONSTRAINT debts_installments_paid_check
++  CHECK (
++    installments_paid >= 0
++    AND (installments_total IS NULL OR installments_paid <= installments_total)
++  );
++ALTER TABLE public.debts DROP CONSTRAINT IF EXISTS debts_contract_total_check;
++ALTER TABLE public.debts ADD CONSTRAINT debts_contract_total_check
++  CHECK (contract_total_amount > 0 AND principal_amount > 0);
++ALTER TABLE public.debts DROP CONSTRAINT IF EXISTS debts_accounting_method_check;
++ALTER TABLE public.debts ADD CONSTRAINT debts_accounting_method_check
++  CHECK (accounting_method IN ('contractual_schedule','open_balance','manual_reconciliation'));
++
++CREATE TABLE IF NOT EXISTS public.debt_payments (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  debt_id uuid NOT NULL REFERENCES public.debts(id) ON DELETE CASCADE,
++  account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
++  paid_at date NOT NULL DEFAULT current_date,
++  amount numeric(14,2) NOT NULL CHECK (amount > 0),
++  amount_applied numeric(14,2) NOT NULL CHECK (amount_applied >= 0),
++  interest_amount numeric(14,2) NOT NULL DEFAULT 0 CHECK (interest_amount >= 0),
++  fee_amount numeric(14,2) NOT NULL DEFAULT 0 CHECK (fee_amount >= 0),
++  installments_covered integer NOT NULL DEFAULT 0 CHECK (installments_covered >= 0),
++  notes text,
++  transaction_id uuid REFERENCES public.transactions(id) ON DELETE SET NULL,
++  idempotency_key text,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  CONSTRAINT debt_payment_composition CHECK (
++    round(amount_applied + interest_amount + fee_amount, 2) = round(amount, 2)
++  ),
++  UNIQUE (user_id, idempotency_key)
++);
++
++CREATE INDEX IF NOT EXISTS debt_payments_debt_date_idx
++  ON public.debt_payments(debt_id, paid_at DESC);
++ALTER TABLE public.debt_payments ENABLE ROW LEVEL SECURITY;
++DROP POLICY IF EXISTS "debt_payments own rows" ON public.debt_payments;
++CREATE POLICY "debt_payments own rows" ON public.debt_payments
++  FOR ALL TO authenticated
++  USING (auth.uid() = user_id)
++  WITH CHECK (
++    auth.uid() = user_id
++    AND EXISTS (
++      SELECT 1 FROM public.debts d
++       WHERE d.id = debt_id AND d.user_id = auth.uid()
++    )
++  );
++GRANT SELECT, INSERT, UPDATE, DELETE ON public.debt_payments TO authenticated;
++GRANT ALL ON public.debt_payments TO service_role;
++
++-- Compra é o evento econômico único. Parcela e fatura são compromissos/liquidações.
++CREATE TABLE IF NOT EXISTS public.credit_card_purchases (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  credit_card_id uuid NOT NULL REFERENCES public.credit_cards(id) ON DELETE RESTRICT,
++  merchant text NOT NULL,
++  category_id uuid REFERENCES public.categories(id) ON DELETE SET NULL,
++  purchase_date date NOT NULL,
++  total_amount numeric(14,2) NOT NULL CHECK (total_amount > 0),
++  installments_total integer NOT NULL DEFAULT 1 CHECK (installments_total BETWEEN 1 AND 600),
++  source text NOT NULL DEFAULT 'manual',
++  source_document_id uuid REFERENCES public.document_imports(id) ON DELETE SET NULL,
++  inferred_total boolean NOT NULL DEFAULT false,
++  confidence numeric(5,4),
++  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','refunded','cancelled')),
++  legacy_purchase_group_id uuid,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  updated_at timestamptz NOT NULL DEFAULT now()
++);
++
++CREATE TABLE IF NOT EXISTS public.credit_card_installments (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  purchase_id uuid NOT NULL REFERENCES public.credit_card_purchases(id) ON DELETE CASCADE,
++  credit_card_id uuid NOT NULL REFERENCES public.credit_cards(id) ON DELETE RESTRICT,
++  installment_number integer NOT NULL CHECK (installment_number >= 1),
++  amount numeric(14,2) NOT NULL CHECK (amount > 0),
++  competence_month date NOT NULL,
++  due_date date,
++  status text NOT NULL DEFAULT 'scheduled'
++    CHECK (status IN ('historical_unconfirmed','scheduled','billed','paid','overdue','refunded','cancelled')),
++  legacy_transaction_id uuid REFERENCES public.transactions(id) ON DELETE SET NULL,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  updated_at timestamptz NOT NULL DEFAULT now(),
++  UNIQUE (purchase_id, installment_number)
++);
++
++CREATE TABLE IF NOT EXISTS public.credit_card_statements (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  credit_card_id uuid NOT NULL REFERENCES public.credit_cards(id) ON DELETE RESTRICT,
++  competence_month date NOT NULL,
++  period_start date,
++  period_end date,
++  closing_date date,
++  due_date date NOT NULL,
++  stated_total numeric(14,2) NOT NULL DEFAULT 0 CHECK (stated_total >= 0),
++  reconciled_total numeric(14,2) NOT NULL DEFAULT 0,
++  paid_amount numeric(14,2) NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
++  outstanding_amount numeric(14,2) GENERATED ALWAYS AS
++    (greatest(0::numeric, stated_total - paid_amount)) STORED,
++  reconciliation_difference numeric(14,2) GENERATED ALWAYS AS
++    (round(stated_total - reconciled_total, 2)) STORED,
++  status text NOT NULL DEFAULT 'draft'
++    CHECK (status IN ('draft','needs_review','open','partially_paid','paid','overdue','refinanced','cancelled')),
++  source_document_id uuid REFERENCES public.document_imports(id) ON DELETE SET NULL,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  updated_at timestamptz NOT NULL DEFAULT now(),
++  UNIQUE (credit_card_id, competence_month)
++);
++
++CREATE TABLE IF NOT EXISTS public.credit_card_statement_items (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  statement_id uuid NOT NULL REFERENCES public.credit_card_statements(id) ON DELETE CASCADE,
++  installment_id uuid REFERENCES public.credit_card_installments(id) ON DELETE SET NULL,
++  legacy_transaction_id uuid REFERENCES public.transactions(id) ON DELETE SET NULL,
++  item_kind text NOT NULL DEFAULT 'purchase'
++    CHECK (item_kind IN ('purchase','installment','refund','interest','fee','adjustment')),
++  description text NOT NULL,
++  amount numeric(14,2) NOT NULL,
++  occurred_at date,
++  created_at timestamptz NOT NULL DEFAULT now()
++);
++
++CREATE TABLE IF NOT EXISTS public.credit_card_payments (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  credit_card_id uuid NOT NULL REFERENCES public.credit_cards(id) ON DELETE RESTRICT,
++  account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
++  paid_at date NOT NULL,
++  amount numeric(14,2) NOT NULL CHECK (amount > 0),
++  transaction_id uuid REFERENCES public.transactions(id) ON DELETE SET NULL,
++  idempotency_key text,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  UNIQUE (user_id, idempotency_key)
++);
++
++CREATE TABLE IF NOT EXISTS public.credit_card_payment_allocations (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  payment_id uuid NOT NULL REFERENCES public.credit_card_payments(id) ON DELETE CASCADE,
++  statement_id uuid NOT NULL REFERENCES public.credit_card_statements(id) ON DELETE RESTRICT,
++  amount numeric(14,2) NOT NULL CHECK (amount > 0),
++  created_at timestamptz NOT NULL DEFAULT now(),
++  UNIQUE (payment_id, statement_id)
++);
++
++CREATE UNIQUE INDEX IF NOT EXISTS credit_card_purchases_legacy_group_unique
++  ON public.credit_card_purchases(user_id, legacy_purchase_group_id)
++  WHERE legacy_purchase_group_id IS NOT NULL;
++CREATE UNIQUE INDEX IF NOT EXISTS credit_card_installments_legacy_tx_unique
++  ON public.credit_card_installments(legacy_transaction_id)
++  WHERE legacy_transaction_id IS NOT NULL;
++CREATE UNIQUE INDEX IF NOT EXISTS credit_card_statement_items_legacy_tx_unique
++  ON public.credit_card_statement_items(legacy_transaction_id)
++  WHERE legacy_transaction_id IS NOT NULL;
++
++-- Backfill conservador: cria a estrutura, mas marca faturas reconstruídas para revisão.
++INSERT INTO public.credit_card_purchases(
++  user_id, credit_card_id, merchant, category_id, purchase_date, total_amount,
++  installments_total, source, inferred_total, status, legacy_purchase_group_id
++)
++SELECT
++  t.user_id,
++  t.credit_card_id,
++  coalesce(max(nullif(t.description, '')), 'Compra importada'),
++  (array_agg(t.category_id) FILTER (WHERE t.category_id IS NOT NULL))[1],
++  min(coalesce(t.purchase_date, t.occurred_at::date)),
++  sum(t.amount),
++  greatest(1, max(coalesce(t.installments_total, 1))),
++  'legacy_backfill',
++  false,
++  'active',
++  coalesce(t.purchase_group_id, t.id)
++FROM public.transactions t
++WHERE t.credit_card_id IS NOT NULL
++  AND t.type = 'expense'
++  AND coalesce(t.status::text, 'confirmed') = 'confirmed'
++  AND coalesce(t.movement_kind, 'transaction') = 'transaction'
++GROUP BY t.user_id, t.credit_card_id, coalesce(t.purchase_group_id, t.id)
++ON CONFLICT DO NOTHING;
++
++INSERT INTO public.credit_card_installments(
++  user_id, purchase_id, credit_card_id, installment_number, amount,
++  competence_month, status, legacy_transaction_id
++)
++SELECT
++  t.user_id,
++  p.id,
++  t.credit_card_id,
++  coalesce(t.installment_number, 1),
++  t.amount,
++  date_trunc('month', coalesce(t.competence_date, t.occurred_at::date))::date,
++  CASE
++    WHEN coalesce(t.competence_date, t.occurred_at::date) < date_trunc('month', current_date)::date
++      THEN 'historical_unconfirmed'
++    ELSE 'scheduled'
++  END,
++  t.id
++FROM public.transactions t
++JOIN public.credit_card_purchases p
++  ON p.user_id = t.user_id
++ AND p.legacy_purchase_group_id = coalesce(t.purchase_group_id, t.id)
++WHERE t.credit_card_id IS NOT NULL
++  AND t.type = 'expense'
++  AND coalesce(t.status::text, 'confirmed') = 'confirmed'
++  AND coalesce(t.movement_kind, 'transaction') = 'transaction'
++ON CONFLICT DO NOTHING;
++
++INSERT INTO public.credit_card_statements(
++  user_id, credit_card_id, competence_month, due_date, stated_total,
++  reconciled_total, status
++)
++SELECT
++  i.user_id,
++  i.credit_card_id,
++  i.competence_month,
++  make_date(
++    extract(year from i.competence_month)::int,
++    extract(month from i.competence_month)::int,
++    least(cc.due_day, extract(day from (date_trunc('month', i.competence_month) + interval '1 month - 1 day'))::int)
++  ),
++  sum(i.amount),
++  sum(i.amount),
++  'needs_review'
++FROM public.credit_card_installments i
++JOIN public.credit_cards cc ON cc.id = i.credit_card_id
++GROUP BY i.user_id, i.credit_card_id, i.competence_month, cc.due_day
++ON CONFLICT (credit_card_id, competence_month) DO NOTHING;
++
++INSERT INTO public.credit_card_statement_items(
++  user_id, statement_id, installment_id, legacy_transaction_id,
++  item_kind, description, amount, occurred_at
++)
++SELECT
++  i.user_id,
++  s.id,
++  i.id,
++  i.legacy_transaction_id,
++  CASE WHEN p.installments_total > 1 THEN 'installment' ELSE 'purchase' END,
++  p.merchant,
++  i.amount,
++  p.purchase_date
++FROM public.credit_card_installments i
++JOIN public.credit_card_purchases p ON p.id = i.purchase_id
++JOIN public.credit_card_statements s
++  ON s.credit_card_id = i.credit_card_id
++ AND s.competence_month = i.competence_month
++WHERE NOT EXISTS (
++  SELECT 1 FROM public.credit_card_statement_items existing
++   WHERE existing.installment_id = i.id
++);
++
++-- Mantém a camada contábil sincronizada com todos os caminhos atuais
++-- (formulário, assessor, WhatsApp e importação), que ainda gravam transactions.
++CREATE OR REPLACE FUNCTION public.sync_card_accounting_from_transaction()
++RETURNS trigger
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_group uuid;
++  v_purchase_id uuid;
++  v_installment_id uuid;
++  v_statement_id uuid;
++  v_competence date;
++  v_total numeric;
++  v_due_day integer;
++BEGIN
++  IF NEW.credit_card_id IS NULL
++     OR NEW.type::text <> 'expense'
++     OR coalesce(NEW.status::text, 'confirmed') <> 'confirmed'
++     OR coalesce(NEW.movement_kind, 'transaction') <> 'transaction' THEN
++    RETURN NEW;
++  END IF;
++
++  v_group := coalesce(NEW.purchase_group_id, NEW.id);
++  v_competence := date_trunc(
++    'month', coalesce(NEW.competence_date, NEW.occurred_at::date)
++  )::date;
++
++  SELECT id INTO v_purchase_id
++    FROM public.credit_card_purchases
++   WHERE user_id = NEW.user_id AND legacy_purchase_group_id = v_group;
++
++  IF v_purchase_id IS NULL THEN
++    INSERT INTO public.credit_card_purchases(
++      user_id, credit_card_id, merchant, category_id, purchase_date,
++      total_amount, installments_total, source, inferred_total,
++      legacy_purchase_group_id
++    ) VALUES (
++      NEW.user_id, NEW.credit_card_id,
++      coalesce(nullif(NEW.description, ''), 'Compra no cartão'),
++      NEW.category_id, coalesce(NEW.purchase_date, NEW.occurred_at::date),
++      CASE WHEN coalesce(NEW.installments_total, 1) > 1
++           THEN NEW.amount * NEW.installments_total ELSE NEW.amount END,
++      greatest(1, coalesce(NEW.installments_total, 1)),
++      coalesce(nullif(NEW.origin::text, ''), 'transaction_sync'),
++      coalesce(NEW.installments_total, 1) > 1,
++      v_group
++    ) RETURNING id INTO v_purchase_id;
++  ELSE
++    UPDATE public.credit_card_purchases
++       SET merchant = coalesce(nullif(NEW.description, ''), merchant),
++           category_id = coalesce(NEW.category_id, category_id),
++           updated_at = now()
++     WHERE id = v_purchase_id;
++  END IF;
++
++  -- Uma fatura pode começar na parcela 4/10. Criamos o cronograma inteiro,
++  -- mas o passado fica explicitamente não confirmado até o usuário responder.
++  INSERT INTO public.credit_card_installments(
++    user_id, purchase_id, credit_card_id, installment_number, amount,
++    competence_month, status
++  )
++  SELECT
++    NEW.user_id, v_purchase_id, NEW.credit_card_id, installment_no, NEW.amount,
++    (
++      v_competence
++      + make_interval(
++          months => (
++            installment_no - greatest(1, coalesce(NEW.installment_number, 1))
++          )::integer
++        )
++    )::date,
++    CASE
++      WHEN installment_no < greatest(1, coalesce(NEW.installment_number, 1))
++        THEN 'historical_unconfirmed'
++      WHEN installment_no = greatest(1, coalesce(NEW.installment_number, 1))
++        THEN 'billed'
++      ELSE 'scheduled'
++    END
++  FROM generate_series(1, greatest(1, coalesce(NEW.installments_total, 1))) AS installment_no
++  ON CONFLICT (purchase_id, installment_number) DO NOTHING;
++
++  INSERT INTO public.credit_card_installments(
++    user_id, purchase_id, credit_card_id, installment_number, amount,
++    competence_month, status, legacy_transaction_id
++  ) VALUES (
++    NEW.user_id, v_purchase_id, NEW.credit_card_id,
++    greatest(1, coalesce(NEW.installment_number, 1)), NEW.amount,
++    v_competence,
++    CASE WHEN v_competence < date_trunc('month', current_date)::date
++         THEN 'historical_unconfirmed' ELSE 'scheduled' END,
++    NEW.id
++  )
++  ON CONFLICT (purchase_id, installment_number)
++  DO UPDATE SET
++    amount = excluded.amount,
++    competence_month = excluded.competence_month,
++    legacy_transaction_id = excluded.legacy_transaction_id,
++    status = excluded.status,
++    updated_at = now()
++  RETURNING id INTO v_installment_id;
++
++  SELECT due_day INTO v_due_day FROM public.credit_cards WHERE id = NEW.credit_card_id;
++  SELECT id INTO v_statement_id
++    FROM public.credit_card_statements
++   WHERE credit_card_id = NEW.credit_card_id AND competence_month = v_competence;
++
++  IF v_statement_id IS NULL THEN
++    INSERT INTO public.credit_card_statements(
++      user_id, credit_card_id, competence_month, due_date,
++      stated_total, reconciled_total, status
++    ) VALUES (
++      NEW.user_id, NEW.credit_card_id, v_competence,
++      make_date(
++        extract(year from v_competence)::int,
++        extract(month from v_competence)::int,
++        least(coalesce(v_due_day, 1), extract(day from (date_trunc('month', v_competence) + interval '1 month - 1 day'))::int)
++      ),
++      NEW.amount, NEW.amount, 'needs_review'
++    ) RETURNING id INTO v_statement_id;
++  END IF;
++
++  INSERT INTO public.credit_card_statement_items(
++    user_id, statement_id, installment_id, legacy_transaction_id,
++    item_kind, description, amount, occurred_at
++  ) VALUES (
++    NEW.user_id, v_statement_id, v_installment_id, NEW.id,
++    CASE WHEN coalesce(NEW.installments_total, 1) > 1 THEN 'installment' ELSE 'purchase' END,
++    coalesce(nullif(NEW.description, ''), 'Compra no cartão'),
++    NEW.amount, NEW.occurred_at::date
++  )
++  ON CONFLICT (legacy_transaction_id) WHERE legacy_transaction_id IS NOT NULL
++  DO UPDATE SET
++    statement_id = excluded.statement_id,
++    installment_id = excluded.installment_id,
++    description = excluded.description,
++    amount = excluded.amount,
++    occurred_at = excluded.occurred_at;
++
++  SELECT coalesce(sum(amount), 0) INTO v_total
++    FROM public.credit_card_statement_items WHERE statement_id = v_statement_id;
++  UPDATE public.credit_card_statements
++     SET reconciled_total = v_total,
++         stated_total = CASE WHEN source_document_id IS NULL THEN v_total ELSE stated_total END,
++         updated_at = now()
++   WHERE id = v_statement_id;
++
++  RETURN NEW;
++END $$;
++
++DROP TRIGGER IF EXISTS trg_sync_card_accounting_from_transaction ON public.transactions;
++CREATE TRIGGER trg_sync_card_accounting_from_transaction
++  AFTER INSERT OR UPDATE OF amount, occurred_at, competence_date, credit_card_id,
++    installment_number, installments_total, description, category_id, status
++  ON public.transactions
++  FOR EACH ROW
++  EXECUTE FUNCTION public.sync_card_accounting_from_transaction();
++
++CREATE OR REPLACE FUNCTION public.reconcile_imported_installment_history(p_document_id uuid)
++RETURNS integer
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_user uuid := auth.uid();
++  v_count integer := 0;
++BEGIN
++  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
++  WITH decisions AS (
++    SELECT e.transaction_id, e.installment_number
++      FROM public.extracted_items e
++     WHERE e.document_id = p_document_id
++       AND e.user_id = v_user
++       AND e.historical_installments_paid_assumption IS TRUE
++       AND e.transaction_id IS NOT NULL
++       AND coalesce(e.installment_number, 1) > 1
++  ), current_installments AS (
++    SELECT i.purchase_id, d.installment_number
++      FROM decisions d
++      JOIN public.credit_card_installments i
++        ON i.legacy_transaction_id = d.transaction_id
++  )
++  UPDATE public.credit_card_installments target
++     SET status = 'paid', updated_at = now()
++    FROM current_installments current_item
++   WHERE target.purchase_id = current_item.purchase_id
++     AND target.installment_number < current_item.installment_number
++     AND target.status = 'historical_unconfirmed';
++  GET DIAGNOSTICS v_count = ROW_COUNT;
++  RETURN v_count;
++END $$;
++REVOKE ALL ON FUNCTION public.reconcile_imported_installment_history(uuid) FROM PUBLIC, anon;
++GRANT EXECUTE ON FUNCTION public.reconcile_imported_installment_history(uuid)
++  TO authenticated, service_role;
++
++DO $$
++DECLARE table_name text;
++BEGIN
++  FOREACH table_name IN ARRAY ARRAY[
++    'credit_card_purchases','credit_card_installments','credit_card_statements',
++    'credit_card_statement_items','credit_card_payments','credit_card_payment_allocations'
++  ] LOOP
++    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
++    EXECUTE format('DROP POLICY IF EXISTS "%s own rows" ON public.%I', table_name, table_name);
++    EXECUTE format(
++      'CREATE POLICY "%s own rows" ON public.%I FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id)',
++      table_name, table_name
++    );
++    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', table_name);
++    EXECUTE format('GRANT ALL ON public.%I TO service_role', table_name);
++  END LOOP;
++END $$;
++
++CREATE OR REPLACE FUNCTION public.record_debt_payment(
++  p_debt_id uuid,
++  p_account_id uuid,
++  p_paid_at date,
++  p_amount numeric,
++  p_interest_amount numeric DEFAULT 0,
++  p_fee_amount numeric DEFAULT 0,
++  p_installments_covered integer DEFAULT 0,
++  p_notes text DEFAULT NULL,
++  p_idempotency_key text DEFAULT NULL
++) RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_user uuid := auth.uid();
++  v_debt public.debts;
++  v_applied numeric;
++  v_payment_id uuid;
++  v_transaction_id uuid;
++BEGIN
++  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
++  SELECT * INTO v_debt FROM public.debts
++   WHERE id = p_debt_id AND user_id = v_user FOR UPDATE;
++  IF NOT FOUND THEN RAISE EXCEPTION 'debt_not_found'; END IF;
++  IF p_amount <= 0 OR p_interest_amount < 0 OR p_fee_amount < 0
++     OR p_interest_amount + p_fee_amount > p_amount THEN
++    RAISE EXCEPTION 'invalid_payment_composition';
++  END IF;
++  IF p_account_id IS NOT NULL AND NOT EXISTS (
++    SELECT 1 FROM public.accounts WHERE id = p_account_id AND user_id = v_user AND active
++  ) THEN RAISE EXCEPTION 'account_not_found'; END IF;
++
++  v_applied := p_amount - p_interest_amount - p_fee_amount;
++  IF v_applied > v_debt.outstanding_balance THEN
++    RAISE EXCEPTION 'payment_exceeds_outstanding_balance';
++  END IF;
++
++  IF p_idempotency_key IS NOT NULL THEN
++    SELECT id INTO v_payment_id FROM public.debt_payments
++     WHERE user_id = v_user AND idempotency_key = p_idempotency_key;
++    IF FOUND THEN
++      RETURN jsonb_build_object('ok', true, 'idempotent', true, 'payment_id', v_payment_id);
++    END IF;
++  END IF;
++
++  INSERT INTO public.transactions(
++    user_id, account_id, type, status, amount, occurred_at, description,
++    payment_method, movement_kind
++  ) VALUES (
++    v_user, p_account_id, 'expense', 'confirmed', v_applied,
++    coalesce(p_paid_at, current_date), 'Pagamento de dívida: ' || v_debt.name,
++    'account', 'debt_payment'
++  ) RETURNING id INTO v_transaction_id;
++
++  IF p_interest_amount > 0 THEN
++    INSERT INTO public.transactions(
++      user_id, account_id, type, status, amount, occurred_at, description,
++      payment_method, movement_kind
++    ) VALUES (
++      v_user, p_account_id, 'expense', 'confirmed', p_interest_amount,
++      coalesce(p_paid_at, current_date), 'Juros da dívida: ' || v_debt.name,
++      'account', 'transaction'
++    );
++  END IF;
++  IF p_fee_amount > 0 THEN
++    INSERT INTO public.transactions(
++      user_id, account_id, type, status, amount, occurred_at, description,
++      payment_method, movement_kind
++    ) VALUES (
++      v_user, p_account_id, 'expense', 'confirmed', p_fee_amount,
++      coalesce(p_paid_at, current_date), 'Tarifas da dívida: ' || v_debt.name,
++      'account', 'transaction'
++    );
++  END IF;
++
++  INSERT INTO public.debt_payments(
++    user_id, debt_id, account_id, paid_at, amount, amount_applied,
++    interest_amount, fee_amount, installments_covered, notes,
++    transaction_id, idempotency_key
++  ) VALUES (
++    v_user, p_debt_id, p_account_id, coalesce(p_paid_at, current_date),
++    p_amount, v_applied, p_interest_amount, p_fee_amount,
++    greatest(0, coalesce(p_installments_covered, 0)), nullif(p_notes, ''),
++    v_transaction_id, p_idempotency_key
++  ) RETURNING id INTO v_payment_id;
++
++  UPDATE public.debts
++     SET outstanding_balance = greatest(0, outstanding_balance - v_applied),
++         installments_paid = least(
++           coalesce(installments_total, 2147483647),
++           installments_paid + greatest(0, coalesce(p_installments_covered, 0))
++         ),
++         status = CASE WHEN greatest(0, outstanding_balance - v_applied) = 0
++                       THEN 'settled'::public.debt_status ELSE status END,
++         updated_at = now()
++   WHERE id = p_debt_id;
++
++  RETURN jsonb_build_object(
++    'ok', true, 'idempotent', false, 'payment_id', v_payment_id,
++    'transaction_id', v_transaction_id, 'amount_applied', v_applied
++  );
++END $$;
++REVOKE ALL ON FUNCTION public.record_debt_payment(uuid,uuid,date,numeric,numeric,numeric,integer,text,text)
++  FROM PUBLIC, anon;
++GRANT EXECUTE ON FUNCTION public.record_debt_payment(uuid,uuid,date,numeric,numeric,numeric,integer,text,text)
++  TO authenticated, service_role;
++
++-- A nova movimentação afeta caixa, mas nunca é consumo comportamental.
++ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS transactions_movement_kind_check;
++ALTER TABLE public.transactions ADD CONSTRAINT transactions_movement_kind_check
++  CHECK (movement_kind IN (
++    'transaction','refund','internal_transfer','investment_application',
++    'investment_redemption','investment_yield','loan_proceeds',
++    'credit_card_bill_payment','card_bill_payment','card_payment','debt_payment'
++  ));
++
++NOTIFY pgrst, 'reload schema';

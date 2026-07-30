@@ -92,8 +92,22 @@ export const debtSchema = z.object({
   original_amount: z.number().positive(),
   outstanding_balance: z.number().min(0),
   installment_amount: z.number().min(0).nullable().optional(),
+  installments_total: z.number().int().min(1).max(600).nullable().optional(),
+  installments_paid: z.number().int().min(0).max(600).default(0),
+  contract_total_amount: z.number().positive().optional(),
+  principal_amount: z.number().positive().optional(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  first_due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  amount_was_inferred: z.boolean().default(false),
   due_day: z.number().int().min(1).max(31).nullable().optional(),
   interest_rate_pct: z.number().min(0).max(1000).nullable().optional(),
   notes: z.string().trim().max(300).optional().or(z.literal("")),
+}).superRefine((value, ctx) => {
+  if (value.installments_total != null && value.installments_paid > value.installments_total) {
+    ctx.addIssue({ code: "custom", path: ["installments_paid"], message: "Parcelas pagas não podem superar o total." });
+  }
+  if (value.installments_total != null && !value.installment_amount) {
+    ctx.addIssue({ code: "custom", path: ["installment_amount"], message: "Informe o valor da parcela." });
+  }
 });
 export type DebtInput = z.infer<typeof debtSchema>;

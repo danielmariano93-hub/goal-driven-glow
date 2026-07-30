@@ -20,7 +20,31 @@ export type TransactionRow = Database["public"]["Tables"]["transactions"]["Row"]
 export type GoalRow = Database["public"]["Tables"]["goals"]["Row"];
 export type ContributionRow = Database["public"]["Tables"]["goal_contributions"]["Row"];
 export type InvestmentRow = Database["public"]["Tables"]["investments"]["Row"];
-export type DebtRow = Database["public"]["Tables"]["debts"]["Row"];
+export type DebtRow = Database["public"]["Tables"]["debts"]["Row"] & {
+  installments_total: number | null;
+  installments_paid: number;
+  contract_total_amount: number;
+  principal_amount: number;
+  start_date: string | null;
+  first_due_date: string | null;
+  accounting_method: string;
+  amount_was_inferred: boolean;
+  formula_version: string;
+};
+
+export type DebtPaymentRow = {
+  id: string;
+  debt_id: string;
+  account_id: string | null;
+  paid_at: string;
+  amount: number;
+  amount_applied: number;
+  interest_amount: number;
+  fee_amount: number;
+  installments_covered: number;
+  notes: string | null;
+  created_at: string;
+};
 
 // ================ ACCOUNTS ================
 export function useAccounts() {
@@ -598,23 +622,85 @@ export function useSaveDebt() {
         original_amount: input.original_amount,
         outstanding_balance: input.outstanding_balance,
         installment_amount: input.installment_amount ?? null,
+        installments_total: input.installments_total ?? null,
+        installments_paid: input.installments_paid ?? 0,
+        contract_total_amount: input.contract_total_amount ?? input.original_amount,
+        principal_amount: input.principal_amount ?? input.original_amount,
+        start_date: input.start_date ?? null,
+        first_due_date: input.first_due_date ?? null,
+        amount_was_inferred: input.amount_was_inferred ?? false,
+        accounting_method: input.installments_total ? "contractual_schedule" : "open_balance",
+        formula_version: "debt_schedule.v1",
         due_day: input.due_day ?? null,
         interest_rate_pct: input.interest_rate_pct ?? null,
         notes: input.notes || null,
       };
       if (input.id) {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from("debts")
           .update({ ...payload, status: (input.status as "active" | "settled" | "defaulted") ?? "active" })
           .eq("id", input.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("debts").insert(payload);
+        const { error } = await (supabase as any).from("debts").insert(payload);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["debts"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useDebtPayments(debtId?: string | null) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["debt_payments", user?.id, debtId],
+    enabled: !!user && !!debtId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("debt_payments")
+        .select("*")
+        .eq("debt_id", debtId)
+        .order("paid_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as DebtPaymentRow[];
+    },
+  });
+}
+
+export function useRecordDebtPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      debt_id: string;
+      account_id: string;
+      paid_at: string;
+      amount: number;
+      interest_amount?: number;
+      fee_amount?: number;
+      installments_covered?: number;
+      notes?: string;
+    }) => {
+      const { data, error } = await (supabase as any).rpc("record_debt_payment", {
+        p_debt_id: input.debt_id,
+        p_account_id: input.account_id,
+        p_paid_at: input.paid_at,
+        p_amount: input.amount,
+        p_interest_amount: input.interest_amount ?? 0,
+        p_fee_amount: input.fee_amount ?? 0,
+        p_installments_covered: input.installments_covered ?? 0,
+        p_notes: input.notes || null,
+        p_idempotency_key: crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["debts"] });
+      qc.invalidateQueries({ queryKey: ["debt_payments"] });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });

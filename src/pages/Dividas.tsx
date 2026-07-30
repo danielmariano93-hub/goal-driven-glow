@@ -1,16 +1,27 @@
 import { useState } from "react";
-import { Plus, Trash2, Loader2, Pencil, AlertOctagon } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, AlertOctagon, CheckCircle2, Coins } from "lucide-react";
 import { toast } from "sonner";
-import { useDebts, useSaveDebt, useDeleteDebt, type DebtRow } from "@/lib/db/finance";
+import {
+  useAccounts,
+  useDebts,
+  useSaveDebt,
+  useDeleteDebt,
+  useRecordDebtPayment,
+  type DebtRow,
+} from "@/lib/db/finance";
 import { debtSchema } from "@/lib/validation/finance";
 import { formatBRL } from "@/lib/engine/facts";
+import { resolveDebtPlan } from "@/lib/finance/accounting";
 
 export default function Dividas() {
   const { data: items, isLoading } = useDebts();
   const save = useSaveDebt();
   const del = useDeleteDebt();
+  const payment = useRecordDebtPayment();
+  const { data: accounts = [] } = useAccounts();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DebtRow | null>(null);
+  const [paying, setPaying] = useState<DebtRow | null>(null);
 
   const totalOutstanding = (items ?? []).filter((d) => d.status === "active").reduce((a, b) => a + Number(b.outstanding_balance), 0);
 
@@ -48,23 +59,40 @@ export default function Dividas() {
             <p className="mt-1 text-xl font-semibold tabular-nums text-destructive">{formatBRL(totalOutstanding)}</p>
           </div>
           <ul className="space-y-2">
-            {items.map((d) => (
-              <li key={d.id} className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 shadow-card">
+            {items.map((d) => {
+              const original = Number(d.contract_total_amount ?? d.original_amount);
+              const outstanding = Number(d.outstanding_balance);
+              const paid = Math.max(0, original - outstanding);
+              const progress = original > 0 ? Math.min(100, (paid / original) * 100) : 0;
+              return (
+              <li key={d.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">
                     {d.name}
                     {d.status !== "active" && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-wide">{d.status === "settled" ? "Quitada" : "Inadimplente"}</span>}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {d.creditor ? `${d.creditor} · ` : ""}Original {formatBRL(Number(d.original_amount))}
+                    {d.creditor ? `${d.creditor} · ` : ""}Total contratado {formatBRL(original)}
                     {d.installment_amount ? ` · parcela ${formatBRL(Number(d.installment_amount))}` : ""}
+                    {d.installments_total ? ` · ${d.installments_paid ?? 0}/${d.installments_total} pagas` : ""}
                     {d.interest_rate_pct != null ? ` · juros informado ${d.interest_rate_pct}%` : ""}
                   </p>
-                  <p className="mt-1 text-xs">
-                    Saldo pendente <span className="font-semibold">{formatBRL(Number(d.outstanding_balance))}</span>
+                  <p className="mt-2 text-xs">
+                    Já pago <span className="font-semibold text-success">{formatBRL(paid)}</span>
+                    {" · "}Falta <span className="font-semibold">{formatBRL(outstanding)}</span>
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  {d.status === "active" && (
+                    <button
+                      onClick={() => setPaying(d)}
+                      className="rounded-full border border-border p-2 text-primary hover:bg-primary/5"
+                      aria-label="Registrar pagamento"
+                    >
+                      <Coins size={14} />
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setEditing(d);
@@ -83,10 +111,37 @@ export default function Dividas() {
                     <Trash2 size={14} />
                   </button>
                 </div>
+                </div>
+                <div className="mt-3">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-medium">{progress.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% quitado</span>
+                    {progress >= 100 ? <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 size={12} /> Concluída</span> : <span className="text-muted-foreground">Continue assim</span>}
+                  </div>
+                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400 transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </>
+      )}
+
+      {paying && (
+        <DebtPaymentModal
+          debt={paying}
+          accounts={accounts}
+          saving={payment.isPending}
+          onClose={() => setPaying(null)}
+          onSubmit={(value) => payment.mutate(value, {
+            onSuccess: () => {
+              toast.success("Pagamento registrado", { description: "O saldo e o progresso da dívida foram atualizados." });
+              setPaying(null);
+            },
+            onError: (error: unknown) => toast.error("Não foi possível registrar", { description: String((error as Error).message) }),
+          })}
+        />
       )}
 
       {open && (
@@ -128,6 +183,9 @@ function DebtModal({
   const [original, setOriginal] = useState(initial ? String(initial.original_amount) : "");
   const [outstanding, setOutstanding] = useState(initial ? String(initial.outstanding_balance) : "");
   const [installment, setInstallment] = useState(initial?.installment_amount != null ? String(initial.installment_amount) : "");
+  const [isInstallment, setIsInstallment] = useState(Boolean(initial?.installments_total));
+  const [installmentsTotal, setInstallmentsTotal] = useState(initial?.installments_total ? String(initial.installments_total) : "");
+  const [installmentsPaid, setInstallmentsPaid] = useState(initial?.installments_paid ? String(initial.installments_paid) : "0");
   const [dueDay, setDueDay] = useState(initial?.due_day != null ? String(initial.due_day) : "");
   const [rate, setRate] = useState(initial?.interest_rate_pct != null ? String(initial.interest_rate_pct) : "");
   const [status, setStatus] = useState<string>(initial?.status ?? "active");
@@ -136,12 +194,23 @@ function DebtModal({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    const plan = resolveDebtPlan({
+      originalAmount: original ? Number(original.replace(",", ".")) : null,
+      installmentAmount: installment ? Number(installment.replace(",", ".")) : null,
+      installmentsTotal: isInstallment ? Number(installmentsTotal) : null,
+      installmentsPaid: isInstallment ? Number(installmentsPaid) : 0,
+    });
     const parsed = debtSchema.safeParse({
       name,
       creditor,
-      original_amount: Number(original.replace(",", ".")),
-      outstanding_balance: Number(outstanding.replace(",", ".")),
+      original_amount: plan.originalAmount,
+      outstanding_balance: initial ? Number(outstanding.replace(",", ".")) : plan.outstandingAmount,
       installment_amount: installment ? Number(installment.replace(",", ".")) : null,
+      installments_total: isInstallment ? Number(installmentsTotal) : null,
+      installments_paid: isInstallment ? Number(installmentsPaid) : 0,
+      contract_total_amount: plan.originalAmount,
+      principal_amount: plan.originalAmount,
+      amount_was_inferred: plan.inferredOriginal,
       due_day: dueDay ? Number(dueDay) : null,
       interest_rate_pct: rate ? Number(rate.replace(",", ".")) : null,
       notes,
@@ -172,19 +241,43 @@ function DebtModal({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="mb-1 block text-xs font-medium">Valor original</label>
-              <input inputMode="decimal" value={original} onChange={(e) => setOriginal(e.target.value)} className="input-base" />
+              <label className="mb-1 block text-xs font-medium">Valor total da dívida</label>
+              <input inputMode="decimal" value={original} onChange={(e) => setOriginal(e.target.value)} className="input-base" placeholder={isInstallment ? "Pode deixar vazio para calcular" : ""} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium">Saldo pendente</label>
               <input inputMode="decimal" value={outstanding} onChange={(e) => setOutstanding(e.target.value)} className="input-base" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium">Parcela (opcional)</label>
-              <input inputMode="decimal" value={installment} onChange={(e) => setInstallment(e.target.value)} className="input-base" />
+          <label className="flex items-center gap-2 rounded-xl border border-border p-3 text-sm">
+            <input type="checkbox" checked={isInstallment} onChange={(e) => setIsInstallment(e.target.checked)} />
+            Esta dívida foi parcelada
+          </label>
+          {isInstallment && (
+            <div className="rounded-xl bg-secondary/40 p-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Valor da parcela</label>
+                  <input inputMode="decimal" value={installment} onChange={(e) => setInstallment(e.target.value)} className="input-base" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Total</label>
+                  <input type="number" min={1} max={600} value={installmentsTotal} onChange={(e) => setInstallmentsTotal(e.target.value)} className="input-base" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Já pagas</label>
+                  <input type="number" min={0} max={Number(installmentsTotal) || 600} value={installmentsPaid} onChange={(e) => setInstallmentsPaid(e.target.value)} className="input-base" />
+                </div>
+              </div>
+              {installment && installmentsTotal && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Total calculado: <strong className="text-foreground">{formatBRL(Number(installment.replace(",", ".")) * Number(installmentsTotal))}</strong>.
+                  O Nino indicará que esse valor foi inferido se você não preencher o total.
+                </p>
+              )}
             </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="mb-1 block text-xs font-medium">Dia venc.</label>
               <input type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} className="input-base" />
@@ -217,6 +310,98 @@ function DebtModal({
           <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
           </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DebtPaymentModal({
+  debt,
+  accounts,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  debt: DebtRow;
+  accounts: Array<{ id: string; name: string; active: boolean }>;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (value: {
+    debt_id: string;
+    account_id: string;
+    paid_at: string;
+    amount: number;
+    interest_amount: number;
+    fee_amount: number;
+    installments_covered: number;
+    notes: string;
+  }) => void;
+}) {
+  const [accountId, setAccountId] = useState(accounts.find((account) => account.active)?.id ?? "");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [amount, setAmount] = useState(debt.installment_amount ? String(debt.installment_amount) : "");
+  const [interest, setInterest] = useState("0");
+  const [fees, setFees] = useState("0");
+  const [covered, setCovered] = useState(debt.installments_total ? "1" : "0");
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const total = Number(amount.replace(",", "."));
+    const interestAmount = Number(interest.replace(",", ".") || 0);
+    const feeAmount = Number(fees.replace(",", ".") || 0);
+    if (!accountId || !Number.isFinite(total) || total <= 0) {
+      setError("Escolha a conta e informe um pagamento válido.");
+      return;
+    }
+    if (interestAmount + feeAmount > total) {
+      setError("Juros e tarifas não podem superar o pagamento.");
+      return;
+    }
+    onSubmit({
+      debt_id: debt.id,
+      account_id: accountId,
+      paid_at: date,
+      amount: total,
+      interest_amount: interestAmount,
+      fee_amount: feeAmount,
+      installments_covered: Number(covered || 0),
+      notes,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onSubmit={submit} onClick={(event) => event.stopPropagation()} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Registrar pagamento</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{debt.name} · saldo {formatBRL(Number(debt.outstanding_balance))}</p>
+        <div className="mt-4 space-y-3">
+          <label className="block text-xs font-medium">Conta usada
+            <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className="input-base mt-1">
+              <option value="">Selecione</option>
+              {accounts.filter((account) => account.active).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs font-medium">Valor pago<input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className="input-base mt-1" /></label>
+            <label className="text-xs font-medium">Data<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="input-base mt-1" /></label>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="text-xs font-medium">Juros extras<input inputMode="decimal" value={interest} onChange={(event) => setInterest(event.target.value)} className="input-base mt-1" /></label>
+            <label className="text-xs font-medium">Tarifas<input inputMode="decimal" value={fees} onChange={(event) => setFees(event.target.value)} className="input-base mt-1" /></label>
+            <label className="text-xs font-medium">Parcelas quitadas<input type="number" min={0} value={covered} onChange={(event) => setCovered(event.target.value)} className="input-base mt-1" /></label>
+          </div>
+          <p className="rounded-xl bg-secondary/50 p-3 text-[11px] text-muted-foreground">
+            O valor aplicado reduz a dívida. Juros e tarifas são separados para não serem confundidos com amortização.
+          </p>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="input-base min-h-16" placeholder="Observação opcional" />
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Cancelar</button>
+          <button type="submit" disabled={saving} className="btn-brand">{saving ? "Salvando…" : "Registrar"}</button>
         </div>
       </form>
     </div>
