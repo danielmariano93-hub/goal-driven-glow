@@ -8060,6 +8060,10 @@ export type Database = {
         Args: { p_shared_expense_id: string }
         Returns: number
       }
+      split_set_reimbursement_category: {
+        Args: { p_category_id: string; p_transaction_id: string }
+        Returns: Json
+      }
       split_summary: {
         Args: never
         Returns: {
