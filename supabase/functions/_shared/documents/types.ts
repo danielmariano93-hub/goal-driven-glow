@@ -1,4 +1,6 @@
 // Contrato canônico da extração multimodal.
+import { inferInstallmentDetails } from "./invoice.ts";
+
 export const CANONICAL_MOVEMENT_KINDS = [
   "transaction", "refund", "internal_transfer",
   "investment_application", "investment_redemption",
@@ -153,7 +155,10 @@ export function normalizeDateBR(raw: string, fallback: string, confidence = 0): 
 // Palavras-chave que NUNCA viram lançamento
 const NON_TX_KEYWORDS = [
   "saldo disponível", "saldo total", "saldo anterior", "saldo atual", "saldo em conta", "saldo do dia",
-  "limite disponível", "limite utilizado", "limite da conta", "limite total", "subtotal", "total da fatura", "vencimento",
+  "limite disponível", "limite utilizado", "limite da conta", "limite total", "subtotal",
+  "total da fatura", "valor da fatura", "total a pagar", "pagamento mínimo", "pagamento minimo",
+  "parcelas futuras", "próximas faturas", "proximas faturas", "melhor dia de compra",
+  "data de fechamento", "data do fechamento", "data de vencimento", "vencimento",
   "período de visualização", "periodo de visualizacao", "emitido em", "extrato conta", "lançamentos",
   "pagamento efetuado - fatura", "pagamento fatura", "pagamento da fatura",
 ];
@@ -161,6 +166,10 @@ const NON_TX_KEYWORDS = [
 export function isNonTransactionLine(description: string): boolean {
   const d = description.toLowerCase();
   return NON_TX_KEYWORDS.some((k) => d.includes(k));
+}
+
+function isInvoicePaymentLine(description: string): boolean {
+  return /\bpagamento (efetuado\s+)?(da\s+|de\s+)?fatura\b/i.test(description.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
 }
 
 export type SanitizeCounters = { informational_dropped: number; non_transaction_dropped: number };
@@ -179,7 +188,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
   const rawItems = Array.isArray(r.items) ? r.items : Array.isArray(r.i) ? r.i : [];
   const items: ExtractedItem[] = [];
   let informational_dropped = 0;
-  let non_transaction_dropped = 0;
+  const non_transaction_dropped = 0;
   for (const raw of rawItems) {
     if (Array.isArray(raw)) {
       const row = raw as CompactRow;
@@ -188,11 +197,19 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
       if (!description) continue;
       const movementKind = normalizeMovementKind(row[7], type, description);
       if (movementKind === "informational") { informational_dropped++; continue; }
-      if (isNonTransactionLine(description)) { informational_dropped++; continue; }
+      if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
+        informational_dropped++;
+        continue;
+      }
 
       const amount = normalizeAmountBR(row[2]);
       if (amount == null) continue;
       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
+      const inferred = inferInstallmentDetails(
+        description,
+        typeof row[9] === "number" ? row[9] : null,
+        typeof row[8] === "number" ? row[8] : null,
+      );
       const paymentRaw = row[4];
       const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
       items.push({
@@ -204,8 +221,8 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
         account_hint: typeof row[5] === "string" ? row[5] : null,
         card_hint: typeof row[6] === "string" ? row[6] : null,
         category_hint: typeof row[12] === "string" ? row[12] : null,
-        installments_total: typeof row[8] === "number" && row[8] >= 1 && row[8] <= 48 ? row[8] : null,
-        installment_number: typeof row[9] === "number" && row[9] >= 1 && row[9] <= 48 ? row[9] : null,
+        installments_total: inferred.total,
+        installment_number: inferred.current,
         purchase_date: typeof row[10] === "string" ? normalizeDateBR(row[10], occurred_at) : null,
         competence_date: typeof row[11] === "string" ? normalizeDateBR(row[11], occurred_at) : null,
         confidence: { amount: 0.85, occurred_at: 0.85 },
@@ -221,10 +238,18 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
     const type = it.type === "income" ? "income" : "expense";
     const movementKind = normalizeMovementKind(it.movement_kind, type, description);
     if (movementKind === "informational") { informational_dropped++; continue; }
-    if (isNonTransactionLine(description)) { informational_dropped++; continue; }
+    if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
+      informational_dropped++;
+      continue;
+    }
 
     const amount = normalizeAmountBR(it.amount as string | number);
     if (amount == null) continue;
+    const inferred = inferInstallmentDetails(
+      description,
+      typeof it.installment_number === "number" ? it.installment_number : null,
+      typeof it.installments_total === "number" ? it.installments_total : null,
+    );
     const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
     const dateConfidence = Number(conf.occurred_at ?? 0);
     const occurred_at = normalizeDateBR(String(it.occurred_at ?? ""), fallbackDate, dateConfidence);
@@ -239,8 +264,8 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult 
       account_hint: (it.account_hint as string | null) ?? null,
       card_hint: (it.card_hint as string | null) ?? null,
       category_hint: (it.category_hint as string | null) ?? null,
-      installments_total: typeof it.installments_total === "number" && it.installments_total >= 1 && it.installments_total <= 48 ? it.installments_total : null,
-      installment_number: typeof it.installment_number === "number" && it.installment_number >= 1 && it.installment_number <= 48 ? it.installment_number : null,
+      installments_total: inferred.total,
+      installment_number: inferred.current,
       purchase_date: typeof it.purchase_date === "string" ? normalizeDateBR(it.purchase_date, occurred_at) : null,
       competence_date: typeof it.competence_date === "string" ? normalizeDateBR(it.competence_date, occurred_at) : null,
       confidence: conf,

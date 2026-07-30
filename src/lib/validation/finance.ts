@@ -27,6 +27,9 @@ export const transactionSchema = z.object({
   status: z.enum(["confirmed", "planned"]).default("confirmed"),
   amount: z.number({ invalid_type_error: "Valor inválido" }).positive("Valor deve ser maior que zero"),
   occurred_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida"),
+  purchase_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data da compra inválida").nullable().optional(),
+  installments_total: z.number().int().min(1).max(48).default(1),
+  installment_number: z.number().int().min(1).max(48).default(1),
   description: z.string().trim().max(120).optional().or(z.literal("")),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
@@ -38,6 +41,12 @@ export const transactionSchema = z.object({
   }
   if (value.type === "expense" && value.payment_method === "credit_card" && !value.credit_card_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["credit_card_id"], message: "Escolha o cartão utilizado" });
+  }
+  if (value.installment_number > value.installments_total) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["installment_number"], message: "A parcela atual não pode superar o total de parcelas" });
+  }
+  if (value.payment_method !== "credit_card" && value.installments_total > 1) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["installments_total"], message: "Parcelamento exige cartão de crédito" });
   }
 });
 export type TransactionInput = z.infer<typeof transactionSchema>;

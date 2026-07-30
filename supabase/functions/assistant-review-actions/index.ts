@@ -9,6 +9,7 @@
 //   { action:'rollback', document_id }
 //   { action:'reprocess-rejected', document_id, reason_codes?:[...] }
 //   { action:'set-source-context', document_id, account_id?, credit_card_id?, propagate?:boolean }
+//   { action:'update-document', document_id, patch:{ invoice_total?, invoice_due_date?, invoice_closing_date?, invoice_competence_month? } }
 //   { action:'learn-alias', alias_key, friendly_name, category_id? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
@@ -20,6 +21,11 @@ const ALLOWED_PATCH_KEYS = new Set([
   "description", "friendly_description", "amount", "occurred_at", "category_id", "account_id",
   "credit_card_id", "payment_method", "installments_total", "installment_number",
   "purchase_date", "competence_date", "historical_installments_paid_assumption",
+  "statement_item_kind", "installment_inferred",
+]);
+const ALLOWED_DOCUMENT_PATCH_KEYS = new Set([
+  "invoice_total", "invoice_due_date", "invoice_closing_date",
+  "invoice_competence_month", "invoice_card_last4",
 ]);
 
 async function getUser(req: Request) {
@@ -106,11 +112,91 @@ Deno.serve(async (req) => {
     const document_id = String(body.document_id ?? "");
     const item_ids = Array.isArray(body.item_ids) ? (body.item_ids as string[]) : [];
     if (!document_id || item_ids.length === 0) return json({ error: "missing_fields" }, 400);
-    const { data, error } = await userClient.rpc("confirm_document_import", {
+    const { data: validation, error: validationError } = await userClient.rpc("validate_invoice_import", {
       p_document_id: document_id, p_item_ids: item_ids,
     });
+    if (validationError) return json({ error: "invoice_validation_failed", details: validationError.message }, 400);
+    if (!(validation as { ok?: boolean } | null)?.ok) {
+      return json({ error: "invoice_not_reconciled", result: validation }, 409);
+    }
+    const { data: selectedRows, error: selectedError } = await sb.from("extracted_items")
+      .select("id,statement_item_kind").eq("document_id", document_id).eq("user_id", user.id).in("id", item_ids);
+    if (selectedError) return json({ error: "selected_items_failed", details: selectedError.message }, 400);
+    // Pagamento exibido dentro da fatura e linha informativa participam da
+    // conciliação, mas não são uma nova despesa/receita. Nunca os convertemos
+    // em transaction.
+    const nonLedgerIds = (selectedRows ?? [])
+      .filter((row) => row.statement_item_kind === "payment" || row.statement_item_kind === "informational")
+      .map((row) => row.id as string);
+    const transactionIds = item_ids.filter((id) => !nonLedgerIds.includes(id));
+    let data: unknown = {
+      ok: true, created_count: 0, total_selected: 0, created: [], skipped: [], errors: [],
+    };
+    let error: { message: string } | null = null;
+    if (transactionIds.length > 0) {
+      const rpc = await userClient.rpc("confirm_document_import", {
+        p_document_id: document_id, p_item_ids: transactionIds,
+      });
+      data = rpc.data;
+      error = rpc.error;
+    }
     if (error) return json({ error: "rpc_failed", details: error.message }, 400);
-    return json({ ok: true, result: data });
+    const result = (data ?? {}) as Record<string, unknown>;
+    if (result.ok === false) return json({ error: "confirmation_rejected", result }, 409);
+    if (nonLedgerIds.length > 0) {
+      await sb.from("extracted_items").update({ status: "confirmed" })
+        .eq("document_id", document_id).eq("user_id", user.id).in("id", nonLedgerIds);
+    }
+    let statementResult: unknown = null;
+    if (!(validation as { not_invoice?: boolean } | null)?.not_invoice) {
+      const finalized = await userClient.rpc("finalize_invoice_statement", {
+        p_document_id: document_id, p_item_ids: item_ids,
+      });
+      if (finalized.error) {
+        return json({ error: "statement_finalize_failed", details: finalized.error.message }, 500);
+      }
+      statementResult = finalized.data;
+    }
+    const { count: pendingCount } = await sb.from("extracted_items")
+      .select("id", { count: "exact", head: true })
+      .eq("document_id", document_id).eq("user_id", user.id)
+      .in("status", ["needs_review", "duplicate_suspect"]);
+    if ((pendingCount ?? 0) === 0) {
+      await sb.from("document_imports").update({ status: "confirmed" })
+        .eq("id", document_id).eq("user_id", user.id);
+    }
+    const accounted = Number(result.created_count ?? 0) + nonLedgerIds.length;
+    return json({
+      ok: true,
+      result: {
+        ...result,
+        non_ledger_count: nonLedgerIds.length,
+        accounted_count: accounted,
+        total_selected: item_ids.length,
+        statement: statementResult,
+      },
+    });
+  }
+
+  if (action === "update-document") {
+    const document_id = String(body.document_id ?? "");
+    const patch = (body.patch ?? {}) as Record<string, unknown>;
+    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    const clean: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (ALLOWED_DOCUMENT_PATCH_KEYS.has(key)) clean[key] = value;
+    }
+    if ("invoice_total" in clean) {
+      const total = Number(clean.invoice_total);
+      if (!Number.isFinite(total) || total < 0) return json({ error: "invalid_invoice_total" }, 400);
+      clean.invoice_total = Math.round(total * 100) / 100;
+    }
+    if (Object.keys(clean).length === 0) return json({ error: "empty_patch" }, 400);
+    const { data, error } = await sb.from("document_imports").update(clean)
+      .eq("id", document_id).eq("user_id", user.id).select().maybeSingle();
+    if (error) return json({ error: "update_failed", details: error.message }, 400);
+    if (!data) return json({ error: "not_found" }, 404);
+    return json({ ok: true, document: data });
   }
 
   if (action === "cancel") {

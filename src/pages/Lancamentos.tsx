@@ -858,6 +858,8 @@ function TxModal({
   const [occurredAt, setOccurredAt] = useState(initial?.occurred_at ?? todayISO());
   const [description, setDescription] = useState(initial?.description ?? "");
   const [status, setStatus] = useState<"confirmed" | "planned">(initial?.status ?? "confirmed");
+  const [installmentsTotal, setInstallmentsTotal] = useState(Number(initial?.installments_total ?? 1));
+  const [installmentNumber, setInstallmentNumber] = useState(Number(initial?.installment_number ?? 1));
   const [error, setError] = useState<string | null>(null);
 
   void categories; // filtrado dentro do CategorySelect
@@ -873,6 +875,9 @@ function TxModal({
       status,
       amount: Number(amount.replace(",", ".")),
       occurred_at: occurredAt,
+      purchase_date: type === "expense" && paymentMethod === "credit_card" ? occurredAt : null,
+      installments_total: type === "expense" && paymentMethod === "credit_card" ? installmentsTotal : 1,
+      installment_number: type === "expense" && paymentMethod === "credit_card" ? installmentNumber : 1,
       description,
     });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Dados inválidos"); return; }
@@ -889,8 +894,15 @@ function TxModal({
             <button type="button" onClick={() => setType("income")} className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "income" ? "border-success bg-success/10 text-success" : "border-border bg-background text-muted-foreground"}`}>Receita</button>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Valor (R$)</label>
+            <label className="mb-1 block text-xs font-medium">
+              {type === "expense" && paymentMethod === "credit_card" && installmentsTotal > 1 ? "Valor desta parcela (R$)" : "Valor (R$)"}
+            </label>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base" placeholder="0,00" />
+            {type === "expense" && paymentMethod === "credit_card" && installmentsTotal > 1 && Number(amount.replace(",", ".")) > 0 && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Compra estimada: {formatBRL(Number(amount.replace(",", ".")) * installmentsTotal)} · {installmentsTotal} parcelas
+              </p>
+            )}
           </div>
           {type === "expense" && cards.length > 0 ? (
             <div>
@@ -915,6 +927,45 @@ function TxModal({
                 <option value="">Selecione um cartão</option>
                 {cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
               </select>
+            </div>
+          )}
+          {type === "expense" && paymentMethod === "credit_card" && (
+            <div className="rounded-xl border border-border bg-secondary/30 p-3">
+              <p className="text-xs font-medium">Parcelamento</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Informe 1/1 para compra à vista. O valor acima é sempre o valor da parcela.</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-[10px] text-muted-foreground">Parcela atual</label>
+                  <input
+                    type="number" min={1} max={48}
+                    value={installmentNumber}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      setInstallmentNumber(value);
+                      if (value > installmentsTotal) setInstallmentsTotal(value);
+                    }}
+                    className="input-base"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-muted-foreground">Total de parcelas</label>
+                  <input
+                    type="number" min={1} max={48}
+                    value={installmentsTotal}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      setInstallmentsTotal(value);
+                      if (installmentNumber > value) setInstallmentNumber(value);
+                    }}
+                    className="input-base"
+                  />
+                </div>
+              </div>
+              {installmentsTotal > 1 && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  {Math.max(0, installmentNumber - 1)} anterior(es) · esta é a {installmentNumber}ª · {Math.max(0, installmentsTotal - installmentNumber)} restante(s)
+                </p>
+              )}
             </div>
           )}
           <div>
