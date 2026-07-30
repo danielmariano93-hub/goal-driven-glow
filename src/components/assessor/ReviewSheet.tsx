@@ -383,12 +383,23 @@ export function ReviewSheet({
               <div className="space-y-2 border-b border-border bg-secondary/30 px-4 py-3 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="font-semibold">{documentInfo.statement_bank ?? "Instituição não identificada"}</p>
-                    <p className="text-muted-foreground">{fragments.filter(f => f.status === "completed").length}/{fragments.length || 1} fragmento(s) concluído(s)</p>
+                    <p className="font-semibold">
+                      {isCardDocument(documentInfo.document_kind)
+                        ? `Fatura de cartão${documentInfo.statement_bank ? ` · ${documentInfo.statement_bank}` : ""}`
+                        : documentInfo.document_kind === "statement"
+                          ? `Extrato bancário${documentInfo.statement_bank ? ` · ${documentInfo.statement_bank}` : ""}`
+                          : documentInfo.statement_bank ?? "Documento financeiro"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {isCardDocument(documentInfo.document_kind)
+                        ? "Compras de cartão não saem do saldo agora: entram na fatura."
+                        : `${fragments.filter(f => f.status === "completed").length}/${fragments.length || 1} fragmento(s) concluído(s)`}
+                    </p>
                   </div>
                   <button type="button" onClick={copyDiagnostic} className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><Copy size={11}/> Diagnóstico</button>
                 </div>
                 {fragments.length > 0 && (
+
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {fragments.map((fragment) => <span key={fragment.fragment_index} className={`whitespace-nowrap rounded-full border px-2 py-1 text-[10px] ${fragment.status === "completed" ? "border-success/40 bg-success/10" : fragment.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border bg-card"}`}>p. {fragment.page_start}-{fragment.page_end}: {fragment.status}</span>)}
                   </div>
