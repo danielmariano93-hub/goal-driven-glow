@@ -158,10 +158,10 @@ REGRAS ESTRITAS:
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
 - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
-- Em FATURA DE CARTÃO: "m" com saldos null e "f" preenchido (total = TOTAL A PAGAR da fatura atual, due_date, closing_date, competence YYYY-MM-01, card_last4). Não vire linha de lançamento o total, o pagamento mínimo, limites, parcelas futuras e resumos.
-- Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero; o valor é o da parcela desta fatura.
-- Categoria só quando houver evidência clara: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros.
-- OBRIGATÓRIO: se o documento tiver linhas de compra/lançamento, devolva TODAS elas em "i". Só devolva i=[] quando realmente não existir nenhum lançamento no documento.
+- Em fatura de cartão, preencha "f" com o total a pagar, vencimento, fechamento, competência (YYYY-MM-01) e 4 últimos dígitos, e mantenha os saldos de "m" null.
+- Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero com o valor da parcela desta fatura.
+- Categoria só com evidência clara: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros.
+- OBRIGATÓRIO: "i" deve conter TODAS as linhas de compra/lançamento do documento. Só devolva i=[] quando o documento realmente não tiver nenhum lançamento.
 - LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
 - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
 - Ordene sempre do mais recente para o mais antigo.
