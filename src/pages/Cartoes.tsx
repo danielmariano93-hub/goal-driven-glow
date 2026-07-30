@@ -5,6 +5,8 @@ import { useAllTransactions } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Cartoes() {
   const { data: cards, isLoading } = useCreditCards();
@@ -14,19 +16,57 @@ export default function Cartoes() {
   const save = useSaveCreditCard();
   const del = useDeleteCreditCard();
   const ym = currentMonthYM();
+  const { data: statements = [] } = useQuery({
+    queryKey: ["credit_card_statements"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("credit_card_statements")
+        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
+        .order("competence_month", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const { data: installments = [] } = useQuery({
+    queryKey: ["credit_card_installments"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("credit_card_installments")
+        .select("credit_card_id,amount,competence_month,status");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const stats = useMemo(() => {
-    const byCard: Record<string, { current: number; next: number; total: number }> = {};
+    const byCard: Record<string, { current: number; next: number; total: number; paid: number; needsReview: boolean }> = {};
+    for (const statement of statements as any[]) {
+      const cid = statement.credit_card_id;
+      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
+      const month = String(statement.competence_month).slice(0, 7);
+      if (month === ym) {
+        byCard[cid].current = Number(statement.outstanding_amount ?? statement.stated_total ?? 0);
+        byCard[cid].paid = Number(statement.paid_amount ?? 0);
+        byCard[cid].needsReview = statement.status === "needs_review" || Number(statement.reconciliation_difference ?? 0) !== 0;
+      }
+    }
+    for (const installment of installments as any[]) {
+      const cid = installment.credit_card_id;
+      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
+      if (!["paid", "refunded", "cancelled"].includes(installment.status)) {
+        byCard[cid].total += Number(installment.amount ?? 0);
+      }
+    }
     for (const t of txs ?? []) {
       const anyT = t as unknown as { credit_card_id?: string | null; competence_date?: string | null; amount: number };
       const cid = anyT.credit_card_id;
       const comp = anyT.competence_date;
       if (!cid || !comp) continue;
-      byCard[cid] ||= { current: 0, next: 0, total: 0 };
+      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
       const compYM = comp.slice(0, 7);
       const amt = Number(anyT.amount) || 0;
-      byCard[cid].total += amt;
-      if (compYM === ym) byCard[cid].current += amt;
+      if (installments.length === 0) byCard[cid].total += amt;
+      if (statements.length === 0 && compYM === ym) byCard[cid].current += amt;
       // próxima fatura
       const [y, m] = ym.split("-").map(Number);
       const next0 = m; // m0+1 = m
@@ -34,7 +74,7 @@ export default function Cartoes() {
       if (compYM === nextYM) byCard[cid].next += amt;
     }
     return byCard;
-  }, [txs, ym]);
+  }, [installments, statements, txs, ym]);
 
   return (
     <div>
@@ -64,7 +104,7 @@ export default function Cartoes() {
       ) : (
         <ul className="space-y-3">
           {cards.map((c) => {
-            const st = stats[c.id] ?? { current: 0, next: 0, total: 0 };
+            const st = stats[c.id] ?? { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
             const usedPct = c.total_limit > 0 ? Math.min(1, st.total / Number(c.total_limit)) : 0;
             const available = Math.max(0, Number(c.total_limit) - st.total);
             return (
@@ -98,10 +138,12 @@ export default function Cartoes() {
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
-                  <Stat label="Fatura atual" value={formatBRL(st.current)} />
+                  <Stat label="Em aberto na fatura" value={formatBRL(st.current)} />
                   <Stat label="Próxima" value={formatBRL(st.next)} />
-                  <Stat label="Disponível" value={formatBRL(available)} />
+                  <Stat label="Parcelas futuras" value={formatBRL(st.total)} />
                 </div>
+                {st.paid > 0 && <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.paid)}</p>}
+                {st.needsReview && <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Fatura reconstruída a partir dos lançamentos. Revise antes de considerar o saldo como conciliado.</p>}
                 {c.total_limit > 0 && (
                   <div className="mt-3">
                     <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
@@ -111,7 +153,7 @@ export default function Cartoes() {
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))}
+                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))} · disponível {formatBRL(available)}
                     </p>
                   </div>
                 )}

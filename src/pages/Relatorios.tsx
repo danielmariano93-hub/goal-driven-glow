@@ -21,6 +21,7 @@ import {
 } from "@/lib/reports/aggregations";
 import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
+import { buildDailySpendSeries } from "@/lib/finance/accounting";
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
@@ -49,6 +50,20 @@ export default function Relatorios() {
 
   const filtered = filterCanonicalReportTransactions(filterPeriod(txns, from, to));
   const monthly = groupByMonth(filtered);
+  const dailyRhythm = buildDailySpendSeries(
+    filtered.map((transaction) => ({
+      ...transaction,
+      id: transaction.id ?? "",
+      account_id: transaction.account_id ?? "",
+      category_id: transaction.category_id ?? null,
+      description: null,
+      transfer_group_id: transaction.transfer_group_id ?? null,
+    })),
+    { start: from, end: to },
+  ).map((point) => ({
+    ...point,
+    label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+  }));
   const byCat = byCategory(filtered);
   const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
   const totalExpense = monthly.reduce((s, m) => s + m.expense, 0);
@@ -109,27 +124,39 @@ export default function Relatorios() {
       </div>
 
       <section>
-        <h2 className="mb-2 text-sm font-semibold">Evolução mensal</h2>
+        <div className="mb-2">
+          <h2 className="text-sm font-semibold">Ritmo de gastos no período</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Picos reais por dia e tendência típica de 7 dias. Dias sem gastos também entram no cálculo.</p>
+        </div>
         <div className="surface-card mb-3 h-64 p-3">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={monthly} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+            <LineChart data={dailyRhythm} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="ym" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+              <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
               <Tooltip
-                formatter={(value: number) => formatBRL(Number(value))}
+                formatter={(value: number, name: string) => [
+                  formatBRL(Number(value)),
+                  name === "actual" ? "Gasto do dia" : "Ritmo típico",
+                ]}
+                labelFormatter={(label) => `Dia ${label}`}
                 contentStyle={{
-                  borderRadius: 14,
+                  borderRadius: 16,
                   border: "1px solid hsl(var(--border))",
                   background: "hsl(var(--background))",
                   fontSize: 12,
                 }}
               />
-              <Line type="monotone" dataKey="income" name="Receitas" stroke="hsl(var(--success))" strokeWidth={2.5} dot={false} />
-              <Line type="monotone" dataKey="expense" name="Consumo real" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="actual" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+              <Line type="monotone" dataKey="rollingTypical" name="Ritmo típico" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
+        <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Gasto do dia</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico (7 dias)</span>
+        </div>
+        <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Resumo mensal do período</h3>
         <div className="surface-card overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-secondary/40">

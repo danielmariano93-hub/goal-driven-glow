@@ -41,6 +41,7 @@ type Item = {
   category_source?: string | null;
   category_confidence?: number | null;
   movement_kind?: string | null;
+  historical_installments_paid_assumption?: boolean | null;
 };
 
 type DocumentInfo = {
@@ -257,6 +258,18 @@ export function ReviewSheet({
       return;
     }
     const uncategorized = items.filter((i) => selected.has(i.id) && !i.category_id && i.movement_kind === "transaction").length;
+    const historyPending = items.filter((i) =>
+      selected.has(i.id)
+      && docKind === "invoice"
+      && (i.installment_number ?? 1) > 1
+      && i.historical_installments_paid_assumption == null
+    ).length;
+    if (historyPending > 0) {
+      toast.error("Confirme o histórico das parcelas", {
+        description: `${historyPending} compra(s) começaram antes desta fatura.`,
+      });
+      return;
+    }
     if (uncategorized > 0 && !confirm(`${uncategorized} lançamento(s) continuam sem categoria. Deseja confirmar mesmo assim?`)) return;
     setConfirming(true);
     try {
@@ -272,6 +285,9 @@ export function ReviewSheet({
           description: r.errors.length > 0 ? "Alguns itens não puderam ser gravados." : undefined,
         });
       }
+      await (supabase as any).rpc("reconcile_imported_installment_history", {
+        p_document_id: documentId,
+      });
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["home"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
@@ -554,8 +570,18 @@ export function ReviewSheet({
                             </div>
                           )}
                           {(it.installments_total ?? 0) > 1 && (
-                            <div className="col-span-2 text-[11px] text-muted-foreground">
-                              Parcela {it.installment_number}/{it.installments_total}
+                            <div className="col-span-2 space-y-2 text-[11px] text-muted-foreground">
+                              <p>Parcela {it.installment_number}/{it.installments_total}</p>
+                              {docKind === "invoice" && (it.installment_number ?? 1) > 1 && !disabled && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                                  <p className="font-medium">As {Number(it.installment_number) - 1} parcelas anteriores já foram pagas?</p>
+                                  <p className="mt-1 text-[10px]">Não presumimos pagamento apenas porque esta fatura mostra uma parcela avançada.</p>
+                                  <div className="mt-2 flex gap-2">
+                                    <button type="button" onClick={() => patchItem(it.id, { historical_installments_paid_assumption: true })} className={`rounded-full border px-3 py-1 ${it.historical_installments_paid_assumption === true ? "border-success bg-success/10 text-success" : "border-border bg-card"}`}>Sim, foram pagas</button>
+                                    <button type="button" onClick={() => patchItem(it.id, { historical_installments_paid_assumption: false })} className={`rounded-full border px-3 py-1 ${it.historical_installments_paid_assumption === false ? "border-warning bg-warning/10 text-warning" : "border-border bg-card"}`}>Não / quero revisar</button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
