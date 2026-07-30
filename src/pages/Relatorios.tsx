@@ -63,6 +63,7 @@ export default function Relatorios() {
       id: transaction.id ?? "",
       account_id: transaction.account_id ?? "",
       category_id: transaction.category_id ?? null,
+      description: transaction.description ?? null,
       transfer_group_id: transaction.transfer_group_id ?? null,
     })),
     reportRange,
