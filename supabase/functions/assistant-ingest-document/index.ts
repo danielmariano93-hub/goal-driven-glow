@@ -158,10 +158,10 @@ REGRAS ESTRITAS:
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
 - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
-- Em FATURA DE CARTÃO, o bloco "m" deve ter saldos null. Use "f": total é o TOTAL OFICIAL A PAGAR da fatura atual; due_date é o vencimento; closing_date é o fechamento; competence é YYYY-MM-01; card_last4 são os quatro últimos dígitos.
-- Em fatura, extraia somente itens que compõem a fatura atual. EXCLUA total/valor da fatura, pagamento mínimo, limites, parcelas futuras/próximas faturas, encargos meramente projetados e resumos.
-- Em fatura, reconheça parcelas em textos como "03/10", "3 de 10" e "3x". Preencha parcelas_total e parcela_numero. O valor do item é o valor DA PARCELA DESTA FATURA, nunca o valor total da compra.
-- Categoria deve ser uma destas quando houver evidência: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros. Não invente categorias.
+- Em FATURA DE CARTÃO: "m" com saldos null e "f" preenchido (total = TOTAL A PAGAR da fatura atual, due_date, closing_date, competence YYYY-MM-01, card_last4). Não vire linha de lançamento o total, o pagamento mínimo, limites, parcelas futuras e resumos.
+- Parcelas ("03/10", "3 de 10", "3x"): preencha parcelas_total e parcela_numero; o valor é o da parcela desta fatura.
+- Categoria só quando houver evidência clara: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros.
+- OBRIGATÓRIO: se o documento tiver linhas de compra/lançamento, devolva TODAS elas em "i". Só devolva i=[] quando realmente não existir nenhum lançamento no documento.
 - LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
 - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
 - Ordene sempre do mais recente para o mais antigo.
