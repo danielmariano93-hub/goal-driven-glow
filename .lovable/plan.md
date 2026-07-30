@@ -1,51 +1,116 @@
-## Causa-raiz confirmada
+## 1. Sincronização confirmada
 
-O "código de registro" (`!ja`) do Lucas está ativo e correto (`user_ai_preferences.fast_log_token = '!ja'`). O que quebrou foi o reconhecimento da conta.
+Main local em `5ea8019` (merge do PR #12) sobre `5b52b57 feat(finance): add accounting core for cards and debts`. Os 12 arquivos do commit estão íntegros, incluindo:
 
-As notificações que ele encaminha terminam com uma linha isolada `Conta corrente` (sem o nome do banco). O extrator já entende essa linha e devolve `payment_method = "account"` com `account_hint = ""` — vazio de propósito, significando "usa a conta única do usuário" (o resolvedor já trata isso: com 1 conta ativa, resolve sozinho; ele tem exatamente uma, "Conta Corrente").
+- `supabase/migrations/20260730020000_financial_accounting_cards_debts.sql` (620 linhas) — **existe**.
+- `supabase/functions/assistant-review-actions/index.ts` — **atualizado**: `ALLOWED_PATCH_KEYS` passou a aceitar `historical_installments_paid_assumption` (única alteração, 1 linha).
+- Frontend: `ReviewSheet.tsx`, `Cartoes.tsx`, `Dividas.tsx`, `Relatorios.tsx`, `finance.ts`, `validation/finance.ts`, novo `src/lib/finance/accounting.ts`.
+- Testes novos: `accounting-core.test.ts`, `financial-accounting-contract.test.ts`.
 
-Só que o FastLog rejeita a string vazia antes de chegar no resolvedor:
+## 2. Testes e build da main
 
-```
-if (!isCard && !accountHint) → "Em qual conta eu registro?"
-```
+- **Testes:** 753 aprovados / 0 falhos (116 arquivos).
+- **Build:** sucesso em 20,27s (apenas o aviso pré-existente de chunk > 500 kB).
 
-Evidência: nos 4 turnos de 29/07 (11:16, 11:21, 11:31, 11:33) o run entrou em `path = fast_log`, terminou `done` e **não gerou nenhuma tool call** — ou seja, saiu na pergunta antes de criar o rascunho. Nos dias 27 e 28 o mesmo texto caía no caminho antigo (livre) e registrava. O outro usuário não sente o problema porque a notificação dele traz `Conta Corrente Itaú` (hint não-vazio).
+## 3. Análise de segurança da migration contra o banco atual
 
-Consequência: 4 lançamentos do Lucas nunca foram gravados (nem rascunho pendente sobrou — expiraram).
+Estado atual conferido no banco conectado:
 
-## Correção
-
-1. **`supabase/functions/_shared/agent/core/FastLog.ts`**
-   - Distinguir "sem método de pagamento" de "conta genérica/única": quando `spans.payment_method === "account"`, seguir para o rascunho mesmo com hint vazio, deixando a resolução para `resolveAccountId`.
-   - Só perguntar a conta quando o rascunho falhar de verdade (`account_not_found`, ambiguidade com várias contas) — a pergunta passa a listar as contas reais do usuário em vez do exemplo fixo "Nubank, Itaú, Carteira".
-   - Mesmo tratamento para cartão (hint vazio já significa "cartão único").
-
-2. **`supabase/functions/_shared/agent/core/DeterministicFallback.ts`** — aplicar a mesma regra (hoje depende de `spans.payment_method` truthy, mas repassa hint vazio de forma inconsistente), para o caminho sem LLM ter o mesmo comportamento.
-
-3. **Caminho LLM** — quando o usuário tem só uma conta ativa, injetar essa informação no contexto do turno para o modelo não perguntar algo já determinado (foi o que aconteceu às 11:21 e 11:22, quando ele respondeu "Carteira"/"Santander", contas que nem existem).
-
-4. **Testes** (`src/test/agent-fast-log.test.ts` + caso novo): mensagem bancária real terminando em `Conta corrente`, com conta única → registra sem perguntar; com 2+ contas e hint genérico → pergunta listando as contas; `Conta Corrente Itaú` → continua resolvendo pelo nome.
-
-5. **Deploy** das funções `whatsapp-webhook`, `agent-run` e `agent-chat` (compartilham o core).
-
-## Reprocesso dos lançamentos perdidos
-
-Registrar os 4 gastos do Lucas na conta "Conta Corrente", com data de ocorrência 29/07, origem `agent`, marcados para não duplicar caso ele reenvie:
-
-| Valor | Estabelecimento |
+| Verificação | Resultado |
 |---|---|
-| R$ 20,00 | Maria Malha Co |
-| R$ 7,99 | Mercado Du Bairro |
-| R$ 7,50 | Estação do Café |
-| R$ 5,40 | Autopass S.A. - ATM Tmob |
+| Tabelas novas (`debt_payments`, 6 × `credit_card_*`) | Nenhuma existe — sem colisão |
+| Funções `record_debt_payment`, `reconcile_imported_installment_history`, `sync_card_accounting_from_transaction` | Nenhuma existe |
+| Trigger `trg_sync_card_accounting_from_transaction` | Não existe; nomes dos 11 triggers atuais de `transactions` não colidem |
+| Colunas novas em `debts` | Nenhuma existe (tabela tem 13 colunas legadas) |
+| `extracted_items.historical_installments_paid_assumption` | Não existe |
+| Colunas exigidas pelo backfill (`purchase_group_id`, `competence_date`, `installment_number`, `installments_total`, `settles_card_id`, `movement_kind`) | Todas presentes |
+| Colunas de `credit_cards` usadas (`closing_day`, `due_day`) | Presentes |
+| `transactions_movement_kind_check` | Hoje aceita 7 valores; a migration **amplia** para 11 (inclui `debt_payment`). Todos os `movement_kind` em uso hoje (7 distintos) continuam válidos → sem violação |
 
-Verificação prévia contra duplicidade já feita: nenhum desses valores existe em `transactions` em 29/07 para ele.
+Riscos sobre dados existentes: **muito baixos**.
+- `debts` tem **0 linhas** → o `UPDATE` retroativo e o `SET NOT NULL` em `contract_total_amount`/`principal_amount` não podem falhar.
+- Apenas **3 transações** com `credit_card_id` e **1 cartão** → backfill de compras/parcelas/faturas é minúsculo e reversível; faturas reconstruídas nascem marcadas para revisão.
+- `document_imports` (35 docs) só ganha a coluna opcional em `extracted_items`; importações concluídas não são reescritas.
+- Migration é aditiva: só usa `IF NOT EXISTS` / `CREATE OR REPLACE` / `DROP CONSTRAINT IF EXISTS` antes de recriar. Reexecução é idempotente, exceto os `INSERT ... SELECT` de backfill, que são protegidos por índices únicos parciais em `legacy_purchase_group_id` e `legacy_transaction_id`.
 
-## Verificação final
+Conformidade de segurança: as 7 tabelas novas recebem `ENABLE ROW LEVEL SECURITY`, policy `auth.uid() = user_id` e `GRANT` para `authenticated` + `service_role` (o bloco `DO` no fim cobre as 6 de cartão; `debt_payments` tem grants explícitos). As duas funções `SECURITY DEFINER` têm `search_path = public` e `REVOKE ... FROM PUBLIC, anon`.
 
-- Replay dos 4 textos originais pelo pipeline (simulador) → esperado: 4 recibos, 0 perguntas.
-- Conferir `agent_tool_calls` mostrando `create_transaction_draft` + `confirm_pending_action` ok em cada turno.
-- Conferir na Home/Lançamentos que os 4 valores aparecem em 29/07.
+Dependências: nenhuma migration pendente. Todas as anteriores (até `20260730003000`) já foram aplicadas, e todos os objetos referenciados existem.
 
-Nada será publicado em produção sem sua autorização; o deploy fica restrito às Edge Functions necessárias para o fluxo voltar a funcionar (posso segurar também, se preferir).
+Ponto de atenção único: o trigger `trg_sync_card_accounting_from_transaction` é `AFTER INSERT OR UPDATE` em `transactions` — passa a rodar em toda escrita de lançamento (app, agente, importação). O volume atual é baixo, mas é o item a observar no smoke test.
+
+Backup/reconciliação prévia: não é obrigatório dado o volume, mas o plano abaixo captura um snapshot de contagens antes/depois.
+
+## 4. Plano de implantação (aguardando sua aprovação)
+
+**Ordem exata**
+
+1. Snapshot pré-migration (somente leitura):
+   ```sql
+   select (select count(*) from transactions) tx,
+          (select count(*) from transactions where credit_card_id is not null) tx_card,
+          (select count(*) from debts) debts,
+          (select count(*) from extracted_items) items;
+   ```
+2. Aplicar `20260730020000_financial_accounting_cards_debts.sql` pela ferramenta de migration (execução única, transacional).
+3. Deploy da Edge Function `assistant-review-actions` (única alterada; nenhuma outra função importa código tocado).
+4. Rodar o linter de segurança do banco e comparar com a linha de base (hoje só avisos INFO pré-existentes).
+5. Frontend: **não publicar** — a main já compila e passa nos testes; publicação só sob autorização explícita.
+
+**Validações SQL pós-migration**
+
+```sql
+-- objetos criados
+select tablename from pg_tables where schemaname='public'
+  and tablename in ('debt_payments','credit_card_purchases','credit_card_installments',
+    'credit_card_statements','credit_card_statement_items','credit_card_payments',
+    'credit_card_payment_allocations');
+-- RLS + policies + grants
+select relname, relrowsecurity from pg_class where relname like 'credit_card_%' or relname='debt_payments';
+select tablename, policyname from pg_policies where schemaname='public' and tablename like 'credit_card%';
+-- funções e trigger
+select proname, prosecdef from pg_proc where proname in
+  ('record_debt_payment','reconcile_imported_installment_history','sync_card_accounting_from_transaction');
+select tgname from pg_trigger where tgrelid='public.transactions'::regclass and tgname like 'trg_sync_card%';
+-- constraint ampliada
+select pg_get_constraintdef(oid) from pg_constraint where conname='transactions_movement_kind_check';
+-- integridade do backfill: nenhuma transação de cartão órfã, nenhum valor duplicado
+select count(*) from transactions t where t.credit_card_id is not null
+  and not exists (select 1 from credit_card_installments i where i.legacy_transaction_id=t.id);
+select credit_card_id, competence_month, count(*) from credit_card_statements
+  group by 1,2 having count(*)>1;
+-- contagens iguais às do snapshot
+select (select count(*) from transactions) tx, (select count(*) from debts) debts;
+```
+
+**Smoke tests**
+
+- Criar um lançamento de cartão parcelado no app → conferir que aparecem 1 linha em `credit_card_purchases`, N em `credit_card_installments` e a fatura correspondente em `credit_card_statements`.
+- Editar valor/data desse lançamento → conferir atualização das parcelas e recálculo de `reconciled_total`.
+- Chamar `record_debt_payment` em uma dívida de teste com principal + juros + tarifa → conferir transação com `movement_kind='debt_payment'`, linha em `debt_payments` e saldo atualizado; repetir com a mesma `idempotency_key` → deve retornar `idempotent: true` sem duplicar.
+- `assistant-review-actions` action `update` enviando `historical_installments_paid_assumption` → deve persistir (antes era descartado).
+- Tela Cartões, Dívidas e Relatórios no preview: carregar sem erro de console e conferir totais versus os valores pré-migration.
+- Registrar um gasto pelo WhatsApp/agente → confirmar que o trigger novo não introduziu latência nem erro nos logs.
+
+**Rollback**
+
+Como é aditiva, o rollback é reverso e não destrói dados legados:
+```sql
+DROP TRIGGER IF EXISTS trg_sync_card_accounting_from_transaction ON public.transactions;
+DROP FUNCTION IF EXISTS public.sync_card_accounting_from_transaction();
+DROP FUNCTION IF EXISTS public.record_debt_payment(uuid,uuid,date,numeric,numeric,numeric,integer,text,text);
+DROP FUNCTION IF EXISTS public.reconcile_imported_installment_history(uuid);
+DROP TABLE IF EXISTS public.credit_card_payment_allocations, public.credit_card_payments,
+  public.credit_card_statement_items, public.credit_card_statements,
+  public.credit_card_installments, public.credit_card_purchases, public.debt_payments CASCADE;
+ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS transactions_movement_kind_check;
+ALTER TABLE public.transactions ADD CONSTRAINT transactions_movement_kind_check
+  CHECK (movement_kind IN ('transaction','refund','internal_transfer','investment_application',
+    'investment_redemption','investment_yield','loan_proceeds'));
+ALTER TABLE public.debts ALTER COLUMN contract_total_amount DROP NOT NULL,
+  ALTER COLUMN principal_amount DROP NOT NULL;
+NOTIFY pgrst, 'reload schema';
+```
+As colunas novas de `debts`/`extracted_items` podem ficar (inertes) ou ser removidas com `DROP COLUMN IF EXISTS`. Transações e dívidas legadas permanecem intactas em qualquer cenário. Para reverter a Edge Function, basta redeployar a versão anterior (remoção da chave extra em `ALLOWED_PATCH_KEYS`).
+
+Nada foi executado: migration não aplicada, Edge Function não implantada, frontend não publicado.
