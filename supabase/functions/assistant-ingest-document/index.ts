@@ -15,6 +15,8 @@ import { normalizeDescription, extractBankReference, computeFingerprint } from "
 import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
 import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
+import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
+import { decideByRule } from "../_shared/categorization/pipeline.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -133,7 +135,7 @@ async function getUser(req: Request) {
 const SYSTEM_PROMPT = `Você é um extrator financeiro para o app MeuNino.
 
 Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON PURO, compacto, sem markdown:
-{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null}}
+{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null},"f":{"total":null,"due_date":null,"closing_date":null,"competence":null,"card_last4":null}}
 
 Cada item em "i" é EXATAMENTE:
 [tipo,data,valor,descricao,pagamento,conta,cartao,movimento,parcelas_total,parcela_numero,data_compra,competencia,categoria]
@@ -156,6 +158,10 @@ REGRAS ESTRITAS:
 - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
 - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
 - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
+- Em FATURA DE CARTÃO, o bloco "m" deve ter saldos null. Use "f": total é o TOTAL OFICIAL A PAGAR da fatura atual; due_date é o vencimento; closing_date é o fechamento; competence é YYYY-MM-01; card_last4 são os quatro últimos dígitos.
+- Em fatura, extraia somente itens que compõem a fatura atual. EXCLUA total/valor da fatura, pagamento mínimo, limites, parcelas futuras/próximas faturas, encargos meramente projetados e resumos.
+- Em fatura, reconheça parcelas em textos como "03/10", "3 de 10" e "3x". Preencha parcelas_total e parcela_numero. O valor do item é o valor DA PARCELA DESTA FATURA, nunca o valor total da compra.
+- Categoria deve ser uma destas quando houver evidência: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros. Não invente categorias.
 - LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
 - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
 - Ordene sempre do mais recente para o mais antigo.
@@ -173,6 +179,7 @@ type StatementMetadata = {
 type MultimodalOutcome = {
   result: ExtractionResult;
   statement: StatementMetadata | null;
+  invoice: InvoiceMetadata | null;
   tokens_in: number;
   tokens_out: number;
   ms: number;
@@ -180,6 +187,43 @@ type MultimodalOutcome = {
   partial: boolean;
   errorTag?: string;
 };
+
+type InvoiceMetadata = {
+  total: number | null;
+  due_date: string | null;
+  closing_date: string | null;
+  competence: string | null;
+  card_last4: string | null;
+};
+
+function normalizeInvoiceDate(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const value = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[3]}-${br[2]}-${br[1]}` : null;
+  if (!value) return null;
+  const date = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null;
+}
+
+function extractInvoiceMetadata(parsed: unknown, _fallback: string): InvoiceMetadata | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = (parsed as Record<string, unknown>).f;
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const total = normalizeAmountBR((r.total ?? "") as string | number);
+  const due_date = normalizeInvoiceDate(r.due_date);
+  const closing_date = normalizeInvoiceDate(r.closing_date);
+  const competenceRaw = typeof r.competence === "string" ? r.competence : null;
+  const competence = competenceRaw && /^\d{4}-\d{2}(?:-\d{2})?$/.test(competenceRaw)
+    ? `${competenceRaw.slice(0, 7)}-01`
+    : null;
+  const digits = String(r.card_last4 ?? "").replace(/\D/g, "");
+  const card_last4 = digits.length >= 4 ? digits.slice(-4) : null;
+  return total != null || due_date || closing_date || competence || card_last4
+    ? { total, due_date, closing_date, competence, card_last4 }
+    : null;
+}
 
 function extractStatementMetadata(parsed: unknown, fallback: string): StatementMetadata | null {
   if (!parsed || typeof parsed !== "object") return null;
@@ -300,7 +344,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
     const ms = Date.now() - start;
     if (!res.ok) {
       const body = await res.text();
-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
+      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? "{}";
@@ -313,7 +357,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
     } catch {
       const recovered = recoverCompactJson(text);
       if (!recovered) {
-        return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, has_more: false, partial: false, errorTag: "extraction:invalid_json" };
+        return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, invoice: null, tokens_in, tokens_out, ms, has_more: false, partial: false, errorTag: "extraction:invalid_json" };
       }
       parsed = recovered.parsed;
       partial = recovered.partial;
@@ -322,6 +366,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
     return {
       result: sanitize(parsed, today),
       statement: extractStatementMetadata(parsed, today),
+      invoice: extractInvoiceMetadata(parsed, today),
       tokens_in,
       tokens_out,
       ms,
@@ -331,7 +376,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
   } catch (e) {
     const err = e as Error;
     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
-    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
+    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
   }
 }
 
@@ -488,6 +533,16 @@ async function enrichItems(
       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
     }
     if (!categoryId) {
+      const decision = decideByRule(friendly || rawDesc, (categories ?? [])
+        .filter((c) => c.type === item.type || c.type === "both")
+        .map((c) => ({ id: c.id, name: c.name })));
+      if (decision?.category_id) {
+        categoryId = decision.category_id;
+        categorySource = "rule";
+        categoryConfidence = decision.category_confidence;
+      }
+    }
+    if (!categoryId) {
       const bucket = historyByKey.get(`${item.type}|${normalizedKey}`);
       if (bucket) {
         const top = [...bucket.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -544,6 +599,64 @@ async function enrichItems(
       movement_kind: effectiveKind,
     });
 
+  }
+
+  // Último recurso em uma única chamada: categoriza apenas o que regras,
+  // aliases, histórico e hint não resolveram. A resposta só pode escolher uma
+  // categoria existente e precisa trazer confiança >= 0,70.
+  const unresolved = enriched
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !item.category_id)
+    .slice(0, 80);
+  if (unresolved.length > 0 && LOVABLE_API_KEY) {
+    try {
+      const candidates = (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type }));
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
+        body: JSON.stringify({
+          model: MODEL,
+          response_format: { type: "json_object" },
+          max_tokens: 1400,
+          messages: [
+            {
+              role: "system",
+              content: "Classifique lançamentos financeiros brasileiros. Use somente category_id fornecido. Responda JSON puro {\"items\":[{\"index\":0,\"category_id\":\"uuid\",\"confidence\":0.0}]}. Se não houver evidência suficiente, use category_id null. Nunca invente UUID.",
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                categories: candidates,
+                items: unresolved.map(({ item, index }) => ({
+                  index,
+                  type: item.type,
+                  description: item.raw_description ?? item.description,
+                })),
+              }),
+            },
+          ],
+        }),
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        const parsed = JSON.parse(payload?.choices?.[0]?.message?.content ?? "{}") as {
+          items?: Array<{ index?: number; category_id?: string | null; confidence?: number }>;
+        };
+        const validIds = new Set(candidates.map((candidate) => candidate.id));
+        for (const suggestion of parsed.items ?? []) {
+          const index = Number(suggestion.index);
+          const confidence = Number(suggestion.confidence ?? 0);
+          if (!Number.isInteger(index) || !validIds.has(String(suggestion.category_id)) || confidence < 0.7) continue;
+          const target = enriched[index];
+          if (!target || target.category_id) continue;
+          target.category_id = String(suggestion.category_id);
+          target.category_source = "llm";
+          target.category_confidence = Math.min(0.9, confidence);
+        }
+      }
+    } catch (error) {
+      console.warn("[assistant-ingest-document] category_batch_failed", String(error).slice(0, 160));
+    }
   }
   return enriched;
 }
@@ -788,6 +901,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
     let documentKind: ExtractionResult["document_kind"] = "unknown";
     let statement: StatementMetadata | null = null;
+    let invoice: InvoiceMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
     let lastErrorTag: string | undefined;
     const notes: string[] = [];
@@ -873,6 +987,24 @@ async function processDocument(documentId: string, userId: string, guidance: str
       // fatura resolve cartão, extrato resolve conta. Sem isso, "Itaú" casava
       // com a conta corrente e a fatura virava despesa de caixa.
       if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
+      if (out.invoice) {
+        invoice = invoice
+          ? {
+              total: invoice.total ?? out.invoice.total,
+              due_date: invoice.due_date ?? out.invoice.due_date,
+              closing_date: invoice.closing_date ?? out.invoice.closing_date,
+              competence: invoice.competence ?? out.invoice.competence,
+              card_last4: invoice.card_last4 ?? out.invoice.card_last4,
+            }
+          : out.invoice;
+        await sb.from("document_imports").update({
+          invoice_total: invoice.total,
+          invoice_due_date: invoice.due_date,
+          invoice_closing_date: invoice.closing_date,
+          invoice_competence_month: invoice.competence,
+          invoice_card_last4: invoice.card_last4,
+        }).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+      }
       if (out.statement && !statement) {
         statement = out.statement;
         const bankDoc = allowsBankBalance(documentKind);
@@ -1005,6 +1137,20 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
           // Invariante contábil: em fatura, o item pertence ao cartão e nunca
           // à conta corrente (não reduz caixa na importação).
+          const installments = inferInstallmentDetails(
+            it.raw_description ?? it.description,
+            it.installment_number,
+            it.installments_total,
+          );
+          const statementItemKind = documentKind === "invoice"
+            ? classifyStatementItem({
+                description: it.raw_description ?? it.description,
+                type: it.type,
+                movement_kind: it.movement_kind,
+                installment_number: installments.current,
+                installments_total: installments.total,
+              })
+            : null;
           return applyLedgerInvariants(documentKind, {
             document_id: documentId,
             user_id: userId,
@@ -1030,10 +1176,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
             // Contexto de origem propaga: só preenche se o item não tem já um match forte por hint
             account_id: it.credit_card_id ? null : (it.account_id ?? srcCtx.source_account_id ?? null),
             credit_card_id: it.account_id ? null : (it.credit_card_id ?? srcCtx.source_credit_card_id ?? null),
-            installments_total: it.installments_total,
-            installment_number: it.installment_number,
+            installments_total: installments.total,
+            installment_number: installments.current,
+            installment_inferred: installments.inferred,
+            statement_item_kind: statementItemKind,
             purchase_date: it.purchase_date,
-            competence_date: it.competence_date,
+            competence_date: documentKind === "invoice"
+              ? (
+                  invoice?.competence
+                  ?? (invoice?.due_date ? `${invoice.due_date.slice(0, 7)}-01` : null)
+                  ?? it.competence_date
+                )
+              : it.competence_date,
             confidence: it.confidence,
             raw: it as unknown as Record<string, unknown>,
             status: effectiveHit ? "duplicate_suspect" : "needs_review",

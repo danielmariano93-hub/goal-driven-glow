@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
 import { CategorySelect } from "@/components/CategorySelect";
 import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
+import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
 
 type Item = {
   id: string;
@@ -43,6 +44,8 @@ type Item = {
   category_confidence?: number | null;
   movement_kind?: string | null;
   historical_installments_paid_assumption?: boolean | null;
+  statement_item_kind?: StatementItemKind | null;
+  installment_inferred?: boolean;
 };
 
 type DocumentInfo = {
@@ -59,6 +62,11 @@ type DocumentInfo = {
   source_account_id?: string | null;
   source_credit_card_id?: string | null;
   source_context_method?: string | null;
+  invoice_total?: number | null;
+  invoice_due_date?: string | null;
+  invoice_closing_date?: string | null;
+  invoice_competence_month?: string | null;
+  invoice_card_last4?: string | null;
 };
 
 type Fragment = {
@@ -117,6 +125,7 @@ export function ReviewSheet({
   const [fragments, setFragments] = useState<Fragment[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [recovering, setRecovering] = useState(false);
+  const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +146,7 @@ export function ReviewSheet({
       setFragments(d.fragments ?? []);
       setRejections(d.rejections ?? []);
       setDocumentInfo(d.document);
+      setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setDocKind(d.document?.document_kind ?? null);
       const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review").map((i) => i.id));
       setSelected(initial);
@@ -145,9 +155,19 @@ export function ReviewSheet({
     return () => { cancelled = true; };
   }, [documentId]);
 
-  const total = useMemo(() =>
-    items.filter((i) => selected.has(i.id)).reduce((s, i) => s + Number(i.amount), 0)
-  , [items, selected]);
+  const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected]);
+  const invoiceSummary = useMemo(() => summarizeInvoiceLines(selectedItems.map((item) => ({
+    ...item,
+    amount: Number(item.amount),
+  }))), [selectedItems]);
+  const total = useMemo(() => docKind === "invoice"
+    ? invoiceSummary.net
+    : selectedItems.reduce((sum, item) => sum + Number(item.amount), 0),
+  [docKind, invoiceSummary.net, selectedItems]);
+  const reconciliation = useMemo(() => invoiceReconciliation(
+    documentInfo?.invoice_total,
+    invoiceSummary.net,
+  ), [documentInfo?.invoice_total, invoiceSummary.net]);
 
   // Bloqueios de confirmação: nunca confirmar item sem destino contábil válido.
   const blockers = useMemo(() => {
@@ -157,9 +177,17 @@ export function ReviewSheet({
       const card = isCardDocument(docKind) || it.payment_method === "credit_card" || !!it.credit_card_id;
       if (card && !it.credit_card_id) reasons.add("missing_credit_card");
       if (!card && !it.account_id) reasons.add("missing_account");
+      if ((it.installments_total ?? 1) > 1 && (
+        !it.installment_number || it.installment_number > Number(it.installments_total)
+      )) reasons.add("Parcelamento inválido: informe a parcela atual e o total.");
+    }
+    if (docKind === "invoice" && documentInfo?.invoice_total == null) {
+      reasons.add("Informe o total oficial da fatura.");
+    } else if (docKind === "invoice" && !reconciliation.reconciled) {
+      reasons.add(`A fatura não fecha: diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Corrija ou ignore linhas indevidas.`);
     }
     return [...reasons].map((r) => BLOCK_MESSAGES[r] ?? r);
-  }, [items, selected, docKind]);
+  }, [items, selected, docKind, documentInfo?.invoice_total, reconciliation]);
 
 
   function toggle(id: string) {
@@ -187,6 +215,16 @@ export function ReviewSheet({
       console.error("[ReviewSheet] update", error);
       toast.error("Não consegui salvar essa alteração. Tente novamente.");
     }
+  }
+
+  async function saveInvoiceTotal() {
+    const value = parseBRLInput(invoiceTotalInput);
+    if (value == null) return toast.error("Informe um total de fatura válido.");
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: { action: "update-document", document_id: documentId, patch: { invoice_total: value } },
+    });
+    if (error) return toast.error("Não consegui salvar o total da fatura.");
+    setDocumentInfo((current) => current ? { ...current, invoice_total: value } : current);
   }
 
   async function applyBulkTarget() {
@@ -291,11 +329,14 @@ export function ReviewSheet({
         body: { action: "confirm", document_id: documentId, item_ids: ids },
       });
       if (error) throw error;
-      const r = (data as { result: { created_count: number; errors: unknown[]; total_selected: number } }).result;
-      if (r.created_count === r.total_selected) {
-        toast.success(`${r.created_count} lançamento(s) registrado(s)`);
+      const r = (data as { result: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }).result;
+      const accounted = r.accounted_count ?? r.created_count;
+      if (accounted === r.total_selected) {
+        toast.success(`${r.created_count} lançamento(s) registrado(s)`, {
+          description: r.non_ledger_count ? `${r.non_ledger_count} linha(s) conciliatória(s) não viraram nova despesa.` : undefined,
+        });
       } else {
-        toast.warning(`${r.created_count} de ${r.total_selected} lançamento(s) registrado(s)`, {
+        toast.warning(`${accounted} de ${r.total_selected} item(ns) contabilizado(s)`, {
           description: r.errors.length > 0 ? "Alguns itens não puderam ser gravados." : undefined,
         });
       }
@@ -431,6 +472,36 @@ export function ReviewSheet({
                   <span>Categorizados<br/><strong>{documentInfo.counters?.categorized_auto ?? 0}</strong></span>
                   <span>Sem categoria<br/><strong>{documentInfo.counters?.uncategorized ?? items.filter(i => !i.category_id).length}</strong></span>
                 </div>
+                {isCardDocument(documentInfo.document_kind) && (
+                  <div className={`rounded-xl border p-3 ${reconciliation.reconciled ? "border-success/40 bg-success/5" : "border-warning/50 bg-warning/5"}`}>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="min-w-[150px] flex-1">
+                        <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Total oficial da fatura</label>
+                        <input
+                          inputMode="decimal"
+                          value={invoiceTotalInput}
+                          onChange={(event) => setInvoiceTotalInput(event.target.value)}
+                          onBlur={saveInvoiceTotal}
+                          className="input-base text-sm font-semibold"
+                          placeholder="0,00"
+                        />
+                      </div>
+                      <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
+                        <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
+                        <span>Estornos/créditos<br/><strong>−{formatBRL(invoiceSummary.credits)}</strong></span>
+                        <span>Pagamentos<br/><strong>−{formatBRL(invoiceSummary.payments)}</strong></span>
+                        <span>Calculado<br/><strong>{formatBRL(invoiceSummary.net)}</strong></span>
+                      </div>
+                    </div>
+                    <p className={`mt-2 text-[11px] ${reconciliation.reconciled ? "text-success" : "text-warning"}`}>
+                      {documentInfo.invoice_total == null
+                        ? "Confira na capa da fatura e informe o total a pagar."
+                        : reconciliation.reconciled
+                          ? "Fatura conciliada. O total calculado fecha com o total informado."
+                          : `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Nenhum lançamento será gravado até a conciliação.`}
+                    </p>
+                  </div>
+                )}
                 {documentInfo.user_instructions && <p className="text-muted-foreground">Orientação aplicada: {documentInfo.user_instructions}</p>}
                 {documentInfo.statement_closing_balance != null && !isCardDocument(documentInfo.document_kind) && (
                   <div className="rounded-xl border border-border bg-card p-3">
@@ -456,8 +527,8 @@ export function ReviewSheet({
               <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
                 <label htmlFor="bulk-payment-target" className="sr-only">Origem para os selecionados</label>
                 <select id="bulk-payment-target" value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value)} className="min-w-0 max-w-[180px] rounded-full border border-border bg-card px-2.5 py-1 text-[11px]">
-                  <option value="">Escolher origem…</option>
-                  {accounts.map((a) => <option key={a.id} value={`account:${a.id}`}>Conta · {a.name}</option>)}
+                  <option value="">{docKind === "invoice" ? "Escolher cartão…" : "Escolher origem…"}</option>
+                  {docKind !== "invoice" && accounts.map((a) => <option key={a.id} value={`account:${a.id}`}>Conta · {a.name}</option>)}
                   {cards.map((c: { id: string; name: string }) => <option key={c.id} value={`credit_card:${c.id}`}>Cartão · {c.name}</option>)}
                 </select>
                 <button type="button" onClick={applyBulkTarget} disabled={!bulkTarget || selected.size === 0 || bulkSaving} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted disabled:opacity-50">
@@ -537,7 +608,9 @@ export function ReviewSheet({
                           </div>
                           <div>
                             <label className="text-[10px] text-muted-foreground">Método</label>
-                            <select
+                            {docKind === "invoice" ? (
+                              <div className="input-base flex items-center text-xs">Cartão de crédito</div>
+                            ) : <select
                               value={it.payment_method ?? ""}
                               onChange={(e) => {
                                 const pm = (e.target.value || null) as Item["payment_method"];
@@ -553,7 +626,7 @@ export function ReviewSheet({
                               <option value="">—</option>
                               <option value="account">Conta</option>
                               <option value="credit_card">Cartão</option>
-                            </select>
+                            </select>}
                           </div>
                           <div>
                             <label className="text-[10px] text-muted-foreground">Categoria</label>
@@ -594,9 +667,70 @@ export function ReviewSheet({
                               </select>
                             </div>
                           )}
-                          {(it.installments_total ?? 0) > 1 && (
+                          {docKind === "invoice" && (
+                            <div className="col-span-2">
+                              <label className="text-[10px] text-muted-foreground">Tipo na fatura</label>
+                              <select
+                                value={it.statement_item_kind ?? "purchase"}
+                                onChange={(event) => patchItem(it.id, { statement_item_kind: event.target.value as StatementItemKind })}
+                                disabled={disabled}
+                                className="input-base text-xs"
+                              >
+                                <option value="purchase">Compra à vista</option>
+                                <option value="installment">Compra parcelada</option>
+                                <option value="refund">Estorno/crédito</option>
+                                <option value="interest">Juros/encargos</option>
+                                <option value="fee">Tarifa/anuidade</option>
+                                <option value="payment">Pagamento da fatura</option>
+                                <option value="adjustment">Ajuste</option>
+                                <option value="informational">Linha informativa (não lançar)</option>
+                              </select>
+                            </div>
+                          )}
+                          {(docKind === "invoice" || (it.installments_total ?? 0) > 1) && (
                             <div className="col-span-2 space-y-2 text-[11px] text-muted-foreground">
-                              <p>Parcela {it.installment_number}/{it.installments_total}</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px]">Parcela nesta fatura</label>
+                                  <input
+                                    type="number" min={1} max={48}
+                                    value={it.installment_number ?? 1}
+                                    onChange={(event) => {
+                                      const current = Number(event.target.value);
+                                      patchItem(it.id, {
+                                        installment_number: current,
+                                        installments_total: Math.max(current, it.installments_total ?? 1),
+                                        statement_item_kind: Math.max(current, it.installments_total ?? 1) > 1 ? "installment" : "purchase",
+                                      });
+                                    }}
+                                    disabled={disabled}
+                                    className="input-base text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px]">Total de parcelas</label>
+                                  <input
+                                    type="number" min={1} max={48}
+                                    value={it.installments_total ?? 1}
+                                    onChange={(event) => {
+                                      const installmentsTotal = Number(event.target.value);
+                                      patchItem(it.id, {
+                                        installments_total: installmentsTotal,
+                                        installment_number: Math.min(it.installment_number ?? 1, installmentsTotal),
+                                        statement_item_kind: installmentsTotal > 1 ? "installment" : "purchase",
+                                      });
+                                    }}
+                                    disabled={disabled}
+                                    className="input-base text-xs"
+                                  />
+                                </div>
+                              </div>
+                              <p>
+                                {Number(it.installments_total ?? 1) > 1
+                                  ? `${Math.max(0, Number(it.installment_number ?? 1) - 1)} anterior(es) · esta é a ${it.installment_number ?? 1}ª · ${Math.max(0, Number(it.installments_total ?? 1) - Number(it.installment_number ?? 1))} restante(s)`
+                                  : "Compra à vista"}
+                                {it.installment_inferred ? " · inferido do texto" : ""}
+                              </p>
                               {docKind === "invoice" && (it.installment_number ?? 1) > 1 && !disabled && (
                                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
                                   <p className="font-medium">As {Number(it.installment_number) - 1} parcelas anteriores já foram pagas?</p>

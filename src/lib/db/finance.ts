@@ -367,12 +367,15 @@ export function useSaveTransaction() {
         status: input.status,
         amount: input.amount,
         occurred_at: input.occurred_at,
+        purchase_date: input.payment_method === "credit_card" ? (input.purchase_date ?? input.occurred_at) : null,
+        installments_total: input.payment_method === "credit_card" ? input.installments_total : null,
+        installment_number: input.payment_method === "credit_card" ? input.installment_number : null,
         description: input.description || null,
         notes: input.notes || null,
         ...(competence_date ? { competence_date } : {}),
       };
       const SELECT_COLS =
-        "id, purchase_date, competence_date, movement_kind, credit_card_id, account_id, status, type, amount, occurred_at, payment_method, category_id, description, notes";
+        "id, purchase_date, competence_date, movement_kind, credit_card_id, account_id, status, type, amount, occurred_at, payment_method, category_id, description, notes, installments_total, installment_number";
       let saved: Record<string, unknown> | null = null;
       if (input.id) {
         const { data, error } = await supabase

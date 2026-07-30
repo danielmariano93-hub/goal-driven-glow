@@ -64,13 +64,20 @@ export async function loadEffectiveThresholds(sb: any): Promise<EffectiveThresho
 
 const RULES: Array<{ pattern: RegExp; category: string }> = [
   { pattern: /\b(uber|99|cabify|indriver)\b/, category: "transporte" },
-  { pattern: /\b(ifood|rappi|zé\s*delivery|ze\s*delivery|james)\b/, category: "alimentacao" },
+  { pattern: /\b(ifood|rappi|zé\s*delivery|ze\s*delivery|james|restaurante|lanchonete|padaria|caf[eé]|pizza|burger|mcdonald|outback)\b/, category: "alimentacao" },
   { pattern: /\b(drogaria|farmacia|drogasil|pacheco|raia|panvel)\b/, category: "saude" },
-  { pattern: /\b(supermerc|mercado|carrefour|extra|assai|atacadao|paodeacucar|pao\s*de\s*acucar|hortifruti)\b/, category: "mercado" },
+  { pattern: /\b(supermerc|mercado|carrefour|extra|assai|atacadao|paodeacucar|pao\s*de\s*acucar|hortifruti|sams?\s*club|oxxo)\b/, category: "mercado" },
   { pattern: /\b(bar|boteco|pub|balada|cervejaria|choperia)\b/, category: "lazer" },
-  { pattern: /\b(cinema|teatro|show|ingresso|netflix|spotify|disney|hbo)\b/, category: "lazer" },
+  { pattern: /\b(cinema|teatro|show|ingresso|festival|parque)\b/, category: "lazer" },
+  { pattern: /\b(netflix|spotify|disney|hbo|max\.com|amazon\s*prime|youtube\s*premium|apple\.com\/bill|google\s*one|icloud)\b/, category: "assinaturas" },
   { pattern: /\b(posto|gasolina|combustivel|shell|petrobras|ipiranga)\b/, category: "transporte" },
-  { pattern: /\b(escola|faculdade|curso|udemy|alura)\b/, category: "educacao" },
+  { pattern: /\b(escola|faculdade|curso|udemy|alura|livraria)\b/, category: "educacao" },
+  { pattern: /\b(aluguel|condominio|energia|enel|sabesp|copasa|internet|vivo\s*fibra|claro\s*net)\b/, category: "moradia" },
+  { pattern: /\b(hospital|clinica|laboratorio|consulta|dentista|odonto)\b/, category: "saude" },
+  { pattern: /\b(petshop|petz|cobasi|veterinar)\b/, category: "pets" },
+  { pattern: /\b(renner|riachuelo|cea\b|c&a|zara|shein|roupa|calcados|calçados)\b/, category: "vestuario" },
+  { pattern: /\b(i(o|0)f|tarifa|anuidade|juros|multa|imposto|ipva|iptu)\b/, category: "impostos e taxas" },
+  { pattern: /\b(lovable|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)\b/, category: "servicos" },
 ];
 
 function matchByName(candidates: CategoryCandidate[], name: string): string | null {

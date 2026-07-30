@@ -1,0 +1,1591 @@
+diff --git a/src/components/assessor/ReviewSheet.tsx b/src/components/assessor/ReviewSheet.tsx
+index fa4d9a9..dc1804b 100644
+--- a/src/components/assessor/ReviewSheet.tsx
++++ b/src/components/assessor/ReviewSheet.tsx
+@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
+ import { usePrivacyMode } from "@/context/PrivacyModeContext";
+ import { CategorySelect } from "@/components/CategorySelect";
+ import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
++import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
+ 
+ type Item = {
+   id: string;
+@@ -43,6 +44,8 @@ type Item = {
+   category_confidence?: number | null;
+   movement_kind?: string | null;
+   historical_installments_paid_assumption?: boolean | null;
++  statement_item_kind?: StatementItemKind | null;
++  installment_inferred?: boolean;
+ };
+ 
+ type DocumentInfo = {
+@@ -59,6 +62,11 @@ type DocumentInfo = {
+   source_account_id?: string | null;
+   source_credit_card_id?: string | null;
+   source_context_method?: string | null;
++  invoice_total?: number | null;
++  invoice_due_date?: string | null;
++  invoice_closing_date?: string | null;
++  invoice_competence_month?: string | null;
++  invoice_card_last4?: string | null;
+ };
+ 
+ type Fragment = {
+@@ -117,6 +125,7 @@ export function ReviewSheet({
+   const [fragments, setFragments] = useState<Fragment[]>([]);
+   const [rejections, setRejections] = useState<Rejection[]>([]);
+   const [recovering, setRecovering] = useState(false);
++  const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -137,6 +146,7 @@ export function ReviewSheet({
+       setFragments(d.fragments ?? []);
+       setRejections(d.rejections ?? []);
+       setDocumentInfo(d.document);
++      setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
+       setDocKind(d.document?.document_kind ?? null);
+       const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review").map((i) => i.id));
+       setSelected(initial);
+@@ -145,9 +155,19 @@ export function ReviewSheet({
+     return () => { cancelled = true; };
+   }, [documentId]);
+ 
+-  const total = useMemo(() =>
+-    items.filter((i) => selected.has(i.id)).reduce((s, i) => s + Number(i.amount), 0)
+-  , [items, selected]);
++  const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected]);
++  const invoiceSummary = useMemo(() => summarizeInvoiceLines(selectedItems.map((item) => ({
++    ...item,
++    amount: Number(item.amount),
++  }))), [selectedItems]);
++  const total = useMemo(() => docKind === "invoice"
++    ? invoiceSummary.net
++    : selectedItems.reduce((sum, item) => sum + Number(item.amount), 0),
++  [docKind, invoiceSummary.net, selectedItems]);
++  const reconciliation = useMemo(() => invoiceReconciliation(
++    documentInfo?.invoice_total,
++    invoiceSummary.net,
++  ), [documentInfo?.invoice_total, invoiceSummary.net]);
+ 
+   // Bloqueios de confirmação: nunca confirmar item sem destino contábil válido.
+   const blockers = useMemo(() => {
+@@ -157,9 +177,17 @@ export function ReviewSheet({
+       const card = isCardDocument(docKind) || it.payment_method === "credit_card" || !!it.credit_card_id;
+       if (card && !it.credit_card_id) reasons.add("missing_credit_card");
+       if (!card && !it.account_id) reasons.add("missing_account");
++      if ((it.installments_total ?? 1) > 1 && (
++        !it.installment_number || it.installment_number > Number(it.installments_total)
++      )) reasons.add("Parcelamento inválido: informe a parcela atual e o total.");
++    }
++    if (docKind === "invoice" && documentInfo?.invoice_total == null) {
++      reasons.add("Informe o total oficial da fatura.");
++    } else if (docKind === "invoice" && !reconciliation.reconciled) {
++      reasons.add(`A fatura não fecha: diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Corrija ou ignore linhas indevidas.`);
+     }
+     return [...reasons].map((r) => BLOCK_MESSAGES[r] ?? r);
+-  }, [items, selected, docKind]);
++  }, [items, selected, docKind, documentInfo?.invoice_total, reconciliation]);
+ 
+ 
+   function toggle(id: string) {
+@@ -189,6 +217,16 @@ export function ReviewSheet({
+     }
+   }
+ 
++  async function saveInvoiceTotal() {
++    const value = parseBRLInput(invoiceTotalInput);
++    if (value == null) return toast.error("Informe um total de fatura válido.");
++    const { error } = await supabase.functions.invoke("assistant-review-actions", {
++      body: { action: "update-document", document_id: documentId, patch: { invoice_total: value } },
++    });
++    if (error) return toast.error("Não consegui salvar o total da fatura.");
++    setDocumentInfo((current) => current ? { ...current, invoice_total: value } : current);
++  }
++
+   async function applyBulkTarget() {
+     if (!bulkTarget || selected.size === 0) {
+       toast.error("Selecione os lançamentos e escolha a origem.");
+@@ -291,11 +329,14 @@ export function ReviewSheet({
+         body: { action: "confirm", document_id: documentId, item_ids: ids },
+       });
+       if (error) throw error;
+-      const r = (data as { result: { created_count: number; errors: unknown[]; total_selected: number } }).result;
+-      if (r.created_count === r.total_selected) {
+-        toast.success(`${r.created_count} lançamento(s) registrado(s)`);
++      const r = (data as { result: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }).result;
++      const accounted = r.accounted_count ?? r.created_count;
++      if (accounted === r.total_selected) {
++        toast.success(`${r.created_count} lançamento(s) registrado(s)`, {
++          description: r.non_ledger_count ? `${r.non_ledger_count} linha(s) conciliatória(s) não viraram nova despesa.` : undefined,
++        });
+       } else {
+-        toast.warning(`${r.created_count} de ${r.total_selected} lançamento(s) registrado(s)`, {
++        toast.warning(`${accounted} de ${r.total_selected} item(ns) contabilizado(s)`, {
+           description: r.errors.length > 0 ? "Alguns itens não puderam ser gravados." : undefined,
+         });
+       }
+@@ -431,6 +472,36 @@ export function ReviewSheet({
+                   <span>Categorizados<br/><strong>{documentInfo.counters?.categorized_auto ?? 0}</strong></span>
+                   <span>Sem categoria<br/><strong>{documentInfo.counters?.uncategorized ?? items.filter(i => !i.category_id).length}</strong></span>
+                 </div>
++                {isCardDocument(documentInfo.document_kind) && (
++                  <div className={`rounded-xl border p-3 ${reconciliation.reconciled ? "border-success/40 bg-success/5" : "border-warning/50 bg-warning/5"}`}>
++                    <div className="flex flex-wrap items-end gap-3">
++                      <div className="min-w-[150px] flex-1">
++                        <label className="mb-1 block text-[10px] font-medium text-muted-foreground">Total oficial da fatura</label>
++                        <input
++                          inputMode="decimal"
++                          value={invoiceTotalInput}
++                          onChange={(event) => setInvoiceTotalInput(event.target.value)}
++                          onBlur={saveInvoiceTotal}
++                          className="input-base text-sm font-semibold"
++                          placeholder="0,00"
++                        />
++                      </div>
++                      <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
++                        <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
++                        <span>Estornos/créditos<br/><strong>−{formatBRL(invoiceSummary.credits)}</strong></span>
++                        <span>Pagamentos<br/><strong>−{formatBRL(invoiceSummary.payments)}</strong></span>
++                        <span>Calculado<br/><strong>{formatBRL(invoiceSummary.net)}</strong></span>
++                      </div>
++                    </div>
++                    <p className={`mt-2 text-[11px] ${reconciliation.reconciled ? "text-success" : "text-warning"}`}>
++                      {documentInfo.invoice_total == null
++                        ? "Confira na capa da fatura e informe o total a pagar."
++                        : reconciliation.reconciled
++                          ? "Fatura conciliada. O total calculado fecha com o total informado."
++                          : `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Nenhum lançamento será gravado até a conciliação.`}
++                    </p>
++                  </div>
++                )}
+                 {documentInfo.user_instructions && <p className="text-muted-foreground">Orientação aplicada: {documentInfo.user_instructions}</p>}
+                 {documentInfo.statement_closing_balance != null && !isCardDocument(documentInfo.document_kind) && (
+                   <div className="rounded-xl border border-border bg-card p-3">
+@@ -456,8 +527,8 @@ export function ReviewSheet({
+               <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                 <label htmlFor="bulk-payment-target" className="sr-only">Origem para os selecionados</label>
+                 <select id="bulk-payment-target" value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value)} className="min-w-0 max-w-[180px] rounded-full border border-border bg-card px-2.5 py-1 text-[11px]">
+-                  <option value="">Escolher origem…</option>
+-                  {accounts.map((a) => <option key={a.id} value={`account:${a.id}`}>Conta · {a.name}</option>)}
++                  <option value="">{docKind === "invoice" ? "Escolher cartão…" : "Escolher origem…"}</option>
++                  {docKind !== "invoice" && accounts.map((a) => <option key={a.id} value={`account:${a.id}`}>Conta · {a.name}</option>)}
+                   {cards.map((c: { id: string; name: string }) => <option key={c.id} value={`credit_card:${c.id}`}>Cartão · {c.name}</option>)}
+                 </select>
+                 <button type="button" onClick={applyBulkTarget} disabled={!bulkTarget || selected.size === 0 || bulkSaving} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-muted disabled:opacity-50">
+@@ -537,7 +608,9 @@ export function ReviewSheet({
+                           </div>
+                           <div>
+                             <label className="text-[10px] text-muted-foreground">Método</label>
+-                            <select
++                            {docKind === "invoice" ? (
++                              <div className="input-base flex items-center text-xs">Cartão de crédito</div>
++                            ) : <select
+                               value={it.payment_method ?? ""}
+                               onChange={(e) => {
+                                 const pm = (e.target.value || null) as Item["payment_method"];
+@@ -553,7 +626,7 @@ export function ReviewSheet({
+                               <option value="">—</option>
+                               <option value="account">Conta</option>
+                               <option value="credit_card">Cartão</option>
+-                            </select>
++                            </select>}
+                           </div>
+                           <div>
+                             <label className="text-[10px] text-muted-foreground">Categoria</label>
+@@ -594,9 +667,70 @@ export function ReviewSheet({
+                               </select>
+                             </div>
+                           )}
+-                          {(it.installments_total ?? 0) > 1 && (
++                          {docKind === "invoice" && (
++                            <div className="col-span-2">
++                              <label className="text-[10px] text-muted-foreground">Tipo na fatura</label>
++                              <select
++                                value={it.statement_item_kind ?? "purchase"}
++                                onChange={(event) => patchItem(it.id, { statement_item_kind: event.target.value as StatementItemKind })}
++                                disabled={disabled}
++                                className="input-base text-xs"
++                              >
++                                <option value="purchase">Compra à vista</option>
++                                <option value="installment">Compra parcelada</option>
++                                <option value="refund">Estorno/crédito</option>
++                                <option value="interest">Juros/encargos</option>
++                                <option value="fee">Tarifa/anuidade</option>
++                                <option value="payment">Pagamento da fatura</option>
++                                <option value="adjustment">Ajuste</option>
++                                <option value="informational">Linha informativa (não lançar)</option>
++                              </select>
++                            </div>
++                          )}
++                          {(docKind === "invoice" || (it.installments_total ?? 0) > 1) && (
+                             <div className="col-span-2 space-y-2 text-[11px] text-muted-foreground">
+-                              <p>Parcela {it.installment_number}/{it.installments_total}</p>
++                              <div className="grid grid-cols-2 gap-2">
++                                <div>
++                                  <label className="text-[10px]">Parcela nesta fatura</label>
++                                  <input
++                                    type="number" min={1} max={48}
++                                    value={it.installment_number ?? 1}
++                                    onChange={(event) => {
++                                      const current = Number(event.target.value);
++                                      patchItem(it.id, {
++                                        installment_number: current,
++                                        installments_total: Math.max(current, it.installments_total ?? 1),
++                                        statement_item_kind: Math.max(current, it.installments_total ?? 1) > 1 ? "installment" : "purchase",
++                                      });
++                                    }}
++                                    disabled={disabled}
++                                    className="input-base text-xs"
++                                  />
++                                </div>
++                                <div>
++                                  <label className="text-[10px]">Total de parcelas</label>
++                                  <input
++                                    type="number" min={1} max={48}
++                                    value={it.installments_total ?? 1}
++                                    onChange={(event) => {
++                                      const installmentsTotal = Number(event.target.value);
++                                      patchItem(it.id, {
++                                        installments_total: installmentsTotal,
++                                        installment_number: Math.min(it.installment_number ?? 1, installmentsTotal),
++                                        statement_item_kind: installmentsTotal > 1 ? "installment" : "purchase",
++                                      });
++                                    }}
++                                    disabled={disabled}
++                                    className="input-base text-xs"
++                                  />
++                                </div>
++                              </div>
++                              <p>
++                                {Number(it.installments_total ?? 1) > 1
++                                  ? `${Math.max(0, Number(it.installment_number ?? 1) - 1)} anterior(es) · esta é a ${it.installment_number ?? 1}ª · ${Math.max(0, Number(it.installments_total ?? 1) - Number(it.installment_number ?? 1))} restante(s)`
++                                  : "Compra à vista"}
++                                {it.installment_inferred ? " · inferido do texto" : ""}
++                              </p>
+                               {docKind === "invoice" && (it.installment_number ?? 1) > 1 && !disabled && (
+                                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                                   <p className="font-medium">As {Number(it.installment_number) - 1} parcelas anteriores já foram pagas?</p>
+diff --git a/src/lib/db/finance.ts b/src/lib/db/finance.ts
+index 076927b..b4d3509 100644
+--- a/src/lib/db/finance.ts
++++ b/src/lib/db/finance.ts
+@@ -367,12 +367,15 @@ export function useSaveTransaction() {
+         status: input.status,
+         amount: input.amount,
+         occurred_at: input.occurred_at,
++        purchase_date: input.payment_method === "credit_card" ? (input.purchase_date ?? input.occurred_at) : null,
++        installments_total: input.payment_method === "credit_card" ? input.installments_total : null,
++        installment_number: input.payment_method === "credit_card" ? input.installment_number : null,
+         description: input.description || null,
+         notes: input.notes || null,
+         ...(competence_date ? { competence_date } : {}),
+       };
+       const SELECT_COLS =
+-        "id, purchase_date, competence_date, movement_kind, credit_card_id, account_id, status, type, amount, occurred_at, payment_method, category_id, description, notes";
++        "id, purchase_date, competence_date, movement_kind, credit_card_id, account_id, status, type, amount, occurred_at, payment_method, category_id, description, notes, installments_total, installment_number";
+       let saved: Record<string, unknown> | null = null;
+       if (input.id) {
+         const { data, error } = await supabase
+diff --git a/src/lib/finance/invoice.ts b/src/lib/finance/invoice.ts
+new file mode 100644
+index 0000000..382f972
+--- /dev/null
++++ b/src/lib/finance/invoice.ts
+@@ -0,0 +1,154 @@
++export type StatementItemKind =
++  | "purchase"
++  | "installment"
++  | "refund"
++  | "interest"
++  | "fee"
++  | "payment"
++  | "adjustment"
++  | "informational";
++
++export type InvoiceLine = {
++  amount: number;
++  type: "income" | "expense";
++  description?: string | null;
++  movement_kind?: string | null;
++  installments_total?: number | null;
++  installment_number?: number | null;
++  statement_item_kind?: StatementItemKind | null;
++};
++
++export type InvoiceSummary = {
++  charges: number;
++  credits: number;
++  payments: number;
++  net: number;
++  count: number;
++};
++
++const fold = (value: string) =>
++  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
++
++const roundMoney = (value: number) =>
++  Math.round((value + Number.EPSILON) * 100) / 100;
++
++export function inferInstallmentDetails(
++  description: string,
++  current?: number | null,
++  total?: number | null,
++): { current: number | null; total: number | null; inferred: boolean } {
++  const valid = (n: number | null | undefined) =>
++    Number.isInteger(n) && Number(n) >= 1 && Number(n) <= 48 ? Number(n) : null;
++  const knownCurrent = valid(current);
++  const knownTotal = valid(total);
++  if (knownCurrent && knownTotal && knownCurrent <= knownTotal) {
++    return { current: knownCurrent, total: knownTotal, inferred: false };
++  }
++
++  const text = fold(description);
++  const pair = text.match(
++    /(?:parc(?:ela)?\s*)?(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})(?!\d)/i,
++  );
++  if (pair) {
++    const parsedCurrent = valid(Number(pair[1]));
++    const parsedTotal = valid(Number(pair[2]));
++    if (parsedCurrent && parsedTotal && parsedCurrent <= parsedTotal) {
++      return {
++        current: knownCurrent ?? parsedCurrent,
++        total: knownTotal ?? parsedTotal,
++        inferred: true,
++      };
++    }
++  }
++
++  const totalOnly = text.match(/\b(\d{1,2})\s*x\b/i);
++  const parsedTotal = totalOnly ? valid(Number(totalOnly[1])) : null;
++  if (parsedTotal && parsedTotal > 1) {
++    return {
++      current: knownCurrent ?? 1,
++      total: knownTotal ?? parsedTotal,
++      inferred: true,
++    };
++  }
++
++  return {
++    current: knownCurrent,
++    total: knownTotal,
++    inferred: false,
++  };
++}
++
++export function classifyStatementItem(line: InvoiceLine): StatementItemKind {
++  if (line.statement_item_kind) return line.statement_item_kind;
++  const description = fold(line.description ?? "");
++  const movement = fold(line.movement_kind ?? "transaction");
++
++  if (
++    movement === "informational" ||
++    /\b(total da fatura|valor da fatura|total a pagar|pagamento minimo|limite (disponivel|total)|saldo (disponivel|total)|parcelas futuras|proximas faturas)\b/.test(description)
++  ) return "informational";
++  if (
++    movement === "card_payment" ||
++    /\b(pagamento (efetuado|recebido)?\s*(da|de)?\s*fatura|pagamento cartao)\b/.test(description)
++  ) return "payment";
++  if (
++    movement === "refund" ||
++    line.type === "income" ||
++    /\b(estorno|reembolso|credito de compra|credito recebido)\b/.test(description)
++  ) return "refund";
++  if (/\b(juros|encargos|rotativo)\b/.test(description)) return "interest";
++  if (/\b(tarifa|anuidade|iof|multa)\b/.test(description)) return "fee";
++
++  const installment = inferInstallmentDetails(
++    line.description ?? "",
++    line.installment_number,
++    line.installments_total,
++  );
++  if ((installment.total ?? 1) > 1) return "installment";
++  return "purchase";
++}
++
++export function statementSignedAmount(line: InvoiceLine): number {
++  const amount = Math.abs(Number(line.amount) || 0);
++  const kind = classifyStatementItem(line);
++  if (kind === "informational") return 0;
++  if (kind === "refund" || kind === "payment") return -amount;
++  return amount;
++}
++
++export function summarizeInvoiceLines(lines: InvoiceLine[]): InvoiceSummary {
++  let charges = 0;
++  let credits = 0;
++  let payments = 0;
++  let count = 0;
++
++  for (const line of lines) {
++    const amount = Math.abs(Number(line.amount) || 0);
++    const kind = classifyStatementItem(line);
++    if (!amount || kind === "informational") continue;
++    count++;
++    if (kind === "payment") payments += amount;
++    else if (kind === "refund") credits += amount;
++    else charges += amount;
++  }
++
++  return {
++    charges: roundMoney(charges),
++    credits: roundMoney(credits),
++    payments: roundMoney(payments),
++    net: roundMoney(charges - credits - payments),
++    count,
++  };
++}
++
++export function invoiceReconciliation(
++  statedTotal: number | null | undefined,
++  calculatedTotal: number,
++  tolerance = 0.05,
++): { difference: number | null; reconciled: boolean } {
++  if (statedTotal == null || !Number.isFinite(Number(statedTotal))) {
++    return { difference: null, reconciled: false };
++  }
++  const difference = roundMoney(Number(statedTotal) - calculatedTotal);
++  return { difference, reconciled: Math.abs(difference) <= tolerance };
++}
+diff --git a/src/lib/validation/finance.ts b/src/lib/validation/finance.ts
+index 485a37f..d200ad5 100644
+--- a/src/lib/validation/finance.ts
++++ b/src/lib/validation/finance.ts
+@@ -27,6 +27,9 @@ export const transactionSchema = z.object({
+   status: z.enum(["confirmed", "planned"]).default("confirmed"),
+   amount: z.number({ invalid_type_error: "Valor inválido" }).positive("Valor deve ser maior que zero"),
+   occurred_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida"),
++  purchase_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data da compra inválida").nullable().optional(),
++  installments_total: z.number().int().min(1).max(48).default(1),
++  installment_number: z.number().int().min(1).max(48).default(1),
+   description: z.string().trim().max(120).optional().or(z.literal("")),
+   notes: z.string().trim().max(500).optional().or(z.literal("")),
+ }).superRefine((value, ctx) => {
+@@ -39,6 +42,12 @@ export const transactionSchema = z.object({
+   if (value.type === "expense" && value.payment_method === "credit_card" && !value.credit_card_id) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["credit_card_id"], message: "Escolha o cartão utilizado" });
+   }
++  if (value.installment_number > value.installments_total) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["installment_number"], message: "A parcela atual não pode superar o total de parcelas" });
++  }
++  if (value.payment_method !== "credit_card" && value.installments_total > 1) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["installments_total"], message: "Parcelamento exige cartão de crédito" });
++  }
+ });
+ export type TransactionInput = z.infer<typeof transactionSchema>;
+ 
+diff --git a/src/pages/Lancamentos.tsx b/src/pages/Lancamentos.tsx
+index 901aaf1..178e153 100644
+--- a/src/pages/Lancamentos.tsx
++++ b/src/pages/Lancamentos.tsx
+@@ -858,6 +858,8 @@ function TxModal({
+   const [occurredAt, setOccurredAt] = useState(initial?.occurred_at ?? todayISO());
+   const [description, setDescription] = useState(initial?.description ?? "");
+   const [status, setStatus] = useState<"confirmed" | "planned">(initial?.status ?? "confirmed");
++  const [installmentsTotal, setInstallmentsTotal] = useState(Number(initial?.installments_total ?? 1));
++  const [installmentNumber, setInstallmentNumber] = useState(Number(initial?.installment_number ?? 1));
+   const [error, setError] = useState<string | null>(null);
+ 
+   void categories; // filtrado dentro do CategorySelect
+@@ -873,6 +875,9 @@ function TxModal({
+       status,
+       amount: Number(amount.replace(",", ".")),
+       occurred_at: occurredAt,
++      purchase_date: type === "expense" && paymentMethod === "credit_card" ? occurredAt : null,
++      installments_total: type === "expense" && paymentMethod === "credit_card" ? installmentsTotal : 1,
++      installment_number: type === "expense" && paymentMethod === "credit_card" ? installmentNumber : 1,
+       description,
+     });
+     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Dados inválidos"); return; }
+@@ -889,8 +894,15 @@ function TxModal({
+             <button type="button" onClick={() => setType("income")} className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "income" ? "border-success bg-success/10 text-success" : "border-border bg-background text-muted-foreground"}`}>Receita</button>
+           </div>
+           <div>
+-            <label className="mb-1 block text-xs font-medium">Valor (R$)</label>
++            <label className="mb-1 block text-xs font-medium">
++              {type === "expense" && paymentMethod === "credit_card" && installmentsTotal > 1 ? "Valor desta parcela (R$)" : "Valor (R$)"}
++            </label>
+             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base" placeholder="0,00" />
++            {type === "expense" && paymentMethod === "credit_card" && installmentsTotal > 1 && Number(amount.replace(",", ".")) > 0 && (
++              <p className="mt-1 text-[11px] text-muted-foreground">
++                Compra estimada: {formatBRL(Number(amount.replace(",", ".")) * installmentsTotal)} · {installmentsTotal} parcelas
++              </p>
++            )}
+           </div>
+           {type === "expense" && cards.length > 0 ? (
+             <div>
+@@ -917,6 +929,45 @@ function TxModal({
+               </select>
+             </div>
+           )}
++          {type === "expense" && paymentMethod === "credit_card" && (
++            <div className="rounded-xl border border-border bg-secondary/30 p-3">
++              <p className="text-xs font-medium">Parcelamento</p>
++              <p className="mt-0.5 text-[11px] text-muted-foreground">Informe 1/1 para compra à vista. O valor acima é sempre o valor da parcela.</p>
++              <div className="mt-2 grid grid-cols-2 gap-2">
++                <div>
++                  <label className="mb-1 block text-[10px] text-muted-foreground">Parcela atual</label>
++                  <input
++                    type="number" min={1} max={48}
++                    value={installmentNumber}
++                    onChange={(event) => {
++                      const value = Number(event.target.value);
++                      setInstallmentNumber(value);
++                      if (value > installmentsTotal) setInstallmentsTotal(value);
++                    }}
++                    className="input-base"
++                  />
++                </div>
++                <div>
++                  <label className="mb-1 block text-[10px] text-muted-foreground">Total de parcelas</label>
++                  <input
++                    type="number" min={1} max={48}
++                    value={installmentsTotal}
++                    onChange={(event) => {
++                      const value = Number(event.target.value);
++                      setInstallmentsTotal(value);
++                      if (installmentNumber > value) setInstallmentNumber(value);
++                    }}
++                    className="input-base"
++                  />
++                </div>
++              </div>
++              {installmentsTotal > 1 && (
++                <p className="mt-2 text-[11px] text-muted-foreground">
++                  {Math.max(0, installmentNumber - 1)} anterior(es) · esta é a {installmentNumber}ª · {Math.max(0, installmentsTotal - installmentNumber)} restante(s)
++                </p>
++              )}
++            </div>
++          )}
+           <div>
+             <label className="mb-1 block text-xs font-medium">Categoria</label>
+             <CategorySelect value={categoryId || null} onChange={(id) => setCategoryId(id ?? "")} type={type} />
+diff --git a/src/test/invoice-import-contract.test.ts b/src/test/invoice-import-contract.test.ts
+new file mode 100644
+index 0000000..9dea063
+--- /dev/null
++++ b/src/test/invoice-import-contract.test.ts
+@@ -0,0 +1,31 @@
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++import { describe, expect, it } from "vitest";
++
++const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
++
++describe("invoice import safety contract", () => {
++  it("requires official total reconciliation before confirmation", () => {
++    const migration = read("supabase/migrations/20260730030000_invoice_import_reconciliation.sql");
++    const edge = read("supabase/functions/assistant-review-actions/index.ts");
++    expect(migration).toContain("validate_invoice_import");
++    expect(migration).toContain("abs(v_difference) > 0.05");
++    expect(edge).toContain("invoice_not_reconciled");
++  });
++
++  it("never turns bill payments or informational rows into new transactions", () => {
++    const edge = read("supabase/functions/assistant-review-actions/index.ts");
++    expect(edge).toContain('row.statement_item_kind === "payment"');
++    expect(edge).toContain('row.statement_item_kind === "informational"');
++    expect(edge).toContain("nonLedgerIds");
++  });
++
++  it("keeps the manual and imported installment journeys explicit", () => {
++    const review = read("src/components/assessor/ReviewSheet.tsx");
++    const manual = read("src/pages/Lancamentos.tsx");
++    expect(review).toContain("Parcela nesta fatura");
++    expect(review).toContain("Total de parcelas");
++    expect(manual).toContain("Valor desta parcela");
++    expect(manual).toContain("Compra estimada");
++  });
++});
+diff --git a/src/test/invoice-reconciliation.test.ts b/src/test/invoice-reconciliation.test.ts
+new file mode 100644
+index 0000000..93a1d09
+--- /dev/null
++++ b/src/test/invoice-reconciliation.test.ts
+@@ -0,0 +1,38 @@
++import { describe, expect, it } from "vitest";
++import {
++  classifyStatementItem,
++  inferInstallmentDetails,
++  invoiceReconciliation,
++  summarizeInvoiceLines,
++} from "@/lib/finance/invoice";
++
++describe("credit-card invoice reconciliation", () => {
++  it("infers current and total installments from common Brazilian labels", () => {
++    expect(inferInstallmentDetails("LOJA EXEMPLO PARC 03/10")).toEqual({
++      current: 3, total: 10, inferred: true,
++    });
++    expect(inferInstallmentDetails("COMPRA 4 de 12")).toEqual({
++      current: 4, total: 12, inferred: true,
++    });
++  });
++
++  it("subtracts refunds and bill payments instead of summing absolute values", () => {
++    const summary = summarizeInvoiceLines([
++      { amount: 100, type: "expense", description: "Compra" },
++      { amount: 20, type: "income", description: "Estorno" },
++      { amount: 30, type: "expense", description: "Pagamento da fatura" },
++    ]);
++    expect(summary).toMatchObject({ charges: 100, credits: 20, payments: 30, net: 50 });
++  });
++
++  it("classifies installments and informational totals safely", () => {
++    expect(classifyStatementItem({ amount: 40, type: "expense", description: "Curso 02/08" })).toBe("installment");
++    expect(classifyStatementItem({ amount: 500, type: "expense", description: "Total da fatura" })).toBe("informational");
++  });
++
++  it("uses a five-cent tolerance and blocks material differences", () => {
++    expect(invoiceReconciliation(100, 99.96).reconciled).toBe(true);
++    expect(invoiceReconciliation(100, 99.90)).toEqual({ difference: 0.1, reconciled: false });
++  });
++});
++
+diff --git a/supabase/functions/_shared/categorization/pipeline.ts b/supabase/functions/_shared/categorization/pipeline.ts
+index fe9785f..bb4a0f7 100644
+--- a/supabase/functions/_shared/categorization/pipeline.ts
++++ b/supabase/functions/_shared/categorization/pipeline.ts
+@@ -64,13 +64,20 @@ export async function loadEffectiveThresholds(sb: any): Promise<EffectiveThresho
+ 
+ const RULES: Array<{ pattern: RegExp; category: string }> = [
+   { pattern: /\b(uber|99|cabify|indriver)\b/, category: "transporte" },
+-  { pattern: /\b(ifood|rappi|zé\s*delivery|ze\s*delivery|james)\b/, category: "alimentacao" },
++  { pattern: /\b(ifood|rappi|zé\s*delivery|ze\s*delivery|james|restaurante|lanchonete|padaria|caf[eé]|pizza|burger|mcdonald|outback)\b/, category: "alimentacao" },
+   { pattern: /\b(drogaria|farmacia|drogasil|pacheco|raia|panvel)\b/, category: "saude" },
+-  { pattern: /\b(supermerc|mercado|carrefour|extra|assai|atacadao|paodeacucar|pao\s*de\s*acucar|hortifruti)\b/, category: "mercado" },
++  { pattern: /\b(supermerc|mercado|carrefour|extra|assai|atacadao|paodeacucar|pao\s*de\s*acucar|hortifruti|sams?\s*club|oxxo)\b/, category: "mercado" },
+   { pattern: /\b(bar|boteco|pub|balada|cervejaria|choperia)\b/, category: "lazer" },
+-  { pattern: /\b(cinema|teatro|show|ingresso|netflix|spotify|disney|hbo)\b/, category: "lazer" },
++  { pattern: /\b(cinema|teatro|show|ingresso|festival|parque)\b/, category: "lazer" },
++  { pattern: /\b(netflix|spotify|disney|hbo|max\.com|amazon\s*prime|youtube\s*premium|apple\.com\/bill|google\s*one|icloud)\b/, category: "assinaturas" },
+   { pattern: /\b(posto|gasolina|combustivel|shell|petrobras|ipiranga)\b/, category: "transporte" },
+-  { pattern: /\b(escola|faculdade|curso|udemy|alura)\b/, category: "educacao" },
++  { pattern: /\b(escola|faculdade|curso|udemy|alura|livraria)\b/, category: "educacao" },
++  { pattern: /\b(aluguel|condominio|energia|enel|sabesp|copasa|internet|vivo\s*fibra|claro\s*net)\b/, category: "moradia" },
++  { pattern: /\b(hospital|clinica|laboratorio|consulta|dentista|odonto)\b/, category: "saude" },
++  { pattern: /\b(petshop|petz|cobasi|veterinar)\b/, category: "pets" },
++  { pattern: /\b(renner|riachuelo|cea\b|c&a|zara|shein|roupa|calcados|calçados)\b/, category: "vestuario" },
++  { pattern: /\b(i(o|0)f|tarifa|anuidade|juros|multa|imposto|ipva|iptu)\b/, category: "impostos e taxas" },
++  { pattern: /\b(lovable|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)\b/, category: "servicos" },
+ ];
+ 
+ function matchByName(candidates: CategoryCandidate[], name: string): string | null {
+diff --git a/supabase/functions/_shared/documents/invoice.ts b/supabase/functions/_shared/documents/invoice.ts
+new file mode 100644
+index 0000000..382f972
+--- /dev/null
++++ b/supabase/functions/_shared/documents/invoice.ts
+@@ -0,0 +1,154 @@
++export type StatementItemKind =
++  | "purchase"
++  | "installment"
++  | "refund"
++  | "interest"
++  | "fee"
++  | "payment"
++  | "adjustment"
++  | "informational";
++
++export type InvoiceLine = {
++  amount: number;
++  type: "income" | "expense";
++  description?: string | null;
++  movement_kind?: string | null;
++  installments_total?: number | null;
++  installment_number?: number | null;
++  statement_item_kind?: StatementItemKind | null;
++};
++
++export type InvoiceSummary = {
++  charges: number;
++  credits: number;
++  payments: number;
++  net: number;
++  count: number;
++};
++
++const fold = (value: string) =>
++  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
++
++const roundMoney = (value: number) =>
++  Math.round((value + Number.EPSILON) * 100) / 100;
++
++export function inferInstallmentDetails(
++  description: string,
++  current?: number | null,
++  total?: number | null,
++): { current: number | null; total: number | null; inferred: boolean } {
++  const valid = (n: number | null | undefined) =>
++    Number.isInteger(n) && Number(n) >= 1 && Number(n) <= 48 ? Number(n) : null;
++  const knownCurrent = valid(current);
++  const knownTotal = valid(total);
++  if (knownCurrent && knownTotal && knownCurrent <= knownTotal) {
++    return { current: knownCurrent, total: knownTotal, inferred: false };
++  }
++
++  const text = fold(description);
++  const pair = text.match(
++    /(?:parc(?:ela)?\s*)?(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})(?!\d)/i,
++  );
++  if (pair) {
++    const parsedCurrent = valid(Number(pair[1]));
++    const parsedTotal = valid(Number(pair[2]));
++    if (parsedCurrent && parsedTotal && parsedCurrent <= parsedTotal) {
++      return {
++        current: knownCurrent ?? parsedCurrent,
++        total: knownTotal ?? parsedTotal,
++        inferred: true,
++      };
++    }
++  }
++
++  const totalOnly = text.match(/\b(\d{1,2})\s*x\b/i);
++  const parsedTotal = totalOnly ? valid(Number(totalOnly[1])) : null;
++  if (parsedTotal && parsedTotal > 1) {
++    return {
++      current: knownCurrent ?? 1,
++      total: knownTotal ?? parsedTotal,
++      inferred: true,
++    };
++  }
++
++  return {
++    current: knownCurrent,
++    total: knownTotal,
++    inferred: false,
++  };
++}
++
++export function classifyStatementItem(line: InvoiceLine): StatementItemKind {
++  if (line.statement_item_kind) return line.statement_item_kind;
++  const description = fold(line.description ?? "");
++  const movement = fold(line.movement_kind ?? "transaction");
++
++  if (
++    movement === "informational" ||
++    /\b(total da fatura|valor da fatura|total a pagar|pagamento minimo|limite (disponivel|total)|saldo (disponivel|total)|parcelas futuras|proximas faturas)\b/.test(description)
++  ) return "informational";
++  if (
++    movement === "card_payment" ||
++    /\b(pagamento (efetuado|recebido)?\s*(da|de)?\s*fatura|pagamento cartao)\b/.test(description)
++  ) return "payment";
++  if (
++    movement === "refund" ||
++    line.type === "income" ||
++    /\b(estorno|reembolso|credito de compra|credito recebido)\b/.test(description)
++  ) return "refund";
++  if (/\b(juros|encargos|rotativo)\b/.test(description)) return "interest";
++  if (/\b(tarifa|anuidade|iof|multa)\b/.test(description)) return "fee";
++
++  const installment = inferInstallmentDetails(
++    line.description ?? "",
++    line.installment_number,
++    line.installments_total,
++  );
++  if ((installment.total ?? 1) > 1) return "installment";
++  return "purchase";
++}
++
++export function statementSignedAmount(line: InvoiceLine): number {
++  const amount = Math.abs(Number(line.amount) || 0);
++  const kind = classifyStatementItem(line);
++  if (kind === "informational") return 0;
++  if (kind === "refund" || kind === "payment") return -amount;
++  return amount;
++}
++
++export function summarizeInvoiceLines(lines: InvoiceLine[]): InvoiceSummary {
++  let charges = 0;
++  let credits = 0;
++  let payments = 0;
++  let count = 0;
++
++  for (const line of lines) {
++    const amount = Math.abs(Number(line.amount) || 0);
++    const kind = classifyStatementItem(line);
++    if (!amount || kind === "informational") continue;
++    count++;
++    if (kind === "payment") payments += amount;
++    else if (kind === "refund") credits += amount;
++    else charges += amount;
++  }
++
++  return {
++    charges: roundMoney(charges),
++    credits: roundMoney(credits),
++    payments: roundMoney(payments),
++    net: roundMoney(charges - credits - payments),
++    count,
++  };
++}
++
++export function invoiceReconciliation(
++  statedTotal: number | null | undefined,
++  calculatedTotal: number,
++  tolerance = 0.05,
++): { difference: number | null; reconciled: boolean } {
++  if (statedTotal == null || !Number.isFinite(Number(statedTotal))) {
++    return { difference: null, reconciled: false };
++  }
++  const difference = roundMoney(Number(statedTotal) - calculatedTotal);
++  return { difference, reconciled: Math.abs(difference) <= tolerance };
++}
+diff --git a/supabase/functions/_shared/documents/types.ts b/supabase/functions/_shared/documents/types.ts
+index 7f1e9ac..928f15b 100644
+--- a/supabase/functions/_shared/documents/types.ts
++++ b/supabase/functions/_shared/documents/types.ts
+@@ -1,4 +1,6 @@
+ // Contrato canônico da extração multimodal.
++import { inferInstallmentDetails } from "./invoice.ts";
++
+ export const CANONICAL_MOVEMENT_KINDS = [
+   "transaction", "refund", "internal_transfer",
+   "investment_application", "investment_redemption",
+@@ -153,7 +155,10 @@ export function normalizeDateBR(raw: string, fallback: string, confidence = 0):
+ // Palavras-chave que NUNCA viram lançamento
+ const NON_TX_KEYWORDS = [
+   "saldo disponível", "saldo total", "saldo anterior", "saldo atual", "saldo em conta", "saldo do dia",
+-  "limite disponível", "limite utilizado", "limite da conta", "limite total", "subtotal", "total da fatura", "vencimento",
++  "limite disponível", "limite utilizado", "limite da conta", "limite total", "subtotal",
++  "total da fatura", "valor da fatura", "total a pagar", "pagamento mínimo", "pagamento minimo",
++  "parcelas futuras", "próximas faturas", "proximas faturas", "melhor dia de compra",
++  "data de fechamento", "data do fechamento", "data de vencimento", "vencimento",
+   "período de visualização", "periodo de visualizacao", "emitido em", "extrato conta", "lançamentos",
+   "pagamento efetuado - fatura", "pagamento fatura", "pagamento da fatura",
+ ];
+@@ -163,6 +168,10 @@ export function isNonTransactionLine(description: string): boolean {
+   return NON_TX_KEYWORDS.some((k) => d.includes(k));
+ }
+ 
++function isInvoicePaymentLine(description: string): boolean {
++  return /\bpagamento (efetuado\s+)?(da\s+|de\s+)?fatura\b/i.test(description.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
++}
++
+ export type SanitizeCounters = { informational_dropped: number; non_transaction_dropped: number };
+ export type SanitizeResult = ExtractionResult & { informational_dropped?: number; non_transaction_dropped?: number };
+ 
+@@ -179,7 +188,7 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+   const rawItems = Array.isArray(r.items) ? r.items : Array.isArray(r.i) ? r.i : [];
+   const items: ExtractedItem[] = [];
+   let informational_dropped = 0;
+-  let non_transaction_dropped = 0;
++  const non_transaction_dropped = 0;
+   for (const raw of rawItems) {
+     if (Array.isArray(raw)) {
+       const row = raw as CompactRow;
+@@ -188,11 +197,19 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+       if (!description) continue;
+       const movementKind = normalizeMovementKind(row[7], type, description);
+       if (movementKind === "informational") { informational_dropped++; continue; }
+-      if (isNonTransactionLine(description)) { informational_dropped++; continue; }
++      if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
++        informational_dropped++;
++        continue;
++      }
+ 
+       const amount = normalizeAmountBR(row[2]);
+       if (amount == null) continue;
+       const occurred_at = normalizeDateBR(String(row[1] ?? ""), fallbackDate, 0.9);
++      const inferred = inferInstallmentDetails(
++        description,
++        typeof row[9] === "number" ? row[9] : null,
++        typeof row[8] === "number" ? row[8] : null,
++      );
+       const paymentRaw = row[4];
+       const payment_method = paymentRaw === "account" || paymentRaw === "credit_card" ? paymentRaw : null;
+       items.push({
+@@ -204,8 +221,8 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+         account_hint: typeof row[5] === "string" ? row[5] : null,
+         card_hint: typeof row[6] === "string" ? row[6] : null,
+         category_hint: typeof row[12] === "string" ? row[12] : null,
+-        installments_total: typeof row[8] === "number" && row[8] >= 1 && row[8] <= 48 ? row[8] : null,
+-        installment_number: typeof row[9] === "number" && row[9] >= 1 && row[9] <= 48 ? row[9] : null,
++        installments_total: inferred.total,
++        installment_number: inferred.current,
+         purchase_date: typeof row[10] === "string" ? normalizeDateBR(row[10], occurred_at) : null,
+         competence_date: typeof row[11] === "string" ? normalizeDateBR(row[11], occurred_at) : null,
+         confidence: { amount: 0.85, occurred_at: 0.85 },
+@@ -221,10 +238,18 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+     const type = it.type === "income" ? "income" : "expense";
+     const movementKind = normalizeMovementKind(it.movement_kind, type, description);
+     if (movementKind === "informational") { informational_dropped++; continue; }
+-    if (isNonTransactionLine(description)) { informational_dropped++; continue; }
++    if (isNonTransactionLine(description) && !(validKind === "invoice" && isInvoicePaymentLine(description))) {
++      informational_dropped++;
++      continue;
++    }
+ 
+     const amount = normalizeAmountBR(it.amount as string | number);
+     if (amount == null) continue;
++    const inferred = inferInstallmentDetails(
++      description,
++      typeof it.installment_number === "number" ? it.installment_number : null,
++      typeof it.installments_total === "number" ? it.installments_total : null,
++    );
+     const conf = (it.confidence && typeof it.confidence === "object") ? it.confidence as Record<string, number> : {};
+     const dateConfidence = Number(conf.occurred_at ?? 0);
+     const occurred_at = normalizeDateBR(String(it.occurred_at ?? ""), fallbackDate, dateConfidence);
+@@ -239,8 +264,8 @@ export function sanitize(result: unknown, fallbackDate: string): SanitizeResult
+       account_hint: (it.account_hint as string | null) ?? null,
+       card_hint: (it.card_hint as string | null) ?? null,
+       category_hint: (it.category_hint as string | null) ?? null,
+-      installments_total: typeof it.installments_total === "number" && it.installments_total >= 1 && it.installments_total <= 48 ? it.installments_total : null,
+-      installment_number: typeof it.installment_number === "number" && it.installment_number >= 1 && it.installment_number <= 48 ? it.installment_number : null,
++      installments_total: inferred.total,
++      installment_number: inferred.current,
+       purchase_date: typeof it.purchase_date === "string" ? normalizeDateBR(it.purchase_date, occurred_at) : null,
+       competence_date: typeof it.competence_date === "string" ? normalizeDateBR(it.competence_date, occurred_at) : null,
+       confidence: conf,
+diff --git a/supabase/functions/assistant-ingest-document/index.ts b/supabase/functions/assistant-ingest-document/index.ts
+index 276e4e0..2ff25cb 100644
+--- a/supabase/functions/assistant-ingest-document/index.ts
++++ b/supabase/functions/assistant-ingest-document/index.ts
+@@ -15,6 +15,8 @@ import { normalizeDescription, extractBankReference, computeFingerprint } from "
+ import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
+ import { resolveDocumentDate } from "../_shared/documents/dates.ts";
+ import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
++import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
++import { decideByRule } from "../_shared/categorization/pipeline.ts";
+ 
+ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+@@ -133,7 +135,7 @@ async function getUser(req: Request) {
+ const SYSTEM_PROMPT = `Você é um extrator financeiro para o app MeuNino.
+ 
+ Analise o documento enviado (PDF, recibo, fatura, extrato, print de compra ou lista) e devolva JSON PURO, compacto, sem markdown:
+-{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null}}
++{"k":"statement|receipt|invoice|list|non_financial|illegible|unknown","i":[["expense","YYYY-MM-DD",123.45,"descrição","account",null,null,"transaction",null,null,null,null,null]],"n":"nota curta","more":false,"m":{"opening_balance":null,"closing_balance":null,"balance_date":null,"period_start":null,"period_end":null,"bank":null},"f":{"total":null,"due_date":null,"closing_date":null,"competence":null,"card_last4":null}}
+ 
+ Cada item em "i" é EXATAMENTE:
+ [tipo,data,valor,descricao,pagamento,conta,cartao,movimento,parcelas_total,parcela_numero,data_compra,competencia,categoria]
+@@ -156,6 +158,10 @@ REGRAS ESTRITAS:
+ - Estorno/reembolso (incluindo descrições iniciadas por EST) é refund/income, nunca nova renda recorrente.
+ - Preserve a descrição literal; não use "crédito", "débito", "cartão de crédito" ou "cartão" como descrição.
+ - O bloco "m" é metadata de extrato. Extraia APENAS de linhas informativas ("Saldo do dia", "Saldo final", "Saldo anterior"). Nunca vire transação.
++- Em FATURA DE CARTÃO, o bloco "m" deve ter saldos null. Use "f": total é o TOTAL OFICIAL A PAGAR da fatura atual; due_date é o vencimento; closing_date é o fechamento; competence é YYYY-MM-01; card_last4 são os quatro últimos dígitos.
++- Em fatura, extraia somente itens que compõem a fatura atual. EXCLUA total/valor da fatura, pagamento mínimo, limites, parcelas futuras/próximas faturas, encargos meramente projetados e resumos.
++- Em fatura, reconheça parcelas em textos como "03/10", "3 de 10" e "3x". Preencha parcelas_total e parcela_numero. O valor do item é o valor DA PARCELA DESTA FATURA, nunca o valor total da compra.
++- Categoria deve ser uma destas quando houver evidência: Alimentação, Mercado, Moradia, Transporte, Saúde, Lazer, Educação, Assinaturas, Vestuário, Pets, Impostos e Taxas, Serviços, Presentes, Outros. Não invente categorias.
+ - LIMITE RÍGIDO: devolva no máximo ${BATCH_ITEMS_LIMIT} lançamentos neste lote. Se houver mais lançamentos depois deste lote, use "more":true.
+ - Cada "description" deve ter no máximo 80 caracteres. Corte descrições longas mantendo o núcleo (nome do estabelecimento).
+ - Ordene sempre do mais recente para o mais antigo.
+@@ -173,6 +179,7 @@ type StatementMetadata = {
+ type MultimodalOutcome = {
+   result: ExtractionResult;
+   statement: StatementMetadata | null;
++  invoice: InvoiceMetadata | null;
+   tokens_in: number;
+   tokens_out: number;
+   ms: number;
+@@ -181,6 +188,43 @@ type MultimodalOutcome = {
+   errorTag?: string;
+ };
+ 
++type InvoiceMetadata = {
++  total: number | null;
++  due_date: string | null;
++  closing_date: string | null;
++  competence: string | null;
++  card_last4: string | null;
++};
++
++function normalizeInvoiceDate(raw: unknown): string | null {
++  if (typeof raw !== "string") return null;
++  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
++  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
++  const value = iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[3]}-${br[2]}-${br[1]}` : null;
++  if (!value) return null;
++  const date = new Date(`${value}T12:00:00Z`);
++  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null;
++}
++
++function extractInvoiceMetadata(parsed: unknown, _fallback: string): InvoiceMetadata | null {
++  if (!parsed || typeof parsed !== "object") return null;
++  const raw = (parsed as Record<string, unknown>).f;
++  if (!raw || typeof raw !== "object") return null;
++  const r = raw as Record<string, unknown>;
++  const total = normalizeAmountBR((r.total ?? "") as string | number);
++  const due_date = normalizeInvoiceDate(r.due_date);
++  const closing_date = normalizeInvoiceDate(r.closing_date);
++  const competenceRaw = typeof r.competence === "string" ? r.competence : null;
++  const competence = competenceRaw && /^\d{4}-\d{2}(?:-\d{2})?$/.test(competenceRaw)
++    ? `${competenceRaw.slice(0, 7)}-01`
++    : null;
++  const digits = String(r.card_last4 ?? "").replace(/\D/g, "");
++  const card_last4 = digits.length >= 4 ? digits.slice(-4) : null;
++  return total != null || due_date || closing_date || competence || card_last4
++    ? { total, due_date, closing_date, competence, card_last4 }
++    : null;
++}
++
+ function extractStatementMetadata(parsed: unknown, fallback: string): StatementMetadata | null {
+   if (!parsed || typeof parsed !== "object") return null;
+   const source = parsed as Record<string, unknown>;
+@@ -300,7 +344,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
+     const ms = Date.now() - start;
+     if (!res.ok) {
+       const body = await res.text();
+-      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
++      return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
+     }
+     const data = await res.json();
+     const text = data?.choices?.[0]?.message?.content ?? "{}";
+@@ -313,7 +357,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
+     } catch {
+       const recovered = recoverCompactJson(text);
+       if (!recovered) {
+-        return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, tokens_in, tokens_out, ms, has_more: false, partial: false, errorTag: "extraction:invalid_json" };
++        return { result: { document_kind: "unknown", items: [], notes: "extraction_json" }, statement: null, invoice: null, tokens_in, tokens_out, ms, has_more: false, partial: false, errorTag: "extraction:invalid_json" };
+       }
+       parsed = recovered.parsed;
+       partial = recovered.partial;
+@@ -322,6 +366,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
+     return {
+       result: sanitize(parsed, today),
+       statement: extractStatementMetadata(parsed, today),
++      invoice: extractInvoiceMetadata(parsed, today),
+       tokens_in,
+       tokens_out,
+       ms,
+@@ -331,7 +376,7 @@ Se não houver novos lançamentos, devolva {"k":"statement","i":[],"n":"sem novo
+   } catch (e) {
+     const err = e as Error;
+     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
+-    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
++    return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
+   }
+ }
+ 
+@@ -487,6 +532,16 @@ async function enrichItems(
+       const c = findCatByName(ruleCategory);
+       if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
+     }
++    if (!categoryId) {
++      const decision = decideByRule(friendly || rawDesc, (categories ?? [])
++        .filter((c) => c.type === item.type || c.type === "both")
++        .map((c) => ({ id: c.id, name: c.name })));
++      if (decision?.category_id) {
++        categoryId = decision.category_id;
++        categorySource = "rule";
++        categoryConfidence = decision.category_confidence;
++      }
++    }
+     if (!categoryId) {
+       const bucket = historyByKey.get(`${item.type}|${normalizedKey}`);
+       if (bucket) {
+@@ -545,6 +600,64 @@ async function enrichItems(
+     });
+ 
+   }
++
++  // Último recurso em uma única chamada: categoriza apenas o que regras,
++  // aliases, histórico e hint não resolveram. A resposta só pode escolher uma
++  // categoria existente e precisa trazer confiança >= 0,70.
++  const unresolved = enriched
++    .map((item, index) => ({ item, index }))
++    .filter(({ item }) => !item.category_id)
++    .slice(0, 80);
++  if (unresolved.length > 0 && LOVABLE_API_KEY) {
++    try {
++      const candidates = (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type }));
++      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
++        method: "POST",
++        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
++        body: JSON.stringify({
++          model: MODEL,
++          response_format: { type: "json_object" },
++          max_tokens: 1400,
++          messages: [
++            {
++              role: "system",
++              content: "Classifique lançamentos financeiros brasileiros. Use somente category_id fornecido. Responda JSON puro {\"items\":[{\"index\":0,\"category_id\":\"uuid\",\"confidence\":0.0}]}. Se não houver evidência suficiente, use category_id null. Nunca invente UUID.",
++            },
++            {
++              role: "user",
++              content: JSON.stringify({
++                categories: candidates,
++                items: unresolved.map(({ item, index }) => ({
++                  index,
++                  type: item.type,
++                  description: item.raw_description ?? item.description,
++                })),
++              }),
++            },
++          ],
++        }),
++      });
++      if (response.ok) {
++        const payload = await response.json();
++        const parsed = JSON.parse(payload?.choices?.[0]?.message?.content ?? "{}") as {
++          items?: Array<{ index?: number; category_id?: string | null; confidence?: number }>;
++        };
++        const validIds = new Set(candidates.map((candidate) => candidate.id));
++        for (const suggestion of parsed.items ?? []) {
++          const index = Number(suggestion.index);
++          const confidence = Number(suggestion.confidence ?? 0);
++          if (!Number.isInteger(index) || !validIds.has(String(suggestion.category_id)) || confidence < 0.7) continue;
++          const target = enriched[index];
++          if (!target || target.category_id) continue;
++          target.category_id = String(suggestion.category_id);
++          target.category_source = "llm";
++          target.category_confidence = Math.min(0.9, confidence);
++        }
++      }
++    } catch (error) {
++      console.warn("[assistant-ingest-document] category_batch_failed", String(error).slice(0, 160));
++    }
++  }
+   return enriched;
+ }
+ 
+@@ -788,6 +901,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+ 
+     let documentKind: ExtractionResult["document_kind"] = "unknown";
+     let statement: StatementMetadata | null = null;
++    let invoice: InvoiceMetadata | null = null;
+     let tokens_in = 0, tokens_out = 0, ms = 0;
+     let lastErrorTag: string | undefined;
+     const notes: string[] = [];
+@@ -873,6 +987,24 @@ async function processDocument(documentId: string, userId: string, guidance: str
+       // fatura resolve cartão, extrato resolve conta. Sem isso, "Itaú" casava
+       // com a conta corrente e a fatura virava despesa de caixa.
+       if (out.result.document_kind !== "unknown") documentKind = out.result.document_kind;
++      if (out.invoice) {
++        invoice = invoice
++          ? {
++              total: invoice.total ?? out.invoice.total,
++              due_date: invoice.due_date ?? out.invoice.due_date,
++              closing_date: invoice.closing_date ?? out.invoice.closing_date,
++              competence: invoice.competence ?? out.invoice.competence,
++              card_last4: invoice.card_last4 ?? out.invoice.card_last4,
++            }
++          : out.invoice;
++        await sb.from("document_imports").update({
++          invoice_total: invoice.total,
++          invoice_due_date: invoice.due_date,
++          invoice_closing_date: invoice.closing_date,
++          invoice_competence_month: invoice.competence,
++          invoice_card_last4: invoice.card_last4,
++        }).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
++      }
+       if (out.statement && !statement) {
+         statement = out.statement;
+         const bankDoc = allowsBankBalance(documentKind);
+@@ -1005,6 +1137,20 @@ async function processDocument(documentId: string, userId: string, guidance: str
+ 
+           // Invariante contábil: em fatura, o item pertence ao cartão e nunca
+           // à conta corrente (não reduz caixa na importação).
++          const installments = inferInstallmentDetails(
++            it.raw_description ?? it.description,
++            it.installment_number,
++            it.installments_total,
++          );
++          const statementItemKind = documentKind === "invoice"
++            ? classifyStatementItem({
++                description: it.raw_description ?? it.description,
++                type: it.type,
++                movement_kind: it.movement_kind,
++                installment_number: installments.current,
++                installments_total: installments.total,
++              })
++            : null;
+           return applyLedgerInvariants(documentKind, {
+             document_id: documentId,
+             user_id: userId,
+@@ -1030,10 +1176,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
+             // Contexto de origem propaga: só preenche se o item não tem já um match forte por hint
+             account_id: it.credit_card_id ? null : (it.account_id ?? srcCtx.source_account_id ?? null),
+             credit_card_id: it.account_id ? null : (it.credit_card_id ?? srcCtx.source_credit_card_id ?? null),
+-            installments_total: it.installments_total,
+-            installment_number: it.installment_number,
++            installments_total: installments.total,
++            installment_number: installments.current,
++            installment_inferred: installments.inferred,
++            statement_item_kind: statementItemKind,
+             purchase_date: it.purchase_date,
+-            competence_date: it.competence_date,
++            competence_date: documentKind === "invoice"
++              ? (
++                  invoice?.competence
++                  ?? (invoice?.due_date ? `${invoice.due_date.slice(0, 7)}-01` : null)
++                  ?? it.competence_date
++                )
++              : it.competence_date,
+             confidence: it.confidence,
+             raw: it as unknown as Record<string, unknown>,
+             status: effectiveHit ? "duplicate_suspect" : "needs_review",
+diff --git a/supabase/functions/assistant-review-actions/index.ts b/supabase/functions/assistant-review-actions/index.ts
+index e6a3771..d3e820a 100644
+--- a/supabase/functions/assistant-review-actions/index.ts
++++ b/supabase/functions/assistant-review-actions/index.ts
+@@ -9,6 +9,7 @@
+ //   { action:'rollback', document_id }
+ //   { action:'reprocess-rejected', document_id, reason_codes?:[...] }
+ //   { action:'set-source-context', document_id, account_id?, credit_card_id?, propagate?:boolean }
++//   { action:'update-document', document_id, patch:{ invoice_total?, invoice_due_date?, invoice_closing_date?, invoice_competence_month? } }
+ //   { action:'learn-alias', alias_key, friendly_name, category_id? }
+ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+ import { corsHeaders, json } from "../_shared/cors.ts";
+@@ -20,6 +21,11 @@ const ALLOWED_PATCH_KEYS = new Set([
+   "description", "friendly_description", "amount", "occurred_at", "category_id", "account_id",
+   "credit_card_id", "payment_method", "installments_total", "installment_number",
+   "purchase_date", "competence_date", "historical_installments_paid_assumption",
++  "statement_item_kind", "installment_inferred",
++]);
++const ALLOWED_DOCUMENT_PATCH_KEYS = new Set([
++  "invoice_total", "invoice_due_date", "invoice_closing_date",
++  "invoice_competence_month", "invoice_card_last4",
+ ]);
+ 
+ async function getUser(req: Request) {
+@@ -106,11 +112,91 @@ Deno.serve(async (req) => {
+     const document_id = String(body.document_id ?? "");
+     const item_ids = Array.isArray(body.item_ids) ? (body.item_ids as string[]) : [];
+     if (!document_id || item_ids.length === 0) return json({ error: "missing_fields" }, 400);
+-    const { data, error } = await userClient.rpc("confirm_document_import", {
++    const { data: validation, error: validationError } = await userClient.rpc("validate_invoice_import", {
+       p_document_id: document_id, p_item_ids: item_ids,
+     });
++    if (validationError) return json({ error: "invoice_validation_failed", details: validationError.message }, 400);
++    if (!(validation as { ok?: boolean } | null)?.ok) {
++      return json({ error: "invoice_not_reconciled", result: validation }, 409);
++    }
++    const { data: selectedRows, error: selectedError } = await sb.from("extracted_items")
++      .select("id,statement_item_kind").eq("document_id", document_id).eq("user_id", user.id).in("id", item_ids);
++    if (selectedError) return json({ error: "selected_items_failed", details: selectedError.message }, 400);
++    // Pagamento exibido dentro da fatura e linha informativa participam da
++    // conciliação, mas não são uma nova despesa/receita. Nunca os convertemos
++    // em transaction.
++    const nonLedgerIds = (selectedRows ?? [])
++      .filter((row) => row.statement_item_kind === "payment" || row.statement_item_kind === "informational")
++      .map((row) => row.id as string);
++    const transactionIds = item_ids.filter((id) => !nonLedgerIds.includes(id));
++    let data: unknown = {
++      ok: true, created_count: 0, total_selected: 0, created: [], skipped: [], errors: [],
++    };
++    let error: { message: string } | null = null;
++    if (transactionIds.length > 0) {
++      const rpc = await userClient.rpc("confirm_document_import", {
++        p_document_id: document_id, p_item_ids: transactionIds,
++      });
++      data = rpc.data;
++      error = rpc.error;
++    }
+     if (error) return json({ error: "rpc_failed", details: error.message }, 400);
+-    return json({ ok: true, result: data });
++    const result = (data ?? {}) as Record<string, unknown>;
++    if (result.ok === false) return json({ error: "confirmation_rejected", result }, 409);
++    if (nonLedgerIds.length > 0) {
++      await sb.from("extracted_items").update({ status: "confirmed" })
++        .eq("document_id", document_id).eq("user_id", user.id).in("id", nonLedgerIds);
++    }
++    let statementResult: unknown = null;
++    if (!(validation as { not_invoice?: boolean } | null)?.not_invoice) {
++      const finalized = await userClient.rpc("finalize_invoice_statement", {
++        p_document_id: document_id, p_item_ids: item_ids,
++      });
++      if (finalized.error) {
++        return json({ error: "statement_finalize_failed", details: finalized.error.message }, 500);
++      }
++      statementResult = finalized.data;
++    }
++    const { count: pendingCount } = await sb.from("extracted_items")
++      .select("id", { count: "exact", head: true })
++      .eq("document_id", document_id).eq("user_id", user.id)
++      .in("status", ["needs_review", "duplicate_suspect"]);
++    if ((pendingCount ?? 0) === 0) {
++      await sb.from("document_imports").update({ status: "confirmed" })
++        .eq("id", document_id).eq("user_id", user.id);
++    }
++    const accounted = Number(result.created_count ?? 0) + nonLedgerIds.length;
++    return json({
++      ok: true,
++      result: {
++        ...result,
++        non_ledger_count: nonLedgerIds.length,
++        accounted_count: accounted,
++        total_selected: item_ids.length,
++        statement: statementResult,
++      },
++    });
++  }
++
++  if (action === "update-document") {
++    const document_id = String(body.document_id ?? "");
++    const patch = (body.patch ?? {}) as Record<string, unknown>;
++    if (!document_id) return json({ error: "missing_document_id" }, 400);
++    const clean: Record<string, unknown> = {};
++    for (const [key, value] of Object.entries(patch)) {
++      if (ALLOWED_DOCUMENT_PATCH_KEYS.has(key)) clean[key] = value;
++    }
++    if ("invoice_total" in clean) {
++      const total = Number(clean.invoice_total);
++      if (!Number.isFinite(total) || total < 0) return json({ error: "invalid_invoice_total" }, 400);
++      clean.invoice_total = Math.round(total * 100) / 100;
++    }
++    if (Object.keys(clean).length === 0) return json({ error: "empty_patch" }, 400);
++    const { data, error } = await sb.from("document_imports").update(clean)
++      .eq("id", document_id).eq("user_id", user.id).select().maybeSingle();
++    if (error) return json({ error: "update_failed", details: error.message }, 400);
++    if (!data) return json({ error: "not_found" }, 404);
++    return json({ ok: true, document: data });
+   }
+ 
+   if (action === "cancel") {
+diff --git a/supabase/migrations/20260730030000_invoice_import_reconciliation.sql b/supabase/migrations/20260730030000_invoice_import_reconciliation.sql
+new file mode 100644
+index 0000000..382511a
+--- /dev/null
++++ b/supabase/migrations/20260730030000_invoice_import_reconciliation.sql
+@@ -0,0 +1,251 @@
++-- Fatura de cartão: metadados, classificação e trava de conciliação.
++-- Nenhuma linha legada é reclassificada automaticamente.
++
++ALTER TABLE public.document_imports
++  ADD COLUMN IF NOT EXISTS invoice_total numeric(14,2),
++  ADD COLUMN IF NOT EXISTS invoice_due_date date,
++  ADD COLUMN IF NOT EXISTS invoice_closing_date date,
++  ADD COLUMN IF NOT EXISTS invoice_competence_month date,
++  ADD COLUMN IF NOT EXISTS invoice_card_last4 text;
++
++ALTER TABLE public.extracted_items
++  ADD COLUMN IF NOT EXISTS statement_item_kind text,
++  ADD COLUMN IF NOT EXISTS installment_inferred boolean NOT NULL DEFAULT false;
++
++ALTER TABLE public.extracted_items
++  DROP CONSTRAINT IF EXISTS extracted_items_statement_item_kind_check;
++ALTER TABLE public.extracted_items
++  ADD CONSTRAINT extracted_items_statement_item_kind_check
++  CHECK (
++    statement_item_kind IS NULL OR statement_item_kind IN
++      ('purchase','installment','refund','interest','fee','payment','adjustment','informational')
++  ) NOT VALID;
++
++ALTER TABLE public.credit_card_statement_items
++  ADD COLUMN IF NOT EXISTS source_extracted_item_id uuid
++    REFERENCES public.extracted_items(id) ON DELETE SET NULL;
++
++CREATE UNIQUE INDEX IF NOT EXISTS credit_card_statement_items_source_item_unique
++  ON public.credit_card_statement_items(source_extracted_item_id)
++  WHERE source_extracted_item_id IS NOT NULL;
++
++ALTER TABLE public.credit_card_statement_items
++  DROP CONSTRAINT IF EXISTS credit_card_statement_items_item_kind_check;
++ALTER TABLE public.credit_card_statement_items
++  ADD CONSTRAINT credit_card_statement_items_item_kind_check
++  CHECK (item_kind IN ('purchase','installment','refund','interest','fee','payment','adjustment')) NOT VALID;
++
++CREATE OR REPLACE FUNCTION public.validate_invoice_import(
++  p_document_id uuid,
++  p_item_ids uuid[]
++) RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  v_user uuid := auth.uid();
++  v_doc public.document_imports%ROWTYPE;
++  v_calculated numeric(14,2);
++  v_difference numeric(14,2);
++  v_missing_card integer;
++  v_invalid_installments integer;
++BEGIN
++  IF v_user IS NULL THEN
++    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501';
++  END IF;
++
++  SELECT * INTO v_doc
++    FROM public.document_imports
++   WHERE id = p_document_id AND user_id = v_user;
++  IF NOT FOUND THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'document_not_found');
++  END IF;
++  IF coalesce(v_doc.document_kind, '') <> 'invoice' THEN
++    RETURN jsonb_build_object('ok', true, 'not_invoice', true);
++  END IF;
++  IF v_doc.invoice_total IS NULL OR v_doc.invoice_total < 0 THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'missing_invoice_total');
++  END IF;
++
++  SELECT
++    count(*) FILTER (WHERE coalesce(credit_card_id, v_doc.source_credit_card_id) IS NULL),
++    count(*) FILTER (
++      WHERE installments_total IS NOT NULL
++        AND (installment_number IS NULL OR installment_number < 1 OR installment_number > installments_total)
++    ),
++    round(coalesce(sum(
++      CASE
++        WHEN coalesce(statement_item_kind, 'purchase') IN ('informational') THEN 0
++        WHEN coalesce(statement_item_kind, 'purchase') IN ('refund','payment') THEN -abs(amount)
++        ELSE abs(amount)
++      END
++    ), 0), 2)
++  INTO v_missing_card, v_invalid_installments, v_calculated
++  FROM public.extracted_items
++  WHERE document_id = p_document_id
++    AND user_id = v_user
++    AND id = ANY(p_item_ids)
++    AND status NOT IN ('ignored','rejected','failed','rolled_back');
++
++  IF v_missing_card > 0 THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'missing_credit_card', 'count', v_missing_card);
++  END IF;
++  IF v_invalid_installments > 0 THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'invalid_installments', 'count', v_invalid_installments);
++  END IF;
++
++  v_difference := round(v_doc.invoice_total - v_calculated, 2);
++  IF abs(v_difference) > 0.05 THEN
++    RETURN jsonb_build_object(
++      'ok', false,
++      'error', 'invoice_total_mismatch',
++      'stated_total', v_doc.invoice_total,
++      'calculated_total', v_calculated,
++      'difference', v_difference,
++      'tolerance', 0.05
++    );
++  END IF;
++
++  RETURN jsonb_build_object(
++    'ok', true,
++    'stated_total', v_doc.invoice_total,
++    'calculated_total', v_calculated,
++    'difference', v_difference
++  );
++END;
++$function$;
++
++REVOKE ALL ON FUNCTION public.validate_invoice_import(uuid, uuid[]) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.validate_invoice_import(uuid, uuid[]) TO authenticated;
++GRANT EXECUTE ON FUNCTION public.validate_invoice_import(uuid, uuid[]) TO service_role;
++
++COMMENT ON FUNCTION public.validate_invoice_import(uuid, uuid[]) IS
++  'Bloqueia confirmação de fatura sem cartão, parcelamento válido e conciliação do total oficial (tolerância R$0,05).';
++
++CREATE OR REPLACE FUNCTION public.finalize_invoice_statement(
++  p_document_id uuid,
++  p_item_ids uuid[]
++) RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  v_user uuid := auth.uid();
++  v_doc public.document_imports%ROWTYPE;
++  v_card uuid;
++  v_competence date;
++  v_due date;
++  v_statement uuid;
++  v_reconciled numeric(14,2);
++BEGIN
++  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501'; END IF;
++  SELECT * INTO v_doc FROM public.document_imports
++   WHERE id = p_document_id AND user_id = v_user;
++  IF NOT FOUND OR coalesce(v_doc.document_kind, '') <> 'invoice' THEN
++    RETURN jsonb_build_object('ok', false, 'error', 'invoice_not_found');
++  END IF;
++
++  v_card := v_doc.source_credit_card_id;
++  IF v_card IS NULL THEN
++    SELECT credit_card_id INTO v_card
++      FROM public.extracted_items
++     WHERE document_id = p_document_id
++       AND user_id = v_user
++       AND id = ANY(p_item_ids)
++       AND credit_card_id IS NOT NULL
++     LIMIT 1;
++  END IF;
++  IF v_card IS NULL THEN RETURN jsonb_build_object('ok', false, 'error', 'missing_credit_card'); END IF;
++
++  v_competence := coalesce(
++    date_trunc('month', v_doc.invoice_competence_month)::date,
++    date_trunc('month', v_doc.invoice_due_date)::date,
++    date_trunc('month', v_doc.period_end)::date,
++    date_trunc('month', current_date)::date
++  );
++  v_due := coalesce(v_doc.invoice_due_date, v_competence);
++
++  INSERT INTO public.credit_card_statements(
++    user_id, credit_card_id, competence_month, due_date,
++    stated_total, reconciled_total, status, source_document_id
++  ) VALUES (
++    v_user, v_card, v_competence, v_due,
++    coalesce(v_doc.invoice_total, 0), 0, 'needs_review', p_document_id
++  )
++  ON CONFLICT (credit_card_id, competence_month) DO UPDATE SET
++    due_date = excluded.due_date,
++    stated_total = excluded.stated_total,
++    source_document_id = excluded.source_document_id,
++    updated_at = now()
++  RETURNING id INTO v_statement;
++
++  -- Move para a fatura importada os itens criados pelo trigger legado.
++  UPDATE public.credit_card_statement_items si
++     SET statement_id = v_statement,
++         item_kind = CASE
++           WHEN ei.statement_item_kind IN ('purchase','installment','refund','interest','fee','adjustment')
++             THEN ei.statement_item_kind
++           ELSE si.item_kind
++         END,
++         amount = CASE WHEN ei.statement_item_kind = 'refund' THEN -abs(ei.amount) ELSE abs(ei.amount) END,
++         source_extracted_item_id = ei.id
++    FROM public.extracted_items ei
++    JOIN public.transactions tx ON tx.id = ei.transaction_id
++   WHERE ei.document_id = p_document_id
++     AND ei.user_id = v_user
++     AND ei.id = ANY(p_item_ids)
++     AND si.legacy_transaction_id = tx.id;
++
++  -- Estornos não passam pelo trigger de compras; pagamentos da fatura não são
++  -- nova transação. Ambos entram no demonstrativo com sinal negativo.
++  INSERT INTO public.credit_card_statement_items(
++    user_id, statement_id, legacy_transaction_id, source_extracted_item_id,
++    item_kind, description, amount, occurred_at
++  )
++  SELECT
++    v_user, v_statement, ei.transaction_id, ei.id,
++    ei.statement_item_kind,
++    coalesce(nullif(ei.description, ''), CASE WHEN ei.statement_item_kind='payment' THEN 'Pagamento da fatura' ELSE 'Estorno' END),
++    -abs(ei.amount), ei.occurred_at
++  FROM public.extracted_items ei
++  WHERE ei.document_id = p_document_id
++    AND ei.user_id = v_user
++    AND ei.id = ANY(p_item_ids)
++    AND ei.statement_item_kind IN ('refund','payment')
++  ON CONFLICT (source_extracted_item_id) WHERE source_extracted_item_id IS NOT NULL
++  DO UPDATE SET
++    statement_id = excluded.statement_id,
++    item_kind = excluded.item_kind,
++    description = excluded.description,
++    amount = excluded.amount,
++    occurred_at = excluded.occurred_at;
++
++  SELECT round(coalesce(sum(amount), 0), 2) INTO v_reconciled
++    FROM public.credit_card_statement_items WHERE statement_id = v_statement;
++  UPDATE public.credit_card_statements
++     SET stated_total = coalesce(v_doc.invoice_total, 0),
++         reconciled_total = v_reconciled,
++         status = CASE
++           WHEN abs(coalesce(v_doc.invoice_total, 0) - v_reconciled) <= 0.05 THEN 'open'
++           ELSE 'needs_review'
++         END,
++         updated_at = now()
++   WHERE id = v_statement;
++
++  RETURN jsonb_build_object(
++    'ok', abs(coalesce(v_doc.invoice_total, 0) - v_reconciled) <= 0.05,
++    'statement_id', v_statement,
++    'stated_total', v_doc.invoice_total,
++    'reconciled_total', v_reconciled,
++    'difference', round(coalesce(v_doc.invoice_total, 0) - v_reconciled, 2)
++  );
++END;
++$function$;
++
++REVOKE ALL ON FUNCTION public.finalize_invoice_statement(uuid, uuid[]) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.finalize_invoice_statement(uuid, uuid[]) TO authenticated;
++GRANT EXECUTE ON FUNCTION public.finalize_invoice_statement(uuid, uuid[]) TO service_role;
++
++NOTIFY pgrst, 'reload schema';
