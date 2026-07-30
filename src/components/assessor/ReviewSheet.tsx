@@ -419,7 +419,7 @@ export function ReviewSheet({
                   <span>Sem categoria<br/><strong>{documentInfo.counters?.uncategorized ?? items.filter(i => !i.category_id).length}</strong></span>
                 </div>
                 {documentInfo.user_instructions && <p className="text-muted-foreground">Orientação aplicada: {documentInfo.user_instructions}</p>}
-                {documentInfo.statement_closing_balance != null && (
+                {documentInfo.statement_closing_balance != null && !isCardDocument(documentInfo.document_kind) && (
                   <div className="rounded-xl border border-border bg-card p-3">
                     <p className="font-semibold">Saldo informado pelo banco: {formatBRL(Number(documentInfo.statement_closing_balance))}</p>
                     <p className="text-muted-foreground">Data: {documentInfo.statement_balance_date ?? "—"}. Esse saldo vira um marco auditável; lançamentos posteriores continuam sendo somados normalmente.</p>
