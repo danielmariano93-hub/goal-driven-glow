@@ -333,21 +333,58 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     },
   });
   const [savingId, setSavingId] = useState<string | null>(null);
-  const economicLocked = Number(statement.paid_amount) > 0;
-  async function saveItem(item: StatementItemRow, patch: { description?: string; category_id?: string | null }) {
+  const [statementAction, setStatementAction] = useState<"approve" | "discard" | null>(null);
+  const [currentStatement, setCurrentStatement] = useState(statement);
+  const economicLocked = Number(currentStatement.paid_amount) > 0;
+  const itemTotal = (detail.data?.items ?? []).reduce((sum, item) => sum + Number(item.amount), 0);
+  async function saveItem(item: StatementItemRow, patch: { description?: string; category_id?: string | null; amount?: number; occurred_at?: string; item_kind?: string }) {
     setSavingId(item.id);
     const { data, error } = await (supabase as any).rpc("update_credit_card_statement_item", {
       p_item_id: item.id,
       p_description: patch.description ?? item.description,
       p_category_id: patch.category_id === undefined ? item.transaction?.category_id ?? null : patch.category_id,
+      p_amount: patch.amount ?? item.amount,
+      p_occurred_at: patch.occurred_at ?? item.occurred_at,
+      p_item_kind: patch.item_kind ?? item.item_kind,
     });
     setSavingId(null);
     if (error || !data?.ok) {
       toast.error("Não foi possível salvar o lançamento", { description: error?.message ?? data?.error });
       return;
     }
+    setCurrentStatement((current) => ({
+      ...current,
+      reconciliation_difference: Number(data.difference ?? current.reconciliation_difference),
+      status: Math.abs(Number(data.difference ?? current.reconciliation_difference)) <= .05 ? "open" : "needs_review",
+    }));
     await onChanged();
+    await detail.refetch();
     toast.success("Lançamento atualizado");
+  }
+  async function approveStatement() {
+    setStatementAction("approve");
+    const { data, error } = await (supabase as any).rpc("approve_credit_card_statement", { p_statement_id: currentStatement.id });
+    setStatementAction(null);
+    if (error || !data?.ok) {
+      toast.error("A fatura ainda não pode ser aprovada", { description: error?.message ?? (data?.error === "reconciliation_open" ? `Ainda existe uma diferença de ${formatBRL(Math.abs(Number(data?.difference ?? 0)))}.` : data?.error) });
+      return;
+    }
+    await onChanged();
+    toast.success("Fatura aprovada");
+    onClose();
+  }
+  async function discardStatement() {
+    if (!confirm("Excluir esta fatura em revisão? Os lançamentos criados exclusivamente por esta importação também serão removidos. Esta ação não afeta outros lançamentos.")) return;
+    setStatementAction("discard");
+    const { data, error } = await (supabase as any).rpc("discard_credit_card_statement", { p_statement_id: currentStatement.id });
+    setStatementAction(null);
+    if (error || !data?.ok) {
+      toast.error("Não foi possível excluir a fatura", { description: error?.message ?? (data?.error === "statement_has_payments" ? "Desfaça os pagamentos antes de excluir." : data?.error) });
+      return;
+    }
+    await onChanged();
+    toast.success("Fatura excluída com segurança", { description: `${data.removed_transactions ?? 0} lançamento(s) da importação removido(s).` });
+    onClose();
   }
   async function reversePayment(payment: StatementPaymentRow) {
     if (!confirm(`Desfazer o pagamento de ${formatBRL(Number(payment.amount))}? O saldo da conta e a fatura serão restaurados.`)) return;
@@ -364,12 +401,13 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   return <div className="fixed inset-0 z-50 bg-black/35" onClick={onClose}>
     <section onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col rounded-t-[28px] border border-border bg-background shadow-2xl md:inset-y-0 md:left-auto md:w-[560px] md:max-h-none md:rounded-none">
       <header className="flex items-start justify-between border-b border-border p-5">
-        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(statement.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(statement.due_date)} · {formatBRL(Number(statement.stated_total))}</p></div>
+        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(currentStatement.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(currentStatement.due_date)} · {formatBRL(Number(currentStatement.stated_total))}</p></div>
         <button onClick={onClose} className="rounded-full border border-border p-2" aria-label="Fechar"><X size={16}/></button>
       </header>
       <div className="flex-1 overflow-y-auto p-4 md:p-5">
         {economicLocked && <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground"><strong className="text-foreground">Fatura com pagamento registrado.</strong> Categorias e descrições continuam corrigíveis. Para alterar valores, primeiro desfaça o pagamento abaixo.</div>}
-        <div className="mb-4 grid grid-cols-3 gap-2"><Stat label="Total" value={formatBRL(Number(statement.stated_total))}/><Stat label="Pago" value={formatBRL(Number(statement.paid_amount))}/><Stat label="Em aberto" value={formatBRL(Number(statement.outstanding_amount))}/></div>
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><Stat label="Total oficial" value={formatBRL(Number(currentStatement.stated_total))}/><Stat label="Itens somados" value={formatBRL(itemTotal)}/><Stat label="Pago" value={formatBRL(Number(currentStatement.paid_amount))}/><Stat label="Diferença" value={formatBRL(Math.abs(Number(currentStatement.reconciliation_difference)))}/></div>
+        {Math.abs(Number(currentStatement.reconciliation_difference)) > .05 && <div className="mb-4 rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs text-warning"><strong>Conciliação pendente.</strong> Corrija valores, datas ou tipos até a diferença ficar em zero. A aprovação e o pagamento ficam bloqueados enquanto houver divergência.</div>}
         <h3 className="text-sm font-semibold">Lançamentos</h3>
         <p className="mb-3 text-xs text-muted-foreground">Corrija a descrição ou categoria sem duplicar a despesa.</p>
         {detail.isLoading ? <Loader2 className="mx-auto my-8 animate-spin"/> : <div className="space-y-2">{detail.data?.items.map((item) => <StatementItemEditor key={item.id} item={item} categories={categories} saving={savingId === item.id} onSave={saveItem}/>)}</div>}
@@ -377,16 +415,25 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
           <div className="mt-3 space-y-2">{detail.data?.payments.length ? detail.data.payments.map((payment) => <div key={payment.id} className="flex items-center justify-between rounded-2xl border border-border p-3"><div><p className="text-sm font-semibold">{formatBRL(Number(payment.amount))}</p><p className="text-[11px] text-muted-foreground">{formatDate(payment.paid_at)} · {payment.account?.name ?? "Conta"}</p></div><button disabled={savingId === payment.id} onClick={() => reversePayment(payment)} className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs"><RotateCcw size={12}/>Desfazer</button></div>) : <p className="rounded-2xl border border-dashed border-border p-4 text-xs text-muted-foreground">Nenhum pagamento registrado.</p>}</div>
         </div>
       </div>
-      {Number(statement.outstanding_amount) > 0 && Math.abs(Number(statement.reconciliation_difference)) <= .05 && <footer className="border-t border-border p-4"><button onClick={onPay} className="btn-brand w-full">Registrar pagamento desta fatura</button></footer>}
+      <footer className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
+        {currentStatement.status === "needs_review" || currentStatement.status === "draft" || currentStatement.status === "open" ? <>
+          <button onClick={discardStatement} disabled={statementAction !== null || economicLocked} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2 text-sm font-semibold text-destructive disabled:opacity-40"><Trash2 size={14}/>{statementAction === "discard" ? "Excluindo…" : "Excluir fatura"}</button>
+          <button onClick={approveStatement} disabled={statementAction !== null || Math.abs(Number(currentStatement.reconciliation_difference)) > .05} className="btn-brand inline-flex items-center justify-center gap-2 disabled:opacity-40"><CheckCircle2 size={14}/>{statementAction === "approve" ? "Aprovando…" : "Aprovar fatura"}</button>
+        </> : Number(currentStatement.outstanding_amount) > 0 && Math.abs(Number(currentStatement.reconciliation_difference)) <= .05 ? <button onClick={onPay} className="btn-brand sm:col-span-2">Registrar pagamento desta fatura</button> : null}
+      </footer>
     </section>
   </div>;
 }
 
-function StatementItemEditor({ item, categories, saving, onSave }: { item: StatementItemRow; categories: Array<{id:string;name:string}>; saving: boolean; onSave: (item: StatementItemRow, patch: {description?:string;category_id?:string|null}) => Promise<void> }) {
+function StatementItemEditor({ item, categories, saving, onSave }: { item: StatementItemRow; categories: Array<{id:string;name:string}>; saving: boolean; onSave: (item: StatementItemRow, patch: {description?:string;category_id?:string|null;amount?:number;occurred_at?:string;item_kind?:string}) => Promise<void> }) {
   const [description, setDescription] = useState(item.description);
   const [categoryId, setCategoryId] = useState(item.transaction?.category_id ?? "");
-  const dirty = description !== item.description || categoryId !== (item.transaction?.category_id ?? "");
-  return <article className="rounded-2xl border border-border bg-card p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><input value={description} onChange={(e)=>setDescription(e.target.value)} className="w-full bg-transparent text-sm font-semibold outline-none"/><p className="mt-1 text-[11px] text-muted-foreground">{item.occurred_at ? formatDate(item.occurred_at) : "Sem data"} · {item.item_kind === "installment" ? "Parcela" : item.item_kind === "refund" ? "Estorno" : "Compra"}</p></div><strong className={Number(item.amount)<0?"text-success":""}>{formatBRL(Math.abs(Number(item.amount)))}</strong></div><div className="mt-3 flex gap-2"><select value={categoryId} onChange={(e)=>setCategoryId(e.target.value)} className="input-base min-w-0 flex-1"><option value="">Sem categoria</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.name}</option>)}</select><button disabled={!dirty||saving||!item.legacy_transaction_id} onClick={()=>onSave(item,{description,category_id:categoryId||null})} className="rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-40">{saving?"Salvando…":"Salvar"}</button></div>{!item.legacy_transaction_id&&<p className="mt-2 text-[10px] text-amber-700">Item ainda não confirmado. Edite-o pela revisão da importação.</p>}</article>;
+  const [amount, setAmount] = useState(Math.abs(Number(item.amount)).toFixed(2).replace(".", ","));
+  const [occurredAt, setOccurredAt] = useState(item.occurred_at ?? "");
+  const [itemKind, setItemKind] = useState(item.item_kind);
+  const numericAmount = Number(amount.replace(/\./g, "").replace(",", "."));
+  const dirty = description !== item.description || categoryId !== (item.transaction?.category_id ?? "") || Number.isFinite(numericAmount) && numericAmount !== Math.abs(Number(item.amount)) || occurredAt !== (item.occurred_at ?? "") || itemKind !== item.item_kind;
+  return <article className="rounded-lg border border-border bg-card p-3"><div className="flex items-start justify-between gap-3"><input value={description} onChange={(e)=>setDescription(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"/><strong className={itemKind==="refund"?"text-success":""}>{formatBRL(Number.isFinite(numericAmount)?numericAmount:0)}</strong></div><div className="mt-3 grid grid-cols-2 gap-2"><Field label="Valor"><input value={amount} inputMode="decimal" onChange={e=>setAmount(e.target.value)} className="input-base text-xs"/></Field><Field label="Data"><input type="date" value={occurredAt} onChange={e=>setOccurredAt(e.target.value)} className="input-base text-xs"/></Field><Field label="Tipo"><select value={itemKind} onChange={e=>setItemKind(e.target.value)} className="input-base text-xs"><option value="purchase">Compra</option><option value="installment">Parcela</option><option value="refund">Estorno/crédito</option><option value="interest">Juros</option><option value="fee">Tarifa</option><option value="adjustment">Ajuste</option></select></Field><Field label="Categoria"><select value={categoryId} onChange={(e)=>setCategoryId(e.target.value)} className="input-base text-xs"><option value="">Sem categoria</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.name}</option>)}</select></Field></div><button disabled={!dirty||saving||!Number.isFinite(numericAmount)||numericAmount<=0} onClick={()=>onSave(item,{description,category_id:categoryId||null,amount:numericAmount,occurred_at:occurredAt,item_kind:itemKind})} className="mt-3 w-full rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-40">{saving?"Salvando…":"Salvar alterações"}</button></article>;
 }
 
 function statementStatus(status: string) {

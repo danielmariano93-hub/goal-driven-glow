@@ -7832,6 +7832,10 @@ export type Database = {
         }[]
       }
       apply_safe_category_suggestions: { Args: never; Returns: Json }
+      approve_credit_card_statement: {
+        Args: { p_statement_id: string }
+        Returns: Json
+      }
       backfill_product_events_from_history: {
         Args: { _days?: number }
         Returns: Json
@@ -7999,6 +8003,10 @@ export type Database = {
           action: string
           allowed: boolean
         }[]
+      }
+      discard_credit_card_statement: {
+        Args: { p_statement_id: string }
+        Returns: Json
       }
       ensure_profile: { Args: never; Returns: undefined }
       ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
@@ -8440,14 +8448,26 @@ export type Database = {
         }
         Returns: undefined
       }
-      update_credit_card_statement_item: {
-        Args: {
-          p_category_id?: string
-          p_description: string
-          p_item_id: string
-        }
-        Returns: Json
-      }
+      update_credit_card_statement_item:
+        | {
+            Args: {
+              p_category_id?: string
+              p_description: string
+              p_item_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_amount?: number
+              p_category_id?: string
+              p_description: string
+              p_item_id: string
+              p_item_kind?: string
+              p_occurred_at?: string
+            }
+            Returns: Json
+          }
       user_cancel_deletion_request: {
         Args: { p_id: string }
         Returns: undefined
