@@ -1,0 +1,9 @@
+REVOKE ALL ON FUNCTION public.schedule_split_due_reminders(uuid) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.tg_reconcile_split_due_schedule() FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.admin_split_reminder_policy_update(boolean,integer,boolean,integer,integer,integer,integer,boolean) FROM PUBLIC,anon;
+REVOKE ALL ON FUNCTION public.approve_credit_card_statement(uuid) FROM PUBLIC,anon;
+REVOKE ALL ON FUNCTION public.discard_credit_card_statement(uuid) FROM PUBLIC,anon;
+REVOKE ALL ON FUNCTION public.update_credit_card_statement_item(uuid,text,uuid) FROM PUBLIC,anon;
+REVOKE ALL ON FUNCTION public.update_credit_card_statement_item(uuid,text,uuid,numeric,date,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.schedule_split_due_reminders(uuid),public.tg_reconcile_split_due_schedule() TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_split_reminder_policy_update(boolean,integer,boolean,integer,integer,integer,integer,boolean),public.approve_credit_card_statement(uuid),public.discard_credit_card_statement(uuid),public.update_credit_card_statement_item(uuid,text,uuid),public.update_credit_card_statement_item(uuid,text,uuid,numeric,date,text) TO authenticated,service_role;
