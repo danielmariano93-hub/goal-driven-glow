@@ -211,6 +211,54 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_configuration_audit: {
+        Row: {
+          action: string
+          actor_id: string | null
+          after_json: Json | null
+          before_json: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: number
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          after_json?: Json | null
+          before_json?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: never
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          after_json?: Json | null
+          before_json?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_configuration_audit_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "admin_configuration_audit_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       admin_grants_audit: {
         Row: {
           granted_at: string
@@ -462,6 +510,63 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "agent_runs"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_knowledge_entries: {
+        Row: {
+          active: boolean
+          category: string
+          content: string
+          created_at: string
+          id: string
+          key: string
+          source_url: string | null
+          title: string
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          active?: boolean
+          category?: string
+          content: string
+          created_at?: string
+          id?: string
+          key: string
+          source_url?: string | null
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          active?: boolean
+          category?: string
+          content?: string
+          created_at?: string
+          id?: string
+          key?: string
+          source_url?: string | null
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_knowledge_entries_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "agent_knowledge_entries_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
           },
         ]
       }
@@ -6271,6 +6376,63 @@ export type Database = {
         }
         Relationships: []
       }
+      split_reminder_policy: {
+        Row: {
+          due_soon_days_before: number
+          due_today_enabled: boolean
+          enabled: boolean
+          first_overdue_days: number
+          id: number
+          max_overdue_reminders: number
+          pause_on_reply: boolean
+          repeat_every_days: number
+          send_hour: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          due_soon_days_before?: number
+          due_today_enabled?: boolean
+          enabled?: boolean
+          first_overdue_days?: number
+          id?: number
+          max_overdue_reminders?: number
+          pause_on_reply?: boolean
+          repeat_every_days?: number
+          send_hour?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          due_soon_days_before?: number
+          due_today_enabled?: boolean
+          enabled?: boolean
+          first_overdue_days?: number
+          id?: number
+          max_overdue_reminders?: number
+          pause_on_reply?: boolean
+          repeat_every_days?: number
+          send_hour?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "split_reminder_policy_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "split_reminder_policy_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           account_id: string | null
@@ -7294,7 +7456,32 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_agent_knowledge_list: { Args: never; Returns: Json }
+      admin_agent_knowledge_upsert: {
+        Args: {
+          _active: boolean
+          _category: string
+          _content: string
+          _id: string
+          _key: string
+          _source_url: string
+          _title: string
+        }
+        Returns: Json
+      }
       admin_agent_stats: { Args: never; Returns: Json }
+      admin_ai_model_route_update: {
+        Args: {
+          _active: boolean
+          _fallback_model: string
+          _max_latency_ms: number
+          _max_steps: number
+          _primary_model: string
+          _task: string
+        }
+        Returns: Json
+      }
+      admin_ai_model_routes: { Args: never; Returns: Json }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
         Returns: undefined
@@ -7422,6 +7609,20 @@ export type Database = {
       }
       admin_reprocess_failed: { Args: { p_job_key: string }; Returns: Json }
       admin_run_check: { Args: { p_job_key: string }; Returns: Json }
+      admin_split_reminder_policy: { Args: never; Returns: Json }
+      admin_split_reminder_policy_update: {
+        Args: {
+          _due_soon_days_before: number
+          _due_today_enabled: boolean
+          _enabled: boolean
+          _first_overdue_days: number
+          _max_overdue_reminders: number
+          _pause_on_reply: boolean
+          _repeat_every_days: number
+          _send_hour: number
+        }
+        Returns: Json
+      }
       admin_users_list: {
         Args: { p_limit?: number; p_offset?: number; p_search?: string }
         Returns: {
