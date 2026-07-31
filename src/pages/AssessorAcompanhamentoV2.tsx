@@ -113,23 +113,25 @@ export default function AssessorAcompanhamentoV2({ embedded = false }: { embedde
         <p className="mt-1 text-sm text-muted-foreground">
           Seu plano de ação financeiro: o que mudou, quanto isso representa e qual decisão tomar agora.
         </p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-xs font-semibold disabled:opacity-60"
-          >
-            <RefreshCw size={13} className={refreshMutation.isPending ? "animate-spin" : ""} />
-            {refreshMutation.isPending ? "Atualizando..." : "Atualizar agora"}
-          </button>
-          <span className="text-[11px] text-muted-foreground">
-            {selectedLastGenerated
-              ? `Atualizada em ${new Date(selectedLastGenerated).toLocaleString("pt-BR")}`
-              : "Ainda não gerada para este período"}
-          </span>
-        </div>
       </header>}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => refreshMutation.mutate()}
+          disabled={refreshMutation.isPending}
+          className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-xs font-semibold disabled:opacity-60"
+        >
+          <RefreshCw size={13} className={refreshMutation.isPending ? "animate-spin" : ""} />
+          {refreshMutation.isPending ? "Atualizando..." : "Atualizar agora"}
+        </button>
+        <span className="text-[11px] text-muted-foreground">
+          {selectedLastGenerated
+            ? `Atualizada em ${new Date(selectedLastGenerated).toLocaleString("pt-BR")}`
+            : "Ainda não gerada para este período"}
+        </span>
+      </div>
+
 
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary p-1">
         {([
@@ -221,7 +223,7 @@ export default function AssessorAcompanhamentoV2({ embedded = false }: { embedde
             <section className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
               <div className="flex items-center gap-2">
                 <Info className="h-5 w-5 text-primary" />
-                <h2 className="text-sm font-semibold">Highlights para mudar o jogo</h2>
+                <h2 className="text-sm font-semibold">O que está acontecendo</h2>
               </div>
               <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                 {highlights.map((highlight) => (
@@ -294,7 +296,7 @@ export default function AssessorAcompanhamentoV2({ embedded = false }: { embedde
 
           {(review.summary.limitations ?? []).length > 0 && (
             <section className="rounded-2xl border border-border bg-card p-4 text-xs text-muted-foreground">
-              <p className="font-semibold text-foreground">Como esta revisão foi calculada</p>
+              <p className="font-semibold text-foreground">De onde vêm estes números</p>
               <ul className="mt-2 space-y-1">
                 {(review.summary.limitations ?? []).map((item) => <li key={item}>• {item}</li>)}
               </ul>
