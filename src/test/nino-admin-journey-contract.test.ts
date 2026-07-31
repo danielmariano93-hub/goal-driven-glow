@@ -17,8 +17,8 @@ describe("contratos de Nino, IA e comunicação", () => {
   it("separa aprendizado pessoal do plano de acompanhamento", () => {
     const learned = read("src/pages/NinoContextoV2.tsx");
     expect(learned).toContain("O que o Nino aprendeu");
-    expect(learned).not.toContain("Highlights para mudar o jogo");
-    expect(read("src/pages/AssessorAcompanhamentoV2.tsx")).toContain("Highlights para mudar o jogo");
+    expect(learned).not.toContain("O que está acontecendo");
+    expect(read("src/pages/AssessorAcompanhamentoV2.tsx")).toContain("O que está acontecendo");
   });
 
   it("mantém RPCs administrativas com contratos explícitos", () => {

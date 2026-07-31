@@ -10,11 +10,12 @@ describe("jornadas completas de produto", () => {
     const menu = read("src/pages/MaisMenu.tsx");
     const hub = read("src/pages/NinoHub.tsx");
     expect(app).toContain('path="assessor/acompanhamento" element={<NinoHub />}');
-    expect(app).toContain('path="nino-contexto" element={<Navigate');
+    expect(app).toContain('path="nino-contexto" element={<NinoContextoV2 />}');
     expect(menu).toContain("Meu Nino");
     expect(menu).not.toContain('label: "O que o Nino aprendeu"');
-    expect(hub).toContain("Meu plano");
-    expect(hub).toContain("O que aprendeu");
+    expect(hub).toContain("AssessorAcompanhamentoV2");
+    expect(hub).not.toContain("O que aprendeu");
+    expect(hub).toContain("/app/nino-contexto");
   });
 
   it("oferece detalhe, edição, baixa e reversão na fatura", () => {

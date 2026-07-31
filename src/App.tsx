@@ -46,6 +46,8 @@ const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
 const Assessor = lazy(() => import("./pages/Assessor"));
 const NinoHub = lazy(() => import("./pages/NinoHub"));
+const NinoContextoV2 = lazy(() => import("./pages/NinoContextoV2"));
+
 const ProactiveAlertDetail = lazy(() => import("./pages/ProactiveAlertDetail"));
 const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
@@ -128,7 +130,7 @@ const App = () => (
                 <Route path="cartoes" element={<Cartoes />} />
                 <Route path="assessor" element={<Assessor />} />
                 <Route path="assessor/acompanhamento" element={<NinoHub />} />
-                <Route path="nino-contexto" element={<Navigate to="/app/assessor/acompanhamento?visao=aprendizado" replace />} />
+                <Route path="nino-contexto" element={<NinoContextoV2 />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
               </Route>
 

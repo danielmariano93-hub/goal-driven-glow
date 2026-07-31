@@ -33,9 +33,9 @@ describe("financial concepts shown to the user", () => {
   it("keeps actionable highlights in acompanhamento and learned data in a separate surface", () => {
     const context = read("src/pages/NinoContextoV2.tsx");
     const acompanhamento = read("src/pages/AssessorAcompanhamentoV2.tsx");
-    expect(acompanhamento).toContain("Highlights para mudar o jogo");
+    expect(acompanhamento).toContain("O que está acontecendo");
     expect(context).toContain("O que o Nino aprendeu");
-    expect(context).not.toContain("Highlights para mudar o jogo");
+    expect(context).not.toContain("O que está acontecendo");
   });
 });
 

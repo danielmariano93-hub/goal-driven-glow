@@ -7486,6 +7486,17 @@ export type Database = {
         Returns: string
       }
       activity_events: { Args: never; Returns: string[] }
+      add_credit_card_statement_item: {
+        Args: {
+          p_amount: number
+          p_category_id?: string
+          p_description: string
+          p_item_kind: string
+          p_occurred_at?: string
+          p_statement_id: string
+        }
+        Returns: Json
+      }
       admin_active_break_glass: {
         Args: never
         Returns: {
@@ -8004,6 +8015,10 @@ export type Database = {
           allowed: boolean
         }[]
       }
+      delete_credit_card_statement_item: {
+        Args: { p_item_id: string }
+        Returns: Json
+      }
       discard_credit_card_statement: {
         Args: { p_statement_id: string }
         Returns: Json
@@ -8012,6 +8027,10 @@ export type Database = {
       ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
       finalize_invoice_statement: {
         Args: { p_document_id: string; p_item_ids: string[] }
+        Returns: Json
+      }
+      force_reconcile_credit_card_statement: {
+        Args: { p_justification: string; p_statement_id: string }
         Returns: Json
       }
       grant_platform_admin: {
@@ -8140,6 +8159,10 @@ export type Database = {
         Returns: string
       }
       prune_product_events: { Args: { _days?: number }; Returns: number }
+      recalc_credit_card_statement: {
+        Args: { p_statement_id: string }
+        Returns: Json
+      }
       reconcile_agent_memory_categories: { Args: never; Returns: number }
       reconcile_document_balance: {
         Args: { p_account_id: string; p_document_id: string }
@@ -8448,26 +8471,17 @@ export type Database = {
         }
         Returns: undefined
       }
-      update_credit_card_statement_item:
-        | {
-            Args: {
-              p_category_id?: string
-              p_description: string
-              p_item_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_amount?: number
-              p_category_id?: string
-              p_description: string
-              p_item_id: string
-              p_item_kind?: string
-              p_occurred_at?: string
-            }
-            Returns: Json
-          }
+      update_credit_card_statement_item: {
+        Args: {
+          p_amount?: number
+          p_category_id?: string
+          p_description?: string
+          p_item_id: string
+          p_item_kind?: string
+          p_occurred_at?: string
+        }
+        Returns: Json
+      }
       user_cancel_deletion_request: {
         Args: { p_id: string }
         Returns: undefined
