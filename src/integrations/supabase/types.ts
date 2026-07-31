@@ -2450,10 +2450,12 @@ export type Database = {
           created_at: string
           credit_card_id: string
           due_date: string
+          financed_balance: number
           id: string
           opening_balance: number
           outstanding_amount: number | null
           paid_amount: number
+          payments_total: number
           period_end: string | null
           period_start: string | null
           reconciled_total: number
@@ -2470,10 +2472,12 @@ export type Database = {
           created_at?: string
           credit_card_id: string
           due_date: string
+          financed_balance?: number
           id?: string
           opening_balance?: number
           outstanding_amount?: number | null
           paid_amount?: number
+          payments_total?: number
           period_end?: string | null
           period_start?: string | null
           reconciled_total?: number
@@ -2490,10 +2494,12 @@ export type Database = {
           created_at?: string
           credit_card_id?: string
           due_date?: string
+          financed_balance?: number
           id?: string
           opening_balance?: number
           outstanding_amount?: number | null
           paid_amount?: number
+          payments_total?: number
           period_end?: string | null
           period_start?: string | null
           reconciled_total?: number
@@ -2909,8 +2915,17 @@ export type Database = {
           invoice_card_last4: string | null
           invoice_closing_date: string | null
           invoice_competence_month: string | null
+          invoice_coverage: Json | null
+          invoice_credits_total: number | null
+          invoice_current_charges_total: number | null
+          invoice_domestic_total: number | null
           invoice_due_date: string | null
+          invoice_financed_balance: number | null
+          invoice_international_total: number | null
+          invoice_payments_total: number | null
           invoice_previous_balance: number | null
+          invoice_summary_source: string | null
+          invoice_taxes_total: number | null
           invoice_total: number | null
           message_id: string | null
           mime_type: string
@@ -2957,8 +2972,17 @@ export type Database = {
           invoice_card_last4?: string | null
           invoice_closing_date?: string | null
           invoice_competence_month?: string | null
+          invoice_coverage?: Json | null
+          invoice_credits_total?: number | null
+          invoice_current_charges_total?: number | null
+          invoice_domestic_total?: number | null
           invoice_due_date?: string | null
+          invoice_financed_balance?: number | null
+          invoice_international_total?: number | null
+          invoice_payments_total?: number | null
           invoice_previous_balance?: number | null
+          invoice_summary_source?: string | null
+          invoice_taxes_total?: number | null
           invoice_total?: number | null
           message_id?: string | null
           mime_type: string
@@ -3005,8 +3029,17 @@ export type Database = {
           invoice_card_last4?: string | null
           invoice_closing_date?: string | null
           invoice_competence_month?: string | null
+          invoice_coverage?: Json | null
+          invoice_credits_total?: number | null
+          invoice_current_charges_total?: number | null
+          invoice_domestic_total?: number | null
           invoice_due_date?: string | null
+          invoice_financed_balance?: number | null
+          invoice_international_total?: number | null
+          invoice_payments_total?: number | null
           invoice_previous_balance?: number | null
+          invoice_summary_source?: string | null
+          invoice_taxes_total?: number | null
           invoice_total?: number | null
           message_id?: string | null
           mime_type?: string
@@ -3272,6 +3305,7 @@ export type Database = {
           installment_inferred: boolean
           installment_number: number | null
           installments_total: number | null
+          is_future_installment: boolean
           movement_kind: string
           normalized_description: string | null
           occurred_at: string
@@ -3281,6 +3315,7 @@ export type Database = {
           raw_description: string | null
           source_span: Json | null
           statement_item_kind: string | null
+          statement_section: string | null
           status: string
           transaction_id: string | null
           type: string
@@ -3315,6 +3350,7 @@ export type Database = {
           installment_inferred?: boolean
           installment_number?: number | null
           installments_total?: number | null
+          is_future_installment?: boolean
           movement_kind?: string
           normalized_description?: string | null
           occurred_at: string
@@ -3324,6 +3360,7 @@ export type Database = {
           raw_description?: string | null
           source_span?: Json | null
           statement_item_kind?: string | null
+          statement_section?: string | null
           status?: string
           transaction_id?: string | null
           type: string
@@ -3358,6 +3395,7 @@ export type Database = {
           installment_inferred?: boolean
           installment_number?: number | null
           installments_total?: number | null
+          is_future_installment?: boolean
           movement_kind?: string
           normalized_description?: string | null
           occurred_at?: string
@@ -3367,6 +3405,7 @@ export type Database = {
           raw_description?: string | null
           source_span?: Json | null
           statement_item_kind?: string | null
+          statement_section?: string | null
           status?: string
           transaction_id?: string | null
           type?: string

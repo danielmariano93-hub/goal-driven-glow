@@ -1,137 +1,132 @@
-## 1. Causa raiz (verificada no HEAD e no banco)
 
-Documento real auditado: `document_imports 2b45c2f9…` (kind `invoice`, origem `app`, status `canceled`), com `source_account_id = 6c1cf814…` (conta Itaú), `source_context_method = statement_bank`, `statement_closing_balance = 4639,73`, `statement_period_start/end = NULL`. Dos 39 `extracted_items`: **39 com `account_id` preenchido** e **37 sem `category_id`**. O usuário tem exatamente **1 cartão ativo ("Cartão Itaú")**.
+# Fatura Itaú 4739 — plano de correção definitiva
 
-Três defeitos concretos:
+## 1. Diagnóstico confirmado no código
 
-1. **Kind estagnado na resolução de origem** — `supabase/functions/assistant-ingest-document/index.ts`
-   - L784: `resolveSourceContext(sb, userId, doc, null)` roda **antes** da extração, com `doc.document_kind = "unknown"`.
-   - L884: a reavaliação usa `{ ...doc, ...statementPatch }`, e `statementPatch` **não inclui `document_kind`**. Como `resolveSourceContext` lê `doc.document_kind` (L72), o ramo `documentKind !== "invoice"` (L79-83) casa "Itaú" com a **conta corrente** e devolve `statement_bank` com confiança 0,92. O ramo de cartão (L84-88), que casaria com "Cartão Itaú", nunca é avaliado.
-   - Consequência: L1015-1016 propagam `source_account_id` para os 39 itens e L1006 grava `payment_method = "account"`.
-2. **Metadata de saldo aplicada a qualquer documento** — `extractStatementMetadata` + patch L873-883 gravam `statement_opening/closing_balance` mesmo em fatura. Isso produz "Saldo informado pelo banco: R$ 4.639,73" na revisão e, pior, ativa o guardrail de conciliação de `confirm_document_import` (L31-53 da função), que compara soma de itens com saldo bancário — semanticamente inválido para fatura.
-3. **Período vazio** — o prompt só pede `period_start/period_end` no bloco `m` de **extrato**; em fatura o modelo devolve saldos mas não período, e não há derivação por fallback (min/max de `occurred_at`, competência ou vencimento). Daí `Período — a —`.
+**A extração é 100% dependente do LLM de visão, sem nenhuma verificação determinística contra o resumo oficial.**
 
-Defeitos correlatos confirmados:
+- `supabase/functions/assistant-ingest-document/index.ts:1657` — o pipeline converte o PDF em imagens/data-url (`bytesToDataUrl`) e envia ao modelo. Não há leitura da camada de texto do PDF em lugar nenhum: `_shared/documents/pdfFragments.ts` só fatia páginas com `pdf-lib` (4 páginas por fragmento) e devolve bytes. Uma fatura de 3 páginas vira **1 único fragmento, 1 única chamada** ao modelo.
+- `index.ts:166` — `LIMITE RÍGIDO: no máximo ${BATCH_ITEMS_LIMIT} lançamentos` (80). Os ~47 itens reais cabem no lote, logo **o corte de 40 itens não é limite técnico: é omissão do modelo**. Como `more=false` (`index.ts:379`), o loop encerra o fragmento como `completed` e ninguém questiona a cobertura.
+- `index.ts:151` — a regra `EXCLUA todas as linhas informativas: ... subtotais e totais` é aplicada pelo modelo ao bloco **“Pagamentos efetuados”**, que na fatura Itaú aparece no quadro-resumo. A regra de `index.ts:159` (“não omita pagamento/antecipação → income + card_payment”) é genérica e perde a disputa contra a regra de exclusão, que é mais explícita. **Causa direta dos R$ 4.099,34 sumidos** (PIX 3.529,34 + 300,00 + 50,00 + 220,00).
+- “AmazonPrimeBR R$ 19,90” e “Repasse de IOF R$ 62,71” são linhas de valor pequeno em regiões densas/rodapé de seção. Não há nada no código que as descarte (o filtro de assinatura em `index.ts:1109-1116` só dedupa itens idênticos já vistos; a quarentena `validateExtractedRow` grava rejeições em `document_item_rejections`, verificável por documento). **São perda de recall do modelo, sem detecção posterior.** Total omitido: R$ 82,61.
+- **Conciliação valida, mas não sabe o que faltou.** `validate_invoice_import` (migration `20260730235500`, linhas 49-88) soma `previous_balance + Σ(sinalizado)`, onde `payment/refund` entram negativos. A fórmula está **contabilmente correta**; ela só não tem como acertar porque as linhas de pagamento nunca chegaram a `extracted_items`. Resultado exibido: 3.529,34 + 5.128,58 − 1,46 = 8.656,46; diferença 4.639,73 − 8.656,46 = **−4.016,73**, exatamente `82,61 − 4.099,34`. Confirma o diagnóstico do usuário.
+- Não existe persistência do **resumo oficial por seção** (compras nacionais, internacionais, IOF, pagamentos, saldo financiado). `document_imports` guarda apenas `invoice_total`, `invoice_previous_balance`, `due_date`, `closing_date`, `competence`, `card_last4`. Sem subtotais, é impossível dizer *qual seção* está incompleta — por isso o app joga a diferença crua na cara do usuário.
+- `assistant-review-actions/index.ts` já protege o lado contábil: `statement_item_kind` `payment`/`informational` entram em `nonLedgerIds` e **não viram transação nova** (coberto por `src/test/invoice-import-contract.test.ts:16-21`). Não há risco de duplicidade compra↔pagamento hoje; o risco aparece quando passarmos a extrair os pagamentos e precisarmos liquidá-los contra a conta bancária.
 
-- `confirm_document_import` (RPC) **não conhece `document_kind`**: aceita item de fatura com `account_id` e insere `transactions` com `account_id` preenchido → reduz caixa indevidamente. Não há constraint impedindo isso.
-- `ReviewSheet.tsx` é agnóstico de tipo: sempre exibe bloco "Saldo informado pelo banco" (L410-420), seletor global Conta/Cartão (L430-437) e "Método: Conta/Cartão" por item (L514-533).
-- Categorização na ingestão (`enrichItems`, L470-500) usa apenas alias → regra → histórico → hint, **sem** o pipeline completo `_shared/categorization/pipeline.ts` (que já tem estágios rule/history/alias/llm e thresholds). Em fatura, `category_hint` costuma vir `null` e não há histórico de cartão → 37/39 sem categoria.
-- Nenhum lugar do fluxo cria `credit_card_statements` / `credit_card_purchases` / `credit_card_installments` (tabelas do núcleo financeiro recém-implantado): a fatura confirmada não vira fatura, vira 39 despesas soltas.
+**Resumo das causas-raiz por camada**
 
-## 2. Inventário dos fluxos afetados
+| Camada | Causa-raiz |
+|---|---|
+| Aquisição | Só imagem; camada de texto do PDF nunca é lida |
+| Prompt | “Excluir subtotais/totais” engole o bloco Pagamentos efetuados |
+| Extração | Recall do LLM sem rede de segurança; nenhuma segunda passada por seção |
+| Contrato | Sem subtotais oficiais persistidos → impossível auditar cobertura |
+| Conciliação | Fórmula certa sobre dados incompletos; erro genérico `invoice_total_mismatch` |
+| UX | Diagnóstico técnico exposto e “Saldo anterior” duplicado (`ReviewSheet.tsx:536` input vs `:548` calculado); `docKind` cru “invoice” no subtítulo (`:449`) |
+| Nino | `NinoContextoV2` e `AssessorAcompanhamentoV2` consomem a **mesma** RPC `my_nino_context` e o mesmo `reviews[]` (`src/lib/nino/client.ts:22`), duplicando headline/highlights. V1 de ambos é código morto não roteado |
+| Tempo | `reviewWindow('weekly')` (`AdvisorReviewServiceV2.ts:143`) sempre usa segunda→domingo, sem flag de período parcial |
 
-| Caminho | Arquivo/objeto | Risco |
-|---|---|---|
-| Upload app (chat/anexo) | `AssessorAttachButton.tsx` → `assistant-ingest-document` | destino errado |
-| WhatsApp mídia/JSON | `whatsapp-webhook`, `_shared/messaging/wahaMedia.ts`, `AgentCore.ts` | mesmo pipeline + resposta textual divergente |
-| Lote em texto/JSON | `_shared/agent/core/BulkEntry.ts` | cai em `accounts[0]` quando não há hint de cartão; grava `payment_method: "account"` |
-| FastLog `!ja` | `_shared/agent/core/FastLog.ts` | resolução genérica de conta |
-| Revisão manual | `ReviewSheet.tsx` + `assistant-review-actions` | UI sem noção de tipo |
-| Persistência | RPCs `confirm_document_import`, `commit_movement`, `reconcile_document_balance`, `rollback_document_import` | sem invariantes contábeis |
-| Reprocesso/retentativa | `reprocess_rejected_items`, `document_fragments` | pode reintroduzir destino errado |
-| CSV/OFX | `src/lib/import/csv.ts`, `ofx.ts`, `legacy.ts` | sempre conta (correto para extrato, errado se arquivo for de cartão) |
+## 2. Arquitetura-alvo e decisões contábeis
 
-## 3. Matriz documento → destino → efeitos → perguntas
+**Estratégia híbrida, determinística primeiro.**
 
-| # | Documento | Ledger | Caixa | Resultado | Passivo | Pergunta obrigatória |
-|---|---|---|---|---|---|---|
-| A | Fatura de cartão | credit_card + statement | não | sim (compras, na data da compra) | +obrigação | "A qual cartão esta fatura pertence?" |
-| B | Extrato bancário | bank_account | sim | sim | — | "Qual conta?" + saldo permitido |
-| C | Comprovante Pix/TED | conta origem/destino | sim | só se contraparte externa | — | "Foi entre suas contas?" |
-| D | Pagamento de fatura | conta + cartão | sim (−) | **não** | −obrigação | "De qual conta saiu?" |
-| E | Recibo/nota | depende do meio | depende | sim | se cartão | "Foi no cartão ou na conta?" |
-| F | Boleto/conta a pagar | payable | só na liquidação | na competência | +obrigação | "Já foi pago?" |
-| G | Empréstimo/financiamento | debt | sim (principal) | só juros/tarifas | +/− | "É novo contrato ou parcela?" |
-| H | Estorno/reembolso | mesmo ledger da compra | conforme ledger | reverte | −obrigação se cartão | "Refere-se a qual compra?" |
-| I | Invoice comercial de fornecedor | payable, não cartão | não | sim | +obrigação | confirmar explicitamente quando ambíguo |
+1. **Text layer** — extrair texto posicional do PDF (`unpdf`/`pdf.js` no Deno). Se houver texto, um **parser determinístico de faturas** lê o quadro-resumo por rótulo (fatura anterior, pagamentos/créditos, saldo financiado, lançamentos atuais, compras nacionais, internacionais, IOF/encargos, total, vencimento, fechamento, final do cartão) e as linhas por seção (`data | descrição | valor`, incluindo blocos “Pagamentos efetuados” e “Compras parceladas — próximas faturas”).
+2. **LLM** — passa a ser usado para (a) categorização, (b) descrição amigável, (c) **fallback** quando não há camada de texto (PDF só imagem/foto), (d) bancos sem parser dedicado.
+3. **Auditoria de cobertura em 3 camadas**, sempre executada:
+   - soma das linhas de cada seção vs. subtotal oficial da seção;
+   - soma dos subtotais vs. “lançamentos atuais”;
+   - `saldo anterior − pagamentos + lançamentos atuais == total oficial`.
+   Quando uma camada não fecha, o sistema **nomeia a seção e o valor faltante** (“os itens detalhados estão R$ 82,61 abaixo de Lançamentos atuais”) e dispara **re-extração dirigida daquela seção** antes de incomodar o usuário.
+4. **Saldo financiado** é derivado (`anterior − pagamentos`), nunca item nem despesa.
 
-Regra transversal: **a classificação vem do conteúdo, não do canal**; app e WhatsApp chamam o mesmo classificador.
+**Regras contábeis fixadas**: compra → consumo + obrigação do cartão; pagamento/antecipação → liquida obrigação contra conta bancária, sem despesa; estorno → reduz obrigação e consumo; IOF/tarifa cobrado na fatura → despesa (Impostos e Taxas); saldo anterior → só conciliação; “próximas faturas” → compromisso futuro, nunca lançamento desta fatura; reimportação idempotente por `dedupe_fingerprint` + `document_id`.
 
-## 4. Arquitetura canônica proposta
+## 3. Arquivos existentes afetados
 
-Novo módulo compartilhado `supabase/functions/_shared/ledger/` (espelhado em `src/lib/ledger/` para a UI):
+- `supabase/functions/assistant-ingest-document/index.ts` (prompt, orquestração, auditoria de cobertura, persistência do resumo)
+- `supabase/functions/_shared/documents/pdfFragments.ts` (+ novo `pdfText.ts`)
+- **novos** `_shared/documents/invoiceParser.ts`, `_shared/documents/banks/itau.ts`, `_shared/documents/coverage.ts`
+- `supabase/functions/_shared/documents/invoice.ts` e espelho `src/lib/finance/invoice.ts` (seções, IOF, saldo financiado)
+- `supabase/functions/_shared/ledger/canonical.ts` + `src/lib/ledger/canonical.ts` (espelhos)
+- `supabase/functions/assistant-review-actions/index.ts` (liquidação do pagamento contra conta)
+- `src/components/assessor/ReviewSheet.tsx` (redesenho completo, quebrado em subcomponentes)
+- `src/pages/AssessorAcompanhamentoV2.tsx`, `src/pages/NinoContextoV2.tsx`, `src/pages/MaisMenu.tsx`, `src/App.tsx`
+- `supabase/functions/_shared/agent/core/AdvisorReviewServiceV2.ts` (período parcial)
+- Testes em `src/test/`
 
-- `classifyDocument.ts` → `document_kind` com evidências (presença de "fatura/limite/vencimento/melhor dia" vs. "saldo do dia/agência/conta"), score e motivos.
-- `resolveLedger.ts` → para cada item produz o **CanonicalMovement**:
-  `{ document_kind, movement_kind, ledger: 'bank_account'|'credit_card'|'debt'|'cash'|'payable', source_id (obrigatório), cash_effect, result_effect, liability_effect, links{purchase_id, installment_id, statement_id, payment_id, debt_id}, confidence, reasons[], pending_fields[], blocks[] }`.
-- `invariants.ts` → validação pura, reutilizada por Edge Function, UI e testes.
+## 4. Migrations / RPCs / Edge Functions
 
-Invariantes (com espelho no banco):
+**Migration única `2026xxxx_invoice_official_summary.sql`:**
+- `document_imports`: `invoice_payments_total`, `invoice_current_charges_total`, `invoice_domestic_total`, `invoice_international_total`, `invoice_taxes_total`, `invoice_credits_total`, `invoice_financed_balance`, `invoice_summary_source` (`parser|llm|manual`), `invoice_coverage jsonb`.
+- `extracted_items`: `statement_section text`, `is_future_installment boolean default false`.
+- `validate_invoice_import`: passa a validar as **três camadas** e a devolver `sections` com o gap por seção, além do erro global.
+- `finalize_invoice_statement`: grava `payments_total`/`financed_balance` em `credit_card_statements`; itens `payment` geram **liquidação** (`card_payment`) contra a conta escolhida, nunca despesa.
+- Nova `reextract_invoice_section(document_id, section)` para a re-extração dirigida.
+- GRANTs: `authenticated` + `service_role`; RLS por `user_id` mantida.
+- Backfill: nenhum. Faturas já importadas ficam com `invoice_summary_source = 'legacy'`.
 
-1. `ledger='credit_card'` ⇒ `account_id IS NULL` e `cash_effect = 0`.
-2. `movement_kind='card_payment'` ⇒ `result_effect = 0`, `cash_effect < 0`, `liability_effect > 0` (redução).
-3. Total da fatura nunca vira transação — só `credit_card_statements.total_amount`.
-4. `statement_closing_balance` só é aceito quando `document_kind='statement'`.
-5. `internal_transfer` e principal/amortização de empréstimo ⇒ `result_effect = 0`.
-6. `source_id` (`document:<id>:<idx>`) obrigatório e único → idempotência entre canais/reenvios.
-7. Baixa histórica de parcelas anteriores exige `confirmed_by_user_at` ou evidência conciliada.
+**Deploy**: `assistant-ingest-document`, `assistant-review-actions`.
 
-Mudanças de banco (migration nova, aditiva):
+## 5. Categorização e parcelamento
 
-- `document_imports`: `document_kind` normalizado + `kind_confidence`, `kind_evidence jsonb`, `credit_card_statement_id`, `blocked_reason`.
-- `extracted_items`: coluna gerada/CHECK `ledger` + `CHECK (ledger <> 'credit_card' OR account_id IS NULL)`.
-- `transactions`: `CHECK (movement_kind <> 'card_payment' OR credit_card_id IS NOT NULL)`; `CHECK (payment_method <> 'credit_card' OR account_id IS NULL)` (validar dados antes com `NOT VALID` + validação posterior).
-- Índice único `(user_id, import_source_id)` em `transactions` para idempotência.
-- `confirm_document_import` v2: recebe `document_kind`, aplica invariantes, cria `credit_card_statements` + `credit_card_purchases` + `credit_card_installments` para faturas, aplica guardrail de saldo **apenas** em extrato, e devolve `blocked_reasons` estruturados.
-- Nova RPC `set_document_target(document_id, card_id|account_id)` que repropaga destino a todos os itens de forma transacional.
+Ordem determinística **antes** do LLM: `merchant_aliases` do usuário → histórico de transações confirmadas → regras globais (Amazon Prime/Apple → Assinaturas; RD Saúde/Drogasil → Saúde; iFood/Outback → Alimentação; Localiza/Turbi → Transporte; IOF/tarifa → Impostos e Taxas) → LLM. Cada item guarda `category_source` + `category_confidence`; correção manual grava alias e passa a valer nas próximas faturas. Parcelas: `parcela atual/total`, restantes, já pago e compromisso futuro; “Compras parceladas — próximas faturas” entra como `is_future_installment` (visível como compromisso, fora da conciliação e fora do ledger).
 
-## 5. Mudanças por camada
+## 6. UX/UI — revisão mobile
 
-- **Edge ingest**: mover `resolveSourceContext` para depois da classificação, passar `document_kind` real; descartar metadata de saldo em fatura; derivar período por precedência (metadata → vencimento/fechamento → min/max de `occurred_at`); gravar `kind_evidence`.
-- **Agente (app/WhatsApp)**: `BulkEntry`/`FastLog` passam a chamar `resolveLedger`; em fatura, a pergunta é sobre cartão; nunca fallback para `accounts[0]` quando kind = invoice.
-- **WhatsApp**: perguntas curtas e sequenciais ("Essa fatura é do Cartão Itaú? 1-Sim 2-Outro cartão"), mesma intenção canônica do app.
-- **Frontend**: `ReviewSheet` ganha cabeçalho por tipo (`InvoiceHeader`, `StatementHeader`, `ReceiptHeader`); em fatura some "Saldo informado pelo banco" e a lista de contas; item passa a ter classificação compra/crédito/estorno/encargo/pagamento; botão principal desabilitado com motivo textual específico; blocos "O que será registrado" e "O que não movimenta seu saldo agora".
+```
+┌──────────────────────────────┐
+│ ← Fatura Itaú · final 4739   │  56px, uma linha
+│ R$ 4.639,73 · vence 03/08    │
+├──────────────────────────────┤
+│ ✅ Tudo confere   Ver conciliação ›│  chip 32px
+├──────────────────────────────┤
+│ [Pendentes][Sem categoria]   │  chips roláveis
+│ [Parceladas][Créditos][Todos]│
+├──────────────────────────────┤
+│ 24/07  Pagamento recebido    │
+│        −R$ 220,00  · liquida │  ← lista ocupa ~72%
+│ 23/06  Amazon Prime          │
+│        R$ 19,90 · Assinaturas│
+│ …                            │
+├──────────────────────────────┤
+│  Confirmar 47 lançamentos    │  sticky 64px
+└──────────────────────────────┘
+```
+Estado com falha de cobertura: o chip vira `⚠️ Faltam R$ 82,61 em Lançamentos atuais · Revisar ›`, e o drawer mostra a equação oficial linha a linha (anterior − pagamentos + lançamentos = total) com a seção divergente destacada e botão “Procurar de novo nesta seção”.
 
-Copies finais (pt-BR simples):
+Regras: conciliação **recolhida por padrão** em bottom sheet; “Saldo anterior” aparece **uma única vez** (dentro do drawer); nada de “invoice”/`docKind` cru; diagnóstico técnico só via menu “⋯ › Detalhes técnicos”; edição inline preserva scroll; **rascunho persistente** em `localStorage` por `document_id` com merge no reload; feedback por item e por seção; CTA alterna entre “Confirmar X lançamentos” e “Revisar X pendências”. Responsivo em 320/375/390/430 px com números em `tabular-nums` e truncagem por `min-w-0`; alvos ≥44px, labels e `aria-live` nos estados de conciliação.
 
-- Cartão: "A qual cartão essa fatura pertence?" / "Não encontrei esse cartão. Quer cadastrar agora? (emissor, bandeira, final)".
-- Divergência: "A soma dos itens (R$ X) não bate com o total da fatura (R$ Y). Diferença de R$ Z. Quer revisar antes de confirmar?".
-- Parcelas anteriores: "Essa compra é 3/10. Não vou registrar as parcelas 1 e 2 sem sua confirmação. Elas já foram pagas?".
-- Duplicidade: "Parece que essa compra já está registrada em outra fatura. Confirmar mesmo assim?".
-- Pagamento de fatura: "Isso é o pagamento da fatura. Vou tirar da sua conta e abater o cartão — não conta como gasto novo."
+## 7. Unificação do Nino e correção temporal
 
-## 6. Categorização
+Central única **“Nino”** em `/app/nino`, com seções Agora · Onde agir · Evolução · Plano · Histórico. “O que o Nino sabe” sai da navegação; memórias, aliases, regras, exportação e controles migram para **Mais › Dados e personalização › O que o Nino aprendeu**. `/app/nino-contexto` e `/app/assessor/acompanhamento` viram redirects. V1 órfãos (`NinoContexto.tsx`, `AssessorAcompanhamento.tsx`) removidos.
 
-Substituir a escada ad hoc de `enrichItems` pelo pipeline existente `_shared/categorization/pipeline.ts` (alias → histórico → regra → LLM em lote, com thresholds), somando: normalização de estabelecimento (remoção de sufixos tipo `*PAG`, cidade, UF, `PARC 03/10`), histórico específico por cartão, dicionário global de merchants para categorias globais (20 já existem) e fallback legível "A classificar". Categoria ausente **não bloqueia** a fatura; só sinaliza.
+Período: `reviewWindow` passa a devolver `is_partial` e `days_elapsed`; copy “Até agora, nesta semana” enquanto em andamento e “A semana fechou” só após o término; dias futuros nunca contam como zerados; comparação semana-a-semana usa janelas parciais equivalentes (D1..Dn vs D1..Dn).
 
-## 7. Ordem de execução segura
+## 8. Matriz de testes e aceite
 
-1. Módulo canônico + testes unitários (sem tocar em fluxo).
-2. Correção do `document_kind` na resolução de origem + supressão de saldo em fatura + período derivado.
-3. `ReviewSheet` por tipo de documento e bloqueios com motivo.
-4. Migration de constraints/índices (`NOT VALID` → validação) e `confirm_document_import` v2 com criação de fatura/compras/parcelas.
-5. Agente/WhatsApp usando o classificador canônico.
-6. Categorização via pipeline completo.
-7. Auditoria e reconciliação dos dados existentes.
+Regressão obrigatória com a fatura Itaú 4739 (fixture de texto anonimizada): pagamentos 4.099,34 · nacionais líquidas 3.355,00 · internacionais 1.792,02 · IOF 62,71 · lançamentos atuais 5.209,73 · total 4.639,73 · **diferença 0,00** · 47 linhas.
+Demais casos: antecipação maior que a fatura anterior; múltiplos pagamentos; estorno; internacional+IOF; sem saldo anterior; parcelas antigas não presumidas pagas; PDF com texto e PDF só imagem (fallback LLM); reimportação idempotente; zero duplicidade contábil compra↔pagamento; rascunho preservado após reload e após falha de rede; layouts 320/375/390/430; tela única do Nino com redirects; semana parcial com copy e comparação corretas.
 
-## 8. Dados já importados — auditoria (somente leitura por enquanto)
+## 9. Riscos e rollback
 
-Consultas propostas:
+- **Parser específico de banco quebrar com layout novo** → fallback automático para LLM, `invoice_summary_source` registra a origem.
+- **Extração de pagamentos criar dupla contagem** → mitigado por `nonLedgerIds` já existente + testes de não-duplicidade.
+- **Faturas legadas** → marcadas `legacy`, sem reprocessamento automático.
+- Rollback: Edge Functions voltam à versão anterior; colunas novas são aditivas e nullable (nenhum `DROP`); UI atrás de commit revertível.
 
-- itens de documentos `invoice` com `account_id NOT NULL`;
-- `transactions` com `payment_method='credit_card' AND account_id IS NOT NULL`;
-- `transactions` com `import_source_id LIKE 'document:%'` originados de documento `invoice`;
-- as 2 faturas do backfill em `needs_review` (`credit_card_statements`) versus soma de `credit_card_statement_items`.
+## 10. Ordem de implementação
 
-Nada será alterado sem sua aprovação; a correção proposta é uma migration de reconciliação idempotente que remove `account_id` de transações de cartão e vincula compras à fatura correta, com tabela de auditoria `document_reconciliation_log` e rollback por `import_source_id`.
+1. Migration do resumo oficial + RPCs de 3 camadas.
+2. `pdfText` + parser determinístico Itaú + auditoria de cobertura + prompt corrigido → deploy `assistant-ingest-document`.
+3. Liquidação de pagamentos → deploy `assistant-review-actions`.
+4. Redesenho do ReviewSheet + rascunho persistente.
+5. Unificação do Nino + correção de período parcial.
+6. Testes, build, publicação (só com sua autorização).
 
-## 9. Testes e aceite
+## 11. Decisões que dependem da sua aprovação
 
-Unitários: classificador, `resolveLedger`, invariantes, datas/período, normalização de merchant.
-Integração/RPC: confirmação de fatura não grava `account_id`; guardrail de saldo só em extrato; reenvio não duplica (`import_source_id` único); parcelas em faturas sucessivas não recriam cronograma.
-Contrato: mesma fatura em app e WhatsApp gera o mesmo CanonicalMovement.
-UI: fatura nunca mostra lista de contas nem saldo bancário; botão bloqueado com motivo.
-Banco: RLS impede acesso cruzado; constraints rejeitam combinações proibidas.
-Ponta a ponta: os 39 itens da fatura real não alteram saldo bancário; pagamento da fatura reduz banco e passivo sem novo consumo.
-
-## 10. Observabilidade, riscos e decisões pendentes
-
-Observabilidade: `document_processing_events` com `kind_evidence`, motivo de bloqueio e destino escolhido; métrica de % de itens categorizados e de documentos bloqueados por divergência.
-
-Riscos: constraints podem rejeitar dados legados (mitigado com `NOT VALID`); reclassificação retroativa pode alterar números históricos (mitigado com log e rollback).
-
-Perguntas bloqueantes:
-
-1. Confirmo que a única fatura afetada (`2b45c2f9…`, hoje `canceled`) **não** deve ser reprocessada automaticamente — apenas reenviada por você após a correção?
-2. Para faturas, o gasto deve ser reconhecido na **data da compra** (competência) — confirma essa escolha como padrão?
-3. As 2 faturas do backfill em `needs_review` podem ser mantidas como estão até a reconciliação, ou prefere invalidá-las?
+1. **Adotar parser determinístico por banco** (começando por Itaú) em vez de depender do LLM — confirma?
+2. Quando extrairmos os pagamentos, eles **liquidam contra qual conta**? Perguntamos ao usuário na revisão, ou usamos a conta única quando só houver uma?
+3. Rota final da central: `/app/nino` (com redirects) ou manter `/app/assessor/acompanhamento` como canônica?
+4. Faturas já importadas: deixar como estão (`legacy`) ou oferecer botão “reconciliar de novo”?
+5. Extração de texto: posso adicionar a dependência `unpdf` na Edge Function?
