@@ -338,9 +338,15 @@ function DataZone() {
     <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
       <h2 className="text-sm font-semibold">Meus dados</h2>
       <p className="mt-1 text-xs text-muted-foreground">Exporte tudo em JSON ou solicite exclusão da sua conta.</p>
-      <button onClick={doExport} disabled={busy} className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
-        Exportar meus dados
-      </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={doExport} disabled={busy} className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
+          Exportar meus dados
+        </button>
+        <a href="/app/nino-contexto" className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium">
+          Dados que o Nino usa
+        </a>
+      </div>
+
       <div className="mt-6 pt-4 border-t border-border">
         <p className="text-xs font-medium text-destructive">Zona de risco</p>
         <p className="text-[11px] text-muted-foreground mt-1">
