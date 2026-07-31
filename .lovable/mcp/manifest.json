@@ -163,6 +163,55 @@
           "properties": {}
         },
         "outputSchema": null
+      },
+      {
+        "name": "list_card_statements",
+        "title": "Listar faturas de cartão",
+        "description": "Lista faturas conciliadas do usuário, com cartão, vencimento, total, valor pago, saldo e status.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["open", "partially_paid", "paid", "overdue", "needs_review"]
+            },
+            "limit": { "type": "number", "minimum": 1, "maximum": 100 }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "settle_card_statement",
+        "title": "Registrar pagamento de fatura",
+        "description": "Registra a baixa contábil de uma fatura após confirmação explícita do usuário. Reduz caixa e obrigação; não cria uma nova despesa de consumo.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "statement_id": { "type": "string", "format": "uuid" },
+            "account_id": { "type": "string", "format": "uuid" },
+            "amount": { "type": "number", "exclusiveMinimum": 0 },
+            "paid_at": { "type": "string", "description": "Data YYYY-MM-DD." },
+            "confirmed_by_user": { "type": "boolean", "const": true },
+            "idempotency_key": { "type": "string", "minLength": 8 }
+          },
+          "required": ["statement_id", "account_id", "confirmed_by_user", "idempotency_key"],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
       }
     ]
   }

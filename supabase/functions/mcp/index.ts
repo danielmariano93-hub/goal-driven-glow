@@ -313,13 +313,83 @@ var financial_position_default = defineTool5({
   }
 });
 
+// src/lib/mcp/tools/list-card-statements.ts
+import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { z as z4 } from "npm:zod@^3.25.76";
+var list_card_statements_default = defineTool6({
+  name: "list_card_statements",
+  title: "Listar faturas de cart\xE3o",
+  description: "Lista faturas conciliadas do usu\xE1rio, com cart\xE3o, vencimento, total, valor pago, saldo e status.",
+  inputSchema: {
+    status: z4.enum(["open", "partially_paid", "paid", "overdue", "needs_review"]).optional(),
+    limit: z4.number().min(1).max(100).optional()
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ status, limit }, ctx) => {
+    if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.");
+    const supabase = supabaseForUser(ctx);
+    let query = supabase.from("credit_card_statements").select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status,credit_cards(name,last_four)").order("competence_month", { ascending: false }).limit(limit ?? 24);
+    if (status) query = query.eq("status", status);
+    const { data, error } = await query;
+    if (error) return errorResult(error.message);
+    const statements = (data ?? []).map((row) => ({
+      id: row.id,
+      card: row.credit_cards?.name ?? "Cart\xE3o",
+      last_four: row.credit_cards?.last_four ?? null,
+      competence_month: row.competence_month,
+      due_date: row.due_date,
+      total: Number(row.stated_total),
+      paid: Number(row.paid_amount),
+      outstanding: Number(row.outstanding_amount),
+      status: row.status,
+      reconciled: Math.abs(Number(row.reconciliation_difference)) <= 0.05
+    }));
+    return ok(statements.length ? statements.map(
+      (s) => `${s.card} \xB7 ${String(s.competence_month).slice(0, 7)} \xB7 ${brl(s.total)} \xB7 ${s.status} \xB7 falta ${brl(s.outstanding)}`
+    ).join("\n") : "Nenhuma fatura encontrada.", { statements });
+  }
+});
+
+// src/lib/mcp/tools/settle-card-statement.ts
+import { defineTool as defineTool7, ToolError as ToolError2 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { z as z5 } from "npm:zod@^3.25.76";
+var settle_card_statement_default = defineTool7({
+  name: "settle_card_statement",
+  title: "Registrar pagamento de fatura",
+  description: "Registra a baixa cont\xE1bil de uma fatura ap\xF3s confirma\xE7\xE3o expl\xEDcita do usu\xE1rio. Reduz caixa e obriga\xE7\xE3o; n\xE3o cria uma nova despesa de consumo.",
+  inputSchema: {
+    statement_id: z5.string().uuid().describe("Identificador retornado por list_card_statements."),
+    account_id: z5.string().uuid().describe("Conta usada no pagamento."),
+    amount: z5.number().positive().optional().describe("Valor pago. Se omitido, quita o saldo em aberto."),
+    paid_at: z5.string().optional().describe("Data YYYY-MM-DD."),
+    confirmed_by_user: z5.literal(true).describe("S\xF3 use true ap\xF3s o usu\xE1rio confirmar claramente valor, conta e data."),
+    idempotency_key: z5.string().min(8).describe("Chave \xFAnica e est\xE1vel para impedir pagamento duplicado em retries.")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  handler: async ({ statement_id, account_id, amount, paid_at, confirmed_by_user, idempotency_key }, ctx) => {
+    if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.");
+    if (confirmed_by_user !== true) throw new ToolError2("Confirma\xE7\xE3o expl\xEDcita obrigat\xF3ria.");
+    const supabase = supabaseForUser(ctx);
+    const { data, error } = await supabase.rpc("settle_credit_card_statement", {
+      p_statement_id: statement_id,
+      p_account_id: account_id,
+      p_amount: amount ?? null,
+      p_paid_at: paid_at ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      p_idempotency_key: idempotency_key
+    });
+    if (error) return errorResult(error.message);
+    const result = data;
+    return ok(`Pagamento registrado: ${brl(Number(result.amount ?? amount ?? 0))}. Fatura ${result.status === "paid" ? "quitada" : "parcialmente paga"}.`, { payment: result });
+  }
+});
+
 // src/lib/mcp/index.ts
 var projectRef = "wesjjdjmlnfjihkkgzfp";
 var mcp_default = defineMcp({
   name: "meu-nino",
   title: "Meu Nino",
   version: "0.1.0",
-  instructions: "Ferramentas do Meu Nino, app de finan\xE7as pessoais em portugu\xEAs. Consulte lan\xE7amentos, resumo do m\xEAs, contas, categorias, cart\xF5es, d\xEDvidas e metas do usu\xE1rio conectado, e registre novos lan\xE7amentos. Valores em reais (BRL).",
+  instructions: "Ferramentas do Meu Nino, app de finan\xE7as pessoais em portugu\xEAs. Consulte lan\xE7amentos, resumo do m\xEAs, contas, categorias, cart\xF5es, faturas, d\xEDvidas e metas. Pagamento de fatura exige confirma\xE7\xE3o expl\xEDcita e \xE9 baixa de caixa/obriga\xE7\xE3o, nunca nova despesa de consumo. Valores em reais (BRL).",
   auth: auth.oauth.issuer({
     issuer: `https://${projectRef}.supabase.co/auth/v1`,
     acceptedAudiences: "authenticated"
@@ -329,7 +399,9 @@ var mcp_default = defineMcp({
     monthly_summary_default,
     list_accounts_and_categories_default,
     create_transaction_default,
-    financial_position_default
+    financial_position_default,
+    list_card_statements_default,
+    settle_card_statement_default
   ]
 });
 
