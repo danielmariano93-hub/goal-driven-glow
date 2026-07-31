@@ -1,7 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
-import { z } from "zod";
 import { supabaseForUser } from "../supabase";
-import { brl, errorResult, ok, requireUser } from "../shared";
+import { errorResult, ok, requireUser } from "../shared";
 
 export default defineTool({
   name: "list_accounts_and_categories",
@@ -40,5 +39,3 @@ export default defineTool({
     return ok(text, { accounts, categories });
   },
 });
-
-export const _brl = brl;

@@ -70,7 +70,6 @@ export default defineTool({
         account_id: chosen.id,
         category_id: categoryId,
         type,
-        direction: type === "income" ? "in" : "out",
         status: "confirmed",
         amount,
         occurred_at: date,

@@ -10,8 +10,8 @@ import financialPosition from "./tools/financial-position";
 const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID ?? "project-ref-unset";
 
 export default defineMcp({
-  name: "mindful-money",
-  title: "Mindful Money",
+  name: "meu-nino",
+  title: "Meu Nino",
   version: "0.1.0",
   instructions:
     "Ferramentas do Meu Nino, app de finanças pessoais em português. Consulte lançamentos, resumo do mês, contas, categorias, cartões, dívidas e metas do usuário conectado, e registre novos lançamentos. Valores em reais (BRL).",

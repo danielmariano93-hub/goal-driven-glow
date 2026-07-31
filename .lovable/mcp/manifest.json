@@ -11,9 +11,9 @@
   },
   "mcp": {
     "server": {
-      "name": "mindful-money",
+      "name": "meu-nino",
       "version": "0.1.0",
-      "title": "Mindful Money"
+      "title": "Meu Nino"
     },
     "tools": [
       {
