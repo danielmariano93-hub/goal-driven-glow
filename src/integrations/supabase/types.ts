@@ -2451,8 +2451,8 @@ export type Database = {
           credit_card_id: string
           due_date: string
           id: string
-          outstanding_amount: number | null
           opening_balance: number
+          outstanding_amount: number | null
           paid_amount: number
           period_end: string | null
           period_start: string | null
@@ -2471,8 +2471,8 @@ export type Database = {
           credit_card_id: string
           due_date: string
           id?: string
-          outstanding_amount?: number | null
           opening_balance?: number
+          outstanding_amount?: number | null
           paid_amount?: number
           period_end?: string | null
           period_start?: string | null
@@ -2491,8 +2491,8 @@ export type Database = {
           credit_card_id?: string
           due_date?: string
           id?: string
-          outstanding_amount?: number | null
           opening_balance?: number
+          outstanding_amount?: number | null
           paid_amount?: number
           period_end?: string | null
           period_start?: string | null
