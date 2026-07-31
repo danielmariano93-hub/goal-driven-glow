@@ -44,7 +44,7 @@ Total das compras nacionais 3.355,00
 07/07 Livraria Cultura 55,00
 08/07 EST COMPRA CANCELADA 1,46-
 09/07 Cinema Multiplex 74,00
-10/07 Estacionamento Centro 20,00
+10/07 Estacionamento Centro 120,96
 
 Compras internacionais
 Total das compras internacionais 1.792,02

@@ -53,10 +53,10 @@ const fold = (value: string) =>
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-const AMOUNT_RE = /(-?\s*R?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2})\s*(-)?\s*$/;
+const AMOUNT_RE = /(-?\s*(?:R\$)?\s*\d{1,3}(?:\.\d{3})*,\d{2})\s*(-)?\s*$/;
 
 export function parseBrAmount(raw: string): number | null {
-  const cleaned = raw.replace(/[R$\s]/g, "");
+  const cleaned = raw.replace(/R\$/g, "").replace(/\s/g, "");
   const negative = cleaned.startsWith("-") || cleaned.endsWith("-");
   const digits = cleaned.replace(/-/g, "").replace(/\./g, "").replace(",", ".");
   const value = Number(digits);
