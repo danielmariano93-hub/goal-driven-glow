@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "sdk_version": "0.26.1",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://wesjjdjmlnfjihkkgzfp.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "mindful-money",
+      "version": "0.1.0",
+      "title": "Mindful Money"
+    },
+    "tools": [
+      {
+        "name": "list_transactions",
+        "title": "Listar lançamentos",
+        "description": "Lista os lançamentos financeiros (receitas e despesas) do usuário autenticado, do mais recente para o mais antigo, com filtros opcionais de período e tipo.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "description": "Data inicial em YYYY-MM-DD."
+            },
+            "to": {
+              "type": "string",
+              "description": "Data final em YYYY-MM-DD."
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "income",
+                "expense",
+                "transfer"
+              ],
+              "description": "Tipo do lançamento."
+            },
+            "search": {
+              "type": "string",
+              "description": "Texto para buscar na descrição."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Quantidade máxima de lançamentos (padrão 50, máximo 200)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "monthly_summary",
+        "title": "Resumo do mês",
+        "description": "Resume o mês do usuário autenticado: total de receitas, total de despesas, saldo do período e as maiores categorias de gasto.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "month": {
+              "type": "string",
+              "description": "Mês no formato YYYY-MM. Padrão: mês atual."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_accounts_and_categories",
+        "title": "Listar contas e categorias",
+        "description": "Lista as contas ativas e as categorias do usuário autenticado, com seus identificadores. Use antes de registrar um lançamento para escolher conta e categoria.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "create_transaction",
+        "title": "Registrar lançamento",
+        "description": "Registra uma despesa ou receita confirmada na conta do usuário autenticado. Informe conta e categoria por nome ou identificador; quando o usuário tem apenas uma conta, ela é usada automaticamente.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "amount": {
+              "type": "number",
+              "description": "Valor positivo do lançamento."
+            },
+            "description": {
+              "type": "string",
+              "description": "Descrição do lançamento."
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "expense",
+                "income"
+              ],
+              "description": "Tipo do lançamento."
+            },
+            "occurred_at": {
+              "type": "string",
+              "description": "Data em YYYY-MM-DD. Padrão: hoje."
+            },
+            "account": {
+              "type": "string",
+              "description": "Nome ou identificador da conta."
+            },
+            "category": {
+              "type": "string",
+              "description": "Nome ou identificador da categoria."
+            }
+          },
+          "required": [
+            "amount",
+            "description",
+            "type"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "financial_position",
+        "title": "Posição financeira",
+        "description": "Mostra a posição atual do usuário autenticado: cartões de crédito ativos, dívidas em aberto e metas em andamento.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
