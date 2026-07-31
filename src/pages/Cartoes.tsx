@@ -342,7 +342,10 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
       p_category_id: patch.category_id === undefined ? item.transaction?.category_id ?? null : patch.category_id,
     });
     setSavingId(null);
-    if (error || !data?.ok) return toast.error("Não foi possível salvar o lançamento", { description: error?.message ?? data?.error });
+    if (error || !data?.ok) {
+      toast.error("Não foi possível salvar o lançamento", { description: error?.message ?? data?.error });
+      return;
+    }
     await onChanged();
     toast.success("Lançamento atualizado");
   }
