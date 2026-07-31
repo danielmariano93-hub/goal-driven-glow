@@ -16,6 +16,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
+import OAuthConsent from "./pages/auth/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
 // Financial user (lazy)
@@ -87,6 +88,7 @@ const App = () => (
               <Route path="/signup" element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
 
               <Route
                 path="/onboarding"

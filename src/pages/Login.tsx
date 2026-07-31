@@ -47,7 +47,12 @@ export default function Login() {
       setError(error);
       return;
     }
-    // Decidir destino: platform admin → /admin; caso contrário /app ou next.
+    // Um destino explícito (ex.: tela de consentimento OAuth) sempre tem prioridade.
+    if (nextParam && nextParam.startsWith("/")) {
+      navigate(nextParam, { replace: true });
+      return;
+    }
+    // Caso contrário: platform admin → /admin; usuário comum → /app.
     try {
       const { data: role } = await supabase.rpc("current_platform_admin_role");
       if (role) {
@@ -55,8 +60,7 @@ export default function Login() {
         return;
       }
     } catch {}
-    const target = nextParam && nextParam.startsWith("/") ? nextParam : "/app";
-    navigate(target, { replace: true });
+    navigate("/app", { replace: true });
   }
 
 
