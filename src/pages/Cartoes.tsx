@@ -334,7 +334,8 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   });
   const [savingId, setSavingId] = useState<string | null>(null);
   const [statementAction, setStatementAction] = useState<"approve" | "discard" | null>(null);
-  const economicLocked = Number(statement.paid_amount) > 0;
+  const [currentStatement, setCurrentStatement] = useState(statement);
+  const economicLocked = Number(currentStatement.paid_amount) > 0;
   const itemTotal = (detail.data?.items ?? []).reduce((sum, item) => sum + Number(item.amount), 0);
   async function saveItem(item: StatementItemRow, patch: { description?: string; category_id?: string | null; amount?: number; occurred_at?: string; item_kind?: string }) {
     setSavingId(item.id);
@@ -351,13 +352,18 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
       toast.error("Não foi possível salvar o lançamento", { description: error?.message ?? data?.error });
       return;
     }
+    setCurrentStatement((current) => ({
+      ...current,
+      reconciliation_difference: Number(data.difference ?? current.reconciliation_difference),
+      status: Math.abs(Number(data.difference ?? current.reconciliation_difference)) <= .05 ? "open" : "needs_review",
+    }));
     await onChanged();
     await detail.refetch();
     toast.success("Lançamento atualizado");
   }
   async function approveStatement() {
     setStatementAction("approve");
-    const { data, error } = await (supabase as any).rpc("approve_credit_card_statement", { p_statement_id: statement.id });
+    const { data, error } = await (supabase as any).rpc("approve_credit_card_statement", { p_statement_id: currentStatement.id });
     setStatementAction(null);
     if (error || !data?.ok) {
       toast.error("A fatura ainda não pode ser aprovada", { description: error?.message ?? (data?.error === "reconciliation_open" ? `Ainda existe uma diferença de ${formatBRL(Math.abs(Number(data?.difference ?? 0)))}.` : data?.error) });
@@ -370,7 +376,7 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   async function discardStatement() {
     if (!confirm("Excluir esta fatura em revisão? Os lançamentos criados exclusivamente por esta importação também serão removidos. Esta ação não afeta outros lançamentos.")) return;
     setStatementAction("discard");
-    const { data, error } = await (supabase as any).rpc("discard_credit_card_statement", { p_statement_id: statement.id });
+    const { data, error } = await (supabase as any).rpc("discard_credit_card_statement", { p_statement_id: currentStatement.id });
     setStatementAction(null);
     if (error || !data?.ok) {
       toast.error("Não foi possível excluir a fatura", { description: error?.message ?? (data?.error === "statement_has_payments" ? "Desfaça os pagamentos antes de excluir." : data?.error) });
@@ -395,13 +401,13 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   return <div className="fixed inset-0 z-50 bg-black/35" onClick={onClose}>
     <section onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col rounded-t-[28px] border border-border bg-background shadow-2xl md:inset-y-0 md:left-auto md:w-[560px] md:max-h-none md:rounded-none">
       <header className="flex items-start justify-between border-b border-border p-5">
-        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(statement.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(statement.due_date)} · {formatBRL(Number(statement.stated_total))}</p></div>
+        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(currentStatement.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(currentStatement.due_date)} · {formatBRL(Number(currentStatement.stated_total))}</p></div>
         <button onClick={onClose} className="rounded-full border border-border p-2" aria-label="Fechar"><X size={16}/></button>
       </header>
       <div className="flex-1 overflow-y-auto p-4 md:p-5">
         {economicLocked && <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground"><strong className="text-foreground">Fatura com pagamento registrado.</strong> Categorias e descrições continuam corrigíveis. Para alterar valores, primeiro desfaça o pagamento abaixo.</div>}
-        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><Stat label="Total oficial" value={formatBRL(Number(statement.stated_total))}/><Stat label="Itens somados" value={formatBRL(itemTotal)}/><Stat label="Pago" value={formatBRL(Number(statement.paid_amount))}/><Stat label="Diferença" value={formatBRL(Math.abs(Number(statement.reconciliation_difference)))}/></div>
-        {Math.abs(Number(statement.reconciliation_difference)) > .05 && <div className="mb-4 rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs text-warning"><strong>Conciliação pendente.</strong> Corrija valores, datas ou tipos até a diferença ficar em zero. A aprovação e o pagamento ficam bloqueados enquanto houver divergência.</div>}
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><Stat label="Total oficial" value={formatBRL(Number(currentStatement.stated_total))}/><Stat label="Itens somados" value={formatBRL(itemTotal)}/><Stat label="Pago" value={formatBRL(Number(currentStatement.paid_amount))}/><Stat label="Diferença" value={formatBRL(Math.abs(Number(currentStatement.reconciliation_difference)))}/></div>
+        {Math.abs(Number(currentStatement.reconciliation_difference)) > .05 && <div className="mb-4 rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs text-warning"><strong>Conciliação pendente.</strong> Corrija valores, datas ou tipos até a diferença ficar em zero. A aprovação e o pagamento ficam bloqueados enquanto houver divergência.</div>}
         <h3 className="text-sm font-semibold">Lançamentos</h3>
         <p className="mb-3 text-xs text-muted-foreground">Corrija a descrição ou categoria sem duplicar a despesa.</p>
         {detail.isLoading ? <Loader2 className="mx-auto my-8 animate-spin"/> : <div className="space-y-2">{detail.data?.items.map((item) => <StatementItemEditor key={item.id} item={item} categories={categories} saving={savingId === item.id} onSave={saveItem}/>)}</div>}
@@ -410,10 +416,10 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
         </div>
       </div>
       <footer className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
-        {statement.status === "needs_review" || statement.status === "draft" ? <>
+        {currentStatement.status === "needs_review" || currentStatement.status === "draft" || currentStatement.status === "open" ? <>
           <button onClick={discardStatement} disabled={statementAction !== null || economicLocked} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2 text-sm font-semibold text-destructive disabled:opacity-40"><Trash2 size={14}/>{statementAction === "discard" ? "Excluindo…" : "Excluir fatura"}</button>
-          <button onClick={approveStatement} disabled={statementAction !== null || Math.abs(Number(statement.reconciliation_difference)) > .05} className="btn-brand inline-flex items-center justify-center gap-2 disabled:opacity-40"><CheckCircle2 size={14}/>{statementAction === "approve" ? "Aprovando…" : "Aprovar fatura"}</button>
-        </> : Number(statement.outstanding_amount) > 0 && Math.abs(Number(statement.reconciliation_difference)) <= .05 ? <button onClick={onPay} className="btn-brand sm:col-span-2">Registrar pagamento desta fatura</button> : null}
+          <button onClick={approveStatement} disabled={statementAction !== null || Math.abs(Number(currentStatement.reconciliation_difference)) > .05} className="btn-brand inline-flex items-center justify-center gap-2 disabled:opacity-40"><CheckCircle2 size={14}/>{statementAction === "approve" ? "Aprovando…" : "Aprovar fatura"}</button>
+        </> : Number(currentStatement.outstanding_amount) > 0 && Math.abs(Number(currentStatement.reconciliation_difference)) <= .05 ? <button onClick={onPay} className="btn-brand sm:col-span-2">Registrar pagamento desta fatura</button> : null}
       </footer>
     </section>
   </div>;
