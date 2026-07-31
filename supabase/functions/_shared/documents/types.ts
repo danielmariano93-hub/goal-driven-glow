@@ -24,6 +24,10 @@ export type ExtractedItem = {
   confidence: Record<string, number>;
   movement_kind?: MovementKind | "informational";
   source_span?: unknown;
+  /** Seção oficial da fatura (pagamentos, nacionais, internacionais, IOF...). */
+  statement_section?: string | null;
+  /** Parcela de próxima fatura: não entra na conciliação do ciclo atual. */
+  is_future_installment?: boolean;
 };
 
 export type ExtractionResult = {
