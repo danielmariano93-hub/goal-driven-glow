@@ -30,11 +30,12 @@ describe("financial concepts shown to the user", () => {
     expect(reports).not.toContain(">Saldo</p>");
   });
 
-  it("puts actionable financial highlights before technical memories", () => {
+  it("keeps actionable highlights in acompanhamento and learned data in a separate surface", () => {
     const context = read("src/pages/NinoContextoV2.tsx");
-    expect(context.indexOf("Highlights para mudar o jogo"))
-      .toBeLessThan(context.indexOf("Como o Nino personaliza suas análises"));
-    expect(context).toContain("Onde agir agora");
+    const acompanhamento = read("src/pages/AssessorAcompanhamentoV2.tsx");
+    expect(acompanhamento).toContain("Highlights para mudar o jogo");
+    expect(context).toContain("O que o Nino aprendeu");
+    expect(context).not.toContain("Highlights para mudar o jogo");
   });
 });
 

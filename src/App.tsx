@@ -45,8 +45,7 @@ const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
 const Cartoes = lazy(() => import("./pages/Cartoes"));
 const Assessor = lazy(() => import("./pages/Assessor"));
-const AssessorAcompanhamento = lazy(() => import("./pages/AssessorAcompanhamentoV2"));
-const NinoContexto = lazy(() => import("./pages/NinoContextoV2"));
+const NinoHub = lazy(() => import("./pages/NinoHub"));
 const ProactiveAlertDetail = lazy(() => import("./pages/ProactiveAlertDetail"));
 const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
@@ -59,6 +58,7 @@ const AdminClienteFicha = lazy(() => import("./pages/admin/ClienteFicha"));
 const AdminOperacoesHub = lazy(() => import("./pages/admin/OperacoesHub"));
 const AdminAdministracaoHub = lazy(() => import("./pages/admin/AdministracaoHub"));
 const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
+const AdminNinoIA = lazy(() => import("./pages/admin/NinoIA"));
 
 
 
@@ -127,8 +127,8 @@ const App = () => (
                 <Route path="cobrancas" element={<CobrancasRecebidas />} />
                 <Route path="cartoes" element={<Cartoes />} />
                 <Route path="assessor" element={<Assessor />} />
-                <Route path="assessor/acompanhamento" element={<AssessorAcompanhamento />} />
-                <Route path="nino-contexto" element={<NinoContexto />} />
+                <Route path="assessor/acompanhamento" element={<NinoHub />} />
+                <Route path="nino-contexto" element={<Navigate to="/app/assessor/acompanhamento?visao=aprendizado" replace />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
               </Route>
 
@@ -145,6 +145,7 @@ const App = () => (
                 <Route path="produto" element={<AdminCrescimentoHub />} />
                 <Route path="operacoes" element={<AdminOperacoesHub />} />
                 <Route path="comunicacoes" element={<AdminComunicacaoProativa />} />
+                <Route path="nino-ia" element={<AdminNinoIA />} />
                 <Route path="administracao" element={<AdminAdministracaoHub />} />
 
                 {/* Rotas antigas → destinos atuais */}
@@ -153,7 +154,7 @@ const App = () => (
                 <Route path="crescimento" element={<Navigate to="/admin/produto" replace />} />
                 <Route path="engajamento" element={<Navigate to="/admin/produto" replace />} />
                 <Route path="inteligencia-produto" element={<Navigate to="/admin/produto?aba=produto" replace />} />
-                <Route path="ia" element={<Navigate to="/admin/produto?aba=produto" replace />} />
+                <Route path="ia" element={<Navigate to="/admin/nino-ia" replace />} />
                 <Route path="receita" element={<Navigate to="/admin/produto?aba=receita" replace />} />
                 <Route path="financeiro" element={<Navigate to="/admin/produto?aba=receita" replace />} />
                 <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />

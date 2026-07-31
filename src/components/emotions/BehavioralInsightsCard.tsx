@@ -67,7 +67,7 @@ export function BehavioralInsightsCard() {
 
       <button
         type="button"
-        onClick={() => navigate("/app/nino-contexto")}
+        onClick={() => navigate("/app/assessor/acompanhamento")}
         className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary"
       >
         Revisar hipóteses <ChevronRight size={13} />
