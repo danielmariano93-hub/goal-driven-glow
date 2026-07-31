@@ -7712,6 +7712,14 @@ export type Database = {
         Args: { p_document_id: string; p_item_ids: string[] }
         Returns: Json
       }
+      confirm_invoice_import_atomic: {
+        Args: {
+          p_document_id: string
+          p_idempotency_key?: string
+          p_item_ids: string[]
+        }
+        Returns: Json
+      }
       confirm_pending_action: { Args: { p_id: string }; Returns: Json }
       create_phone_link_code: { Args: never; Returns: string }
       create_transfer: {
@@ -7933,6 +7941,16 @@ export type Database = {
         Returns: number
       }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
+      settle_credit_card_statement: {
+        Args: {
+          p_account_id: string
+          p_amount?: number
+          p_idempotency_key?: string
+          p_paid_at?: string
+          p_statement_id: string
+        }
+        Returns: Json
+      }
       shared_goal_accept_invite: { Args: { p_goal_id: string }; Returns: Json }
       shared_goal_add_contribution: {
         Args: {

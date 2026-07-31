@@ -178,9 +178,19 @@
           "properties": {
             "status": {
               "type": "string",
-              "enum": ["open", "partially_paid", "paid", "overdue", "needs_review"]
+              "enum": [
+                "open",
+                "partially_paid",
+                "paid",
+                "overdue",
+                "needs_review"
+              ]
             },
-            "limit": { "type": "number", "minimum": 1, "maximum": 100 }
+            "limit": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 100
+            }
           },
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
@@ -200,14 +210,42 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "statement_id": { "type": "string", "format": "uuid" },
-            "account_id": { "type": "string", "format": "uuid" },
-            "amount": { "type": "number", "exclusiveMinimum": 0 },
-            "paid_at": { "type": "string", "description": "Data YYYY-MM-DD." },
-            "confirmed_by_user": { "type": "boolean", "const": true },
-            "idempotency_key": { "type": "string", "minLength": 8 }
+            "statement_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Identificador retornado por list_card_statements."
+            },
+            "account_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Conta usada no pagamento."
+            },
+            "amount": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Valor pago. Se omitido, quita o saldo em aberto."
+            },
+            "paid_at": {
+              "type": "string",
+              "description": "Data YYYY-MM-DD."
+            },
+            "confirmed_by_user": {
+              "type": "boolean",
+              "const": true,
+              "description": "Só use true após o usuário confirmar claramente valor, conta e data."
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 8,
+              "description": "Chave única e estável para impedir pagamento duplicado em retries."
+            }
           },
-          "required": ["statement_id", "account_id", "confirmed_by_user", "idempotency_key"],
+          "required": [
+            "statement_id",
+            "account_id",
+            "confirmed_by_user",
+            "idempotency_key"
+          ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },
