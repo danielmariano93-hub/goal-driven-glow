@@ -13,6 +13,9 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
+import { extractPdfText } from "../_shared/documents/pdfText.ts";
+import { auditInvoiceCoverage, coverageMessage, parseInvoiceText, type InvoiceCoverage } from "../_shared/documents/invoiceParser.ts";
+import { chunkItems, invoiceToExtraction } from "../_shared/documents/invoiceExtraction.ts";
 import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
@@ -870,9 +873,69 @@ async function processDocument(documentId: string, userId: string, guidance: str
       return;
     }
 
-    const fragments = doc.mime_type === "application/pdf"
-      ? await splitPdfIntoFragments(bytes, PDF_PAGES_PER_FRAGMENT)
-      : [{ index: 1, total: 1, page_start: 1, page_end: 1, bytes }];
+    // Leitura determinística primeiro: a camada de texto do PDF traz TODAS as
+    // linhas e os subtotais oficiais. O modelo de visão continua como fallback
+    // (PDF escaneado) e segue responsável pela categorização em enrichItems.
+    let deterministicOutcomes: MultimodalOutcome[] | null = null;
+    let deterministicCoverage: InvoiceCoverage | null = null;
+    let officialSummaryPatch: Record<string, unknown> | null = null;
+    if (doc.mime_type === "application/pdf") {
+      const pdfText = await extractPdfText(bytes);
+      if (pdfText.hasTextLayer) {
+        const parsedInvoice = parseInvoiceText(pdfText.text);
+        if (parsedInvoice.detected) {
+          const today = todaySaoPaulo();
+          const { result } = invoiceToExtraction(parsedInvoice, today);
+          deterministicCoverage = auditInvoiceCoverage(parsedInvoice.summary, parsedInvoice.lines);
+          const sum = parsedInvoice.summary;
+          officialSummaryPatch = {
+            invoice_total: sum.total,
+            invoice_previous_balance: sum.previous_balance,
+            invoice_due_date: sum.due_date,
+            invoice_closing_date: sum.closing_date,
+            invoice_competence_month: sum.competence,
+            invoice_card_last4: sum.card_last4,
+            invoice_payments_total: sum.payments_total,
+            invoice_current_charges_total: sum.current_charges_total,
+            invoice_domestic_total: sum.domestic_total,
+            invoice_international_total: sum.international_total,
+            invoice_taxes_total: sum.taxes_total,
+            invoice_credits_total: sum.credits_total,
+            invoice_financed_balance: sum.financed_balance,
+            invoice_summary_source: "parser",
+            invoice_coverage: deterministicCoverage,
+            statement_bank: sum.bank,
+          };
+          const chunks = chunkItems(result.items, BATCH_ITEMS_LIMIT);
+          deterministicOutcomes = chunks.map((chunk, i) => ({
+            result: { document_kind: "invoice" as const, items: chunk, notes: i === 0 ? result.notes : null },
+            statement: null,
+            invoice: {
+              total: sum.total,
+              previous_balance: sum.previous_balance,
+              due_date: sum.due_date,
+              closing_date: sum.closing_date,
+              competence: sum.competence,
+              card_last4: sum.card_last4,
+            },
+            tokens_in: 0,
+            tokens_out: 0,
+            ms: 0,
+            has_more: false,
+            partial: false,
+          }));
+          console.log(`[assistant-ingest] deterministic_invoice document=${documentId} lines=${result.items.length} gap=${deterministicCoverage.gap_section ?? "none"}`);
+        }
+      }
+    }
+
+    const fragments = deterministicOutcomes
+      ? deterministicOutcomes.map((_, i) => ({
+          index: i + 1, total: deterministicOutcomes!.length, page_start: 1, page_end: 1, bytes: new Uint8Array(),
+        }))
+      : doc.mime_type === "application/pdf"
+        ? await splitPdfIntoFragments(bytes, PDF_PAGES_PER_FRAGMENT)
+        : [{ index: 1, total: 1, page_start: 1, page_end: 1, bytes }];
     if (fragments.length === 0) {
       await finish({ status: "failed", error: encodeError("extraction:empty_pdf", correlationId) });
       return;
@@ -903,9 +966,13 @@ async function processDocument(documentId: string, userId: string, guidance: str
     // extrato ele é recalculado para considerar o banco realmente detectado.
     let srcCtx = await resolveSourceContext(sb, userId, doc, null);
     await sb.from("document_imports").update(srcCtx).eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+    if (officialSummaryPatch) {
+      await sb.from("document_imports").update({ ...officialSummaryPatch, document_kind: "invoice" })
+        .eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+    }
 
 
-    let documentKind: ExtractionResult["document_kind"] = "unknown";
+    let documentKind: ExtractionResult["document_kind"] = deterministicOutcomes ? "invoice" : "unknown";
     let statement: StatementMetadata | null = null;
     let invoice: InvoiceMetadata | null = null;
     let tokens_in = 0, tokens_out = 0, ms = 0;
@@ -968,6 +1035,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }, 20_000);
       let out: MultimodalOutcome;
       try {
+        if (deterministicOutcomes) {
+          out = deterministicOutcomes[batchIndex - 1];
+        } else {
         const dataUrl = bytesToDataUrl(fragment.bytes, doc.mime_type);
         const filename = doc.storage_path?.split("/").pop() ?? "documento";
         const guide = (guidance ?? "").slice(0, 500);
@@ -995,6 +1065,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
               ms: out.ms + retry.ms,
             };
           }
+        }
         }
       } finally {
         clearTimeout(timer);
@@ -1208,6 +1279,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
             installment_number: installments.current,
             installment_inferred: installments.inferred,
             statement_item_kind: statementItemKind,
+            statement_section: (it as { statement_section?: string | null }).statement_section ?? null,
+            is_future_installment: (it as { is_future_installment?: boolean }).is_future_installment ?? false,
             purchase_date: it.purchase_date,
             competence_date: documentKind === "invoice"
               ? (
