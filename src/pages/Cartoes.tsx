@@ -354,7 +354,10 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     setSavingId(payment.id);
     const { data, error } = await (supabase as any).rpc("reverse_credit_card_statement_payment", { p_payment_id: payment.id });
     setSavingId(null);
-    if (error || !data?.ok) return toast.error("Não foi possível desfazer o pagamento", { description: error?.message ?? data?.error });
+    if (error || !data?.ok) {
+      toast.error("Não foi possível desfazer o pagamento", { description: error?.message ?? data?.error });
+      return;
+    }
     await onChanged();
     toast.success("Pagamento desfeito com trilha de auditoria");
   }
