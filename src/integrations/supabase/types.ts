@@ -2298,6 +2298,58 @@ export type Database = {
           },
         ]
       }
+      credit_card_payment_reversals: {
+        Row: {
+          id: string
+          payment_id: string
+          payment_snapshot: Json
+          reversed_at: string
+          reversed_transaction_snapshot: Json | null
+          statement_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          payment_id: string
+          payment_snapshot: Json
+          reversed_at?: string
+          reversed_transaction_snapshot?: Json | null
+          statement_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          payment_id?: string
+          payment_snapshot?: Json
+          reversed_at?: string
+          reversed_transaction_snapshot?: Json | null
+          statement_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_payment_reversals_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_statements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_payment_reversals_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_payment_reversals_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       credit_card_payments: {
         Row: {
           account_id: string | null
@@ -8131,6 +8183,10 @@ export type Database = {
         Args: { _max_age_seconds?: number }
         Returns: boolean
       }
+      reverse_credit_card_statement_payment: {
+        Args: { p_payment_id: string }
+        Returns: Json
+      }
       revoke_platform_admin: { Args: { _target: string }; Returns: undefined }
       revoke_whatsapp_link: { Args: never; Returns: undefined }
       rollback_document_import: {
@@ -8383,6 +8439,14 @@ export type Database = {
           p_timeout_ms: number
         }
         Returns: undefined
+      }
+      update_credit_card_statement_item: {
+        Args: {
+          p_category_id?: string
+          p_description: string
+          p_item_id: string
+        }
+        Returns: Json
       }
       user_cancel_deletion_request: {
         Args: { p_id: string }
