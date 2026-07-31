@@ -117,8 +117,20 @@ Deno.serve(async (req) => {
     });
     if (validationError) return json({ error: "invoice_validation_failed", details: validationError.message }, 400);
     if (!(validation as { ok?: boolean } | null)?.ok) {
-      return json({ error: "invoice_not_reconciled", result: validation }, 409);
+      // Mensagem em linguagem simples: qual bloco da fatura ficou incompleto.
+      const v = (validation ?? {}) as { gap_section?: string | null; gap_amount?: number | null; difference?: number | null };
+      const labels: Record<string, string> = {
+        payments: "Pagamentos", domestic: "Compras nacionais", international: "Compras internacionais",
+        taxes: "IOF e encargos", credits: "Estornos", other: "Lançamentos do ciclo",
+      };
+      const gapValue = Math.abs(Number(v.gap_amount ?? v.difference ?? 0));
+      const money = gapValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const user_message = v.gap_section
+        ? `Faltam ${money} no bloco ${labels[v.gap_section] ?? v.gap_section} desta fatura. Confira esse trecho antes de registrar.`
+        : `A fatura ainda não fecha: diferença de ${money}. Nada será registrado até conciliar.`;
+      return json({ error: "invoice_not_reconciled", result: validation, user_message }, 409);
     }
+
     const { data: selectedRows, error: selectedError } = await sb.from("extracted_items")
       .select("id,statement_item_kind").eq("document_id", document_id).eq("user_id", user.id).in("id", item_ids);
     if (selectedError) return json({ error: "selected_items_failed", details: selectedError.message }, 400);
