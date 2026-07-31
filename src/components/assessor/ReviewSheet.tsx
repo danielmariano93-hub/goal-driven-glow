@@ -68,6 +68,19 @@ type DocumentInfo = {
   invoice_closing_date?: string | null;
   invoice_competence_month?: string | null;
   invoice_card_last4?: string | null;
+  invoice_coverage?: {
+    sections?: Array<{ section: string; official_total: number | null; extracted_total: number; difference: number | null; covered: boolean }>;
+  } | null;
+};
+
+const SECTION_LABELS: Record<string, string> = {
+  payments: "Pagamentos",
+  domestic: "Compras nacionais",
+  international: "Compras internacionais",
+  taxes: "IOF e encargos",
+  credits: "Estornos",
+  future_installments: "Parcelas futuras",
+  other: "Lançamentos do ciclo",
 };
 
 type Fragment = {
@@ -185,6 +198,12 @@ export function ReviewSheet({
     invoiceSummary.net,
     Number(documentInfo?.invoice_previous_balance ?? 0),
   ), [documentInfo?.invoice_total, documentInfo?.invoice_previous_balance, invoiceSummary.net]);
+
+  // Conferência por bloco: só mostramos seções com subtotal oficial conhecido.
+  const coverageRows = useMemo(
+    () => (documentInfo?.invoice_coverage?.sections ?? []).filter((row) => row.official_total != null),
+    [documentInfo?.invoice_coverage],
+  );
 
   // Bloqueios de confirmação: nunca confirmar item sem destino contábil válido.
   const blockers = useMemo(() => {
