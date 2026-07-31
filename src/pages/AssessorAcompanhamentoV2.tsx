@@ -34,7 +34,7 @@ function formatDate(value: string): string {
   return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
 }
 
-export default function AssessorAcompanhamentoV2() {
+export default function AssessorAcompanhamentoV2({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -108,7 +108,7 @@ export default function AssessorAcompanhamentoV2() {
 
   return (
     <div className="space-y-6 pb-10">
-      <header>
+      {!embedded && <header>
         <h1 className="font-display text-2xl font-bold tracking-tight">Acompanhamento do Nino</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Seu plano de ação financeiro: o que mudou, quanto isso representa e qual decisão tomar agora.
@@ -129,7 +129,7 @@ export default function AssessorAcompanhamentoV2() {
               : "Ainda não gerada para este período"}
           </span>
         </div>
-      </header>
+      </header>}
 
       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary p-1">
         {([

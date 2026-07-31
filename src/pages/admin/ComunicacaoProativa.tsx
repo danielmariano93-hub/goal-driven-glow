@@ -11,6 +11,7 @@ import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { AdminChart } from "@/components/admin/AdminChart";
 import { dict } from "@/lib/admin/displayDictionary";
+import { SplitReminderJourney } from "@/components/admin/SplitReminderJourney";
 
 
 type Summary = {
@@ -54,9 +55,9 @@ export default function ComunicacaoProativa() {
       <AdminTabs
         tabs={[
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
-          { id: "fluxos", label: "Fluxos", render: () => <ProactiveEnginePanelV2 sections={["catalog"]} /> },
-          { id: "templates", label: "Templates", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
-          { id: "fila", label: "Fila e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
+          { id: "jornadas", label: "Jornadas", render: () => <div className="space-y-6"><SplitReminderJourney /><ProactiveEnginePanelV2 sections={["catalog"]} /></div> },
+          { id: "mensagens", label: "Mensagens", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
+          { id: "entregas", label: "Entregas e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
         ]}
       />
     </div>

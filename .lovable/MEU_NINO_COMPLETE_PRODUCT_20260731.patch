@@ -1,0 +1,1511 @@
+diff --git a/.lovable/MEU_NINO_COMPLETE_PRODUCT_20260731_README.md b/.lovable/MEU_NINO_COMPLETE_PRODUCT_20260731_README.md
+new file mode 100644
+index 0000000..273a6ec
+--- /dev/null
++++ b/.lovable/MEU_NINO_COMPLETE_PRODUCT_20260731_README.md
+@@ -0,0 +1,84 @@
++# MeuNino — pacote completo de produto (31/07/2026)
++
++Base validada: `origin/main` no commit `961256098682d904cf1766eff3442fa627f05156`.
++
++Este patch é incremental. Não reaplica migrations financeiras anteriores e não substitui os contratos MCP já publicados.
++
++## O que muda
++
++### 1. Cartões e faturas
++
++- Cada fatura passa a abrir um detalhe mobile-first com total, pago, em aberto, itens e histórico de pagamentos.
++- Descrição e categoria de lançamentos confirmados podem ser corrigidas sem criar outra despesa.
++- O pagamento é feito na fatura específica e continua sendo baixa de caixa/obrigação, não nova despesa de consumo.
++- Pagamentos podem ser desfeitos de forma atômica. A baixa, a alocação e a transação são revertidas; o estado da fatura e das parcelas é recalculado; uma fotografia auditável é preservada.
++- Se a fatura já recebeu pagamento, alterações econômicas ficam bloqueadas até a reversão. Categorias e descrições permanecem corrigíveis.
++
++### 2. Experiência única do Nino
++
++- `Acompanhamento` e `O que o Nino sabe` deixam de competir no menu.
++- O menu passa a ter apenas `Meu Nino`.
++- A mesma tela possui duas visões: `Meu plano` (mudanças, impacto e ações) e `O que aprendeu` (dados que personalizam a análise e podem ser corrigidos/apagados).
++- A rota antiga redireciona para a visão correta, preservando links existentes.
++
++### 3. Admin, IA e comunicações
++
++- Novo destino `Nino & IA` para configurar modelos por tarefa, fallback, limites e conhecimento oficial.
++- Conhecimento inicial inclui site oficial, funcionamento da divisão do rolê e regra de privacidade do participante.
++- Comunicações ganham nomenclatura orientada à operação: `Jornadas`, `Mensagens` e `Entregas e regras`.
++- Régua da cobrança da divisão do rolê fica visual e editável: antecedência, vencimento, atraso, repetição, limite, horário e pausa após resposta.
++- Participante não vinculado que responde no WhatsApp recebe contexto útil do próprio rolê, sem exposição de dados do responsável.
++- Extração/classificação de documentos passa a respeitar o roteamento de modelos configurado no admin.
++
++## Implantação na Lovable
++
++Executar em Plan Mode e confirmar a ordem antes de alterar produção:
++
++1. Aplicar as migrations novas, em ordem cronológica:
++   - `20260731013000_nino_admin_knowledge_communication.sql`
++   - `20260731213000_statement_detail_edit_and_payment_reversal.sql`
++2. Regenerar os tipos do Supabase se o pipeline da Lovable exigir.
++3. Implantar as Edge Functions alteradas:
++   - `assistant-ingest-document`
++   - `whatsapp-webhook`
++4. Não substituir nem remover a função `mcp` já publicada. O patch é compatível com os contratos MCP atuais.
++5. Executar testes e build.
++6. Fazer smoke test autenticado em staging.
++7. Só então publicar o frontend.
++
++## Smoke test obrigatório
++
++### Fatura
++
++1. Abrir Cartões → Histórico de faturas → Ver e editar fatura.
++2. Alterar categoria e descrição de um item e recarregar a página; a edição deve persistir no item e na transação vinculada.
++3. Registrar pagamento parcial; conferir conta, fatura e histórico.
++4. Desfazer o pagamento; conferir restauração do saldo, status e valor em aberto.
++5. Repetir o comando de reversão; deve responder de forma idempotente, sem duplicar saldo.
++
++### Nino
++
++1. Em Mais, confirmar que existe apenas `Meu Nino`.
++2. Alternar entre `Meu plano` e `O que aprendeu` sem navegar para telas concorrentes.
++3. Acessar `/app/nino-contexto`; deve redirecionar para a visão de aprendizado.
++
++### Admin
++
++1. Abrir `Nino & IA`; listar e editar uma rota de modelo, salvar e recarregar.
++2. Criar/editar conhecimento oficial e verificar persistência.
++3. Em Comunicações → Jornadas, alterar a régua do rolê, salvar e confirmar reagendamento da fila.
++4. Em Mensagens, editar um template e simular sem envio real.
++
++## Validação local realizada
++
++- `npm run build`: aprovado.
++- 24 testes dirigidos em 5 arquivos: aprovados.
++- `git diff --check`: aprovado.
++- A suíte completa foi iniciada, mas o executor local solicitou acesso de rede em testes não relacionados e cancelou a execução. A Lovable deve executar a suíte integral no ambiente do projeto antes de publicar.
++
++## Rollback
++
++- Frontend/Functions: restaurar o commit anterior.
++- Não apagar as tabelas de auditoria em rollback.
++- Desativar as novas jornadas pelo admin, se necessário.
++- As RPCs novas são aditivas e não alteram assinaturas das RPCs financeiras já publicadas.
+diff --git a/src/App.tsx b/src/App.tsx
+index 181598b..ee475f6 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -45,8 +45,7 @@ const Notificacoes = lazy(() => import("./pages/Notificacoes"));
+ const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
+ const Cartoes = lazy(() => import("./pages/Cartoes"));
+ const Assessor = lazy(() => import("./pages/Assessor"));
+-const AssessorAcompanhamento = lazy(() => import("./pages/AssessorAcompanhamentoV2"));
+-const NinoContexto = lazy(() => import("./pages/NinoContextoV2"));
++const NinoHub = lazy(() => import("./pages/NinoHub"));
+ const ProactiveAlertDetail = lazy(() => import("./pages/ProactiveAlertDetail"));
+ const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
+ const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
+@@ -59,6 +58,7 @@ const AdminClienteFicha = lazy(() => import("./pages/admin/ClienteFicha"));
+ const AdminOperacoesHub = lazy(() => import("./pages/admin/OperacoesHub"));
+ const AdminAdministracaoHub = lazy(() => import("./pages/admin/AdministracaoHub"));
+ const AdminComunicacaoProativa = lazy(() => import("./pages/admin/ComunicacaoProativa"));
++const AdminNinoIA = lazy(() => import("./pages/admin/NinoIA"));
+ 
+ 
+ 
+@@ -127,8 +127,8 @@ const App = () => (
+                 <Route path="cobrancas" element={<CobrancasRecebidas />} />
+                 <Route path="cartoes" element={<Cartoes />} />
+                 <Route path="assessor" element={<Assessor />} />
+-                <Route path="assessor/acompanhamento" element={<AssessorAcompanhamento />} />
+-                <Route path="nino-contexto" element={<NinoContexto />} />
++                <Route path="assessor/acompanhamento" element={<NinoHub />} />
++                <Route path="nino-contexto" element={<Navigate to="/app/assessor/acompanhamento?visao=aprendizado" replace />} />
+                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
+               </Route>
+ 
+@@ -145,6 +145,7 @@ const App = () => (
+                 <Route path="produto" element={<AdminCrescimentoHub />} />
+                 <Route path="operacoes" element={<AdminOperacoesHub />} />
+                 <Route path="comunicacoes" element={<AdminComunicacaoProativa />} />
++                <Route path="nino-ia" element={<AdminNinoIA />} />
+                 <Route path="administracao" element={<AdminAdministracaoHub />} />
+ 
+                 {/* Rotas antigas → destinos atuais */}
+@@ -153,7 +154,7 @@ const App = () => (
+                 <Route path="crescimento" element={<Navigate to="/admin/produto" replace />} />
+                 <Route path="engajamento" element={<Navigate to="/admin/produto" replace />} />
+                 <Route path="inteligencia-produto" element={<Navigate to="/admin/produto?aba=produto" replace />} />
+-                <Route path="ia" element={<Navigate to="/admin/produto?aba=produto" replace />} />
++                <Route path="ia" element={<Navigate to="/admin/nino-ia" replace />} />
+                 <Route path="receita" element={<Navigate to="/admin/produto?aba=receita" replace />} />
+                 <Route path="financeiro" element={<Navigate to="/admin/produto?aba=receita" replace />} />
+                 <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />
+diff --git a/src/components/admin/AdminLayout.tsx b/src/components/admin/AdminLayout.tsx
+index 2c8e204..d2eeca9 100644
+--- a/src/components/admin/AdminLayout.tsx
++++ b/src/components/admin/AdminLayout.tsx
+@@ -1,7 +1,7 @@
+ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+ import {
+   LayoutDashboard, Users, Sparkles, MessageCircle,
+-  Activity, ShieldCheck, LogOut, Menu,
++  Activity, ShieldCheck, LogOut, Menu, Bot,
+ 
+   PanelLeftClose, PanelLeftOpen, X,
+ } from "lucide-react";
+@@ -42,6 +42,7 @@ const GROUPS: Group[] = [
+     items: [
+       { to: "/admin/operacoes", label: "Operações", icon: Activity, action: "operations.read" },
+       { to: "/admin/comunicacoes", label: "Comunicações", icon: MessageCircle, action: "messaging.read" },
++      { to: "/admin/nino-ia", label: "Nino & IA", icon: Bot, action: "operations.read" },
+     ],
+   },
+   {
+diff --git a/src/components/admin/SplitReminderJourney.tsx b/src/components/admin/SplitReminderJourney.tsx
+new file mode 100644
+index 0000000..24ca6f9
+--- /dev/null
++++ b/src/components/admin/SplitReminderJourney.tsx
+@@ -0,0 +1,55 @@
++import { useQuery, useQueryClient } from "@tanstack/react-query";
++import { useEffect, useState } from "react";
++import { CalendarClock, CheckCircle2, MessageCircle, Save } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { callAdminRpc } from "@/lib/admin/adminRpc";
++import type { SplitReminderPolicy } from "@/lib/admin/ninoContracts";
++import { adminToast } from "@/components/admin/adminToast";
++
++const DEFAULTS: SplitReminderPolicy = { enabled: true, due_soon_days_before: 1, due_today_enabled: true, first_overdue_days: 1, repeat_every_days: 3, max_overdue_reminders: 3, send_hour: 9, pause_on_reply: true };
++
++export function SplitReminderJourney() {
++  const qc = useQueryClient();
++  const q = useQuery({ queryKey: ["split-reminder-policy"], queryFn: () => callAdminRpc<SplitReminderPolicy>("admin_split_reminder_policy") });
++  const [policy, setPolicy] = useState(DEFAULTS);
++  useEffect(() => { if (q.data) setPolicy(q.data); }, [q.data]);
++  async function save() {
++    try {
++      await callAdminRpc("admin_split_reminder_policy_update", {
++        _enabled: policy.enabled, _due_soon_days_before: policy.due_soon_days_before,
++        _due_today_enabled: policy.due_today_enabled, _first_overdue_days: policy.first_overdue_days,
++        _repeat_every_days: policy.repeat_every_days, _max_overdue_reminders: policy.max_overdue_reminders,
++        _send_hour: policy.send_hour, _pause_on_reply: policy.pause_on_reply,
++      });
++      await qc.invalidateQueries({ queryKey: ["split-reminder-policy"] });
++      adminToast.success("Régua do rolê atualizada");
++    } catch (e) { adminToast.fromError(e, "Não foi possível salvar a régua"); }
++  }
++  const field = (key: keyof SplitReminderPolicy, label: string, min: number, max: number) => <label className="text-xs text-muted-foreground">{label}<Input type="number" min={min} max={max} value={Number(policy[key])} onChange={e => setPolicy({ ...policy, [key]: Number(e.target.value) })} /></label>;
++  return <section className="rounded-3xl border bg-card p-5 space-y-5">
++    <div className="flex flex-wrap justify-between gap-3"><div><h2 className="font-display text-lg font-bold">Cobrança da divisão do rolê</h2><p className="text-sm text-muted-foreground">Edite a régua sem mexer em regras técnicas. Pagamentos reconhecidos encerram os lembretes.</p></div><Button onClick={save}><Save size={14} />Salvar jornada</Button></div>
++    <div className="grid gap-3 md:grid-cols-4">
++      <JourneyStep icon={MessageCircle} title="Evento criado" text="Convite leve com valor, vencimento e forma de pagamento." />
++      <JourneyStep icon={CalendarClock} title={`${policy.due_soon_days_before} dia(s) antes`} text={`Lembrete às ${policy.send_hour}h.`} />
++      <JourneyStep icon={CalendarClock} title="No vencimento" text={policy.due_today_enabled ? "Mensagem ativa" : "Etapa pausada"} />
++      <JourneyStep icon={CheckCircle2} title="Após o vencimento" text={`${policy.max_overdue_reminders} tentativa(s), a cada ${policy.repeat_every_days} dia(s).`} />
++    </div>
++    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
++      {field("due_soon_days_before", "Dias antes", 0, 30)}
++      {field("first_overdue_days", "Primeiro atraso (dias)", 1, 30)}
++      {field("repeat_every_days", "Repetir a cada (dias)", 1, 30)}
++      {field("max_overdue_reminders", "Máximo de cobranças", 0, 10)}
++      {field("send_hour", "Horário de envio", 0, 23)}
++    </div>
++    <div className="flex flex-wrap gap-5 text-sm">
++      <label><input type="checkbox" checked={policy.enabled} onChange={e => setPolicy({ ...policy, enabled: e.target.checked })} /> Jornada ativa</label>
++      <label><input type="checkbox" checked={policy.due_today_enabled} onChange={e => setPolicy({ ...policy, due_today_enabled: e.target.checked })} /> Lembrar no vencimento</label>
++      <label><input type="checkbox" checked={policy.pause_on_reply} onChange={e => setPolicy({ ...policy, pause_on_reply: e.target.checked })} /> Pausar após resposta</label>
++    </div>
++  </section>;
++}
++
++function JourneyStep({ icon: Icon, title, text }: { icon: typeof MessageCircle; title: string; text: string }) {
++  return <div className="rounded-2xl border bg-background p-4"><Icon size={18} className="text-primary" /><p className="mt-3 text-sm font-semibold">{title}</p><p className="mt-1 text-xs text-muted-foreground">{text}</p></div>;
++}
+diff --git a/src/components/emotions/BehavioralInsightsCard.tsx b/src/components/emotions/BehavioralInsightsCard.tsx
+index bbbb879..5380d83 100644
+--- a/src/components/emotions/BehavioralInsightsCard.tsx
++++ b/src/components/emotions/BehavioralInsightsCard.tsx
+@@ -67,7 +67,7 @@ export function BehavioralInsightsCard() {
+ 
+       <button
+         type="button"
+-        onClick={() => navigate("/app/nino-contexto")}
++        onClick={() => navigate("/app/assessor/acompanhamento")}
+         className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary"
+       >
+         Revisar hipóteses <ChevronRight size={13} />
+diff --git a/src/lib/admin/ninoContracts.ts b/src/lib/admin/ninoContracts.ts
+new file mode 100644
+index 0000000..d825ed9
+--- /dev/null
++++ b/src/lib/admin/ninoContracts.ts
+@@ -0,0 +1,30 @@
++export type AiModelRoute = {
++  task: string;
++  primary_model: string;
++  fallback_model: string | null;
++  max_latency_ms: number;
++  max_steps: number;
++  active: boolean;
++};
++
++export type KnowledgeEntry = {
++  id: string;
++  key: string;
++  title: string;
++  category: string;
++  content: string;
++  source_url: string | null;
++  active: boolean;
++  version: number;
++};
++
++export type SplitReminderPolicy = {
++  enabled: boolean;
++  due_soon_days_before: number;
++  due_today_enabled: boolean;
++  first_overdue_days: number;
++  repeat_every_days: number;
++  max_overdue_reminders: number;
++  send_hour: number;
++  pause_on_reply: boolean;
++};
+diff --git a/src/lib/admin/rpcContracts.ts b/src/lib/admin/rpcContracts.ts
+index 750ec94..db9389f 100644
+--- a/src/lib/admin/rpcContracts.ts
++++ b/src/lib/admin/rpcContracts.ts
+@@ -61,6 +61,15 @@ export const ADMIN_RPC_ARGS = {
+   admin_proactive_engine_status: [],
+   admin_proactive_engine_toggle: ["_enabled", "_channels"],
+   admin_proactive_queue: ["_limit"],
++  admin_ai_model_routes: [],
++  admin_ai_model_route_update: ["_task", "_primary_model", "_fallback_model", "_max_latency_ms", "_max_steps", "_active"],
++  admin_agent_knowledge_list: [],
++  admin_agent_knowledge_upsert: ["_id", "_key", "_title", "_category", "_content", "_source_url", "_active"],
++  admin_split_reminder_policy: [],
++  admin_split_reminder_policy_update: [
++    "_enabled", "_due_soon_days_before", "_due_today_enabled", "_first_overdue_days",
++    "_repeat_every_days", "_max_overdue_reminders", "_send_hour", "_pause_on_reply",
++  ],
+ } as const;
+ 
+ export type AdminRpcName = keyof typeof ADMIN_RPC_ARGS;
+diff --git a/src/pages/AssessorAcompanhamentoV2.tsx b/src/pages/AssessorAcompanhamentoV2.tsx
+index b42f0eb..4c53709 100644
+--- a/src/pages/AssessorAcompanhamentoV2.tsx
++++ b/src/pages/AssessorAcompanhamentoV2.tsx
+@@ -34,7 +34,7 @@ function formatDate(value: string): string {
+   return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
+ }
+ 
+-export default function AssessorAcompanhamentoV2() {
++export default function AssessorAcompanhamentoV2({ embedded = false }: { embedded?: boolean }) {
+   const navigate = useNavigate();
+   const queryClient = useQueryClient();
+   const [searchParams] = useSearchParams();
+@@ -108,7 +108,7 @@ export default function AssessorAcompanhamentoV2() {
+ 
+   return (
+     <div className="space-y-6 pb-10">
+-      <header>
++      {!embedded && <header>
+         <h1 className="font-display text-2xl font-bold tracking-tight">Acompanhamento do Nino</h1>
+         <p className="mt-1 text-sm text-muted-foreground">
+           Seu plano de ação financeiro: o que mudou, quanto isso representa e qual decisão tomar agora.
+@@ -129,7 +129,7 @@ export default function AssessorAcompanhamentoV2() {
+               : "Ainda não gerada para este período"}
+           </span>
+         </div>
+-      </header>
++      </header>}
+ 
+       <div className="grid grid-cols-2 gap-2 rounded-2xl bg-secondary p-1">
+         {([
+diff --git a/src/pages/Cartoes.tsx b/src/pages/Cartoes.tsx
+index 1f817a5..ed73cd1 100644
+--- a/src/pages/Cartoes.tsx
++++ b/src/pages/Cartoes.tsx
+@@ -1,7 +1,7 @@
+ import { useMemo, useState } from "react";
+-import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText } from "lucide-react";
++import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText, ChevronRight, X, RotateCcw } from "lucide-react";
+ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
+-import { useAccounts, useAllTransactions } from "@/lib/db/finance";
++import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
+ import { creditCardSchema } from "@/lib/validation/creditCards";
+ import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
+ import { toast } from "sonner";
+@@ -15,14 +15,27 @@ type StatementRow = {
+   reconciliation_difference: number; status: string; source_document_id?: string | null;
+ };
+ 
++type StatementItemRow = {
++  id: string; statement_id: string; legacy_transaction_id: string | null;
++  item_kind: string; description: string; amount: number; occurred_at: string | null;
++  transaction?: { category_id: string | null } | null;
++};
++
++type StatementPaymentRow = {
++  id: string; paid_at: string; amount: number; account_id: string | null; transaction_id: string | null;
++  account?: { name: string } | null;
++};
++
+ export default function Cartoes() {
+   const { data: cards, isLoading } = useCreditCards();
+   const { data: txs } = useAllTransactions();
+   const { data: accounts = [] } = useAccounts();
++  const { data: categories = [] } = useCategories();
+   const qc = useQueryClient();
+   const [editing, setEditing] = useState<CreditCardRow | null>(null);
+   const [open, setOpen] = useState(false);
+   const [paying, setPaying] = useState<StatementRow | null>(null);
++  const [viewing, setViewing] = useState<StatementRow | null>(null);
+   const save = useSaveCreditCard();
+   const del = useDeleteCreditCard();
+   const ym = currentMonthYM();
+@@ -224,6 +237,9 @@ export default function Cartoes() {
+                   {statement.outstanding_amount > 0 && Math.abs(Number(statement.reconciliation_difference)) <= 0.05 && (
+                     <button onClick={() => setPaying(statement)} className="btn-brand mt-4 w-full py-2 text-xs">Registrar pagamento</button>
+                   )}
++                  <button onClick={() => setViewing(statement)} className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-full border border-border px-4 py-2 text-xs font-semibold">
++                    Ver e editar fatura <ChevronRight size={13} />
++                  </button>
+                 </article>
+               );
+             })}
+@@ -267,10 +283,106 @@ export default function Cartoes() {
+           }}
+         />
+       )}
++      {viewing && (
++        <StatementDetailSheet
++          statement={viewing}
++          accounts={accounts as Array<{ id: string; name: string }>}
++          categories={categories.map((category) => ({ id: category.id, name: category.name }))}
++          onClose={() => setViewing(null)}
++          onPay={() => { setPaying(viewing); setViewing(null); }}
++          onChanged={async () => {
++            await Promise.all([
++              qc.invalidateQueries({ queryKey: ["credit_card_statements"] }),
++              qc.invalidateQueries({ queryKey: ["statement-detail", viewing.id] }),
++              qc.invalidateQueries({ queryKey: ["transactions"] }),
++              qc.invalidateQueries({ queryKey: ["accounts"] }),
++              qc.invalidateQueries({ queryKey: ["home"] }),
++            ]);
++          }}
++        />
++      )}
+     </div>
+   );
+ }
+ 
++function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged }: {
++  statement: StatementRow;
++  accounts: Array<{ id: string; name: string }>;
++  categories: Array<{ id: string; name: string }>;
++  onClose: () => void;
++  onPay: () => void;
++  onChanged: () => Promise<void>;
++}) {
++  const detail = useQuery({
++    queryKey: ["statement-detail", statement.id],
++    queryFn: async () => {
++      const [itemsResult, allocationsResult] = await Promise.all([
++        (supabase as any).from("credit_card_statement_items")
++          .select("id,statement_id,legacy_transaction_id,item_kind,description,amount,occurred_at,transaction:transactions(category_id)")
++          .eq("statement_id", statement.id).order("occurred_at", { ascending: true }),
++        (supabase as any).from("credit_card_payment_allocations")
++          .select("payment:credit_card_payments(id,paid_at,amount,account_id,transaction_id,account:accounts(name))")
++          .eq("statement_id", statement.id).order("created_at", { ascending: false }),
++      ]);
++      if (itemsResult.error) throw itemsResult.error;
++      if (allocationsResult.error) throw allocationsResult.error;
++      return {
++        items: (itemsResult.data ?? []) as StatementItemRow[],
++        payments: (allocationsResult.data ?? []).map((row: any) => row.payment).filter(Boolean) as StatementPaymentRow[],
++      };
++    },
++  });
++  const [savingId, setSavingId] = useState<string | null>(null);
++  const economicLocked = Number(statement.paid_amount) > 0;
++  async function saveItem(item: StatementItemRow, patch: { description?: string; category_id?: string | null }) {
++    setSavingId(item.id);
++    const { data, error } = await (supabase as any).rpc("update_credit_card_statement_item", {
++      p_item_id: item.id,
++      p_description: patch.description ?? item.description,
++      p_category_id: patch.category_id === undefined ? item.transaction?.category_id ?? null : patch.category_id,
++    });
++    setSavingId(null);
++    if (error || !data?.ok) return toast.error("Não foi possível salvar o lançamento", { description: error?.message ?? data?.error });
++    await onChanged();
++    toast.success("Lançamento atualizado");
++  }
++  async function reversePayment(payment: StatementPaymentRow) {
++    if (!confirm(`Desfazer o pagamento de ${formatBRL(Number(payment.amount))}? O saldo da conta e a fatura serão restaurados.`)) return;
++    setSavingId(payment.id);
++    const { data, error } = await (supabase as any).rpc("reverse_credit_card_statement_payment", { p_payment_id: payment.id });
++    setSavingId(null);
++    if (error || !data?.ok) return toast.error("Não foi possível desfazer o pagamento", { description: error?.message ?? data?.error });
++    await onChanged();
++    toast.success("Pagamento desfeito com trilha de auditoria");
++  }
++  return <div className="fixed inset-0 z-50 bg-black/35" onClick={onClose}>
++    <section onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col rounded-t-[28px] border border-border bg-background shadow-2xl md:inset-y-0 md:left-auto md:w-[560px] md:max-h-none md:rounded-none">
++      <header className="flex items-start justify-between border-b border-border p-5">
++        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(statement.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(statement.due_date)} · {formatBRL(Number(statement.stated_total))}</p></div>
++        <button onClick={onClose} className="rounded-full border border-border p-2" aria-label="Fechar"><X size={16}/></button>
++      </header>
++      <div className="flex-1 overflow-y-auto p-4 md:p-5">
++        {economicLocked && <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground"><strong className="text-foreground">Fatura com pagamento registrado.</strong> Categorias e descrições continuam corrigíveis. Para alterar valores, primeiro desfaça o pagamento abaixo.</div>}
++        <div className="mb-4 grid grid-cols-3 gap-2"><Stat label="Total" value={formatBRL(Number(statement.stated_total))}/><Stat label="Pago" value={formatBRL(Number(statement.paid_amount))}/><Stat label="Em aberto" value={formatBRL(Number(statement.outstanding_amount))}/></div>
++        <h3 className="text-sm font-semibold">Lançamentos</h3>
++        <p className="mb-3 text-xs text-muted-foreground">Corrija a descrição ou categoria sem duplicar a despesa.</p>
++        {detail.isLoading ? <Loader2 className="mx-auto my-8 animate-spin"/> : <div className="space-y-2">{detail.data?.items.map((item) => <StatementItemEditor key={item.id} item={item} categories={categories} saving={savingId === item.id} onSave={saveItem}/>)}</div>}
++        <div className="mt-6"><h3 className="text-sm font-semibold">Pagamentos da fatura</h3><p className="text-xs text-muted-foreground">Cada baixa reduz a conta e a obrigação, sem criar uma nova despesa de consumo.</p>
++          <div className="mt-3 space-y-2">{detail.data?.payments.length ? detail.data.payments.map((payment) => <div key={payment.id} className="flex items-center justify-between rounded-2xl border border-border p-3"><div><p className="text-sm font-semibold">{formatBRL(Number(payment.amount))}</p><p className="text-[11px] text-muted-foreground">{formatDate(payment.paid_at)} · {payment.account?.name ?? "Conta"}</p></div><button disabled={savingId === payment.id} onClick={() => reversePayment(payment)} className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs"><RotateCcw size={12}/>Desfazer</button></div>) : <p className="rounded-2xl border border-dashed border-border p-4 text-xs text-muted-foreground">Nenhum pagamento registrado.</p>}</div>
++        </div>
++      </div>
++      {Number(statement.outstanding_amount) > 0 && Math.abs(Number(statement.reconciliation_difference)) <= .05 && <footer className="border-t border-border p-4"><button onClick={onPay} className="btn-brand w-full">Registrar pagamento desta fatura</button></footer>}
++    </section>
++  </div>;
++}
++
++function StatementItemEditor({ item, categories, saving, onSave }: { item: StatementItemRow; categories: Array<{id:string;name:string}>; saving: boolean; onSave: (item: StatementItemRow, patch: {description?:string;category_id?:string|null}) => Promise<void> }) {
++  const [description, setDescription] = useState(item.description);
++  const [categoryId, setCategoryId] = useState(item.transaction?.category_id ?? "");
++  const dirty = description !== item.description || categoryId !== (item.transaction?.category_id ?? "");
++  return <article className="rounded-2xl border border-border bg-card p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><input value={description} onChange={(e)=>setDescription(e.target.value)} className="w-full bg-transparent text-sm font-semibold outline-none"/><p className="mt-1 text-[11px] text-muted-foreground">{item.occurred_at ? formatDate(item.occurred_at) : "Sem data"} · {item.item_kind === "installment" ? "Parcela" : item.item_kind === "refund" ? "Estorno" : "Compra"}</p></div><strong className={Number(item.amount)<0?"text-success":""}>{formatBRL(Math.abs(Number(item.amount)))}</strong></div><div className="mt-3 flex gap-2"><select value={categoryId} onChange={(e)=>setCategoryId(e.target.value)} className="input-base min-w-0 flex-1"><option value="">Sem categoria</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.name}</option>)}</select><button disabled={!dirty||saving||!item.legacy_transaction_id} onClick={()=>onSave(item,{description,category_id:categoryId||null})} className="rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-40">{saving?"Salvando…":"Salvar"}</button></div>{!item.legacy_transaction_id&&<p className="mt-2 text-[10px] text-amber-700">Item ainda não confirmado. Edite-o pela revisão da importação.</p>}</article>;
++}
++
+ function statementStatus(status: string) {
+   if (status === "paid") return { label: "Paga", icon: <CheckCircle2 size={12} />, className: "bg-emerald-50 text-emerald-700" };
+   if (status === "overdue") return { label: "Atrasada", icon: <AlertTriangle size={12} />, className: "bg-red-50 text-red-700" };
+diff --git a/src/pages/MaisMenu.tsx b/src/pages/MaisMenu.tsx
+index a94a696..0cfe568 100644
+--- a/src/pages/MaisMenu.tsx
++++ b/src/pages/MaisMenu.tsx
+@@ -13,7 +13,6 @@ import {
+   Trophy,
+   BarChart3,
+   LogOut,
+-  BrainCircuit,
+   ClipboardCheck,
+ } from "lucide-react";
+ import { copy } from "@/lib/copy/strings";
+@@ -38,8 +37,7 @@ const organize: Item[] = [
+ const understand: Item[] = [
+   { path: "/app/relatorios", label: "Relatórios", desc: "Padrões do seu dinheiro", icon: BarChart3 },
+   { path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart },
+-  { path: "/app/assessor/acompanhamento", label: "Acompanhamento", desc: "Plano semanal e próximos passos", icon: ClipboardCheck },
+-  { path: "/app/nino-contexto", label: "O que o Nino sabe", desc: "Memórias, hipóteses e preferências", icon: BrainCircuit },
++  { path: "/app/assessor/acompanhamento", label: "Meu Nino", desc: "Insights, plano e aprendizados em um só lugar", icon: ClipboardCheck },
+ ];
+ 
+ const account: Item[] = [
+diff --git a/src/pages/NinoContextoV2.tsx b/src/pages/NinoContextoV2.tsx
+index 4d8484c..571ebf3 100644
+--- a/src/pages/NinoContextoV2.tsx
++++ b/src/pages/NinoContextoV2.tsx
+@@ -1,7 +1,6 @@
+ import { useMemo, useState } from "react";
+ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+ import {
+-  ArrowRight,
+   BrainCircuit,
+   CheckCircle2,
+   ChevronDown,
+@@ -9,12 +8,9 @@ import {
+   Loader2,
+   Pencil,
+   ShieldCheck,
+-  Sparkles,
+-  Target,
+   Trash2,
+   X,
+ } from "lucide-react";
+-import { useNavigate } from "react-router-dom";
+ import { toast } from "sonner";
+ import {
+   deleteNinoMemory,
+@@ -91,8 +87,7 @@ function downloadContext(data: unknown) {
+   URL.revokeObjectURL(url);
+ }
+ 
+-export default function NinoContextoV2() {
+-  const navigate = useNavigate();
++export default function NinoContextoV2({ embedded = false }: { embedded?: boolean }) {
+   const queryClient = useQueryClient();
+   const contextQuery = useQuery({
+     queryKey: ["nino-context"],
+@@ -126,19 +121,6 @@ export default function NinoContextoV2() {
+     () => (contextQuery.data?.hypotheses ?? []).filter((item) => item.status !== "expired"),
+     [contextQuery.data],
+   );
+-  const latestReview = useMemo(
+-    () => [...(contextQuery.data?.reviews ?? [])]
+-      .filter((review) => review.status !== "archived")
+-      .sort((a, b) => b.period_end.localeCompare(a.period_end))[0] ?? null,
+-    [contextQuery.data],
+-  );
+-  const priorityActions = useMemo(
+-    () => (latestReview?.actions ?? [])
+-      .filter((action) => !["done", "dismissed"].includes(action.status))
+-      .sort((a, b) => b.priority - a.priority)
+-      .slice(0, 3),
+-    [latestReview],
+-  );
+   const visibleMemory = useMemo(
+     () => (contextQuery.data?.memory ?? []).filter((memory) => !/^(weekly|monthly):/.test(memory.key) && memory.kind !== "advisor_review"),
+     [contextQuery.data],
+@@ -182,11 +164,11 @@ export default function NinoContextoV2() {
+ 
+   return (
+     <div className="space-y-6 pb-10">
+-      <header className="flex items-start justify-between gap-3">
++      <header className={`items-start justify-between gap-3 ${embedded ? "hidden" : "flex"}`}>
+         <div>
+-          <h1 className="font-display text-2xl font-bold tracking-tight">O que o Nino sabe sobre mim</h1>
++          <h1 className="font-display text-2xl font-bold tracking-tight">O que o Nino aprendeu</h1>
+           <p className="mt-1 text-sm text-muted-foreground">
+-            Os padrões que mais mexem com seu dinheiro e os próximos passos que podem mudar seu resultado. Nenhum JSON precisa ser editado.
++            Dados usados para personalizar suas análises. Você pode corrigir ou apagar qualquer informação. Nenhum JSON precisa ser editado.
+           </p>
+         </div>
+         <button
+@@ -198,66 +180,6 @@ export default function NinoContextoV2() {
+         </button>
+       </header>
+ 
+-      <section className="overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-brand-coral/5 shadow-card">
+-        <div className="p-4 md:p-6">
+-          <div className="flex items-center gap-2">
+-            <Sparkles className="h-5 w-5 text-primary" />
+-            <h2 className="text-sm font-semibold">Highlights para mudar o jogo</h2>
+-          </div>
+-          {latestReview ? (
+-            <>
+-              <h3 className="mt-3 font-display text-lg font-bold">{latestReview.summary.headline}</h3>
+-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{latestReview.summary.explanation}</p>
+-              <div className="mt-4 space-y-2">
+-                {(latestReview.summary.highlights ?? []).slice(0, 3).map((highlight) => (
+-                  <div key={highlight} className="rounded-xl border border-border/70 bg-background/80 px-3 py-2 text-xs leading-relaxed">
+-                    {highlight}
+-                  </div>
+-                ))}
+-              </div>
+-              {priorityActions.length > 0 && (
+-                <div className="mt-4">
+-                  <div className="flex items-center gap-2 text-xs font-semibold">
+-                    <Target size={14} className="text-primary" /> Onde agir agora
+-                  </div>
+-                  <div className="mt-2 space-y-2">
+-                    {priorityActions.map((action) => (
+-                      <button
+-                        key={action.key}
+-                        type="button"
+-                        onClick={() => navigate(action.route || "/app/assessor/acompanhamento")}
+-                        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left"
+-                      >
+-                        <span>
+-                          <span className="block text-xs font-semibold">{action.title}</span>
+-                          <span className="mt-0.5 line-clamp-2 block text-[11px] text-muted-foreground">{action.detail}</span>
+-                        </span>
+-                        <ArrowRight size={14} className="shrink-0 text-primary" />
+-                      </button>
+-                    ))}
+-                  </div>
+-                </div>
+-              )}
+-              <button
+-                type="button"
+-                onClick={() => navigate(`/app/assessor/acompanhamento?period=${latestReview.period_kind}`)}
+-                className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-primary"
+-              >
+-                Abrir plano de acompanhamento <ArrowRight size={13} />
+-              </button>
+-            </>
+-          ) : (
+-            <div className="mt-4 rounded-xl border border-dashed border-border bg-background/60 p-4">
+-              <p className="text-xs font-semibold">O Nino ainda está formando uma leitura confiável.</p>
+-              <p className="mt-1 text-[11px] text-muted-foreground">Quando houver dados suficientes, esta área mostrará mudanças relevantes, impacto financeiro e onde agir.</p>
+-              <button type="button" onClick={() => navigate("/app/assessor/acompanhamento")} className="mt-3 text-xs font-semibold text-primary">
+-                Ver acompanhamento
+-              </button>
+-            </div>
+-          )}
+-        </div>
+-      </section>
+-
+       <section className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+         <div className="flex items-center gap-2">
+           <BrainCircuit className="h-5 w-5 text-primary" />
+diff --git a/src/pages/NinoHub.tsx b/src/pages/NinoHub.tsx
+new file mode 100644
+index 0000000..dec1d91
+--- /dev/null
++++ b/src/pages/NinoHub.tsx
+@@ -0,0 +1,26 @@
++import { useSearchParams } from "react-router-dom";
++import { BrainCircuit, ClipboardCheck } from "lucide-react";
++import AssessorAcompanhamentoV2 from "@/pages/AssessorAcompanhamentoV2";
++import NinoContextoV2 from "@/pages/NinoContextoV2";
++
++export default function NinoHub() {
++  const [params, setParams] = useSearchParams();
++  const view = params.get("visao") === "aprendizado" ? "aprendizado" : "plano";
++  const setView = (next: "plano" | "aprendizado") => {
++    const updated = new URLSearchParams(params);
++    updated.set("visao", next);
++    setParams(updated, { replace: true });
++  };
++  return <div className="space-y-5 pb-10">
++    <header>
++      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Seu Nino</p>
++      <h1 className="font-display text-2xl font-bold tracking-tight">Decisões e aprendizados</h1>
++      <p className="mt-1 text-sm text-muted-foreground">Um só lugar para entender o que mudou, agir e controlar os dados usados pelo Nino.</p>
++    </header>
++    <nav className="grid grid-cols-2 gap-1 rounded-2xl bg-secondary p-1" aria-label="Visões do Nino">
++      <button type="button" onClick={()=>setView("plano")} className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold ${view==="plano"?"bg-card shadow-sm":"text-muted-foreground"}`}><ClipboardCheck size={14}/>Meu plano</button>
++      <button type="button" onClick={()=>setView("aprendizado")} className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold ${view==="aprendizado"?"bg-card shadow-sm":"text-muted-foreground"}`}><BrainCircuit size={14}/>O que aprendeu</button>
++    </nav>
++    {view === "plano" ? <AssessorAcompanhamentoV2 embedded /> : <NinoContextoV2 embedded />}
++  </div>;
++}
+diff --git a/src/pages/admin/ComunicacaoProativa.tsx b/src/pages/admin/ComunicacaoProativa.tsx
+index 6b0c1dd..51c685c 100644
+--- a/src/pages/admin/ComunicacaoProativa.tsx
++++ b/src/pages/admin/ComunicacaoProativa.tsx
+@@ -11,6 +11,7 @@ import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV
+ import { AdminTabs } from "@/components/admin/AdminTabs";
+ import { AdminChart } from "@/components/admin/AdminChart";
+ import { dict } from "@/lib/admin/displayDictionary";
++import { SplitReminderJourney } from "@/components/admin/SplitReminderJourney";
+ 
+ 
+ type Summary = {
+@@ -54,9 +55,9 @@ export default function ComunicacaoProativa() {
+       <AdminTabs
+         tabs={[
+           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
+-          { id: "fluxos", label: "Fluxos", render: () => <ProactiveEnginePanelV2 sections={["catalog"]} /> },
+-          { id: "templates", label: "Templates", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
+-          { id: "fila", label: "Fila e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
++          { id: "jornadas", label: "Jornadas", render: () => <div className="space-y-6"><SplitReminderJourney /><ProactiveEnginePanelV2 sections={["catalog"]} /></div> },
++          { id: "mensagens", label: "Mensagens", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
++          { id: "entregas", label: "Entregas e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
+         ]}
+       />
+     </div>
+diff --git a/src/pages/admin/NinoIA.tsx b/src/pages/admin/NinoIA.tsx
+new file mode 100644
+index 0000000..56708ab
+--- /dev/null
++++ b/src/pages/admin/NinoIA.tsx
+@@ -0,0 +1,106 @@
++import { useQuery, useQueryClient } from "@tanstack/react-query";
++import { useState } from "react";
++import { Bot, BrainCircuit, BookOpen, Loader2, Save } from "lucide-react";
++import { PageHeader } from "@/components/admin/PageHeader";
++import { AdminTabs } from "@/components/admin/AdminTabs";
++import { callAdminRpc } from "@/lib/admin/adminRpc";
++import type { AiModelRoute, KnowledgeEntry } from "@/lib/admin/ninoContracts";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { Textarea } from "@/components/ui/textarea";
++import { adminToast } from "@/components/admin/adminToast";
++import IAInteligencia from "./IAInteligencia";
++
++export default function NinoIA() {
++  return (
++    <div className="space-y-6">
++      <PageHeader title="Nino & IA" description="Configure modelos, comportamento, conhecimento oficial e acompanhe a qualidade das respostas." />
++      <AdminTabs tabs={[
++        { id: "modelos", label: "Modelos", render: () => <Models /> },
++        { id: "conhecimento", label: "Conhecimento", render: () => <Knowledge /> },
++        { id: "qualidade", label: "Qualidade por cliente", render: () => <IAInteligencia /> },
++      ]} />
++    </div>
++  );
++}
++
++function Models() {
++  const qc = useQueryClient();
++  const q = useQuery({ queryKey: ["admin-ai-model-routes"], queryFn: () => callAdminRpc<AiModelRoute[]>("admin_ai_model_routes") });
++  const [saving, setSaving] = useState<string | null>(null);
++  async function save(row: AiModelRoute) {
++    setSaving(row.task);
++    try {
++      await callAdminRpc("admin_ai_model_route_update", {
++        _task: row.task, _primary_model: row.primary_model, _fallback_model: row.fallback_model,
++        _max_latency_ms: row.max_latency_ms, _max_steps: row.max_steps, _active: row.active,
++      });
++      await qc.invalidateQueries({ queryKey: ["admin-ai-model-routes"] });
++      adminToast.success("Rota de IA atualizada");
++    } catch (e) { adminToast.fromError(e, "Não foi possível salvar"); } finally { setSaving(null); }
++  }
++  if (q.isLoading) return <Loader2 className="animate-spin" />;
++  return <div className="space-y-3">
++    <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">
++      <p className="font-semibold text-foreground">Como funciona</p>
++      <p>O Nino escolhe o modelo pela tarefa. Alterações valem para novas execuções e ficam registradas em auditoria.</p>
++    </div>
++    {(q.data ?? []).map((initial) => <ModelCard key={initial.task} initial={initial} saving={saving === initial.task} onSave={save} />)}
++  </div>;
++}
++
++function ModelCard({ initial, saving, onSave }: { initial: AiModelRoute; saving: boolean; onSave: (v: AiModelRoute) => void }) {
++  const [row, setRow] = useState(initial);
++  return <section className="rounded-2xl border bg-card p-4 space-y-3">
++    <div className="flex items-center gap-2"><BrainCircuit size={17} className="text-primary" /><h2 className="font-semibold">{friendlyTask(row.task)}</h2></div>
++    <div className="grid gap-3 md:grid-cols-2">
++      <label className="text-xs text-muted-foreground">Modelo principal<Input value={row.primary_model} onChange={e => setRow({ ...row, primary_model: e.target.value })} /></label>
++      <label className="text-xs text-muted-foreground">Fallback<Input value={row.fallback_model ?? ""} onChange={e => setRow({ ...row, fallback_model: e.target.value || null })} /></label>
++      <label className="text-xs text-muted-foreground">Limite de tempo (ms)<Input type="number" value={row.max_latency_ms} onChange={e => setRow({ ...row, max_latency_ms: Number(e.target.value) })} /></label>
++      <label className="text-xs text-muted-foreground">Máximo de etapas<Input type="number" value={row.max_steps} onChange={e => setRow({ ...row, max_steps: Number(e.target.value) })} /></label>
++    </div>
++    <div className="flex justify-between items-center">
++      <label className="text-sm"><input type="checkbox" checked={row.active} onChange={e => setRow({ ...row, active: e.target.checked })} /> Ativa</label>
++      <Button onClick={() => onSave(row)} disabled={saving || !row.primary_model.trim()}><Save size={14} />{saving ? "Salvando..." : "Salvar"}</Button>
++    </div>
++  </section>;
++}
++
++function Knowledge() {
++  const qc = useQueryClient();
++  const q = useQuery({ queryKey: ["admin-agent-knowledge"], queryFn: () => callAdminRpc<KnowledgeEntry[]>("admin_agent_knowledge_list") });
++  const [draft, setDraft] = useState<Partial<KnowledgeEntry>>({ category: "produto", active: true });
++  async function save() {
++    if (!draft.key?.trim() || !draft.title?.trim() || !draft.content?.trim()) return;
++    try {
++      await callAdminRpc("admin_agent_knowledge_upsert", {
++        _id: draft.id ?? null, _key: draft.key, _title: draft.title, _category: draft.category ?? "produto",
++        _content: draft.content, _source_url: draft.source_url ?? null, _active: draft.active ?? true,
++      });
++      setDraft({ category: "produto", active: true });
++      await qc.invalidateQueries({ queryKey: ["admin-agent-knowledge"] });
++      adminToast.success("Conhecimento oficial salvo");
++    } catch (e) { adminToast.fromError(e, "Não foi possível salvar"); }
++  }
++  return <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
++    <section className="rounded-2xl border bg-card p-4 space-y-3">
++      <div className="flex items-center gap-2"><BookOpen size={17} className="text-primary" /><h2 className="font-semibold">Informação oficial</h2></div>
++      <Input placeholder="Chave, ex.: site_oficial" value={draft.key ?? ""} onChange={e => setDraft({ ...draft, key: e.target.value })} />
++      <Input placeholder="Título" value={draft.title ?? ""} onChange={e => setDraft({ ...draft, title: e.target.value })} />
++      <Input placeholder="Categoria" value={draft.category ?? ""} onChange={e => setDraft({ ...draft, category: e.target.value })} />
++      <Textarea rows={6} placeholder="O que o Nino deve saber e responder" value={draft.content ?? ""} onChange={e => setDraft({ ...draft, content: e.target.value })} />
++      <Input placeholder="URL de referência (opcional)" value={draft.source_url ?? ""} onChange={e => setDraft({ ...draft, source_url: e.target.value || null })} />
++      <Button className="w-full" onClick={save}><Save size={14} />Salvar conhecimento</Button>
++    </section>
++    <section className="space-y-3">
++      {(q.data ?? []).map(item => <button key={item.id} type="button" onClick={() => setDraft(item)} className="w-full rounded-2xl border bg-card p-4 text-left">
++        <div className="flex justify-between gap-3"><span className="font-semibold">{item.title}</span><span className="text-xs text-muted-foreground">v{item.version}</span></div>
++        <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">{item.content}</p>
++      </button>)}
++    </section>
++  </div>;
++}
++
++function friendlyTask(task: string) {
++  return ({ fast_operation: "Respostas rápidas", semantic_classification: "Classificação e categorias", financial_analysis: "Análise financeira", complex_reasoning: "Análises e highlights", vision: "Leitura de documentos" } as Record<string, string>)[task] ?? task;
++}
+diff --git a/src/test/financial-meaning-and-split-confirmation.test.ts b/src/test/financial-meaning-and-split-confirmation.test.ts
+index 9969e2e..67a5947 100644
+--- a/src/test/financial-meaning-and-split-confirmation.test.ts
++++ b/src/test/financial-meaning-and-split-confirmation.test.ts
+@@ -30,11 +30,12 @@ describe("financial concepts shown to the user", () => {
+     expect(reports).not.toContain(">Saldo</p>");
+   });
+ 
+-  it("puts actionable financial highlights before technical memories", () => {
++  it("keeps actionable highlights in acompanhamento and learned data in a separate surface", () => {
+     const context = read("src/pages/NinoContextoV2.tsx");
+-    expect(context.indexOf("Highlights para mudar o jogo"))
+-      .toBeLessThan(context.indexOf("Como o Nino personaliza suas análises"));
+-    expect(context).toContain("Onde agir agora");
++    const acompanhamento = read("src/pages/AssessorAcompanhamentoV2.tsx");
++    expect(acompanhamento).toContain("Highlights para mudar o jogo");
++    expect(context).toContain("O que o Nino aprendeu");
++    expect(context).not.toContain("Highlights para mudar o jogo");
+   });
+ });
+ 
+diff --git a/src/test/nino-admin-journey-contract.test.ts b/src/test/nino-admin-journey-contract.test.ts
+new file mode 100644
+index 0000000..27c7f81
+--- /dev/null
++++ b/src/test/nino-admin-journey-contract.test.ts
+@@ -0,0 +1,53 @@
++import { describe, expect, it } from "vitest";
++import fs from "node:fs";
++import path from "node:path";
++import { participantSplitReply } from "../../supabase/functions/_shared/messaging/splitParticipantSupport";
++
++const root = process.cwd();
++const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
++
++describe("contratos de Nino, IA e comunicação", () => {
++  it("expõe uma área navegável para modelos e conhecimento", () => {
++    expect(read("src/App.tsx")).toContain('path="nino-ia"');
++    expect(read("src/components/admin/AdminLayout.tsx")).toContain("Nino & IA");
++    expect(read("src/pages/admin/NinoIA.tsx")).toContain("admin_ai_model_route_update");
++    expect(read("src/pages/admin/NinoIA.tsx")).toContain("admin_agent_knowledge_upsert");
++  });
++
++  it("separa aprendizado pessoal do plano de acompanhamento", () => {
++    const learned = read("src/pages/NinoContextoV2.tsx");
++    expect(learned).toContain("O que o Nino aprendeu");
++    expect(learned).not.toContain("Highlights para mudar o jogo");
++    expect(read("src/pages/AssessorAcompanhamentoV2.tsx")).toContain("Highlights para mudar o jogo");
++  });
++
++  it("mantém RPCs administrativas com contratos explícitos", () => {
++    const registry = read("src/lib/admin/rpcContracts.ts");
++    for (const rpc of ["admin_ai_model_routes", "admin_ai_model_route_update", "admin_agent_knowledge_list", "admin_agent_knowledge_upsert", "admin_split_reminder_policy_update"]) {
++      expect(registry).toContain(rpc);
++    }
++  });
++
++  it("faz a agenda usar a política editável, não datas fixas", () => {
++    const sql = read("supabase/migrations/20260731013000_nino_admin_knowledge_communication.sql");
++    expect(sql).toContain("cfg.due_soon_days_before");
++    expect(sql).toContain("cfg.repeat_every_days");
++    expect(sql).toContain("cfg.max_overdue_reminders");
++    expect(sql).toContain("generate_series(1,cfg.max_overdue_reminders)");
++  });
++
++  it("aplica as rotas de modelo nas conversas, visão e categorização", () => {
++    const prompt = read("supabase/functions/_shared/agent/prompt.ts");
++    const ingest = read("supabase/functions/assistant-ingest-document/index.ts");
++    expect(prompt).toContain('.eq("task", "complex_reasoning")');
++    expect(ingest).toContain('resolveConfiguredModel(sb, "vision")');
++    expect(ingest).toContain('resolveConfiguredModel(sb, "semantic_classification")');
++  });
++
++  it("responde a participante somente com o contexto do próprio rolê", () => {
++    const context = { participantName: "Lucas Silva", title: "Jantar", amountDue: 80, amountPaid: 20, dueDate: "2026-08-02", pixKey: "pix@example.com" };
++    expect(participantSplitReply("qual o site?", context)).toContain("https://meunino.com.br");
++    expect(participantSplitReply("quanto eu devo?", context)).toContain("R$ 60,00");
++    expect(participantSplitReply("qual o pix?", context)).toContain("pix@example.com");
++  });
++});
+diff --git a/src/test/product-complete-journeys-contract.test.ts b/src/test/product-complete-journeys-contract.test.ts
+new file mode 100644
+index 0000000..9577e93
+--- /dev/null
++++ b/src/test/product-complete-journeys-contract.test.ts
+@@ -0,0 +1,48 @@
++import { describe, expect, it } from "vitest";
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++
++const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
++
++describe("jornadas completas de produto", () => {
++  it("unifica plano e aprendizado do Nino em uma só experiência", () => {
++    const app = read("src/App.tsx");
++    const menu = read("src/pages/MaisMenu.tsx");
++    const hub = read("src/pages/NinoHub.tsx");
++    expect(app).toContain('path="assessor/acompanhamento" element={<NinoHub />}');
++    expect(app).toContain('path="nino-contexto" element={<Navigate');
++    expect(menu).toContain("Meu Nino");
++    expect(menu).not.toContain('label: "O que o Nino aprendeu"');
++    expect(hub).toContain("Meu plano");
++    expect(hub).toContain("O que aprendeu");
++  });
++
++  it("oferece detalhe, edição, baixa e reversão na fatura", () => {
++    const cards = read("src/pages/Cartoes.tsx");
++    expect(cards).toContain("Ver e editar fatura");
++    expect(cards).toContain("update_credit_card_statement_item");
++    expect(cards).toContain("reverse_credit_card_statement_payment");
++    expect(cards).toContain("Registrar pagamento desta fatura");
++  });
++
++  it("reverte pagamento de forma atômica e auditável", () => {
++    const sql = read("supabase/migrations/20260731213000_statement_detail_edit_and_payment_reversal.sql");
++    expect(sql).toContain("credit_card_payment_reversals");
++    expect(sql).toContain("FOR UPDATE");
++    expect(sql).toContain("payment_snapshot");
++    expect(sql).toContain("DELETE FROM public.transactions");
++    expect(sql).toContain("GRANT EXECUTE");
++    expect(sql).toContain("auth.uid()");
++  });
++
++  it("expõe no admin modelos, conhecimento e régua visual do rolê", () => {
++    const app = read("src/App.tsx");
++    const communications = read("src/pages/admin/ComunicacaoProativa.tsx");
++    const ai = read("src/pages/admin/NinoIA.tsx");
++    expect(app).toContain('path="nino-ia"');
++    expect(communications).toContain("SplitReminderJourney");
++    expect(communications).toContain("Jornadas");
++    expect(ai).toContain("Modelos");
++    expect(ai).toContain("Conhecimento");
++  });
++});
+diff --git a/supabase/functions/_shared/agent/prompt.ts b/supabase/functions/_shared/agent/prompt.ts
+index ac0a9eb..493dbde 100644
+--- a/supabase/functions/_shared/agent/prompt.ts
++++ b/supabase/functions/_shared/agent/prompt.ts
+@@ -52,21 +52,37 @@ export type ActivePrompt = {
+ };
+ 
+ export async function loadActivePrompt(sb: SupabaseClient): Promise<ActivePrompt> {
+-  const { data } = await sb.from("agent_prompt_versions")
+-    .select("id, system_prompt, model, temperature, max_steps")
+-    .eq("status", "active").maybeSingle();
+-  if (!data) {
+-    return { id: null, system_prompt: DEFAULT_SYSTEM_PROMPT, model: DEFAULT_MODEL, temperature: 0.2, max_steps: 6 };
+-  }
+-  const adminPrompt = String(data.system_prompt ?? "").trim();
+-  const composedPrompt = adminPrompt && adminPrompt !== DEFAULT_SYSTEM_PROMPT.trim()
++  const [{ data }, { data: knowledge }, { data: modelRoute }] = await Promise.all([
++    sb.from("agent_prompt_versions")
++      .select("id, system_prompt, model, temperature, max_steps")
++      .eq("status", "active").maybeSingle(),
++    sb.from("agent_knowledge_entries")
++      .select("title, content, source_url")
++      .eq("active", true)
++      .order("category")
++      .limit(30),
++    sb.from("ai_model_routes")
++      .select("primary_model, max_steps")
++      .eq("task", "complex_reasoning")
++      .eq("active", true)
++      .maybeSingle(),
++  ]);
++  const officialKnowledge = (knowledge ?? [])
++    .map((item) => `- ${item.title}: ${item.content}${item.source_url ? ` (${item.source_url})` : ""}`)
++    .join("\n")
++    .slice(0, 12_000);
++  const adminPrompt = String(data?.system_prompt ?? "").trim();
++  let composedPrompt = adminPrompt && adminPrompt !== DEFAULT_SYSTEM_PROMPT.trim()
+     ? `${DEFAULT_SYSTEM_PROMPT}\n\nPERSONA E CONFIGURAÇÃO ADMINISTRATIVA:\n${adminPrompt}`
+     : DEFAULT_SYSTEM_PROMPT;
++  if (officialKnowledge) {
++    composedPrompt += `\n\nCONHECIMENTO OFICIAL DO MEUNINO (fonte prioritária para dúvidas sobre o produto):\n${officialKnowledge}`;
++  }
+   return {
+-    id: data.id as string,
++    id: (data?.id as string | undefined) ?? null,
+     system_prompt: composedPrompt,
+-    model: (data.model as string) || DEFAULT_MODEL,
+-    temperature: Number(data.temperature ?? 0.2),
+-    max_steps: Number(data.max_steps ?? 6),
++    model: String(modelRoute?.primary_model ?? data?.model ?? DEFAULT_MODEL),
++    temperature: Number(data?.temperature ?? 0.2),
++    max_steps: Number(modelRoute?.max_steps ?? data?.max_steps ?? 6),
+   };
+ }
+diff --git a/supabase/functions/_shared/messaging/splitParticipantSupport.ts b/supabase/functions/_shared/messaging/splitParticipantSupport.ts
+new file mode 100644
+index 0000000..43c1727
+--- /dev/null
++++ b/supabase/functions/_shared/messaging/splitParticipantSupport.ts
+@@ -0,0 +1,36 @@
++export type ParticipantSplitContext = {
++  participantName: string;
++  title: string;
++  amountDue: number;
++  amountPaid: number;
++  dueDate: string | null;
++  pixKey: string | null;
++  siteUrl?: string;
++};
++
++const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
++
++export function participantSplitReply(message: string, context: ParticipantSplitContext): string {
++  const text = message.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/\p{Diacritic}/gu, "");
++  const remaining = Math.max(0, context.amountDue - context.amountPaid);
++  const site = context.siteUrl || "https://meunino.com.br";
++  if (/\b(site|link|pagina|app)\b/.test(text)) {
++    return `O site oficial do MeuNino é ${site}. Sobre “${context.title}”, sua parte pendente é ${BRL.format(remaining)}.`;
++  }
++  if (/\b(paguei|ja paguei|pagamento feito|transferi|pix feito)\b/.test(text)) {
++    return `Entendi, ${firstName(context.participantName)}. Avisei que você informou o pagamento de ${BRL.format(remaining)} em “${context.title}”. Por segurança, quem criou o rolê precisa confirmar a baixa.`;
++  }
++  if (/\b(pix|pagar|pagamento|chave)\b/.test(text)) {
++    return context.pixKey
++      ? `Sua parte em “${context.title}” é ${BRL.format(remaining)}. A chave Pix informada é ${context.pixKey}.`
++      : `Sua parte em “${context.title}” é ${BRL.format(remaining)}. A chave Pix ainda não foi informada; confirme com quem criou o rolê.`;
++  }
++  if (/\b(valor|quanto|devo|pendente|venc)\b/.test(text)) {
++    const due = context.dueDate ? `, com vencimento em ${formatDate(context.dueDate)}` : "";
++    return `Sua parte pendente em “${context.title}” é ${BRL.format(remaining)}${due}.`;
++  }
++  return `Posso ajudar com “${context.title}”. Sua parte pendente é ${BRL.format(remaining)}. Você pode perguntar pelo valor, vencimento, Pix ou site do MeuNino.`;
++}
++
++function firstName(name: string) { return name.trim().split(/\s+/)[0] || "tudo bem"; }
++function formatDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR"); }
+diff --git a/supabase/functions/assistant-ingest-document/index.ts b/supabase/functions/assistant-ingest-document/index.ts
+index 7b15928..46214ec 100644
+--- a/supabase/functions/assistant-ingest-document/index.ts
++++ b/supabase/functions/assistant-ingest-document/index.ts
+@@ -24,7 +24,7 @@ import { decideByRule } from "../_shared/categorization/pipeline.ts";
+ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+-const MODEL = "google/gemini-2.5-flash";
++const DEFAULT_MODEL = "google/gemini-2.5-flash";
+ const BUCKET = "documents";
+ const PROCESSING_STALE_MS = 5 * 60 * 1000;
+ const EXTRACTION_TIMEOUT_MS = 90 * 1000;
+@@ -44,6 +44,15 @@ async function resolveDocMaxItems(sb: ReturnType<typeof createClient>, userId: s
+   } catch { return DEFAULT_MAX_ITEMS_PER_DOCUMENT; }
+ }
+ 
++async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification"): Promise<string> {
++  const { data } = await sb.from("ai_model_routes")
++    .select("primary_model")
++    .eq("task", task)
++    .eq("active", true)
++    .maybeSingle();
++  return String(data?.primary_model ?? DEFAULT_MODEL);
++}
++
+ type SourceContext = {
+   source_account_id: string | null;
+   source_credit_card_id: string | null;
+@@ -315,6 +324,7 @@ async function callMultimodal(
+   guidance: string,
+   signal: AbortSignal,
+   batch: { index: number; max: number; exclude: string[]; strict?: boolean },
++  model: string,
+ ): Promise<MultimodalOutcome> {
+   const start = Date.now();
+   // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
+@@ -331,7 +341,7 @@ async function callMultimodal(
+         "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+       },
+       body: JSON.stringify({
+-        model: MODEL,
++        model,
+         messages: [
+           { role: "system", content: SYSTEM_PROMPT },
+           {
+@@ -462,6 +472,7 @@ async function enrichItems(
+   userId: string,
+   items: ExtractionResult["items"],
+   sourceContext: { statementBank?: string | null; guidance?: string | null } = {},
++  classificationModel: string = DEFAULT_MODEL,
+ ) {
+   // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
+   const normalized = items.map((item) => {
+@@ -624,7 +635,7 @@ async function enrichItems(
+         method: "POST",
+         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
+         body: JSON.stringify({
+-          model: MODEL,
++          model: classificationModel,
+           response_format: { type: "json_object" },
+           max_tokens: 1400,
+           messages: [
+@@ -824,6 +835,10 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
+ 
+ async function processDocument(documentId: string, userId: string, guidance: string, correlationId: string) {
+   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
++  const [visionModel, classificationModel] = await Promise.all([
++    resolveConfiguredModel(sb, "vision"),
++    resolveConfiguredModel(sb, "semantic_classification"),
++  ]);
+   const finish = async (patch: Record<string, unknown>) => {
+     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
+   };
+@@ -1044,6 +1059,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+         out = await callMultimodal(
+           dataUrl, doc.mime_type, filename, guide, ac.signal,
+           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
++          visionModel,
+         );
+         // Retry estrito: documento financeiro que volta sem nenhum item e sem
+         // erro quase sempre significa que o modelo pegou o atalho "sem novos
+@@ -1056,6 +1072,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+           const retry = await callMultimodal(
+             dataUrl, doc.mime_type, filename, guide, ac.signal,
+             { index: batchIndex, max: maxBatches, exclude: [], strict: true },
++            visionModel,
+           );
+           if (retry.result.items.length > 0) {
+             out = {
+@@ -1157,7 +1174,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+           tokens_in: out.tokens_in, tokens_out: out.tokens_out,
+         }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
+         if (counters.total_items > 0) break;
+-        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
++        await finish({ status: "failed", model: visionModel, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
+         return;
+       }
+ 
+@@ -1166,7 +1183,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+         await finish({
+           status: "needs_review",
+           document_kind: extraction.document_kind,
+-          model: MODEL,
++          model: visionModel,
+           tokens_in,
+           tokens_out,
+           extraction_ms: ms,
+@@ -1190,7 +1207,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+         const enriched = await enrichItems(sb, userId, freshItems, {
+           statementBank: out.statement?.bank ?? statement?.bank ?? doc.statement_bank ?? null,
+           guidance,
+-        });
++        }, classificationModel);
+         const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
+           type: it.type,
+           amount: Number(it.amount),
+@@ -1360,7 +1377,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+         }
+ 
+         if (persisted === 0 && rejections.length === 0 && insertErrorTag) {
+-          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(insertErrorTag, correlationId) });
++          await finish({ status: "failed", model: visionModel, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(insertErrorTag, correlationId) });
+           return;
+         }
+         if (rejections.length > 0) counters.partial = true;
+@@ -1389,7 +1406,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+         await finish({
+           status: "processing",
+           document_kind: documentKind,
+-          model: MODEL,
++          model: visionModel,
+           tokens_in,
+           tokens_out,
+           extraction_ms: ms,
+@@ -1441,7 +1458,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
+     await finish({
+       status: finalStatus,
+       document_kind: documentKind,
+-      model: MODEL,
++      model: visionModel,
+       tokens_in,
+       tokens_out,
+       extraction_ms: ms,
+diff --git a/supabase/functions/whatsapp-webhook/index.ts b/supabase/functions/whatsapp-webhook/index.ts
+index 0e65eac..88fa5ed 100644
+--- a/supabase/functions/whatsapp-webhook/index.ts
++++ b/supabase/functions/whatsapp-webhook/index.ts
+@@ -23,6 +23,7 @@ import { maskLid, resolveLidToPhone } from "../_shared/messaging/lidResolver.ts"
+ import { buildAssessorLink } from "../_shared/messaging/appUrl.ts";
+ import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/mediaFallback.ts";
+ import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
++import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
+ 
+ // deno-lint-ignore no-explicit-any
+ declare const EdgeRuntime: any;
+@@ -351,6 +352,43 @@ Deno.serve(async (req) => {
+   const { data: link } = await sb.from("whatsapp_links")
+     .select("user_id").eq("phone_hash", phone_hash).eq("status", "active").maybeSingle();
+   if (!link) {
++    const { data: participant } = await sb.from("shared_expense_participants")
++      .select("id,name,amount_due,amount_paid,shared_expense_id")
++      .eq("phone_e164", evt.from_phone)
++      .in("status", ["pending", "partial", "notified"])
++      .is("opt_out_at", null)
++      .order("updated_at", { ascending: false })
++      .limit(1)
++      .maybeSingle();
++    if (participant) {
++      const { data: expense } = await sb.from("shared_expenses")
++        .select("title,due_date,pix_key,status")
++        .eq("id", participant.shared_expense_id)
++        .eq("status", "active")
++        .maybeSingle();
++      if (expense) {
++        const { data: policy } = await sb.from("split_reminder_policy").select("pause_on_reply").eq("id", 1).maybeSingle();
++        if (policy?.pause_on_reply) {
++          await sb.from("reminder_jobs")
++            .update({ status: "skipped", last_error: "participant_replied", updated_at: new Date().toISOString() })
++            .eq("participant_id", participant.id)
++            .eq("status", "queued")
++            .in("kind", ["reminder", "due_soon", "due_today", "overdue"]);
++        }
++        const body = participantSplitReply(evt.body, {
++          participantName: participant.name,
++          title: expense.title,
++          amountDue: Number(participant.amount_due),
++          amountPaid: Number(participant.amount_paid),
++          dueDate: expense.due_date,
++          pixKey: expense.pix_key,
++          siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
++        });
++        await sb.from("outbound_messages").insert({ to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp" });
++        triggerDispatcher();
++        return json({ ok: true, participant_support: true });
++      }
++    }
+     await sb.from("outbound_messages").insert({
+       to_phone: evt.from_phone,
+       body: "Olá! Este número ainda não está vinculado a uma conta do MeuNino. Abra o app, gere um código de verificação e me envie por aqui — te espero. 💛",
+diff --git a/supabase/migrations/20260731013000_nino_admin_knowledge_communication.sql b/supabase/migrations/20260731013000_nino_admin_knowledge_communication.sql
+new file mode 100644
+index 0000000..b6d62de
+--- /dev/null
++++ b/supabase/migrations/20260731013000_nino_admin_knowledge_communication.sql
+@@ -0,0 +1,203 @@
++-- Contratos administrativos de IA, conhecimento oficial e régua da divisão.
++-- Toda mutação é SECURITY DEFINER, validada por permissão e auditável.
++
++CREATE TABLE IF NOT EXISTS public.agent_knowledge_entries (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  key text NOT NULL UNIQUE CHECK (key ~ '^[a-z0-9_:-]{3,80}$'),
++  title text NOT NULL CHECK (char_length(title) BETWEEN 3 AND 120),
++  category text NOT NULL DEFAULT 'produto',
++  content text NOT NULL CHECK (char_length(content) BETWEEN 3 AND 4000),
++  source_url text,
++  active boolean NOT NULL DEFAULT true,
++  version integer NOT NULL DEFAULT 1 CHECK (version > 0),
++  updated_by uuid REFERENCES auth.users(id),
++  created_at timestamptz NOT NULL DEFAULT now(),
++  updated_at timestamptz NOT NULL DEFAULT now()
++);
++ALTER TABLE public.agent_knowledge_entries ENABLE ROW LEVEL SECURITY;
++REVOKE ALL ON public.agent_knowledge_entries FROM anon, authenticated;
++GRANT ALL ON public.agent_knowledge_entries TO service_role;
++
++CREATE TABLE IF NOT EXISTS public.admin_configuration_audit (
++  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
++  actor_id uuid REFERENCES auth.users(id),
++  action text NOT NULL,
++  entity_type text NOT NULL,
++  entity_id text,
++  before_json jsonb,
++  after_json jsonb,
++  created_at timestamptz NOT NULL DEFAULT now()
++);
++ALTER TABLE public.admin_configuration_audit ENABLE ROW LEVEL SECURITY;
++REVOKE ALL ON public.admin_configuration_audit FROM anon, authenticated;
++GRANT ALL ON public.admin_configuration_audit TO service_role;
++
++INSERT INTO public.agent_knowledge_entries(key,title,category,content,source_url)
++VALUES
++ ('site_oficial','Site oficial','produto','O site oficial do MeuNino é https://meunino.com.br.','https://meunino.com.br'),
++ ('divisao_role','Como funciona a divisão do rolê','produto','Quem criou o rolê informa participantes, valores e vencimento. O Nino envia os lembretes configurados; o pagamento só é reconhecido quando o responsável confirma ou quando houver uma conciliação válida.','https://meunino.com.br'),
++ ('seguranca_participante','Privacidade do participante','seguranca','Para participantes não vinculados, responda somente sobre o rolê do próprio telefone: nome do rolê, valor individual, vencimento e instrução de pagamento. Nunca exponha saldo, patrimônio ou outros dados do responsável.',NULL)
++ON CONFLICT (key) DO NOTHING;
++
++CREATE TABLE IF NOT EXISTS public.split_reminder_policy (
++  id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
++  enabled boolean NOT NULL DEFAULT true,
++  due_soon_days_before smallint NOT NULL DEFAULT 1 CHECK (due_soon_days_before BETWEEN 0 AND 30),
++  due_today_enabled boolean NOT NULL DEFAULT true,
++  first_overdue_days smallint NOT NULL DEFAULT 1 CHECK (first_overdue_days BETWEEN 1 AND 30),
++  repeat_every_days smallint NOT NULL DEFAULT 3 CHECK (repeat_every_days BETWEEN 1 AND 30),
++  max_overdue_reminders smallint NOT NULL DEFAULT 3 CHECK (max_overdue_reminders BETWEEN 0 AND 10),
++  send_hour smallint NOT NULL DEFAULT 9 CHECK (send_hour BETWEEN 0 AND 23),
++  pause_on_reply boolean NOT NULL DEFAULT true,
++  updated_by uuid REFERENCES auth.users(id),
++  updated_at timestamptz NOT NULL DEFAULT now()
++);
++INSERT INTO public.split_reminder_policy(id) VALUES (1) ON CONFLICT DO NOTHING;
++ALTER TABLE public.split_reminder_policy ENABLE ROW LEVEL SECURITY;
++REVOKE ALL ON public.split_reminder_policy FROM anon, authenticated;
++GRANT ALL ON public.split_reminder_policy TO service_role;
++
++CREATE OR REPLACE FUNCTION public.schedule_split_due_reminders(p_expense_id uuid DEFAULT NULL)
++RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
++DECLARE
++  cfg public.split_reminder_policy%ROWTYPE;
++  v_added integer := 0;
++  v_rows integer := 0;
++  v_policy_version text;
++BEGIN
++  SELECT * INTO cfg FROM public.split_reminder_policy WHERE id=1;
++  IF NOT FOUND OR NOT cfg.enabled THEN RETURN 0; END IF;
++  v_policy_version := to_char(cfg.updated_at AT TIME ZONE 'UTC','YYYYMMDDHH24MISS');
++
++  IF cfg.due_soon_days_before > 0 THEN
++    INSERT INTO public.reminder_jobs(owner_user_id,shared_expense_id,participant_id,scheduled_for,status,kind,idempotency_key)
++    SELECT se.owner_user_id,se.id,p.id,public.split_due_timestamp(se.due_date-cfg.due_soon_days_before,cfg.send_hour),
++      'queued'::public.reminder_status,'due_soon',
++      format('split:policy:%s:due_soon:%s:%s:%s',v_policy_version,se.id,p.id,se.due_date)
++    FROM public.shared_expenses se JOIN public.shared_expense_participants p ON p.shared_expense_id=se.id
++    WHERE (p_expense_id IS NULL OR se.id=p_expense_id) AND se.status='active' AND se.deleted_at IS NULL
++      AND se.reminder_enabled AND se.due_date IS NOT NULL AND p.status IN ('pending','partial','notified')
++      AND p.opt_out_at IS NULL AND (p.phone_e164 IS NOT NULL OR p.linked_user_id IS NOT NULL)
++      AND public.split_due_timestamp(se.due_date-cfg.due_soon_days_before,cfg.send_hour)>now()
++    ON CONFLICT DO NOTHING;
++    GET DIAGNOSTICS v_rows=ROW_COUNT; v_added:=v_added+v_rows;
++  END IF;
++
++  IF cfg.due_today_enabled THEN
++    INSERT INTO public.reminder_jobs(owner_user_id,shared_expense_id,participant_id,scheduled_for,status,kind,idempotency_key)
++    SELECT se.owner_user_id,se.id,p.id,public.split_due_timestamp(se.due_date,cfg.send_hour),
++      'queued'::public.reminder_status,'due_today',
++      format('split:policy:%s:due_today:%s:%s:%s',v_policy_version,se.id,p.id,se.due_date)
++    FROM public.shared_expenses se JOIN public.shared_expense_participants p ON p.shared_expense_id=se.id
++    WHERE (p_expense_id IS NULL OR se.id=p_expense_id) AND se.status='active' AND se.deleted_at IS NULL
++      AND se.reminder_enabled AND se.due_date IS NOT NULL AND p.status IN ('pending','partial','notified')
++      AND p.opt_out_at IS NULL AND (p.phone_e164 IS NOT NULL OR p.linked_user_id IS NOT NULL)
++      AND public.split_due_timestamp(se.due_date,cfg.send_hour)>now()
++    ON CONFLICT DO NOTHING;
++    GET DIAGNOSTICS v_rows=ROW_COUNT; v_added:=v_added+v_rows;
++  END IF;
++
++  IF cfg.max_overdue_reminders > 0 THEN
++    INSERT INTO public.reminder_jobs(owner_user_id,shared_expense_id,participant_id,scheduled_for,status,kind,idempotency_key)
++    SELECT se.owner_user_id,se.id,p.id,
++      public.split_due_timestamp(se.due_date+cfg.first_overdue_days+((stage.n-1)*cfg.repeat_every_days),cfg.send_hour),
++      'queued'::public.reminder_status,'overdue',
++      format('split:policy:%s:overdue:%s:%s:%s:%s',v_policy_version,se.id,p.id,se.due_date,stage.n)
++    FROM public.shared_expenses se JOIN public.shared_expense_participants p ON p.shared_expense_id=se.id
++    CROSS JOIN generate_series(1,cfg.max_overdue_reminders) AS stage(n)
++    WHERE (p_expense_id IS NULL OR se.id=p_expense_id) AND se.status='active' AND se.deleted_at IS NULL
++      AND se.reminder_enabled AND se.due_date IS NOT NULL AND p.status IN ('pending','partial','notified')
++      AND p.opt_out_at IS NULL AND (p.phone_e164 IS NOT NULL OR p.linked_user_id IS NOT NULL)
++      AND public.split_due_timestamp(se.due_date+cfg.first_overdue_days+((stage.n-1)*cfg.repeat_every_days),cfg.send_hour)>now()
++    ON CONFLICT DO NOTHING;
++    GET DIAGNOSTICS v_rows=ROW_COUNT; v_added:=v_added+v_rows;
++  END IF;
++  RETURN v_added;
++END $$;
++REVOKE ALL ON FUNCTION public.schedule_split_due_reminders(uuid) FROM PUBLIC,anon,authenticated;
++GRANT EXECUTE ON FUNCTION public.schedule_split_due_reminders(uuid) TO service_role;
++
++CREATE OR REPLACE FUNCTION public.admin_ai_model_routes()
++RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
++BEGIN
++  IF NOT public.has_platform_permission('operations.read') THEN RAISE EXCEPTION 'forbidden'; END IF;
++  RETURN COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.task) FROM public.ai_model_routes r),'[]'::jsonb);
++END $$;
++
++CREATE OR REPLACE FUNCTION public.admin_ai_model_route_update(
++  _task text, _primary_model text, _fallback_model text, _max_latency_ms integer, _max_steps integer, _active boolean
++) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
++DECLARE v_before jsonb; v_after jsonb;
++BEGIN
++  IF NOT public.has_platform_permission('operations.write') THEN RAISE EXCEPTION 'forbidden'; END IF;
++  IF length(trim(_primary_model)) < 3 OR _max_latency_ms NOT BETWEEN 1000 AND 120000 OR _max_steps NOT BETWEEN 1 AND 20 THEN RAISE EXCEPTION 'invalid_contract'; END IF;
++  SELECT to_jsonb(r) INTO v_before FROM public.ai_model_routes r WHERE task=_task;
++  UPDATE public.ai_model_routes SET primary_model=trim(_primary_model), fallback_model=nullif(trim(_fallback_model),''),
++    max_latency_ms=_max_latency_ms, max_steps=_max_steps, active=_active, updated_at=now() WHERE task=_task
++  RETURNING to_jsonb(ai_model_routes.*) INTO v_after;
++  IF v_after IS NULL THEN RAISE EXCEPTION 'unknown_task'; END IF;
++  INSERT INTO public.admin_configuration_audit(actor_id, action, entity_type, entity_id, before_json, after_json)
++  VALUES(auth.uid(),'ai.model_route.update','ai_model_route',_task,v_before,v_after);
++  RETURN v_after;
++END $$;
++
++CREATE OR REPLACE FUNCTION public.admin_agent_knowledge_list()
++RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
++BEGIN
++  IF NOT public.has_platform_permission('operations.read') THEN RAISE EXCEPTION 'forbidden'; END IF;
++  RETURN COALESCE((SELECT jsonb_agg(to_jsonb(k) ORDER BY k.category,k.title) FROM public.agent_knowledge_entries k),'[]'::jsonb);
++END $$;
++
++CREATE OR REPLACE FUNCTION public.admin_agent_knowledge_upsert(
++  _id uuid, _key text, _title text, _category text, _content text, _source_url text, _active boolean
++) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
++DECLARE v_id uuid; v_row jsonb;
++BEGIN
++  IF NOT public.has_platform_permission('operations.write') THEN RAISE EXCEPTION 'forbidden'; END IF;
++  IF trim(_key) !~ '^[a-z0-9_:-]{3,80}$' OR char_length(trim(_content)) NOT BETWEEN 3 AND 4000 THEN RAISE EXCEPTION 'invalid_contract'; END IF;
++  INSERT INTO public.agent_knowledge_entries(id,key,title,category,content,source_url,active,updated_by)
++  VALUES(coalesce(_id,gen_random_uuid()),trim(_key),trim(_title),coalesce(nullif(trim(_category),''),'produto'),trim(_content),nullif(trim(_source_url),''),_active,auth.uid())
++  ON CONFLICT (id) DO UPDATE SET key=excluded.key,title=excluded.title,category=excluded.category,content=excluded.content,
++    source_url=excluded.source_url,active=excluded.active,version=agent_knowledge_entries.version+1,updated_by=auth.uid(),updated_at=now()
++  RETURNING id,to_jsonb(agent_knowledge_entries.*) INTO v_id,v_row;
++  INSERT INTO public.admin_configuration_audit(actor_id,action,entity_type,entity_id,after_json)
++  VALUES(auth.uid(),'ai.knowledge.upsert','agent_knowledge',v_id::text,v_row);
++  RETURN v_row;
++END $$;
++
++CREATE OR REPLACE FUNCTION public.admin_split_reminder_policy()
++RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
++BEGIN
++  IF NOT public.has_platform_permission('messaging.read') THEN RAISE EXCEPTION 'forbidden'; END IF;
++  RETURN (SELECT to_jsonb(p)-'id'-'updated_by'-'updated_at' FROM public.split_reminder_policy p WHERE id=1);
++END $$;
++
++CREATE OR REPLACE FUNCTION public.admin_split_reminder_policy_update(
++  _enabled boolean,_due_soon_days_before integer,_due_today_enabled boolean,_first_overdue_days integer,
++  _repeat_every_days integer,_max_overdue_reminders integer,_send_hour integer,_pause_on_reply boolean
++) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
++DECLARE v_result jsonb;
++BEGIN
++  IF NOT public.has_platform_permission('messaging.write') THEN RAISE EXCEPTION 'forbidden'; END IF;
++  UPDATE public.split_reminder_policy SET enabled=_enabled,due_soon_days_before=_due_soon_days_before,
++    due_today_enabled=_due_today_enabled,first_overdue_days=_first_overdue_days,repeat_every_days=_repeat_every_days,
++    max_overdue_reminders=_max_overdue_reminders,send_hour=_send_hour,pause_on_reply=_pause_on_reply,
++    updated_by=auth.uid(),updated_at=now() WHERE id=1
++  RETURNING to_jsonb(split_reminder_policy.*)-'id'-'updated_by' INTO v_result;
++  UPDATE public.reminder_jobs SET status='skipped'::public.reminder_status,last_error='policy_changed',updated_at=now()
++    WHERE kind IN ('due_soon','due_today','overdue') AND status='queued'::public.reminder_status;
++  PERFORM public.schedule_split_due_reminders(NULL);
++  INSERT INTO public.admin_configuration_audit(actor_id,action,entity_type,entity_id,after_json)
++  VALUES(auth.uid(),'messaging.split_policy.update','split_reminder_policy','1',v_result);
++  RETURN v_result;
++END $$;
++
++REVOKE ALL ON FUNCTION public.admin_ai_model_routes() FROM PUBLIC,anon;
++REVOKE ALL ON FUNCTION public.admin_ai_model_route_update(text,text,text,integer,integer,boolean) FROM PUBLIC,anon;
++REVOKE ALL ON FUNCTION public.admin_agent_knowledge_list() FROM PUBLIC,anon;
++REVOKE ALL ON FUNCTION public.admin_agent_knowledge_upsert(uuid,text,text,text,text,text,boolean) FROM PUBLIC,anon;
++REVOKE ALL ON FUNCTION public.admin_split_reminder_policy() FROM PUBLIC,anon;
++REVOKE ALL ON FUNCTION public.admin_split_reminder_policy_update(boolean,integer,boolean,integer,integer,integer,integer,boolean) FROM PUBLIC,anon;
++GRANT EXECUTE ON FUNCTION public.admin_ai_model_routes(),public.admin_ai_model_route_update(text,text,text,integer,integer,boolean),
++ public.admin_agent_knowledge_list(),public.admin_agent_knowledge_upsert(uuid,text,text,text,text,text,boolean),
++ public.admin_split_reminder_policy(),public.admin_split_reminder_policy_update(boolean,integer,boolean,integer,integer,integer,integer,boolean) TO authenticated;
+diff --git a/supabase/migrations/20260731213000_statement_detail_edit_and_payment_reversal.sql b/supabase/migrations/20260731213000_statement_detail_edit_and_payment_reversal.sql
+new file mode 100644
+index 0000000..6456e51
+--- /dev/null
++++ b/supabase/migrations/20260731213000_statement_detail_edit_and_payment_reversal.sql
+@@ -0,0 +1,57 @@
++-- Jornada completa de faturas: correção segura de itens e reversão auditável de baixas.
++CREATE TABLE IF NOT EXISTS public.credit_card_payment_reversals (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  statement_id uuid NOT NULL REFERENCES public.credit_card_statements(id) ON DELETE RESTRICT,
++  payment_id uuid NOT NULL UNIQUE,
++  payment_snapshot jsonb NOT NULL,
++  reversed_transaction_snapshot jsonb,
++  reversed_at timestamptz NOT NULL DEFAULT now()
++);
++ALTER TABLE public.credit_card_payment_reversals ENABLE ROW LEVEL SECURITY;
++DROP POLICY IF EXISTS "credit_card_payment_reversals own rows" ON public.credit_card_payment_reversals;
++CREATE POLICY "credit_card_payment_reversals own rows" ON public.credit_card_payment_reversals FOR SELECT TO authenticated USING (auth.uid()=user_id);
++REVOKE ALL ON public.credit_card_payment_reversals FROM anon;
++GRANT SELECT ON public.credit_card_payment_reversals TO authenticated;
++GRANT ALL ON public.credit_card_payment_reversals TO service_role;
++
++CREATE OR REPLACE FUNCTION public.update_credit_card_statement_item(p_item_id uuid,p_description text,p_category_id uuid DEFAULT NULL)
++RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
++DECLARE v_user uuid:=auth.uid(); v_item public.credit_card_statement_items%ROWTYPE;
++BEGIN
++ IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE='42501'; END IF;
++ SELECT * INTO v_item FROM public.credit_card_statement_items WHERE id=p_item_id AND user_id=v_user FOR UPDATE;
++ IF NOT FOUND THEN RAISE EXCEPTION 'item_not_found' USING ERRCODE='P0002'; END IF;
++ IF length(trim(coalesce(p_description,'')))<1 THEN RAISE EXCEPTION 'description_required' USING ERRCODE='22023'; END IF;
++ IF p_category_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.categories WHERE id=p_category_id AND (user_id=v_user OR user_id IS NULL) AND archived_at IS NULL) THEN RAISE EXCEPTION 'category_not_found' USING ERRCODE='P0002'; END IF;
++ IF v_item.legacy_transaction_id IS NULL THEN RETURN jsonb_build_object('ok',false,'error','item_not_confirmed'); END IF;
++ UPDATE public.transactions SET description=trim(p_description),category_id=p_category_id,category_source='user',updated_at=now() WHERE id=v_item.legacy_transaction_id AND user_id=v_user;
++ UPDATE public.credit_card_statement_items SET description=trim(p_description) WHERE id=p_item_id;
++ RETURN jsonb_build_object('ok',true,'item_id',p_item_id,'transaction_id',v_item.legacy_transaction_id);
++END $$;
++
++CREATE OR REPLACE FUNCTION public.reverse_credit_card_statement_payment(p_payment_id uuid)
++RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
++DECLARE v_user uuid:=auth.uid(); v_payment public.credit_card_payments%ROWTYPE; v_statement_id uuid; v_statement public.credit_card_statements%ROWTYPE; v_tx jsonb; v_new_paid numeric;
++BEGIN
++ IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE='42501'; END IF;
++ SELECT * INTO v_payment FROM public.credit_card_payments WHERE id=p_payment_id AND user_id=v_user FOR UPDATE;
++ IF NOT FOUND THEN
++   IF EXISTS(SELECT 1 FROM public.credit_card_payment_reversals WHERE user_id=v_user AND payment_id=p_payment_id) THEN RETURN jsonb_build_object('ok',true,'idempotent',true); END IF;
++   RAISE EXCEPTION 'payment_not_found' USING ERRCODE='P0002';
++ END IF;
++ SELECT statement_id INTO v_statement_id FROM public.credit_card_payment_allocations WHERE payment_id=p_payment_id AND user_id=v_user;
++ SELECT * INTO v_statement FROM public.credit_card_statements WHERE id=v_statement_id AND user_id=v_user FOR UPDATE;
++ SELECT to_jsonb(t) INTO v_tx FROM public.transactions t WHERE id=v_payment.transaction_id AND user_id=v_user;
++ INSERT INTO public.credit_card_payment_reversals(user_id,statement_id,payment_id,payment_snapshot,reversed_transaction_snapshot) VALUES(v_user,v_statement_id,p_payment_id,to_jsonb(v_payment),v_tx);
++ DELETE FROM public.credit_card_payment_allocations WHERE payment_id=p_payment_id AND user_id=v_user;
++ DELETE FROM public.credit_card_payments WHERE id=p_payment_id AND user_id=v_user;
++ DELETE FROM public.transactions WHERE id=v_payment.transaction_id AND user_id=v_user AND movement_kind='card_payment';
++ v_new_paid:=greatest(0,round(v_statement.paid_amount-v_payment.amount,2));
++ UPDATE public.credit_card_statements SET paid_amount=v_new_paid,status=CASE WHEN due_date<current_date AND stated_total-v_new_paid>0.005 THEN 'overdue' WHEN v_new_paid>0 THEN 'partially_paid' ELSE 'open' END,updated_at=now() WHERE id=v_statement_id;
++ UPDATE public.credit_card_installments i SET status='billed',updated_at=now() FROM public.credit_card_statement_items si WHERE si.statement_id=v_statement_id AND si.installment_id=i.id AND i.user_id=v_user AND i.status='paid';
++ RETURN jsonb_build_object('ok',true,'idempotent',false,'statement_id',v_statement_id,'paid_amount',v_new_paid,'outstanding_amount',greatest(0,v_statement.stated_total-v_new_paid));
++END $$;
++REVOKE ALL ON FUNCTION public.update_credit_card_statement_item(uuid,text,uuid),public.reverse_credit_card_statement_payment(uuid) FROM PUBLIC,anon;
++GRANT EXECUTE ON FUNCTION public.update_credit_card_statement_item(uuid,text,uuid),public.reverse_credit_card_statement_payment(uuid) TO authenticated,service_role;
++NOTIFY pgrst,'reload schema';

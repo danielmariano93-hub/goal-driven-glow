@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowRight,
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
@@ -9,12 +8,9 @@ import {
   Loader2,
   Pencil,
   ShieldCheck,
-  Sparkles,
-  Target,
   Trash2,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   deleteNinoMemory,
@@ -91,8 +87,7 @@ function downloadContext(data: unknown) {
   URL.revokeObjectURL(url);
 }
 
-export default function NinoContextoV2() {
-  const navigate = useNavigate();
+export default function NinoContextoV2({ embedded = false }: { embedded?: boolean }) {
   const queryClient = useQueryClient();
   const contextQuery = useQuery({
     queryKey: ["nino-context"],
@@ -125,19 +120,6 @@ export default function NinoContextoV2() {
   const hypotheses = useMemo(
     () => (contextQuery.data?.hypotheses ?? []).filter((item) => item.status !== "expired"),
     [contextQuery.data],
-  );
-  const latestReview = useMemo(
-    () => [...(contextQuery.data?.reviews ?? [])]
-      .filter((review) => review.status !== "archived")
-      .sort((a, b) => b.period_end.localeCompare(a.period_end))[0] ?? null,
-    [contextQuery.data],
-  );
-  const priorityActions = useMemo(
-    () => (latestReview?.actions ?? [])
-      .filter((action) => !["done", "dismissed"].includes(action.status))
-      .sort((a, b) => b.priority - a.priority)
-      .slice(0, 3),
-    [latestReview],
   );
   const visibleMemory = useMemo(
     () => (contextQuery.data?.memory ?? []).filter((memory) => !/^(weekly|monthly):/.test(memory.key) && memory.kind !== "advisor_review"),
@@ -182,11 +164,11 @@ export default function NinoContextoV2() {
 
   return (
     <div className="space-y-6 pb-10">
-      <header className="flex items-start justify-between gap-3">
+      <header className={`items-start justify-between gap-3 ${embedded ? "hidden" : "flex"}`}>
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight">O que o Nino sabe sobre mim</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight">O que o Nino aprendeu</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Os padrões que mais mexem com seu dinheiro e os próximos passos que podem mudar seu resultado. Nenhum JSON precisa ser editado.
+            Dados usados para personalizar suas análises. Você pode corrigir ou apagar qualquer informação. Nenhum JSON precisa ser editado.
           </p>
         </div>
         <button
@@ -197,66 +179,6 @@ export default function NinoContextoV2() {
           <Download size={14} /> Exportar
         </button>
       </header>
-
-      <section className="overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-brand-coral/5 shadow-card">
-        <div className="p-4 md:p-6">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            <h2 className="text-sm font-semibold">Highlights para mudar o jogo</h2>
-          </div>
-          {latestReview ? (
-            <>
-              <h3 className="mt-3 font-display text-lg font-bold">{latestReview.summary.headline}</h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{latestReview.summary.explanation}</p>
-              <div className="mt-4 space-y-2">
-                {(latestReview.summary.highlights ?? []).slice(0, 3).map((highlight) => (
-                  <div key={highlight} className="rounded-xl border border-border/70 bg-background/80 px-3 py-2 text-xs leading-relaxed">
-                    {highlight}
-                  </div>
-                ))}
-              </div>
-              {priorityActions.length > 0 && (
-                <div className="mt-4">
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <Target size={14} className="text-primary" /> Onde agir agora
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {priorityActions.map((action) => (
-                      <button
-                        key={action.key}
-                        type="button"
-                        onClick={() => navigate(action.route || "/app/assessor/acompanhamento")}
-                        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left"
-                      >
-                        <span>
-                          <span className="block text-xs font-semibold">{action.title}</span>
-                          <span className="mt-0.5 line-clamp-2 block text-[11px] text-muted-foreground">{action.detail}</span>
-                        </span>
-                        <ArrowRight size={14} className="shrink-0 text-primary" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => navigate(`/app/assessor/acompanhamento?period=${latestReview.period_kind}`)}
-                className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-primary"
-              >
-                Abrir plano de acompanhamento <ArrowRight size={13} />
-              </button>
-            </>
-          ) : (
-            <div className="mt-4 rounded-xl border border-dashed border-border bg-background/60 p-4">
-              <p className="text-xs font-semibold">O Nino ainda está formando uma leitura confiável.</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">Quando houver dados suficientes, esta área mostrará mudanças relevantes, impacto financeiro e onde agir.</p>
-              <button type="button" onClick={() => navigate("/app/assessor/acompanhamento")} className="mt-3 text-xs font-semibold text-primary">
-                Ver acompanhamento
-              </button>
-            </div>
-          )}
-        </div>
-      </section>
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
         <div className="flex items-center gap-2">

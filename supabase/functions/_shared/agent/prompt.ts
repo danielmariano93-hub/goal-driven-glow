@@ -52,21 +52,37 @@ export type ActivePrompt = {
 };
 
 export async function loadActivePrompt(sb: SupabaseClient): Promise<ActivePrompt> {
-  const { data } = await sb.from("agent_prompt_versions")
-    .select("id, system_prompt, model, temperature, max_steps")
-    .eq("status", "active").maybeSingle();
-  if (!data) {
-    return { id: null, system_prompt: DEFAULT_SYSTEM_PROMPT, model: DEFAULT_MODEL, temperature: 0.2, max_steps: 6 };
-  }
-  const adminPrompt = String(data.system_prompt ?? "").trim();
-  const composedPrompt = adminPrompt && adminPrompt !== DEFAULT_SYSTEM_PROMPT.trim()
+  const [{ data }, { data: knowledge }, { data: modelRoute }] = await Promise.all([
+    sb.from("agent_prompt_versions")
+      .select("id, system_prompt, model, temperature, max_steps")
+      .eq("status", "active").maybeSingle(),
+    sb.from("agent_knowledge_entries")
+      .select("title, content, source_url")
+      .eq("active", true)
+      .order("category")
+      .limit(30),
+    sb.from("ai_model_routes")
+      .select("primary_model, max_steps")
+      .eq("task", "complex_reasoning")
+      .eq("active", true)
+      .maybeSingle(),
+  ]);
+  const officialKnowledge = (knowledge ?? [])
+    .map((item) => `- ${item.title}: ${item.content}${item.source_url ? ` (${item.source_url})` : ""}`)
+    .join("\n")
+    .slice(0, 12_000);
+  const adminPrompt = String(data?.system_prompt ?? "").trim();
+  let composedPrompt = adminPrompt && adminPrompt !== DEFAULT_SYSTEM_PROMPT.trim()
     ? `${DEFAULT_SYSTEM_PROMPT}\n\nPERSONA E CONFIGURAÇÃO ADMINISTRATIVA:\n${adminPrompt}`
     : DEFAULT_SYSTEM_PROMPT;
+  if (officialKnowledge) {
+    composedPrompt += `\n\nCONHECIMENTO OFICIAL DO MEUNINO (fonte prioritária para dúvidas sobre o produto):\n${officialKnowledge}`;
+  }
   return {
-    id: data.id as string,
+    id: (data?.id as string | undefined) ?? null,
     system_prompt: composedPrompt,
-    model: (data.model as string) || DEFAULT_MODEL,
-    temperature: Number(data.temperature ?? 0.2),
-    max_steps: Number(data.max_steps ?? 6),
+    model: String(modelRoute?.primary_model ?? data?.model ?? DEFAULT_MODEL),
+    temperature: Number(data?.temperature ?? 0.2),
+    max_steps: Number(modelRoute?.max_steps ?? data?.max_steps ?? 6),
   };
 }

@@ -24,7 +24,7 @@ import { decideByRule } from "../_shared/categorization/pipeline.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
-const MODEL = "google/gemini-2.5-flash";
+const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
@@ -42,6 +42,15 @@ async function resolveDocMaxItems(sb: ReturnType<typeof createClient>, userId: s
     if (!Number.isFinite(n) || n < 40) return DEFAULT_MAX_ITEMS_PER_DOCUMENT;
     return Math.min(MAX_ITEMS_HARD_CAP, Math.max(40, Math.floor(n)));
   } catch { return DEFAULT_MAX_ITEMS_PER_DOCUMENT; }
+}
+
+async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification"): Promise<string> {
+  const { data } = await sb.from("ai_model_routes")
+    .select("primary_model")
+    .eq("task", task)
+    .eq("active", true)
+    .maybeSingle();
+  return String(data?.primary_model ?? DEFAULT_MODEL);
 }
 
 type SourceContext = {
@@ -315,6 +324,7 @@ async function callMultimodal(
   guidance: string,
   signal: AbortSignal,
   batch: { index: number; max: number; exclude: string[]; strict?: boolean },
+  model: string,
 ): Promise<MultimodalOutcome> {
   const start = Date.now();
   // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
@@ -331,7 +341,7 @@ async function callMultimodal(
         "Authorization": `Bearer ${LOVABLE_API_KEY}`,
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -462,6 +472,7 @@ async function enrichItems(
   userId: string,
   items: ExtractionResult["items"],
   sourceContext: { statementBank?: string | null; guidance?: string | null } = {},
+  classificationModel: string = DEFAULT_MODEL,
 ) {
   // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
   const normalized = items.map((item) => {
@@ -624,7 +635,7 @@ async function enrichItems(
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
         body: JSON.stringify({
-          model: MODEL,
+          model: classificationModel,
           response_format: { type: "json_object" },
           max_tokens: 1400,
           messages: [
@@ -824,6 +835,10 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
 
 async function processDocument(documentId: string, userId: string, guidance: string, correlationId: string) {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  const [visionModel, classificationModel] = await Promise.all([
+    resolveConfiguredModel(sb, "vision"),
+    resolveConfiguredModel(sb, "semantic_classification"),
+  ]);
   const finish = async (patch: Record<string, unknown>) => {
     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
   };
@@ -1044,6 +1059,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         out = await callMultimodal(
           dataUrl, doc.mime_type, filename, guide, ac.signal,
           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
+          visionModel,
         );
         // Retry estrito: documento financeiro que volta sem nenhum item e sem
         // erro quase sempre significa que o modelo pegou o atalho "sem novos
@@ -1056,6 +1072,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
           const retry = await callMultimodal(
             dataUrl, doc.mime_type, filename, guide, ac.signal,
             { index: batchIndex, max: maxBatches, exclude: [], strict: true },
+            visionModel,
           );
           if (retry.result.items.length > 0) {
             out = {
@@ -1157,7 +1174,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
           tokens_in: out.tokens_in, tokens_out: out.tokens_out,
         }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
         if (counters.total_items > 0) break;
-        await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
+        await finish({ status: "failed", model: visionModel, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(out.errorTag, correlationId) });
         return;
       }
 
@@ -1166,7 +1183,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         await finish({
           status: "needs_review",
           document_kind: extraction.document_kind,
-          model: MODEL,
+          model: visionModel,
           tokens_in,
           tokens_out,
           extraction_ms: ms,
@@ -1190,7 +1207,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         const enriched = await enrichItems(sb, userId, freshItems, {
           statementBank: out.statement?.bank ?? statement?.bank ?? doc.statement_bank ?? null,
           guidance,
-        });
+        }, classificationModel);
         const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
           type: it.type,
           amount: Number(it.amount),
@@ -1360,7 +1377,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         }
 
         if (persisted === 0 && rejections.length === 0 && insertErrorTag) {
-          await finish({ status: "failed", model: MODEL, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(insertErrorTag, correlationId) });
+          await finish({ status: "failed", model: visionModel, tokens_in, tokens_out, extraction_ms: ms, counters: failureCounters(counters), error: encodeError(insertErrorTag, correlationId) });
           return;
         }
         if (rejections.length > 0) counters.partial = true;
@@ -1389,7 +1406,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         await finish({
           status: "processing",
           document_kind: documentKind,
-          model: MODEL,
+          model: visionModel,
           tokens_in,
           tokens_out,
           extraction_ms: ms,
@@ -1441,7 +1458,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
     await finish({
       status: finalStatus,
       document_kind: documentKind,
-      model: MODEL,
+      model: visionModel,
       tokens_in,
       tokens_out,
       extraction_ms: ms,

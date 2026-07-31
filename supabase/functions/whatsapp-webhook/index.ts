@@ -23,6 +23,7 @@ import { maskLid, resolveLidToPhone } from "../_shared/messaging/lidResolver.ts"
 import { buildAssessorLink } from "../_shared/messaging/appUrl.ts";
 import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/mediaFallback.ts";
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
+import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -351,6 +352,43 @@ Deno.serve(async (req) => {
   const { data: link } = await sb.from("whatsapp_links")
     .select("user_id").eq("phone_hash", phone_hash).eq("status", "active").maybeSingle();
   if (!link) {
+    const { data: participant } = await sb.from("shared_expense_participants")
+      .select("id,name,amount_due,amount_paid,shared_expense_id")
+      .eq("phone_e164", evt.from_phone)
+      .in("status", ["pending", "partial", "notified"])
+      .is("opt_out_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (participant) {
+      const { data: expense } = await sb.from("shared_expenses")
+        .select("title,due_date,pix_key,status")
+        .eq("id", participant.shared_expense_id)
+        .eq("status", "active")
+        .maybeSingle();
+      if (expense) {
+        const { data: policy } = await sb.from("split_reminder_policy").select("pause_on_reply").eq("id", 1).maybeSingle();
+        if (policy?.pause_on_reply) {
+          await sb.from("reminder_jobs")
+            .update({ status: "skipped", last_error: "participant_replied", updated_at: new Date().toISOString() })
+            .eq("participant_id", participant.id)
+            .eq("status", "queued")
+            .in("kind", ["reminder", "due_soon", "due_today", "overdue"]);
+        }
+        const body = participantSplitReply(evt.body, {
+          participantName: participant.name,
+          title: expense.title,
+          amountDue: Number(participant.amount_due),
+          amountPaid: Number(participant.amount_paid),
+          dueDate: expense.due_date,
+          pixKey: expense.pix_key,
+          siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
+        });
+        await sb.from("outbound_messages").insert({ to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp" });
+        triggerDispatcher();
+        return json({ ok: true, participant_support: true });
+      }
+    }
     await sb.from("outbound_messages").insert({
       to_phone: evt.from_phone,
       body: "Olá! Este número ainda não está vinculado a uma conta do MeuNino. Abra o app, gere um código de verificação e me envie por aqui — te espero. 💛",

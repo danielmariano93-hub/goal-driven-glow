@@ -61,6 +61,15 @@ export const ADMIN_RPC_ARGS = {
   admin_proactive_engine_status: [],
   admin_proactive_engine_toggle: ["_enabled", "_channels"],
   admin_proactive_queue: ["_limit"],
+  admin_ai_model_routes: [],
+  admin_ai_model_route_update: ["_task", "_primary_model", "_fallback_model", "_max_latency_ms", "_max_steps", "_active"],
+  admin_agent_knowledge_list: [],
+  admin_agent_knowledge_upsert: ["_id", "_key", "_title", "_category", "_content", "_source_url", "_active"],
+  admin_split_reminder_policy: [],
+  admin_split_reminder_policy_update: [
+    "_enabled", "_due_soon_days_before", "_due_today_enabled", "_first_overdue_days",
+    "_repeat_every_days", "_max_overdue_reminders", "_send_hour", "_pause_on_reply",
+  ],
 } as const;
 
 export type AdminRpcName = keyof typeof ADMIN_RPC_ARGS;
