@@ -1412,6 +1412,17 @@ async function processDocument(documentId: string, userId: string, guidance: str
     }
 
 
+    if (deterministicCoverage) {
+      const gapMessage = coverageMessage(deterministicCoverage);
+      if (gapMessage) {
+        notes.push(gapMessage);
+        counters.partial = true;
+      }
+      await sb.from("document_imports")
+        .update({ invoice_coverage: deterministicCoverage })
+        .eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+    }
+
     const finalStatus = counters.total_items === 0
       ? (lastErrorTag ? "failed" : "needs_review")
       : (counters.partial ? "partial" : "needs_review");
