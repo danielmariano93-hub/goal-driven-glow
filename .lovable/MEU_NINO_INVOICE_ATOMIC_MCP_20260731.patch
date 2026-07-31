@@ -1,0 +1,1024 @@
+From ce8214302616283358f8a5e487bbbd79f1718423 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Fri, 31 Jul 2026 20:24:33 +1000
+Subject: [PATCH] fix(finance): make invoice review atomic and add statement
+ lifecycle
+
+---
+ ...NINO_INVOICE_ATOMIC_MCP_20260731_README.md |  36 +++
+ .lovable/mcp/manifest.json                    |  49 ++++
+ src/components/assessor/ReviewSheet.tsx       |  41 +++-
+ src/lib/mcp/index.ts                          |   6 +-
+ src/lib/mcp/tools/list-card-statements.ts     |  34 +++
+ src/lib/mcp/tools/settle-card-statement.ts    |  31 +++
+ src/pages/Cartoes.tsx                         | 145 ++++++++++-
+ ...nvoice-atomic-payment-mcp-contract.test.ts |  35 +++
+ src/test/invoice-import-contract.test.ts      |   8 +-
+ .../assistant-review-actions/index.ts         |  95 ++------
+ supabase/functions/mcp/index.ts               |  76 +++++-
+ ...oice_atomic_save_and_statement_payment.sql | 228 ++++++++++++++++++
+ 12 files changed, 689 insertions(+), 95 deletions(-)
+ create mode 100644 .lovable/MEU_NINO_INVOICE_ATOMIC_MCP_20260731_README.md
+ create mode 100644 src/lib/mcp/tools/list-card-statements.ts
+ create mode 100644 src/lib/mcp/tools/settle-card-statement.ts
+ create mode 100644 src/test/invoice-atomic-payment-mcp-contract.test.ts
+ create mode 100644 supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql
+
+diff --git a/.lovable/MEU_NINO_INVOICE_ATOMIC_MCP_20260731_README.md b/.lovable/MEU_NINO_INVOICE_ATOMIC_MCP_20260731_README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1385a70fcd0bd49a04fa70269e45289e604b60ae
+--- /dev/null
++++ b/.lovable/MEU_NINO_INVOICE_ATOMIC_MCP_20260731_README.md
+@@ -0,0 +1,36 @@
++# Meu Nino — fatura atômica, histórico e MCP
++
++Base obrigatória: `f9795ed1d85dc063fc5c00cbf77fa511a7f3ba12` (`Added MCP agent integrations`).
++
++## Ordem de implantação na Lovable
++
++1. Aplicar `supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql`.
++2. Fazer deploy de `assistant-review-actions`.
++3. Executar `npm run build` para regenerar o bundle MCP e confirmar que `supabase/functions/mcp/index.ts` contém `list_card_statements` e `settle_card_statement`.
++4. Fazer deploy da função `mcp`.
++5. Executar typecheck, testes e build. Não publicar o frontend antes de reportar as evidências.
++6. Após aprovação, publicar o frontend.
++
++## Recuperação da revisão que já foi editada
++
++Não reprocessar o PDF, não apagar `extracted_items` e não sobrescrever linhas com `user_edited_at` preenchido.
++
++Localizar a importação de fatura mais recente do proprietário do projeto cujo status esteja em `needs_review`, `partially_confirmed` ou `failed`. Reportar antes: `document_id`, status, quantidade total, quantidade editada pelo usuário, confirmada, pendente e ignorada.
++
++Se houver somente uma candidata inequívoca, executar a confirmação usando os IDs das linhas não ignoradas/não rejeitadas por meio de `confirm_invoice_import_atomic`, com a identidade daquele usuário e chave `lovable-recovery:<document_id>:20260731`. A função deve validar a conciliação antes e fazer rollback integral em qualquer erro. Não alterar valores, descrições, categorias, parcelamentos, cartão ou decisões do usuário para forçar fechamento.
++
++Se a conciliação não passar, não aprovar artificialmente. Retornar o JSON completo de validação (`difference`, `gap_section`, `gap_amount`, subtotais) e manter a revisão pronta para o usuário corrigir sem refazer edições.
++
++## Evidências exigidas
++
++- Uma falha simulada em `finalize_invoice_statement` não deixa transações, status ou fatura parciais.
++- Retry com a mesma chave não duplica lançamentos nem pagamentos.
++- A revisão antiga abre com linhas já confirmadas pelo fluxo legado selecionadas para recuperação.
++- Cartões mostra todas as faturas e tags: em aberto, parcial, paga, atrasada e revisar.
++- Pagamento integral e parcial atualizam conta, pagamento, alocação, fatura e parcelas na mesma transação.
++- Pagamento da fatura tem `movement_kind=card_payment` e não entra novamente em consumo/receita.
++- MCP lista faturas e exige `confirmed_by_user=true` + `idempotency_key` para baixar pagamento.
++
++## Rollback
++
++Reverter o frontend e as duas Edge Functions. As novas funções SQL podem permanecer sem uso; para remoção explícita: `DROP FUNCTION public.confirm_invoice_import_atomic(uuid,uuid[],text);` e `DROP FUNCTION public.settle_credit_card_statement(uuid,uuid,numeric,date,text);`.
+diff --git a/.lovable/mcp/manifest.json b/.lovable/mcp/manifest.json
+index 6a317356d402a2f35a54fa18b6a85dfbbf9b8610..da80691a36e14b92902965ab524159adc0baa755 100644
+--- a/.lovable/mcp/manifest.json
++++ b/.lovable/mcp/manifest.json
+@@ -163,6 +163,55 @@
+           "properties": {}
+         },
+         "outputSchema": null
++      },
++      {
++        "name": "list_card_statements",
++        "title": "Listar faturas de cartão",
++        "description": "Lista faturas conciliadas do usuário, com cartão, vencimento, total, valor pago, saldo e status.",
++        "annotations": {
++          "readOnlyHint": true,
++          "idempotentHint": true,
++          "openWorldHint": false
++        },
++        "inputSchema": {
++          "type": "object",
++          "properties": {
++            "status": {
++              "type": "string",
++              "enum": ["open", "partially_paid", "paid", "overdue", "needs_review"]
++            },
++            "limit": { "type": "number", "minimum": 1, "maximum": 100 }
++          },
++          "additionalProperties": false,
++          "$schema": "http://json-schema.org/draft-07/schema#"
++        },
++        "outputSchema": null
++      },
++      {
++        "name": "settle_card_statement",
++        "title": "Registrar pagamento de fatura",
++        "description": "Registra a baixa contábil de uma fatura após confirmação explícita do usuário. Reduz caixa e obrigação; não cria uma nova despesa de consumo.",
++        "annotations": {
++          "readOnlyHint": false,
++          "destructiveHint": false,
++          "idempotentHint": true,
++          "openWorldHint": false
++        },
++        "inputSchema": {
++          "type": "object",
++          "properties": {
++            "statement_id": { "type": "string", "format": "uuid" },
++            "account_id": { "type": "string", "format": "uuid" },
++            "amount": { "type": "number", "exclusiveMinimum": 0 },
++            "paid_at": { "type": "string", "description": "Data YYYY-MM-DD." },
++            "confirmed_by_user": { "type": "boolean", "const": true },
++            "idempotency_key": { "type": "string", "minLength": 8 }
++          },
++          "required": ["statement_id", "account_id", "confirmed_by_user", "idempotency_key"],
++          "additionalProperties": false,
++          "$schema": "http://json-schema.org/draft-07/schema#"
++        },
++        "outputSchema": null
+       }
+     ]
+   }
+diff --git a/src/components/assessor/ReviewSheet.tsx b/src/components/assessor/ReviewSheet.tsx
+index e97e83f3583f3deafa2e313e503b1abc6207a173..bc00aab0262a2792a8cc235475d2e55d03403cc5 100644
+--- a/src/components/assessor/ReviewSheet.tsx
++++ b/src/components/assessor/ReviewSheet.tsx
+@@ -154,6 +154,7 @@ export function ReviewSheet({
+   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
+   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
+   const [summaryOpen, setSummaryOpen] = useState(false);
++  const [pendingWrites, setPendingWrites] = useState(0);
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -177,7 +178,14 @@ export function ReviewSheet({
+       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
+       setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
+       setDocKind(d.document?.document_kind ?? null);
+-      const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review" || i.status === "failed").map((i) => i.id));
++      // Also select rows confirmed by the legacy two-step flow when the
++      // document itself never finalized. The new RPC will treat them as
++      // idempotent and complete the statement without duplicate transactions.
++      const recoverLegacyPartial = d.document?.document_kind === "invoice" && d.document?.status !== "confirmed";
++      const initial = new Set<string>(d.items.filter((i) =>
++        i.status === "needs_review" || i.status === "failed" ||
++        (recoverLegacyPartial && i.status === "confirmed")
++      ).map((i) => i.id));
+       setSelected(initial);
+       setLoading(false);
+     })();
+@@ -245,13 +253,18 @@ export function ReviewSheet({
+   async function patchItem(id: string, patch: Partial<Item>) {
+     const previous = items.find((item) => item.id === id);
+     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+-    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+-      body: { action: "update", item_id: id, patch },
+-    });
+-    if (error) {
++    setPendingWrites((count) => count + 1);
++    try {
++      const { error } = await supabase.functions.invoke("assistant-review-actions", {
++        body: { action: "update", item_id: id, patch },
++      });
++      if (error) throw error;
++    } catch (error) {
+       if (previous) setItems((xs) => xs.map((x) => (x.id === id ? previous : x)));
+       console.error("[ReviewSheet] update", error);
+       toast.error("A alteração não foi salva", { description: "O valor anterior foi restaurado para você não confirmar dados incorretos." });
++    } finally {
++      setPendingWrites((count) => Math.max(0, count - 1));
+     }
+   }
+ 
+@@ -347,6 +360,10 @@ export function ReviewSheet({
+   async function confirmSelection() {
+     const ids = [...selected];
+     if (ids.length === 0) return;
++    if (pendingWrites > 0 || bulkSaving) {
++      toast.info("Salvando suas últimas edições", { description: "A confirmação será liberada assim que tudo estiver seguro." });
++      return;
++    }
+     // Client-side pre-flight: every item must have a valid target (account or card)
+     const notReady = items.filter((i) => selected.has(i.id) && (
+       (i.payment_method === "account" && !i.account_id) ||
+@@ -377,7 +394,12 @@ export function ReviewSheet({
+         body: { action: "confirm", document_id: documentId, item_ids: ids },
+       });
+       if (error) throw error;
+-      const r = (data as { result: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }).result;
++      const payload = data as { ok?: boolean; user_message?: string; result?: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } };
++      if (payload.ok === false || !payload.result) {
++        toast.error("A fatura não foi registrada", { description: payload.user_message ?? "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
++        return;
++      }
++      const r = payload.result;
+       const accounted = r.accounted_count ?? r.created_count;
+       if (accounted === r.total_selected && r.errors.length === 0) {
+         toast.success(`${r.created_count} lançamento(s) registrado(s)`, {
+@@ -861,6 +883,11 @@ export function ReviewSheet({
+                 </ul>
+               )}
+               <div className="flex items-center gap-2">
++                {pendingWrites > 0 && (
++                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
++                    <Loader2 className="h-3 w-3 animate-spin" /> Salvando {pendingWrites} edição(ões)…
++                  </span>
++                )}
+                 <button
+                   onClick={cancelImport}
+                   disabled={confirming}
+@@ -870,7 +897,7 @@ export function ReviewSheet({
+                 </button>
+                 <button
+                   onClick={confirmSelection}
+-                  disabled={confirming || selected.size === 0 || blockers.length > 0}
++                  disabled={confirming || pendingWrites > 0 || bulkSaving || selected.size === 0 || blockers.length > 0}
+                   className="btn-brand ml-auto inline-flex items-center gap-1.5 disabled:opacity-50"
+                 >
+                   {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check size={14} />}
+diff --git a/src/lib/mcp/index.ts b/src/lib/mcp/index.ts
+index 1058fa0f1432da723f771ca53b3c7234a1be3a72..a16aee7496f0a350724fa9e480026442d32cf9a2 100644
+--- a/src/lib/mcp/index.ts
++++ b/src/lib/mcp/index.ts
+@@ -4,6 +4,8 @@ import monthlySummary from "./tools/monthly-summary";
+ import listAccountsAndCategories from "./tools/list-accounts-and-categories";
+ import createTransaction from "./tools/create-transaction";
+ import financialPosition from "./tools/financial-position";
++import listCardStatements from "./tools/list-card-statements";
++import settleCardStatement from "./tools/settle-card-statement";
+ 
+ // O emissor OAuth precisa ser o host direto do Supabase, construído a partir do
+ // project ref (inline em build time, mantendo o módulo seguro para importar).
+@@ -14,7 +16,7 @@ export default defineMcp({
+   title: "Meu Nino",
+   version: "0.1.0",
+   instructions:
+-    "Ferramentas do Meu Nino, app de finanças pessoais em português. Consulte lançamentos, resumo do mês, contas, categorias, cartões, dívidas e metas do usuário conectado, e registre novos lançamentos. Valores em reais (BRL).",
++    "Ferramentas do Meu Nino, app de finanças pessoais em português. Consulte lançamentos, resumo do mês, contas, categorias, cartões, faturas, dívidas e metas. Pagamento de fatura exige confirmação explícita e é baixa de caixa/obrigação, nunca nova despesa de consumo. Valores em reais (BRL).",
+   auth: auth.oauth.issuer({
+     issuer: `https://${projectRef}.supabase.co/auth/v1`,
+     acceptedAudiences: "authenticated",
+@@ -25,5 +27,7 @@ export default defineMcp({
+     listAccountsAndCategories,
+     createTransaction,
+     financialPosition,
++    listCardStatements,
++    settleCardStatement,
+   ],
+ });
+diff --git a/src/lib/mcp/tools/list-card-statements.ts b/src/lib/mcp/tools/list-card-statements.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e16f0b756445bccc5c1b3ebba45a818e2f414ece
+--- /dev/null
++++ b/src/lib/mcp/tools/list-card-statements.ts
+@@ -0,0 +1,34 @@
++import { defineTool } from "@lovable.dev/mcp-js";
++import { z } from "zod";
++import { supabaseForUser } from "../supabase";
++import { brl, errorResult, ok, requireUser } from "../shared";
++
++export default defineTool({
++  name: "list_card_statements",
++  title: "Listar faturas de cartão",
++  description: "Lista faturas conciliadas do usuário, com cartão, vencimento, total, valor pago, saldo e status.",
++  inputSchema: {
++    status: z.enum(["open", "partially_paid", "paid", "overdue", "needs_review"]).optional(),
++    limit: z.number().min(1).max(100).optional(),
++  },
++  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
++  handler: async ({ status, limit }, ctx) => {
++    if (!requireUser(ctx)) return errorResult("Não autenticado.");
++    const supabase = supabaseForUser(ctx);
++    let query = supabase.from("credit_card_statements")
++      .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status,credit_cards(name,last_four)")
++      .order("competence_month", { ascending: false }).limit(limit ?? 24);
++    if (status) query = query.eq("status", status);
++    const { data, error } = await query;
++    if (error) return errorResult(error.message);
++    const statements = (data ?? []).map((row: any) => ({
++      id: row.id, card: row.credit_cards?.name ?? "Cartão", last_four: row.credit_cards?.last_four ?? null,
++      competence_month: row.competence_month, due_date: row.due_date,
++      total: Number(row.stated_total), paid: Number(row.paid_amount), outstanding: Number(row.outstanding_amount),
++      status: row.status, reconciled: Math.abs(Number(row.reconciliation_difference)) <= 0.05,
++    }));
++    return ok(statements.length ? statements.map((s) =>
++      `${s.card} · ${String(s.competence_month).slice(0, 7)} · ${brl(s.total)} · ${s.status} · falta ${brl(s.outstanding)}`
++    ).join("\n") : "Nenhuma fatura encontrada.", { statements });
++  },
++});
+diff --git a/src/lib/mcp/tools/settle-card-statement.ts b/src/lib/mcp/tools/settle-card-statement.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..da8cdd2dbe19501d17a9ad3297f00da868c1ad2c
+--- /dev/null
++++ b/src/lib/mcp/tools/settle-card-statement.ts
+@@ -0,0 +1,31 @@
++import { defineTool, ToolError } from "@lovable.dev/mcp-js";
++import { z } from "zod";
++import { supabaseForUser } from "../supabase";
++import { brl, errorResult, ok, requireUser } from "../shared";
++
++export default defineTool({
++  name: "settle_card_statement",
++  title: "Registrar pagamento de fatura",
++  description: "Registra a baixa contábil de uma fatura após confirmação explícita do usuário. Reduz caixa e obrigação; não cria uma nova despesa de consumo.",
++  inputSchema: {
++    statement_id: z.string().uuid().describe("Identificador retornado por list_card_statements."),
++    account_id: z.string().uuid().describe("Conta usada no pagamento."),
++    amount: z.number().positive().optional().describe("Valor pago. Se omitido, quita o saldo em aberto."),
++    paid_at: z.string().optional().describe("Data YYYY-MM-DD."),
++    confirmed_by_user: z.literal(true).describe("Só use true após o usuário confirmar claramente valor, conta e data."),
++    idempotency_key: z.string().min(8).describe("Chave única e estável para impedir pagamento duplicado em retries."),
++  },
++  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
++  handler: async ({ statement_id, account_id, amount, paid_at, confirmed_by_user, idempotency_key }, ctx) => {
++    if (!requireUser(ctx)) return errorResult("Não autenticado.");
++    if (confirmed_by_user !== true) throw new ToolError("Confirmação explícita obrigatória.");
++    const supabase = supabaseForUser(ctx);
++    const { data, error } = await supabase.rpc("settle_credit_card_statement", {
++      p_statement_id: statement_id, p_account_id: account_id, p_amount: amount ?? null,
++      p_paid_at: paid_at ?? new Date().toISOString().slice(0, 10), p_idempotency_key: idempotency_key,
++    });
++    if (error) return errorResult(error.message);
++    const result = data as Record<string, any>;
++    return ok(`Pagamento registrado: ${brl(Number(result.amount ?? amount ?? 0))}. Fatura ${result.status === "paid" ? "quitada" : "parcialmente paga"}.`, { payment: result });
++  },
++});
+diff --git a/src/pages/Cartoes.tsx b/src/pages/Cartoes.tsx
+index 808ad090e7de4518bd8b7bcb6812636344526c33..1f817a5563407fe6fdb2bfdb4ec163b175a4095c 100644
+--- a/src/pages/Cartoes.tsx
++++ b/src/pages/Cartoes.tsx
+@@ -1,18 +1,28 @@
+ import { useMemo, useState } from "react";
+-import { Plus, CreditCard, Pencil, Trash2, Loader2 } from "lucide-react";
++import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText } from "lucide-react";
+ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
+-import { useAllTransactions } from "@/lib/db/finance";
++import { useAccounts, useAllTransactions } from "@/lib/db/finance";
+ import { creditCardSchema } from "@/lib/validation/creditCards";
+ import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
+ import { toast } from "sonner";
+ import { useQuery } from "@tanstack/react-query";
+ import { supabase } from "@/integrations/supabase/client";
++import { useQueryClient } from "@tanstack/react-query";
++
++type StatementRow = {
++  id: string; credit_card_id: string; competence_month: string; due_date: string;
++  stated_total: number; paid_amount: number; outstanding_amount: number;
++  reconciliation_difference: number; status: string; source_document_id?: string | null;
++};
+ 
+ export default function Cartoes() {
+   const { data: cards, isLoading } = useCreditCards();
+   const { data: txs } = useAllTransactions();
++  const { data: accounts = [] } = useAccounts();
++  const qc = useQueryClient();
+   const [editing, setEditing] = useState<CreditCardRow | null>(null);
+   const [open, setOpen] = useState(false);
++  const [paying, setPaying] = useState<StatementRow | null>(null);
+   const save = useSaveCreditCard();
+   const del = useDeleteCreditCard();
+   const ym = currentMonthYM();
+@@ -21,7 +31,7 @@ export default function Cartoes() {
+     queryFn: async () => {
+       const { data, error } = await (supabase as any)
+         .from("credit_card_statements")
+-        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
++        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
+         .order("competence_month", { ascending: false });
+       if (error) throw error;
+       return data ?? [];
+@@ -163,6 +173,64 @@ export default function Cartoes() {
+         </ul>
+       )}
+ 
++      {statements.length > 0 && (
++        <section className="mt-8">
++          <div className="mb-3 flex items-end justify-between gap-3">
++            <div>
++              <h2 className="font-display text-lg font-bold">Histórico de faturas</h2>
++              <p className="text-xs text-muted-foreground">Acompanhe o que está aberto, pago ou atrasado sem contar o pagamento como nova despesa.</p>
++            </div>
++            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium">{statements.length} fatura(s)</span>
++          </div>
++          <div className="grid gap-3 md:grid-cols-2">
++            {(statements as StatementRow[]).map((statement) => {
++              const card = cards?.find((item) => item.id === statement.credit_card_id);
++              const overdue = statement.outstanding_amount > 0 && new Date(`${statement.due_date}T12:00:00`) < new Date();
++              const status = statement.status === "paid" ? "paid" : overdue ? "overdue" : statement.status;
++              const progress = statement.stated_total > 0 ? Math.min(100, Math.round((statement.paid_amount / statement.stated_total) * 100)) : 0;
++              const statusMeta = statementStatus(status);
++              return (
++                <article key={statement.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
++                  <div className="flex items-start justify-between gap-3">
++                    <div className="flex min-w-0 items-center gap-3">
++                      <div className="rounded-xl bg-primary/10 p-2 text-primary"><ReceiptText size={18} /></div>
++                      <div className="min-w-0">
++                        <p className="truncate text-sm font-semibold">{card?.name ?? "Cartão"} · {formatCompetence(statement.competence_month)}</p>
++                        <p className="text-[11px] text-muted-foreground">Vence em {formatDate(statement.due_date)}</p>
++                      </div>
++                    </div>
++                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.className}`}>
++                      {statusMeta.icon}{statusMeta.label}
++                    </span>
++                  </div>
++                  <div className="mt-4 flex items-end justify-between gap-3">
++                    <div>
++                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total da fatura</p>
++                      <p className="text-xl font-bold tabular-nums">{formatBRL(Number(statement.stated_total))}</p>
++                    </div>
++                    <p className="text-right text-xs text-muted-foreground">
++                      {statement.outstanding_amount > 0 ? <>Falta <strong className="text-foreground">{formatBRL(Number(statement.outstanding_amount))}</strong></> : "Tudo pago ✓"}
++                    </p>
++                  </div>
++                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
++                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${progress}%` }} />
++                  </div>
++                  <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
++                    <span>{progress}% quitado</span><span>{formatBRL(Number(statement.paid_amount))} pagos</span>
++                  </div>
++                  {Math.abs(Number(statement.reconciliation_difference)) > 0.05 && (
++                    <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Conciliação pendente: diferença de {formatBRL(Math.abs(Number(statement.reconciliation_difference)))}</p>
++                  )}
++                  {statement.outstanding_amount > 0 && Math.abs(Number(statement.reconciliation_difference)) <= 0.05 && (
++                    <button onClick={() => setPaying(statement)} className="btn-brand mt-4 w-full py-2 text-xs">Registrar pagamento</button>
++                  )}
++                </article>
++              );
++            })}
++          </div>
++        </section>
++      )}
++
+       {open && (
+         <CardFormModal
+           initial={editing}
+@@ -182,6 +250,77 @@ export default function Cartoes() {
+           saving={save.isPending}
+         />
+       )}
++      {paying && (
++        <StatementPaymentModal
++          statement={paying}
++          accounts={accounts as Array<{ id: string; name: string }>}
++          onClose={() => setPaying(null)}
++          onPaid={async () => {
++            await Promise.all([
++              qc.invalidateQueries({ queryKey: ["credit_card_statements"] }),
++              qc.invalidateQueries({ queryKey: ["credit_card_installments"] }),
++              qc.invalidateQueries({ queryKey: ["transactions"] }),
++              qc.invalidateQueries({ queryKey: ["accounts"] }),
++              qc.invalidateQueries({ queryKey: ["home"] }),
++            ]);
++            setPaying(null);
++          }}
++        />
++      )}
++    </div>
++  );
++}
++
++function statementStatus(status: string) {
++  if (status === "paid") return { label: "Paga", icon: <CheckCircle2 size={12} />, className: "bg-emerald-50 text-emerald-700" };
++  if (status === "overdue") return { label: "Atrasada", icon: <AlertTriangle size={12} />, className: "bg-red-50 text-red-700" };
++  if (status === "partially_paid") return { label: "Parcial", icon: <Clock3 size={12} />, className: "bg-amber-50 text-amber-700" };
++  if (status === "needs_review") return { label: "Revisar", icon: <AlertTriangle size={12} />, className: "bg-amber-50 text-amber-700" };
++  return { label: "Em aberto", icon: <Clock3 size={12} />, className: "bg-blue-50 text-blue-700" };
++}
++
++const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`));
++const formatCompetence = (date: string) => new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${date.slice(0, 10)}T12:00:00`));
++
++function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
++  statement: StatementRow;
++  accounts: Array<{ id: string; name: string }>;
++  onClose: () => void;
++  onPaid: () => Promise<void>;
++}) {
++  const [accountId, setAccountId] = useState(accounts.length === 1 ? accounts[0].id : "");
++  const [amount, setAmount] = useState(Number(statement.outstanding_amount).toFixed(2).replace(".", ","));
++  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
++  const [saving, setSaving] = useState(false);
++  async function submit(event: React.FormEvent) {
++    event.preventDefault();
++    const numeric = Number(amount.replace(/\./g, "").replace(",", "."));
++    if (!accountId || !Number.isFinite(numeric) || numeric <= 0) return toast.error("Escolha a conta e informe um valor válido.");
++    setSaving(true);
++    const key = `statement:${statement.id}:${paidAt}:${Math.round(numeric * 100)}`;
++    const { data, error } = await (supabase as any).rpc("settle_credit_card_statement", {
++      p_statement_id: statement.id, p_account_id: accountId, p_amount: numeric,
++      p_paid_at: paidAt, p_idempotency_key: key,
++    });
++    setSaving(false);
++    if (error || !data?.ok) return toast.error("Não foi possível registrar o pagamento", { description: error?.message ?? data?.error });
++    toast.success(data.status === "paid" ? "Fatura paga 🎉" : "Pagamento parcial registrado", {
++      description: "A conta e a obrigação do cartão foram atualizadas. Nenhuma nova despesa foi criada.",
++    });
++    await onPaid();
++  }
++  return (
++    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
++      <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
++        <h2 className="font-display text-lg font-bold">Registrar pagamento</h2>
++        <p className="mt-1 text-xs text-muted-foreground">A baixa reduz o saldo da conta e a dívida do cartão. As compras já foram contabilizadas antes.</p>
++        <div className="mt-5 space-y-3">
++          <Field label="Conta usada no pagamento"><select className="input-base" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">Escolha a conta</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
++          <Field label="Valor pago (R$)"><input className="input-base" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
++          <Field label="Data do pagamento"><input className="input-base" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} /></Field>
++        </div>
++        <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Cancelar</button><button disabled={saving} className="btn-brand inline-flex items-center gap-2">{saving && <Loader2 className="h-4 w-4 animate-spin" />}Confirmar baixa</button></div>
++      </form>
+     </div>
+   );
+ }
+diff --git a/src/test/invoice-atomic-payment-mcp-contract.test.ts b/src/test/invoice-atomic-payment-mcp-contract.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..62776881d4a76f6eb62911a838d076a8046f38f5
+--- /dev/null
++++ b/src/test/invoice-atomic-payment-mcp-contract.test.ts
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from "vitest";
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++
++const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
++
++describe("invoice atomic save and settlement contracts", () => {
++  it("confirms review, transactions and statement in one database transaction", () => {
++    const sql = read("supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql");
++    const edge = read("supabase/functions/assistant-review-actions/index.ts");
++    expect(sql).toContain("confirm_invoice_import_atomic");
++    expect(sql).toContain("invoice_items_failed");
++    expect(sql).toContain("invoice_statement_failed");
++    expect(sql).toContain("invoice_atomic_confirmed");
++    expect(edge).toContain('rpc("confirm_invoice_import_atomic"');
++    expect(edge).not.toContain('rpc("finalize_invoice_statement"');
++  });
++
++  it("settles cash and card liability without creating consumption again", () => {
++    const sql = read("supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql");
++    expect(sql).toContain("settle_credit_card_statement");
++    expect(sql).toContain("'card_payment'");
++    expect(sql).toContain("credit_card_payment_allocations");
++    expect(sql).toContain("p_idempotency_key");
++  });
++
++  it("makes MCP payment explicit and idempotent", () => {
++    const server = read("src/lib/mcp/index.ts");
++    const tool = read("src/lib/mcp/tools/settle-card-statement.ts");
++    expect(server).toContain("settleCardStatement");
++    expect(tool).toContain("confirmed_by_user");
++    expect(tool).toContain("idempotency_key");
++    expect(tool).toContain('rpc("settle_credit_card_statement"');
++  });
++});
+diff --git a/src/test/invoice-import-contract.test.ts b/src/test/invoice-import-contract.test.ts
+index e6ed8cfef0201a6b4f10b446d0734fdde46b3223..aea427c5abe4fad7efa70c8c345ebfe61401a9c4 100644
+--- a/src/test/invoice-import-contract.test.ts
++++ b/src/test/invoice-import-contract.test.ts
+@@ -14,10 +14,10 @@ describe("invoice import safety contract", () => {
+   });
+ 
+   it("never turns bill payments or informational rows into new transactions", () => {
+-    const edge = read("supabase/functions/assistant-review-actions/index.ts");
+-    expect(edge).toContain('row.statement_item_kind === "payment"');
+-    expect(edge).toContain('row.statement_item_kind === "informational"');
+-    expect(edge).toContain("nonLedgerIds");
++    const migration = read("supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql");
++    expect(migration).toContain("NOT IN ('payment','informational')");
++    expect(migration).toContain("IN ('payment','informational')");
++    expect(migration).toContain("v_non_ledger_ids");
+   });
+ 
+   it("keeps the manual and imported installment journeys explicit", () => {
+diff --git a/supabase/functions/assistant-review-actions/index.ts b/supabase/functions/assistant-review-actions/index.ts
+index 7a90361192b8eeeb6bfc0bf3ef659345d9ddbad1..b07685932d6f4d1d79d2a37745826f9d1388f248 100644
+--- a/supabase/functions/assistant-review-actions/index.ts
++++ b/supabase/functions/assistant-review-actions/index.ts
+@@ -112,86 +112,25 @@ Deno.serve(async (req) => {
+     const document_id = String(body.document_id ?? "");
+     const item_ids = Array.isArray(body.item_ids) ? (body.item_ids as string[]) : [];
+     if (!document_id || item_ids.length === 0) return json({ error: "missing_fields" }, 400);
+-    const { data: validation, error: validationError } = await userClient.rpc("validate_invoice_import", {
+-      p_document_id: document_id, p_item_ids: item_ids,
++    const idempotencyKey = String(body.idempotency_key ?? `invoice:${document_id}:${[...item_ids].sort().join(",")}`);
++    const { data, error } = await userClient.rpc("confirm_invoice_import_atomic", {
++      p_document_id: document_id,
++      p_item_ids: item_ids,
++      p_idempotency_key: idempotencyKey,
+     });
+-    if (validationError) return json({ error: "invoice_validation_failed", details: validationError.message }, 400);
+-    if (!(validation as { ok?: boolean } | null)?.ok) {
+-      // Mensagem em linguagem simples: qual bloco da fatura ficou incompleto.
+-      const v = (validation ?? {}) as { gap_section?: string | null; gap_amount?: number | null; difference?: number | null };
+-      const labels: Record<string, string> = {
+-        payments: "Pagamentos", domestic: "Compras nacionais", international: "Compras internacionais",
+-        taxes: "IOF e encargos", credits: "Estornos", other: "Lançamentos do ciclo",
+-      };
+-      const gapValue = Math.abs(Number(v.gap_amount ?? v.difference ?? 0));
+-      const money = gapValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+-      const user_message = v.gap_section
+-        ? `Faltam ${money} no bloco ${labels[v.gap_section] ?? v.gap_section} desta fatura. Confira esse trecho antes de registrar.`
+-        : `A fatura ainda não fecha: diferença de ${money}. Nada será registrado até conciliar.`;
+-      return json({ error: "invoice_not_reconciled", result: validation, user_message }, 409);
++    if (error) {
++      // Postgres returns the validation/finalization JSON in details. Preserve
++      // it so the UI can explain the exact correction without losing edits.
++      let diagnostic: Record<string, unknown> | null = null;
++      try { diagnostic = error.details ? JSON.parse(error.details) : null; } catch { diagnostic = null; }
++      const difference = Math.abs(Number(diagnostic?.difference ?? diagnostic?.gap_amount ?? 0));
++      const money = difference.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
++      const userMessage = error.message.includes("invoice_not_reconciled")
++        ? `A fatura ainda não fecha${difference ? `: diferença de ${money}` : ""}. Suas edições continuam salvas; corrija a conciliação e tente novamente.`
++        : "Nada foi gravado. Suas edições continuam salvas e você pode tentar novamente.";
++      return json({ ok: false, error: "atomic_confirmation_failed", details: error.message, result: diagnostic, user_message: userMessage });
+     }
+-
+-    const { data: selectedRows, error: selectedError } = await sb.from("extracted_items")
+-      .select("id,statement_item_kind").eq("document_id", document_id).eq("user_id", user.id).in("id", item_ids);
+-    if (selectedError) return json({ error: "selected_items_failed", details: selectedError.message }, 400);
+-    // Pagamento exibido dentro da fatura e linha informativa participam da
+-    // conciliação, mas não são uma nova despesa/receita. Nunca os convertemos
+-    // em transaction.
+-    const nonLedgerIds = (selectedRows ?? [])
+-      .filter((row) => row.statement_item_kind === "payment" || row.statement_item_kind === "informational")
+-      .map((row) => row.id as string);
+-    const transactionIds = item_ids.filter((id) => !nonLedgerIds.includes(id));
+-    let data: unknown = {
+-      ok: true, created_count: 0, total_selected: 0, created: [], skipped: [], errors: [],
+-    };
+-    let error: { message: string } | null = null;
+-    if (transactionIds.length > 0) {
+-      const rpc = await userClient.rpc("confirm_document_import", {
+-        p_document_id: document_id, p_item_ids: transactionIds,
+-      });
+-      data = rpc.data;
+-      error = rpc.error;
+-    }
+-    if (error) return json({ error: "rpc_failed", details: error.message }, 400);
+-    const result = (data ?? {}) as Record<string, unknown>;
+-    if (result.ok === false) return json({ error: "confirmation_rejected", result }, 409);
+-    const errors = Array.isArray(result.errors) ? result.errors : [];
+-    const idempotentSkips = (Array.isArray(result.skipped) ? result.skipped : [])
+-      .filter((row) => ["already_confirmed", "already_imported"].includes(String((row as { reason?: string }).reason ?? ""))).length;
+-    if (nonLedgerIds.length > 0) {
+-      await sb.from("extracted_items").update({ status: "confirmed" })
+-        .eq("document_id", document_id).eq("user_id", user.id).in("id", nonLedgerIds);
+-    }
+-    let statementResult: unknown = null;
+-    if (errors.length === 0 && !(validation as { not_invoice?: boolean } | null)?.not_invoice) {
+-      const finalized = await userClient.rpc("finalize_invoice_statement", {
+-        p_document_id: document_id, p_item_ids: item_ids,
+-      });
+-      if (finalized.error) {
+-        return json({ error: "statement_finalize_failed", details: finalized.error.message }, 500);
+-      }
+-      statementResult = finalized.data;
+-    }
+-    const { count: pendingCount } = await sb.from("extracted_items")
+-      .select("id", { count: "exact", head: true })
+-      .eq("document_id", document_id).eq("user_id", user.id)
+-      .in("status", ["needs_review", "duplicate_suspect", "failed"]);
+-    if ((pendingCount ?? 0) === 0) {
+-      await sb.from("document_imports").update({ status: "confirmed" })
+-        .eq("id", document_id).eq("user_id", user.id);
+-    }
+-    const accounted = Number(result.created_count ?? 0) + idempotentSkips + nonLedgerIds.length;
+-    return json({
+-      ok: true,
+-      result: {
+-        ...result,
+-        non_ledger_count: nonLedgerIds.length,
+-        idempotent_count: idempotentSkips,
+-        accounted_count: accounted,
+-        total_selected: item_ids.length,
+-        statement: statementResult,
+-      },
+-    });
++    return json({ ok: true, result: data });
+   }
+ 
+   if (action === "update-document") {
+diff --git a/supabase/functions/mcp/index.ts b/supabase/functions/mcp/index.ts
+index 446524a6ddaa5666849ec0ad82c628e32dc6b7f9..1a59a21f449c1d1f52f92b42af835f946d176076 100644
+--- a/supabase/functions/mcp/index.ts
++++ b/supabase/functions/mcp/index.ts
+@@ -313,13 +313,83 @@ var financial_position_default = defineTool5({
+   }
+ });
+ 
++// src/lib/mcp/tools/list-card-statements.ts
++import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.26.1";
++import { z as z4 } from "npm:zod@^3.25.76";
++var list_card_statements_default = defineTool6({
++  name: "list_card_statements",
++  title: "Listar faturas de cart\xE3o",
++  description: "Lista faturas conciliadas do usu\xE1rio, com cart\xE3o, vencimento, total, valor pago, saldo e status.",
++  inputSchema: {
++    status: z4.enum(["open", "partially_paid", "paid", "overdue", "needs_review"]).optional(),
++    limit: z4.number().min(1).max(100).optional()
++  },
++  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
++  handler: async ({ status, limit }, ctx) => {
++    if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.");
++    const supabase = supabaseForUser(ctx);
++    let query = supabase.from("credit_card_statements").select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status,credit_cards(name,last_four)").order("competence_month", { ascending: false }).limit(limit ?? 24);
++    if (status) query = query.eq("status", status);
++    const { data, error } = await query;
++    if (error) return errorResult(error.message);
++    const statements = (data ?? []).map((row) => ({
++      id: row.id,
++      card: row.credit_cards?.name ?? "Cart\xE3o",
++      last_four: row.credit_cards?.last_four ?? null,
++      competence_month: row.competence_month,
++      due_date: row.due_date,
++      total: Number(row.stated_total),
++      paid: Number(row.paid_amount),
++      outstanding: Number(row.outstanding_amount),
++      status: row.status,
++      reconciled: Math.abs(Number(row.reconciliation_difference)) <= 0.05
++    }));
++    return ok(statements.length ? statements.map(
++      (s) => `${s.card} \xB7 ${String(s.competence_month).slice(0, 7)} \xB7 ${brl(s.total)} \xB7 ${s.status} \xB7 falta ${brl(s.outstanding)}`
++    ).join("\n") : "Nenhuma fatura encontrada.", { statements });
++  }
++});
++
++// src/lib/mcp/tools/settle-card-statement.ts
++import { defineTool as defineTool7, ToolError as ToolError2 } from "npm:@lovable.dev/mcp-js@0.26.1";
++import { z as z5 } from "npm:zod@^3.25.76";
++var settle_card_statement_default = defineTool7({
++  name: "settle_card_statement",
++  title: "Registrar pagamento de fatura",
++  description: "Registra a baixa cont\xE1bil de uma fatura ap\xF3s confirma\xE7\xE3o expl\xEDcita do usu\xE1rio. Reduz caixa e obriga\xE7\xE3o; n\xE3o cria uma nova despesa de consumo.",
++  inputSchema: {
++    statement_id: z5.string().uuid().describe("Identificador retornado por list_card_statements."),
++    account_id: z5.string().uuid().describe("Conta usada no pagamento."),
++    amount: z5.number().positive().optional().describe("Valor pago. Se omitido, quita o saldo em aberto."),
++    paid_at: z5.string().optional().describe("Data YYYY-MM-DD."),
++    confirmed_by_user: z5.literal(true).describe("S\xF3 use true ap\xF3s o usu\xE1rio confirmar claramente valor, conta e data."),
++    idempotency_key: z5.string().min(8).describe("Chave \xFAnica e est\xE1vel para impedir pagamento duplicado em retries.")
++  },
++  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
++  handler: async ({ statement_id, account_id, amount, paid_at, confirmed_by_user, idempotency_key }, ctx) => {
++    if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.");
++    if (confirmed_by_user !== true) throw new ToolError2("Confirma\xE7\xE3o expl\xEDcita obrigat\xF3ria.");
++    const supabase = supabaseForUser(ctx);
++    const { data, error } = await supabase.rpc("settle_credit_card_statement", {
++      p_statement_id: statement_id,
++      p_account_id: account_id,
++      p_amount: amount ?? null,
++      p_paid_at: paid_at ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
++      p_idempotency_key: idempotency_key
++    });
++    if (error) return errorResult(error.message);
++    const result = data;
++    return ok(`Pagamento registrado: ${brl(Number(result.amount ?? amount ?? 0))}. Fatura ${result.status === "paid" ? "quitada" : "parcialmente paga"}.`, { payment: result });
++  }
++});
++
+ // src/lib/mcp/index.ts
+ var projectRef = "wesjjdjmlnfjihkkgzfp";
+ var mcp_default = defineMcp({
+   name: "meu-nino",
+   title: "Meu Nino",
+   version: "0.1.0",
+-  instructions: "Ferramentas do Meu Nino, app de finan\xE7as pessoais em portugu\xEAs. Consulte lan\xE7amentos, resumo do m\xEAs, contas, categorias, cart\xF5es, d\xEDvidas e metas do usu\xE1rio conectado, e registre novos lan\xE7amentos. Valores em reais (BRL).",
++  instructions: "Ferramentas do Meu Nino, app de finan\xE7as pessoais em portugu\xEAs. Consulte lan\xE7amentos, resumo do m\xEAs, contas, categorias, cart\xF5es, faturas, d\xEDvidas e metas. Pagamento de fatura exige confirma\xE7\xE3o expl\xEDcita e \xE9 baixa de caixa/obriga\xE7\xE3o, nunca nova despesa de consumo. Valores em reais (BRL).",
+   auth: auth.oauth.issuer({
+     issuer: `https://${projectRef}.supabase.co/auth/v1`,
+     acceptedAudiences: "authenticated"
+@@ -329,7 +399,9 @@ var mcp_default = defineMcp({
+     monthly_summary_default,
+     list_accounts_and_categories_default,
+     create_transaction_default,
+-    financial_position_default
++    financial_position_default,
++    list_card_statements_default,
++    settle_card_statement_default
+   ]
+ });
+ 
+diff --git a/supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql b/supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..9715d68df34c2945f9987a8c5d07f814144835d8
+--- /dev/null
++++ b/supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql
+@@ -0,0 +1,228 @@
++-- Invoice review must be all-or-nothing. This migration also provides the
++-- canonical, idempotent settlement operation used by the app and MCP agents.
++
++CREATE OR REPLACE FUNCTION public.confirm_invoice_import_atomic(
++  p_document_id uuid,
++  p_item_ids uuid[],
++  p_idempotency_key text DEFAULT NULL
++) RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_user uuid := auth.uid();
++  v_doc public.document_imports%ROWTYPE;
++  v_validation jsonb;
++  v_confirmation jsonb := jsonb_build_object(
++    'ok', true, 'created_count', 0, 'created', '[]'::jsonb,
++    'skipped', '[]'::jsonb, 'errors', '[]'::jsonb
++  );
++  v_statement jsonb;
++  v_transaction_ids uuid[];
++  v_non_ledger_ids uuid[];
++  v_pending integer;
++  v_created integer := 0;
++  v_idempotent integer := 0;
++BEGIN
++  IF v_user IS NULL THEN
++    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501';
++  END IF;
++  IF p_document_id IS NULL OR coalesce(array_length(p_item_ids, 1), 0) = 0 THEN
++    RAISE EXCEPTION 'missing_items' USING ERRCODE = '22023';
++  END IF;
++
++  SELECT * INTO v_doc
++    FROM public.document_imports
++   WHERE id = p_document_id AND user_id = v_user
++   FOR UPDATE;
++  IF NOT FOUND THEN RAISE EXCEPTION 'document_not_found' USING ERRCODE = 'P0002'; END IF;
++
++  -- A repeated click/retry returns the original successful result.
++  IF p_idempotency_key IS NOT NULL THEN
++    SELECT payload INTO v_statement
++      FROM public.document_import_audit
++     WHERE document_id = p_document_id
++       AND user_id = v_user
++       AND action = 'invoice_atomic_confirmed'
++       AND payload->>'idempotency_key' = p_idempotency_key
++     ORDER BY created_at DESC LIMIT 1;
++    IF FOUND THEN
++      RETURN coalesce(v_statement->'result', '{}'::jsonb)
++        || jsonb_build_object('ok', true, 'idempotent', true);
++    END IF;
++  END IF;
++
++  IF EXISTS (
++    SELECT 1 FROM unnest(p_item_ids) requested(id)
++    LEFT JOIN public.extracted_items item
++      ON item.id = requested.id AND item.document_id = p_document_id AND item.user_id = v_user
++    WHERE item.id IS NULL
++  ) THEN RAISE EXCEPTION 'item_outside_document' USING ERRCODE = '42501'; END IF;
++
++  v_validation := public.validate_invoice_import(p_document_id, p_item_ids);
++  IF NOT coalesce((v_validation->>'ok')::boolean, false) THEN
++    RAISE EXCEPTION 'invoice_not_reconciled'
++      USING ERRCODE = 'P0001', DETAIL = v_validation::text;
++  END IF;
++
++  SELECT
++    coalesce(array_agg(id) FILTER (
++      WHERE coalesce(statement_item_kind, 'purchase') NOT IN ('payment','informational')
++    ), ARRAY[]::uuid[]),
++    coalesce(array_agg(id) FILTER (
++      WHERE coalesce(statement_item_kind, 'purchase') IN ('payment','informational')
++    ), ARRAY[]::uuid[])
++  INTO v_transaction_ids, v_non_ledger_ids
++  FROM public.extracted_items
++  WHERE document_id = p_document_id AND user_id = v_user AND id = ANY(p_item_ids);
++
++  IF coalesce(array_length(v_transaction_ids, 1), 0) > 0 THEN
++    v_confirmation := public.confirm_document_import(p_document_id, v_transaction_ids);
++    IF NOT coalesce((v_confirmation->>'ok')::boolean, false)
++       OR jsonb_array_length(coalesce(v_confirmation->'errors', '[]'::jsonb)) > 0 THEN
++      RAISE EXCEPTION 'invoice_items_failed'
++        USING ERRCODE = 'P0001', DETAIL = v_confirmation::text;
++    END IF;
++  END IF;
++
++  IF coalesce(array_length(v_non_ledger_ids, 1), 0) > 0 THEN
++    UPDATE public.extracted_items SET status = 'confirmed'
++     WHERE document_id = p_document_id AND user_id = v_user
++       AND id = ANY(v_non_ledger_ids);
++  END IF;
++
++  IF coalesce(v_doc.document_kind, '') = 'invoice' THEN
++    v_statement := public.finalize_invoice_statement(p_document_id, p_item_ids);
++    IF NOT coalesce((v_statement->>'ok')::boolean, false) THEN
++      RAISE EXCEPTION 'invoice_statement_failed'
++        USING ERRCODE = 'P0001', DETAIL = v_statement::text;
++    END IF;
++  END IF;
++
++  SELECT count(*) INTO v_pending FROM public.extracted_items
++   WHERE document_id = p_document_id AND user_id = v_user
++     AND status IN ('needs_review','duplicate_suspect','failed');
++  UPDATE public.document_imports
++     SET status = CASE WHEN v_pending = 0 THEN 'confirmed' ELSE 'partially_confirmed' END,
++         error = NULL, updated_at = now()
++   WHERE id = p_document_id AND user_id = v_user;
++
++  v_created := coalesce((v_confirmation->>'created_count')::integer, 0);
++  SELECT count(*) INTO v_idempotent
++    FROM jsonb_array_elements(coalesce(v_confirmation->'skipped', '[]'::jsonb)) row
++   WHERE row->>'reason' IN ('already_confirmed','already_imported');
++
++  v_statement := jsonb_build_object(
++    'ok', true,
++    'idempotent', false,
++    'created_count', v_created,
++    'non_ledger_count', coalesce(array_length(v_non_ledger_ids, 1), 0),
++    'idempotent_count', v_idempotent,
++    'accounted_count', v_created + v_idempotent + coalesce(array_length(v_non_ledger_ids, 1), 0),
++    'total_selected', array_length(p_item_ids, 1),
++    'errors', '[]'::jsonb,
++    'statement', v_statement,
++    'remaining_count', v_pending
++  );
++
++  INSERT INTO public.document_import_audit(user_id, document_id, action, payload)
++  VALUES (v_user, p_document_id, 'invoice_atomic_confirmed', jsonb_build_object(
++    'idempotency_key', p_idempotency_key, 'item_ids', to_jsonb(p_item_ids), 'result', v_statement
++  ));
++  RETURN v_statement;
++END $$;
++
++REVOKE ALL ON FUNCTION public.confirm_invoice_import_atomic(uuid,uuid[],text) FROM PUBLIC, anon;
++GRANT EXECUTE ON FUNCTION public.confirm_invoice_import_atomic(uuid,uuid[],text) TO authenticated, service_role;
++
++CREATE OR REPLACE FUNCTION public.settle_credit_card_statement(
++  p_statement_id uuid,
++  p_account_id uuid,
++  p_amount numeric DEFAULT NULL,
++  p_paid_at date DEFAULT current_date,
++  p_idempotency_key text DEFAULT NULL
++) RETURNS jsonb
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++  v_user uuid := auth.uid();
++  v_statement public.credit_card_statements%ROWTYPE;
++  v_amount numeric(14,2);
++  v_payment uuid;
++  v_transaction uuid;
++  v_new_paid numeric(14,2);
++BEGIN
++  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '42501'; END IF;
++  SELECT * INTO v_statement FROM public.credit_card_statements
++   WHERE id = p_statement_id AND user_id = v_user FOR UPDATE;
++  IF NOT FOUND THEN RAISE EXCEPTION 'statement_not_found' USING ERRCODE = 'P0002'; END IF;
++  IF v_statement.status IN ('cancelled','refinanced') THEN
++    RAISE EXCEPTION 'statement_not_payable' USING ERRCODE = '22023';
++  END IF;
++  IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE id=p_account_id AND user_id=v_user AND active) THEN
++    RAISE EXCEPTION 'account_not_found' USING ERRCODE = 'P0002';
++  END IF;
++
++  IF p_idempotency_key IS NOT NULL THEN
++    SELECT id, transaction_id INTO v_payment, v_transaction
++      FROM public.credit_card_payments
++     WHERE user_id=v_user AND idempotency_key=p_idempotency_key;
++    IF FOUND THEN RETURN jsonb_build_object('ok',true,'idempotent',true,'payment_id',v_payment,'transaction_id',v_transaction); END IF;
++  END IF;
++
++  v_amount := round(coalesce(p_amount, v_statement.outstanding_amount), 2);
++  IF v_amount <= 0 OR v_amount > v_statement.outstanding_amount + 0.005 THEN
++    RAISE EXCEPTION 'invalid_payment_amount' USING ERRCODE = '22023';
++  END IF;
++
++  -- Cash decreases, liability decreases. It is deliberately not consumption.
++  INSERT INTO public.transactions(
++    user_id, account_id, type, status, amount, occurred_at, description,
++    payment_method, movement_kind, settles_card_id, origin
++  ) VALUES (
++    v_user, p_account_id, 'expense', 'confirmed', v_amount, coalesce(p_paid_at,current_date),
++    'Pagamento de fatura do cartão', 'account', 'card_payment', v_statement.credit_card_id, 'manual'
++  ) RETURNING id INTO v_transaction;
++
++  INSERT INTO public.credit_card_payments(
++    user_id, credit_card_id, account_id, paid_at, amount, transaction_id, idempotency_key
++  ) VALUES (
++    v_user, v_statement.credit_card_id, p_account_id, coalesce(p_paid_at,current_date),
++    v_amount, v_transaction, p_idempotency_key
++  ) RETURNING id INTO v_payment;
++  INSERT INTO public.credit_card_payment_allocations(user_id,payment_id,statement_id,amount)
++  VALUES (v_user,v_payment,p_statement_id,v_amount);
++
++  v_new_paid := round(v_statement.paid_amount + v_amount, 2);
++  UPDATE public.credit_card_statements
++     SET paid_amount=v_new_paid,
++         status=CASE WHEN v_new_paid >= stated_total-0.005 THEN 'paid' ELSE 'partially_paid' END,
++         updated_at=now()
++   WHERE id=p_statement_id;
++
++  UPDATE public.credit_card_installments i SET
++    status=CASE WHEN v_new_paid >= v_statement.stated_total-0.005 THEN 'paid' ELSE i.status END,
++    updated_at=now()
++  FROM public.credit_card_statement_items si
++  WHERE si.statement_id=p_statement_id AND si.installment_id=i.id
++    AND i.user_id=v_user AND i.status IN ('billed','overdue','scheduled');
++
++  RETURN jsonb_build_object(
++    'ok',true,'idempotent',false,'payment_id',v_payment,'transaction_id',v_transaction,
++    'amount',v_amount,'paid_amount',v_new_paid,
++    'outstanding_amount',greatest(0,v_statement.stated_total-v_new_paid),
++    'status',CASE WHEN v_new_paid >= v_statement.stated_total-0.005 THEN 'paid' ELSE 'partially_paid' END
++  );
++END $$;
++
++REVOKE ALL ON FUNCTION public.settle_credit_card_statement(uuid,uuid,numeric,date,text) FROM PUBLIC, anon;
++GRANT EXECUTE ON FUNCTION public.settle_credit_card_statement(uuid,uuid,numeric,date,text) TO authenticated, service_role;
++
++-- Expose overdue as state, not as a client-side guess only.
++UPDATE public.credit_card_statements SET status='overdue', updated_at=now()
++ WHERE due_date < current_date AND outstanding_amount > 0 AND status IN ('open','partially_paid');
++
++NOTIFY pgrst, 'reload schema';
+-- 
+2.51.1
+

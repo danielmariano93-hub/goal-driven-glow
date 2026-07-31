@@ -1,18 +1,28 @@
 import { useMemo, useState } from "react";
-import { Plus, CreditCard, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText } from "lucide-react";
 import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
-import { useAllTransactions } from "@/lib/db/finance";
+import { useAccounts, useAllTransactions } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+
+type StatementRow = {
+  id: string; credit_card_id: string; competence_month: string; due_date: string;
+  stated_total: number; paid_amount: number; outstanding_amount: number;
+  reconciliation_difference: number; status: string; source_document_id?: string | null;
+};
 
 export default function Cartoes() {
   const { data: cards, isLoading } = useCreditCards();
   const { data: txs } = useAllTransactions();
+  const { data: accounts = [] } = useAccounts();
+  const qc = useQueryClient();
   const [editing, setEditing] = useState<CreditCardRow | null>(null);
   const [open, setOpen] = useState(false);
+  const [paying, setPaying] = useState<StatementRow | null>(null);
   const save = useSaveCreditCard();
   const del = useDeleteCreditCard();
   const ym = currentMonthYM();
@@ -21,7 +31,7 @@ export default function Cartoes() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("credit_card_statements")
-        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
+        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
         .order("competence_month", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -163,6 +173,64 @@ export default function Cartoes() {
         </ul>
       )}
 
+      {statements.length > 0 && (
+        <section className="mt-8">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <h2 className="font-display text-lg font-bold">Histórico de faturas</h2>
+              <p className="text-xs text-muted-foreground">Acompanhe o que está aberto, pago ou atrasado sem contar o pagamento como nova despesa.</p>
+            </div>
+            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium">{statements.length} fatura(s)</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {(statements as StatementRow[]).map((statement) => {
+              const card = cards?.find((item) => item.id === statement.credit_card_id);
+              const overdue = statement.outstanding_amount > 0 && new Date(`${statement.due_date}T12:00:00`) < new Date();
+              const status = statement.status === "paid" ? "paid" : overdue ? "overdue" : statement.status;
+              const progress = statement.stated_total > 0 ? Math.min(100, Math.round((statement.paid_amount / statement.stated_total) * 100)) : 0;
+              const statusMeta = statementStatus(status);
+              return (
+                <article key={statement.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="rounded-xl bg-primary/10 p-2 text-primary"><ReceiptText size={18} /></div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{card?.name ?? "Cartão"} · {formatCompetence(statement.competence_month)}</p>
+                        <p className="text-[11px] text-muted-foreground">Vence em {formatDate(statement.due_date)}</p>
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.className}`}>
+                      {statusMeta.icon}{statusMeta.label}
+                    </span>
+                  </div>
+                  <div className="mt-4 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total da fatura</p>
+                      <p className="text-xl font-bold tabular-nums">{formatBRL(Number(statement.stated_total))}</p>
+                    </div>
+                    <p className="text-right text-xs text-muted-foreground">
+                      {statement.outstanding_amount > 0 ? <>Falta <strong className="text-foreground">{formatBRL(Number(statement.outstanding_amount))}</strong></> : "Tudo pago ✓"}
+                    </p>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                    <span>{progress}% quitado</span><span>{formatBRL(Number(statement.paid_amount))} pagos</span>
+                  </div>
+                  {Math.abs(Number(statement.reconciliation_difference)) > 0.05 && (
+                    <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Conciliação pendente: diferença de {formatBRL(Math.abs(Number(statement.reconciliation_difference)))}</p>
+                  )}
+                  {statement.outstanding_amount > 0 && Math.abs(Number(statement.reconciliation_difference)) <= 0.05 && (
+                    <button onClick={() => setPaying(statement)} className="btn-brand mt-4 w-full py-2 text-xs">Registrar pagamento</button>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {open && (
         <CardFormModal
           initial={editing}
@@ -182,6 +250,77 @@ export default function Cartoes() {
           saving={save.isPending}
         />
       )}
+      {paying && (
+        <StatementPaymentModal
+          statement={paying}
+          accounts={accounts as Array<{ id: string; name: string }>}
+          onClose={() => setPaying(null)}
+          onPaid={async () => {
+            await Promise.all([
+              qc.invalidateQueries({ queryKey: ["credit_card_statements"] }),
+              qc.invalidateQueries({ queryKey: ["credit_card_installments"] }),
+              qc.invalidateQueries({ queryKey: ["transactions"] }),
+              qc.invalidateQueries({ queryKey: ["accounts"] }),
+              qc.invalidateQueries({ queryKey: ["home"] }),
+            ]);
+            setPaying(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function statementStatus(status: string) {
+  if (status === "paid") return { label: "Paga", icon: <CheckCircle2 size={12} />, className: "bg-emerald-50 text-emerald-700" };
+  if (status === "overdue") return { label: "Atrasada", icon: <AlertTriangle size={12} />, className: "bg-red-50 text-red-700" };
+  if (status === "partially_paid") return { label: "Parcial", icon: <Clock3 size={12} />, className: "bg-amber-50 text-amber-700" };
+  if (status === "needs_review") return { label: "Revisar", icon: <AlertTriangle size={12} />, className: "bg-amber-50 text-amber-700" };
+  return { label: "Em aberto", icon: <Clock3 size={12} />, className: "bg-blue-50 text-blue-700" };
+}
+
+const formatDate = (date: string) => new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00`));
+const formatCompetence = (date: string) => new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(`${date.slice(0, 10)}T12:00:00`));
+
+function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
+  statement: StatementRow;
+  accounts: Array<{ id: string; name: string }>;
+  onClose: () => void;
+  onPaid: () => Promise<void>;
+}) {
+  const [accountId, setAccountId] = useState(accounts.length === 1 ? accounts[0].id : "");
+  const [amount, setAmount] = useState(Number(statement.outstanding_amount).toFixed(2).replace(".", ","));
+  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const numeric = Number(amount.replace(/\./g, "").replace(",", "."));
+    if (!accountId || !Number.isFinite(numeric) || numeric <= 0) return toast.error("Escolha a conta e informe um valor válido.");
+    setSaving(true);
+    const key = `statement:${statement.id}:${paidAt}:${Math.round(numeric * 100)}`;
+    const { data, error } = await (supabase as any).rpc("settle_credit_card_statement", {
+      p_statement_id: statement.id, p_account_id: accountId, p_amount: numeric,
+      p_paid_at: paidAt, p_idempotency_key: key,
+    });
+    setSaving(false);
+    if (error || !data?.ok) return toast.error("Não foi possível registrar o pagamento", { description: error?.message ?? data?.error });
+    toast.success(data.status === "paid" ? "Fatura paga 🎉" : "Pagamento parcial registrado", {
+      description: "A conta e a obrigação do cartão foram atualizadas. Nenhuma nova despesa foi criada.",
+    });
+    await onPaid();
+  }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Registrar pagamento</h2>
+        <p className="mt-1 text-xs text-muted-foreground">A baixa reduz o saldo da conta e a dívida do cartão. As compras já foram contabilizadas antes.</p>
+        <div className="mt-5 space-y-3">
+          <Field label="Conta usada no pagamento"><select className="input-base" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">Escolha a conta</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+          <Field label="Valor pago (R$)"><input className="input-base" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Data do pagamento"><input className="input-base" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} /></Field>
+        </div>
+        <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Cancelar</button><button disabled={saving} className="btn-brand inline-flex items-center gap-2">{saving && <Loader2 className="h-4 w-4 animate-spin" />}Confirmar baixa</button></div>
+      </form>
     </div>
   );
 }

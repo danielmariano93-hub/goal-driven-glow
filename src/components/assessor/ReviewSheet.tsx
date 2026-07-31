@@ -154,6 +154,7 @@ export function ReviewSheet({
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [pendingWrites, setPendingWrites] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +178,14 @@ export function ReviewSheet({
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setDocKind(d.document?.document_kind ?? null);
-      const initial = new Set<string>(d.items.filter((i) => i.status === "needs_review" || i.status === "failed").map((i) => i.id));
+      // Also select rows confirmed by the legacy two-step flow when the
+      // document itself never finalized. The new RPC will treat them as
+      // idempotent and complete the statement without duplicate transactions.
+      const recoverLegacyPartial = d.document?.document_kind === "invoice" && d.document?.status !== "confirmed";
+      const initial = new Set<string>(d.items.filter((i) =>
+        i.status === "needs_review" || i.status === "failed" ||
+        (recoverLegacyPartial && i.status === "confirmed")
+      ).map((i) => i.id));
       setSelected(initial);
       setLoading(false);
     })();
@@ -245,13 +253,18 @@ export function ReviewSheet({
   async function patchItem(id: string, patch: Partial<Item>) {
     const previous = items.find((item) => item.id === id);
     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    const { error } = await supabase.functions.invoke("assistant-review-actions", {
-      body: { action: "update", item_id: id, patch },
-    });
-    if (error) {
+    setPendingWrites((count) => count + 1);
+    try {
+      const { error } = await supabase.functions.invoke("assistant-review-actions", {
+        body: { action: "update", item_id: id, patch },
+      });
+      if (error) throw error;
+    } catch (error) {
       if (previous) setItems((xs) => xs.map((x) => (x.id === id ? previous : x)));
       console.error("[ReviewSheet] update", error);
       toast.error("A alteração não foi salva", { description: "O valor anterior foi restaurado para você não confirmar dados incorretos." });
+    } finally {
+      setPendingWrites((count) => Math.max(0, count - 1));
     }
   }
 
@@ -347,6 +360,10 @@ export function ReviewSheet({
   async function confirmSelection() {
     const ids = [...selected];
     if (ids.length === 0) return;
+    if (pendingWrites > 0 || bulkSaving) {
+      toast.info("Salvando suas últimas edições", { description: "A confirmação será liberada assim que tudo estiver seguro." });
+      return;
+    }
     // Client-side pre-flight: every item must have a valid target (account or card)
     const notReady = items.filter((i) => selected.has(i.id) && (
       (i.payment_method === "account" && !i.account_id) ||
@@ -377,7 +394,12 @@ export function ReviewSheet({
         body: { action: "confirm", document_id: documentId, item_ids: ids },
       });
       if (error) throw error;
-      const r = (data as { result: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }).result;
+      const payload = data as { ok?: boolean; user_message?: string; result?: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } };
+      if (payload.ok === false || !payload.result) {
+        toast.error("A fatura não foi registrada", { description: payload.user_message ?? "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
+        return;
+      }
+      const r = payload.result;
       const accounted = r.accounted_count ?? r.created_count;
       if (accounted === r.total_selected && r.errors.length === 0) {
         toast.success(`${r.created_count} lançamento(s) registrado(s)`, {
@@ -861,6 +883,11 @@ export function ReviewSheet({
                 </ul>
               )}
               <div className="flex items-center gap-2">
+                {pendingWrites > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Salvando {pendingWrites} edição(ões)…
+                  </span>
+                )}
                 <button
                   onClick={cancelImport}
                   disabled={confirming}
@@ -870,7 +897,7 @@ export function ReviewSheet({
                 </button>
                 <button
                   onClick={confirmSelection}
-                  disabled={confirming || selected.size === 0 || blockers.length > 0}
+                  disabled={confirming || pendingWrites > 0 || bulkSaving || selected.size === 0 || blockers.length > 0}
                   className="btn-brand ml-auto inline-flex items-center gap-1.5 disabled:opacity-50"
                 >
                   {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check size={14} />}

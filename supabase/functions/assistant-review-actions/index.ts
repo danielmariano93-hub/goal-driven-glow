@@ -112,86 +112,25 @@ Deno.serve(async (req) => {
     const document_id = String(body.document_id ?? "");
     const item_ids = Array.isArray(body.item_ids) ? (body.item_ids as string[]) : [];
     if (!document_id || item_ids.length === 0) return json({ error: "missing_fields" }, 400);
-    const { data: validation, error: validationError } = await userClient.rpc("validate_invoice_import", {
-      p_document_id: document_id, p_item_ids: item_ids,
+    const idempotencyKey = String(body.idempotency_key ?? `invoice:${document_id}:${[...item_ids].sort().join(",")}`);
+    const { data, error } = await userClient.rpc("confirm_invoice_import_atomic", {
+      p_document_id: document_id,
+      p_item_ids: item_ids,
+      p_idempotency_key: idempotencyKey,
     });
-    if (validationError) return json({ error: "invoice_validation_failed", details: validationError.message }, 400);
-    if (!(validation as { ok?: boolean } | null)?.ok) {
-      // Mensagem em linguagem simples: qual bloco da fatura ficou incompleto.
-      const v = (validation ?? {}) as { gap_section?: string | null; gap_amount?: number | null; difference?: number | null };
-      const labels: Record<string, string> = {
-        payments: "Pagamentos", domestic: "Compras nacionais", international: "Compras internacionais",
-        taxes: "IOF e encargos", credits: "Estornos", other: "Lançamentos do ciclo",
-      };
-      const gapValue = Math.abs(Number(v.gap_amount ?? v.difference ?? 0));
-      const money = gapValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-      const user_message = v.gap_section
-        ? `Faltam ${money} no bloco ${labels[v.gap_section] ?? v.gap_section} desta fatura. Confira esse trecho antes de registrar.`
-        : `A fatura ainda não fecha: diferença de ${money}. Nada será registrado até conciliar.`;
-      return json({ error: "invoice_not_reconciled", result: validation, user_message }, 409);
+    if (error) {
+      // Postgres returns the validation/finalization JSON in details. Preserve
+      // it so the UI can explain the exact correction without losing edits.
+      let diagnostic: Record<string, unknown> | null = null;
+      try { diagnostic = error.details ? JSON.parse(error.details) : null; } catch { diagnostic = null; }
+      const difference = Math.abs(Number(diagnostic?.difference ?? diagnostic?.gap_amount ?? 0));
+      const money = difference.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const userMessage = error.message.includes("invoice_not_reconciled")
+        ? `A fatura ainda não fecha${difference ? `: diferença de ${money}` : ""}. Suas edições continuam salvas; corrija a conciliação e tente novamente.`
+        : "Nada foi gravado. Suas edições continuam salvas e você pode tentar novamente.";
+      return json({ ok: false, error: "atomic_confirmation_failed", details: error.message, result: diagnostic, user_message: userMessage });
     }
-
-    const { data: selectedRows, error: selectedError } = await sb.from("extracted_items")
-      .select("id,statement_item_kind").eq("document_id", document_id).eq("user_id", user.id).in("id", item_ids);
-    if (selectedError) return json({ error: "selected_items_failed", details: selectedError.message }, 400);
-    // Pagamento exibido dentro da fatura e linha informativa participam da
-    // conciliação, mas não são uma nova despesa/receita. Nunca os convertemos
-    // em transaction.
-    const nonLedgerIds = (selectedRows ?? [])
-      .filter((row) => row.statement_item_kind === "payment" || row.statement_item_kind === "informational")
-      .map((row) => row.id as string);
-    const transactionIds = item_ids.filter((id) => !nonLedgerIds.includes(id));
-    let data: unknown = {
-      ok: true, created_count: 0, total_selected: 0, created: [], skipped: [], errors: [],
-    };
-    let error: { message: string } | null = null;
-    if (transactionIds.length > 0) {
-      const rpc = await userClient.rpc("confirm_document_import", {
-        p_document_id: document_id, p_item_ids: transactionIds,
-      });
-      data = rpc.data;
-      error = rpc.error;
-    }
-    if (error) return json({ error: "rpc_failed", details: error.message }, 400);
-    const result = (data ?? {}) as Record<string, unknown>;
-    if (result.ok === false) return json({ error: "confirmation_rejected", result }, 409);
-    const errors = Array.isArray(result.errors) ? result.errors : [];
-    const idempotentSkips = (Array.isArray(result.skipped) ? result.skipped : [])
-      .filter((row) => ["already_confirmed", "already_imported"].includes(String((row as { reason?: string }).reason ?? ""))).length;
-    if (nonLedgerIds.length > 0) {
-      await sb.from("extracted_items").update({ status: "confirmed" })
-        .eq("document_id", document_id).eq("user_id", user.id).in("id", nonLedgerIds);
-    }
-    let statementResult: unknown = null;
-    if (errors.length === 0 && !(validation as { not_invoice?: boolean } | null)?.not_invoice) {
-      const finalized = await userClient.rpc("finalize_invoice_statement", {
-        p_document_id: document_id, p_item_ids: item_ids,
-      });
-      if (finalized.error) {
-        return json({ error: "statement_finalize_failed", details: finalized.error.message }, 500);
-      }
-      statementResult = finalized.data;
-    }
-    const { count: pendingCount } = await sb.from("extracted_items")
-      .select("id", { count: "exact", head: true })
-      .eq("document_id", document_id).eq("user_id", user.id)
-      .in("status", ["needs_review", "duplicate_suspect", "failed"]);
-    if ((pendingCount ?? 0) === 0) {
-      await sb.from("document_imports").update({ status: "confirmed" })
-        .eq("id", document_id).eq("user_id", user.id);
-    }
-    const accounted = Number(result.created_count ?? 0) + idempotentSkips + nonLedgerIds.length;
-    return json({
-      ok: true,
-      result: {
-        ...result,
-        non_ledger_count: nonLedgerIds.length,
-        idempotent_count: idempotentSkips,
-        accounted_count: accounted,
-        total_selected: item_ids.length,
-        statement: statementResult,
-      },
-    });
+    return json({ ok: true, result: data });
   }
 
   if (action === "update-document") {

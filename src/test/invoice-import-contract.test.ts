@@ -14,10 +14,10 @@ describe("invoice import safety contract", () => {
   });
 
   it("never turns bill payments or informational rows into new transactions", () => {
-    const edge = read("supabase/functions/assistant-review-actions/index.ts");
-    expect(edge).toContain('row.statement_item_kind === "payment"');
-    expect(edge).toContain('row.statement_item_kind === "informational"');
-    expect(edge).toContain("nonLedgerIds");
+    const migration = read("supabase/migrations/20260731120000_invoice_atomic_save_and_statement_payment.sql");
+    expect(migration).toContain("NOT IN ('payment','informational')");
+    expect(migration).toContain("IN ('payment','informational')");
+    expect(migration).toContain("v_non_ledger_ids");
   });
 
   it("keeps the manual and imported installment journeys explicit", () => {
