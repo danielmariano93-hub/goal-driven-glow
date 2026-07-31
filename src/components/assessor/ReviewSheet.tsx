@@ -544,8 +544,7 @@ export function ReviewSheet({
                           />
                         </div>
                       </div>
-                      <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-5">
-                        <span>Saldo anterior<br/><strong>{formatBRL(Number(documentInfo.invoice_previous_balance ?? 0))}</strong></span>
+                      <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
                         <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
                         <span>Estornos/créditos<br/><strong>−{formatBRL(invoiceSummary.credits)}</strong></span>
                         <span>Pagamentos<br/><strong>−{formatBRL(invoiceSummary.payments)}</strong></span>
@@ -561,6 +560,21 @@ export function ReviewSheet({
                             ? `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Confira se esse é o saldo anterior exibido na fatura; ele não será lançado como nova despesa.`
                             : `Diferença de ${formatBRL(Math.abs(reconciliation.difference ?? 0))}. Nenhum lançamento será gravado até a conciliação.`}
                     </p>
+                    {coverageRows.length > 0 && (
+                      <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Conferência por bloco da fatura</p>
+                        {coverageRows.map((row) => (
+                          <div key={row.section} className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="truncate">{SECTION_LABELS[row.section] ?? row.section}</span>
+                            <span className={row.covered ? "text-success" : "text-warning"}>
+                              {formatBRL(row.extracted_total)} de {formatBRL(row.official_total ?? 0)}
+                              {row.covered ? " ✓" : ` · faltam ${formatBRL(Math.abs(row.difference ?? 0))}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                   </div>
                 )}
                 {documentInfo.user_instructions && <p className="text-muted-foreground">Orientação aplicada: {documentInfo.user_instructions}</p>}
