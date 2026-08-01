@@ -360,6 +360,18 @@ export function computeRhythm(
     typicalAverage: days > 0 ? round2(typicalTotal / days) : 0,
     excludedTotal,
     excluded,
+    excludedByReason: (["recurring", "installment", "fixed", "outlier"] as ExclusionReason[])
+      .map((reason) => {
+        const items = excluded.filter((e) => e.reason === reason);
+        return {
+          reason,
+          label: EXCLUSION_REASON_LABEL[reason],
+          total: round2(items.reduce((sum, e) => sum + e.amount, 0)),
+          count: items.length,
+        };
+      })
+      .filter((g) => g.count > 0),
+
     series,
     formulaVersion: RHYTHM_FORMULA_VERSION,
   };
