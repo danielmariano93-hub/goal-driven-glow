@@ -10,6 +10,9 @@
 //   cutover    → terminal
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fail } from "../_shared/http.ts";
+
+const FN = "finance-backfill-runner";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -34,13 +37,13 @@ type Checkpoint = {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return fail("method_not_allowed", { status: 405, functionName: FN });
 
   const cronHdr = req.headers.get("x-cron-secret") ?? "";
   const authHdr = req.headers.get("Authorization") ?? "";
   const okCron = CRON_SECRET.length > 0 && cronHdr === CRON_SECRET;
   const okService = authHdr === `Bearer ${SERVICE_ROLE}`;
-  if (!okCron && !okService) return json({ error: "unauthorized" }, 401);
+  if (!okCron && !okService) return fail("unauthorized", { status: 401, functionName: FN });
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },

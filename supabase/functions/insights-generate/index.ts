@@ -6,6 +6,9 @@
 // - `force` nunca gera duas dicas em sequência (janela mínima).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fail } from "../_shared/http.ts";
+
+const FN = "insights-generate";
 import {
   InsightSchema,
   candidates as buildCandidates,
@@ -36,7 +39,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
 
   const started = Date.now();
   let body: { force?: boolean } = {};
@@ -49,7 +52,7 @@ Deno.serve(async (req) => {
   });
   const { data: userData } = await supaUser.auth.getUser();
   const uid = userData?.user?.id;
-  if (!uid) return json({ error: "unauthorized" }, 401);
+  if (!uid) return fail("unauthorized", { status: 401, functionName: FN });
 
   const supa = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
@@ -337,7 +340,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
 
   if (error) {
     logEvent({ event: "insert_error", err: error.message, fallbackReason });
-    return json({ error: "insert_failed" }, 500);
+    return fail("insert_failed", { status: 500, functionName: FN });
   }
 
   logEvent({

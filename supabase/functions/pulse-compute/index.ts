@@ -5,6 +5,9 @@
 // - Retorna score, band, factors, next_action, week_delta e state.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fail } from "../_shared/http.ts";
+
+const FN = "pulse-compute";
 import { computePulse, type PulseInput } from "../_shared/pulse/rules.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -13,18 +16,18 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST" && req.method !== "GET") {
-    return json({ error: "method_not_allowed" }, 405);
+    return fail("method_not_allowed", { status: 405, functionName: FN });
   }
 
   const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
   const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
     global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
   });
   const { data: userData, error: userError } = await sbAuth.auth.getUser();
   const userId = userData?.user?.id;
-  if (userError || !userId) return json({ error: "unauthorized" }, 401);
+  if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
@@ -212,6 +215,6 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[pulse-compute] error", (e as Error).message);
-    return json({ error: "internal" }, 500);
+    return fail("internal", { status: 500, functionName: FN });
   }
 });

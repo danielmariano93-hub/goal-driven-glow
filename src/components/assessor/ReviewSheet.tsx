@@ -12,6 +12,7 @@ import { usePrivacyMode } from "@/context/PrivacyModeContext";
 import { CategorySelect } from "@/components/CategorySelect";
 import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
+import { invokeEdge, failureDescription } from "@/lib/edge/invoke";
 
 type Item = {
   id: string;
@@ -390,13 +391,19 @@ export function ReviewSheet({
     if (uncategorized > 0 && !confirm(`${uncategorized} lançamento(s) continuam sem categoria. Deseja confirmar mesmo assim?`)) return;
     setConfirming(true);
     try {
-      const { data, error } = await supabase.functions.invoke("assistant-review-actions", {
-        body: { action: "confirm", document_id: documentId, item_ids: ids },
-      });
-      if (error) throw error;
-      const payload = data as { ok?: boolean; user_message?: string; result?: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } };
-      if (payload.ok === false || !payload.result) {
-        toast.error("A fatura não foi registrada", { description: payload.user_message ?? "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
+      const { data, failure } = await invokeEdge<{ ok?: boolean; result?: { created_count: number; accounted_count?: number; non_ledger_count?: number; errors: unknown[]; total_selected: number } }>(
+        "assistant-review-actions",
+        { action: "confirm", document_id: documentId, item_ids: ids },
+      );
+      if (failure) {
+        toast.error("A fatura não foi registrada", {
+          description: `${failureDescription(failure)} Suas edições foram preservadas.`,
+        });
+        return;
+      }
+      const payload = data ?? {};
+      if (!payload.result) {
+        toast.error("A fatura não foi registrada", { description: "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
         return;
       }
       const r = payload.result;

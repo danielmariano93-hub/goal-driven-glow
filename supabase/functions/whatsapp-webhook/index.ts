@@ -17,6 +17,9 @@
 //    a cron worker.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fail } from "../_shared/http.ts";
+
+const FN = "whatsapp-webhook";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
 import { maskLid, resolveLidToPhone } from "../_shared/messaging/lidResolver.ts";
@@ -180,7 +183,7 @@ async function ensureConversation(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return fail("method_not_allowed", { status: 405, functionName: FN });
 
   const sbBoot = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -197,14 +200,14 @@ Deno.serve(async (req) => {
   if (qToken) forwardedHeaders.set("x-webhook-token", qToken);
 
   if (!provider.verifyWebhookSecret(forwardedHeaders)) {
-    return json({ error: "unauthorized" }, 401);
+    return fail("unauthorized", { status: 401, functionName: FN });
   }
 
   const raw = await req.text();
-  if (raw.length > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
+  if (raw.length > MAX_BODY_BYTES) return fail("payload_too_large", { status: 413, functionName: FN });
 
   let payload: unknown;
-  try { payload = JSON.parse(raw); } catch { return json({ error: "invalid_json" }, 400); }
+  try { payload = JSON.parse(raw); } catch { return fail("invalid_json", { status: 400, functionName: FN }); }
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -291,7 +294,7 @@ Deno.serve(async (req) => {
   }).select("id").maybeSingle();
   if (insErr && !String(insErr.message).toLowerCase().includes("duplicate")) {
     console.error("[webhook] insert failed", insErr.message);
-    return json({ error: "internal" }, 500);
+    return fail("internal", { status: 500, functionName: FN });
   }
   if (insErr) return json({ ok: true, dedup: true });
   const inbound_message_id = inb!.id as string;
@@ -410,7 +413,7 @@ Deno.serve(async (req) => {
       .update({ processed_at: new Date().toISOString(), ignored_reason: "conversation_error" })
       .eq("id", inbound_message_id).then(() => {}, () => {});
     triggerDispatcher();
-    return json({ ok: true, error: "conversation_error" }, 200);
+    return json({ ok: true, soft_error: "conversation_error" }, 200);
   }
   await sb.from("conversation_messages").insert({
     conversation_id: conversationId, user_id: link.user_id, direction: "inbound",

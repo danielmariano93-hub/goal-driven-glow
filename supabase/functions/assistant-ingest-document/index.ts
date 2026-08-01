@@ -10,6 +10,9 @@
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fail } from "../_shared/http.ts";
+
+const FN = "assistant-ingest-document";
 import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
@@ -1524,7 +1527,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
 
 async function respondWithStatus(sb: ReturnType<typeof createClient>, documentId: string, userId: string, extra: Record<string, unknown> = {}, status = 200) {
   const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
-  if (!doc) return json({ error: "not_found" }, 404);
+  if (!doc) return fail("not_found", { status: 404, functionName: FN });
   const { tag, correlation_id } = parseErrorTag(doc.error);
   const { data: items } = (doc.status === "needs_review" || doc.status === "partial")
     ? await sb.from("extracted_items").select("id").eq("document_id", documentId).eq("user_id", userId)
@@ -1544,10 +1547,10 @@ async function respondWithStatus(sb: ReturnType<typeof createClient>, documentId
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return fail("method_not_allowed", { status: 405, functionName: FN });
 
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  try { body = await req.json(); } catch { return fail("invalid_json", { status: 400, functionName: FN }); }
   const mode = String(body.mode ?? "");
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
@@ -1556,13 +1559,13 @@ Deno.serve(async (req) => {
   // Bypasses user JWT via a service-role bearer. Never expose this mode from clients.
   if (mode === "process-inbound-media") {
     const auth = req.headers.get("Authorization") ?? "";
-    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return json({ error: "forbidden" }, 403);
+    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return fail("forbidden", { status: 403, functionName: FN });
     const document_id = String(body.document_id ?? "");
     const user_id = String(body.user_id ?? "");
     const guidance = String(body.guidance ?? "").slice(0, 500);
-    if (!document_id || !user_id) return json({ error: "missing_fields" }, 400);
+    if (!document_id || !user_id) return fail("missing_fields", { status: 400, functionName: FN });
     const { acquired, doc } = await acquireProcessingLock(sb, document_id, user_id);
-    if (!doc) return json({ error: "not_found" }, 404);
+    if (!doc) return fail("not_found", { status: 404, functionName: FN });
     if (!acquired) return json({ ok: true, status: doc.status, document_id }, 200);
     const correlationId = makeCorrelationId();
     console.log(`[assistant-ingest cid=${correlationId}] whatsapp-media document=${document_id} user=${user_id}`);
@@ -1573,7 +1576,7 @@ Deno.serve(async (req) => {
   }
 
   const user = await getUser(req);
-  if (!user) return json({ error: "unauthorized" }, 401);
+  if (!user) return fail("unauthorized", { status: 401, functionName: FN });
 
   // === CREATE UPLOAD ===
   if (mode === "create-upload") {
@@ -1582,20 +1585,20 @@ Deno.serve(async (req) => {
     const size_bytes = Number(body.size_bytes ?? 0);
     const conversation_id = (body.conversation_id as string | undefined) ?? null;
 
-    if (!ALLOWED_MIME.has(mime_type)) return json({ error: "mime_not_allowed", allowed: [...ALLOWED_MIME] }, 400);
-    if (!Number.isFinite(size_bytes) || size_bytes <= 0 || size_bytes > MAX_BYTES) return json({ error: "size_out_of_range", max: MAX_BYTES }, 400);
+    if (!ALLOWED_MIME.has(mime_type)) return fail("mime_not_allowed", { status: 400, functionName: FN, details: { allowed: [...ALLOWED_MIME]} });
+    if (!Number.isFinite(size_bytes) || size_bytes <= 0 || size_bytes > MAX_BYTES) return fail("size_out_of_range", { status: 400, functionName: FN, details: { max: MAX_BYTES} });
 
     const doc_id = crypto.randomUUID();
     const ext = mime_type === "application/pdf" ? "pdf" : mime_type === "image/png" ? "png" : mime_type === "image/webp" ? "webp" : "jpg";
     const storage_path = `${user.id}/${doc_id}.${ext}`;
 
     const { data: signed, error: signErr } = await sb.storage.from(BUCKET).createSignedUploadUrl(storage_path);
-    if (signErr || !signed) return json({ error: "signed_url_failed", details: signErr?.message }, 500);
+    if (signErr || !signed) return fail("signed_url_failed", { status: 500, functionName: FN, details: { details: signErr?.message} });
 
     // Contexto de origem opcional. Usuário e cartão são mutuamente exclusivos.
     const bodySrcAcc = typeof body.source_account_id === "string" && body.source_account_id ? String(body.source_account_id) : null;
     const bodySrcCard = typeof body.source_credit_card_id === "string" && body.source_credit_card_id ? String(body.source_credit_card_id) : null;
-    if (bodySrcAcc && bodySrcCard) return json({ error: "conflicting_source" }, 400);
+    if (bodySrcAcc && bodySrcCard) return fail("conflicting_source", { status: 400, functionName: FN });
 
     const { error: insErr } = await sb.from("document_imports").insert({
       id: doc_id,
@@ -1614,7 +1617,7 @@ Deno.serve(async (req) => {
       source_context_confidence: bodySrcAcc || bodySrcCard ? 1 : null,
       source_context_reason: bodySrcAcc || bodySrcCard ? "user_selected_on_upload" : null,
     });
-    if (insErr) return json({ error: "insert_failed", details: insErr.message }, 500);
+    if (insErr) return fail("insert_failed", { status: 500, functionName: FN, details: { details: insErr.message} });
 
 
     // O envio de documento também é uma mensagem da conversa. Persista após o
@@ -1644,11 +1647,11 @@ Deno.serve(async (req) => {
   // No side effects: purely diagnostic.
   if (mode === "verify-upload") {
     const document_id = String(body.document_id ?? "");
-    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    if (!document_id) return fail("missing_document_id", { status: 400, functionName: FN });
     const { data: doc } = await sb.from("document_imports")
       .select("id, storage_path, user_id")
       .eq("id", document_id).eq("user_id", user.id).maybeSingle();
-    if (!doc) return json({ error: "not_found" }, 404);
+    if (!doc) return fail("not_found", { status: 404, functionName: FN });
     const dir = doc.storage_path.split("/").slice(0, -1).join("/");
     const name = doc.storage_path.split("/").pop() ?? "";
     const { data: list, error: listErr } = await sb.storage.from(BUCKET).list(dir, { search: name, limit: 1 });
@@ -1665,11 +1668,11 @@ Deno.serve(async (req) => {
   // document doesn't stay orphaned in `uploaded`. Never triggers IA.
   if (mode === "mark-upload-missing") {
     const document_id = String(body.document_id ?? "");
-    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    if (!document_id) return fail("missing_document_id", { status: 400, functionName: FN });
     const correlationId = makeCorrelationId();
     const { data: doc } = await sb.from("document_imports")
       .select("id, status").eq("id", document_id).eq("user_id", user.id).maybeSingle();
-    if (!doc) return json({ error: "not_found" }, 404);
+    if (!doc) return fail("not_found", { status: 404, functionName: FN });
     if (TERMINAL_STATUSES.has(doc.status)) {
       return respondWithStatus(sb, document_id, user.id, {}, 200);
     }
@@ -1689,7 +1692,7 @@ Deno.serve(async (req) => {
   // === FINALIZE / RESUME / REPROCESS AFTER AUDITED ROLLBACK ===
   if (mode === "finalize" || mode === "resume" || mode === "reprocess") {
     const document_id = String(body.document_id ?? "");
-    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    if (!document_id) return fail("missing_document_id", { status: 400, functionName: FN });
     let guidance = String(body.guidance ?? "");
     if (mode === "reprocess") {
       const { data: prior } = await sb.from("document_imports").select("status,user_instructions,error")
@@ -1697,7 +1700,7 @@ Deno.serve(async (req) => {
       const priorTag = parseErrorTag((prior as { error?: string } | null)?.error).tag;
       const retryableFailure = prior?.status === "failed" && isTransientErrorTag(priorTag);
       if (!prior || (prior.status !== "rolled_back" && !retryableFailure)) {
-        return json({ error: "reprocess_not_allowed", user_message: "Só é possível reprocessar uma importação desfeita ou uma falha temporária." }, 409);
+        return fail("reprocess_not_allowed", { status: 409, functionName: FN, details: { user_message: "Só é possível reprocessar uma importação desfeita ou uma falha temporária."} });
       }
       guidance = guidance || String(prior.user_instructions ?? "");
       await sb.from("extracted_items").delete().eq("document_id", document_id).eq("user_id", user.id)
@@ -1706,7 +1709,7 @@ Deno.serve(async (req) => {
     }
 
     const { acquired, doc } = await acquireProcessingLock(sb, document_id, user.id);
-    if (!doc) return json({ error: "not_found" }, 404);
+    if (!doc) return fail("not_found", { status: 404, functionName: FN });
 
     if (!acquired) {
       // Already terminal, or another worker owns it. Just report current state.
@@ -1735,9 +1738,9 @@ Deno.serve(async (req) => {
   // === STATUS ===
   if (mode === "status") {
     const document_id = String(body.document_id ?? "");
-    if (!document_id) return json({ error: "missing_document_id" }, 400);
+    if (!document_id) return fail("missing_document_id", { status: 400, functionName: FN });
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", document_id).eq("user_id", user.id).maybeSingle();
-    if (!doc) return json({ error: "not_found" }, 404);
+    if (!doc) return fail("not_found", { status: 404, functionName: FN });
     const { data: items } = await sb.from("extracted_items").select("*").eq("document_id", document_id).eq("user_id", user.id).order("idx");
     const { tag, correlation_id } = parseErrorTag(doc.error);
     return json({
@@ -1754,5 +1757,5 @@ Deno.serve(async (req) => {
     });
   }
 
-  return json({ error: "unknown_mode" }, 400);
+  return fail("unknown_mode", { status: 400, functionName: FN });
 });
