@@ -151,7 +151,7 @@
       {
         "name": "financial_position",
         "title": "Posição financeira",
-        "description": "Mostra a posição atual do usuário autenticado: cartões de crédito ativos, dívidas em aberto e metas em andamento.",
+        "description": "Mostra a posição atual do usuário autenticado: cartões de crédito ativos com fatura atual e dívida real, dívidas em aberto e metas em andamento.",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,
