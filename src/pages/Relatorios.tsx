@@ -21,7 +21,7 @@ import {
 } from "@/lib/reports/aggregations";
 import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
-import { clampRangeToToday, computeRhythm } from "@/lib/engine/spendingRhythm";
+import { clampRangeToToday } from "@/lib/engine/spendingRhythm";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 
 export default function Relatorios() {
@@ -55,25 +55,11 @@ export default function Relatorios() {
 
   const filtered = filterCanonicalReportTransactions(filterPeriod(txns, reportRange.start, reportRange.end));
   const monthly = groupByMonth(filtered);
-  const categoryNameById = Object.fromEntries(
-    filtered.filter((transaction) => transaction.category_id && transaction.category_name)
-      .map((transaction) => [transaction.category_id as string, transaction.category_name as string]),
-  );
-  const rhythm = computeRhythm(
-    filtered.map((transaction) => ({
-      ...transaction,
-      id: transaction.id ?? "",
-      account_id: transaction.account_id ?? "",
-      category_id: transaction.category_id ?? null,
-      description: transaction.description ?? null,
-      transfer_group_id: transaction.transfer_group_id ?? null,
-    })),
-    reportRange,
-    { categoryNameById },
-  );
-  const dailyRhythm = rhythm.series.map((point) => ({
+  // FONTE ÚNICA: o ritmo vem do mesmo snapshot canônico da Home (finance-core).
+  const rhythm = financialSnapshot?.rhythm.current ?? null;
+  const dailyRhythm = (rhythm?.series ?? []).map((point) => ({
     date: point.date,
-    gastoDoDia: point.amount,
+    gastoDoDia: point.grossAmount,
     mediaTotal: point.runningAverage,
     ritmoTipico: point.typicalRunningAverage,
     label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
