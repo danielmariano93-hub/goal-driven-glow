@@ -17,6 +17,14 @@ import {
   type RecurringRow,
   type TransactionRow,
 } from "./facts";
+import {
+  computeCardExposure,
+  totalCardDebtOf,
+  totalFutureInstallmentsOf,
+  type CardExposure,
+  type CardInstallmentRow,
+  type CardStatementRow,
+} from "./cardExposure";
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
 import {
   clampRangeToToday,
@@ -123,6 +131,10 @@ export interface FinancialSnapshotInput {
   categoryNameById?: Record<string, string>;
   period: DateRange;
   today?: Date;
+  /** Faturas oficiais — quando presentes, têm precedência absoluta. */
+  cardStatements?: CardStatementRow[];
+  cardInstallments?: CardInstallmentRow[];
+  cardIds?: string[];
 }
 
 export interface FinancialSnapshot {
@@ -146,7 +158,14 @@ export interface FinancialSnapshot {
   projectedMonthEndAvailable: number;
   activeCategoryGoals: CategoryGoalEvaluation[];
   topCategoryGoal: CategoryGoalEvaluation | null;
-}
+  /** Exposição de cartão por cartão (fonte canônica única). */
+  cardExposures: Record<string, CardExposure>;
+  /** Dívida de cartão hoje — faturas abertas/parciais/atrasadas. */
+  cardDebtToday: number;
+  /** Parcelas de competências futuras — compromisso, não dívida atual. */
+  cardFutureInstallments: number;
+  /** true quando algum número de cartão veio de estimativa (sem fatura oficial). */
+  cardDebtIsEstimated: boolean;
 
 function monthRangeOf(d: Date): DateRange {
   const start = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -400,7 +419,26 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const todayIso = todayISO(today);
 
   const availableToday = computeTotalCash(input.accounts, input.txs, input.snapshots);
-  const netWorth = computeNetWorth(input.accounts, input.txs, input.investments, input.debts, input.snapshots);
+  const netWorthRaw = computeNetWorth(input.accounts, input.txs, input.investments, input.debts, input.snapshots);
+  const cardExposures = computeCardExposure({
+    cardIds: input.cardIds ?? [],
+    statements: input.cardStatements ?? [],
+    installments: input.cardInstallments ?? [],
+    txs: input.txs as never,
+    currentYM: todayIso.slice(0, 7),
+  });
+  const hasCardSource = Object.keys(cardExposures).length > 0;
+  const cardDebtToday = hasCardSource ? totalCardDebtOf(cardExposures) : round2(netWorthRaw.cardsOwed);
+  const cardFutureInstallments = totalFutureInstallmentsOf(cardExposures);
+  const cardDebtIsEstimated = Object.values(cardExposures).some((e) => e.currentStatement.source !== "official");
+  // Patrimônio usa a MESMA dívida de cartão exibida na página Cartões.
+  const owed = round2(netWorthRaw.accountOverdraft + cardDebtToday + netWorthRaw.otherDebts);
+  const netWorth = {
+    ...netWorthRaw,
+    cardsOwed: cardDebtToday,
+    owed,
+    net: round2(netWorthRaw.assets - owed),
+  };
   const effectivePeriod = clampRangeToToday(input.period, todayIso);
   const rhythm = computeRhythmComparison(input.txs as RhythmTx[], effectivePeriod, {
     categoryNameById: input.categoryNameById ?? {},
