@@ -110,7 +110,7 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
           className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
-            Cartão
+            Compras no cartão
           </p>
           <p
             className="mt-1 truncate font-display font-extrabold tabular-nums"
@@ -122,7 +122,7 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
             <Badge trend={card.trend} deltaPct={card.deltaPct} />
           </div>
           <p className="mt-0.5 truncate text-[10px]" style={{ color: "var(--home-text-2)" }}>
-            {hintFor(card.deltaPct, card.trend, "Acima do anterior", "Abaixo do anterior")}
+            {hintFor(card.deltaPct, card.trend, "Acima do anterior", "Abaixo do anterior")} · não é dívida
           </p>
         </Link>
       </div>
@@ -145,12 +145,21 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
               também contam). Comparado com {prev ? formatRangeShort(prev.range) : "—"}, de mesmo tamanho.
             </p>
             <p>
-              Compras no cartão entram no dia da compra. Pagamento de fatura, transferências entre suas contas,
+              "Compras no cartão" mostra o quanto você comprou neste período — é histórico, não é a dívida da fatura.
+              A dívida fica na página Cartões. Compras no cartão entram no dia da compra. Pagamento de fatura, transferências entre suas contas,
               aplicações e resgates de investimento nunca contam como gasto.
             </p>
             <div className="rounded-lg p-2" style={{ background: "var(--home-neutral-bg)" }}>
               <div className="flex justify-between tabular-nums">
-                <span>Consumo do período</span>
+                <span>Gasto bruto do período</span>
+                <span className="font-semibold">{formatBRL(cur.totalGross)}</span>
+              </div>
+              <div className="flex justify-between tabular-nums">
+                <span>Estornos e reembolsos</span>
+                <span className="font-semibold">− {formatBRL(cur.totalRefunds)}</span>
+              </div>
+              <div className="flex justify-between tabular-nums">
+                <span>Consumo líquido do período</span>
                 <span className="font-semibold">{formatBRL(cur.total)}</span>
               </div>
               <div className="flex justify-between tabular-nums">
