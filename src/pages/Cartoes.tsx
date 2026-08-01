@@ -56,7 +56,7 @@ export default function Cartoes() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("credit_card_installments")
-        .select("credit_card_id,amount,competence_month,status");
+        .select("credit_card_id,amount,competence_month,status,absorbed_by_statement_id");
       if (error) throw error;
       return data ?? [];
     },
