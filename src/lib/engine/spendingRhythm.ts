@@ -24,7 +24,7 @@
  */
 import { behavioralMetricAmount, round2, type TransactionRow } from "./facts";
 
-export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v2";
+export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v3";
 
 export interface DateRange { start: string; end: string }
 export type Trend = "up" | "down" | "stable";
@@ -181,6 +181,17 @@ function quantile(sorted: number[], q: number): number {
 }
 
 const MIN_SAMPLE_FOR_OUTLIERS = 8;
+
+/**
+ * Parcelamento só sai do ritmo típico quando é compromisso de longo prazo
+ * (6x ou mais). Parcelas curtas são consumo real e decisão do período —
+ * excluir tudo que é parcelado distorce o comportamento (decisão de produto).
+ */
+const LONG_TERM_INSTALLMENTS = 6;
+
+function isRecurringInstallment(t: RhythmTx): boolean {
+  return Number(t.installments_total ?? 0) >= LONG_TERM_INSTALLMENTS;
+}
 
 // ── cálculo ─────────────────────────────────────────────────────────────────
 
