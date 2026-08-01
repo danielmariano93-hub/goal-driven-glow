@@ -267,13 +267,13 @@ export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
-  expense = Math.max(0, expense);
+  // Sem clamp: estorno abate honestamente a despesa do mês.
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
 /** Despesa comportamental em intervalo inclusivo [start,end] (YYYY-MM-DD).
  *  Mesma regra de `computeMonthlyTotals`: exclui transferências, movimentações
- *  de investimento, pagamento de fatura; `refund` abate; clamp em 0. */
+ *  de investimento, pagamento de fatura; `refund` abate (sem clamp em 0). */
 export function computeBehavioralExpense(
   txs: TransactionRow[],
   range: { start: string; end: string },
@@ -283,7 +283,7 @@ export function computeBehavioralExpense(
     if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
     expense += behavioralMetricAmount(t, "expense");
   }
-  return round2(Math.max(0, expense));
+  return round2(expense);
 }
 
 export function computeMonthlyIncomeExpense(
@@ -299,7 +299,7 @@ export function computeMonthlyIncomeExpense(
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
-  expense = Math.max(0, expense);
+  // Sem clamp: estorno abate honestamente a despesa do mês.
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 

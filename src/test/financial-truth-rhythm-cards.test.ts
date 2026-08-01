@@ -20,7 +20,7 @@ describe("Verdade financeira única — ritmo bruto/líquido", () => {
 
   it("não zera dias com estorno maior que a despesa", () => {
     const r = computeRhythm(
-      [tx({ amount: 52.17, occurred_at: "2026-07-31" }), tx({ amount: 100, type: "income", occurred_at: "2026-07-31" })],
+      [tx({ amount: 52.17, occurred_at: "2026-07-31" }), tx({ amount: 100, type: "income", movement_kind: "refund", occurred_at: "2026-07-31" })],
       range,
     );
     const day = r.series.find((p) => p.date === "2026-07-31")!;
@@ -34,7 +34,7 @@ describe("Verdade financeira única — ritmo bruto/líquido", () => {
       [
         tx({ amount: 200, occurred_at: "2026-07-05" }),
         tx({ amount: 50, occurred_at: "2026-07-06" }),
-        tx({ amount: 30, type: "income", occurred_at: "2026-07-07" }),
+        tx({ amount: 30, type: "income", movement_kind: "refund", occurred_at: "2026-07-07" }),
       ],
       range,
     );
