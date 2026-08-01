@@ -100,3 +100,15 @@
 7. Autorização para publicar frontend ao fim das Ondas 2, 3, 4 e 5 (hoje o publicado é `3028d2c`).
 
 Nada foi implementado. Aprove para eu começar pela Onda 0.
+
+---
+
+## Status de execução
+
+- **Onda 0 — concluída** (01/08/2026): testes de regressão com a fixture real do Daniel em `src/test/card-credit-sign-guard.test.ts` (850 testes verdes).
+- **Onda 1 — concluída** (01/08/2026):
+  - `creditSemantics.ts` (app + edge, espelhados) como guarda única de sinal de crédito, ligada a `buildCanonicalMovement` e à ingestão.
+  - Invariante `validate_transaction` corrigido: estorno de cartão passou a ser possível (`income` + `movement_kind=refund`).
+  - Transação de R$ 1,46 saneada; estorno itemizado na fatura e plug reduzido para R$ 1.052,17.
+  - `v_card_double_counting` v2: `adjustments_total`, `unjustified_adjustments`, `residual_vs_official`. Resíduo real da fatura do Daniel = **R$ 0,00**; plug isolado como `reconciled_by_adjustment`.
+- **Ondas 2 a 5 — pendentes.**
