@@ -120,4 +120,6 @@ E2E (Playwright): Home → Cartões → Relatórios → pergunta ao Nino por cat
 - **E4 concluída** — exclusões declarativas (`categoryKindById`/`structuralCategoryIds`, nome só como fallback); parcelamento deixa de ser exclusão automática (só parcela de compromisso recorrente); `excludedByReason` explicado na UI.
 - **E5 concluída** — pacote canônico `supabase/functions/_shared/finance-core/` gerado por `scripts/sync-finance-core.mjs` e verificado em `src/test/finance-core-parity.test.ts`; `analytics/dailyAverage` (Nino/WhatsApp) passou a chamar o core (`daily_average.cumulative.v2-core`); Relatórios consome o ritmo do `useFinancialSnapshot`.
 - **E6 concluída** — migration com `credit_card_installments.absorbed_by_statement_id/absorbed_at`, backfill idempotente e view `v_card_double_counting`; o motor ignora parcelas absorvidas.
-- Pendentes: E7 (contrato de erro) e E8 (classificação de estruturas). Publicação do frontend aguarda autorização explícita.
+- **E7 concluída** — `supabase/functions/_shared/http.ts` (`edge_error.v1`) com `respond()/fail()`, `request_id`, `error_code`, `retryable`, mensagem em pt-BR e incidente persistido em `public.edge_incidents` (5xx e códigos financeiros); helper de cliente `src/lib/edge/invoke.ts` usado na confirmação de fatura; proibição de `ok:true` em falha coberta por teste.
+- **E8 concluída** — `docs/FINANCIAL_SOURCES.md` classifica cada fonte como ativa/derivada/planejada/legada/substituída/experimental, com teste de regressão.
+- Publicação do frontend aguarda autorização explícita.
