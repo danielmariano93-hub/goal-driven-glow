@@ -21,6 +21,8 @@ import { auditInvoiceCoverage, coverageMessage, parseInvoiceText, type InvoiceCo
 import { chunkItems, invoiceToExtraction } from "../_shared/documents/invoiceExtraction.ts";
 import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
+import { applyCreditSignGuard } from "../_shared/ledger/creditSemantics.ts";
+
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { decideByRule } from "../_shared/categorization/pipeline.ts";
 
