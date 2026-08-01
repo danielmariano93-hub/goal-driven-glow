@@ -682,14 +682,22 @@ function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function sourceTag(source: "official" | "estimated" | "none"): string | null {
+  if (source === "official") return "Oficial";
+  if (source === "estimated") return "Estimativa";
+  return null;
+}
+
+function Stat({ label, value, tag }: { label: string; value: string; tag?: string | null }) {
   return (
     <div className="rounded-xl bg-secondary/50 p-2">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 font-semibold tabular-nums">{value}</p>
+      {tag ? <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{tag}</p> : null}
     </div>
   );
 }
+
 
 function CardFormModal({
   initial,
