@@ -4,6 +4,7 @@ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCard
 import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
+import { computeCardExposure, type CardExposure } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -61,43 +62,15 @@ export default function Cartoes() {
     },
   });
 
-  const stats = useMemo(() => {
-    const byCard: Record<string, { current: number; next: number; total: number; paid: number; needsReview: boolean }> = {};
-    for (const statement of statements as any[]) {
-      const cid = statement.credit_card_id;
-      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
-      const month = String(statement.competence_month).slice(0, 7);
-      if (month === ym) {
-        byCard[cid].current = Number(statement.outstanding_amount ?? statement.stated_total ?? 0);
-        byCard[cid].paid = Number(statement.paid_amount ?? 0);
-        byCard[cid].needsReview = statement.status === "needs_review" || Number(statement.reconciliation_difference ?? 0) !== 0;
-      }
-    }
-    for (const installment of installments as any[]) {
-      const cid = installment.credit_card_id;
-      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
-      if (!["paid", "refunded", "cancelled"].includes(installment.status)) {
-        byCard[cid].total += Number(installment.amount ?? 0);
-      }
-    }
-    for (const t of txs ?? []) {
-      const anyT = t as unknown as { credit_card_id?: string | null; competence_date?: string | null; amount: number };
-      const cid = anyT.credit_card_id;
-      const comp = anyT.competence_date;
-      if (!cid || !comp) continue;
-      byCard[cid] ||= { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
-      const compYM = comp.slice(0, 7);
-      const amt = Number(anyT.amount) || 0;
-      if (installments.length === 0) byCard[cid].total += amt;
-      if (statements.length === 0 && compYM === ym) byCard[cid].current += amt;
-      // próxima fatura
-      const [y, m] = ym.split("-").map(Number);
-      const next0 = m; // m0+1 = m
-      const nextYM = `${next0 === 12 ? y + 1 : y}-${String((next0 % 12) + 1).padStart(2, "0")}`;
-      if (compYM === nextYM) byCard[cid].next += amt;
-    }
-    return byCard;
-  }, [installments, statements, txs, ym]);
+  // Fonte canônica única: faturas oficiais têm precedência; sem fatura, estimamos
+  // pela data econômica e a UI rotula explicitamente como estimativa.
+  const exposures = useMemo(() => computeCardExposure({
+    cardIds: (cards ?? []).map((c) => c.id),
+    statements: statements as never,
+    installments: installments as never,
+    txs: (txs ?? []) as never,
+    currentYM: ym,
+  }), [cards, installments, statements, txs, ym]);
 
   return (
     <div>
@@ -127,9 +100,18 @@ export default function Cartoes() {
       ) : (
         <ul className="space-y-3">
           {cards.map((c) => {
-            const st = stats[c.id] ?? { current: 0, next: 0, total: 0, paid: 0, needsReview: false };
-            const usedPct = c.total_limit > 0 ? Math.min(1, st.total / Number(c.total_limit)) : 0;
-            const available = Math.max(0, Number(c.total_limit) - st.total);
+            const st: CardExposure = exposures[c.id] ?? {
+              cardId: c.id,
+              currentStatement: { amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 },
+              nextStatement: { amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 },
+              futureInstallments: 0,
+              totalCardDebt: 0,
+              needsReview: false,
+              formulaVersion: "card_exposure.v1",
+            };
+            const commitment = st.totalCardDebt + st.futureInstallments;
+            const usedPct = c.total_limit > 0 ? Math.min(1, commitment / Number(c.total_limit)) : 0;
+            const available = Math.max(0, Number(c.total_limit) - commitment);
             return (
               <li key={c.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
                 <div className="flex items-start justify-between">
@@ -161,12 +143,27 @@ export default function Cartoes() {
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
-                  <Stat label="Em aberto na fatura" value={formatBRL(st.current)} />
-                  <Stat label="Próxima" value={formatBRL(st.next)} />
-                  <Stat label="Parcelas futuras" value={formatBRL(st.total)} />
+                  <Stat
+                    label="Em aberto na fatura"
+                    value={formatBRL(st.currentStatement.amount)}
+                    tag={sourceTag(st.currentStatement.source)}
+                  />
+                  <Stat
+                    label="Próxima fatura"
+                    value={formatBRL(st.nextStatement.amount)}
+                    tag={sourceTag(st.nextStatement.source)}
+                  />
+                  <Stat label="Parcelas futuras" value={formatBRL(st.futureInstallments)} tag="Compromisso" />
                 </div>
-                {st.paid > 0 && <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.paid)}</p>}
-                {st.needsReview && <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Fatura reconstruída a partir dos lançamentos. Revise antes de considerar o saldo como conciliado.</p>}
+                {st.currentStatement.paidAmount > 0 && (
+                  <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.currentStatement.paidAmount)}</p>
+                )}
+                {st.currentStatement.source === "estimated" && (
+                  <p className="mt-2 rounded-xl bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+                    Estimativa reconstruída pelos lançamentos: ainda não há fatura oficial importada para {ym.split("-").reverse().join("/")}.
+                  </p>
+                )}
+                {st.needsReview && <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Esta fatura tem divergência de conciliação. Revise antes de considerar o saldo como conciliado.</p>}
                 {c.total_limit > 0 && (
                   <div className="mt-3">
                     <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
@@ -176,7 +173,7 @@ export default function Cartoes() {
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))} · disponível {formatBRL(available)}
+                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))} · disponível {formatBRL(available)} · considera fatura em aberto + parcelas futuras
                     </p>
                   </div>
                 )}
