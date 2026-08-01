@@ -200,27 +200,39 @@ export function computeRhythm(
   const days = daysInclusive(range.start, range.end);
   const categoryNameById = opts.categoryNameById ?? {};
 
-  const byDay = new Map<string, number>();
+  const grossByDay = new Map<string, number>();
+  const refundByDay = new Map<string, number>();
   const typicalByDay = new Map<string, number>();
   const positives: Array<{ t: RhythmTx; amount: number }> = [];
-  let total = 0;
+  let totalGross = 0;
+  let totalRefunds = 0;
 
   for (const t of txs) {
     const d = String(t.occurred_at ?? "").slice(0, 10);
     if (!d || d < range.start || d > range.end) continue;
     const signed = behavioralMetricAmount(t, "expense");
     if (signed === 0) continue;
-    total += signed;
-    byDay.set(d, (byDay.get(d) ?? 0) + signed);
-    if (signed > 0) positives.push({ t, amount: signed });
+    if (signed > 0) {
+      totalGross += signed;
+      grossByDay.set(d, (grossByDay.get(d) ?? 0) + signed);
+      positives.push({ t, amount: signed });
+    } else {
+      const refund = -signed;
+      totalRefunds += refund;
+      refundByDay.set(d, (refundByDay.get(d) ?? 0) + refund);
+    }
   }
-  total = round2(Math.max(0, total));
+  totalGross = round2(totalGross);
+  totalRefunds = round2(totalRefunds);
+  // Consumo líquido pode ser negativo em períodos com estorno maior que a
+  // despesa. Nunca clampamos: isso quebraria a reconciliação com a série.
+  const total = round2(totalGross - totalRefunds);
 
   // outliers de Tukey sobre lançamentos não-fixos
   const fixedFlag = new Map<string, ExclusionReason>();
   for (const { t } of positives) {
     if ((t.origin ?? "") === "recurring") fixedFlag.set(t.id, "recurring");
-    else if (Number(t.installments_total ?? 0) > 1) fixedFlag.set(t.id, "installment");
+    else if (isRecurringInstallment(t)) fixedFlag.set(t.id, "installment");
     else if (isFixedCategory(t.category_id ? categoryNameById[t.category_id] : null)) fixedFlag.set(t.id, "fixed");
   }
 
@@ -254,7 +266,8 @@ export function computeRhythm(
   excludedTotal = round2(excludedTotal);
   excluded.sort((a, b) => b.amount - a.amount);
 
-  const typicalTotal = round2(Math.max(0, total - excludedTotal));
+  // Base típica sai da despesa BRUTA (reembolso não é decisão de consumo).
+  const typicalTotal = round2(Math.max(0, totalGross - excludedTotal));
   const excludedIds = new Set(excluded.map((item) => item.id));
   for (const { t, amount } of positives) {
     if (excludedIds.has(t.id)) continue;
@@ -264,19 +277,28 @@ export function computeRhythm(
 
   const series: DailyPoint[] = [];
   let cumulative = 0;
+  let cumulativeGross = 0;
   let typicalCumulative = 0;
   for (let i = 0; i < days; i++) {
     const date = addDays(range.start, i);
-    const amount = round2(Math.max(0, byDay.get(date) ?? 0));
-    const typicalAmount = round2(Math.max(0, typicalByDay.get(date) ?? 0));
-    cumulative = round2(cumulative + amount);
+    const grossAmount = round2(grossByDay.get(date) ?? 0);
+    const refundAmount = round2(refundByDay.get(date) ?? 0);
+    const netAmount = round2(grossAmount - refundAmount);
+    const typicalAmount = round2(typicalByDay.get(date) ?? 0);
+    cumulative = round2(cumulative + netAmount);
+    cumulativeGross = round2(cumulativeGross + grossAmount);
     typicalCumulative = round2(typicalCumulative + typicalAmount);
     series.push({
       date,
-      amount,
+      grossAmount,
+      refundAmount,
+      netAmount,
+      amount: grossAmount,
       typicalAmount,
       cumulative,
+      cumulativeGross,
       runningAverage: round2(cumulative / (i + 1)),
+      runningAverageGross: round2(cumulativeGross / (i + 1)),
       typicalRunningAverage: round2(typicalCumulative / (i + 1)),
     });
   }
@@ -285,7 +307,10 @@ export function computeRhythm(
     range,
     days,
     total,
+    totalGross,
+    totalRefunds,
     average: days > 0 ? round2(total / days) : 0,
+    averageGross: days > 0 ? round2(totalGross / days) : 0,
     typicalTotal,
     typicalAverage: days > 0 ? round2(typicalTotal / days) : 0,
     excludedTotal,
