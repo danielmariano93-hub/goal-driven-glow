@@ -19,12 +19,16 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
   const data = (cur?.series ?? []).map((p) => ({
     date: p.date,
     label: shortDay(p.date),
-    gastoDoDia: p.amount,
+    gastoDoDia: p.grossAmount,
+    reembolsoDoDia: p.refundAmount,
+    liquidoDoDia: p.netAmount,
     mediaTotal: p.runningAverage,
     ritmoTipico: p.typicalRunningAverage,
   }));
 
-  const hasData = data.length > 0 && (cur?.total ?? 0) > 0;
+  const hasData = data.length > 0 && (cur?.totalGross ?? 0) > 0;
+  const hasRefunds = (cur?.totalRefunds ?? 0) > 0;
+
 
   return (
     <section
