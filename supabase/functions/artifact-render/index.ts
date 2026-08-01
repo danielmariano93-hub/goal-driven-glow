@@ -5,6 +5,7 @@
 // caller cai para fallback textual.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 import { renderArtifactPng } from "../_shared/artifacts/png.ts";
 import { validateChartArtifactV2 } from "../_shared/artifacts/schema.ts";
 // deno-lint-ignore no-explicit-any
@@ -96,21 +97,22 @@ function brl(n: number): string {
 }
 
 Deno.serve(async (req) => {
+  const h = httpContext("artifact-render", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const { artifact_id } = await req.json().catch(() => ({}));
-    if (!artifact_id) return json({ ok: false, error: "missing_artifact_id" }, 400);
+    if (!artifact_id) return h.fail("missing_artifact_id", 400);
     const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data: art, error } = await sb.from("agent_artifacts")
       .select("id,user_id,kind,payload,summary_text,fallback_text,formula_version,media_url,rendered_at")
       .eq("id", artifact_id).maybeSingle();
-    if (error || !art) return json({ ok: false, error: "artifact_not_found" }, 404);
+    if (error || !art) return h.fail("artifact_not_found", 404);
 
     // Se já renderizou e URL válida, reusa
     if (art.media_url && art.rendered_at) {
-      return json({ ok: true, media_url: art.media_url, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
+      return h.ok({ media_url: art.media_url, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
     }
 
     const payload: ArtifactPayload = {
@@ -136,11 +138,11 @@ Deno.serve(async (req) => {
     const up = await sb.storage.from(BUCKET).upload(path, png, {
       contentType: "image/png", upsert: true,
     });
-    if (up.error) return json({ ok: false, error: "upload_failed", detail: up.error.message }, 500);
+    if (up.error) return h.fail("upload_failed", 500, { details: { reason: String(up.error.message).slice(0, 200) } });
 
     const signed = await sb.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 24);
     const mediaUrl = signed.data?.signedUrl ?? null;
-    if (!mediaUrl) return json({ ok: false, error: "sign_url_failed" }, 500);
+    if (!mediaUrl) return h.fail("sign_url_failed", 500);
 
     await sb.from("agent_artifacts").update({
       media_url: mediaUrl,
@@ -150,8 +152,8 @@ Deno.serve(async (req) => {
       media_expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     }).eq("id", art.id);
 
-    return json({ ok: true, media_url: mediaUrl, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
+    return h.ok({ media_url: mediaUrl, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
   } catch (e) {
-    return json({ ok: false, error: "internal", detail: String((e as Error).message).slice(0, 200) }, 500);
+    return h.fail("internal", 500, { details: { reason: String((e as Error).message).slice(0, 200) } });
   }
 });

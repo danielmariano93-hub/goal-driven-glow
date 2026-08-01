@@ -57,7 +57,7 @@ describe("canonical reports", () => {
 describe("split dispatch UX", () => {
   it("reports target delivery states and keeps retries idempotent per job", () => {
     const dispatcher = readFileSync(
-      resolve(process.cwd(), "supabase/functions/split-reminders-dispatch/index.ts"),
+      resolve(process.cwd(), "supabase/functions/split-reminders-dispatch-v2/index.ts"),
       "utf8",
     );
     expect(dispatcher).toContain("outbound_sent");

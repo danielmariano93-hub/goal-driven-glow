@@ -7,6 +7,7 @@
 //   - Never logs or returns the password.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -17,9 +18,10 @@ const TARGET_PASSWORD = Deno.env.get("BOOTSTRAP_ADMIN_PASSWORD") ?? "";
 const TARGET_NAME = Deno.env.get("BOOTSTRAP_ADMIN_NAME") ?? "Daniel Assis";
 
 Deno.serve(async (req) => {
+  const h = httpContext("admin-bootstrap", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (BOOTSTRAP_DISABLED) return json({ ok: false, error: "disabled" }, 410);
-  if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  if (BOOTSTRAP_DISABLED) return h.fail("disabled", 410);
+  if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
   const bootHeader = req.headers.get("x-bootstrap-secret") ?? "";
   const tokenHeader = req.headers.get("x-bootstrap-token") ?? "";
@@ -27,10 +29,10 @@ Deno.serve(async (req) => {
   const okBySecret = CRON_SECRET && bootHeader === CRON_SECRET;
   const okByToken = bootToken && tokenHeader === bootToken;
   if (!okBySecret && !okByToken) {
-    return json({ ok: false, error: "forbidden" }, 403);
+    return h.fail("forbidden", 403);
   }
   if (!TARGET_PASSWORD) {
-    return json({ ok: false, error: "missing_password_env" }, 400);
+    return h.fail("missing_password_env", 400);
   }
 
   const svc = createClient(SUPABASE_URL, SERVICE_ROLE, {
@@ -43,7 +45,7 @@ Deno.serve(async (req) => {
   // Paginate through users to find by email (admin API list has no exact filter guarantee).
   for (let page = 1; page <= 50 && !userId; page++) {
     const { data, error } = await svc.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) return json({ ok: false, error: "list_users_failed" }, 500);
+    if (error) return h.fail("list_users_failed", 500);
     const found = data.users.find((u) => (u.email ?? "").toLowerCase() === TARGET_EMAIL);
     if (found) { userId = found.id; break; }
     if (data.users.length < 200) break;
@@ -57,7 +59,7 @@ Deno.serve(async (req) => {
       user_metadata: { display_name: TARGET_NAME },
     });
     if (error || !data.user) {
-      return json({ ok: false, error: "create_user_failed" }, 500);
+      return h.fail("create_user_failed", 500);
     }
     userId = data.user.id;
     created = true;
@@ -95,7 +97,7 @@ Deno.serve(async (req) => {
     notes: created ? "created via admin-bootstrap" : "grant refreshed via admin-bootstrap",
   });
 
-  return json({
+  return h.ok({
     ok: true,
     created,
     user_id: userId,

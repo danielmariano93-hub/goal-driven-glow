@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 export type SplitDispatchResult = {
   claimed: number;
   enqueued: number;
+  app_delivered?: number;
+  whatsapp_queued?: number;
   skipped: number;
   failed: number;
   outbound_processed: number;
@@ -30,7 +32,7 @@ export async function dispatchSplitReminders(
     timer = setTimeout(() => resolve({ status: "timeout" }), timeoutMs);
   });
   const invoke = supabase.functions
-    .invoke<SplitDispatchResult>("split-reminders-dispatch", {
+    .invoke<SplitDispatchResult>("split-reminders-dispatch-v2", {
       body: { owner_only: true },
     })
     .then(({ data, error }): BoundedDispatchResult => {

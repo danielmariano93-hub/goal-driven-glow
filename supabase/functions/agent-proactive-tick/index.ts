@@ -8,6 +8,7 @@
 //  3. Bearer de usuário comum com { self: true } — processa apenas a si mesmo.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 import { scanUser } from "../_shared/agent/core/ProactiveEngineV2.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
@@ -37,8 +38,9 @@ function normalizeChannels(value: any): Array<"app" | "whatsapp"> {
 }
 
 Deno.serve(async (req) => {
+  const h = httpContext("agent-proactive-tick", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
   const startedAt = Date.now();
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
@@ -72,7 +74,7 @@ Deno.serve(async (req) => {
       }
     }
   }
-  if (!authorised) return json({ error: "unauthorized" }, 401);
+  if (!authorised) return h.fail("unauthorized", 401);
 
   const { data: settingsRow } = await sb.from("agent_settings")
     .select("proactive_enabled,proactive_channels,proactive_rollout_user_ids")
@@ -94,7 +96,7 @@ Deno.serve(async (req) => {
   const effectiveChannels: Array<"app" | "whatsapp"> = selfMode ? ["app"] : channels;
 
   if (!settings.proactive_enabled && body?.force !== true && !selfMode) {
-    return json({
+    return h.ok({
       ok: true, disabled: true, reason: "proactive_enabled_is_false",
       scanned: 0, channels, results: [],
     });
@@ -227,7 +229,7 @@ Deno.serve(async (req) => {
     }).eq("id", 1);
   }
 
-  return json({
+  return h.ok({
     ok: true,
     scanned: userIds.length,
     channels: effectiveChannels,

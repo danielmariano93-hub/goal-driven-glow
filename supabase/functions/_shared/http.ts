@@ -49,6 +49,7 @@ const USER_MESSAGES: Record<string, string> = {
   atomic_confirmation_failed: "Não salvei nada: a confirmação da fatura falhou e foi desfeita por inteiro.",
   reconciliation_failed: "Os valores não fecharam. Revise a fatura antes de confirmar.",
   invalid_invoice_total: "O total informado da fatura não é válido.",
+  partial_success: "Parte do lote não foi concluída. Já registramos os itens que falharam.",
 };
 
 export function newRequestId(): string {
@@ -95,6 +96,8 @@ export interface FailOptions {
   details?: Record<string, unknown>;
   message?: string;
   retryable?: boolean;
+  /** cabeçalhos extras (ex.: auditoria de break-glass) */
+  headers?: Record<string, string>;
   /** força (ou desliga) a persistência do incidente */
   persist?: boolean;
 }
@@ -159,7 +162,60 @@ export function fail(errorCode: string, opts: FailOptions = {}): Response {
       contract: ERROR_CONTRACT_VERSION,
       ...(opts.details ? { details: opts.details } : {}),
     }),
-    { status, headers: headersFor(requestId) },
+    { status, headers: headersFor(requestId, opts.headers) },
+  );
+}
+
+export interface PartialOptions {
+  requestId?: string;
+  functionName?: string;
+  status?: number;
+  headers?: Record<string, string>;
+  userId?: string | null;
+  errorCode?: string;
+}
+
+/**
+ * Resposta de lote: `ok` só é `true` quando NADA falhou. Havendo falhas,
+ * `partial_success:true` + `failed[]` e o incidente é persistido para
+ * rastreabilidade — nunca sucesso silencioso em entrega ou finanças.
+ */
+export function respondPartial(
+  body: Record<string, unknown>,
+  failed: unknown[],
+  opts: PartialOptions = {},
+): Response {
+  const requestId = opts.requestId ?? newRequestId();
+  const hasFailures = failed.length > 0;
+  const errorCode = opts.errorCode ?? "partial_success";
+
+  if (hasFailures) {
+    const task = persistIncident({
+      requestId,
+      functionName: opts.functionName ?? "unknown",
+      errorCode,
+      status: opts.status ?? 200,
+      retryable: true,
+      userId: opts.userId ?? null,
+      details: { failed: failed.slice(0, 20), failed_count: failed.length },
+    });
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    if (runtime?.waitUntil) runtime.waitUntil(task);
+    else void task;
+  }
+
+  return new Response(
+    JSON.stringify({
+      ok: !hasFailures,
+      partial_success: hasFailures,
+      failed,
+      failed_count: failed.length,
+      request_id: requestId,
+      contract: ERROR_CONTRACT_VERSION,
+      ...(hasFailures ? { error: errorCode, error_code: errorCode, retryable: true } : {}),
+      ...body,
+    }),
+    { status: opts.status ?? 200, headers: headersFor(requestId, opts.headers) },
   );
 }
 
@@ -168,8 +224,15 @@ export function httpContext(functionName: string, req: Request) {
   const requestId = requestIdOf(req);
   return {
     requestId,
-    ok: (body: Record<string, unknown>, status = 200) => respond(body, { requestId, status }),
+    ok: (body: Record<string, unknown>, status = 200, headers?: Record<string, string>) =>
+      respond(body, { requestId, status, headers }),
     fail: (errorCode: string, status = 500, opts: Omit<FailOptions, "requestId" | "functionName" | "status"> = {}) =>
       fail(errorCode, { ...opts, status, requestId, functionName }),
+    partial: (body: Record<string, unknown>, failed: unknown[], opts: Omit<PartialOptions, "requestId" | "functionName"> = {}) =>
+      respondPartial(body, failed, { ...opts, requestId, functionName }),
+    /** resposta bruta (não-envelopada) mantendo `x-request-id` — usada por download/JSON-RPC */
+    raw: (payload: string, status = 200, headers: Record<string, string> = {}) =>
+      new Response(payload, { status, headers: headersFor(requestId, headers) }),
   };
 }
+

@@ -61,7 +61,7 @@ describe("split reminder delivery", () => {
   it("uses a bounded dispatch and gives truthful delivery feedback", () => {
     expect(splitPage).toContain("dispatchSplitReminders");
     expect(splitPage).not.toContain(
-      'supabase.functions.invoke("split-reminders-dispatch", { body: { owner_only: true } }).catch(() => undefined)',
+      'supabase.functions.invoke("split-reminders-dispatch-v2", { body: { owner_only: true } }).catch(() => undefined)',
     );
     expect(splitPage).toContain("continua em segundo plano");
     expect(splitPage).toContain("outbound_failed");

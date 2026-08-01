@@ -4,16 +4,18 @@
 // suggestions. Requires platform_admin (owner/admin/support/analyst).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 Deno.serve(async (req) => {
+  const h = httpContext("admin-ai-inspect", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
   const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  if (!auth.startsWith("Bearer ")) return h.fail("unauthorized", 401);
 
   const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
     global: { headers: { Authorization: auth } },
@@ -21,19 +23,19 @@ Deno.serve(async (req) => {
   });
   const { data: userData, error: userErr } = await sbAuth.auth.getUser();
   const callerId = userData?.user?.id;
-  if (userErr || !callerId) return json({ error: "unauthorized" }, 401);
+  if (userErr || !callerId) return h.fail("unauthorized", 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
   // Require platform_admin membership.
   const { data: adminRow } = await sb.from("platform_admins")
     .select("role, active").eq("user_id", callerId).maybeSingle();
-  if (!adminRow || !(adminRow as any).active) return json({ error: "forbidden" }, 403);
+  if (!adminRow || !(adminRow as any).active) return h.fail("forbidden", 403);
 
   let body: any = {};
   try { body = await req.json(); } catch { /* ignore */ }
   const target_user_id = String(body?.user_id ?? "").trim();
-  if (!target_user_id) return json({ error: "user_id required" }, 400);
+  if (!target_user_id) return h.fail("missing_fields", 400, { details: { field: "user_id" } });
 
   try {
     const [mem, snapshot, prefs, decisions, suggestions, runs] = await Promise.all([
@@ -49,7 +51,7 @@ Deno.serve(async (req) => {
         .eq("user_id", target_user_id).order("started_at", { ascending: false }).limit(20),
     ]);
 
-    return json({
+    return h.ok({
       memory: mem.data ?? [],
       profile_snapshot: snapshot.data ?? null,
       preferences: prefs.data ?? null,
@@ -58,6 +60,6 @@ Deno.serve(async (req) => {
       recent_runs: runs.data ?? [],
     });
   } catch (e) {
-    return json({ error: String((e as Error).message).slice(0, 200) }, 500);
+    return h.fail("internal", 500, { details: { reason: String((e as Error).message).slice(0, 200) } });
   }
 });

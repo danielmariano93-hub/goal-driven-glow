@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderMessageTemplate, type MessagePersona } from "../../supabase/functions/_shared/agent/messageTemplates";
 
-// Reproduces the helper used inside the split-reminders-dispatch edge function
-// (see supabase/functions/split-reminders-dispatch/index.ts::messageFor).
+// Reproduces the helper used inside the split-reminders-dispatch-v2 edge function
+// (see supabase/functions/split-reminders-dispatch-v2/index.ts::messageFor).
 // Duplicated here as a pure function so the render pipeline is testable in
 // Vitest without lifting the Deno-only edge function.
 function formatBRL(v: number): string {
