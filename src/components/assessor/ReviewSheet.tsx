@@ -12,6 +12,7 @@ import { usePrivacyMode } from "@/context/PrivacyModeContext";
 import { CategorySelect } from "@/components/CategorySelect";
 import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
+import { invokeEdge, failureDescription } from "@/lib/edge/invoke";
 
 type Item = {
   id: string;
