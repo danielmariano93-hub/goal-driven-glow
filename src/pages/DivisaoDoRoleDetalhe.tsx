@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Bell, CheckCircle2, Clock3, Copy, Loader2, MessageCircle, Pencil, RefreshCw, RotateCcw, Send, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { formatBRL } from "@/lib/split/math";
@@ -49,7 +50,7 @@ export default function DivisaoDoRoleDetalhe() {
   const received=external.reduce((s,p)=>s+Number(p.amount_paid),0), pending=external.reduce((s,p)=>s+Math.max(0,Number(p.amount_due)-Number(p.amount_paid)),0);
   const externalTotal=received+pending,progress=externalTotal?Math.min(100,Math.round(received/externalTotal*100)):100;
   const overdue=split?.due_date&&split.status==="active"&&split.due_date<new Date().toISOString().slice(0,10);
-  const refreshFinance=()=>{queryClient.invalidateQueries({queryKey:["shared_expenses"]});queryClient.invalidateQueries({queryKey:["transactions"]});queryClient.invalidateQueries({queryKey:["accounts"]});queryClient.invalidateQueries({queryKey:["credit_cards"]});queryClient.invalidateQueries({queryKey:["dashboard"]});queryClient.invalidateQueries({queryKey:["patrimonio"]});};
+  const refreshFinance=()=>{invalidateFinancialQueries(queryClient);};
   const act=async(fn:()=>PromiseLike<{error?:any}>,ok:string)=>{setBusy(true);try{const r=await fn();if(r.error)throw r.error;refreshFinance();toast.success(ok);await load();}catch(e:any){toast.error(friendlyError(e));}finally{setBusy(false)}};
   const payment=(pid:string,amount:number)=>act(()=>supabase.rpc("split_add_payment_v2" as never,{p_participant_id:pid,p_amount:amount} as never),"Pagamento registrado");
   const kick=async(showToast=true)=>{
