@@ -94,7 +94,9 @@ export function computeCumulativeDailyAverage(input: {
   let prevAvg = 0;
   for (let i = 0; i < labels.length; i++) {
     const d = labels[i];
-    const dc = round2(Math.max(0, byDay.get(d) ?? 0));
+    // Sem clamp: dia com estorno líquido negativo é reportado como negativo,
+    // igual ao motor do app (spending_rhythm.v3).
+    const dc = round2(byDay.get(d) ?? 0);
     daily.push(dc);
     running += dc;
     const elapsed = i + 1;

@@ -19,12 +19,16 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
   const data = (cur?.series ?? []).map((p) => ({
     date: p.date,
     label: shortDay(p.date),
-    gastoDoDia: p.amount,
+    gastoDoDia: p.grossAmount,
+    reembolsoDoDia: p.refundAmount,
+    liquidoDoDia: p.netAmount,
     mediaTotal: p.runningAverage,
     ritmoTipico: p.typicalRunningAverage,
   }));
 
-  const hasData = data.length > 0 && (cur?.total ?? 0) > 0;
+  const hasData = data.length > 0 && (cur?.totalGross ?? 0) > 0;
+  const hasRefunds = (cur?.totalRefunds ?? 0) > 0;
+
 
   return (
     <section
@@ -38,7 +42,9 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
             Ritmo de gastos no período
           </p>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--home-text-2)" }}>
-            {cur ? `${formatRangeShort(cur.range)} · dias sem gasto entram na média` : "Calculando"}
+            {cur
+              ? `${formatRangeShort(cur.range)} · dias sem gasto entram na média${hasRefunds ? ` · ${formatBRL(cur.totalRefunds)} em estornos` : ""}`
+              : "Calculando"}
           </p>
         </div>
         <p
@@ -79,10 +85,14 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
                 formatter={(value: number, name: string) => [
                   formatBRL(Number(value)),
                   name === "gastoDoDia"
-                    ? "Gasto do dia"
-                    : name === "mediaTotal"
-                      ? "Média total até o dia"
-                      : "Ritmo típico até o dia",
+                    ? "Gasto bruto do dia"
+                    : name === "reembolsoDoDia"
+                      ? "Estorno recebido no dia"
+                      : name === "liquidoDoDia"
+                        ? "Consumo líquido do dia"
+                        : name === "mediaTotal"
+                          ? "Média líquida até o dia"
+                          : "Ritmo típico até o dia",
                 ]}
                 labelFormatter={(l) => `Dia ${l}`}
                 contentStyle={{
@@ -100,6 +110,8 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
                 dot={false}
                 activeDot={{ r: 4 }}
               />
+              <Line type="monotone" dataKey="reembolsoDoDia" stroke="transparent" dot={false} legendType="none" />
+              <Line type="monotone" dataKey="liquidoDoDia" stroke="transparent" dot={false} legendType="none" />
               <Line
                 type="monotone"
                 dataKey="mediaTotal"
@@ -118,7 +130,7 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
               <Legend
                 iconType="line"
                 wrapperStyle={{ fontSize: 10 }}
-                formatter={(name) => name === "gastoDoDia" ? "Gasto do dia" : name === "mediaTotal" ? "Média total" : "Ritmo típico"}
+                formatter={(name) => name === "gastoDoDia" ? "Gasto bruto" : name === "mediaTotal" ? "Média líquida" : "Ritmo típico"}
               />
             </AreaChart>
           </ResponsiveContainer>

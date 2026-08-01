@@ -1,4 +1,4 @@
-import { behavioralMetricAmount, type TransactionRow } from "@/lib/engine/facts";
+import { round2, behavioralMetricAmount, type TransactionRow } from "@/lib/engine/facts";
 
 export interface ReportTxn {
   id?: string;
@@ -65,8 +65,9 @@ export function groupByMonth(txns: ReportTxn[]): MonthlyBucket[] {
     const ym = t.occurred_at.slice(0, 7);
     const b = map.get(ym) ?? { ym, income: 0, expense: 0, net: 0 };
     b.income += incomeAmount;
-    b.expense = Math.max(0, b.expense + expenseAmount);
-    b.net = b.income - Math.max(0, b.expense);
+    // Sem clamp: estorno reduz honestamente a despesa do mês.
+    b.expense = round2(b.expense + expenseAmount);
+    b.net = round2(b.income - b.expense);
     map.set(ym, b);
   }
   return [...map.values()].sort((a, b) => a.ym.localeCompare(b.ym));
@@ -79,7 +80,7 @@ export function byCategory(txns: ReportTxn[]): CategoryBucket[] {
     if (signed === 0) continue;
     const k = t.category_name || "Sem categoria";
     const cur = map.get(k) ?? { total: 0, count: 0 };
-    cur.total = Math.max(0, cur.total + signed);
+    cur.total = round2(cur.total + signed);
     if (signed > 0) cur.count += 1;
     map.set(k, cur);
   }

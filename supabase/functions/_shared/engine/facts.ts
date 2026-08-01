@@ -132,7 +132,7 @@ export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
-  expense = Math.max(0, expense);
+  // Paridade com o frontend: estorno abate a despesa, sem clamp em 0.
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 

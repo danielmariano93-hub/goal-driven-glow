@@ -103,7 +103,7 @@ export function computeWeekdayPattern(args: {
   const buckets = Array.from({ length: 7 }, () => [] as Array<{ date: string; amount: number; transactions: number }>);
   for (const date of allDates) {
     const v = daily.get(date) ?? { amount: 0, transactions: 0 };
-    buckets[dow(date)].push({ date, amount: round2(Math.max(0, v.amount)), transactions: v.transactions });
+    buckets[dow(date)].push({ date, amount: round2(v.amount), transactions: v.transactions });
   }
 
   const outliers: WeekdayPatternResult["outliers"] = [];

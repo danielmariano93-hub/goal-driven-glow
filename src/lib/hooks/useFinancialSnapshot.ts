@@ -12,6 +12,7 @@ import {
   useCategorySpendingGoals,
 } from "@/lib/db/finance";
 import { computeFinancialSnapshot, type FinancialSnapshot } from "@/lib/engine/metrics";
+import type { CardInstallmentRow, CardStatementRow } from "@/lib/engine/cardExposure";
 import { todayISO, type RecurringRow } from "@/lib/engine/facts";
 import type { DateRange } from "@/lib/engine/dailyAverage";
 
@@ -42,6 +43,40 @@ export function useFinancialSnapshot(period: DateRange): {
         .select("id,name,kind,amount,frequency,next_due_date,status");
       if (error) throw error;
       return (data as Array<{ id: string; name: string; kind: string; amount: number; frequency: string; next_due_date: string; status: string }> | null) ?? [];
+    },
+  });
+
+  const { data: cardStatements } = useQuery({
+    queryKey: ["credit_card_statements", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("credit_card_statements" as never)
+        .select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status");
+      if (error) throw error;
+      return (data as unknown as CardStatementRow[] | null) ?? [];
+    },
+  });
+
+  const { data: cardInstallments } = useQuery({
+    queryKey: ["credit_card_installments", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("credit_card_installments" as never)
+        .select("credit_card_id,competence_month,amount,status");
+      if (error) throw error;
+      return (data as unknown as CardInstallmentRow[] | null) ?? [];
+    },
+  });
+
+  const { data: cards } = useQuery({
+    queryKey: ["credit_cards", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("credit_cards" as never).select("id");
+      if (error) throw error;
+      return (data as unknown as Array<{ id: string }> | null) ?? [];
     },
   });
 
@@ -90,9 +125,18 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
       categoryNameById,
       period,
+      cardStatements: (cardStatements ?? []).map((s) => ({
+        ...s,
+        stated_total: Number(s.stated_total ?? 0),
+        paid_amount: Number(s.paid_amount ?? 0),
+        outstanding_amount: s.outstanding_amount == null ? null : Number(s.outstanding_amount),
+        reconciliation_difference: s.reconciliation_difference == null ? null : Number(s.reconciliation_difference),
+      })),
+      cardInstallments: (cardInstallments ?? []).map((i) => ({ ...i, amount: Number(i.amount ?? 0) })),
+      cardIds: (cards ?? []).map((c) => c.id),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, recurring, period.start, period.end, todayKey, loading]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, recurring, cardStatements, cardInstallments, cards, period.start, period.end, todayKey, loading]);
 
   return { data: snapshot, loading };
 }
