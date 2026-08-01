@@ -166,6 +166,8 @@ export interface FinancialSnapshot {
   cardFutureInstallments: number;
   /** true quando algum número de cartão veio de estimativa (sem fatura oficial). */
   cardDebtIsEstimated: boolean;
+}
+
 
 function monthRangeOf(d: Date): DateRange {
   const start = new Date(d.getFullYear(), d.getMonth(), 1);
