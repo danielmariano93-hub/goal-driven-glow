@@ -1,4 +1,8 @@
-import { formatPrivateBRL } from "@/lib/privacy";
+// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v1)
+// shim determinístico do formatador (Deno não tem contexto de privacidade da UI)
+const formatPrivateBRL = (n: number): string =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
 
 // Pure factual engine — no arbitrary scores, no linear projections.
 // All money in numbers with 2-decimal semantics; caller should format for display.

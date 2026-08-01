@@ -7942,6 +7942,17 @@ export type Database = {
       }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
+      card_cycle_for: {
+        Args: { p_closing_day: number; p_date: string; p_due_day: number }
+        Returns: {
+          closing_date: string
+          competence_month: string
+          due_date: string
+          fallback: boolean
+          period_end: string
+          period_start: string
+        }[]
+      }
       category_alias_key: { Args: { p_text: string }; Returns: string }
       challenge_progress_add: {
         Args: {
@@ -8538,6 +8549,10 @@ export type Database = {
         Returns: string
       }
       sweep_orphan_agent_runs: { Args: never; Returns: number }
+      sync_installment_absorption: {
+        Args: { p_statement_id?: string }
+        Returns: undefined
+      }
       transaction_delete_direct: {
         Args: { p_expected_version: number; p_id: string; p_scope?: string }
         Returns: Json

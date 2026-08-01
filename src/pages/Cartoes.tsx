@@ -3,8 +3,8 @@ import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertT
 import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
 import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
-import { formatBRL, currentMonthYM } from "@/lib/engine/facts";
-import { computeCardExposure, type CardExposure } from "@/lib/engine/cardExposure";
+import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
+import { computeCardExposure, emptyExposure, type CardExposure } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -64,13 +64,17 @@ export default function Cartoes() {
 
   // Fonte canônica única: faturas oficiais têm precedência; sem fatura, estimamos
   // pela data econômica e a UI rotula explicitamente como estimativa.
+  // O ciclo real (closing_day/due_day) alimenta a "fatura em formação".
   const exposures = useMemo(() => computeCardExposure({
     cardIds: (cards ?? []).map((c) => c.id),
     statements: statements as never,
     installments: installments as never,
     txs: (txs ?? []) as never,
     currentYM: ym,
+    cards: (cards ?? []).map((c) => ({ id: c.id, closing_day: c.closing_day, due_day: c.due_day })),
+    todayISO: todaySP(),
   }), [cards, installments, statements, txs, ym]);
+
 
   return (
     <div>
@@ -100,15 +104,7 @@ export default function Cartoes() {
       ) : (
         <ul className="space-y-3">
           {cards.map((c) => {
-            const st: CardExposure = exposures[c.id] ?? {
-              cardId: c.id,
-              currentStatement: { amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 },
-              nextStatement: { amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 },
-              futureInstallments: 0,
-              totalCardDebt: 0,
-              needsReview: false,
-              formulaVersion: "card_exposure.v1",
-            };
+            const st: CardExposure = exposures[c.id] ?? emptyExposure(c.id);
             const commitment = st.totalCardDebt + st.futureInstallments;
             const usedPct = c.total_limit > 0 ? Math.min(1, commitment / Number(c.total_limit)) : 0;
             const available = Math.max(0, Number(c.total_limit) - commitment);
@@ -155,6 +151,18 @@ export default function Cartoes() {
                   />
                   <Stat label="Parcelas futuras" value={formatBRL(st.futureInstallments)} tag="Compromisso" />
                 </div>
+                {st.openCycle && (
+                  <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[11px] font-medium text-muted-foreground">Fatura em formação (parcial)</p>
+                      <p className="text-sm font-semibold tabular-nums">{formatBRL(st.formingStatement.amount)}</p>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      Ciclo {st.openCycle.period_start.split("-").reverse().join("/")} a {st.openCycle.period_end.split("-").reverse().join("/")} · vence {st.openCycle.due_date.split("-").reverse().join("/")}
+                    </p>
+                  </div>
+                )}
+
                 {st.currentStatement.paidAmount > 0 && (
                   <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.currentStatement.paidAmount)}</p>
                 )}
