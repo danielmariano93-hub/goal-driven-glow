@@ -47,13 +47,24 @@ export interface RhythmExcludedItem {
 
 export interface DailyPoint {
   date: string;
-  /** consumo elegível ocorrido exclusivamente neste dia */
+  /** despesa BRUTA do dia (nunca reduzida por reembolso) */
+  grossAmount: number;
+  /** reembolsos/estornos recebidos no dia (valor positivo) */
+  refundAmount: number;
+  /** consumo líquido do dia = grossAmount − refundAmount (pode ser negativo) */
+  netAmount: number;
+  /** @deprecated use grossAmount — mantido para compatibilidade de leitura */
   amount: number;
   /** parcela do consumo diário que compõe o ritmo típico */
   typicalAmount: number;
+  /** acumulado líquido até o dia */
   cumulative: number;
-  /** média acumulada até o dia (cumulative / dias decorridos) */
+  /** acumulado bruto até o dia */
+  cumulativeGross: number;
+  /** média líquida acumulada até o dia (cumulative / dias decorridos) */
   runningAverage: number;
+  /** média bruta acumulada até o dia */
+  runningAverageGross: number;
   /** ritmo típico acumulado até o dia, com o mesmo denominador da média total */
   typicalRunningAverage: number;
 }
@@ -61,10 +72,16 @@ export interface DailyPoint {
 export interface RhythmResult {
   range: DateRange;
   days: number;
-  /** consumo elegível total do período */
+  /** consumo LÍQUIDO total do período (bruto − reembolsos). Pode ser negativo. */
   total: number;
-  /** média total = total / days */
+  /** despesa bruta total do período */
+  totalGross: number;
+  /** reembolsos totais do período (positivo) */
+  totalRefunds: number;
+  /** média líquida = total / days */
   average: number;
+  /** média bruta = totalGross / days */
+  averageGross: number;
   /** consumo depois de remover fixas e atípicos */
   typicalTotal: number;
   /** ritmo típico = typicalTotal / days */
