@@ -21,6 +21,8 @@ import { auditInvoiceCoverage, coverageMessage, parseInvoiceText, type InvoiceCo
 import { chunkItems, invoiceToExtraction } from "../_shared/documents/invoiceExtraction.ts";
 import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
+import { applyCreditSignGuard } from "../_shared/ledger/creditSemantics.ts";
+
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { decideByRule } from "../_shared/categorization/pipeline.ts";
 
@@ -592,11 +594,21 @@ async function enrichItems(
 
     const account_id = matchedAccount?.id ?? null;
     const credit_card_id = matchedCard?.id ?? null;
+
+    // Sinal antes de qualquer persistência: estorno/cancelamento/devolução nunca
+    // entra como despesa (senão infla fatura, ritmo e obrigação do cartão).
+    const guarded = applyCreditSignGuard({
+      type: item.type === "income" ? "income" : "expense",
+      amount: Number(item.amount ?? 0),
+      description: [rawDesc, friendly].filter(Boolean).join(" "),
+      movement_kind: item.movement_kind ?? null,
+    });
+
     const fingerprint = await computeFingerprint({
       user_id: userId,
-      type: item.type,
+      type: guarded.type,
       occurred_at: item.occurred_at,
-      amount: item.amount,
+      amount: guarded.amount,
       account_id,
       credit_card_id,
       bank_reference: bankRef,
@@ -604,11 +616,13 @@ async function enrichItems(
     });
 
     // movement_kind: se o extractor não classificou (default "transaction"), aplique o hint determinístico.
-    const currentKind = (item.movement_kind ?? "transaction").toString();
+    const currentKind = (guarded.movement_kind ?? "transaction").toString();
     const effectiveKind = currentKind === "transaction" && ruleMovementKind ? ruleMovementKind : currentKind;
 
     enriched.push({
       ...item,
+      type: guarded.type,
+      amount: guarded.amount,
       raw_description: rawDesc,
       normalized_description: friendly,
       description: aliasFriendly || friendly || rawDesc,
@@ -620,7 +634,9 @@ async function enrichItems(
       account_id,
       credit_card_id,
       movement_kind: effectiveKind,
+      credit_guard_reasons: guarded.credit_guard_reasons.length > 0 ? guarded.credit_guard_reasons : undefined,
     });
+
 
   }
 

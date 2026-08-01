@@ -1,6 +1,6 @@
 // Camada canônica de contabilização de documentos (fonte única de verdade).
 //
-// ESTE ARQUIVO É ESPELHADO em supabase/functions/_shared/ledger/canonical.ts.
+// ESTE ARQUIVO É ESPELHADO em src/lib/ledger/canonical.ts.
 // Qualquer alteração precisa ser aplicada nos dois (teste de contrato garante).
 //
 // Regras contábeis (gestão financeira pessoal):
@@ -9,6 +9,10 @@
 //  2. Importação/fechamento de fatura: reconcilia; não cria despesa nova.
 //  3. Pagamento de fatura: reduz caixa e passivo; não é consumo.
 //  4. Transferência própria, principal e amortização de empréstimo: neutros em resultado.
+//  5. Crédito/estorno nunca entra como despesa (ver `creditSemantics`).
+
+import { applyCreditSignGuard } from "./creditSemantics.ts";
+
 
 export type DocumentKind =
   | "receipt" | "invoice" | "statement" | "list"
@@ -85,12 +89,15 @@ export function buildCanonicalMovement(args: {
   confidence?: number;
 }): CanonicalMovement {
   const kind = String(args.document_kind ?? "unknown") as DocumentKind;
-  const item = args.item;
+  // INVARIANTE 0 — sinal antes de tudo: crédito/estorno nunca entra como despesa.
+  const guarded = applyCreditSignGuard(args.item);
+  const item: CanonicalItemInput = { ...args.item, type: guarded.type, amount: guarded.amount, movement_kind: guarded.movement_kind ?? null };
   const ledger = resolveLedger(kind, item);
   const mk = String(item.movement_kind ?? "transaction") as MovementKindLike;
-  const reasons: string[] = [];
+  const reasons: string[] = [...guarded.credit_guard_reasons];
   const pending_fields: string[] = [];
   const blocks: string[] = [];
+
 
   let account_id = item.account_id ?? null;
   let credit_card_id = item.credit_card_id ?? null;
