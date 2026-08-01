@@ -63,7 +63,7 @@ describe("split dispatch UX", () => {
     expect(dispatcher).toContain("outbound_sent");
     expect(dispatcher).toContain("outbound_pending");
     expect(dispatcher).toContain("outbound_failed");
-    expect(dispatcher).toContain("${j.id}");
+    expect(dispatcher).toContain("${job.id}");
     expect(dispatcher).not.toContain("${dayKey}");
   });
 
