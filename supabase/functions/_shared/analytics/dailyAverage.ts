@@ -5,7 +5,8 @@
 // aqui calculamos: para cada dia d do período, média = consumo_acumulado(1..d) / d.
 // Só consumo real, filtrado por isRealMonthlyMovement — mesma definição da Home
 // (exclui aplicações, aportes, transferências, pagamento de fatura, etc.).
-import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
+import { type TransactionRow } from "../engine/facts.ts";
+import { computeRhythm, type RhythmTx } from "../finance-core/spendingRhythm.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { daysBetween, todaySP, monthRange } from "./periods.ts";
 
@@ -76,16 +77,11 @@ export function computeCumulativeDailyAverage(input: {
   const labels: string[] = [];
   for (let i = 0; i < nDays; i++) labels.push(addDays(from, i));
 
+  // FONTE ÚNICA: mesma fórmula da Home/Relatórios (finance-core spending_rhythm).
+  const rhythm = computeRhythm(input.txs as RhythmTx[], { start: from, end: to });
   const byDay = new Map<string, number>();
-  let rows = 0;
-  for (const t of input.txs) {
-    const d = String(t.occurred_at ?? "").slice(0, 10);
-    if (!d || d < from || d > to) continue;
-    const signed = behavioralMetricAmount(t, "expense");
-    if (signed === 0) continue;
-    byDay.set(d, (byDay.get(d) ?? 0) + signed);
-    rows += 1;
-  }
+  for (const point of rhythm.series) byDay.set(point.date, point.netAmount);
+  const rows = rhythm.series.filter((p) => p.grossAmount !== 0 || p.refundAmount !== 0).length;
 
   const daily: number[] = [];
   const cumulative_average: number[] = [];
