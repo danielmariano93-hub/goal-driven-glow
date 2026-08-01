@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
       const userMessage = error.message.includes("invoice_not_reconciled")
         ? `A fatura ainda não fecha${difference ? `: diferença de ${money}` : ""}. Suas edições continuam salvas; corrija a conciliação e tente novamente.`
         : "Nada foi gravado. Suas edições continuam salvas e você pode tentar novamente.";
-      return fail("atomic_confirmation_failed", { status: 422, functionName: FN, details: { details: error.message, result: diagnostic, user_message: userMessage} });
+      return fail("atomic_confirmation_failed", { status: 422, functionName: FN, details: { reason: error.message, result: diagnostic }, message: userMessage });
     }
     return json({ ok: true, result: data });
   }
