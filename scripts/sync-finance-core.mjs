@@ -9,7 +9,7 @@
  * exatamente as mesmas fórmulas. As únicas transformações permitidas são
  * mecânicas e determinísticas:
  *  1. especificadores relativos ganham extensão `.ts` (exigência do Deno);
- *  2. o import de `@/lib/privacy` (que depende de contexto do browser) é
+ *  2. o import de `../privacy` (que depende de contexto do browser) é
  *     substituído por um formatador BRL local equivalente.
  *
  * O teste de paridade `src/test/finance-core-parity.test.ts` falha se o espelho
@@ -39,7 +39,7 @@ const formatPrivateBRL = (n: number): string =>
 export function toEdgeSource(source) {
   let out = source
     .replace(/from "\.\/(facts|spendingRhythm|dailyAverage|cardExposure|metrics)"/g, 'from "./$1.ts"')
-    .replace(/import \{ formatPrivateBRL \} from "@\/lib\/privacy";\n/g, PRIVACY_SHIM);
+    .replace(/import \{ formatPrivateBRL \} from "\.\.\/privacy";\n/g, PRIVACY_SHIM);
   return HEADER + out;
 }
 

@@ -1,4 +1,4 @@
-import { formatPrivateBRL } from "@/lib/privacy";
+import { formatPrivateBRL } from "../privacy";
 
 // Pure factual engine — no arbitrary scores, no linear projections.
 // All money in numbers with 2-decimal semantics; caller should format for display.

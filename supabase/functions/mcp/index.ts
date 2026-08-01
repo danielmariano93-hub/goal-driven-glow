@@ -272,7 +272,6 @@ var create_transaction_default = defineTool4({
 import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.26.1";
 
 // src/lib/engine/facts.ts
-import { formatPrivateBRL } from "npm:@/lib/privacy";
 var round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 var SP_TZ = "America/Sao_Paulo";
 function todaySP(now = /* @__PURE__ */ new Date()) {
