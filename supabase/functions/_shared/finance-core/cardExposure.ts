@@ -1,3 +1,5 @@
+// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
+// Fonte canônica: src/lib/engine/<module>.ts
 /**
  * FONTE CANÔNICA — Exposição financeira de cartão de crédito.
  * =========================================================
@@ -18,7 +20,7 @@
  *     fatura fechada/paga e sem statement próprio;
  *  d) fatura `paid`/`settled` resulta em obrigação 0 em TODAS as superfícies.
  */
-import { round2 } from "./facts";
+import { round2 } from "../engine/facts.ts";
 
 export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
 

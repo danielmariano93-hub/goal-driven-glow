@@ -2163,6 +2163,8 @@ export type Database = {
       }
       credit_card_installments: {
         Row: {
+          absorbed_at: string | null
+          absorbed_by_statement_id: string | null
           amount: number
           competence_month: string
           created_at: string
@@ -2177,6 +2179,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          absorbed_at?: string | null
+          absorbed_by_statement_id?: string | null
           amount: number
           competence_month: string
           created_at?: string
@@ -2191,6 +2195,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          absorbed_at?: string | null
+          absorbed_by_statement_id?: string | null
           amount?: number
           competence_month?: string
           created_at?: string
@@ -2205,6 +2211,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "credit_card_installments_absorbed_by_statement_id_fkey"
+            columns: ["absorbed_by_statement_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_statements"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "credit_card_installments_credit_card_id_fkey"
             columns: ["credit_card_id"]
@@ -7299,6 +7312,43 @@ export type Database = {
           {
             foreignKeyName: "shared_expenses_owner_user_id_fkey"
             columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      v_card_double_counting: {
+        Row: {
+          competence_month: string | null
+          credit_card_id: string | null
+          installments_absorbed_total: number | null
+          installments_total: number | null
+          issue: string | null
+          official_total: number | null
+          statement_status: string | null
+          transactions_total: number | null
+          transactions_vs_official: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_statements_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_statements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "credit_card_statements_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]

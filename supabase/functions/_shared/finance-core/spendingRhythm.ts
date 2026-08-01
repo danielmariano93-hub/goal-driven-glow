@@ -1,3 +1,5 @@
+// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
+// Fonte canônica: src/lib/engine/<module>.ts
 /**
  * FONTE CANÔNICA — Média diária e Ritmo de gastos.
  * =================================================
@@ -22,7 +24,7 @@
  *    Nunca "mês anterior" com número de dias diferente.
  * 6. Uma queda no ritmo é sempre positiva; uma alta é sempre negativa.
  */
-import { behavioralMetricAmount, round2, type TransactionRow } from "./facts";
+import { behavioralMetricAmount, round2, type TransactionRow } from "../engine/facts.ts";
 
 export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v3";
 

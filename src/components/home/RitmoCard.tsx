@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDownRight, ArrowUpRight, Minus, ArrowRight, Info } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
-import { formatRangeShort, type RhythmComparison } from "@/lib/engine/spendingRhythm";
+import { EXCLUSION_REASON_LABEL, formatRangeShort, type RhythmComparison } from "@/lib/engine/spendingRhythm";
 
 type Trend = "up" | "down" | "stable";
 
@@ -47,13 +47,6 @@ function hintFor(deltaPct: number | null, trend: Trend, up: string, down: string
   if (Math.abs(deltaPct) < 1) return "No mesmo ritmo";
   return trend === "up" ? up : down;
 }
-
-const REASON_LABEL: Record<string, string> = {
-  fixed: "Despesa estrutural",
-  recurring: "Conta recorrente",
-  installment: "Parcelamento",
-  outlier: "Gasto atípico do período",
-};
 
 type Props = {
   rhythm: RhythmComparison | null;
@@ -110,7 +103,7 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
           className="flex min-w-0 flex-1 flex-col rounded-lg px-4 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
-            Compras no cartão
+            Compras no cartão{cur ? ` · ${formatRangeShort(cur.range)}` : ""}
           </p>
           <p
             className="mt-1 truncate font-display font-extrabold tabular-nums"
@@ -171,12 +164,25 @@ export function RitmoCard({ rhythm, card, loading }: Props) {
                 <span className="font-semibold">{formatBRL(cur.typicalTotal)}</span>
               </div>
             </div>
+            {cur.excludedByReason.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {cur.excludedByReason.map((g) => (
+                  <span
+                    key={g.reason}
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+                    style={{ background: "var(--home-neutral-bg)", color: "var(--home-text-2)" }}
+                  >
+                    {g.label} · {g.count}x · {formatBRL(g.total)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {cur.excluded.length > 0 ? (
               <ul className="space-y-1">
                 {cur.excluded.slice(0, 5).map((e) => (
                   <li key={e.id} className="flex items-center justify-between gap-2">
                     <span className="min-w-0 truncate">
-                      {e.label} <span style={{ color: "var(--home-text-3)" }}>· {REASON_LABEL[e.reason] ?? e.reason}</span>
+                      {e.label} <span style={{ color: "var(--home-text-3)" }}>· {EXCLUSION_REASON_LABEL[e.reason] ?? e.reason}</span>
                     </span>
                     <span className="tabular-nums">{formatBRL(e.amount)}</span>
                   </li>
