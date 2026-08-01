@@ -5,6 +5,9 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { fail } from "../_shared/http.ts";
+
+const FN = "agent-chat";
 import { handleAppAction, handleAppMessage } from "../_shared/agent/core/adapters/AppAdapter.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -13,10 +16,10 @@ const MAX_MSG_LEN = 2000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return fail("method_not_allowed", { status: 405, functionName: FN });
 
   const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
 
   const userClient = createClient(
     SUPABASE_URL,
@@ -24,7 +27,7 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: auth } } },
   );
   const { data: userRes, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userRes.user) return json({ error: "unauthorized" }, 401);
+  if (userErr || !userRes.user) return fail("unauthorized", { status: 401, functionName: FN });
   const user_id = userRes.user.id;
 
   const body = await req.json().catch(() => ({}));
@@ -33,7 +36,7 @@ Deno.serve(async (req) => {
   const pendingId = typeof body?.pending_id === "string" ? body.pending_id : null;
   const requested_conv = typeof body?.conversation_id === "string" ? body.conversation_id : null;
   const text = rawText.slice(0, MAX_MSG_LEN);
-  if (!text && !action) return json({ error: "missing_text" }, 400);
+  if (!text && !action) return fail("missing_text", { status: 400, functionName: FN });
 
   const svc = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -43,7 +46,7 @@ Deno.serve(async (req) => {
     .select("id", { count: "exact", head: true })
     .eq("user_id", user_id)
     .gte("created_at", new Date(Date.now() - 60_000).toISOString());
-  if ((count ?? 0) > 40) return json({ error: "rate_limited" }, 429);
+  if ((count ?? 0) > 40) return fail("rate_limited", { status: 429, functionName: FN });
 
   // Get or create app conversation
   let conversation_id = requested_conv;
@@ -57,7 +60,7 @@ Deno.serve(async (req) => {
     const { data: newConv, error: convErr } = await svc.from("conversations")
       .insert({ user_id, source: "app", phone_e164: null, last_message_at: new Date().toISOString() } as any)
       .select("id").single();
-    if (convErr) return json({ error: "conv_create_failed" }, 500);
+    if (convErr) return fail("conv_create_failed", { status: 500, functionName: FN });
     conversation_id = (newConv as any)!.id as string;
   }
 
@@ -70,6 +73,6 @@ Deno.serve(async (req) => {
     return json({ ok: true, conversation_id, ...out });
   } catch (e) {
     console.error("[agent-chat] handler failed", String((e as Error).message).slice(0, 200));
-    return json({ error: "internal" }, 500);
+    return fail("internal", { status: 500, functionName: FN });
   }
 });
