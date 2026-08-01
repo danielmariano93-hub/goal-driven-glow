@@ -497,6 +497,10 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     projectedMonthEndAvailable,
     activeCategoryGoals,
     topCategoryGoal,
+    cardExposures,
+    cardDebtToday,
+    cardFutureInstallments,
+    cardDebtIsEstimated,
   };
 }
 
