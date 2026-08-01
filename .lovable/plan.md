@@ -111,3 +111,13 @@ E2E (Playwright): Home → Cartões → Relatórios → pergunta ao Nino por cat
 4. Renomear rótulos muda a leitura do usuário — precisa do seu ok no texto final.
 5. Cartão sem statement importado: exibir estimativa rotulada ou “—”?
 6. Não haverá exclusão de tabelas nesta rodada (só classificação) — confirmar.
+
+## 8. Status de implantação (2026-08-01)
+
+- **E1 concluída** — contratos (`CardExposure`, `DailyPoint`/ritmo de 4 séries, `FinancialSnapshot` com exposição de cartão) e testes de invariante com fixtures reais (`src/test/financial-truth-rhythm-cards.test.ts`).
+- **E2 concluída** — `spending_rhythm.v3` sem clamps, bruto/estorno/líquido/típico.
+- **E3 concluída** — `cardExposure.v1` com precedência oficial > estimativa > parcelas; patrimônio e página Cartões usam a mesma dívida; rótulo “Compras no cartão · período” (não é dívida).
+- **E4 concluída** — exclusões declarativas (`categoryKindById`/`structuralCategoryIds`, nome só como fallback); parcelamento deixa de ser exclusão automática (só parcela de compromisso recorrente); `excludedByReason` explicado na UI.
+- **E5 concluída** — pacote canônico `supabase/functions/_shared/finance-core/` gerado por `scripts/sync-finance-core.mjs` e verificado em `src/test/finance-core-parity.test.ts`; `analytics/dailyAverage` (Nino/WhatsApp) passou a chamar o core (`daily_average.cumulative.v2-core`); Relatórios consome o ritmo do `useFinancialSnapshot`.
+- **E6 concluída** — migration com `credit_card_installments.absorbed_by_statement_id/absorbed_at`, backfill idempotente e view `v_card_double_counting`; o motor ignora parcelas absorvidas.
+- Pendentes: E7 (contrato de erro) e E8 (classificação de estruturas). Publicação do frontend aguarda autorização explícita.
