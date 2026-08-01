@@ -10,7 +10,7 @@ import { computeRhythm, type RhythmTx } from "../finance-core/spendingRhythm.ts"
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { daysBetween, todaySP, monthRange } from "./periods.ts";
 
-export const FORMULA_VERSION = "daily_average.cumulative.v1";
+export const FORMULA_VERSION = "daily_average.cumulative.v2-core";
 
 export type TrendKind = "falling" | "rising" | "flat";
 
