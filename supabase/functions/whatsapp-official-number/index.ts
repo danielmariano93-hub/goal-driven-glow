@@ -3,6 +3,7 @@
 // Contract: { available: boolean, official_number: string | null, source: "waha" | "cache" | "unconfigured" | "not_connected" | "error" }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 import { getProvider, loadWahaConfig, isWahaConfigured } from "../_shared/messaging/waha.ts";
 import { normalizeBrPhone } from "../_shared/messaging/types.ts";
 
@@ -32,10 +33,11 @@ async function writeCache(svc: ReturnType<typeof createClient>, number: string) 
 }
 
 Deno.serve(async (req) => {
+  const h = httpContext("whatsapp-official-number", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  if (!auth.startsWith("Bearer ")) return h.fail("unauthorized", 401);
 
   const anon = createClient(
     SUPABASE_URL,
@@ -43,11 +45,11 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: auth } } },
   );
   const { data: userRes, error: authErr } = await anon.auth.getUser();
-  if (authErr || !userRes.user) return json({ error: "unauthorized" }, 401);
+  if (authErr || !userRes.user) return h.fail("unauthorized", 401);
 
   // In-memory cache hit
   if (mem && Date.now() - mem.at < TTL_MS) {
-    return json({
+    return h.ok({
       available: Boolean(mem.number),
       official_number: mem.number,
       source: mem.number ? "cache" : "not_connected",
@@ -64,9 +66,9 @@ Deno.serve(async (req) => {
     const fallback = await readCache(svc);
     if (fallback) {
       mem = { at: Date.now(), number: fallback };
-      return json({ available: true, official_number: fallback, source: "cache" });
+      return h.ok({ available: true, official_number: fallback, source: "cache" });
     }
-    return json({ available: false, official_number: null, source: "unconfigured" });
+    return h.ok({ available: false, official_number: null, source: "unconfigured" });
   }
 
   const provider = getProvider();
@@ -81,18 +83,18 @@ Deno.serve(async (req) => {
       mem = { at: Date.now(), number: phone };
       // fire-and-forget cache write
       writeCache(svc, phone).catch(() => {});
-      return json({ available: true, official_number: phone, source: "waha" });
+      return h.ok({ available: true, official_number: phone, source: "waha" });
     }
     // WAHA not connected — try persistent fallback so a transient disconnect doesn't break the UX
     const fallback = await readCache(svc);
     if (fallback) {
       mem = { at: Date.now(), number: fallback };
-      return json({ available: true, official_number: fallback, source: "cache" });
+      return h.ok({ available: true, official_number: fallback, source: "cache" });
     }
-    return json({ available: false, official_number: null, source: "not_connected" });
+    return h.ok({ available: false, official_number: null, source: "not_connected" });
   } catch {
     const fallback = await readCache(svc);
-    if (fallback) return json({ available: true, official_number: fallback, source: "cache" });
-    return json({ available: false, official_number: null, source: "error" });
+    if (fallback) return h.ok({ available: true, official_number: fallback, source: "cache" });
+    return h.ok({ available: false, official_number: null, source: "error" });
   }
 });

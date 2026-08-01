@@ -6,8 +6,6 @@ verify_jwt = false
 [functions.whatsapp-ack-watchdog]
 verify_jwt = false
 
-[functions.split-reminders-dispatch]
-verify_jwt = false
 
 [functions.split-reminders-dispatch-v2]
 verify_jwt = false

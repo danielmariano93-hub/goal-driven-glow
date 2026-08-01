@@ -5,6 +5,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
+import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 
@@ -125,8 +127,9 @@ async function isRegisteredPhone(sb: any, phoneE164: string): Promise<boolean> {
 }
 
 Deno.serve(async (req) => {
+  const h = httpContext("split-reminders-dispatch-v2", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
   const cronHeader = req.headers.get("x-cron-secret") ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
@@ -135,7 +138,7 @@ Deno.serve(async (req) => {
   const caller = (!validCron && !validService)
     ? await authenticatedCaller(authHeader)
     : { userId: null, admin: false };
-  if (!validCron && !validService && !caller.userId) return json({ error: "unauthorized" }, 401);
+  if (!validCron && !validService && !caller.userId) return h.fail("unauthorized", 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -144,7 +147,7 @@ Deno.serve(async (req) => {
   const { data: claimed, error: claimError } = globalWorker
     ? await sb.rpc("claim_reminder_jobs", { p_limit: 30 })
     : await sb.rpc("claim_reminder_jobs_for_owner", { p_owner_user_id: caller.userId, p_limit: 20 });
-  if (claimError) return json({ error: claimError.message }, 500);
+  if (claimError) return h.fail("internal", 500, { details: { reason: String(claimError.message).slice(0, 200) } });
 
   const jobs = (claimed as any[] | null) ?? [];
   const { data: activePrompt } = await sb.from("agent_prompt_versions")
@@ -177,6 +180,8 @@ Deno.serve(async (req) => {
   let whatsappQueued = 0;
   let skipped = 0;
   let failed = 0;
+  const failedJobs: Array<{ job_id: string; reason: string }> = [];
+  const targetOutboundIds: string[] = [];
 
   for (const job of jobs) {
     try {
@@ -368,8 +373,10 @@ Deno.serve(async (req) => {
             .select("id").eq("idempotency_key", idempotencyKey).maybeSingle();
           outboundId = existing?.id ?? null;
           if (!outboundId) throw new Error("outbound_duplicate_without_row");
+          targetOutboundIds.push(outboundId);
         } else {
           outboundId = outbound.id;
+          targetOutboundIds.push(outboundId);
         }
         whatsappQueued++;
         deliveredSomewhere = true;
@@ -414,6 +421,7 @@ Deno.serve(async (req) => {
       });
     } catch (caught) {
       failed++;
+      failedJobs.push({ job_id: job.id, reason: String((caught as Error).message).slice(0, 200) });
       await sb.from("reminder_jobs").update({
         status: "failed",
         last_error: String((caught as Error).message).slice(0, 200),
@@ -422,12 +430,57 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({
-    ok: true,
+  // Todo tick autorizado também processa outbound_messages já existentes:
+  // o convite não espera o cron para sair (comportamento herdado da V1).
+  let outboundProcessed = 0;
+  let outboundKicked = false;
+  try {
+    const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_ROLE}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ source: "split-reminders-dispatch-v2", claimed: jobs.length }),
+    });
+    const sendResult = await sendResponse.json().catch(() => ({}));
+    outboundProcessed = Number(sendResult?.processed ?? 0);
+    outboundKicked = sendResponse.ok;
+    if (!sendResponse.ok) {
+      console.error(JSON.stringify({ event: "split_outbound_kick_failed", status: sendResponse.status }));
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: String((error as Error).message).slice(0, 160) }));
+  }
+
+  let outboundSent = 0, outboundPending = 0, outboundFailed = 0;
+  if (targetOutboundIds.length > 0) {
+    const { data: targetRows } = await sb.from("outbound_messages").select("status").in("id", targetOutboundIds);
+    for (const row of targetRows ?? []) {
+      const status = String((row as { status?: string }).status ?? "");
+      if (["sent", "delivered", "read"].includes(status)) outboundSent++;
+      else if (["failed", "dead"].includes(status)) outboundFailed++;
+      else outboundPending++;
+    }
+  }
+
+  await writeJobHeartbeat({
+    jobKey: "split-reminders-dispatch",
+    ok: failed === 0,
+    processed: whatsappQueued + appDelivered,
+    failed,
+    sb: sb as never,
+  });
+
+  // partial_success: um único job falho impede ok:true (P1-3).
+  return h.partial({
+    enqueued: whatsappQueued,
+    outbound_processed: outboundProcessed,
+    outbound_kicked: outboundKicked,
+    outbound_sent: outboundSent,
+    outbound_pending: outboundPending,
+    outbound_failed: outboundFailed,
     claimed: jobs.length,
     app_delivered: appDelivered,
     whatsapp_queued: whatsappQueued,
     skipped,
     failed,
-  });
+  }, failedJobs, { errorCode: "split_reminder_delivery_failed" });
 });

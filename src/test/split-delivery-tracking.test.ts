@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const migration = readFileSync(`${process.cwd()}/supabase/migrations/20260719233000_split_delivery_tracking_and_soft_delete.sql`, "utf8");
 const pipelineMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719231937_7985b419-f354-47cb-94cc-48bda3aef9cc.sql`, "utf8");
-const dispatcher = readFileSync(`${process.cwd()}/supabase/functions/split-reminders-dispatch/index.ts`, "utf8");
+const dispatcher = readFileSync(`${process.cwd()}/supabase/functions/split-reminders-dispatch-v2/index.ts`, "utf8");
 const detail = readFileSync(`${process.cwd()}/src/pages/DivisaoDoRoleDetalhe.tsx`, "utf8");
 const list = readFileSync(`${process.cwd()}/src/pages/DivisaoDoRole.tsx`, "utf8");
 

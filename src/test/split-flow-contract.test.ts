@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 const migration = readFileSync(`${process.cwd()}/supabase/migrations/20260719230000_complete_split_expense_flow.sql`, "utf8");
 const repairMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719214538_858fe9fa-6493-496c-9140-d5de3f142e45.sql`, "utf8");
 const deleteMigration = readFileSync(`${process.cwd()}/supabase/migrations/20260719231937_7985b419-f354-47cb-94cc-48bda3aef9cc.sql`, "utf8");
-const dispatcher = readFileSync(`${process.cwd()}/supabase/functions/split-reminders-dispatch/index.ts`, "utf8");
+const dispatcher = readFileSync(`${process.cwd()}/supabase/functions/split-reminders-dispatch-v2/index.ts`, "utf8");
 const templates = readFileSync(`${process.cwd()}/supabase/functions/_shared/agent/messageTemplates.ts`, "utf8");
 
 describe("Divisão do Rolê — contrato integrado", () => {

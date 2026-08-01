@@ -4,16 +4,18 @@
 // auth.users row via the admin API.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 Deno.serve(async (req) => {
+  const h = httpContext("admin-process-deletion", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+  if (!authHeader.startsWith("Bearer ")) return h.fail("unauthorized", 401);
 
   // Verify admin via user JWT.
   const userClient = createClient(
@@ -22,13 +24,13 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: authHeader } } },
   );
   const { data: userRes } = await userClient.auth.getUser();
-  if (!userRes.user) return json({ error: "unauthorized" }, 401);
+  if (!userRes.user) return h.fail("unauthorized", 401);
   const { data: isAdmin } = await userClient.rpc("is_current_user_admin");
-  if (isAdmin !== true) return json({ error: "forbidden" }, 403);
+  if (isAdmin !== true) return h.fail("forbidden", 403);
 
   const body = await req.json().catch(() => ({} as Record<string, string>));
   const requestId = body.request_id;
-  if (!requestId) return json({ error: "missing request_id" }, 400);
+  if (!requestId) return h.fail("missing_fields", 400, { details: { field: "request_id" } });
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -37,14 +39,14 @@ Deno.serve(async (req) => {
   const { data: deletedUserId, error: procErr } = await admin.rpc("admin_process_deletion_request", {
     p_id: requestId,
   });
-  if (procErr) return json({ error: procErr.message }, 400);
+  if (procErr) return h.fail("deletion_failed", 400, { details: { reason: String(procErr.message).slice(0, 200) } });
 
   if (deletedUserId) {
     const { error: authErr } = await admin.auth.admin.deleteUser(deletedUserId as string);
     if (authErr) {
       console.error("auth.admin.deleteUser failed", authErr.message);
-      return json({ ok: true, warning: "data_deleted_but_auth_user_remains", detail: authErr.message });
+      return h.ok({ warning: "data_deleted_but_auth_user_remains", detail: String(authErr.message).slice(0, 200) });
     }
   }
-  return json({ ok: true, deleted_user_id: deletedUserId });
+  return h.ok({ deleted_user_id: deletedUserId });
 });

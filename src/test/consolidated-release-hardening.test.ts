@@ -57,13 +57,13 @@ describe("canonical reports", () => {
 describe("split dispatch UX", () => {
   it("reports target delivery states and keeps retries idempotent per job", () => {
     const dispatcher = readFileSync(
-      resolve(process.cwd(), "supabase/functions/split-reminders-dispatch/index.ts"),
+      resolve(process.cwd(), "supabase/functions/split-reminders-dispatch-v2/index.ts"),
       "utf8",
     );
     expect(dispatcher).toContain("outbound_sent");
     expect(dispatcher).toContain("outbound_pending");
     expect(dispatcher).toContain("outbound_failed");
-    expect(dispatcher).toContain("${j.id}");
+    expect(dispatcher).toContain("${job.id}");
     expect(dispatcher).not.toContain("${dayKey}");
   });
 

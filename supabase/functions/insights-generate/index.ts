@@ -6,7 +6,7 @@
 // - `force` nunca gera duas dicas em sequência (janela mínima).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { fail } from "../_shared/http.ts";
+import { fail, respond } from "../_shared/http.ts";
 
 const FN = "insights-generate";
 import {
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
     const cutoff = Date.now() - 6 * 3600 * 1000;
     if (new Date(String(usable.generated_at)).getTime() > cutoff) {
       logEvent({ event: "cached", latency_ms: Date.now() - started });
-      return json({ insight: usable, cached: true });
+      return respond({ insight: usable, cached: true });
     }
   }
 
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
   const minGapConfig = force ? { minGapMinutes: 0 } : undefined;
   if (!canGenerateNow((lastRow as { generated_at?: string } | null)?.generated_at ?? null, { config: minGapConfig })) {
     logEvent({ event: "throttled" });
-    return json({ insight: usable ?? null, cached: !!usable, throttled: true });
+    return respond({ insight: usable ?? null, cached: !!usable, throttled: true });
   }
 
 
@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
   if (!chosen) {
     logEvent({ event: "no_eligible_tip", force });
     // Com force, devolver o cache reapresentaria a dica dispensada.
-    return json({ insight: force ? null : (usable ?? null), cached: !force && !!usable, no_candidate: true });
+    return respond({ insight: force ? null : (usable ?? null), cached: !force && !!usable, no_candidate: true });
   }
 
 
@@ -351,7 +351,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
     relaxed: selection.relaxed,
     latency_ms: Date.now() - started,
   });
-  return json({ insight: inserted, cached: false, fallback: !!fallbackReason, family: chosen.family });
+  return respond({ insight: inserted, cached: false, fallback: !!fallbackReason, family: chosen.family });
 });
 
 function safeJson(s: string): unknown {

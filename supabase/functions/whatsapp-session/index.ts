@@ -3,6 +3,7 @@
 // restart, logout, send_test, sync_webhook, validate, create, start, stop.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 import {
   getProvider, validateWahaCredentials, loadWahaConfig, isWahaConfigured,
   buildWahaTester, primeWahaConfig,
@@ -119,12 +120,13 @@ function canPair(role: string | null): boolean {
 }
 
 Deno.serve(async (req) => {
+  const h = httpContext("whatsapp-session", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const correlationId = crypto.randomUUID();
   const extraHeaders = { "X-Correlation-Id": correlationId };
 
   const gate = await requireAdmin(req);
-  if (!gate.ok) return json({ error: gate.status === 401 ? "unauthorized" : "forbidden" }, gate.status, extraHeaders);
+  if (!gate.ok) return h.fail(gate.status === 401 ? "unauthorized" : "forbidden", gate.status, { headers: extraHeaders });
 
   const svc = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -137,7 +139,7 @@ Deno.serve(async (req) => {
   // GET: capability-based snapshot (legacy).
   if (req.method === "GET") {
     const snap = await buildPublicStatus();
-    return json(snap, 200, extraHeaders);
+    return h.ok({ ...snap }, 200, extraHeaders);
   }
 
   let body: {
@@ -151,9 +153,9 @@ Deno.serve(async (req) => {
     switch (action) {
       case "config_status": {
         const { data, error } = await gate.sb.rpc("admin_waha_config_status");
-        if (error) return json({ ok: false, error_code: "config_status_failed" }, 500, extraHeaders);
+        if (error) return h.fail("config_status_failed", 500, { headers: extraHeaders });
         const payload = (data as Record<string, unknown>) ?? {};
-        return json({
+        return h.ok({
           ok: true,
           ...payload,
           admin_role: payload.admin_role ?? gate.role,
@@ -163,121 +165,121 @@ Deno.serve(async (req) => {
 
       case "test_config": {
         if (!(await rateOk(gate.sb, "waha_test"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         const url = String(body.url ?? "").trim();
         const key = String(body.api_key ?? "").trim();
         const guard = assertPublicHttpsUrl(url);
-        if (!guard.ok) return json({ ok: false, error_code: guard.code }, 400, extraHeaders);
-        if (key.length < 4 || key.length > 500) return json({ ok: false, error_code: "invalid_api_key" }, 400, extraHeaders);
+        if (!guard.ok) return h.fail(guard.code, 400, { headers: extraHeaders });
+        if (key.length < 4 || key.length > 500) return h.fail("invalid_api_key", 400, { headers: extraHeaders });
         const tester = buildWahaTester({ api_url: url.replace(/\/+$/, ""), api_key: key });
         const result = await tester.ping();
-        return json({ ok: result.code === "ok", ...result }, 200, extraHeaders);
+        return h.ok({ ok: result.code === "ok", ...result }, 200, extraHeaders);
       }
 
       case "save_config": {
         if (gate.role !== "platform_owner") {
-          return json({ ok: false, error_code: "owner_required" }, 403, extraHeaders);
+          return h.fail("owner_required", 403, { headers: extraHeaders });
         }
         if (!(await rateOk(gate.sb, "waha_save"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         const url = String(body.url ?? "").trim().replace(/\/+$/, "");
         const key = String(body.api_key ?? "").trim();
         // session_name is resolved server-side from Vault; frontend cannot set it.
         // The RPC default handles first-time provisioning.
         const guard = assertPublicHttpsUrl(url);
-        if (!guard.ok) return json({ ok: false, error_code: guard.code }, 400, extraHeaders);
-        if (key.length < 4 || key.length > 500) return json({ ok: false, error_code: "invalid_api_key" }, 400, extraHeaders);
+        if (!guard.ok) return h.fail(guard.code, 400, { headers: extraHeaders });
+        if (key.length < 4 || key.length > 500) return h.fail("invalid_api_key", 400, { headers: extraHeaders });
         const { error } = await gate.sb.rpc("admin_waha_save_config", {
           p_url: url, p_api_key: key,
           p_webhook_secret: body.webhook_secret ?? null,
         });
-        if (error) return json({ ok: false, error_code: "save_failed" }, 500, extraHeaders);
+        if (error) return h.fail("save_failed", 500, { headers: extraHeaders });
         // Prime in-memory so follow-up actions in the same call chain see it.
         primeWahaConfig({ api_url: url, api_key: key });
         const { data: statusData } = await gate.sb.rpc("admin_waha_config_status");
-        return json({ ok: true, ...(statusData as Record<string, unknown>) }, 200, extraHeaders);
+        return h.ok({ ...(statusData as Record<string, unknown>) }, 200, extraHeaders);
       }
 
       case "setup_session": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
-        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
+        if (!provider.configured) return h.fail("not_configured", 400, { headers: extraHeaders });
         if (!(await rateOk(gate.sb, "waha_setup"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         // Idempotent: create/update, then start if not WORKING/STARTING.
         const created = await provider.createOrUpdateSession(webhookUrl());
-        if (!created.ok) return json({ ok: false, error_code: "session_setup_failed" }, 502, extraHeaders);
+        if (!created.ok) return h.fail("session_setup_failed", 502, { headers: extraHeaders });
         const s = await provider.getSessionStatus();
         const raw = (s?.status ?? "").toUpperCase();
         if (raw !== "WORKING" && raw !== "STARTING" && raw !== "SCAN_QR_CODE") {
           await provider.startSession();
         }
-        return json({ ok: true, ...(await buildPublicStatus()) }, 200, extraHeaders);
+        return h.ok({ ...(await buildPublicStatus()) }, 200, extraHeaders);
       }
 
       case "validate": {
         const report = await validateWahaCredentials(webhookUrl());
-        return json({ ok: true, report }, 200, extraHeaders);
+        return h.ok({ report }, 200, extraHeaders);
       }
 
-      case "status": return json(await buildPublicStatus(), 200, extraHeaders);
-      case "operational_status": return json(await buildOperationalStatus(), 200, extraHeaders);
+      case "status": return h.ok({ ...(await buildPublicStatus()) }, 200, extraHeaders);
+      case "operational_status": return h.ok({ ...(await buildOperationalStatus()) }, 200, extraHeaders);
       case "create": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
         const r = await provider.createOrUpdateSession(webhookUrl());
-        return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders);
+        return r.ok ? h.ok({}, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders });
       }
       case "sync_webhook": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
         const r = await provider.syncWebhook(webhookUrl());
-        return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders);
+        return r.ok ? h.ok({}, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders });
       }
-      case "start":   { if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders); const r = await provider.startSession();   return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
-      case "restart": { if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders); const r = await provider.restartSession(); return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
-      case "stop":    { if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders); const r = await provider.stopSession();    return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders); }
+      case "start":   { if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders }); const r = await provider.startSession();   return r.ok ? h.ok({}, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders }); }
+      case "restart": { if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders }); const r = await provider.restartSession(); return r.ok ? h.ok({}, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders }); }
+      case "stop":    { if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders }); const r = await provider.stopSession();    return r.ok ? h.ok({}, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders }); }
       case "logout":  {
         if (!canPair(gate.role)) {
-          return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+          return h.fail("forbidden", 403, { headers: extraHeaders });
         }
         const r = await provider.logoutSession();
-        return json({ ok: r.ok }, r.ok ? 200 : 502, extraHeaders);
+        return r.ok ? h.ok({}, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders });
       }
       case "qr": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
         const r = await provider.getQr();
-        return json(r, r.ok ? 200 : 502, extraHeaders);
+        return r.ok ? h.ok({ ...r }, 200, extraHeaders) : h.fail("provider_error", 502, { headers: extraHeaders, details: { ...r } });
       }
       case "send_test": {
-        if (!body.consent) return json({ ok: false, error_code: "consent_required" }, 400, extraHeaders);
+        if (!body.consent) return h.fail("consent_required", 400, { headers: extraHeaders });
         const to = normalizeBrPhone(String(body.to ?? ""));
-        if (!to) return json({ ok: false, error_code: "invalid_phone" }, 400, extraHeaders);
+        if (!to) return h.fail("invalid_phone", 400, { headers: extraHeaders });
         try {
           const r = await provider.sendText(to, "[TESTE MeuNino] Mensagem de teste enviada pelo painel administrativo.");
-          return json({ ok: true, provider_message_id: r.provider_message_id }, 200, extraHeaders);
+          return h.ok({ provider_message_id: r.provider_message_id }, 200, extraHeaders);
         } catch {
-          return json({ ok: false, error_code: "provider_error" }, 502, extraHeaders);
+          return h.fail("provider_error", 502, { headers: extraHeaders });
         }
       }
       case "prepare_pairing": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
-        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
+        if (!provider.configured) return h.fail("not_configured", 400, { headers: extraHeaders });
         if (!(await rateOk(gate.sb, "waha_prepare"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         const p = await provider.preparePairing(webhookUrl());
         const snap = await buildPublicStatus();
-        return json({ ok: p.ok, ...snap, correlation_id: correlationId }, 200, extraHeaders);
+        return h.ok({ ok: p.ok, ...snap, correlation_id: correlationId }, 200, extraHeaders);
       }
       case "begin_qr": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
-        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
+        if (!provider.configured) return h.fail("not_configured", 400, { headers: extraHeaders });
         if (!(await rateOk(gate.sb, "waha_qr"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         const p = await provider.preparePairing(webhookUrl());
-        if (!p.ok) return json({ ok: false, error_code: "prepare_failed" }, 502, extraHeaders);
+        if (!p.ok) return h.fail("prepare_failed", 502, { headers: extraHeaders });
         // wait a beat if not yet scan_qr
         let raw = p.status;
         const start = Date.now();
@@ -286,22 +288,22 @@ Deno.serve(async (req) => {
           const s = await provider.getSessionStatus();
           raw = (s.status ?? "").toUpperCase();
         }
-        if (raw === "WORKING") return json({ ok: true, connected: true }, 200, extraHeaders);
-        if (raw !== "SCAN_QR_CODE") return json({ ok: false, error_code: "qr_not_ready" }, 202, extraHeaders);
+        if (raw === "WORKING") return h.ok({ connected: true }, 200, extraHeaders);
+        if (raw !== "SCAN_QR_CODE") return h.fail("qr_not_ready", 202, { headers: extraHeaders });
         const q = await provider.getQr();
-        if (!q.ok || !q.base64) return json({ ok: false, error_code: "qr_unavailable" }, 502, extraHeaders);
+        if (!q.ok || !q.base64) return h.fail("qr_unavailable", 502, { headers: extraHeaders });
         const expires_at = new Date(Date.now() + 60_000).toISOString();
-        return json({ ok: true, qr: q.base64, mime_type: q.mimeType ?? "image/png", expires_at }, 200, extraHeaders);
+        return h.ok({ qr: q.base64, mime_type: q.mimeType ?? "image/png", expires_at }, 200, extraHeaders);
       }
       case "reset_session": {
-        if (!canPair(gate.role)) return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
-        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
+        if (!provider.configured) return h.fail("not_configured", 400, { headers: extraHeaders });
         if (!(await rateOk(gate.sb, "waha_reset"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         try { await provider.logoutSession(); } catch { /* best effort */ }
         const created = await provider.createOrUpdateSession(webhookUrl());
-        if (!created.ok) return json({ ok: false, error_code: "session_setup_failed" }, 502, extraHeaders);
+        if (!created.ok) return h.fail("session_setup_failed", 502, { headers: extraHeaders });
         await provider.startSession();
         // Give WAHA a moment to advance to SCAN_QR_CODE
         const start = Date.now();
@@ -312,18 +314,18 @@ Deno.serve(async (req) => {
           raw = (s.status ?? "").toUpperCase();
           if (raw === "SCAN_QR_CODE" || raw === "WORKING") break;
         }
-        return json({ ok: true, ...(await buildPublicStatus()) }, 200, extraHeaders);
+        return h.ok({ ...(await buildPublicStatus()) }, 200, extraHeaders);
       }
       case "request_pairing_code": {
-        if (!provider.configured) return json({ ok: false, error_code: "not_configured" }, 400, extraHeaders);
+        if (!provider.configured) return h.fail("not_configured", 400, { headers: extraHeaders });
         if (!canPair(gate.role)) {
-          return json({ ok: false, error_code: "forbidden" }, 403, extraHeaders);
+          return h.fail("forbidden", 403, { headers: extraHeaders });
         }
         if (!(await rateOk(gate.sb, "waha_pairing_code"))) {
-          return json({ ok: false, error_code: "rate_limited" }, 429, extraHeaders);
+          return h.fail("rate_limited", 429, { headers: extraHeaders });
         }
         const phoneE164 = normalizeBrPhone(String(body.to ?? ""));
-        if (!phoneE164) return json({ ok: false, error_code: "invalid_phone" }, 400, extraHeaders);
+        if (!phoneE164) return h.fail("invalid_phone", 400, { headers: extraHeaders });
         const digits = phoneE164.replace(/^\+/, "");
         // Ensure session is in SCAN_QR_CODE before requesting a pairing code.
         await provider.preparePairing(webhookUrl());
@@ -333,21 +335,21 @@ Deno.serve(async (req) => {
           const s = await provider.getSessionStatus();
           rawStatus = (s.status ?? "").toUpperCase();
           if (rawStatus === "SCAN_QR_CODE") break;
-          if (rawStatus === "WORKING") return json({ ok: false, error_code: "already_connected" }, 200, extraHeaders);
+          if (rawStatus === "WORKING") return h.fail("already_connected", 200, { headers: extraHeaders });
           await new Promise((r) => setTimeout(r, 700));
         }
         if (rawStatus !== "SCAN_QR_CODE") {
-          return json({ ok: false, error_code: "session_not_ready" }, 200, extraHeaders);
+          return h.fail("session_not_ready", 200, { headers: extraHeaders });
         }
         const r = await provider.requestPairingCode(digits);
-        if (!r.ok) return json({ ok: false, error_code: r.error_code ?? "provider_error" }, 200, extraHeaders);
-        return json({ ok: true, pairing_code: r.code, expires_at: r.expires_at ?? new Date(Date.now() + 60_000).toISOString() }, 200, extraHeaders);
+        if (!r.ok) return h.fail(r.error_code ?? "provider_error", 200, { headers: extraHeaders });
+        return h.ok({ pairing_code: r.code, expires_at: r.expires_at ?? new Date(Date.now() + 60_000).toISOString() }, 200, extraHeaders);
       }
 
       default:
-        return json({ ok: false, error_code: "unknown_action" }, 400, extraHeaders);
+        return h.fail("unknown_action", 400, { headers: extraHeaders });
     }
   } catch {
-    return json({ ok: false, error_code: "internal_error", correlation_id: correlationId }, 500, extraHeaders);
+    return h.fail("internal_error", 500, { headers: extraHeaders, details: { correlation_id: correlationId } });
   }
 });

@@ -8158,6 +8158,7 @@ export type Database = {
         Args: { p_account_id: string; p_rows: Json }
         Returns: Json
       }
+      insights_generate_tick: { Args: never; Returns: number }
       is_behavioral_consumption: {
         Args: {
           p_movement_kind: string

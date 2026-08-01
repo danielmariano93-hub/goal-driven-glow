@@ -7,6 +7,7 @@
 //      are flipped back to pending (if attempts<3) or marked failed.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -18,13 +19,14 @@ const MAX_ATTEMPTS = 3;
 const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
 
 Deno.serve(async (req) => {
+  const h = httpContext("documents-cleanup", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const auth = req.headers.get("Authorization") ?? "";
   const providedSecret = req.headers.get("x-internal-secret") ?? "";
   const authorized =
     auth === `Bearer ${SERVICE_ROLE}` ||
     (INTERNAL_SECRET.length > 0 && providedSecret === INTERNAL_SECRET);
-  if (!authorized) return json({ error: "unauthorized" }, 401);
+  if (!authorized) return h.fail("unauthorized", 401);
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   let processed = 0, failed = 0, resumed = 0, terminated = 0, fragments_recovered = 0, fragments_failed = 0;
@@ -126,5 +128,5 @@ Deno.serve(async (req) => {
     sb,
   });
 
-  return json({ ok: true, processed, failed, resumed, terminated, fragments_recovered, fragments_failed });
+  return h.partial({ processed, resumed, terminated, fragments_recovered }, Array.from({ length: failed + fragments_failed }, (_, i) => ({ index: i })), { errorCode: "documents_cleanup_failed" });
 });

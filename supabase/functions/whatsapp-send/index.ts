@@ -4,6 +4,7 @@
 // with exponential backoff. Expired leases are recovered by the watchdog.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { httpContext } from "../_shared/http.ts";
 import { getProvider, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
@@ -27,6 +28,7 @@ const RENDER_TIMEOUT_MS = 25_000;
 const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("NOCONTROLE_CRON_SECRET") ?? "";
 
 Deno.serve(async (req) => {
+  const h = httpContext("whatsapp-send", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const auth = req.headers.get("Authorization") ?? "";
   const isService = auth === `Bearer ${SERVICE_ROLE}`;
@@ -34,20 +36,20 @@ Deno.serve(async (req) => {
   const isCron = !!CRON_SECRET && cronSecret === CRON_SECRET;
   if (!isService && !isCron) {
     const gate = await requireAdmin(req);
-    if (!gate.ok) return json({ error: "forbidden" }, gate.status);
+    if (!gate.ok) return h.fail(gate.status === 401 ? "unauthorized" : "forbidden", gate.status);
   }
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   await loadWahaConfig(sb);
   const provider = getProvider();
-  if (!provider.configured) return json({ ok: false, error: "not_configured" }, 503);
+  if (!provider.configured) return h.fail("not_configured", 503);
 
   // Best-effort lease recovery on every tick
   await sb.rpc("recover_expired_outbound_leases");
 
   const { data: claimed, error } = await sb.rpc("claim_outbound_batch", { p_limit: 10 });
-  if (error) return json({ error: error.message }, 500);
+  if (error) return h.fail("internal", 500, { details: { reason: String(error.message).slice(0, 200) } });
   const rows = (claimed as Array<{ id: string; to_phone: string; body: string; attempts: number }> | null) ?? [];
 
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
@@ -181,5 +183,9 @@ Deno.serve(async (req) => {
     failed: failed + mediaFailures,
     sb,
   });
-  return json({ processed: results.length, results });
+  // partial_success explícito: falha de entrega NUNCA vira ok:true.
+  const failedItems = results.filter((r) => !r.ok);
+  return h.partial({ processed: results.length, results, media_failures: mediaFailures }, failedItems, {
+    errorCode: "outbound_delivery_failed",
+  });
 });
