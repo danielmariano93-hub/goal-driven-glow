@@ -39,6 +39,8 @@ export interface CardInstallmentRow {
   competence_month: string;
   amount: number;
   status?: string | null;
+  /** parcela já absorvida por uma fatura fechada/paga (E6) — nunca é compromisso futuro */
+  absorbed_by_statement_id?: string | null;
 }
 
 export interface CardTxRow {
@@ -161,6 +163,7 @@ export function computeCardExposure(input: {
     for (const inst of installments) {
       if (inst.credit_card_id !== cardId) continue;
       if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
+      if (inst.absorbed_by_statement_id) continue;
       const ym = ymOf(inst.competence_month);
       if (!ym) continue;
       if (lastClosedYM && ym <= lastClosedYM) continue; // já absorvida por fatura fechada/paga

@@ -64,7 +64,7 @@ export function useFinancialSnapshot(period: DateRange): {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("credit_card_installments" as never)
-        .select("credit_card_id,competence_month,amount,status");
+        .select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id");
       if (error) throw error;
       return (data as unknown as CardInstallmentRow[] | null) ?? [];
     },
