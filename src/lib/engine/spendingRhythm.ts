@@ -150,7 +150,15 @@ export function previousComparableRange(range: DateRange): DateRange {
   return { start, end };
 }
 
-// ── classificação de fixas / atípicos ───────────────────────────────────────
+// ── classificação declarativa de fixas / atípicos ───────────────────────────
+
+/**
+ * Registro declarativo de despesas estruturais.
+ * A fonte preferida é `categoryKindById` (`structural`), configurável por
+ * usuário/produto. O dicionário de padrões abaixo é apenas FALLBACK para
+ * categorias que ainda não têm classificação declarada.
+ */
+export const STRUCTURAL_CATEGORY_KINDS = new Set(["structural", "fixed", "essential_fixed"]);
 
 const FIXED_CATEGORY_PATTERNS = [
   "aluguel", "moradia", "condom", "financiamento", "prestac", "prestaç",
@@ -164,7 +172,7 @@ function normalize(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function isFixedCategory(name?: string | null): boolean {
+function isFixedCategoryName(name?: string | null): boolean {
   if (!name) return false;
   const n = normalize(name);
   return FIXED_CATEGORY_PATTERNS.some((p) => n.includes(normalize(p)));
@@ -186,24 +194,35 @@ function quantile(sorted: number[], q: number): number {
 const MIN_SAMPLE_FOR_OUTLIERS = 8;
 
 /**
- * Parcelamento só sai do ritmo típico quando é compromisso de longo prazo
- * (6x ou mais). Parcelas curtas são consumo real e decisão do período —
- * excluir tudo que é parcelado distorce o comportamento (decisão de produto).
+ * Parcelamento NÃO é mais exclusão automática: comprar em 3x continua sendo
+ * decisão de consumo do período. Só sai do ritmo típico quando é parcela de
+ * um compromisso recorrente (origem `recurring`) com mais de uma parcela.
  */
-const LONG_TERM_INSTALLMENTS = 6;
-
 function isRecurringInstallment(t: RhythmTx): boolean {
-  return Number(t.installments_total ?? 0) >= LONG_TERM_INSTALLMENTS;
+  const origin = String(t.origin ?? "");
+  return Number(t.installments_total ?? 0) > 1 && (origin === "recurring" || origin === "recurring_installment");
 }
+
+export const EXCLUSION_REASON_LABEL: Record<ExclusionReason, string> = {
+  fixed: "Despesa estrutural",
+  recurring: "Conta recorrente",
+  installment: "Parcela de compromisso recorrente",
+  outlier: "Gasto atípico do período",
+};
 
 // ── cálculo ─────────────────────────────────────────────────────────────────
 
 export interface RhythmOptions {
-  /** id -> nome da categoria, para detectar despesas estruturais */
+  /** id -> nome da categoria, usado apenas como fallback de classificação */
   categoryNameById?: Record<string, string>;
+  /** id -> tipo declarado da categoria (`structural` sai do ritmo típico) */
+  categoryKindById?: Record<string, string>;
+  /** ids de categorias declaradas como estruturais */
+  structuralCategoryIds?: string[];
   /** desligar a exclusão de fixas/atípicos (retorna typical == average) */
   disableTypical?: boolean;
 }
+
 
 export function computeRhythm(
   txs: RhythmTx[],
