@@ -261,13 +261,25 @@ export function computeRhythm(
   // despesa. Nunca clampamos: isso quebraria a reconciliação com a série.
   const total = round2(totalGross - totalRefunds);
 
+  // Classificação declarativa: kind da categoria > lista de ids > fallback por nome.
+  const categoryKindById = opts.categoryKindById ?? {};
+  const structuralIds = new Set(opts.structuralCategoryIds ?? []);
+  const isStructural = (categoryId?: string | null): boolean => {
+    if (!categoryId) return false;
+    if (structuralIds.has(categoryId)) return true;
+    const kind = categoryKindById[categoryId];
+    if (kind) return STRUCTURAL_CATEGORY_KINDS.has(kind);
+    return isFixedCategoryName(categoryNameById[categoryId]);
+  };
+
   // outliers de Tukey sobre lançamentos não-fixos
   const fixedFlag = new Map<string, ExclusionReason>();
   for (const { t } of positives) {
     if ((t.origin ?? "") === "recurring") fixedFlag.set(t.id, "recurring");
     else if (isRecurringInstallment(t)) fixedFlag.set(t.id, "installment");
-    else if (isFixedCategory(t.category_id ? categoryNameById[t.category_id] : null)) fixedFlag.set(t.id, "fixed");
+    else if (isStructural(t.category_id)) fixedFlag.set(t.id, "fixed");
   }
+
 
   const variable = positives.filter((p) => !fixedFlag.has(p.t.id));
   let outlierThreshold = Infinity;
