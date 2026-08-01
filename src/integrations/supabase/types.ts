@@ -3392,6 +3392,42 @@ export type Database = {
           },
         ]
       }
+      edge_incidents: {
+        Row: {
+          created_at: string
+          details: Json
+          error_code: string
+          function_name: string
+          http_status: number
+          id: string
+          request_id: string
+          retryable: boolean
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          details?: Json
+          error_code: string
+          function_name: string
+          http_status: number
+          id?: string
+          request_id: string
+          retryable?: boolean
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          details?: Json
+          error_code?: string
+          function_name?: string
+          http_status?: number
+          id?: string
+          request_id?: string
+          retryable?: boolean
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       emotional_checkins: {
         Row: {
           created_at: string
