@@ -7356,15 +7356,18 @@ export type Database = {
       }
       v_card_double_counting: {
         Row: {
+          adjustments_total: number | null
           competence_month: string | null
           credit_card_id: string | null
           installments_absorbed_total: number | null
           installments_total: number | null
           issue: string | null
           official_total: number | null
+          residual_vs_official: number | null
           statement_status: string | null
           transactions_total: number | null
           transactions_vs_official: number | null
+          unjustified_adjustments: number | null
           user_id: string | null
         }
         Relationships: [
