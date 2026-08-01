@@ -79,6 +79,10 @@ describe("ledger canônico", () => {
   it("mantém o módulo espelhado nas edge functions", () => {
     const app = fs.readFileSync("src/lib/ledger/canonical.ts", "utf8");
     const edge = fs.readFileSync("supabase/functions/_shared/ledger/canonical.ts", "utf8");
-    expect(edge).toBe(app);
+    // Deno exige extensão explícita em import relativo; o resto precisa ser idêntico.
+    const strip = (s: string) =>
+      s.replace(/(from "\.\/[A-Za-z0-9_./-]+?)\.ts";/g, '$1";').replace(/^\/\/.*$/gm, "");
+    expect(strip(edge)).toBe(strip(app));
   });
+
 });

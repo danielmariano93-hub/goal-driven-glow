@@ -92,10 +92,10 @@ describe("applyCreditSignGuard", () => {
 
 describe("canonical — crédito de cartão reduz obrigação", () => {
   it("o item do Daniel passa a reduzir a fatura, não aumentá-la", () => {
-    const guarded = applyCreditSignGuard(DANIEL_CREDIT_FIXTURE);
+    // item cru, exatamente como a extração devolveu (type=expense)
     const mov = buildCanonicalMovement({
       document_kind: "invoice",
-      item: guarded,
+      item: DANIEL_CREDIT_FIXTURE,
       source_id: "extracted-item-1",
     });
     expect(mov.ledger).toBe("credit_card");
@@ -104,6 +104,18 @@ describe("canonical — crédito de cartão reduz obrigação", () => {
     expect(mov.cash_effect).toBe(0);
     expect(mov.reasons).toContain("credit_description_overrides_expense");
   });
+
+  it("é idempotente quando a guarda já foi aplicada antes", () => {
+    const guarded = applyCreditSignGuard(DANIEL_CREDIT_FIXTURE);
+    const mov = buildCanonicalMovement({
+      document_kind: "invoice",
+      item: guarded,
+      source_id: "extracted-item-1b",
+    });
+    expect(mov.liability_effect).toBe(-1);
+    expect(mov.movement_kind).toBe("refund");
+  });
+
 
   it("sem a guarda o mesmo item aumentaria a obrigação (regressão)", () => {
     const mov = buildCanonicalMovement({
