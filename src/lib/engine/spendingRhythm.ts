@@ -88,9 +88,12 @@ export interface RhythmResult {
   typicalAverage: number;
   excludedTotal: number;
   excluded: RhythmExcludedItem[];
+  /** total excluído agrupado por motivo — base da explicação na UI */
+  excludedByReason: Array<{ reason: ExclusionReason; label: string; total: number; count: number }>;
   series: DailyPoint[];
   formulaVersion: string;
 }
+
 
 export interface RhythmComparison {
   current: RhythmResult;
