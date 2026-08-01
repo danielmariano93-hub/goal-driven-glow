@@ -8,8 +8,8 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
   type CardTxRow,
-} from "@/lib/engine/cardExposure";
-import { currentMonthYM } from "@/lib/engine/facts";
+} from "../../engine/cardExposure";
+import { currentMonthYM } from "../../engine/facts";
 
 export default defineTool({
   name: "financial_position",
