@@ -207,7 +207,58 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
   }
 
   return out
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, 5)
-    .map((h, i) => ({ ...h, priority: h.priority, evidence: h.evidence, selectionReason: h.selectionReason, ...(i >= 0 ? {} : {}) }));
+    .map((h) => ({ ...h, family: h.family ?? FAMILY_BY_DETECTOR[h.detectorKey] ?? h.detectorKey, source: "period" as const }))
+    .sort((a, b) => b.priority - a.priority);
 }
+
+/** Família de cada detector de período — evita duas leituras do mesmo assunto. */
+const FAMILY_BY_DETECTOR: Record<string, string> = {
+  negative_result: "resultado",
+  strong_savings: "resultado",
+  expense_spike: "variacao",
+  expense_drop: "variacao",
+  category_concentration: "categoria",
+  category_growth: "categoria",
+  flexible_saving: "economia",
+  uncategorized: "categorizacao",
+  single_large_expense: "anomalia",
+  card_over_cash: "cartao",
+  goal_progress: "metas",
+  no_activity: "engajamento",
+};
+
+/** Quantos destaques o relatório publica. */
+export const MAX_REPORT_HIGHLIGHTS = 8;
+
+/**
+ * Une os destaques do período com os candidatos do catálogo de insights.
+ * Regras: dedup por `dedupKey`, no máximo um destaque por família (o de maior
+ * prioridade vence; empate favorece o motor do período) e limite global.
+ */
+export function mergeHighlights(
+  periodHighlights: ReportHighlight[],
+  catalogHighlights: ReportHighlight[] = [],
+  limit = MAX_REPORT_HIGHLIGHTS,
+): ReportHighlight[] {
+  const all = [
+    ...periodHighlights.map((h) => ({ ...h, source: h.source ?? ("period" as const) })),
+    ...catalogHighlights.map((h) => ({ ...h, source: h.source ?? ("catalog" as const) })),
+  ];
+  const sourceRank = (h: ReportHighlight) => (h.source === "period" ? 0 : 1);
+  const ordered = [...all].sort((a, b) => (b.priority - a.priority) || (sourceRank(a) - sourceRank(b)));
+
+  const seenDedup = new Set<string>();
+  const seenFamily = new Set<string>();
+  const picked: ReportHighlight[] = [];
+  for (const h of ordered) {
+    const family = h.family ?? h.detectorKey;
+    if (seenDedup.has(h.dedupKey)) continue;
+    if (seenFamily.has(family)) continue;
+    seenDedup.add(h.dedupKey);
+    seenFamily.add(family);
+    picked.push({ ...h, family });
+    if (picked.length >= limit) break;
+  }
+  return picked;
+}
+

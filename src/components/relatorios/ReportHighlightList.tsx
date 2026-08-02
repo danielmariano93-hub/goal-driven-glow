@@ -31,11 +31,19 @@ export default function ReportHighlightList({ highlights }: { highlights: Report
                 <Icon size={16} />
               </span>
               <div className="min-w-0 flex-1">
-                <span className={cn("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider", tone.chip)}>
-                  {tone.label}
-                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={cn("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider", tone.chip)}>
+                    {tone.label}
+                  </span>
+                  {(h.evidence as Record<string, unknown> | null)?.insight_source === "insights_catalog.v1" && (
+                    <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Situação atual
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1.5 text-sm font-semibold leading-snug">{h.title}</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{h.body}</p>
+
                 {h.cta_route && (
                   <button
                     onClick={() => navigate(h.cta_route!)}

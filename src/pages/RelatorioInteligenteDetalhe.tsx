@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Info, Loader2, Printer, Sparkles } from "lucide-react";
+import { ArrowLeft, Info, Loader2, Printer, RefreshCw, Sparkles } from "lucide-react";
 import ReportHealthGauge from "@/components/relatorios/ReportHealthGauge";
 import ReportMetricsGrid from "@/components/relatorios/ReportMetricsGrid";
 import ReportHighlightList from "@/components/relatorios/ReportHighlightList";
 import ReportCharts from "@/components/relatorios/ReportCharts";
-import { getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { notifySuccess } from "@/lib/ui/feedback";
+
 import { notifyError } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +29,27 @@ export default function RelatorioInteligenteDetalhe() {
       }
     })();
   }, [id]);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Recalcula o relatório com os dados atuais (categorias, cartão, dívidas)
+  // e recarrega a leitura — sem criar número novo no cliente.
+  async function handleRefresh() {
+    if (!id || report === null || report === "missing" || refreshing) return;
+    setRefreshing(true);
+    try {
+      await generateReportNow(report.report_type);
+      const data = await getReport(id);
+      if (data) setReport(data);
+      notifySuccess("Relatório recalculado com os dados atuais.");
+    } catch {
+      notifyError("Não consegui recalcular agora. Tente novamente em instantes.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+
 
   if (report === null) {
     return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
@@ -61,12 +84,23 @@ export default function RelatorioInteligenteDetalhe() {
             </h1>
             <p className="text-xs text-muted-foreground">{periodLabel(report)} · período fechado</p>
           </div>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold shadow-card print:hidden"
-          >
-            <Printer size={14} /> PDF
-          </button>
+          <div className="flex shrink-0 items-center gap-2 print:hidden">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold shadow-card disabled:opacity-60"
+            >
+              {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Atualizar dados
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold shadow-card"
+            >
+              <Printer size={14} /> PDF
+            </button>
+          </div>
+
         </div>
       </header>
 

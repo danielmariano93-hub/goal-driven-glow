@@ -20,7 +20,10 @@ import {
   deterministicSummary,
   whatsappMessage,
 } from "../_shared/reports-core/narrative.ts";
+import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
+import { buildCatalogHighlights } from "./catalogHighlights.ts";
+
 
 const FN = "financial-reports-generate";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -52,7 +55,10 @@ async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promi
 
 async function loadContext(sb: Sb, userId: string) {
   const [cats, accounts, snapshots, goals, contributions] = await Promise.all([
-    sb.from("categories").select("id,name").eq("user_id", userId),
+    // Categorias globais (user_id IS NULL) precisam entrar: a maioria dos
+    // lançamentos aponta para elas e sem isso tudo virava "Sem categoria".
+    sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
+
     sb.from("accounts").select("id,name,type,opening_balance,is_active").eq("user_id", userId),
     sb.from("account_balance_snapshots").select("account_id,balance,captured_at").eq("user_id", userId),
     sb.from("goals").select("id,name,target_amount,status,due_date").eq("user_id", userId),
@@ -197,18 +203,20 @@ async function generateForUser(
 
   const { data: existing } = await sb
     .from("financial_reports")
-    .select("id,status")
+    .select("id,status,template_version")
     .eq("user_id", userId)
     .eq("report_type", reportType)
     .eq("period_start", period.start)
     .maybeSingle();
-  if (existing && !opts.force) {
+  // Relatório de template antigo é regenerado sozinho (auto-heal de destaques).
+  const staleTemplate = !!existing && existing.template_version !== REPORT_TEMPLATE_VERSION;
+  if (existing && !opts.force && !staleTemplate) {
     return { report_id: existing.id as string, status: "exists" };
   }
 
   const transactions = await loadTransactions(sb, userId, previous.start);
   const ctx = await loadContext(sb, userId);
-  const report = buildIntelligentReport({
+  const baseInput = {
     reportType,
     referenceDate: reference,
     transactions,
@@ -218,7 +226,15 @@ async function generateForUser(
     goals: ctx.goals,
     goalContributions: ctx.goalContributions,
     timezone: prefs.report_timezone,
-  });
+  };
+  // 1ª passada: números do período. 2ª passada: destaques do período mesclados
+  // com o catálogo determinístico de insights (insights_catalog.v1).
+  const base = buildIntelligentReport(baseInput);
+  const extraHighlights = await buildCatalogHighlights(sb, userId, base.payload, transactions, reference);
+  const report = extraHighlights.length > 0
+    ? buildIntelligentReport({ ...baseInput, extraHighlights })
+    : base;
+
 
   const narrative = await synthesizeNarrative(report);
 
@@ -285,7 +301,7 @@ async function generateForUser(
     priority: h.priority,
     confidence: h.confidence,
     category: h.category ?? null,
-    evidence: h.evidence,
+    evidence: { ...h.evidence, insight_family: h.family ?? h.detectorKey, insight_source: h.source ?? "period" },
     cta_label: h.ctaLabel ?? null,
     cta_route: h.ctaRoute ?? null,
     dedup_key: h.dedupKey,

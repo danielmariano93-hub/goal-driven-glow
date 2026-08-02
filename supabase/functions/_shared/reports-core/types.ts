@@ -6,7 +6,7 @@
 import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } from "../finance-core/facts.ts";
 
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
-export const REPORT_TEMPLATE_VERSION = "report_template.v1";
+export const REPORT_TEMPLATE_VERSION = "report_template.v2";
 
 export type ReportType = "weekly" | "monthly";
 export type MetricUnit = "BRL" | "pct" | "count" | "days" | "score" | "text";
@@ -44,7 +44,12 @@ export interface ReportHighlight {
   ctaRoute?: string | null;
   dedupKey: string;
   selectionReason: string;
+  /** Família usada para deduplicar leituras equivalentes. */
+  family?: string;
+  /** Origem do destaque: motor do período ou catálogo de insights. */
+  source?: "period" | "catalog";
 }
+
 
 export interface HealthComponent {
   key: string;
@@ -130,5 +135,8 @@ export interface ReportEngineInput {
   balanceSnapshots?: AccountBalanceSnapshotRow[];
   goals?: GoalRow[];
   goalContributions?: Array<{ goal_id: string; amount: number }>;
+  /** Destaques vindos do catálogo de insights (insights_catalog.v1). */
+  extraHighlights?: ReportHighlight[];
   timezone?: string;
+
 }
