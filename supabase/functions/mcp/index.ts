@@ -60,6 +60,60 @@ function supabaseForUser(ctx) {
 
 // src/lib/engine/facts.ts
 var round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+function isInMonth(dateStr, ym) {
+  return dateStr.startsWith(ym);
+}
+var EXCLUDED_MOVEMENT_KINDS = /* @__PURE__ */ new Set([
+  "internal_transfer",
+  "investment_application",
+  "investment_redemption",
+  "investment_yield",
+  "loan_proceeds"
+]);
+function isRealMonthlyMovement(t) {
+  if (t.status !== "confirmed") return false;
+  if (t.type === "transfer") return false;
+  if (t.transfer_group_id) return false;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (EXCLUDED_MOVEMENT_KINDS.has(mk)) return false;
+  if (mk !== "transaction") return false;
+  if (t.settles_card_id) return false;
+  return true;
+}
+function behavioralMetricAmount(t, metric) {
+  if (t.status !== "confirmed" || t.type === "transfer") return 0;
+  const mk = (t.movement_kind ?? "transaction").toString();
+  if (mk === "refund") {
+    if (metric !== "expense") return 0;
+    if (t.type !== "income") return 0;
+    if (t.transfer_group_id) return 0;
+    return -Number(t.amount || 0);
+  }
+  if (!isRealMonthlyMovement(t) || t.type !== metric) return 0;
+  return Number(t.amount || 0);
+}
+function computeMonthlyTotals(txs, ym) {
+  let income = 0, expense = 0;
+  for (const t of txs) {
+    if (!isInMonth(t.occurred_at, ym)) continue;
+    income += behavioralMetricAmount(t, "income");
+    expense += behavioralMetricAmount(t, "expense");
+  }
+  return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
+}
+function computeCategoryBreakdown(txs, categories, ym, type = "expense") {
+  const byCat = {};
+  for (const t of txs) {
+    if (!isInMonth(t.occurred_at, ym)) continue;
+    const signed = behavioralMetricAmount(t, type);
+    if (signed === 0) continue;
+    const key = t.category_id ?? "__none__";
+    byCat[key] = (byCat[key] || 0) + signed;
+  }
+  const catName = (id) => id === "__none__" ? "Sem categoria" : categories.find((c) => c.id === id)?.name ?? "Categoria removida";
+  const total = round2(Object.values(byCat).reduce((a, b) => a + b, 0));
+  return Object.entries(byCat).map(([id, v]) => ({ id, name: catName(id), amount: round2(v), share: total > 0 ? round2(v) / total : 0 })).filter((row) => row.amount !== 0).sort((a, b) => b.amount - a.amount);
+}
 var SP_TZ = "America/Sao_Paulo";
 function todaySP(now = /* @__PURE__ */ new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -308,12 +362,6 @@ function ok(text, structured) {
 function brl(value) {
   return `R$ ${Number(value ?? 0).toFixed(2).replace(".", ",")}`;
 }
-function monthRange(month) {
-  const [y, m] = month.split("-").map(Number);
-  const start = new Date(Date.UTC(y, m - 1, 1));
-  const end = new Date(Date.UTC(y, m, 0));
-  return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
-}
 function currentMonth() {
   return (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
 }
@@ -359,52 +407,63 @@ var list_transactions_default = defineTool({
 // src/lib/mcp/tools/monthly-summary.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.26.1";
 import { z as z2 } from "npm:zod@^3.25.76";
+var TX_COLUMNS = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,settles_card_id,movement_kind";
 var monthly_summary_default = defineTool2({
   name: "monthly_summary",
   title: "Resumo do m\xEAs",
-  description: "Resume o m\xEAs do usu\xE1rio autenticado: total de receitas, total de despesas, saldo do per\xEDodo e as maiores categorias de gasto.",
+  description: "Resume o m\xEAs do usu\xE1rio autenticado: total de receitas, total de despesas, saldo do per\xEDodo e as maiores categorias de gasto (regra comportamental \xFAnica do Meu Nino).",
   inputSchema: {
     month: z2.string().optional().describe("M\xEAs no formato YYYY-MM. Padr\xE3o: m\xEAs atual.")
   },
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async ({ month }, ctx) => {
-    if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.");
+    if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.", "unauthorized");
     const supabase = supabaseForUser(ctx);
     const target = month && /^\d{4}-\d{2}$/.test(month) ? month : currentMonth();
-    const { from, to } = monthRange(target);
     const [txRes, catRes] = await Promise.all([
-      supabase.from("transactions").select("amount, type, category_id").gte("occurred_at", from).lte("occurred_at", to).eq("status", "confirmed"),
-      supabase.from("categories").select("id, name")
+      supabase.from("transactions").select(TX_COLUMNS).like("occurred_at", `${target}%`),
+      supabase.from("categories").select("id, name, type")
     ]);
-    if (txRes.error) return errorResult(txRes.error.message);
-    const catNames = new Map((catRes.data ?? []).map((c) => [c.id, c.name]));
-    let income = 0;
-    let expense = 0;
-    const byCategory = /* @__PURE__ */ new Map();
-    for (const t of txRes.data ?? []) {
-      const value = Math.abs(Number(t.amount));
-      if (t.type === "income") income += value;
-      else if (t.type === "expense") {
-        expense += value;
-        const label = catNames.get(t.category_id) ?? "Sem categoria";
-        byCategory.set(label, (byCategory.get(label) ?? 0) + value);
-      }
-    }
-    const top = [...byCategory.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (txRes.error) return errorResult(txRes.error.message, "internal");
+    const txs = (txRes.data ?? []).map((t) => ({
+      id: String(t.id),
+      account_id: String(t.account_id ?? ""),
+      category_id: t.category_id ?? null,
+      type: t.type,
+      status: t.status,
+      amount: Number(t.amount ?? 0),
+      occurred_at: String(t.occurred_at ?? ""),
+      description: t.description ?? null,
+      transfer_group_id: t.transfer_group_id ?? null,
+      payment_method: t.payment_method ?? null,
+      credit_card_id: t.credit_card_id ?? null,
+      competence_date: t.competence_date ?? null,
+      settles_card_id: t.settles_card_id ?? null,
+      movement_kind: t.movement_kind ?? "transaction"
+    }));
+    const categories = (catRes.data ?? []).map((c) => ({
+      id: String(c.id),
+      name: String(c.name ?? ""),
+      type: c.type ?? "expense"
+    }));
+    const totals = computeMonthlyTotals(txs, target);
+    const breakdown = computeCategoryBreakdown(txs, categories, target, "expense");
+    const top = breakdown.slice(0, 5);
     const lines = [
       `Resumo de ${target}`,
-      `Receitas: ${brl(income)}`,
-      `Despesas: ${brl(expense)}`,
-      `Saldo do per\xEDodo: ${brl(income - expense)}`,
+      `Receitas: ${brl(totals.income)}`,
+      `Despesas: ${brl(totals.expense)}`,
+      `Saldo do per\xEDodo: ${brl(totals.net)}`,
       top.length ? "\nMaiores gastos por categoria:" : "\nNenhuma despesa registrada no per\xEDodo.",
-      ...top.map(([name, value]) => `- ${name}: ${brl(value)}`)
+      ...top.map((c) => `- ${c.name}: ${brl(c.amount)}`)
     ];
     return ok(lines.join("\n"), {
       month: target,
-      income,
-      expense,
-      balance: income - expense,
-      top_categories: top.map(([name, value]) => ({ name, total: value }))
+      income: totals.income,
+      expense: totals.expense,
+      balance: totals.net,
+      top_categories: top.map((c) => ({ name: c.name, total: c.amount, share: c.share })),
+      formula_version: FINANCE_CONTRACT_VERSION
     });
   }
 });
