@@ -3,7 +3,7 @@ import { Plus, Trash2, Loader2, Pencil, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { useInvestments, useSaveInvestment, useDeleteInvestment, useGoals, type InvestmentRow } from "@/lib/db/finance";
 import { investmentSchema } from "@/lib/validation/finance";
-import { formatBRL, todayISO } from "@/lib/engine/facts";
+import { computeInvestedPrincipal, computeInvestmentsTotal, formatBRL, todayISO } from "@/lib/engine/facts";
 
 const CATEGORIES = ["Renda Fixa", "Tesouro Direto", "Ações", "FIIs", "ETF", "Cripto", "Fundos", "Outros"];
 

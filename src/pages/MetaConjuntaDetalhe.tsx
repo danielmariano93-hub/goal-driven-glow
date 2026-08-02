@@ -16,7 +16,7 @@ import {
   useCancelSharedGoal,
   useUpdateSharedGoal,
 } from "@/lib/db/sharedGoals";
-import { formatBRL } from "@/lib/engine/facts";
+import { computeGoalProgressFacts, formatBRL } from "@/lib/engine/facts";
 import { normalizeBrPhone, maskBrPhone } from "@/lib/phone";
 import { useAuth } from "@/context/AuthContext";
 

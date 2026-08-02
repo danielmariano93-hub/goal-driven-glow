@@ -10,7 +10,7 @@ import {
   type DebtRow,
 } from "@/lib/db/finance";
 import { debtSchema } from "@/lib/validation/finance";
-import { formatBRL } from "@/lib/engine/facts";
+import { computeActiveDebtsTotal, formatBRL } from "@/lib/engine/facts";
 import { resolveDebtPlan } from "@/lib/finance/accounting";
 
 export default function Dividas() {
