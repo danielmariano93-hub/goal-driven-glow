@@ -131,6 +131,31 @@ async function persistIncident(args: {
 }
 
 /**
+ * Registra um incidente observável sem devolver resposta de erro — para jobs
+ * de background (watchdogs, crons) que precisam deixar rastro em
+ * `public.edge_incidents` mesmo quando a requisição termina em 200.
+ */
+export function recordIncident(args: {
+  functionName: string;
+  errorCode: string;
+  requestId?: string;
+  status?: number;
+  retryable?: boolean;
+  userId?: string | null;
+  details?: Record<string, unknown>;
+}): Promise<void> {
+  return persistIncident({
+    requestId: args.requestId ?? newRequestId(),
+    functionName: args.functionName,
+    errorCode: args.errorCode,
+    status: args.status ?? 200,
+    retryable: args.retryable ?? isRetryable(args.errorCode),
+    userId: args.userId ?? null,
+    details: args.details,
+  });
+}
+
+/**
  * Resposta de falha padronizada. Persiste incidente em 5xx e em qualquer
  * código financeiro, independentemente do status.
  */
