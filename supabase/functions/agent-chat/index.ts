@@ -12,7 +12,10 @@ import { handleAppAction, handleAppMessage } from "../_shared/agent/core/adapter
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MAX_MSG_LEN = 2000;
+// Lotes (JSON com dezenas de lançamentos) chegam por aqui: 2.000 caracteres
+// truncavam a lista silenciosamente. O limite alto vale para a entrada; o
+// histórico enviado ao modelo continua compactado em `llm.ts`.
+const MAX_MSG_LEN = 32_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
