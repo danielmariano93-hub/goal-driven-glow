@@ -26,6 +26,16 @@ export const FINANCE_CORE_MODULES = [
   "metrics",
 ];
 
+export const REPORT_MODULES = [
+  "types",
+  "periods",
+  "engine",
+  "highlights",
+  "numericGuard",
+  "narrative",
+  "index",
+];
+
 export const FINANCE_CONTRACT_VERSION = "finance_contract.v2";
 
 const HEADER = `// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.\n` +
@@ -41,6 +51,21 @@ export function toEdgeSource(source) {
     .replace(/from "\.\/(facts|spendingRhythm|dailyAverage|cardExposure|metrics)"/g, 'from "./$1.ts"')
     .replace(/import \{ formatPrivateBRL \} from "\.\.\/privacy";\n/g, PRIVACY_SHIM);
   return HEADER + out;
+}
+
+export function toEdgeReportSource(source) {
+  const out = source
+    .replace(/from "@\/lib\/engine\/(facts|spendingRhythm|dailyAverage|cardExposure|metrics)"/g, 'from "../finance-core/$1.ts"')
+    .replace(/from "\.\/(types|periods|engine|highlights|numericGuard|narrative)"/g, 'from "./$1.ts"');
+  return HEADER + out;
+}
+
+export function readReportSource(mod) {
+  return readFileSync(resolve(`src/lib/reports/intelligent/${mod}.ts`), "utf8");
+}
+
+export function reportEdgePath(mod) {
+  return resolve(`supabase/functions/_shared/reports-core/${mod}.ts`);
 }
 
 export function readAppSource(mod) {
@@ -66,6 +91,12 @@ function main() {
       `\nexport type { DateRange, Trend } from "./spendingRhythm.ts";\n` +
       `export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";\n`,
   );
+
+  mkdirSync(resolve("supabase/functions/_shared/reports-core"), { recursive: true });
+  for (const mod of REPORT_MODULES) {
+    writeFileSync(reportEdgePath(mod), toEdgeReportSource(readReportSource(mod)));
+    console.log(`reports-core: ${mod}.ts sincronizado`);
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
