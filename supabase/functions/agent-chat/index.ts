@@ -39,6 +39,8 @@ Deno.serve(async (req) => {
   const pendingId = typeof body?.pending_id === "string" ? body.pending_id : null;
   const requested_conv = typeof body?.conversation_id === "string" ? body.conversation_id : null;
   const text = rawText.slice(0, MAX_MSG_LEN);
+  const truncated = rawText.length > MAX_MSG_LEN;
+  if (truncated) console.warn(`[${FN}] message_truncated`, { user_id, length: rawText.length });
   if (!text && !action) return fail("missing_text", { status: 400, functionName: FN });
 
   const svc = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
