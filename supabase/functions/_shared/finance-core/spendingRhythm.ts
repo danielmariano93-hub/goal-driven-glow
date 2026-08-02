@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v1)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v2)
 /**
  * FONTE CANÔNICA — Média diária e Ritmo de gastos.
  * =================================================
