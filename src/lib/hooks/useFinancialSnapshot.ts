@@ -78,9 +78,9 @@ export function useFinancialSnapshot(period: DateRange): {
     queryKey: ["credit_cards", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase.from("credit_cards" as never).select("id");
+      const { data, error } = await supabase.from("credit_cards" as never).select("id,closing_day,due_day");
       if (error) throw error;
-      return (data as unknown as Array<{ id: string }> | null) ?? [];
+      return (data as unknown as Array<{ id: string; closing_day: number | null; due_day: number | null }> | null) ?? [];
     },
   });
 
@@ -146,6 +146,7 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
       cardInstallments: (cardInstallments ?? []).map((i) => ({ ...i, amount: Number(i.amount ?? 0) })),
       cardIds: (cards ?? []).map((c) => c.id),
+      cards: (cards ?? []).map((c) => ({ id: c.id, closing_day: c.closing_day, due_day: c.due_day })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, period.start, period.end, todayKey, loading]);

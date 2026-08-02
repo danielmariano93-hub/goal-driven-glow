@@ -13,6 +13,8 @@ type Props = {
   otherDebts: number;
   periodLabel: string;
   loading?: boolean;
+  cardFutureInstallments?: number;
+  cardDebtIsEstimated?: boolean;
 };
 
 export function HeroDisponivelCard(p: Props) {
@@ -73,6 +75,8 @@ export function HeroDisponivelCard(p: Props) {
         assets={p.assets}
         otherDebts={p.otherDebts}
         net={p.netWorth}
+        cardFutureInstallments={p.cardFutureInstallments ?? 0}
+        cardDebtIsEstimated={p.cardDebtIsEstimated ?? false}
       />
     </>
   );

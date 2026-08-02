@@ -2615,6 +2615,8 @@ export type Database = {
       }
       credit_card_statements: {
         Row: {
+          adjustment_evidence: Json | null
+          adjustment_reason_code: string | null
           closing_date: string | null
           competence_month: string
           created_at: string
@@ -2630,6 +2632,7 @@ export type Database = {
           period_start: string | null
           reconciled_total: number
           reconciliation_difference: number | null
+          requires_manual_review: boolean
           source_document_id: string | null
           stated_total: number
           status: string
@@ -2637,6 +2640,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          adjustment_evidence?: Json | null
+          adjustment_reason_code?: string | null
           closing_date?: string | null
           competence_month: string
           created_at?: string
@@ -2652,6 +2657,7 @@ export type Database = {
           period_start?: string | null
           reconciled_total?: number
           reconciliation_difference?: number | null
+          requires_manual_review?: boolean
           source_document_id?: string | null
           stated_total?: number
           status?: string
@@ -2659,6 +2665,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          adjustment_evidence?: Json | null
+          adjustment_reason_code?: string | null
           closing_date?: string | null
           competence_month?: string
           created_at?: string
@@ -2674,6 +2682,7 @@ export type Database = {
           period_start?: string | null
           reconciled_total?: number
           reconciliation_difference?: number | null
+          requires_manual_review?: boolean
           source_document_id?: string | null
           stated_total?: number
           status?: string
@@ -4001,6 +4010,63 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_client_users"
             referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      financial_reconciliation_audit: {
+        Row: {
+          actor_id: string | null
+          amount: number | null
+          created_at: string
+          credit_card_id: string | null
+          event_type: string
+          evidence: Json
+          id: string
+          reason_code: string | null
+          statement_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          amount?: number | null
+          created_at?: string
+          credit_card_id?: string | null
+          event_type: string
+          evidence?: Json
+          id?: string
+          reason_code?: string | null
+          statement_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          amount?: number | null
+          created_at?: string
+          credit_card_id?: string | null
+          event_type?: string
+          evidence?: Json
+          id?: string
+          reason_code?: string | null
+          statement_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_reconciliation_audit_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_reconciliation_audit_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_statements"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -7955,6 +8021,10 @@ export type Database = {
       }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
+      card_competence_for: {
+        Args: { p_card_id: string; p_date: string }
+        Returns: string
+      }
       card_cycle_for: {
         Args: { p_closing_day: number; p_date: string; p_due_day: number }
         Returns: {
@@ -8142,10 +8212,20 @@ export type Database = {
         Args: { p_document_id: string; p_item_ids: string[] }
         Returns: Json
       }
-      force_reconcile_credit_card_statement: {
-        Args: { p_justification: string; p_statement_id: string }
-        Returns: Json
-      }
+      force_reconcile_credit_card_statement:
+        | {
+            Args: { p_justification: string; p_statement_id: string }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_evidence?: Json
+              p_justification: string
+              p_reason_code?: string
+              p_statement_id: string
+            }
+            Returns: Json
+          }
       grant_platform_admin: {
         Args: {
           _role: Database["public"]["Enums"]["platform_role"]
@@ -8279,6 +8359,10 @@ export type Database = {
         Returns: Json
       }
       reconcile_agent_memory_categories: { Args: never; Returns: number }
+      reconcile_card_competence: {
+        Args: { p_card_id: string; p_competence: string }
+        Returns: Json
+      }
       reconcile_document_balance: {
         Args: { p_account_id: string; p_document_id: string }
         Returns: Json

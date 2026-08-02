@@ -28,6 +28,8 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
 
   const hasData = data.length > 0 && (cur?.totalGross ?? 0) > 0;
   const hasRefunds = (cur?.totalRefunds ?? 0) > 0;
+  const exclusions = (cur?.excludedByReason ?? []).filter((e) => e.total > 0);
+
 
 
   return (
@@ -137,7 +139,17 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
         )}
       </div>
 
+      {hasData && cur ? (
+        <div className="px-4 pb-1 pt-1 text-[10px] leading-relaxed" style={{ color: "var(--home-text-3)" }}>
+          Só entra consumo real do período {formatRangeShort(cur.range)} — pagamento de fatura e transferências são caixa, não gasto.
+          {exclusions.length > 0
+            ? ` Fora do ritmo típico: ${exclusions.map((e) => `${e.label} ${formatBRL(e.total)}`).join(" · ")}.`
+            : ""}
+        </div>
+      ) : null}
+
       <div style={{ borderTop: "1px solid var(--home-hairline)" }}>
+
         <Link
           to="/app/relatorios"
           className="flex items-center justify-center gap-1 px-4 py-2.5 text-[12px] font-bold hover:underline"
