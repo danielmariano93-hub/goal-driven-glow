@@ -84,6 +84,19 @@ export function useFinancialSnapshot(period: DateRange): {
     },
   });
 
+  // Movimentos de investimento — habilitam a ponte patrimonial precisa (v4).
+  const { data: investmentMovements } = useQuery({
+    queryKey: ["investment_movements_all", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("investment_movements" as never)
+        .select("type,amount,occurred_at");
+      if (error) throw error;
+      return (data as unknown as Array<{ type: string; amount: number; occurred_at: string }> | null) ?? [];
+    },
+  });
+
   const loading = la || ls || lt;
   const todayKey = todayISO();
 
@@ -147,9 +160,12 @@ export function useFinancialSnapshot(period: DateRange): {
       cardInstallments: (cardInstallments ?? []).map((i) => ({ ...i, amount: Number(i.amount ?? 0) })),
       cardIds: (cards ?? []).map((c) => c.id),
       cards: (cards ?? []).map((c) => ({ id: c.id, closing_day: c.closing_day, due_day: c.due_day })),
+      investmentMovements: (investmentMovements ?? []).map((m) => ({
+        type: String(m.type), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
+      })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, period.start, period.end, todayKey, loading]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading]);
 
   return { data: snapshot, loading };
 }
