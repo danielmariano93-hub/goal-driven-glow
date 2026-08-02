@@ -13,6 +13,8 @@ type Props = {
   otherDebts: number;
   periodLabel: string;
   loading?: boolean;
+  cardFutureInstallments?: number;
+  cardDebtIsEstimated?: boolean;
 };
 
 export function HeroDisponivelCard(p: Props) {
