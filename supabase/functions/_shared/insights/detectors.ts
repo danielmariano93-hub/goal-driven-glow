@@ -3,7 +3,15 @@
 // Regras puras, auditáveis e sem IA: cada detector recebe evidência já
 // calculada pelo `finance-core` (finance_contract.v2) e devolve candidatos
 // com `evidence` explícita. A IA só reescreve o texto — nunca cria o assunto.
-import type { InsightPayload } from "./fallbacks.ts";
+// Módulo puro e sem dependências (testável no app e no Deno).
+export interface InsightPayload {
+  type: "habit" | "alert" | "celebration" | "onboarding" | "opportunity" | "categorize_transaction";
+  title: string;
+  body: string;
+  cta_label: string;
+  cta_route: string;
+  model: string;
+}
 
 export interface DeterministicSignals {
   /** Dívida oficial de cartão hoje (card_exposure.v1). */
