@@ -133,5 +133,8 @@ export interface ReportEngineInput {
   balanceSnapshots?: AccountBalanceSnapshotRow[];
   goals?: GoalRow[];
   goalContributions?: Array<{ goal_id: string; amount: number }>;
+  /** Destaques vindos do catálogo de insights (insights_catalog.v1). */
+  extraHighlights?: ReportHighlight[];
   timezone?: string;
+
 }
