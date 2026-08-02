@@ -30,6 +30,27 @@ export default function RelatorioInteligenteDetalhe() {
     })();
   }, [id]);
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Recalcula o relatório com os dados atuais (categorias, cartão, dívidas)
+  // e recarrega a leitura — sem criar número novo no cliente.
+  async function handleRefresh() {
+    if (!id || report === null || report === "missing" || refreshing) return;
+    setRefreshing(true);
+    try {
+      await generateReportNow(report.report_type);
+      const data = await getReport(id);
+      if (data) setReport(data);
+      notifySuccess("Relatório recalculado com os dados atuais.");
+    } catch {
+      notifyError("Não consegui recalcular agora. Tente novamente em instantes.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+
+
   if (report === null) {
     return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
   }
