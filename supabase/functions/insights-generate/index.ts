@@ -463,6 +463,18 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
     if (!guard.success) payload = pickFallback(facts);
   }
 
+  // Guardrail numérico: nenhum número pode aparecer no texto sem existir na
+  // evidência determinística. Se aparecer, volta ao candidato do catálogo.
+  {
+    const evidencePool = { ...facts, ...evidenceExtra, candidate: chosen.candidate };
+    const bad = unsupportedNumbers(`${payload.title} ${payload.body}`, evidencePool);
+    if (bad.length > 0) {
+      payload = { ...chosen.candidate };
+      fallbackReason = `${fallbackReason ?? ""}|numeric_guard`;
+    }
+  }
+
+
   const now = new Date();
   const { data: inserted, error } = await supa
     .from("user_insights")
