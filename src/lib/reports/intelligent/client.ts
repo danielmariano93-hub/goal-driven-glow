@@ -81,7 +81,7 @@ export async function getReport(id: string): Promise<ReportDetail | null> {
       .order("sort_order", { ascending: true }),
     (supabase as any)
       .from("financial_report_highlights")
-      .select("id,detector_key,type,title,body,confidence,category,cta_label,cta_route,sort_order")
+      .select("id,detector_key,type,title,body,confidence,category,cta_label,cta_route,evidence,sort_order")
       .eq("report_id", id)
       .order("sort_order", { ascending: true }),
   ]);
