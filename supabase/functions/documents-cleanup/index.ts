@@ -16,17 +16,19 @@ const BUCKET = "documents";
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
-const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
+const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
 
 Deno.serve(async (req) => {
   const h = httpContext("documents-cleanup", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const auth = req.headers.get("Authorization") ?? "";
-  const providedSecret = req.headers.get("x-internal-secret") ?? "";
+  // pg_cron envia `x-cron-secret`; chamadas internas legadas usam `x-internal-secret`.
+  const providedSecret = req.headers.get("x-internal-secret") ?? req.headers.get("x-cron-secret") ?? "";
   const authorized =
     auth === `Bearer ${SERVICE_ROLE}` ||
     (INTERNAL_SECRET.length > 0 && providedSecret === INTERNAL_SECRET);
   if (!authorized) return h.fail("unauthorized", 401);
+
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   let processed = 0, failed = 0, resumed = 0, terminated = 0, fragments_recovered = 0, fragments_failed = 0;
