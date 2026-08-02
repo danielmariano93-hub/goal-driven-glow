@@ -38,7 +38,9 @@ export interface ReportHighlightRow {
   category: string | null;
   cta_label: string | null;
   cta_route: string | null;
+  evidence?: Record<string, unknown> | null;
   sort_order: number;
+
 }
 
 export interface ReportDetail extends ReportListItem {
