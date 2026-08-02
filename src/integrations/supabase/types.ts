@@ -8206,6 +8206,7 @@ export type Database = {
         Args: { p_statement_id: string }
         Returns: Json
       }
+      documents_cleanup_tick: { Args: never; Returns: number }
       ensure_profile: { Args: never; Returns: undefined }
       ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
       finalize_invoice_statement: {
@@ -8696,6 +8697,7 @@ export type Database = {
         Returns: Json
       }
       value_events: { Args: never; Returns: string[] }
+      whatsapp_ack_watchdog_tick: { Args: never; Returns: number }
       whatsapp_send_dispatch_tick: { Args: never; Returns: number }
     }
     Enums: {
