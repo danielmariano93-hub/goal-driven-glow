@@ -5,7 +5,9 @@ import ReportHealthGauge from "@/components/relatorios/ReportHealthGauge";
 import ReportMetricsGrid from "@/components/relatorios/ReportMetricsGrid";
 import ReportHighlightList from "@/components/relatorios/ReportHighlightList";
 import ReportCharts from "@/components/relatorios/ReportCharts";
-import { getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { notifySuccess } from "@/lib/ui/feedback";
+
 import { notifyError } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
 
