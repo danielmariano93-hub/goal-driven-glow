@@ -52,7 +52,10 @@ async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promi
 
 async function loadContext(sb: Sb, userId: string) {
   const [cats, accounts, snapshots, goals, contributions] = await Promise.all([
-    sb.from("categories").select("id,name").eq("user_id", userId),
+    // Categorias globais (user_id IS NULL) precisam entrar: a maioria dos
+    // lançamentos aponta para elas e sem isso tudo virava "Sem categoria".
+    sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
+
     sb.from("accounts").select("id,name,type,opening_balance,is_active").eq("user_id", userId),
     sb.from("account_balance_snapshots").select("account_id,balance,captured_at").eq("user_id", userId),
     sb.from("goals").select("id,name,target_amount,status,due_date").eq("user_id", userId),
