@@ -1,4 +1,4 @@
-// Contrato canônico de importação em lote — `import_item.v1`.
+// Contrato canônico de importação em lote — `import_item.v2`.
 //
 // Fonte única usada por TODAS as entradas em lote (JSON no chat, PDF, imagem,
 // CSV, OFX, WhatsApp, MCP). Cada item preserva sua própria data, natureza
@@ -14,12 +14,18 @@ export const MOVEMENT_KINDS = [
   "investment_yield",
   "loan_proceeds",
   "card_payment",
+  "external_transfer_in",
+  "external_transfer_out",
 ] as const;
+
+export const IMPORT_ITEM_CONTRACT = "import_item.v2";
 
 export type MovementKind = typeof MOVEMENT_KINDS[number];
 
 export type ImportItemStatus =
   | "new"
+  /** linha repetida legítima: idêntica a outra da MESMA origem, não é duplicidade */
+  | "repeated_legitimate"
   | "exact_duplicate"
   | "probable_duplicate"
   | "needs_review"
@@ -30,8 +36,10 @@ export type ImportItem = {
   ordinal: number;
   /** data de competência do lançamento (por item, nunca herdada do lote quando informada) */
   occurred_at: string | null;
-  /** data de processamento no banco, quando diferente da data da compra */
+  /** data bancária real (caixa) — quando o dinheiro entrou/saiu da conta */
   posted_at: string | null;
+  /** qualidade da data bancária: statement (lido do extrato) | import | inferred | manual */
+  posted_at_source: "statement" | "import" | "inferred" | "manual" | null;
   /** data da compra no cartão (competência de fatura) */
   purchase_date: string | null;
   /** sempre positivo — o sinal vive em `type` */
@@ -49,6 +57,10 @@ export type ImportItem = {
   installment_number: number | null;
   external_id: string | null;
   bank_reference: string | null;
+  /** documento/lote de origem — identidade da linha junto com `source_line_index` */
+  source_document_id: string | null;
+  /** índice da linha na origem: preserva linhas repetidas legítimas */
+  source_line_index: number | null;
   /** vínculo com o lançamento original quando o item é estorno/reembolso */
   reverses_external_id: string | null;
   confidence: number;
@@ -75,6 +87,8 @@ const KIND_ALIASES: Array<{ match: RegExp; rule: KindRule }> = [
   { match: /^(internal_transfer|transferencia_interna|transferencia|transferência)$/i, rule: { kind: "internal_transfer" } },
   { match: /^(transferencia_enviada|transferência_enviada|transfer_out)$/i, rule: { kind: "internal_transfer", type: "expense" } },
   { match: /^(transferencia_recebida|transferência_recebida|transfer_in)$/i, rule: { kind: "internal_transfer", type: "income" } },
+  { match: /^(external_transfer_out|pix_enviado|ted_enviada|doc_enviado|transferencia_para_terceiro|transferência_para_terceiro)$/i, rule: { kind: "external_transfer_out", type: "expense", method: "account" } },
+  { match: /^(external_transfer_in|pix_recebido|ted_recebida|doc_recebido|transferencia_de_terceiro|transferência_de_terceiro)$/i, rule: { kind: "external_transfer_in", type: "income", method: "account" } },
   { match: /^(investment_application|aplicacao|aplicação|investimento)$/i, rule: { kind: "investment_application", type: "expense" } },
   { match: /^(investment_redemption|resgate)$/i, rule: { kind: "investment_redemption", type: "income" } },
   { match: /^(investment_yield|rendimento|rendimentos|juros_recebidos)$/i, rule: { kind: "investment_yield", type: "income" } },
@@ -111,6 +125,8 @@ export const NON_CONSUMPTION_KINDS: MovementKind[] = [
   "investment_redemption",
   "card_payment",
   "loan_proceeds",
+  "external_transfer_in",
+  "external_transfer_out",
 ];
 
 export function isMovementKind(value: unknown): value is MovementKind {

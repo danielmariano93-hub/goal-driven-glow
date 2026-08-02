@@ -66,6 +66,7 @@ function baseItem(ordinal: number): ImportItem {
     ordinal,
     occurred_at: null,
     posted_at: null,
+    posted_at_source: null,
     purchase_date: null,
     amount: 0,
     type: "expense",
@@ -80,6 +81,8 @@ function baseItem(ordinal: number): ImportItem {
     installments_total: null,
     installment_number: null,
     external_id: null,
+    source_document_id: null,
+    source_line_index: ordinal,
     bank_reference: null,
     reverses_external_id: null,
     confidence: 0.9,
@@ -137,7 +140,8 @@ function fromObjectRow(row: Record<string, unknown>, ordinal: number): ImportIte
         ? "account"
         : null);
   item.occurred_at = parseItemDate(pick(row, ["data", "date", "occurred_at", "data_lancamento", "data_movimento"]));
-  item.posted_at = parseItemDate(pick(row, ["data_processamento", "posted_at", "data_credito"]));
+  item.posted_at = parseItemDate(pick(row, ["data_processamento", "posted_at", "data_credito", "data_lancamento", "data_liquidacao"]));
+  if (item.posted_at) item.posted_at_source = "statement";
   item.purchase_date = parseItemDate(pick(row, ["data_compra", "purchase_date"]));
   item.category_hint = (pick(row, ["categoria", "category", "category_hint"]) as string | null) ?? null;
   item.account_hint = (pick(row, ["conta", "account", "account_hint", "banco"]) as string | null) ?? null;

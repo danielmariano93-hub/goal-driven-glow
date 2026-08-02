@@ -68,7 +68,9 @@ var EXCLUDED_MOVEMENT_KINDS = /* @__PURE__ */ new Set([
   "investment_application",
   "investment_redemption",
   "investment_yield",
-  "loan_proceeds"
+  "loan_proceeds",
+  "external_transfer_in",
+  "external_transfer_out"
 ]);
 function isRealMonthlyMovement(t) {
   if (t.status !== "confirmed") return false;
