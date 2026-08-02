@@ -541,21 +541,34 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
               ? "Os lançamentos somam mais que o total oficial — normalmente falta registrar um pagamento ou crédito da fatura."
               : "Os lançamentos somam menos que o total oficial — provavelmente algum lançamento não foi extraído."}</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => { setAdding(true); setForcing(false); }} disabled={economicLocked} className="rounded-full border border-warning/50 px-3 py-1.5 font-semibold disabled:opacity-40">Adicionar pagamento/crédito</button>
-              <button type="button" onClick={() => { setForcing(true); setAdding(false); }} disabled={economicLocked} className="rounded-full border border-warning/50 px-3 py-1.5 font-semibold disabled:opacity-40">Fechar conciliação com ajuste</button>
+              <button type="button" onClick={() => { setAdding(true); setForcing(false); }} disabled={economicLocked} className="btn-brand rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Corrigir lançamentos (recomendado)</button>
+              <button type="button" onClick={() => { setForcing(true); setAdding(false); }} disabled={economicLocked || cappedAdjustment} title={cappedAdjustment ? "Diferença acima de 2% do total: corrija os lançamentos" : undefined} className="rounded-full border border-border px-3 py-1.5 font-semibold text-muted-foreground disabled:opacity-40">Registrar ajuste com motivo</button>
             </div>
+            {cappedAdjustment && <p className="text-[11px]">O ajuste manual só é permitido até 2% do total oficial ({formatBRL(adjustmentCap)}). Acima disso, corrija ou adicione os lançamentos.</p>}
           </div>
         )}
 
-        {forcing && <div className="mb-4 rounded-2xl border border-border bg-card p-3">
-          <p className="text-xs font-semibold">Fechar conciliação com ajuste de {formatBRL(Math.abs(difference))}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Será criada uma linha de ajuste explícita, com sua justificativa e trilha de auditoria. O total oficial da fatura não muda.</p>
-          <textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} placeholder="Ex.: pagamento de R$ 1.080,63 não extraído do PDF" className="input-base mt-2 w-full text-xs"/>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setForcing(false); setJustification(""); }} className="rounded-full border border-border px-3 py-2 text-xs font-semibold">Cancelar</button>
-            <button type="button" onClick={forceReconcile} disabled={justification.trim().length < 3 || statementAction === "force"} className="btn-brand text-xs disabled:opacity-40">{statementAction === "force" ? "Fechando…" : "Confirmar ajuste"}</button>
+        {forcing && <div className="mb-4 space-y-2 rounded-2xl border border-border bg-card p-3">
+          <p className="text-xs font-semibold">Registrar ajuste de {formatBRL(Math.abs(difference))}</p>
+          <p className="text-[11px] text-muted-foreground">Este ajuste é excepcional: exige motivo padronizado, evidência e justificativa. Fica registrado em auditoria e o total oficial da fatura não muda.</p>
+          <label className="block text-[11px] font-semibold text-muted-foreground">Motivo
+            <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="input-base mt-1 w-full text-xs">
+              <option value="">Selecione o motivo</option>
+              {ADJUSTMENT_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </label>
+          <label className="block text-[11px] font-semibold text-muted-foreground">Evidência
+            <input value={evidenceRef} onChange={(e) => setEvidenceRef(e.target.value)} placeholder={ADJUSTMENT_REASONS.find((r) => r.value === reasonCode)?.hint ?? "Ex.: fatura PDF, página 2, linha 14"} className="input-base mt-1 w-full text-xs"/>
+          </label>
+          <label className="block text-[11px] font-semibold text-muted-foreground">Justificativa (mín. 20 caracteres)
+            <textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} placeholder="Ex.: pagamento de R$ 1.080,63 consta no PDF mas não foi extraído pelo leitor" className="input-base mt-1 w-full text-xs"/>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => { setForcing(false); setJustification(""); setReasonCode(""); setEvidenceRef(""); }} className="rounded-full border border-border px-3 py-2 text-xs font-semibold">Cancelar</button>
+            <button type="button" onClick={forceReconcile} disabled={!reasonCode || evidenceRef.trim().length < 4 || justification.trim().length < 20 || statementAction === "force"} className="btn-brand text-xs disabled:opacity-40">{statementAction === "force" ? "Registrando…" : "Registrar ajuste"}</button>
           </div>
         </div>}
+
 
         <div className="mb-3 flex items-center justify-between">
           <div><h3 className="text-sm font-semibold">Lançamentos</h3><p className="text-xs text-muted-foreground">Corrija, exclua ou adicione linhas até a fatura fechar.</p></div>
