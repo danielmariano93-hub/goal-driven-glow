@@ -75,6 +75,8 @@ export function HeroDisponivelCard(p: Props) {
         assets={p.assets}
         otherDebts={p.otherDebts}
         net={p.netWorth}
+        cardFutureInstallments={p.cardFutureInstallments ?? 0}
+        cardDebtIsEstimated={p.cardDebtIsEstimated ?? false}
       />
     </>
   );

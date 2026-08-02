@@ -7,12 +7,14 @@ interface Props {
   cardsOwed: number;
   invested: number;
   otherDebts: number;
+  /** true quando a fatura ainda não tem documento oficial. */
+  cardDebtIsEstimated?: boolean;
 }
 
-export function ResumoContas({ cash, cardsOwed, invested, otherDebts }: Props) {
+export function ResumoContas({ cash, cardsOwed, invested, otherDebts, cardDebtIsEstimated = false }: Props) {
   const rows = [
     { icon: <Wallet size={14} />, label: "Contas", value: cash, to: "/app/contas", tone: cash < 0 ? "negative" : "neutral" },
-    { icon: <CreditCard size={14} />, label: "Fatura do cartão", value: cardsOwed, to: "/app/cartoes", tone: cardsOwed > 0 ? "warning" : "neutral", sub: "em aberto (estimativa)" },
+    { icon: <CreditCard size={14} />, label: "Fatura do cartão", value: cardsOwed, to: "/app/cartoes", tone: cardsOwed > 0 ? "warning" : "neutral", sub: cardDebtIsEstimated ? "em aberto (estimativa)" : "em aberto (fatura oficial)" },
     { icon: <LineChart size={14} />, label: "Investimentos", value: invested, to: "/app/investimentos", tone: "positive" },
     { icon: <AlertCircle size={14} />, label: "Outras dívidas", value: otherDebts, to: "/app/dividas", tone: otherDebts > 0 ? "warning" : "neutral" },
   ] as const;

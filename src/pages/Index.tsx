@@ -105,6 +105,8 @@ export default function Index() {
         cardsOwed={snap?.netWorth.cardsOwed ?? 0}
         invested={snap?.netWorth.invested ?? 0}
         otherDebts={snap?.netWorth.otherDebts ?? 0}
+        cardFutureInstallments={snap?.cardFutureInstallments ?? 0}
+        cardDebtIsEstimated={snap?.cardDebtIsEstimated ?? false}
         loading={loading}
       />
 
