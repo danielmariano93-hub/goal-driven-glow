@@ -32,6 +32,7 @@ import {
   computeCardExposure,
   totalCardDebtOf,
   totalFutureInstallmentsOf,
+  type CardCycleConfig,
   type CardExposure,
   type CardInstallmentRow,
   type CardStatementRow,
@@ -149,6 +150,8 @@ export interface FinancialSnapshotInput {
   cardStatements?: CardStatementRow[];
   cardInstallments?: CardInstallmentRow[];
   cardIds?: string[];
+  /** Ciclo real por cartão (closing_day/due_day) — habilita fatura em formação. */
+  cards?: CardCycleConfig[];
   /** Metas individuais + contribuições (progresso canônico no snapshot). */
   goals?: GoalRow[];
   goalContributions?: GoalContributionRow[];
@@ -472,6 +475,9 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     installments: input.cardInstallments ?? [],
     txs: input.txs as never,
     currentYM: todayIso.slice(0, 7),
+    // Mesma configuração de ciclo usada na página Cartões — paridade obrigatória.
+    cards: input.cards ?? [],
+    todayISO: todayIso,
   });
   const hasCardSource = Object.keys(cardExposures).length > 0;
   const cardDebtToday = hasCardSource ? totalCardDebtOf(cardExposures) : round2(netWorthRaw.cardsOwed);

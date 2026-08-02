@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2, ArrowLeft, Trash2, Save } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CategorySelect } from "@/components/CategorySelect";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 type Tx = {
   id: string;
@@ -127,8 +128,7 @@ export default function LancamentoDetalhe() {
         });
         if (learnError) console.warn("[category-learning]", learnError.message);
       }
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["categories"] });
+      await invalidateFinancialQueries(qc);
       toast.success("Categoria do recebimento salva");
       nav("/app/lancamentos");
       return;
@@ -203,8 +203,7 @@ export default function LancamentoDetalhe() {
       if (learnError) console.warn("[category-learning]", learnError.message);
     }
     toast.success("Lançamento atualizado ✅");
-    qc.invalidateQueries({ queryKey: ["transactions"] });
-    qc.invalidateQueries({ queryKey: ["assistant-tip"] });
+    await invalidateFinancialQueries(qc);
     nav("/app/lancamentos");
   }
 
@@ -228,8 +227,7 @@ export default function LancamentoDetalhe() {
       return toast.error("Falha ao excluir", { description: r?.error ?? "erro" });
     }
     toast.success("Lançamento excluído");
-    qc.invalidateQueries({ queryKey: ["transactions"] });
-    qc.invalidateQueries({ queryKey: ["assistant-tip"] });
+    await invalidateFinancialQueries(qc);
     nav("/app/lancamentos");
   }
 

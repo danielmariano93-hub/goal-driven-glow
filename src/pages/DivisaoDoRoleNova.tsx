@@ -11,6 +11,7 @@ import { dispatchSplitReminders } from "@/lib/split/dispatch";
 import { normalizeBrPhone } from "@/lib/phone";
 import { CategorySelect } from "@/components/CategorySelect";
 import { ContactPickerButton } from "@/components/contacts/ContactPickerButton";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
 type Source = "account" | "credit_card";
@@ -45,11 +46,7 @@ export default function DivisaoDoRoleNova() {
   const totalNum = money(total || "0");
 
   const refreshFinance = () => {
-    queryClient.invalidateQueries({ queryKey: ["shared_expenses"] });
-    queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    queryClient.invalidateQueries({ queryKey: ["credit_cards"] });
-    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    void invalidateFinancialQueries(queryClient);
   };
 
   useEffect(() => {

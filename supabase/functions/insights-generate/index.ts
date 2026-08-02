@@ -30,6 +30,8 @@ import {
   type CardStatementRow,
 } from "../_shared/finance-core/index.ts";
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
+import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
+
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -278,6 +280,81 @@ Deno.serve(async (req) => {
     allTx,
     7,
   );
+  const commitments30d = computeUpcomingCommitments(
+    (recurringRules ?? []) as never,
+    allTx,
+    30,
+  );
+
+  // ---- sinais adicionais do catálogo (todos derivados de evidência real) ----
+  const prevYM = (() => {
+    const d = new Date(now0.getFullYear(), now0.getMonth() - 1, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const monthExpenses = allTx.filter((t) =>
+    (t as unknown as { type?: string }).type === "expense" &&
+    String((t as unknown as { occurred_at?: string }).occurred_at ?? "").slice(0, 7) === ym
+  ) as Array<Record<string, unknown>>;
+
+  let categoryGrowth: { name: string; current: number; previous: number; growthPct: number } | null = null;
+  if (signals.category_growth) {
+    const target = signals.category_growth.name;
+    const sumFor = (month: string) =>
+      allTx.reduce((acc, t) => {
+        const row = t as unknown as { type?: string; occurred_at?: string; category_id?: string | null; amount?: number | string };
+        if (row.type !== "expense") return acc;
+        if (String(row.occurred_at ?? "").slice(0, 7) !== month) return acc;
+        if ((catNames.get(String(row.category_id ?? "")) ?? "") !== target) return acc;
+        return acc + Math.abs(Number(row.amount ?? 0));
+      }, 0);
+    const current = Number(sumFor(ym).toFixed(2));
+    const previous = Number(sumFor(prevYM).toFixed(2));
+    if (current > 0 && previous > 0) {
+      categoryGrowth = {
+        name: target,
+        current,
+        previous,
+        growthPct: Number((((current - previous) / previous) * 100).toFixed(1)),
+      };
+    }
+  }
+
+  let amountAnomaly: { description: string; amount: number; typicalAmount: number; occurredAt: string } | null = null;
+  if (monthExpenses.length >= 5) {
+    const values = monthExpenses.map((r) => Math.abs(Number(r.amount ?? 0))).sort((a, b) => a - b);
+    const median = values[Math.floor(values.length / 2)] ?? 0;
+    const top = monthExpenses.reduce((best, r) =>
+      Math.abs(Number(r.amount ?? 0)) > Math.abs(Number(best.amount ?? 0)) ? r : best, monthExpenses[0]);
+    const topAmount = Number(Math.abs(Number(top.amount ?? 0)).toFixed(2));
+    if (median > 0 && topAmount >= median * 3) {
+      amountAnomaly = {
+        description: String(top.description ?? "Um lançamento"),
+        amount: topAmount,
+        typicalAmount: Number(median.toFixed(2)),
+        occurredAt: String(top.occurred_at ?? todayIsoSP),
+      };
+    }
+  }
+
+  const dayOfMonth = Number(todayIsoSP.slice(8, 10));
+  const daysInMonth = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).getDate();
+  const rhythm = behavioral.expense > 0 && dayOfMonth >= 3
+    ? {
+      dailyTypical: Number((behavioral.expense / dayOfMonth).toFixed(2)),
+      daysLeft: Math.max(0, daysInMonth - dayOfMonth),
+      projectedExpense: Number(((behavioral.expense / dayOfMonth) * daysInMonth).toFixed(2)),
+    }
+    : null;
+
+  const subscriptionRules = ((recurring ?? []) as Array<{ type?: string; frequency?: string; amount?: number | string }>)
+    .filter((r) => r?.type === "expense" && (r.frequency ?? "monthly") === "monthly");
+  const subscriptions = subscriptionRules.length > 0
+    ? {
+      count: subscriptionRules.length,
+      total: Number(subscriptionRules.reduce((a, r) => a + Math.abs(Number(r.amount ?? 0)), 0).toFixed(2)),
+    }
+    : null;
+
   const deterministic = deterministicCandidates({
     cardDebtToday: totalCardDebtOf(exposures),
     cardFutureInstallments: totalFutureInstallmentsOf(exposures),
@@ -287,7 +364,22 @@ Deno.serve(async (req) => {
     expenseMonth: behavioral.expense,
     incomeMonth: behavioral.income,
     upcomingCommitments7d: Number(commitments7d.totalExpense ?? 0),
+    upcomingCommitments30d: Number(commitments30d.totalExpense ?? 0),
+    categoryGrowth,
+    amountAnomaly,
+    rhythm,
+    recurringMerchant: signals.merchant_repeat
+      ? {
+        name: signals.merchant_repeat.name,
+        occurrences: signals.merchant_repeat.occurrences,
+        total: Number(Number(signals.merchant_repeat.total).toFixed(2)),
+      }
+      : null,
+    subscriptions,
+    daysWithoutEntry: signals.days_without_entry,
+    uncategorizedCount: categorizable.length,
   });
+
 
   // ------- seleção pela política única -------
   const fullPool = [...deterministic, ...buildCandidates(facts)] as TipCandidate[];
@@ -372,6 +464,18 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
     const guard = InsightSchema.safeParse(payload);
     if (!guard.success) payload = pickFallback(facts);
   }
+
+  // Guardrail numérico: nenhum número pode aparecer no texto sem existir na
+  // evidência determinística. Se aparecer, volta ao candidato do catálogo.
+  {
+    const evidencePool = { ...facts, ...evidenceExtra, candidate: chosen.candidate };
+    const bad = unsupportedNumbers(`${payload.title} ${payload.body}`, evidencePool);
+    if (bad.length > 0) {
+      payload = { ...chosen.candidate };
+      fallbackReason = `${fallbackReason ?? ""}|numeric_guard`;
+    }
+  }
+
 
   const now = new Date();
   const { data: inserted, error } = await supa

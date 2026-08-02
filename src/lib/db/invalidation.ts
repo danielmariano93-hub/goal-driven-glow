@@ -1,29 +1,18 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { qk } from "./queryKeys";
+import { FINANCIAL_QUERY_KEYS } from "./queryKeys";
 
 /**
- * Invalida todas as queries que dependem do estado financeiro do usuário.
- * Fonte única de verdade em `queryKeys.ts` — nunca duplicar chaves aqui.
+ * Porta de entrada ÚNICA para invalidar o estado financeiro do usuário.
+ * Nenhuma tela ou hook deve chamar `qc.invalidateQueries` para domínio
+ * financeiro: a lista de chaves vive em `queryKeys.ts`.
+ *
+ * Retorna uma Promise resolvida quando todas as invalidações terminaram, de
+ * modo que a UI possa aguardar (read-after-write) antes de renderizar números.
  */
-export function invalidateFinancialQueries(qc: QueryClient) {
-  const keys: readonly (readonly string[])[] = [
-    qk.transactions,
-    qk.accounts,
-    qk.accountBalanceSnapshots,
-    qk.dashboard,
-    qk.pulse,
-    qk.assistantTip,
-    qk.insights,
-    qk.investments,
-    qk.debts,
-    qk.goals,
-    qk.contributions,
-    qk.creditCards,
-    qk.recurring,
-    qk.categorySpendingGoals,
-    qk.financialSnapshot,
-    qk.sharedGoals,
-    qk.sharedExpenses,
-  ];
-  for (const key of keys) qc.invalidateQueries({ queryKey: key as unknown as readonly unknown[] });
+export function invalidateFinancialQueries(qc: QueryClient): Promise<void> {
+  return Promise.all(
+    FINANCIAL_QUERY_KEYS.map((key) =>
+      qc.invalidateQueries({ queryKey: key as unknown as readonly unknown[] }),
+    ),
+  ).then(() => undefined);
 }

@@ -17,7 +17,7 @@
 //    a cron worker.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { fail } from "../_shared/http.ts";
+import { fail, respondPartial } from "../_shared/http.ts";
 
 const FN = "whatsapp-webhook";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
@@ -413,7 +413,13 @@ Deno.serve(async (req) => {
       .update({ processed_at: new Date().toISOString(), ignored_reason: "conversation_error" })
       .eq("id", inbound_message_id).then(() => {}, () => {});
     triggerDispatcher();
-    return json({ ok: true, soft_error: "conversation_error" }, 200);
+    // Falha parcial NUNCA responde sucesso: 207 + envelope edge_error.v1 e
+    // incidente registrado para rastreio operacional.
+    return respondPartial(
+      { queued_fallback: true, inbound_message_id },
+      [{ stage: "ensure_conversation", inbound_message_id, error_code: "conversation_error" }],
+      { status: 207, functionName: FN, userId: link.user_id as string, errorCode: "conversation_error" },
+    );
   }
   await sb.from("conversation_messages").insert({
     conversation_id: conversationId, user_id: link.user_id, direction: "inbound",

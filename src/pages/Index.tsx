@@ -19,6 +19,7 @@ import { SharedGoalHighlight } from "@/components/home/SharedGoalHighlight";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 function isoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -53,9 +54,7 @@ export default function Index() {
       }
       const updated = Number(data?.updated ?? 0);
       if (updated > 0) {
-        await queryClient.invalidateQueries({ queryKey: ["transactions"] });
-        await queryClient.invalidateQueries({ queryKey: ["assistant-tip"] });
-        await queryClient.invalidateQueries({ queryKey: ["pulse"] });
+        await invalidateFinancialQueries(queryClient);
         toast.success(`${updated} lançamento${updated === 1 ? " foi organizado" : "s foram organizados"} com segurança.`);
       }
     })();

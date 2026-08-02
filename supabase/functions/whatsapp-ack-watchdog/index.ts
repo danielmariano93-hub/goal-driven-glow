@@ -25,6 +25,8 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  try {
+
   const { data: recovered } = await supabase.rpc("recover_expired_outbound_leases");
   const recoveredCount = Number(recovered ?? 0);
 
@@ -117,5 +119,26 @@ Deno.serve(async (req) => {
     ack_stalled: stalledCount,
     results,
   });
+  } catch (e) {
+    // Qualquer exceção precisa deixar rastro: heartbeat com falha + incidente.
+    const code = (e as Error)?.message?.slice(0, 120) ?? "unknown_error";
+    await writeJobHeartbeat({
+      jobKey: "whatsapp-ack-watchdog",
+      ok: false,
+      processed: 0,
+      failed: 1,
+      errorCode: code,
+      sb: supabase,
+    });
+    await recordIncident({
+      functionName: "whatsapp-ack-watchdog",
+      errorCode: "watchdog_unhandled_error",
+      requestId: h.requestId,
+      status: 500,
+      retryable: true,
+      details: { message: code },
+    });
+    return h.fail("internal", 500, { details: { message: code } });
+  }
 });
 
