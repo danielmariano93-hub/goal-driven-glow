@@ -28,6 +28,8 @@ export function RitmoGastosCard({ rhythm, loading }: Props) {
 
   const hasData = data.length > 0 && (cur?.totalGross ?? 0) > 0;
   const hasRefunds = (cur?.totalRefunds ?? 0) > 0;
+  const exclusions = (cur?.excludedByReason ?? []).filter((e) => e.total > 0);
+
 
 
   return (
