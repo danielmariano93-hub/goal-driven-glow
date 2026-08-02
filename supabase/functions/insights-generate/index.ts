@@ -30,6 +30,8 @@ import {
   type CardStatementRow,
 } from "../_shared/finance-core/index.ts";
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
+import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
+
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
