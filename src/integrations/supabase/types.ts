@@ -3513,6 +3513,7 @@ export type Database = {
           document_id: string
           duplicate_of: string | null
           duplicate_reason: string | null
+          external_id: string | null
           friendly_description: string | null
           historical_installments_paid_assumption: boolean | null
           id: string
@@ -3525,9 +3526,12 @@ export type Database = {
           normalized_description: string | null
           occurred_at: string
           payment_method: string | null
+          posted_at: string | null
+          posted_at_source: string | null
           purchase_date: string | null
           raw: Json | null
           raw_description: string | null
+          source_line_index: number | null
           source_span: Json | null
           statement_item_kind: string | null
           statement_section: string | null
@@ -3558,6 +3562,7 @@ export type Database = {
           document_id: string
           duplicate_of?: string | null
           duplicate_reason?: string | null
+          external_id?: string | null
           friendly_description?: string | null
           historical_installments_paid_assumption?: boolean | null
           id?: string
@@ -3570,9 +3575,12 @@ export type Database = {
           normalized_description?: string | null
           occurred_at: string
           payment_method?: string | null
+          posted_at?: string | null
+          posted_at_source?: string | null
           purchase_date?: string | null
           raw?: Json | null
           raw_description?: string | null
+          source_line_index?: number | null
           source_span?: Json | null
           statement_item_kind?: string | null
           statement_section?: string | null
@@ -3603,6 +3611,7 @@ export type Database = {
           document_id?: string
           duplicate_of?: string | null
           duplicate_reason?: string | null
+          external_id?: string | null
           friendly_description?: string | null
           historical_installments_paid_assumption?: boolean | null
           id?: string
@@ -3615,9 +3624,12 @@ export type Database = {
           normalized_description?: string | null
           occurred_at?: string
           payment_method?: string | null
+          posted_at?: string | null
+          posted_at_source?: string | null
           purchase_date?: string | null
           raw?: Json | null
           raw_description?: string | null
+          source_line_index?: number | null
           source_span?: Json | null
           statement_item_kind?: string | null
           statement_section?: string | null
@@ -4720,6 +4732,44 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      investment_aliases: {
+        Row: {
+          alias: string
+          created_at: string
+          id: string
+          investment_id: string
+          normalized_alias: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          alias: string
+          created_at?: string
+          id?: string
+          investment_id: string
+          normalized_alias: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          alias?: string
+          created_at?: string
+          id?: string
+          investment_id?: string
+          normalized_alias?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "investment_aliases_investment_id_fkey"
+            columns: ["investment_id"]
+            isOneToOne: false
+            referencedRelation: "investments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       investment_movements: {
         Row: {
@@ -6914,6 +6964,7 @@ export type Database = {
           description: string | null
           direction: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger: string | null
+          external_id: string | null
           friendly_description: string | null
           id: string
           import_source_id: string | null
@@ -6925,12 +6976,16 @@ export type Database = {
           occurred_at: string
           origin: Database["public"]["Enums"]["txn_origin"]
           payment_method: string
+          posted_at: string | null
+          posted_at_source: string | null
           previous_category_id: string | null
           purchase_date: string | null
           purchase_group_id: string | null
           raw_description: string | null
           settles_card_id: string | null
           shared_expense_id: string | null
+          source_document_id: string | null
+          source_line_index: number | null
           split_transaction_role: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id: string | null
@@ -6956,6 +7011,7 @@ export type Database = {
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
+          external_id?: string | null
           friendly_description?: string | null
           id?: string
           import_source_id?: string | null
@@ -6967,12 +7023,16 @@ export type Database = {
           occurred_at: string
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
+          posted_at?: string | null
+          posted_at_source?: string | null
           previous_category_id?: string | null
           purchase_date?: string | null
           purchase_group_id?: string | null
           raw_description?: string | null
           settles_card_id?: string | null
           shared_expense_id?: string | null
+          source_document_id?: string | null
+          source_line_index?: number | null
           split_transaction_role?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
@@ -6998,6 +7058,7 @@ export type Database = {
           description?: string | null
           direction?: Database["public"]["Enums"]["transfer_direction"] | null
           emotional_trigger?: string | null
+          external_id?: string | null
           friendly_description?: string | null
           id?: string
           import_source_id?: string | null
@@ -7009,12 +7070,16 @@ export type Database = {
           occurred_at?: string
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
+          posted_at?: string | null
+          posted_at_source?: string | null
           previous_category_id?: string | null
           purchase_date?: string | null
           purchase_group_id?: string | null
           raw_description?: string | null
           settles_card_id?: string | null
           shared_expense_id?: string | null
+          source_document_id?: string | null
+          source_line_index?: number | null
           split_transaction_role?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           transfer_group_id?: string | null
@@ -8649,6 +8714,7 @@ export type Database = {
         Returns: undefined
       }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
+      normalize_investment_name: { Args: { p_name: string }; Returns: string }
       notifications_mark_interacted: {
         Args: { _action?: string; _notification_id: string }
         Returns: Json
@@ -8669,6 +8735,19 @@ export type Database = {
       recalc_credit_card_statement: {
         Args: { p_statement_id: string }
         Returns: Json
+      }
+      reconcile_account_from_statement: {
+        Args: {
+          p_account_id: string
+          p_balance: number
+          p_balance_date: string
+          p_document_id?: string
+          p_issued_at?: string
+          p_period_end?: string
+          p_period_start?: string
+          p_source?: string
+        }
+        Returns: string
       }
       reconcile_agent_memory_categories: { Args: never; Returns: number }
       reconcile_card_competence: {

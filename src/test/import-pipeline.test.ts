@@ -125,7 +125,8 @@ describe("import/dedupe", () => {
       { type: "expense", amount: 12.5, occurred_at: "2026-03-01", description: "Padaria Sol" },
     ], existing);
     expect(verdicts[0].status).toBe("exact_duplicate");
-    expect(verdicts[1].status).toBe("new");
+    // A segunda linha idêntica é uma repetição legítima da origem, nunca duplicidade.
+    expect(verdicts[1].status).toBe("repeated_legitimate");
   });
 
   it("item fora da janela é novo", () => {

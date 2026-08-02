@@ -68,7 +68,9 @@ var EXCLUDED_MOVEMENT_KINDS = /* @__PURE__ */ new Set([
   "investment_application",
   "investment_redemption",
   "investment_yield",
-  "loan_proceeds"
+  "loan_proceeds",
+  "external_transfer_in",
+  "external_transfer_out"
 ]);
 function isRealMonthlyMovement(t) {
   if (t.status !== "confirmed") return false;
@@ -311,7 +313,7 @@ function totalFutureInstallmentsOf(exposures) {
 }
 
 // src/lib/engine/metrics.ts
-var FINANCE_CONTRACT_VERSION = "finance_contract.v2";
+var FINANCE_CONTRACT_VERSION = "finance_contract.v3";
 
 // src/lib/mcp/shared.ts
 var ERROR_CONTRACT_VERSION = "edge_error.v1";

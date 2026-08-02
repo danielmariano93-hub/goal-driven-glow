@@ -20,6 +20,7 @@ export type BatchTarget = {
 export type StageCounters = {
   total: number;
   new: number;
+  repeated_legitimate: number;
   exact_duplicate: number;
   probable_duplicate: number;
   needs_review: number;
@@ -123,6 +124,8 @@ export async function stageBatch(sb: SupabaseClient, args: {
     merchant: row.item.merchant,
     bank_reference: row.item.bank_reference,
     external_id: row.item.external_id,
+    source_document_id: row.item.source_document_id,
+    source_line_index: row.item.source_line_index ?? row.item.ordinal,
     fingerprint: fingerprints[i],
   })));
 
@@ -138,6 +141,8 @@ export async function stageBatch(sb: SupabaseClient, args: {
       merchant: row.item.merchant,
       bank_reference: row.item.bank_reference,
       external_id: row.item.external_id,
+      source_document_id: row.item.source_document_id,
+      source_line_index: row.item.source_line_index ?? row.item.ordinal,
       fingerprint: fingerprints[i],
     })),
     existing,
@@ -147,6 +152,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
   const counters: StageCounters = {
     total: items.length,
     new: 0,
+    repeated_legitimate: 0,
     exact_duplicate: 0,
     probable_duplicate: 0,
     needs_review: 0,
@@ -204,6 +210,11 @@ export async function stageBatch(sb: SupabaseClient, args: {
       status = "duplicate_suspect";
       duplicate_reason = `possivel:${verdict.reason_code}`;
       counters.probable_duplicate++;
+    } else if (verdict.status === "repeated_legitimate") {
+      // Linha idêntica repetida na origem: é um lançamento real distinto.
+      status = "needs_review";
+      issues.push("linha_repetida_na_origem");
+      counters.repeated_legitimate++;
     } else if (issues.length > 0 || item.confidence < 0.7) {
       status = "needs_review";
       counters.needs_review++;
@@ -212,7 +223,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
       counters.new++;
     }
 
-    if (verdict.status === "new") {
+    if (verdict.status === "new" || verdict.status === "repeated_legitimate") {
       if (item.movement_kind === "internal_transfer") total_transfer += item.amount;
       else if (item.movement_kind === "refund") total_refund += item.amount;
       else if (item.type === "income") total_income += item.amount;
@@ -253,6 +264,9 @@ export async function stageBatch(sb: SupabaseClient, args: {
         external_id: item.external_id,
         reverses_external_id: item.reverses_external_id ?? refundLinks.get(item.ordinal) ?? null,
         posted_at: item.posted_at,
+        posted_at_source: item.posted_at_source,
+        source_document_id: item.source_document_id,
+        source_line_index: item.source_line_index ?? item.ordinal,
         merchant: item.merchant,
         issues,
       },

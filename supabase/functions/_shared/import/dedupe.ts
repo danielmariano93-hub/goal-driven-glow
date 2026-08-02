@@ -20,6 +20,9 @@ import type { ImportItem } from "./schema.ts";
 
 export type ExistingTx = {
   id: string;
+  posted_at?: string | null;
+  source_document_id?: string | null;
+  source_line_index?: number | null;
   type: string;
   amount: number;
   occurred_at: string;
@@ -32,7 +35,7 @@ export type ExistingTx = {
 };
 
 export type DupeVerdict = {
-  status: "new" | "exact_duplicate" | "probable_duplicate";
+  status: "new" | "repeated_legitimate" | "exact_duplicate" | "probable_duplicate";
   reason_code: string | null;
   duplicate_of: string | null;
 };
@@ -67,6 +70,8 @@ export type DedupeInputItem = {
   bank_reference?: string | null;
   external_id?: string | null;
   fingerprint?: string | null;
+  source_document_id?: string | null;
+  source_line_index?: number | null;
 };
 
 /**
@@ -83,7 +88,11 @@ export function classifyBatch(
 
   const fpIndex = new Map<string, ExistingTx>();
   const refIndex = new Map<string, ExistingTx>();
+  const lineIndex = new Map<string, ExistingTx>();
   for (const tx of existing) {
+    if (tx.source_document_id && tx.source_line_index !== null && tx.source_line_index !== undefined) {
+      lineIndex.set(`${tx.source_document_id}#${tx.source_line_index}`, tx);
+    }
     if (tx.dedupe_fingerprint) fpIndex.set(tx.dedupe_fingerprint, tx);
     if (tx.bank_reference) refIndex.set(String(tx.bank_reference).toUpperCase(), tx);
     if (tx.import_source_id) refIndex.set(String(tx.import_source_id).toUpperCase(), tx);
@@ -93,6 +102,17 @@ export function classifyBatch(
   for (const item of items) {
     const dates = [item.occurred_at, item.posted_at, item.purchase_date].filter((d): d is string => !!d);
     const itemMerchant = item.merchant ? merchantOf(item.merchant) : merchantOf(item.raw_description ?? item.description);
+
+    // 0. identidade da linha de origem (documento + índice) — idempotência exata
+    const lineKey = item.source_document_id && item.source_line_index !== null && item.source_line_index !== undefined
+      ? `${item.source_document_id}#${item.source_line_index}`
+      : null;
+    const lineHit = lineKey ? lineIndex.get(lineKey) : undefined;
+    if (lineHit) {
+      consumed.add(lineHit.id);
+      verdicts.push({ status: "exact_duplicate", reason_code: "linha_de_origem", duplicate_of: lineHit.id });
+      continue;
+    }
 
     // 1. fingerprint
     const fpHit = item.fingerprint ? fpIndex.get(item.fingerprint) : undefined;
@@ -119,7 +139,19 @@ export function classifyBatch(
       && dates.some((d) => daysApart(tx.occurred_at, d) <= windowDays)
     );
     if (candidates.length === 0) {
-      verdicts.push({ status: "new", reason_code: null, duplicate_of: null });
+      // Já existia um gêmeo idêntico neste lote que absorveu a transação existente?
+      // Então esta linha é uma repetição LEGÍTIMA da origem, não uma duplicidade.
+      const twinConsumed = existing.some((tx) =>
+        consumed.has(tx.id)
+        && tx.type === item.type
+        && sameCents(tx.amount, item.amount)
+        && dates.some((dt) => daysApart(tx.occurred_at, dt) <= windowDays)
+      );
+      verdicts.push(
+        twinConsumed
+          ? { status: "repeated_legitimate", reason_code: "linha_repetida_na_origem", duplicate_of: null }
+          : { status: "new", reason_code: null, duplicate_of: null },
+      );
       continue;
     }
 
@@ -215,7 +247,7 @@ export async function fetchExistingCandidates(
 
   const { data } = await sb
     .from("transactions")
-    .select("id, type, amount, occurred_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id")
+    .select("id, type, amount, occurred_at, posted_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id, source_document_id, source_line_index")
     .eq("user_id", user_id)
     .gte("occurred_at", from)
     .lte("occurred_at", to)

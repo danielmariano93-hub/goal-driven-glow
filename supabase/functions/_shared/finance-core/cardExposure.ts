@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v2)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
 /**
  * FONTE CANÔNICA — Exposição financeira de cartão de crédito.
  * =========================================================

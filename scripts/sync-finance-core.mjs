@@ -5,7 +5,7 @@
  * FONTE: src/lib/engine/{facts,spendingRhythm,dailyAverage,cardExposure,metrics}.ts
  * ESPELHO: supabase/functions/_shared/finance-core/*
  *
- * Contrato: `finance_contract.v2` — App, Edge Functions, Nino e MCP consomem
+ * Contrato: `finance_contract.v3` — App, Edge Functions, Nino e MCP consomem
  * exatamente as mesmas fórmulas. As únicas transformações permitidas são
  * mecânicas e determinísticas:
  *  1. especificadores relativos ganham extensão `.ts` (exigência do Deno);
@@ -36,7 +36,7 @@ export const REPORT_MODULES = [
   "index",
 ];
 
-export const FINANCE_CONTRACT_VERSION = "finance_contract.v2";
+export const FINANCE_CONTRACT_VERSION = "finance_contract.v3";
 
 const HEADER = `// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.\n` +
   `// Fonte canônica: src/lib/engine/<module>.ts (${FINANCE_CONTRACT_VERSION})\n`;

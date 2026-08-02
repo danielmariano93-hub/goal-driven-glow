@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v2)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
 // Guardrail numérico: nenhum número inventado pela IA pode chegar ao usuário.
 // Qualquer valor monetário/percentual presente no texto precisa existir no
 // conjunto de números permitidos (métricas + destaques + payload).
