@@ -14,6 +14,7 @@ import {
   BarChart3,
   LogOut,
   ClipboardCheck,
+  FileText,
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
@@ -36,6 +37,7 @@ const organize: Item[] = [
 
 const understand: Item[] = [
   { path: "/app/relatorios", label: "Relatórios", desc: "Padrões do seu dinheiro", icon: BarChart3 },
+  { path: "/app/relatorios-inteligentes", label: "Relatórios inteligentes", desc: "Fechamento semanal e mensal com leitura do Nino", icon: FileText },
   { path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart },
   { path: "/app/assessor/acompanhamento", label: "Meu Nino", desc: "Insights, plano e aprendizados em um só lugar", icon: ClipboardCheck },
 ];

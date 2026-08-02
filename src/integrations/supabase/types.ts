@@ -4070,6 +4070,192 @@ export type Database = {
           },
         ]
       }
+      financial_report_deliveries: {
+        Row: {
+          attempt_count: number
+          channel: string
+          created_at: string
+          delivered_at: string | null
+          error_code: string | null
+          error_details: string | null
+          failed_at: string | null
+          id: string
+          last_attempt_at: string | null
+          provider_message_id: string | null
+          recipient: string | null
+          report_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          channel: string
+          created_at?: string
+          delivered_at?: string | null
+          error_code?: string | null
+          error_details?: string | null
+          failed_at?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          provider_message_id?: string | null
+          recipient?: string | null
+          report_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          channel?: string
+          created_at?: string
+          delivered_at?: string | null
+          error_code?: string | null
+          error_details?: string | null
+          failed_at?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          provider_message_id?: string | null
+          recipient?: string | null
+          report_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_report_deliveries_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_report_highlights: {
+        Row: {
+          body: string
+          category: string | null
+          confidence: string
+          created_at: string
+          cta_label: string | null
+          cta_route: string | null
+          dedup_key: string
+          detector_key: string
+          detector_version: string
+          evidence: Json
+          id: string
+          priority: number
+          report_id: string
+          selection_reason: string | null
+          sort_order: number
+          title: string
+          type: string
+        }
+        Insert: {
+          body: string
+          category?: string | null
+          confidence?: string
+          created_at?: string
+          cta_label?: string | null
+          cta_route?: string | null
+          dedup_key: string
+          detector_key: string
+          detector_version?: string
+          evidence?: Json
+          id?: string
+          priority?: number
+          report_id: string
+          selection_reason?: string | null
+          sort_order?: number
+          title: string
+          type?: string
+        }
+        Update: {
+          body?: string
+          category?: string | null
+          confidence?: string
+          created_at?: string
+          cta_label?: string | null
+          cta_route?: string | null
+          dedup_key?: string
+          detector_key?: string
+          detector_version?: string
+          evidence?: Json
+          id?: string
+          priority?: number
+          report_id?: string
+          selection_reason?: string | null
+          sort_order?: number
+          title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_report_highlights_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_report_metrics: {
+        Row: {
+          comparison_percentage: number | null
+          comparison_value: number | null
+          created_at: string
+          evidence: Json
+          id: string
+          metric_key: string
+          metric_label: string
+          metric_text: string | null
+          metric_value: number | null
+          report_id: string
+          sort_order: number
+          source: string
+          unit: string
+        }
+        Insert: {
+          comparison_percentage?: number | null
+          comparison_value?: number | null
+          created_at?: string
+          evidence?: Json
+          id?: string
+          metric_key: string
+          metric_label?: string
+          metric_text?: string | null
+          metric_value?: number | null
+          report_id: string
+          sort_order?: number
+          source?: string
+          unit?: string
+        }
+        Update: {
+          comparison_percentage?: number | null
+          comparison_value?: number | null
+          created_at?: string
+          evidence?: Json
+          id?: string
+          metric_key?: string
+          metric_label?: string
+          metric_text?: string | null
+          metric_value?: number | null
+          report_id?: string
+          sort_order?: number
+          source?: string
+          unit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_report_metrics_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_report_templates: {
         Row: {
           active: boolean
@@ -4097,6 +4283,93 @@ export type Database = {
           template_key?: string
           updated_at?: string
           version?: number
+        }
+        Relationships: []
+      }
+      financial_reports: {
+        Row: {
+          closing_text: string | null
+          created_at: string
+          data_quality_flags: Json
+          data_quality_status: string
+          executive_summary: string | null
+          finance_contract_version: string
+          generated_at: string
+          health_breakdown: Json
+          health_score: number | null
+          id: string
+          idempotency_key: string | null
+          insight_catalog_version: string
+          payload: Json
+          period_end: string
+          period_start: string
+          published_at: string | null
+          report_type: string
+          request_id: string | null
+          status: string
+          template_version: string
+          text_fallback_reason: string | null
+          text_source: string
+          timezone: string
+          updated_at: string
+          user_id: string
+          viewed_at: string | null
+        }
+        Insert: {
+          closing_text?: string | null
+          created_at?: string
+          data_quality_flags?: Json
+          data_quality_status?: string
+          executive_summary?: string | null
+          finance_contract_version?: string
+          generated_at?: string
+          health_breakdown?: Json
+          health_score?: number | null
+          id?: string
+          idempotency_key?: string | null
+          insight_catalog_version?: string
+          payload?: Json
+          period_end: string
+          period_start: string
+          published_at?: string | null
+          report_type: string
+          request_id?: string | null
+          status?: string
+          template_version?: string
+          text_fallback_reason?: string | null
+          text_source?: string
+          timezone?: string
+          updated_at?: string
+          user_id: string
+          viewed_at?: string | null
+        }
+        Update: {
+          closing_text?: string | null
+          created_at?: string
+          data_quality_flags?: Json
+          data_quality_status?: string
+          executive_summary?: string | null
+          finance_contract_version?: string
+          generated_at?: string
+          health_breakdown?: Json
+          health_score?: number | null
+          id?: string
+          idempotency_key?: string | null
+          insight_catalog_version?: string
+          payload?: Json
+          period_end?: string
+          period_start?: string
+          published_at?: string | null
+          report_type?: string
+          request_id?: string | null
+          status?: string
+          template_version?: string
+          text_fallback_reason?: string | null
+          text_source?: string
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+          viewed_at?: string | null
         }
         Relationships: []
       }
@@ -4743,16 +5016,24 @@ export type Database = {
           import_done: boolean
           max_proactive_per_day: number
           max_proactive_per_week: number
+          monthly_report_enabled: boolean
           muted_proactive_kinds: string[]
           proactive_financial: boolean
           quiet_end: string | null
           quiet_start: string | null
           recurrence_due: boolean
+          report_channel: string
+          report_detail_level: string
+          report_hour: number
+          report_timezone: string
+          report_tone: string
+          report_weekday: number
           smart_tips: boolean
           split_reminder: boolean
           system: boolean
           updated_at: string
           user_id: string
+          weekly_report_enabled: boolean
           whatsapp_proactive: boolean
         }
         Insert: {
@@ -4763,16 +5044,24 @@ export type Database = {
           import_done?: boolean
           max_proactive_per_day?: number
           max_proactive_per_week?: number
+          monthly_report_enabled?: boolean
           muted_proactive_kinds?: string[]
           proactive_financial?: boolean
           quiet_end?: string | null
           quiet_start?: string | null
           recurrence_due?: boolean
+          report_channel?: string
+          report_detail_level?: string
+          report_hour?: number
+          report_timezone?: string
+          report_tone?: string
+          report_weekday?: number
           smart_tips?: boolean
           split_reminder?: boolean
           system?: boolean
           updated_at?: string
           user_id: string
+          weekly_report_enabled?: boolean
           whatsapp_proactive?: boolean
         }
         Update: {
@@ -4783,16 +5072,24 @@ export type Database = {
           import_done?: boolean
           max_proactive_per_day?: number
           max_proactive_per_week?: number
+          monthly_report_enabled?: boolean
           muted_proactive_kinds?: string[]
           proactive_financial?: boolean
           quiet_end?: string | null
           quiet_start?: string | null
           recurrence_due?: boolean
+          report_channel?: string
+          report_detail_level?: string
+          report_hour?: number
+          report_timezone?: string
+          report_tone?: string
+          report_weekday?: number
           smart_tips?: boolean
           split_reminder?: boolean
           system?: boolean
           updated_at?: string
           user_id?: string
+          weekly_report_enabled?: boolean
           whatsapp_proactive?: boolean
         }
         Relationships: [
@@ -8213,6 +8510,12 @@ export type Database = {
         Args: { p_document_id: string; p_item_ids: string[] }
         Returns: Json
       }
+      financial_reports_monthly_tick: { Args: never; Returns: number }
+      financial_reports_tick: {
+        Args: { p_report_type: string }
+        Returns: number
+      }
+      financial_reports_weekly_tick: { Args: never; Returns: number }
       force_reconcile_credit_card_statement:
         | {
             Args: { p_justification: string; p_statement_id: string }
@@ -8294,6 +8597,10 @@ export type Database = {
         }[]
       }
       mark_all_notifications_read: { Args: never; Returns: number }
+      mark_financial_report_viewed: {
+        Args: { p_report_id: string }
+        Returns: string
+      }
       mark_outbound_sent: {
         Args: { p_id: string; p_provider_message_id: string }
         Returns: undefined
@@ -8746,6 +9053,7 @@ export type Database = {
         | "goal_contribution"
         | "goal_milestone"
         | "split_participant_linked"
+        | "financial_report"
       occurrence_status: "planned" | "confirmed" | "skipped"
       participant_status:
         | "pending"
@@ -8949,6 +9257,7 @@ export const Constants = {
         "goal_contribution",
         "goal_milestone",
         "split_participant_linked",
+        "financial_report",
       ],
       occurrence_status: ["planned", "confirmed", "skipped"],
       participant_status: [
