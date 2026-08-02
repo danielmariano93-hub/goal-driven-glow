@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, ChevronRight, FileText, Loader2, Sparkles } from "lucide-react";
 import { listReports, generateReportNow, periodLabel, type ReportListItem } from "@/lib/reports/intelligent/client";
-import { toastError, toastSuccess } from "@/lib/ui/feedback";
+import { notifyError, notifySuccess } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
 
 function scoreTone(score: number | null) {
@@ -21,7 +21,7 @@ export default function RelatoriosInteligentes() {
     try {
       setItems(await listReports());
     } catch (e) {
-      toastError("Não consegui carregar seus relatórios.");
+      notifyError("Não consegui carregar seus relatórios.");
       setItems([]);
     }
   }
@@ -32,11 +32,11 @@ export default function RelatoriosInteligentes() {
     setGenerating(type);
     try {
       const res = await generateReportNow(type);
-      toastSuccess("Relatório gerado.");
+      notifySuccess("Relatório gerado.");
       await load();
       if (res?.report_id) navigate(`/app/relatorios-inteligentes/${res.report_id}`);
     } catch {
-      toastError("Não consegui gerar o relatório agora. Tente novamente em instantes.");
+      notifyError("Não consegui gerar o relatório agora. Tente novamente em instantes.");
     } finally {
       setGenerating(null);
     }
