@@ -311,6 +311,14 @@ const ITEM_KINDS: Array<{ value: string; label: string }> = [
 
 const CREDIT_KINDS = ["payment", "refund"];
 
+const ADJUSTMENT_REASONS: Array<{ value: string; label: string; hint: string }> = [
+  { value: "missing_document", label: "Lançamento não extraído do documento", hint: "Informe o documento/página onde a linha aparece." },
+  { value: "duplicate_item", label: "Item duplicado na importação", hint: "Informe a descrição e a data do item duplicado." },
+  { value: "fx_rounding", label: "Câmbio ou arredondamento", hint: "Informe a moeda e a taxa aplicada." },
+  { value: "previous_balance", label: "Saldo anterior da fatura", hint: "Informe a competência de origem do saldo." },
+  { value: "refund_pending", label: "Estorno ainda não creditado", hint: "Informe a data prevista do estorno." },
+];
+
 const STATEMENT_ERRORS: Record<string, string> = {
   statement_economic_fields_locked: "Esta fatura já tem pagamento registrado. Desfaça o pagamento antes de alterar valores.",
   statement_has_payments: "Desfaça os pagamentos antes de excluir esta fatura.",
@@ -320,9 +328,12 @@ const STATEMENT_ERRORS: Record<string, string> = {
   amount_must_not_be_zero: "Informe um valor diferente de zero.",
   description_required: "Informe uma descrição.",
   invalid_item_kind: "Tipo de lançamento inválido.",
-  justification_required: "Escreva uma justificativa para o ajuste.",
+  justification_required: "Escreva uma justificativa com pelo menos 20 caracteres.",
+  manual_reconciliation_required: "Escolha um motivo padronizado e informe a evidência para registrar o ajuste.",
+  adjustment_above_cap: "O ajuste passa de 2% do total da fatura. Corrija os lançamentos em vez de ajustar.",
   not_authenticated: "Sessão expirada. Entre novamente.",
 };
+
 
 function statementError(error: { message?: string } | null, data: { error?: string } | null | undefined) {
   const key = data?.error ?? "";
