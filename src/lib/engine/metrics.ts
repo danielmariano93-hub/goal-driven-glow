@@ -131,7 +131,7 @@ export interface CategoryGoalEvaluation {
 }
 
 /** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
-export const FINANCE_CONTRACT_VERSION = "finance_contract.v3";
+export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
 
 export interface FinancialSnapshotInput {
   accounts: AccountRow[];
