@@ -3,6 +3,7 @@ import { lastClosedWeek, lastClosedMonth, previousOf, daysInPeriod } from "@/lib
 import { buildIntelligentReport } from "@/lib/reports/intelligent/engine";
 import { collectAllowedNumbers, validateNumbers } from "@/lib/reports/intelligent/numericGuard";
 import { deterministicSummary, whatsappMessage } from "@/lib/reports/intelligent/narrative";
+import { mergeHighlights } from "@/lib/reports/intelligent/highlights";
 import type { TransactionRow } from "@/lib/engine/facts";
 
 const tx = (over: Partial<TransactionRow>): TransactionRow => ({
