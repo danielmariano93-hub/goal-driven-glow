@@ -18,6 +18,18 @@ import {
 } from "../_shared/insights/fallbacks.ts";
 import { computeBehavioralSignals } from "../_shared/insights/facts.ts";
 import { computeAccountStatementTotals, computeMonthlyTotals, type TransactionRow } from "../_shared/engine/facts.ts";
+import {
+  computeActiveDebtsTotal,
+  computeCardExposure,
+  computeUpcomingCommitments,
+  currentMonthYM,
+  todaySP,
+  totalCardDebtOf,
+  totalFutureInstallmentsOf,
+  type CardInstallmentRow,
+  type CardStatementRow,
+} from "../_shared/finance-core/index.ts";
+import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -126,6 +138,11 @@ Deno.serve(async (req) => {
     { data: recurring },
     { data: uncategorized },
     { data: categoriesRows },
+    { data: cardRows },
+    { data: statementRows },
+    { data: installmentRows },
+    { data: debtRows },
+    { data: recurringRules },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", uid).eq("status", "active"),
@@ -157,6 +174,11 @@ Deno.serve(async (req) => {
       .order("occurred_at", { ascending: false })
       .limit(20),
     supa.from("categories").select("id,name").or(`user_id.eq.${uid},user_id.is.null`),
+    supa.from("credit_cards").select("id,closing_day,due_day").eq("user_id", uid).eq("active", true),
+    supa.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", uid),
+    supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
+    supa.from("debts").select("outstanding_balance,status").eq("user_id", uid).eq("status", "active"),
+    supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,next_due_date,type,category_id,account_id,description").eq("user_id", uid).eq("status", "active"),
   ]);
 
   const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -227,8 +249,48 @@ Deno.serve(async (req) => {
     gross_card_out: gross.cardOut,
   };
 
+  // ------- catálogo determinístico (insights_catalog.v1) -------
+  const cards = ((cardRows ?? []) as Array<{ id: string; closing_day?: number | null; due_day?: number | null }>);
+  const exposures = computeCardExposure({
+    cardIds: cards.map((c) => c.id),
+    statements: (statementRows ?? []) as unknown as CardStatementRow[],
+    installments: (installmentRows ?? []) as unknown as CardInstallmentRow[],
+    txs: allTx,
+    currentYM: currentMonthYM(now0),
+    cards: cards.map((c) => ({ id: c.id, closing_day: c.closing_day ?? null, due_day: c.due_day ?? null })),
+    todayISO: todaySP(now0),
+  });
+  const todayIsoSP = todaySP(now0);
+  const in7Iso = new Date(now0.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
+  const statementsDueIn7d = ((statementRows ?? []) as unknown as CardStatementRow[])
+    .filter((st) => {
+      const dueDate = (st as unknown as { due_date?: string | null }).due_date ?? "";
+      const outstanding = Number((st as unknown as { outstanding_amount?: number | string }).outstanding_amount ?? 0);
+      return !!dueDate && dueDate >= todayIsoSP && dueDate <= in7Iso && outstanding > 0;
+    })
+    .map((st) => ({
+      cardId: st.credit_card_id,
+      dueDate: String((st as unknown as { due_date?: string }).due_date),
+      amount: Number((st as unknown as { outstanding_amount?: number | string }).outstanding_amount ?? 0),
+    }));
+  const commitments7d = computeUpcomingCommitments(
+    (recurringRules ?? []) as never,
+    allTx,
+    7,
+  );
+  const deterministic = deterministicCandidates({
+    cardDebtToday: totalCardDebtOf(exposures),
+    cardFutureInstallments: totalFutureInstallmentsOf(exposures),
+    cardDebtIsEstimated: Object.values(exposures).some((e) => e.currentStatement.source !== "official"),
+    statementsDueIn7d,
+    activeDebtTotal: computeActiveDebtsTotal((debtRows ?? []) as never),
+    expenseMonth: behavioral.expense,
+    incomeMonth: behavioral.income,
+    upcomingCommitments7d: Number(commitments7d.totalExpense ?? 0),
+  });
+
   // ------- seleção pela política única -------
-  const fullPool = buildCandidates(facts) as TipCandidate[];
+  const fullPool = [...deterministic, ...buildCandidates(facts)] as TipCandidate[];
   // Em "Agora não", nunca reapresentamos o assunto que está ativo agora.
   const activeKeys = new Set(
     active.map((r) => String(r.dedup_key ?? "")).filter(Boolean),

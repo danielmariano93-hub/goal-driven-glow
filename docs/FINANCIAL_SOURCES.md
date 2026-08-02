@@ -1,6 +1,6 @@
 # Fontes financeiras do Meu Nino — classificação canônica (E8 / D10)
 
-Última revisão: 2026-08-01.
+Última revisão: 2026-08-02 (`finance_contract.v2`).
 
 Toda leitura ou escrita financeira nova deve usar exclusivamente tabelas
 **ativas**. Tabelas legadas, experimentais ou substituídas não podem ser
@@ -84,7 +84,7 @@ não é consumo; fatura `paid`/`settled` tem obrigação zero em todas as telas.
 | `edge_incidents` | ativa | Incidentes do contrato `edge_error.v1` (E7), rastreáveis por `request_id`. |
 | `agent_runs`, `agent_steps`, `agent_tool_calls`, `agent_decisions`, `agent_turn_events` | ativa | Telemetria do Agent Core. |
 | `reconciliation_issues` | ativa | Divergências financeiras abertas. |
-| `job_heartbeats`, `provider_health_events`, `provider_inbound_drops` | ativa | Saúde de jobs e provedores. |
+| `job_heartbeats`, `provider_health_events`, `provider_inbound_drops` | ativa | Saúde de jobs e provedores (inclui `product_events_prune` e `whatsapp-ack-watchdog`). |
 | `wave1_pre_snapshot` | legada | Foto pré-migração de uma onda específica. |
 | `behavior_hypotheses`, `pending_proactive_suggestions` | experimental | Motor proativo em validação. |
 | `agent_sessions`, `agent_memory`, `agent_knowledge_entries` | ativa | Sessão, memória e base de conhecimento do Nino. |
@@ -96,8 +96,21 @@ não é consumo; fatura `paid`/`settled` tem obrigação zero em todas as telas.
 | `src/lib/engine/spendingRhythm.ts` (`spending_rhythm.v3`) | Ritmo bruto, estornos, líquido e típico. |
 | `src/lib/engine/cardExposure.ts` (`card_exposure.v1`) | Dívida de cartão, faturas atual/próxima e parcelas futuras. |
 | `src/lib/ledger/canonical.ts` | Invariantes contábeis da ingestão. |
-| `supabase/functions/_shared/finance-core/` | Espelho gerado por `scripts/sync-finance-core.mjs`; paridade garantida por teste. |
+| `supabase/functions/_shared/finance-core/` | Espelho gerado por `scripts/sync-finance-core.mjs` (rodado em `prebuild`/`pretest`); paridade garantida por teste. |
+| `src/lib/engine/metrics.ts` (`finance_contract.v2`) | Snapshot único: totais do mês, breakdown por categoria, metas, investimentos, dívidas, compromissos e exposição de cartão. |
+| `src/lib/db/invalidation.ts` | Ponto único de invalidação de cache após qualquer escrita financeira. |
+| `supabase/functions/_shared/insights/detectors.ts` (`insights_catalog.v1`) | Catálogo determinístico de dicas; a IA só reescreve o texto. |
+| `src/lib/mcp/shared.ts` (`edge_error.v1`) | Envelope de sucesso/erro das tools MCP, alinhado às Edge Functions. |
 | `supabase/functions/_shared/http.ts` (`edge_error.v1`) | Contrato único de resposta e erro das Edge Functions. |
+
+## Consumidores obrigados ao contrato único
+
+`Home`, `Relatórios`, `Cartões`, `Investimentos`, `Dívidas`, `Metas`,
+`pulse-compute`, `insights-generate`, tools MCP (`monthly_summary`,
+`financial_position`) e o Nino leem **exclusivamente** o `finance-core`.
+Dívida de cartão sempre vem de `card_exposure.v1`; quando há exposição oficial,
+`computeAvailableUntil` recebe `cardDebtOverride` e nunca reconstrói o valor por
+transações. Auditoria de resíduo por fatura: `public.audit_card_reconciliation`.
 
 Alterar qualquer classificação acima exige atualizar este documento no mesmo
 commit — o teste `src/test/financial-sources-doc.test.ts` falha se o documento

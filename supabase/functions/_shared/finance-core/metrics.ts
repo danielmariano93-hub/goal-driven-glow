@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v1)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v2)
 // FinancialMetricsService (frontend). Núcleo puro que compõe helpers existentes
 // e adiciona metas de categoria. Consumido por `useFinancialSnapshot` e por
 // componentes da Home. Não faz I/O — só cálculo determinístico.
@@ -8,13 +8,22 @@ import {
   computeBehavioralExpense,
   computeNetWorth,
   computeTotalCash,
-  computeCreditCardOutstanding,
+  computeActiveDebtsTotal,
+  computeCategoryBreakdown,
+  computeGoalProgressFacts,
+  computeInvestmentsTotal,
+  computeInvestedPrincipal,
+  computeMonthlyTotals,
+  computeUpcomingCommitments,
   isRealMonthlyMovement,
   round2,
   todayISO,
   type AccountRow,
   type AccountBalanceSnapshotRow,
+  type CategoryRow,
   type DebtRow,
+  type GoalContributionRow,
+  type GoalRow,
   type InvestmentRow,
   type RecurringRow,
   type TransactionRow,
@@ -122,6 +131,9 @@ export interface CategoryGoalEvaluation {
   projectedOverspend: number;
 }
 
+/** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
+export const FINANCE_CONTRACT_VERSION = "finance_contract.v2";
+
 export interface FinancialSnapshotInput {
   accounts: AccountRow[];
   txs: TransactionRow[];
@@ -137,9 +149,26 @@ export interface FinancialSnapshotInput {
   cardStatements?: CardStatementRow[];
   cardInstallments?: CardInstallmentRow[];
   cardIds?: string[];
+  /** Metas individuais + contribuições (progresso canônico no snapshot). */
+  goals?: GoalRow[];
+  goalContributions?: GoalContributionRow[];
+  /** Categorias para o breakdown canônico do mês. */
+  categories?: CategoryRow[];
+}
+
+export interface SnapshotGoalProgress {
+  id: string;
+  name: string;
+  target: number;
+  contributed: number;
+  investedLinked: number;
+  total: number;
+  remaining: number;
+  pct: number;
 }
 
 export interface FinancialSnapshot {
+  contractVersion: string;
   today: string;
   period: DateRange;
   availableToday: number;
@@ -168,6 +197,19 @@ export interface FinancialSnapshot {
   cardFutureInstallments: number;
   /** true quando algum número de cartão veio de estimativa (sem fatura oficial). */
   cardDebtIsEstimated: boolean;
+  /** Totais comportamentais do mês corrente (mesma regra de Relatórios/MCP). */
+  monthlyTotals: { month: string; income: number; expense: number; net: number };
+  /** Breakdown de despesa do mês corrente por categoria. */
+  categoryBreakdown: ReturnType<typeof computeCategoryBreakdown>;
+  /** Saldo devedor das dívidas ativas (fora do cartão). */
+  activeDebtTotal: number;
+  /** Valor atual da carteira e principal aportado. */
+  investmentsTotal: number;
+  investedPrincipal: number;
+  /** Progresso canônico das metas individuais. */
+  goalProgress: SnapshotGoalProgress[];
+  /** Compromissos conhecidos nos próximos 30 dias. */
+  upcomingCommitments: ReturnType<typeof computeUpcomingCommitments>;
 }
 
 
@@ -465,13 +507,14 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     snapshots: input.snapshots,
     endDate: monthRange.end,
     today,
+    // Nunca reconstruir dívida de cartão por transações quando há exposição oficial.
+    cardDebtOverride: hasCardSource ? cardDebtToday : null,
   });
 
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
   const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
-  const cardsOwed = computeCreditCardOutstanding(input.txs);
   const projectedMonthEndAvailable = round2(
-    availableToday + confirmedFutureIncome - knownFutureCommitments - cardsOwed - projectedRemainingConsumption,
+    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDebtToday - projectedRemainingConsumption,
   );
 
   const categoryNameById = input.categoryNameById ?? {};
@@ -481,7 +524,36 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const topCategoryGoal = pickTopGoal(activeCategoryGoals);
 
+  const currentYM = todayIso.slice(0, 7);
+  const monthlyTotalsRaw = computeMonthlyTotals(input.txs, currentYM);
+  const categories: CategoryRow[] = input.categories
+    ?? Object.entries(categoryNameById).map(([id, name]) => ({ id, name, type: "expense" as const }));
+  const categoryBreakdown = computeCategoryBreakdown(input.txs, categories, currentYM, "expense");
+  const activeDebtTotal = computeActiveDebtsTotal(input.debts);
+  const investmentsTotal = computeInvestmentsTotal(input.investments);
+  const investedPrincipal = computeInvestedPrincipal(input.investments);
+  const goalProgress: SnapshotGoalProgress[] = (input.goals ?? [])
+    .filter((g) => g.status === "active")
+    .map((g) => {
+      const p = computeGoalProgressFacts(
+        g.target_amount,
+        g.id,
+        input.goalContributions ?? [],
+        input.investments,
+      );
+      return { id: g.id, name: g.name, target: Number(g.target_amount) || 0, ...p };
+    });
+  const upcomingCommitments = computeUpcomingCommitments(input.recurring, input.txs, 30);
+
   return {
+    contractVersion: FINANCE_CONTRACT_VERSION,
+    monthlyTotals: { month: currentYM, ...monthlyTotalsRaw },
+    categoryBreakdown,
+    activeDebtTotal,
+    investmentsTotal,
+    investedPrincipal,
+    goalProgress,
+    upcomingCommitments,
     today: todayIso,
     period: input.period,
     availableToday,

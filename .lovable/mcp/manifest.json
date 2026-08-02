@@ -62,7 +62,7 @@
       {
         "name": "monthly_summary",
         "title": "Resumo do mês",
-        "description": "Resume o mês do usuário autenticado: total de receitas, total de despesas, saldo do período e as maiores categorias de gasto.",
+        "description": "Resume o mês do usuário autenticado: total de receitas, total de despesas, saldo do período e as maiores categorias de gasto (regra comportamental única do Meu Nino).",
         "annotations": {
           "readOnlyHint": true,
           "idempotentHint": true,

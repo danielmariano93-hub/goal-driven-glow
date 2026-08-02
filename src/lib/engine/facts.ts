@@ -392,6 +392,11 @@ export function computeAccountStatementTotals(
   return { accountIn: rIn, accountOut: rOut, cardOut: rCard, net: round2(rIn - rOut - rCard) };
 }
 
+/**
+ * Breakdown de categorias — usa a MESMA regra comportamental dos totais mensais
+ * (`behavioralMetricAmount`): estorno abate, transferência/investimento/fatura
+ * ficam fora. Nunca somar `amount` cru aqui.
+ */
 export function computeCategoryBreakdown(
   txs: TransactionRow[],
   categories: CategoryRow[],
@@ -400,36 +405,89 @@ export function computeCategoryBreakdown(
 ) {
   const byCat: Record<string, number> = {};
   for (const t of txs) {
-    if (t.type !== type || t.status !== "confirmed" || !isInMonth(t.occurred_at, ym)) continue;
+    if (!isInMonth(t.occurred_at, ym)) continue;
+    const signed = behavioralMetricAmount(t, type);
+    if (signed === 0) continue;
     const key = t.category_id ?? "__none__";
-    byCat[key] = (byCat[key] || 0) + Number(t.amount || 0);
+    byCat[key] = (byCat[key] || 0) + signed;
   }
   const catName = (id: string) =>
     id === "__none__" ? "Sem categoria" : categories.find((c) => c.id === id)?.name ?? "Categoria removida";
   const total = round2(Object.values(byCat).reduce((a, b) => a + b, 0));
   return Object.entries(byCat)
-    .map(([id, v]) => ({ id, name: catName(id), amount: round2(v), share: total > 0 ? v / total : 0 }))
+    .map(([id, v]) => ({ id, name: catName(id), amount: round2(v), share: total > 0 ? round2(v) / total : 0 }))
+    .filter((row) => row.amount !== 0)
     .sort((a, b) => b.amount - a.amount);
+}
+
+export interface GoalProgressFacts {
+  contributed: number;
+  investedLinked: number;
+  total: number;
+  remaining: number;
+  pct: number;
+}
+
+/**
+ * Helper puro e canônico de progresso de meta:
+ * contribuições da meta + valor atual dos investimentos vinculados a ela.
+ * Fonte única — App, Pulso, MCP e Nino devem delegar aqui.
+ */
+export function computeGoalProgressFacts(
+  targetAmount: number | string,
+  goalId: string,
+  contributions: Array<{ goal_id: string; amount: number | string }> = [],
+  investments: Array<{ goal_id: string | null; current_value: number | string }> = [],
+): GoalProgressFacts {
+  const contributed = round2(
+    sumBy(contributions.filter((c) => c.goal_id === goalId), (c) => Number(c.amount ?? 0)),
+  );
+  const investedLinked = round2(
+    sumBy(investments.filter((i) => i.goal_id === goalId), (i) => Number(i.current_value ?? 0)),
+  );
+  const total = round2(contributed + investedLinked);
+  const target = Number(targetAmount) || 0;
+  const remaining = round2(Math.max(0, target - total));
+  const pct = target > 0 ? Math.min(1, total / target) : 0;
+  return { contributed, investedLinked, total, remaining, pct };
 }
 
 export function computeGoalProgress(
   goal: GoalRow,
   contributions: GoalContributionRow[],
   investments: Array<{ goal_id: string | null; current_value: number | string }> = [],
-) {
-  const relevant = contributions.filter((c) => c.goal_id === goal.id);
-  const contributed = round2(sumBy(relevant, (c) => Number(c.amount)));
-  const investedLinked = round2(
-    sumBy(
-      investments.filter((i) => i.goal_id === goal.id),
-      (i) => Number(i.current_value ?? 0),
-    ),
+): GoalProgressFacts {
+  return computeGoalProgressFacts(goal.target_amount, goal.id, contributions, investments);
+}
+
+/** Valor atual total da carteira de investimentos. */
+export function computeInvestmentsTotal(
+  investments: Array<{ current_value: number | string }> = [],
+): number {
+  return round2(sumBy(investments, (i) => Number(i.current_value ?? 0)));
+}
+
+/** Principal efetivamente aportado (custo), sem rendimento. */
+export function computeInvestedPrincipal(
+  investments: Array<{ invested_amount: number | string }> = [],
+): number {
+  return round2(sumBy(investments, (i) => Number(i.invested_amount ?? 0)));
+}
+
+/** Saldo devedor total das dívidas ativas (exclui liquidadas). */
+export function computeActiveDebtsTotal(
+  debts: Array<{ status?: string | null; outstanding_balance: number | string }> = [],
+): number {
+  return round2(
+    sumBy(debts.filter((d) => (d.status ?? "active") === "active"), (d) => Number(d.outstanding_balance ?? 0)),
   );
-  const total = round2(contributed + investedLinked);
-  const target = Number(goal.target_amount) || 0;
-  const remaining = round2(Math.max(0, target - total));
-  const pct = target > 0 ? Math.min(1, total / target) : 0;
-  return { contributed, investedLinked, total, remaining, pct };
+}
+
+/** Intervalo inclusivo do mês YYYY-MM (sem depender do timezone do browser). */
+export function monthRangeOfYM(ym: string): { start: string; end: string } {
+  const [y, m] = ym.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { start: `${ym}-01`, end: `${ym}-${String(last).padStart(2, "0")}` };
 }
 
 export function computeNetWorth(
@@ -505,6 +563,9 @@ export interface AvailableUntilInput {
   snapshots?: AccountBalanceSnapshotRow[];
   endDate: string; // inclusive YYYY-MM-DD
   today?: Date;
+  /** Dívida oficial de cartão (card_exposure.v1). Quando informada, tem
+   *  precedência absoluta sobre a estimativa por transações. */
+  cardDebtOverride?: number | null;
 }
 
 export interface AvailableUntilOutput {
@@ -535,7 +596,9 @@ export function computeAvailableUntil(input: AvailableUntilInput): AvailableUnti
   const next = nextRecurringOccurrences(input.recurring, horizonDays, today);
   const recurringIn = sumBy(next.filter((r) => r.type === "income"), (r) => r.amount);
   const recurringOut = sumBy(next.filter((r) => r.type === "expense"), (r) => r.amount);
-  const cardsOwed = computeCreditCardOutstanding(input.txs);
+  const cardsOwed = input.cardDebtOverride == null
+    ? computeCreditCardOutstanding(input.txs)
+    : round2(Number(input.cardDebtOverride));
   const available = round2(currentCash + plannedIncome + recurringIn - plannedExpense - recurringOut - cardsOwed);
   return {
     currentCash: round2(currentCash),

@@ -10,6 +10,8 @@ import {
   useInvestments,
   useDebts,
   useCategorySpendingGoals,
+  useGoals,
+  useContributions,
 } from "@/lib/db/finance";
 import { computeFinancialSnapshot, type FinancialSnapshot } from "@/lib/engine/metrics";
 import type { CardInstallmentRow, CardStatementRow } from "@/lib/engine/cardExposure";
@@ -33,6 +35,8 @@ export function useFinancialSnapshot(period: DateRange): {
   const { data: debts } = useDebts();
   const { data: categories } = useCategories();
   const { data: categoryGoals } = useCategorySpendingGoals();
+  const { data: goals } = useGoals();
+  const { data: goalContributions } = useContributions();
 
   const { data: recurring } = useQuery({
     queryKey: ["recurring_rules_active", user?.id],
@@ -124,6 +128,14 @@ export function useFinancialSnapshot(period: DateRange): {
         period_type: g.period_type as "this_month" | "next_month" | "next_30_days" | "custom" | "monthly_recurring" | undefined,
       })),
       categoryNameById,
+      categories: (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type as "income" | "expense" })),
+      goals: (goals ?? []).map((g) => ({
+        id: g.id, name: g.name, target_amount: Number(g.target_amount),
+        target_date: g.target_date, status: g.status,
+      })),
+      goalContributions: (goalContributions ?? []).map((c) => ({
+        goal_id: c.goal_id, amount: Number(c.amount), occurred_at: c.occurred_at,
+      })),
       period,
       cardStatements: (cardStatements ?? []).map((s) => ({
         ...s,
@@ -136,7 +148,7 @@ export function useFinancialSnapshot(period: DateRange): {
       cardIds: (cards ?? []).map((c) => c.id),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, recurring, cardStatements, cardInstallments, cards, period.start, period.end, todayKey, loading]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, period.start, period.end, todayKey, loading]);
 
   return { data: snapshot, loading };
 }

@@ -1,7 +1,7 @@
 // Watchdog: recover stuck leases and dead-letter old messages.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { httpContext } from "../_shared/http.ts";
+import { httpContext, recordIncident } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -42,6 +42,14 @@ Deno.serve(async (req) => {
     if (attempts >= 6) {
       await supabase.from("outbound_messages").update({ status: "dead" }).eq("id", m.id);
       results.push({ id: m.id as string, action: "dead_letter" });
+      // Dead-letter é perda de mensagem: precisa de rastro auditável.
+      await recordIncident({
+        functionName: "whatsapp-ack-watchdog",
+        errorCode: "outbound_dead_letter",
+        requestId: h.requestId,
+        retryable: false,
+        details: { outbound_message_id: m.id, attempts },
+      });
     } else {
       await supabase.from("outbound_messages").update({
         status: "queued",
@@ -70,6 +78,13 @@ Deno.serve(async (req) => {
         status: "failed",
         last_error: "ack_stalled_no_delivery",
       }).eq("id", m.id);
+      await recordIncident({
+        functionName: "whatsapp-ack-watchdog",
+        errorCode: "outbound_ack_stalled",
+        requestId: h.requestId,
+        retryable: true,
+        details: { outbound_message_id: m.id, retry_count: rc },
+      });
     } else {
       await supabase.from("outbound_messages").update({
         retry_count: rc + 1,
@@ -79,11 +94,21 @@ Deno.serve(async (req) => {
     stalledCount++;
   }
 
+  const deadLettered = results.filter((r) => r.action === "dead_letter").length;
+  console.log(JSON.stringify({
+    fn: "whatsapp-ack-watchdog",
+    request_id: h.requestId,
+    recovered: recoveredCount,
+    requeued: results.filter((r) => r.action === "requeued").length,
+    dead_lettered: deadLettered,
+    ack_stalled: stalledCount,
+  }));
+
   await writeJobHeartbeat({
     jobKey: "whatsapp-ack-watchdog",
-    ok: true,
+    ok: deadLettered === 0,
     processed: recoveredCount + (stuck ?? []).length + stalledCount,
-    failed: 0,
+    failed: deadLettered,
     sb: supabase,
   });
   return h.ok({

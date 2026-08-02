@@ -9,6 +9,21 @@ import { fail } from "../_shared/http.ts";
 
 const FN = "pulse-compute";
 import { computePulse, type PulseInput } from "../_shared/pulse/rules.ts";
+// Verdade financeira única (finance_contract.v2): nunca reimplementar fórmulas aqui.
+import {
+  computeActiveDebtsTotal,
+  computeBehavioralExpense,
+  computeCardExposure,
+  computeGoalProgressFacts,
+  computeTotalCash,
+  currentMonthYM,
+  todaySP,
+  totalCardDebtOf,
+  type AccountRow,
+  type CardInstallmentRow,
+  type CardStatementRow,
+  type TransactionRow,
+} from "../_shared/finance-core/index.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -39,10 +54,10 @@ Deno.serve(async (req) => {
     const cutoff90 = new Date(today); cutoff90.setDate(cutoff90.getDate() - 90);
 
     // Buscar dados em paralelo.
-    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR] = await Promise.all([
-      sb.from("transactions").select("id,type,status,amount,occurred_at,category_id,credit_card_id,payment_method,settles_card_id").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
-      sb.from("accounts").select("id,opening_balance,active").eq("user_id", userId),
-      sb.from("credit_cards").select("id,total_limit,active").eq("user_id", userId).eq("active", true),
+    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR, snapR, stmtR, instR] = await Promise.all([
+      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
+      sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
+      sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
       sb.from("debts").select("id,outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
       sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
@@ -50,22 +65,28 @@ Deno.serve(async (req) => {
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
       sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
       sb.from("investments").select("goal_id,current_value").eq("user_id", userId),
+      sb.from("account_balance_snapshots").select("account_id,balance,snapshot_date,source").eq("user_id", userId),
+      sb.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", userId),
+      sb.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", userId),
     ]);
 
-    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR]
+    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR,snapR,stmtR,instR]
       .map((r, index) => ({ index, error: r.error }))
       .find((r) => r.error);
     if (failedRead?.error) throw new Error(`pulse_read_${failedRead.index}: ${failedRead.error.message}`);
 
-    const txs = (txsR.data ?? []) as Array<{ id: string; type: string; status: string; amount: number | string; occurred_at: string; category_id: string | null; credit_card_id: string | null; payment_method: string | null; settles_card_id?: string | null }>;
-    const accounts = (accountsR.data ?? []) as Array<{ opening_balance: number | string; active: boolean }>;
-    const cards = (cardsR.data ?? []) as Array<{ total_limit: number | string }>;
+    const txs = (txsR.data ?? []) as unknown as TransactionRow[];
+    const accounts = (accountsR.data ?? []) as unknown as AccountRow[];
+    const cards = (cardsR.data ?? []) as Array<{ id: string; total_limit: number | string; closing_day?: number | null; due_day?: number | null }>;
     const goals = (goalsR.data ?? []) as Array<{ id: string; target_amount: number | string }>;
-    const debts = (debtsR.data ?? []) as Array<{ outstanding_balance: number | string }>;
+    const debts = (debtsR.data ?? []) as Array<{ outstanding_balance: number | string; status?: string }>;
     const contribs = (contribR.data ?? []) as Array<{ goal_id: string; amount: number | string }>;
     const emos = (emoR.data ?? []) as Array<{ occurred_at: string; transaction_id: string | null }>;
     const recurring = (recR.data ?? []) as Array<{ id: string; status: string; amount: number | string }>;
     const investments = (invR.data ?? []) as Array<{ goal_id: string | null; current_value: number | string }>;
+    const balanceSnapshots = (snapR.data ?? []) as unknown as Parameters<typeof computeTotalCash>[2];
+    const statements = (stmtR.data ?? []) as unknown as CardStatementRow[];
+    const installments = (instR.data ?? []) as unknown as CardInstallmentRow[];
     const timezone = String(profileR.data?.timezone || "America/Sao_Paulo");
 
     const confirmed = txs.filter((t) => t.status === "confirmed" && t.type !== "transfer");
@@ -73,47 +94,32 @@ Deno.serve(async (req) => {
     const last30 = confirmed.filter((t) => t.occurred_at >= iso(cutoff30));
     const distinctDays14 = new Set(last14.map((t) => t.occurred_at)).size;
 
-    const isCardOrigin = (t: { payment_method: string | null; credit_card_id: string | null }) =>
-      !!t.credit_card_id || (t.payment_method ?? "").toLowerCase() === "credit_card";
+    // Caixa: fonte única do core (respeita snapshots conciliados e exclusões).
+    const totalCash = computeTotalCash(accounts, txs, balanceSnapshots ?? []);
 
-    // Saldo total em conta (excluindo despesas em cartão; incluindo pagamentos de fatura como saída).
-    let totalCash = 0;
-    for (const a of accounts) totalCash += Number(a.opening_balance || 0);
-    for (const t of confirmed) {
-      if (isCardOrigin(t)) continue;
-      const amt = Number(t.amount || 0);
-      if (t.type === "income") totalCash += amt;
-      else if (t.type === "expense") totalCash -= amt;
-    }
-
-    // Fatura em aberto (somando compras no cartão e subtraindo pagamentos de fatura).
-    let cardOutstanding = 0;
-    for (const t of txs) {
-      if (t.status !== "confirmed") continue;
-      if (t.type === "expense" && isCardOrigin(t)) cardOutstanding += Number(t.amount || 0);
-      if (t.type === "expense" && t.settles_card_id) cardOutstanding -= Number(t.amount || 0);
-    }
-    cardOutstanding = Math.max(0, cardOutstanding);
+    // Dívida de cartão: exposição oficial (card_exposure.v1) — nunca soma de transações.
+    const todayIsoSP = todaySP(today);
+    const exposures = computeCardExposure({
+      cardIds: cards.map((c) => c.id),
+      statements,
+      installments,
+      txs,
+      currentYM: currentMonthYM(today),
+      cards: cards.map((c) => ({ id: c.id, closing_day: c.closing_day ?? null, due_day: c.due_day ?? null })),
+      todayISO: todayIsoSP,
+    });
+    const cardOutstanding = Math.max(0, totalCardDebtOf(exposures));
     const cardTotalLimit = cards.reduce((a, c) => a + Number(c.total_limit || 0), 0);
 
-    const monthlyExpense30 = last30.filter((t) => t.type === "expense" && !isCardOrigin(t)).reduce((a, t) => a + Number(t.amount || 0), 0);
+    // Consumo comportamental dos últimos 30 dias (mesma regra da Home/Relatórios).
+    const monthlyExpense30 = computeBehavioralExpense(last30, { start: iso(cutoff30), end: iso(today) });
 
-    // Metas — soma contribuições + valor atual de investimentos vinculados.
-    const contribByGoal: Record<string, number> = {};
-    for (const c of contribs) contribByGoal[c.goal_id] = (contribByGoal[c.goal_id] || 0) + Number(c.amount || 0);
-    const investedByGoal: Record<string, number> = {};
-    for (const i of investments) {
-      if (!i.goal_id) continue;
-      investedByGoal[i.goal_id] = (investedByGoal[i.goal_id] || 0) + Number(i.current_value || 0);
-    }
-    const goalsPct = goals
-      .map((g) => {
-        const target = Number(g.target_amount) || 0;
-        const total = (contribByGoal[g.id] || 0) + (investedByGoal[g.id] || 0);
-        return target > 0 ? Math.min(1, total / target) : 0;
-      });
+    // Metas — helper canônico (contribuições + investimentos vinculados).
+    const goalsPct = goals.map(
+      (g) => computeGoalProgressFacts(g.target_amount, g.id, contribs, investments).pct,
+    );
 
-    const outstandingToday = debts.reduce((a, d) => a + Number(d.outstanding_balance || 0), 0);
+    const outstandingToday = computeActiveDebtsTotal(debts);
 
     const emoDays14 = new Set(emos.filter((e) => e.occurred_at.slice(0, 10) >= iso(cutoff14)).map((e) => e.occurred_at.slice(0, 10))).size;
     const emoTxIds = new Set(emos.filter((e) => e.transaction_id).map((e) => e.transaction_id as string));
