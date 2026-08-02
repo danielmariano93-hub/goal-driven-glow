@@ -58,16 +58,252 @@ function supabaseForUser(ctx) {
   });
 }
 
+// src/lib/engine/facts.ts
+var round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+var SP_TZ = "America/Sao_Paulo";
+function todaySP(now = /* @__PURE__ */ new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SP_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now);
+  return parts;
+}
+function currentMonthYM(now = /* @__PURE__ */ new Date()) {
+  return todaySP(now).slice(0, 7);
+}
+
+// src/lib/engine/cardExposure.ts
+var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
+var CARD_CYCLE_VERSION = "card_cycle.v2";
+var pad = (n) => String(n).padStart(2, "0");
+var lastDayOf = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
+var iso = (y, m1, d) => `${y}-${pad(m1)}-${pad(d)}`;
+function addMonths(y, m1, delta) {
+  const zero = y * 12 + (m1 - 1) + delta;
+  return [Math.floor(zero / 12), zero % 12 + 1];
+}
+function dayInMonth(y, m1, day) {
+  return iso(y, m1, Math.min(Math.max(1, day), lastDayOf(y, m1)));
+}
+function addDaysISO(value, days) {
+  const [y, m, d] = value.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return iso(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+}
+function cycleFor(card, dateISO) {
+  const [y0, m0, d0] = String(dateISO).slice(0, 10).split("-").map(Number);
+  const closingDay = Number(card?.closing_day ?? 0);
+  const dueDayRaw = Number(card?.due_day ?? 0);
+  const fallback = !(closingDay >= 1 && closingDay <= 31);
+  if (!y0 || !m0 || !d0) {
+    const now = /* @__PURE__ */ new Date();
+    return cycleFor(card, iso(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()));
+  }
+  if (fallback) {
+    const end = dayInMonth(y0, m0, 31);
+    const dueDay2 = dueDayRaw >= 1 ? dueDayRaw : lastDayOf(y0, m0);
+    return {
+      competence: `${y0}-${pad(m0)}`,
+      period_start: iso(y0, m0, 1),
+      period_end: end,
+      closing_date: end,
+      due_date: dayInMonth(y0, m0, dueDay2),
+      fallback: true
+    };
+  }
+  const closingThis = Math.min(closingDay, lastDayOf(y0, m0));
+  const [cy, cm] = d0 <= closingThis ? [y0, m0] : addMonths(y0, m0, 1);
+  const closing = dayInMonth(cy, cm, closingDay);
+  const [py, pm] = addMonths(cy, cm, -1);
+  const periodStart = addDaysISO(dayInMonth(py, pm, closingDay), 1);
+  const dueDay = dueDayRaw >= 1 && dueDayRaw <= 31 ? dueDayRaw : closingDay;
+  const [dy, dm] = dueDay > closingDay ? [cy, cm] : addMonths(cy, cm, 1);
+  const due = dayInMonth(dy, dm, dueDay);
+  return {
+    competence: due.slice(0, 7),
+    period_start: periodStart,
+    period_end: closing,
+    closing_date: closing,
+    due_date: due,
+    fallback: false
+  };
+}
+function openCycleOf(card, todayISO2) {
+  return cycleFor(card, todayISO2);
+}
+var SETTLED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed_paid"]);
+var CLOSED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed", "closed_paid", "approved"]);
+var DEAD_INSTALLMENTS = /* @__PURE__ */ new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
+var emptyFigure = () => ({ amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 });
+function nextCompetence(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return ym;
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+}
+function ymOf(value) {
+  const v = String(value ?? "");
+  return /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : null;
+}
+function estimateFromTxs(txs, cardId, ym) {
+  let total = 0;
+  for (const t of txs) {
+    if (t.credit_card_id !== cardId) continue;
+    if (t.settles_card_id) continue;
+    if (t.status && t.status !== "confirmed") continue;
+    if (ymOf(t.competence_date) !== ym) continue;
+    const amt = Number(t.amount || 0);
+    total += t.type === "income" ? -amt : amt;
+  }
+  return round2(Math.max(0, total));
+}
+function estimateFromCycle(txs, cardId, cycle) {
+  let total = 0;
+  for (const t of txs) {
+    if (t.credit_card_id !== cardId) continue;
+    if (t.settles_card_id) continue;
+    if (t.status && t.status !== "confirmed") continue;
+    const day = String(t.occurred_at ?? "").slice(0, 10);
+    if (!day || day < cycle.period_start || day > cycle.period_end) continue;
+    const amt = Number(t.amount || 0);
+    total += t.type === "income" ? -amt : amt;
+  }
+  return round2(Math.max(0, total));
+}
+function figureFromStatement(statement) {
+  const status = (statement.status ?? "").toString() || null;
+  const stated = round2(Number(statement.stated_total ?? 0));
+  const paid = round2(Number(statement.paid_amount ?? 0));
+  const outstanding = statement.outstanding_amount == null ? round2(Math.max(0, stated - paid)) : round2(Number(statement.outstanding_amount));
+  return {
+    amount: SETTLED_STATUSES.has(status ?? "") ? 0 : outstanding,
+    source: "official",
+    status,
+    statedTotal: stated,
+    paidAmount: paid
+  };
+}
+function computeCardExposure(input) {
+  const { cardIds, statements, installments, txs, currentYM } = input;
+  const nextYM = nextCompetence(currentYM);
+  const today = input.todayISO ?? `${currentYM}-01`;
+  const cycleConfig = /* @__PURE__ */ new Map();
+  for (const c of input.cards ?? []) if (c.id) cycleConfig.set(c.id, c);
+  const result = {};
+  const ids = new Set(cardIds);
+  for (const s of statements) ids.add(s.credit_card_id);
+  for (const i of installments) ids.add(i.credit_card_id);
+  for (const cardId of ids) {
+    const cardStatements = statements.filter((s) => s.credit_card_id === cardId);
+    const byYM = /* @__PURE__ */ new Map();
+    for (const s of cardStatements) {
+      const ym = ymOf(s.competence_month);
+      if (ym) byYM.set(ym, s);
+    }
+    const currentRow = byYM.get(currentYM);
+    const current = currentRow ? figureFromStatement(currentRow) : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, currentYM), source: "estimated" };
+    const nextRow = byYM.get(nextYM);
+    const next = nextRow ? figureFromStatement(nextRow) : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, nextYM), source: "estimated" };
+    let lastClosedYM = "";
+    for (const [ym, s] of byYM) {
+      if (CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
+    }
+    let futureInstallments = 0;
+    for (const inst of installments) {
+      if (inst.credit_card_id !== cardId) continue;
+      if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
+      if (inst.absorbed_by_statement_id) continue;
+      const ym = ymOf(inst.competence_month);
+      if (!ym) continue;
+      if (lastClosedYM && ym <= lastClosedYM) continue;
+      if (ym <= currentYM) continue;
+      const covering = byYM.get(ym);
+      if (covering && SETTLED_STATUSES.has((covering.status ?? "").toString())) continue;
+      futureInstallments += Number(inst.amount || 0);
+    }
+    const openStatementsDebt = cardStatements.reduce((sum, s) => {
+      const status = (s.status ?? "").toString();
+      if (SETTLED_STATUSES.has(status)) return sum;
+      const fig = figureFromStatement(s);
+      return sum + fig.amount;
+    }, 0);
+    const totalCardDebt = currentRow || cardStatements.length > 0 ? round2(openStatementsDebt) : round2(current.amount);
+    const cfg = cycleConfig.get(cardId);
+    const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today) : null;
+    const forming = openCycle ? { ...emptyFigure(), amount: estimateFromCycle(txs, cardId, openCycle), source: "estimated" } : emptyFigure();
+    result[cardId] = {
+      cardId,
+      currentStatement: current,
+      nextStatement: next,
+      formingStatement: forming,
+      futureInstallments: round2(futureInstallments),
+      totalCardDebt,
+      needsReview: Boolean(
+        currentRow && ((currentRow.status ?? "") === "needs_review" || round2(Number(currentRow.reconciliation_difference ?? 0)) !== 0)
+      ),
+      openCycle,
+      formulaVersion: CARD_EXPOSURE_FORMULA_VERSION,
+      cycleVersion: CARD_CYCLE_VERSION
+    };
+  }
+  return result;
+}
+function totalCardDebtOf(exposures) {
+  return round2(Object.values(exposures).reduce((sum, e) => sum + e.totalCardDebt, 0));
+}
+function totalFutureInstallmentsOf(exposures) {
+  return round2(Object.values(exposures).reduce((sum, e) => sum + e.futureInstallments, 0));
+}
+
+// src/lib/engine/metrics.ts
+var FINANCE_CONTRACT_VERSION = "finance_contract.v2";
+
 // src/lib/mcp/shared.ts
-function errorResult(message) {
-  return { content: [{ type: "text", text: message }], isError: true };
+var ERROR_CONTRACT_VERSION = "edge_error.v1";
+var RETRYABLE_CODES = /* @__PURE__ */ new Set([
+  "internal",
+  "timeout",
+  "rate_limited",
+  "upstream_unavailable"
+]);
+function newRequestId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `req_${Date.now().toString(36)}`;
+  }
+}
+function errorResult(message, errorCode = "internal") {
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+    structuredContent: {
+      ok: false,
+      contract: ERROR_CONTRACT_VERSION,
+      error_code: errorCode,
+      error: errorCode,
+      message,
+      retryable: RETRYABLE_CODES.has(errorCode),
+      request_id: newRequestId(),
+      finance_contract: FINANCE_CONTRACT_VERSION
+    }
+  };
 }
 function requireUser(ctx) {
   if (!ctx.isAuthenticated()) return null;
   return ctx.getUserId() ?? null;
 }
 function ok(text, structured) {
-  return { content: [{ type: "text", text }], structuredContent: structured };
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: {
+      ok: true,
+      request_id: newRequestId(),
+      finance_contract: FINANCE_CONTRACT_VERSION,
+      ...structured ?? {}
+    }
+  };
 }
 function brl(value) {
   return `R$ ${Number(value ?? 0).toFixed(2).replace(".", ",")}`;
@@ -270,206 +506,6 @@ var create_transaction_default = defineTool4({
 
 // src/lib/mcp/tools/financial-position.ts
 import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.26.1";
-
-// src/lib/engine/facts.ts
-var round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-var SP_TZ = "America/Sao_Paulo";
-function todaySP(now = /* @__PURE__ */ new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: SP_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(now);
-  return parts;
-}
-function currentMonthYM(now = /* @__PURE__ */ new Date()) {
-  return todaySP(now).slice(0, 7);
-}
-
-// src/lib/engine/cardExposure.ts
-var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
-var CARD_CYCLE_VERSION = "card_cycle.v2";
-var pad = (n) => String(n).padStart(2, "0");
-var lastDayOf = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
-var iso = (y, m1, d) => `${y}-${pad(m1)}-${pad(d)}`;
-function addMonths(y, m1, delta) {
-  const zero = y * 12 + (m1 - 1) + delta;
-  return [Math.floor(zero / 12), zero % 12 + 1];
-}
-function dayInMonth(y, m1, day) {
-  return iso(y, m1, Math.min(Math.max(1, day), lastDayOf(y, m1)));
-}
-function addDaysISO(value, days) {
-  const [y, m, d] = value.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d + days));
-  return iso(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
-}
-function cycleFor(card, dateISO) {
-  const [y0, m0, d0] = String(dateISO).slice(0, 10).split("-").map(Number);
-  const closingDay = Number(card?.closing_day ?? 0);
-  const dueDayRaw = Number(card?.due_day ?? 0);
-  const fallback = !(closingDay >= 1 && closingDay <= 31);
-  if (!y0 || !m0 || !d0) {
-    const now = /* @__PURE__ */ new Date();
-    return cycleFor(card, iso(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()));
-  }
-  if (fallback) {
-    const end = dayInMonth(y0, m0, 31);
-    const dueDay2 = dueDayRaw >= 1 ? dueDayRaw : lastDayOf(y0, m0);
-    return {
-      competence: `${y0}-${pad(m0)}`,
-      period_start: iso(y0, m0, 1),
-      period_end: end,
-      closing_date: end,
-      due_date: dayInMonth(y0, m0, dueDay2),
-      fallback: true
-    };
-  }
-  const closingThis = Math.min(closingDay, lastDayOf(y0, m0));
-  const [cy, cm] = d0 <= closingThis ? [y0, m0] : addMonths(y0, m0, 1);
-  const closing = dayInMonth(cy, cm, closingDay);
-  const [py, pm] = addMonths(cy, cm, -1);
-  const periodStart = addDaysISO(dayInMonth(py, pm, closingDay), 1);
-  const dueDay = dueDayRaw >= 1 && dueDayRaw <= 31 ? dueDayRaw : closingDay;
-  const [dy, dm] = dueDay > closingDay ? [cy, cm] : addMonths(cy, cm, 1);
-  const due = dayInMonth(dy, dm, dueDay);
-  return {
-    competence: due.slice(0, 7),
-    period_start: periodStart,
-    period_end: closing,
-    closing_date: closing,
-    due_date: due,
-    fallback: false
-  };
-}
-function openCycleOf(card, todayISO) {
-  return cycleFor(card, todayISO);
-}
-var SETTLED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed_paid"]);
-var CLOSED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed", "closed_paid", "approved"]);
-var DEAD_INSTALLMENTS = /* @__PURE__ */ new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
-var emptyFigure = () => ({ amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 });
-function nextCompetence(ym) {
-  const [y, m] = ym.split("-").map(Number);
-  if (!y || !m) return ym;
-  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
-}
-function ymOf(value) {
-  const v = String(value ?? "");
-  return /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : null;
-}
-function estimateFromTxs(txs, cardId, ym) {
-  let total = 0;
-  for (const t of txs) {
-    if (t.credit_card_id !== cardId) continue;
-    if (t.settles_card_id) continue;
-    if (t.status && t.status !== "confirmed") continue;
-    if (ymOf(t.competence_date) !== ym) continue;
-    const amt = Number(t.amount || 0);
-    total += t.type === "income" ? -amt : amt;
-  }
-  return round2(Math.max(0, total));
-}
-function estimateFromCycle(txs, cardId, cycle) {
-  let total = 0;
-  for (const t of txs) {
-    if (t.credit_card_id !== cardId) continue;
-    if (t.settles_card_id) continue;
-    if (t.status && t.status !== "confirmed") continue;
-    const day = String(t.occurred_at ?? "").slice(0, 10);
-    if (!day || day < cycle.period_start || day > cycle.period_end) continue;
-    const amt = Number(t.amount || 0);
-    total += t.type === "income" ? -amt : amt;
-  }
-  return round2(Math.max(0, total));
-}
-function figureFromStatement(statement) {
-  const status = (statement.status ?? "").toString() || null;
-  const stated = round2(Number(statement.stated_total ?? 0));
-  const paid = round2(Number(statement.paid_amount ?? 0));
-  const outstanding = statement.outstanding_amount == null ? round2(Math.max(0, stated - paid)) : round2(Number(statement.outstanding_amount));
-  return {
-    amount: SETTLED_STATUSES.has(status ?? "") ? 0 : outstanding,
-    source: "official",
-    status,
-    statedTotal: stated,
-    paidAmount: paid
-  };
-}
-function computeCardExposure(input) {
-  const { cardIds, statements, installments, txs, currentYM } = input;
-  const nextYM = nextCompetence(currentYM);
-  const today = input.todayISO ?? `${currentYM}-01`;
-  const cycleConfig = /* @__PURE__ */ new Map();
-  for (const c of input.cards ?? []) if (c.id) cycleConfig.set(c.id, c);
-  const result = {};
-  const ids = new Set(cardIds);
-  for (const s of statements) ids.add(s.credit_card_id);
-  for (const i of installments) ids.add(i.credit_card_id);
-  for (const cardId of ids) {
-    const cardStatements = statements.filter((s) => s.credit_card_id === cardId);
-    const byYM = /* @__PURE__ */ new Map();
-    for (const s of cardStatements) {
-      const ym = ymOf(s.competence_month);
-      if (ym) byYM.set(ym, s);
-    }
-    const currentRow = byYM.get(currentYM);
-    const current = currentRow ? figureFromStatement(currentRow) : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, currentYM), source: "estimated" };
-    const nextRow = byYM.get(nextYM);
-    const next = nextRow ? figureFromStatement(nextRow) : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, nextYM), source: "estimated" };
-    let lastClosedYM = "";
-    for (const [ym, s] of byYM) {
-      if (CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
-    }
-    let futureInstallments = 0;
-    for (const inst of installments) {
-      if (inst.credit_card_id !== cardId) continue;
-      if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
-      if (inst.absorbed_by_statement_id) continue;
-      const ym = ymOf(inst.competence_month);
-      if (!ym) continue;
-      if (lastClosedYM && ym <= lastClosedYM) continue;
-      if (ym <= currentYM) continue;
-      const covering = byYM.get(ym);
-      if (covering && SETTLED_STATUSES.has((covering.status ?? "").toString())) continue;
-      futureInstallments += Number(inst.amount || 0);
-    }
-    const openStatementsDebt = cardStatements.reduce((sum, s) => {
-      const status = (s.status ?? "").toString();
-      if (SETTLED_STATUSES.has(status)) return sum;
-      const fig = figureFromStatement(s);
-      return sum + fig.amount;
-    }, 0);
-    const totalCardDebt = currentRow || cardStatements.length > 0 ? round2(openStatementsDebt) : round2(current.amount);
-    const cfg = cycleConfig.get(cardId);
-    const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today) : null;
-    const forming = openCycle ? { ...emptyFigure(), amount: estimateFromCycle(txs, cardId, openCycle), source: "estimated" } : emptyFigure();
-    result[cardId] = {
-      cardId,
-      currentStatement: current,
-      nextStatement: next,
-      formingStatement: forming,
-      futureInstallments: round2(futureInstallments),
-      totalCardDebt,
-      needsReview: Boolean(
-        currentRow && ((currentRow.status ?? "") === "needs_review" || round2(Number(currentRow.reconciliation_difference ?? 0)) !== 0)
-      ),
-      openCycle,
-      formulaVersion: CARD_EXPOSURE_FORMULA_VERSION,
-      cycleVersion: CARD_CYCLE_VERSION
-    };
-  }
-  return result;
-}
-function totalCardDebtOf(exposures) {
-  return round2(Object.values(exposures).reduce((sum, e) => sum + e.totalCardDebt, 0));
-}
-function totalFutureInstallmentsOf(exposures) {
-  return round2(Object.values(exposures).reduce((sum, e) => sum + e.futureInstallments, 0));
-}
-
-// src/lib/mcp/tools/financial-position.ts
 var financial_position_default = defineTool5({
   name: "financial_position",
   title: "Posi\xE7\xE3o financeira",
