@@ -97,6 +97,10 @@ export default function Index() {
         rangeEnd={periodRange.end}
       />
 
+      <p className="-mt-3 px-1 text-[11px] leading-snug text-muted-foreground">
+        O período muda as análises abaixo. O saldo disponível é sempre o de hoje.
+      </p>
+
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
