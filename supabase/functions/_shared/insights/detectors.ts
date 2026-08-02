@@ -48,6 +48,9 @@ export interface DeterministicSignals {
   daysWithoutEntry?: number;
   /** Lançamentos sem categoria. */
   uncategorizedCount?: number;
+}
+
+
 
 
 export interface DeterministicCandidate extends InsightPayload {
