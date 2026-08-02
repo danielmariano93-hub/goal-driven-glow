@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
     return json({ ok: true, scope: "self", ...result });
   } catch (e) {
     return fail("bridge_backfill_failed", {
-      status: 500, functionName: FN, detail: e instanceof Error ? e.message : String(e),
+      status: 500, functionName: FN, details: { message: e instanceof Error ? e.message : String(e) },
     });
   }
 });
