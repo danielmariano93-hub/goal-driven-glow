@@ -32,11 +32,19 @@ type HealthResponse = {
   agent: Agent;
 };
 
+/** Janela máxima aceitável sem heartbeat antes de tratar como não comprovado. */
+const STALE_MS = 24 * 60 * 60 * 1000;
+
 function serviceState(service: Service) {
-  if (!service.last_run_at) return { label: "Ainda não executado", tone: "neutral" as const };
+  if (!service.last_run_at) return { label: "Sem execução comprovada", tone: "critical" as const };
+  const age = Date.now() - new Date(service.last_run_at).getTime();
+  if (Number.isFinite(age) && age > STALE_MS) {
+    return { label: "Sem execução comprovada (24h+)", tone: "critical" as const };
+  }
   if (service.last_ok === false || service.failed > 0) return { label: "Atenção", tone: "critical" as const };
   return { label: "Saudável", tone: "positive" as const };
 }
+
 
 export default function OperacaoSaude() {
   const [data, setData] = useState<HealthResponse | null>(null);
@@ -89,8 +97,11 @@ export default function OperacaoSaude() {
             { key: "last", label: "Última execução", render: (row) => formatDateTime(row.last_run_at) },
             { key: "processed", label: "Processados", render: (row) => row.processed, align: "right" },
             { key: "failed", label: "Falhas", render: (row) => row.failed, align: "right" },
+            { key: "reason", label: "Motivo", render: (row) => row.last_error_code ?? "—" },
           ]}
         />
+
+
       </section>
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">

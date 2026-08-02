@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 type StatementRow = {
   id: string; credit_card_id: string; competence_month: string; due_date: string;
@@ -277,13 +278,7 @@ export default function Cartoes() {
           accounts={accounts as Array<{ id: string; name: string }>}
           onClose={() => setPaying(null)}
           onPaid={async () => {
-            await Promise.all([
-              qc.invalidateQueries({ queryKey: ["credit_card_statements"] }),
-              qc.invalidateQueries({ queryKey: ["credit_card_installments"] }),
-              qc.invalidateQueries({ queryKey: ["transactions"] }),
-              qc.invalidateQueries({ queryKey: ["accounts"] }),
-              qc.invalidateQueries({ queryKey: ["home"] }),
-            ]);
+            await invalidateFinancialQueries(qc);
             setPaying(null);
           }}
         />
@@ -296,13 +291,7 @@ export default function Cartoes() {
           onClose={() => setViewing(null)}
           onPay={() => { setPaying(viewing); setViewing(null); }}
           onChanged={async () => {
-            await Promise.all([
-              qc.invalidateQueries({ queryKey: ["credit_card_statements"] }),
-              qc.invalidateQueries({ queryKey: ["statement-detail", viewing.id] }),
-              qc.invalidateQueries({ queryKey: ["transactions"] }),
-              qc.invalidateQueries({ queryKey: ["accounts"] }),
-              qc.invalidateQueries({ queryKey: ["home"] }),
-            ]);
+            await invalidateFinancialQueries(qc);
           }}
         />
       )}

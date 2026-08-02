@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import type { CreditCardInput } from "@/lib/validation/creditCards";
 import { computeCompetenceDateISO } from "@/lib/validation/creditCards";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 export type CreditCardRow = {
   id: string;
@@ -62,10 +63,7 @@ export function useSaveCreditCard() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["credit_cards"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -76,7 +74,7 @@ export function useDeleteCreditCard() {
       const { error } = await supabase.from("credit_cards" as never).delete().eq("id" as never, id as never);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["credit_cards"] }),
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -132,10 +130,6 @@ export function useCreateCardPurchase() {
       const { error } = await supabase.from("transactions").insert(rows as never);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["credit_cards"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }

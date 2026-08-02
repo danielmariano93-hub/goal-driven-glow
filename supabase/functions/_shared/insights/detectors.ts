@@ -29,7 +29,26 @@ export interface DeterministicSignals {
   incomeMonth: number;
   /** Compromissos conhecidos nos próximos 7 dias. */
   upcomingCommitments7d: number;
-}
+  // ---- sinais adicionais (insights_catalog.v1) — todos opcionais ----
+  /** Compromissos conhecidos nos próximos 30 dias. */
+  upcomingCommitments30d?: number;
+  /** Saldo disponível hoje (caixa livre). */
+  availableToday?: number;
+  /** Categoria que mais cresceu contra o mês anterior. */
+  categoryGrowth?: { name: string; current: number; previous: number; growthPct: number } | null;
+  /** Gasto muito acima do ticket típico do usuário. */
+  amountAnomaly?: { description: string; amount: number; typicalAmount: number; occurredAt: string } | null;
+  /** Ritmo diário e projeção de fechamento do mês. */
+  rhythm?: { dailyTypical: number; daysLeft: number; projectedExpense: number } | null;
+  /** Comerciante repetido no período. */
+  recurringMerchant?: { name: string; occurrences: number; total: number } | null;
+  /** Assinaturas/recorrências mensais conhecidas. */
+  subscriptions?: { count: number; total: number } | null;
+  /** Dias sem qualquer registro. */
+  daysWithoutEntry?: number;
+  /** Lançamentos sem categoria. */
+  uncategorizedCount?: number;
+
 
 export interface DeterministicCandidate extends InsightPayload {
   detector: string;

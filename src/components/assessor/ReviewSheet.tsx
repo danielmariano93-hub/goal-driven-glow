@@ -13,6 +13,7 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
 import { invokeEdge, failureDescription } from "@/lib/edge/invoke";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 type Item = {
   id: string;
@@ -429,10 +430,7 @@ export function ReviewSheet({
       await (supabase as any).rpc("reconcile_imported_installment_history", {
         p_document_id: documentId,
       });
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["home"] });
-      qc.invalidateQueries({ queryKey: ["accounts"] });
-      qc.invalidateQueries({ queryKey: ["credit_cards"] });
+      await invalidateFinancialQueries(qc);
       if (accounted === r.total_selected && r.errors.length === 0) {
         onClose();
         if (r.created_count > 0) nav("/app/lancamentos");
@@ -454,8 +452,7 @@ export function ReviewSheet({
     setReconciling(false);
     if (error) return toast.error("Não consegui conciliar o saldo.");
     const result = (data as { result?: { difference?: number } })?.result;
-    qc.invalidateQueries({ queryKey: ["account_balance_snapshots"] });
-    qc.invalidateQueries({ queryKey: ["home"] });
+    await invalidateFinancialQueries(qc);
     toast.success("Saldo do banco conciliado", { description: result?.difference ? `Diferença auditada: ${formatBRL(Number(result.difference))}` : "O cálculo fechou com o extrato." });
   }
 
@@ -471,12 +468,7 @@ export function ReviewSheet({
         description: payload?.result?.error ?? payload?.error ?? "Tente novamente em instantes.",
       });
     }
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ["document_imports"] }),
-      qc.invalidateQueries({ queryKey: ["assessor_documents"] }),
-      qc.invalidateQueries({ queryKey: ["transactions"] }),
-      qc.invalidateQueries({ queryKey: ["home"] }),
-    ]);
+    await invalidateFinancialQueries(qc);
     toast.message("Importação cancelada.");
     onClose();
   }

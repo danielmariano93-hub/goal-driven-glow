@@ -10,6 +10,7 @@ import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
 import { ChartArtifactRenderer } from "./artifacts/ChartArtifactRenderer";
 import type { ChartArtifact } from "@/types/artifacts";
 import { useAuth } from "@/context/AuthContext";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 type Pending = {
   id: string;
@@ -305,11 +306,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   }
 
   function refetchAll() {
-    qc.invalidateQueries({ queryKey: ["transactions"] });
-    qc.invalidateQueries({ queryKey: ["home"] });
-    qc.invalidateQueries({ queryKey: ["credit_cards"] });
-    qc.invalidateQueries({ queryKey: ["accounts"] });
-    qc.invalidateQueries({ queryKey: ["goals"] });
+    void invalidateFinancialQueries(qc);
   }
 
   const panel = (

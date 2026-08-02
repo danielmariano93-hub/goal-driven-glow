@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
   const nextRun = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
   await writeJobHeartbeat({
     jobKey: "documents-cleanup",
-    ok: true,
+    ok: failed === 0 && fragments_failed === 0,
     processed: processed + resumed + terminated + fragments_recovered + fragments_failed,
     failed,
     nextRunAt: nextRun,

@@ -102,10 +102,7 @@ export function useSaveAccount() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["accounts"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -116,10 +113,7 @@ export function useDeleteAccount() {
       const { error } = await supabase.from("accounts").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["accounts"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -211,9 +205,7 @@ export function useSaveCategory() {
       if (error) throw error;
       return data as CategoryRow;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["categories"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -266,11 +258,7 @@ export function useDeleteCategory() {
       if (error) throw error;
       return { archived: false, count: 0 };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["categories"] });
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -649,10 +637,7 @@ export function useSaveDebt() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debts"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -700,12 +685,7 @@ export function useRecordDebtPayment() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debts"] });
-      qc.invalidateQueries({ queryKey: ["debt_payments"] });
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
@@ -716,7 +696,7 @@ export function useDeleteDebt() {
       const { error } = await supabase.from("debts").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["debts"] }),
+    onSuccess: () => invalidateFinancialQueries(qc),
   });
 }
 
