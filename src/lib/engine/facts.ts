@@ -563,6 +563,9 @@ export interface AvailableUntilInput {
   snapshots?: AccountBalanceSnapshotRow[];
   endDate: string; // inclusive YYYY-MM-DD
   today?: Date;
+  /** Dívida oficial de cartão (card_exposure.v1). Quando informada, tem
+   *  precedência absoluta sobre a estimativa por transações. */
+  cardDebtOverride?: number | null;
 }
 
 export interface AvailableUntilOutput {
