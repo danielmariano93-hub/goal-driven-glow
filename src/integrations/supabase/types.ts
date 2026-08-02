@@ -8457,7 +8457,11 @@ export type Database = {
         Returns: Json
       }
       confirm_document_import: {
-        Args: { p_document_id: string; p_item_ids: string[] }
+        Args: {
+          p_document_id: string
+          p_item_ids: string[]
+          p_user_id?: string
+        }
         Returns: Json
       }
       confirm_invoice_import_atomic: {

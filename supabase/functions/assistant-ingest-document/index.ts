@@ -22,6 +22,7 @@ import { chunkItems, invoiceToExtraction } from "../_shared/documents/invoiceExt
 import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
 import { applyCreditSignGuard } from "../_shared/ledger/creditSemantics.ts";
+import { classifyBatch, fetchExistingCandidates } from "../_shared/import/dedupe.ts";
 
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { decideByRule } from "../_shared/categorization/pipeline.ts";
@@ -409,8 +410,14 @@ type DupeHit = { transaction_id: string; strength: "strong" | "ambiguous"; reaso
 
 /**
  * Classifica cada item candidato contra transações existentes do usuário.
- * - Strong: mesmo fingerprint OU (mesmo tipo/data/valor E descrição normalizada casa OU mesma referência bancária).
- * - Ambiguous: mesmo tipo/data/valor mas descrição diferente (revisão manual necessária).
+ *
+ * Delega ao motor único `_shared/import/dedupe.ts` — o mesmo usado pelo lote de
+ * JSON no chat, CSV/OFX e WhatsApp. Ganhos sobre a versão anterior: janela de
+ * ±3 dias (compra x processamento), comerciante canônico em vez de descrição
+ * literal e uma transação existente nunca absorve dois itens do documento.
+ * - Strong: fingerprint, referência bancária ou data+valor+comerciante.
+ * - Ambiguous: valor/tipo compatíveis dentro da janela, ou mesma data com
+ *   descrição diferente (revisão manual necessária).
  */
 async function classifyDuplicates(
   sb: ReturnType<typeof createClient>,
@@ -420,50 +427,27 @@ async function classifyDuplicates(
   const map = new Map<number, DupeHit>();
   if (items.length === 0) return map;
 
-  const fingerprints = [...new Set(items.map((it) => it.fingerprint).filter(Boolean))];
-  const bankRefs = [...new Set(items.map((it) => it.bank_reference).filter((v): v is string => !!v))];
-  const dates = [...new Set(items.map((it) => it.occurred_at))];
-  const amounts = [...new Set(items.map((it) => it.amount))];
+  const input = items.map((it) => ({
+    type: it.type,
+    amount: Number(it.amount),
+    occurred_at: it.occurred_at,
+    description: it.normalized_description,
+    raw_description: it.normalized_description,
+    bank_reference: it.bank_reference,
+    fingerprint: it.fingerprint,
+  }));
 
-  const [fpRes, brRes, tdaRes] = await Promise.all([
-    fingerprints.length > 0
-      ? sb.from("transactions").select("id, dedupe_fingerprint").eq("user_id", user_id).in("dedupe_fingerprint", fingerprints)
-      : Promise.resolve({ data: [] as Array<{ id: string; dedupe_fingerprint: string }> }),
-    bankRefs.length > 0
-      ? sb.from("transactions").select("id, bank_reference").eq("user_id", user_id).in("bank_reference", bankRefs)
-      : Promise.resolve({ data: [] as Array<{ id: string; bank_reference: string }> }),
-    // Sobre-conjunto candidato: mesmas datas e mesmos valores. Filtra em memória depois.
-    sb.from("transactions").select("id, type, amount, occurred_at, description, raw_description")
-      .eq("user_id", user_id).in("occurred_at", dates).in("amount", amounts).limit(500),
-  ]);
+  const existing = await fetchExistingCandidates(sb as any, user_id, input);
+  const verdicts = classifyBatch(input, existing);
 
-  const fpIndex = new Map<string, string>();
-  for (const row of (fpRes.data ?? [])) fpIndex.set(row.dedupe_fingerprint as string, row.id as string);
-  const brIndex = new Map<string, string>();
-  for (const row of (brRes.data ?? [])) brIndex.set(row.bank_reference as string, row.id as string);
-  const tdaCandidates = (tdaRes.data ?? []) as Array<{ id: string; type: string; amount: number; occurred_at: string; description: string; raw_description: string | null }>;
-
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    const fpHit = fpIndex.get(it.fingerprint);
-    if (fpHit) { map.set(i, { transaction_id: fpHit, strength: "strong", reason: "fingerprint" }); continue; }
-    if (it.bank_reference) {
-      const brHit = brIndex.get(it.bank_reference);
-      if (brHit) { map.set(i, { transaction_id: brHit, strength: "strong", reason: "bank_reference" }); continue; }
-    }
-    const candidates = tdaCandidates.filter((c) => c.type === it.type && Number(c.amount) === Number(it.amount) && c.occurred_at === it.occurred_at);
-    if (candidates.length === 0) continue;
-    const target = (it.normalized_description ?? "").toLowerCase().trim();
-    const strong = candidates.find((c) => {
-      const n = normalizeDescription(String(c.raw_description ?? c.description ?? "")).friendly.toLowerCase().trim();
-      return n && target && n === target;
-    });
+  verdicts.forEach((verdict, i) => {
+    if (verdict.status === "new" || !verdict.duplicate_of) return;
     map.set(i, {
-      transaction_id: (strong?.id ?? candidates[0].id),
-      strength: "ambiguous",
-      reason: strong ? "type+date+amount+desc" : "type+date+amount",
+      transaction_id: verdict.duplicate_of,
+      strength: verdict.status === "exact_duplicate" ? "strong" : "ambiguous",
+      reason: verdict.reason_code ?? verdict.status,
     });
-  }
+  });
   return map;
 }
 

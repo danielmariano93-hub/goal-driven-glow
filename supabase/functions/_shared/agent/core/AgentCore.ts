@@ -174,7 +174,12 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     }
   } else {
     const bulk = await guard(
-      () => tryBulkDraft(sb, { user_id: input.user_id, conversation_id: input.conversation_id, text: input.text }),
+      () => tryBulkDraft(sb, {
+        user_id: input.user_id,
+        conversation_id: input.conversation_id,
+        text: input.text,
+        source: input.channel === "app" ? "app" : "whatsapp",
+      }),
       (m) => metrics.errors.push("bulk_draft:" + m), null,
     );
     if (bulk) {

@@ -1,14 +1,25 @@
-// BulkEntry — registro em lote de vários lançamentos (ex.: fatura colada,
-// lista de gastos, JSON extraído de um documento).
+// BulkEntry — entrada em lote no chat (lista colada, JSON com dezenas de
+// lançamentos, fatura copiada).
 //
-// Fluxo: detecta a lista → resolve cartão/conta → cria uma pending_confirmation
-// de kind "bulk_transactions" → na confirmação, grava item a item via a RPC
-// idempotente commit_movement (chave derivada do pending_id + índice).
+// A partir do pipeline único de importação, este módulo NÃO grava mais item a
+// item por conta própria. Ele apenas:
+//   1. normaliza o lote com `parseBatch` (data/natureza/destino por item);
+//   2. estagia em `document_imports` + `extracted_items` com deduplicação
+//      contra o histórico já registrado (`stageBatch`);
+//   3. cria a pendência de confirmação com a PRÉVIA (novos / já registrados /
+//      possíveis duplicados / revisão);
+//   4. na confirmação, chama `confirmBatch` (RPC idempotente) e devolve o
+//      relatório final da importação.
+// Assim chat, PDF, imagem, CSV/OFX e WhatsApp compartilham exatamente as mesmas
+// regras de normalização, duplicidade e gravação.
 // deno-lint-ignore-file no-explicit-any
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { parseBulkItems, sumItems, type BulkItem } from "../bulkParse.ts";
+import { parseBatch, sumBatch } from "../../import/parseBatch.ts";
+import { stageBatch, type BatchTarget } from "../../import/stage.ts";
+import { confirmBatch, formatPreview, formatReport } from "../../import/commit.ts";
 import { resolveCreditCardFull } from "../tools.ts";
 import { extractSpans } from "../extract.ts";
+import { buildAssessorLink } from "../../messaging/appUrl.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const CARD_KEYWORDS = /\b(cart[aã]o|fatura|itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa)\b/i;
@@ -19,35 +30,32 @@ export type BulkDraft = {
   pending_id: string | null;
 };
 
-function today(): string {
-  return new Date(new Date().getTime() - 3 * 3600_000).toISOString().slice(0, 10);
-}
-
-function summarize(items: BulkItem[], targetName: string, occurred_at: string): string {
-  const preview = items.slice(0, 5).map(i => `• ${i.description} — ${BRL.format(i.amount)}`).join("\n");
-  const rest = items.length > 5 ? `\n…e mais ${items.length - 5} lançamentos.` : "";
-  return `Encontrei ${items.length} lançamentos (${BRL.format(sumItems(items))}) em ${targetName}, com data ${occurred_at}.\n${preview}${rest}`;
-}
-
 /** Tenta montar um rascunho em lote. Retorna null quando não é um caso de lote. */
 export async function tryBulkDraft(sb: SupabaseClient, args: {
-  user_id: string; conversation_id: string; text: string;
+  user_id: string; conversation_id: string; text: string; source?: "app" | "whatsapp";
 }): Promise<BulkDraft | null> {
-  const parsed = parseBulkItems(args.text);
+  const parsed = parseBatch(args.text);
   if (parsed.items.length < 3) return null;
 
   const ctx = { sb, user_id: args.user_id, conversation_id: args.conversation_id } as any;
   const spans = extractSpans(args.text);
-  const wantsCard = spans.payment_method === "credit_card" || CARD_KEYWORDS.test(args.text);
+  const wantsCard = spans.payment_method === "credit_card"
+    || parsed.items.some((item) => item.payment_method === "credit_card" || item.card_hint)
+    || CARD_KEYWORDS.test(args.text);
 
-  let target: { kind: "credit_card" | "account"; id: string; name: string } | null = null;
+  let target: BatchTarget | null = null;
 
   if (wantsCard) {
-    const card = await resolveCreditCardFull(ctx, spans.card_hint ?? undefined);
+    const cardHint = spans.card_hint ?? parsed.items.find((i) => i.card_hint)?.card_hint ?? undefined;
+    const card = await resolveCreditCardFull(ctx, cardHint ?? undefined);
     if (card.kind === "single") target = { kind: "credit_card", id: card.id, name: `cartão ${card.name}` };
     else if (card.kind === "multiple") {
-      const names = card.choices.map(c => `• ${c.name}`).join("\n");
-      return { handled: true, pending_id: null, reply: `Encontrei ${parsed.items.length} lançamentos (${BRL.format(sumItems(parsed.items))}). Em qual cartão eu registro?\n${names}` };
+      const names = card.choices.map((c: any) => `• ${c.name}`).join("\n");
+      return {
+        handled: true,
+        pending_id: null,
+        reply: `Encontrei ${parsed.items.length} lançamentos (${BRL.format(sumBatch(parsed.items))}). Em qual cartão eu registro?\n${names}`,
+      };
     } else if (card.available.length === 1) {
       target = { kind: "credit_card", id: card.available[0].id, name: `cartão ${card.available[0].name}` };
     }
@@ -58,21 +66,52 @@ export async function tryBulkDraft(sb: SupabaseClient, args: {
       .eq("user_id", args.user_id).eq("active", true).order("created_at").limit(2);
     const list = (accounts ?? []) as Array<{ id: string; name: string }>;
     if (list.length === 0) {
-      return { handled: true, pending_id: null, reply: "Você ainda não tem conta nem cartão cadastrado. Cadastre um e eu registro esses lançamentos em seguida." };
+      return {
+        handled: true,
+        pending_id: null,
+        reply: "Você ainda não tem conta nem cartão cadastrado. Cadastre um e eu registro esses lançamentos em seguida.",
+      };
     }
     target = { kind: "account", id: list[0].id, name: list[0].name };
   }
 
-  const occurred_at = spans.occurred_at ?? today();
+  let staged;
+  try {
+    staged = await stageBatch(sb, {
+      user_id: args.user_id,
+      conversation_id: args.conversation_id,
+      source: args.source ?? "app",
+      items: parsed.items,
+      target,
+      raw_text: args.text,
+    });
+  } catch (error) {
+    console.error("[bulk] stage_failed", String((error as Error).message).slice(0, 200));
+    return { handled: true, pending_id: null, reply: "Consegui ler a lista, mas não guardei o rascunho. Pode reenviar?" };
+  }
+
+  const dates = parsed.items.map((i) => i.occurred_at).filter(Boolean).sort() as string[];
+  const periodLabel = dates.length > 1 && dates[0] !== dates[dates.length - 1]
+    ? `${dates[0]} a ${dates[dates.length - 1]}`
+    : dates[0] ?? null;
+
+  const netTotal = staged.total_expense - staged.total_income;
+  const summary = formatPreview(staged.counters, {
+    targetName: target.name,
+    netTotal,
+    periodLabel,
+    reviewLink: buildAssessorLink({ APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") }, "batch_review"),
+  });
+
   const payload = {
-    items: parsed.items,
-    occurred_at,
+    document_id: staged.document_id,
+    item_ids: staged.ready_item_ids,
+    counters: staged.counters,
     target_kind: target.kind,
     target_id: target.id,
     target_name: target.name,
-    total: sumItems(parsed.items),
+    total: netTotal,
   };
-  const summary = summarize(parsed.items, target.name, occurred_at);
 
   const { data: id, error } = await sb.rpc("agent_upsert_draft", {
     p_user_id: args.user_id,
@@ -80,15 +119,13 @@ export async function tryBulkDraft(sb: SupabaseClient, args: {
     p_kind: "bulk_transactions",
     p_payload: payload,
     p_summary: summary,
-    p_ttl_minutes: 30,
+    p_ttl_minutes: 60,
   });
-  if (error || !id) return { handled: true, pending_id: null, reply: "Consegui ler a lista, mas não guardei o rascunho. Pode reenviar?" };
+  if (error || !id) {
+    return { handled: true, pending_id: null, reply: "Consegui ler a lista, mas não guardei o rascunho. Pode reenviar?" };
+  }
 
-  return {
-    handled: true,
-    pending_id: String(id),
-    reply: `${summary}\n\nResponda *CONFIRMAR* para registrar tudo ou *CANCELAR* para descartar.`,
-  };
+  return { handled: true, pending_id: String(id), reply: summary };
 }
 
 /** Busca a pendência de lote ativa da conversa (se houver). */
@@ -102,75 +139,37 @@ export async function findBulkPending(sb: SupabaseClient, conversation_id: strin
   return (data as any) ?? null;
 }
 
-/** Executa a pendência de lote item a item (idempotente por chave). */
-export async function executeBulkPending(sb: SupabaseClient, pending: any): Promise<{ ok: boolean; reply: string; inserted: number; failed: number }> {
+/** Confirma o lote estagiado (idempotente) e devolve o relatório da importação. */
+export async function executeBulkPending(sb: SupabaseClient, pending: any): Promise<{
+  ok: boolean; reply: string; inserted: number; failed: number;
+}> {
   if (new Date(pending.expires_at).getTime() <= Date.now()) {
     await sb.from("pending_confirmations").update({ status: "expired" } as any).eq("id", pending.id).eq("status", "pending");
     return { ok: false, inserted: 0, failed: 0, reply: "Esse pedido expirou. Reenvie a lista, por favor." };
   }
-  const payload = pending.payload ?? {};
-  const items: BulkItem[] = Array.isArray(payload.items) ? payload.items : [];
-  const occurred_at: string = payload.occurred_at ?? today();
 
-  let inserted = 0;
-  let failed = 0;
-  const { data: categoryRows } = await sb.from("categories").select("id,name")
-    .is("archived_at", null)
-    .or(`user_id.eq.${pending.user_id},user_id.is.null`);
-  const fold = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  const categoryByName = new Map(
-    ((categoryRows ?? []) as Array<{ id: string; name: string }>).map((category) => [fold(category.name), category.id]),
-  );
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    // Pagamento/antecipação exibido na própria fatura concilia o total, mas
-    // não é uma nova receita nem despesa.
-    if (["card_payment", "payment", "bill_payment"].includes(String(item.movement_kind ?? "").toLowerCase())) {
-      continue;
-    }
-    const categoryId = item.category_hint ? categoryByName.get(fold(item.category_hint)) ?? null : null;
-    const movementKind = String(item.movement_kind ?? "transaction").toLowerCase();
-    const { data, error } = await sb.rpc("commit_movement", {
-      p_idempotency_key: `bulk:${pending.id}:${i}`,
-      p_type: item.type === "income" || movementKind === "refund" ? "income" : "expense",
-      p_amount: item.amount,
-      p_occurred_at: occurred_at,
-      p_status: "confirmed",
-      p_payment_method: payload.target_kind === "credit_card" ? "credit_card" : "account",
-      p_account_id: payload.target_kind === "account" ? payload.target_id : null,
-      p_credit_card_id: payload.target_kind === "credit_card" ? payload.target_id : null,
-      p_category_id: categoryId,
-      p_description: item.description,
-      p_notes: null,
-      p_origin: "agent",
-    });
-    if (error) { failed++; console.error("[bulk] item_failed", i, String(error.message).slice(0, 160)); }
-    else {
-      inserted++;
-      const row = Array.isArray(data) ? data[0] : data;
-      const transactionId = row?.transaction_id;
-      if (transactionId && (
-        movementKind !== "transaction"
-        || Number(item.installments_total ?? 0) > 1
-      )) {
-        await sb.from("transactions").update({
-          movement_kind: movementKind === "refund" ? "refund" : "transaction",
-          installments_total: item.installments_total ?? null,
-          installment_number: item.installment_number ?? null,
-        }).eq("id", transactionId);
-      }
-    }
+  const payload = pending.payload ?? {};
+  const documentId = payload.document_id ? String(payload.document_id) : null;
+  if (!documentId) {
+    // Rascunhos legados (formato antigo, sem trilha de importação) não têm
+    // deduplicação: pedimos o reenvio em vez de gravar às cegas.
+    await sb.from("pending_confirmations").update({ status: "expired" } as any).eq("id", pending.id);
+    return {
+      ok: false, inserted: 0, failed: 0,
+      reply: "Esse rascunho é de um formato antigo e não passou pela checagem de duplicidade. Reenvie a lista que eu processo com a conferência completa.",
+    };
   }
 
+  const report = await confirmBatch(sb, {
+    user_id: pending.user_id,
+    document_id: documentId,
+    item_ids: Array.isArray(payload.item_ids) && payload.item_ids.length > 0 ? payload.item_ids : null,
+  });
+
   await sb.from("pending_confirmations")
-    .update({ status: failed === items.length ? "pending" : "confirmed" } as any)
+    .update({ status: report.imported > 0 ? "confirmed" : "pending" } as any)
     .eq("id", pending.id);
 
-  const total = items.reduce((a, b) => a + b.amount, 0);
-  if (inserted === 0) return { ok: false, inserted, failed, reply: "Não consegui registrar os lançamentos agora. Pode tentar de novo?" };
-  const partial = failed > 0 ? ` (${failed} não entraram, me avise que eu tento de novo)` : "";
-  return {
-    ok: true, inserted, failed,
-    reply: `Registrei ${inserted} lançamentos, somando ${BRL.format(total)}, em ${payload.target_name ?? "sua conta"}. ✅${partial}`,
-  };
+  const reply = formatReport(report, payload.target_name ?? "sua conta");
+  return { ok: report.imported > 0, inserted: report.imported, failed: report.failed, reply };
 }

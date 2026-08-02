@@ -12,7 +12,10 @@ import { handleAppAction, handleAppMessage } from "../_shared/agent/core/adapter
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MAX_MSG_LEN = 2000;
+// Lotes (JSON com dezenas de lançamentos) chegam por aqui: 2.000 caracteres
+// truncavam a lista silenciosamente. O limite alto vale para a entrada; o
+// histórico enviado ao modelo continua compactado em `llm.ts`.
+const MAX_MSG_LEN = 32_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -36,6 +39,8 @@ Deno.serve(async (req) => {
   const pendingId = typeof body?.pending_id === "string" ? body.pending_id : null;
   const requested_conv = typeof body?.conversation_id === "string" ? body.conversation_id : null;
   const text = rawText.slice(0, MAX_MSG_LEN);
+  const truncated = rawText.length > MAX_MSG_LEN;
+  if (truncated) console.warn(`[${FN}] message_truncated`, { user_id, length: rawText.length });
   if (!text && !action) return fail("missing_text", { status: 400, functionName: FN });
 
   const svc = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
