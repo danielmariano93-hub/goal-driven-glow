@@ -1,93 +1,35 @@
+## Diagnóstico (verificado agora no código e no banco)
 
-# Plano único — Confiabilidade Financeira Definitiva do Meu Nino
+1. **Feedback de dica quebra por constraint** — `public.my_tip_feedback` grava `feedback='acted'|'dismissed'` e `status='resolved'`, mas o banco tem `user_insights_feedback_check CHECK (feedback IN ('useful','not_useful'))` e `user_insights_status_check CHECK (status IN ('active','dismissed','expired'))`. Qualquer clique em "útil" viola a constraint → erro. Causa raiz confirmada.
+2. **Dois motores rodando juntos** — em `insights-generate/index.ts` o pool final é `[...deterministic, ...buildCandidates(facts)]` (motor antigo) e o front (`AssistantTipCard.tsx`) ainda tem um terceiro motor local (`pickFallback` / `buildLocalCandidates` de `src/lib/insights/fallbacks.ts`), exibido sempre que não há insight do servidor.
+3. **Detectores sem dados** — `cashflow_forecast` exige `projected_balance` e `availableToday`, que não são passados no call site (linhas 358-382); os demais campos chegam.
+4. **Cron/heartbeats** — `cron.job` tem `documents-cleanup-6h`, mas o comando envia apenas `apikey` anon, enquanto a função exige `Bearer service_role` ou `x-internal-secret` → 401, e por isso `job_heartbeats` não tem nenhuma linha `documents-cleanup`. **`whatsapp-ack-watchdog` não tem job algum agendado.** Heartbeats existentes hoje: `split-reminders-dispatch`, `whatsapp-send`, `insights-generate`, agregados de produto.
+5. **Ajuste de fatura** — `Cartoes.tsx` expõe "Fechar conciliação com ajuste" com justificativa livre de 3 caracteres, sem motivo estruturado nem evidência.
 
-Tudo abaixo entra em UMA implantação (1 migration + código app/edge + testes + documentação). Nada será publicado em produção sem sua autorização explícita.
+## O que será implementado (uma única entrega)
 
-## Diagnóstico verificado agora (somente leitura)
+### A. Ajuste de fatura sob prova contábil
+- Migration: `force_reconcile_credit_card_statement` passa a exigir `p_reason_code` (`pagamento_nao_extraido`, `credito_nao_extraido`, `encargo_nao_extraido`, `arredondamento_operadora`, `divergencia_operadora`), justificativa de 20+ caracteres e `p_evidence` (referência do documento/linha da fatura). Recusa (a) diferença acima de 2% do total oficial sem `divergencia_operadora`, (b) faturas já pagas, (c) uso repetido no mesmo cartão em 90 dias sem novo `document_import_id`. Trilha completa em auditoria.
+- UI (`Cartoes.tsx`): o botão deixa de ser primário — fica atrás de "Não consegui fechar" com o caminho recomendado ("Adicionar pagamento/crédito") em destaque. O formulário passa a pedir motivo (select), evidência e justificativa longa, com contador e bloqueio até tudo preenchido. Mensagem clara de que ajuste é exceção auditada.
 
-Consultei o banco e o código publicado. Estes são fatos confirmados, não hipóteses:
+### B. Motor único de insights + card em carrossel
+- Migration: alinhar as constraints de `user_insights` (`feedback` aceita `useful|not_useful|dismissed|acted`; `status` aceita `active|dismissed|expired|resolved`) e ampliar `user_insights_type_check` para os tipos do `insights_catalog.v1`. Corrige o erro do botão "útil".
+- `insights-generate`: remover `buildCandidates(facts)` do pool (motor antigo desligado), passar `availableToday` e `projectedBalance` aos detectores e devolver **lote** de insights (até 5) em vez de um só, cada um com `detector`, `family`, `dedup_key` e `evidence`.
+- Front: `src/lib/insights/fallbacks.ts` deixa de gerar dicas (mantém apenas `CTA_ROUTE_RX` e tipos); `AssistantTipCard.tsx` passa a ler exclusivamente `user_insights`.
+- Novo card em **carrossel** (swipe horizontal com scroll-snap, setas no desktop, indicadores de posição), micro-destaque discreto: faixa de cor por família, ícone Phosphor, badge "Novo" e animação suave de entrada. Cada slide tem "Útil" / "Não agora" e CTA. Ao esgotar os slides, estado final: "Você já viu todas as dicas de hoje" com data de próxima checagem, reaparecendo apenas quando surgirem novos dados/insights.
 
-1. **Existe uma única fatura no banco**: competência `2026-08-01`, `stated_total = reconciled_total = paid_amount = 4.636,08`, `outstanding = 0`, status `paid`.
-2. **Todas as 41 transações de cartão estão com `competence_date = 2026-08-01`**, inclusive compras de junho e a compra de **26/07 (541,23)** que, pelo ciclo real (fechamento 25), pertence à competência de setembro. Ou seja: o campo de competência foi carimbado em bloco na importação e não segue `cycleFor()`.
-3. **Existem três verdades paralelas de cartão convivendo**:
-   - `transactions` (cartão): 5.689,71 na competência 08
-   - `credit_card_installments`: 94 linhas, 13.927,52 no total; **2026-09: 1.297,07 · 2026-10: 668,25 · 2026-11: 551,29 · 2026-07 scheduled: 271,88**
-   - `credit_card_statement_items`: 4.639,00 (contra `stated_total` 4.636,08)
-4. **Origem provável do valor "em aberto" que aparece na Home e não aparece em Cartões**: as parcelas `scheduled` em competências **sem statement** entram no número agregado, enquanto a tela de Cartões lê apenas os statements (todos pagos → zero). O valor não vem de lançamento novo: vem de parcelas antigas de meses futuros nunca absorvidas por fatura. A conferência final do número exato (2.593,49) é o primeiro passo de execução.
-5. **Ritmo típico vs gráfico**: os dias 30/07 (27,07) e 31/07 (4.934,06) **existem** no banco. O ritmo típico usa `typicalAmount` (sem fixas, parceladas e outliers de Tukey) e o gráfico da Home hoje plota essa série — por isso um dia com 4.934,06 desaparece visualmente. Precisa ser confirmado com um teste com os dados reais antes de mexer, mas a causa está na série exibida, não nos dados.
-6. **Pendências de confiabilidade confirmadas no código**: `whatsapp-webhook` ainda responde `{ok:true, soft_error:"conversation_error"}` com HTTP 200; `whatsapp-ack-watchdog` só grava heartbeat no caminho felizardo; `queryKeys.ts` não tem `categories`, `credit_card_statements`, `credit_card_installments`, `debt_payments`, `recurring_occurrences`; `Cartoes.tsx`, `finance.ts` e `Recorrencias.tsx` ainda invalidam chaves à mão; a tela de Cartões mantém o botão "Fechar conciliação com ajuste" chamando `force_reconcile_credit_card_statement`.
+### C. Cron e heartbeats comprovados
+- Recriar `documents-cleanup-6h` enviando `x-internal-secret` a partir do Vault (mesmo padrão já usado por `agent-proactive-hourly`) e criar `whatsapp-ack-watchdog-10m` (`*/10 * * * *`).
+- Garantir heartbeat de sucesso **e** falha: as duas funções já têm `writeJobHeartbeat` no caminho de erro; adicionar heartbeat também quando a autorização falha e semear as linhas `documents-cleanup` e `whatsapp-ack-watchdog` em `job_heartbeats` para o painel de Saúde mostrar "Sem execução comprovada" enquanto não rodarem.
+- Após aplicar, disparar cada função uma vez e comprovar as linhas em `job_heartbeats` (evidência no fechamento).
 
-**Resposta direta à sua pergunta**: sim — a falta de conciliação real é causa direta dos números não baterem. Enquanto a mesma dívida existe em três tabelas com regras diferentes, cada tela mostra um recorte distinto do mesmo fato.
-
----
-
-## Bloco 1 — Fim do plug e reconciliação real (P0)
-
-- **Migration única** `20260803_financial_truth_reconciliation.sql`:
-  - Tabela `financial_reconciliation_audit` (statement, tipo de evento, motivo padronizado, evidência JSON, autor, timestamps) com GRANTs, RLS por `auth.uid()` e trigger de `updated_at`.
-  - Colunas em `credit_card_statements`: `adjustment_reason_code`, `adjustment_evidence jsonb`, `requires_manual_review boolean default false`.
-  - `force_reconcile_credit_card_statement` passa a **exigir** motivo do enum (`missing_document`, `duplicate_item`, `fx_rounding`, `previous_balance`, `refund_pending`) + evidência não vazia; sem isso retorna `manual_reconciliation_required`. Ajuste sem motivo deixa de ser possível.
-  - Novo RPC `reconcile_card_competence(p_card_id, p_competence)` que: recalcula `competence_date` das transações de cartão pelo ciclo real do cartão, absorve `credit_card_installments` na fatura correspondente (`absorbed_by_statement_id`), reprocessa a diferença e grava a trilha.
-  - **Correção de dados**: o ajuste de −1.052,17 da fatura 08/2026 é substituído pela reconciliação real (reclassificação de competência + absorção de parcelas). Se sobrar diferença legítima, ela fica visível como `requires_manual_review = true` — nunca zerada artificialmente.
-- **Tela de Cartões**: o botão de "fechar com ajuste" passa a exigir motivo estruturado + evidência e exibe faixa de "revisão manual pendente". Fatura com diferença aberta mostra o número real, não zero.
-
-## Bloco 2 — Fonte única de dívida de cartão em todas as telas
-
-- `cardExposure.ts` ganha regra explícita e testada: parcela em competência **sem** statement conta como compromisso futuro; parcela absorvida por fatura fechada/paga nunca conta; nenhuma superfície soma `transactions` + `installments` do mesmo período.
-- `HeroDisponivelCard`/`ParaPagarResumo` e `Cartoes.tsx` passam a consumir o **mesmo** `cardExposure` do snapshot `finance_contract.v2`, com rótulo `oficial` ou `estimado`.
-- Teste com o dataset real reproduzindo o caso: Home e Cartões devem imprimir o mesmo número, e o total de parcelas futuras precisa ser rastreável linha a linha.
-
-## Bloco 3 — Ritmo e gráfico coerentes
-
-- A série da Home passa a expor as duas curvas com legenda explícita: **gasto do dia** (bruto) e **ritmo típico**, com marcação visual dos dias excluídos (fixa, parcelada, atípico) e tooltip explicando o motivo.
-- Nenhum dia com movimento pode aparecer vazio: dias excluídos aparecem como barra hachurada com valor real.
-- Teste de regressão com os dias 30 e 31/07 reais.
-
-## Bloco 4 — Invalidação central de cache (P0)
-
-- `queryKeys.ts` completo (`categories`, `credit_card_statements`, `credit_card_installments`, `credit_card_payments`, `debt_payments`, `recurring_rules`, `recurring_occurrences`, `statement-detail`, `home`).
-- `invalidateFinancialQueries` vira **await único** (`Promise.all` de `invalidateQueries`) e única porta de entrada.
-- Remoção de todas as invalidações manuais em `finance.ts`, `creditCards.ts`, `Cartoes.tsx`, `Recorrencias.tsx`, `commitMovement.ts` e `ReviewSheet.tsx`.
-- Teste garantindo que toda mutação financeira chama a função central.
-
-## Bloco 5 — Confiabilidade operacional (P0)
-
-- `whatsapp-webhook`: falha parcial deixa de retornar sucesso. Passa a devolver HTTP 207 com `{ok:false, partial_success:true, queued_fallback:true, failed:[...]}` no envelope `edge_error.v1`, e registra incidente.
-- `whatsapp-ack-watchdog`: `try/catch` externo gravando heartbeat com `last_ok=false` e `last_error_code` em qualquer exceção.
-- Heartbeat garantido também para `product-events-prune`, e painel de Operações passa a marcar job **sem heartbeat** como "sem execução comprovada" em vez de silêncio.
-
-## Bloco 6 — Insights: um único motor
-
-- Divisão em `insights/contracts.ts`, `insights/catalog.ts`, `insights/detectors.ts`.
-- Novos detectores: crescimento de categoria, anomalia de valor, ritmo financeiro, comerciante recorrente, assinaturas, dias sem registro, previsão de caixa, qualidade de dado, oportunidade de economia, próxima melhor ação, risco financeiro.
-- Remoção do caminho legado de candidatos/fallbacks — passa a existir uma arquitetura só.
-- `ResponseValidator`: todo número presente no texto da IA precisa existir na evidência; se não existir, a dica é descartada e o motivo registrado.
-
-## Bloco 7 — Prova de paridade multicanal
-
-- Teste E2E determinístico com um dataset fixo (o do caso real) comparando, para o mesmo usuário e período, os números de **Home, Relatórios, Nino no app, Nino no WhatsApp, MCP e Pulso**. Divergência de centavo quebra o build.
-- Testes adicionais: reconciliação sem plug, erro parcial do webhook, heartbeat de falha, invalidação após mutação, catálogo completo de insights.
-
-## Bloco 8 — Fechamento das jornadas pendentes
-
-Revalidação E2E e correção do que aparecer: pagamento de dívida, recorrência, Divisão do Rolê, metas conjuntas, gamificação, documentos pelo Assessor.
-
----
+### D. Validação ponta a ponta
+- Novo teste `src/test/finance-single-source-e2e.test.ts`: mesma base sintética alimentando Home, Relatórios, Cartões, snapshot do Nino, MCP (`monthly-summary`, `financial-position`) e Pulso, exigindo igualdade de dívida de cartão, disponível, receita/despesa do mês e projeção.
+- Novo teste `src/test/journeys-e2e.test.ts`: pagamento de dívida, ocorrência de recorrência, Divisão do Rolê (criação → lembrete → quitação), meta conjunta (convite → aceite → contribuição), gamificação (XP/desafio) e documento pelo Assessor (ingestão → revisão → contabilização), validando invalidação de cache e efeito no snapshot.
+- Teste de catálogo estendido: todo detector com `requires` precisa receber os campos correspondentes no call site (falha se algum sinal ficar sem alimentação).
 
 ## Detalhes técnicos
-
-- Migration: 1 arquivo, idempotente, com GRANTs e RLS por tabela nova, sem `ALTER DATABASE`.
-- Correção de dados de cartão feita via RPC auditada (não `UPDATE` solto), com registro em `financial_reconciliation_audit`.
-- Paridade app × edge mantida por `scripts/sync-finance-core.mjs` (já em `prebuild`/`pretest`).
-- Edge functions afetadas: `pulse-compute`, `insights-generate`, `whatsapp-webhook`, `whatsapp-ack-watchdog`, `mcp`.
-- Validação antes de qualquer publicação: suíte completa, typecheck, build e conferência dos números da fatura 08/2026 no banco.
-
-## Ordem de execução
-
-1. Confirmar a origem exata do valor "em aberto" da Home (query de rastreio linha a linha).
-2. Migration + RPC de reconciliação + correção auditada dos dados de cartão.
-3. Fonte única de exposição de cartão nas telas + ritmo/gráfico.
-4. Invalidação central + confiabilidade WhatsApp/jobs.
-5. Motor único de insights.
-6. Testes de paridade e jornadas.
-7. Relatório final. **Publicação apenas com sua autorização.**
+- Migrations: 1) constraints de `user_insights`; 2) `force_reconcile_credit_card_statement` com motivo/evidência + limites; 3) recriação dos jobs de cron (com segredo do Vault, sem chave em código).
+- Edge Functions a implantar: `insights-generate`, `documents-cleanup`, `whatsapp-ack-watchdog`.
+- Frontend: `AssistantTipCard.tsx` (carrossel), `src/lib/insights/fallbacks.ts` (poda), `Cartoes.tsx` (ajuste restrito), `src/lib/nino/client.ts` (feedback em lote).
+- Publicação em produção somente com sua autorização explícita, após os testes verdes.
