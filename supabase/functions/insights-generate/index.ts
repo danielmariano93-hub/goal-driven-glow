@@ -286,7 +286,7 @@ Deno.serve(async (req) => {
     activeDebtTotal: computeActiveDebtsTotal((debtRows ?? []) as never),
     expenseMonth: behavioral.expense,
     incomeMonth: behavioral.income,
-    upcomingCommitments7d: Number((commitments7d as { total?: number })?.total ?? 0),
+    upcomingCommitments7d: Number(commitments7d.totalExpense ?? 0),
   });
 
   // ------- seleção pela política única -------
