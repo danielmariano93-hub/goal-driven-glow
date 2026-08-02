@@ -30,6 +30,7 @@ import {
   computeCardExposure,
   totalCardDebtOf,
   totalFutureInstallmentsOf,
+  type CardCycleConfig,
   type CardExposure,
   type CardInstallmentRow,
   type CardStatementRow,

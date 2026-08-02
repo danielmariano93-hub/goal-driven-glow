@@ -78,9 +78,9 @@ export function useFinancialSnapshot(period: DateRange): {
     queryKey: ["credit_cards", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase.from("credit_cards" as never).select("id");
+      const { data, error } = await supabase.from("credit_cards" as never).select("id,closing_day,due_day");
       if (error) throw error;
-      return (data as unknown as Array<{ id: string }> | null) ?? [];
+      return (data as unknown as Array<{ id: string; closing_day: number | null; due_day: number | null }> | null) ?? [];
     },
   });
 
