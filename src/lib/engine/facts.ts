@@ -596,7 +596,9 @@ export function computeAvailableUntil(input: AvailableUntilInput): AvailableUnti
   const next = nextRecurringOccurrences(input.recurring, horizonDays, today);
   const recurringIn = sumBy(next.filter((r) => r.type === "income"), (r) => r.amount);
   const recurringOut = sumBy(next.filter((r) => r.type === "expense"), (r) => r.amount);
-  const cardsOwed = computeCreditCardOutstanding(input.txs);
+  const cardsOwed = input.cardDebtOverride == null
+    ? computeCreditCardOutstanding(input.txs)
+    : round2(Number(input.cardDebtOverride));
   const available = round2(currentCash + plannedIncome + recurringIn - plannedExpense - recurringOut - cardsOwed);
   return {
     currentCash: round2(currentCash),
