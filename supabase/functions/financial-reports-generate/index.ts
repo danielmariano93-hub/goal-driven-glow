@@ -200,18 +200,20 @@ async function generateForUser(
 
   const { data: existing } = await sb
     .from("financial_reports")
-    .select("id,status")
+    .select("id,status,template_version")
     .eq("user_id", userId)
     .eq("report_type", reportType)
     .eq("period_start", period.start)
     .maybeSingle();
-  if (existing && !opts.force) {
+  // Relatório de template antigo é regenerado sozinho (auto-heal de destaques).
+  const staleTemplate = !!existing && existing.template_version !== REPORT_TEMPLATE_VERSION;
+  if (existing && !opts.force && !staleTemplate) {
     return { report_id: existing.id as string, status: "exists" };
   }
 
   const transactions = await loadTransactions(sb, userId, previous.start);
   const ctx = await loadContext(sb, userId);
-  const report = buildIntelligentReport({
+  const baseInput = {
     reportType,
     referenceDate: reference,
     transactions,
@@ -221,7 +223,15 @@ async function generateForUser(
     goals: ctx.goals,
     goalContributions: ctx.goalContributions,
     timezone: prefs.report_timezone,
-  });
+  };
+  // 1ª passada: números do período. 2ª passada: destaques do período mesclados
+  // com o catálogo determinístico de insights (insights_catalog.v1).
+  const base = buildIntelligentReport(baseInput);
+  const extraHighlights = await buildCatalogHighlights(sb, userId, base.payload, transactions, reference);
+  const report = extraHighlights.length > 0
+    ? buildIntelligentReport({ ...baseInput, extraHighlights })
+    : base;
+
 
   const narrative = await synthesizeNarrative(report);
 
