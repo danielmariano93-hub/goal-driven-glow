@@ -505,13 +505,14 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     snapshots: input.snapshots,
     endDate: monthRange.end,
     today,
+    // Nunca reconstruir dívida de cartão por transações quando há exposição oficial.
+    cardDebtOverride: hasCardSource ? cardDebtToday : null,
   });
 
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
   const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
-  const cardsOwed = computeCreditCardOutstanding(input.txs);
   const projectedMonthEndAvailable = round2(
-    availableToday + confirmedFutureIncome - knownFutureCommitments - cardsOwed - projectedRemainingConsumption,
+    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDebtToday - projectedRemainingConsumption,
   );
 
   const categoryNameById = input.categoryNameById ?? {};
@@ -521,7 +522,36 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const topCategoryGoal = pickTopGoal(activeCategoryGoals);
 
+  const currentYM = todayIso.slice(0, 7);
+  const monthlyTotalsRaw = computeMonthlyTotals(input.txs, currentYM);
+  const categories: CategoryRow[] = input.categories
+    ?? Object.entries(categoryNameById).map(([id, name]) => ({ id, name, type: "expense" as const }));
+  const categoryBreakdown = computeCategoryBreakdown(input.txs, categories, currentYM, "expense");
+  const activeDebtTotal = computeActiveDebtsTotal(input.debts);
+  const investmentsTotal = computeInvestmentsTotal(input.investments);
+  const investedPrincipal = computeInvestedPrincipal(input.investments);
+  const goalProgress: SnapshotGoalProgress[] = (input.goals ?? [])
+    .filter((g) => g.status === "active")
+    .map((g) => {
+      const p = computeGoalProgressFacts(
+        g.target_amount,
+        g.id,
+        input.goalContributions ?? [],
+        input.investments,
+      );
+      return { id: g.id, name: g.name, target: Number(g.target_amount) || 0, ...p };
+    });
+  const upcomingCommitments = computeUpcomingCommitments(input.recurring, input.txs, 30);
+
   return {
+    contractVersion: FINANCE_CONTRACT_VERSION,
+    monthlyTotals: { month: currentYM, ...monthlyTotalsRaw },
+    categoryBreakdown,
+    activeDebtTotal,
+    investmentsTotal,
+    investedPrincipal,
+    goalProgress,
+    upcomingCommitments,
     today: todayIso,
     period: input.period,
     availableToday,
