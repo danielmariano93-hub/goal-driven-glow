@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 // FinancialMetricsService (frontend). Núcleo puro que compõe helpers existentes
 // e adiciona metas de categoria. Consumido por `useFinancialSnapshot` e por
 // componentes da Home. Não faz I/O — só cálculo determinístico.
@@ -28,6 +28,16 @@ import {
   type RecurringRow,
   type TransactionRow,
 } from "./facts.ts";
+import {
+  computeCashBridge,
+  computeNetWorthBridge,
+  computePeriodPerformance,
+  explainBalanceChange,
+  type BalanceExplanation,
+  type CashBridge,
+  type NetWorthBridge,
+  type PeriodPerformance,
+} from "./bridges.ts";
 import {
   computeCardExposure,
   totalCardDebtOf,
@@ -133,7 +143,7 @@ export interface CategoryGoalEvaluation {
 }
 
 /** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
-export const FINANCE_CONTRACT_VERSION = "finance_contract.v3";
+export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
 
 export interface FinancialSnapshotInput {
   accounts: AccountRow[];
@@ -157,6 +167,8 @@ export interface FinancialSnapshotInput {
   goalContributions?: GoalContributionRow[];
   /** Categorias para o breakdown canônico do mês. */
   categories?: CategoryRow[];
+  /** Movimentos de investimento do período (habilita ponte patrimonial precisa). */
+  investmentMovements?: Array<{ type: string; amount: number; occurred_at: string }>;
 }
 
 export interface SnapshotGoalProgress {
@@ -213,6 +225,14 @@ export interface FinancialSnapshot {
   goalProgress: SnapshotGoalProgress[];
   /** Compromissos conhecidos nos próximos 30 dias. */
   upcomingCommitments: ReturnType<typeof computeUpcomingCommitments>;
+  /** BLOCO B — resultado da rotina financeira do período. */
+  periodPerformance: PeriodPerformance;
+  /** BLOCO C — formação do saldo em conta (equação fechada). */
+  cashBridge: CashBridge;
+  /** BLOCO D — variação patrimonial do período. */
+  netWorthBridge: NetWorthBridge;
+  /** Explicação determinística de como o saldo se formou. */
+  balanceExplanation: BalanceExplanation;
 }
 
 
@@ -551,7 +571,31 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     });
   const upcomingCommitments = computeUpcomingCommitments(input.recurring, input.txs, 30);
 
+  // BLOCOS B/C/D — pontes canônicas. Nenhum consumidor recalcula estes números.
+  const bridgePeriod = { start: effectivePeriod.start, end: effectivePeriod.end };
+  const periodPerformance = computePeriodPerformance(input.txs, bridgePeriod);
+  const cashBridge = computeCashBridge({
+    accounts: input.accounts,
+    txs: input.txs,
+    snapshots: input.snapshots,
+    period: bridgePeriod,
+  });
+  const netWorthBridge = computeNetWorthBridge({
+    accounts: input.accounts,
+    txs: input.txs,
+    snapshots: input.snapshots,
+    period: bridgePeriod,
+    investments: input.investments,
+    debts: input.debts,
+    investmentMovements: input.investmentMovements,
+  });
+  const balanceExplanation = explainBalanceChange(cashBridge, periodPerformance);
+
   return {
+    periodPerformance,
+    cashBridge,
+    netWorthBridge,
+    balanceExplanation,
     contractVersion: FINANCE_CONTRACT_VERSION,
     monthlyTotals: { month: currentYM, ...monthlyTotalsRaw },
     categoryBreakdown,
