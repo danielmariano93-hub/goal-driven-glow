@@ -10,7 +10,7 @@ import {
   type TransactionRow,
 } from "../finance-core/facts.ts";
 import { eachDay, resolvePeriods, shortDay, daysInPeriod } from "./periods.ts";
-import { detectHighlights } from "./highlights.ts";
+import { detectHighlights, mergeHighlights } from "./highlights.ts";
 import {
   REPORTS_CATALOG_VERSION,
   REPORT_TEMPLATE_VERSION,
@@ -372,7 +372,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     period,
     previousPeriod: previous,
     metrics: buildMetrics(payload),
-    highlights: detectHighlights(payload),
+    highlights: mergeHighlights(detectHighlights(payload), input.extraHighlights ?? []),
     healthScore: health.score,
     healthBreakdown: health.breakdown,
     dataQualityStatus: quality.status,
