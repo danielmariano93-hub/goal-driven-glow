@@ -311,6 +311,14 @@ const ITEM_KINDS: Array<{ value: string; label: string }> = [
 
 const CREDIT_KINDS = ["payment", "refund"];
 
+const ADJUSTMENT_REASONS: Array<{ value: string; label: string; hint: string }> = [
+  { value: "missing_document", label: "Lançamento não extraído do documento", hint: "Informe o documento/página onde a linha aparece." },
+  { value: "duplicate_item", label: "Item duplicado na importação", hint: "Informe a descrição e a data do item duplicado." },
+  { value: "fx_rounding", label: "Câmbio ou arredondamento", hint: "Informe a moeda e a taxa aplicada." },
+  { value: "previous_balance", label: "Saldo anterior da fatura", hint: "Informe a competência de origem do saldo." },
+  { value: "refund_pending", label: "Estorno ainda não creditado", hint: "Informe a data prevista do estorno." },
+];
+
 const STATEMENT_ERRORS: Record<string, string> = {
   statement_economic_fields_locked: "Esta fatura já tem pagamento registrado. Desfaça o pagamento antes de alterar valores.",
   statement_has_payments: "Desfaça os pagamentos antes de excluir esta fatura.",
@@ -320,9 +328,12 @@ const STATEMENT_ERRORS: Record<string, string> = {
   amount_must_not_be_zero: "Informe um valor diferente de zero.",
   description_required: "Informe uma descrição.",
   invalid_item_kind: "Tipo de lançamento inválido.",
-  justification_required: "Escreva uma justificativa para o ajuste.",
+  justification_required: "Escreva uma justificativa com pelo menos 20 caracteres.",
+  manual_reconciliation_required: "Escolha um motivo padronizado e informe a evidência para registrar o ajuste.",
+  adjustment_above_cap: "O ajuste passa de 2% do total da fatura. Corrija os lançamentos em vez de ajustar.",
   not_authenticated: "Sessão expirada. Entre novamente.",
 };
+
 
 function statementError(error: { message?: string } | null, data: { error?: string } | null | undefined) {
   const key = data?.error ?? "";
@@ -370,6 +381,9 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   const [adding, setAdding] = useState(false);
   const [forcing, setForcing] = useState(false);
   const [justification, setJustification] = useState("");
+  const [reasonCode, setReasonCode] = useState("");
+  const [evidenceRef, setEvidenceRef] = useState("");
+
 
   const current = detail.data?.statement ?? (statement as StatementRow & { reconciled_total?: number; opening_balance?: number });
   const items = detail.data?.items ?? [];
@@ -379,10 +393,15 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   const difference = Number(current.reconciliation_difference ?? 0);
   const reconciled = Math.abs(difference) <= 0.05;
 
+  // Ajuste manual é excepcional: teto de 2% do total oficial da fatura.
+  const adjustmentCap = Math.max(1, Number((Math.abs(Number(current.stated_total ?? 0)) * 0.02).toFixed(2)));
+  const cappedAdjustment = Math.abs(difference) > adjustmentCap;
+
   async function afterMutation() {
     await onChanged();
     await detail.refetch();
   }
+
 
   async function saveItem(item: StatementItemRow, patch: { description?: string; category_id?: string | null; amount?: number; occurred_at?: string; item_kind?: string }) {
     setSavingId(item.id);
@@ -441,6 +460,13 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     const { data, error } = await (supabase as any).rpc("force_reconcile_credit_card_statement", {
       p_statement_id: current.id,
       p_justification: justification,
+      p_reason_code: reasonCode,
+      p_evidence: {
+        reference: evidenceRef.trim(),
+        source_document_id: current.source_document_id ?? null,
+        difference: Math.abs(difference),
+        registered_at: new Date().toISOString(),
+      },
     });
     setStatementAction(null);
     if (error || !data?.ok) {
@@ -449,9 +475,12 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     }
     setForcing(false);
     setJustification("");
+    setReasonCode("");
+    setEvidenceRef("");
     await afterMutation();
     toast.success("Conciliação fechada com ajuste registrado", { description: `Ajuste de ${formatBRL(Math.abs(Number(data.adjustment ?? 0)))} com trilha de auditoria.` });
   }
+
 
   async function approveStatement() {
     setStatementAction("approve");
@@ -517,21 +546,34 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
               ? "Os lançamentos somam mais que o total oficial — normalmente falta registrar um pagamento ou crédito da fatura."
               : "Os lançamentos somam menos que o total oficial — provavelmente algum lançamento não foi extraído."}</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => { setAdding(true); setForcing(false); }} disabled={economicLocked} className="rounded-full border border-warning/50 px-3 py-1.5 font-semibold disabled:opacity-40">Adicionar pagamento/crédito</button>
-              <button type="button" onClick={() => { setForcing(true); setAdding(false); }} disabled={economicLocked} className="rounded-full border border-warning/50 px-3 py-1.5 font-semibold disabled:opacity-40">Fechar conciliação com ajuste</button>
+              <button type="button" onClick={() => { setAdding(true); setForcing(false); }} disabled={economicLocked} className="btn-brand rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-40">Corrigir lançamentos (recomendado)</button>
+              <button type="button" onClick={() => { setForcing(true); setAdding(false); }} disabled={economicLocked || cappedAdjustment} title={cappedAdjustment ? "Diferença acima de 2% do total: corrija os lançamentos" : undefined} className="rounded-full border border-border px-3 py-1.5 font-semibold text-muted-foreground disabled:opacity-40">Registrar ajuste com motivo</button>
             </div>
+            {cappedAdjustment && <p className="text-[11px]">O ajuste manual só é permitido até 2% do total oficial ({formatBRL(adjustmentCap)}). Acima disso, corrija ou adicione os lançamentos.</p>}
           </div>
         )}
 
-        {forcing && <div className="mb-4 rounded-2xl border border-border bg-card p-3">
-          <p className="text-xs font-semibold">Fechar conciliação com ajuste de {formatBRL(Math.abs(difference))}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Será criada uma linha de ajuste explícita, com sua justificativa e trilha de auditoria. O total oficial da fatura não muda.</p>
-          <textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} placeholder="Ex.: pagamento de R$ 1.080,63 não extraído do PDF" className="input-base mt-2 w-full text-xs"/>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setForcing(false); setJustification(""); }} className="rounded-full border border-border px-3 py-2 text-xs font-semibold">Cancelar</button>
-            <button type="button" onClick={forceReconcile} disabled={justification.trim().length < 3 || statementAction === "force"} className="btn-brand text-xs disabled:opacity-40">{statementAction === "force" ? "Fechando…" : "Confirmar ajuste"}</button>
+        {forcing && <div className="mb-4 space-y-2 rounded-2xl border border-border bg-card p-3">
+          <p className="text-xs font-semibold">Registrar ajuste de {formatBRL(Math.abs(difference))}</p>
+          <p className="text-[11px] text-muted-foreground">Este ajuste é excepcional: exige motivo padronizado, evidência e justificativa. Fica registrado em auditoria e o total oficial da fatura não muda.</p>
+          <label className="block text-[11px] font-semibold text-muted-foreground">Motivo
+            <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="input-base mt-1 w-full text-xs">
+              <option value="">Selecione o motivo</option>
+              {ADJUSTMENT_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </label>
+          <label className="block text-[11px] font-semibold text-muted-foreground">Evidência
+            <input value={evidenceRef} onChange={(e) => setEvidenceRef(e.target.value)} placeholder={ADJUSTMENT_REASONS.find((r) => r.value === reasonCode)?.hint ?? "Ex.: fatura PDF, página 2, linha 14"} className="input-base mt-1 w-full text-xs"/>
+          </label>
+          <label className="block text-[11px] font-semibold text-muted-foreground">Justificativa (mín. 20 caracteres)
+            <textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} placeholder="Ex.: pagamento de R$ 1.080,63 consta no PDF mas não foi extraído pelo leitor" className="input-base mt-1 w-full text-xs"/>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => { setForcing(false); setJustification(""); setReasonCode(""); setEvidenceRef(""); }} className="rounded-full border border-border px-3 py-2 text-xs font-semibold">Cancelar</button>
+            <button type="button" onClick={forceReconcile} disabled={!reasonCode || evidenceRef.trim().length < 4 || justification.trim().length < 20 || statementAction === "force"} className="btn-brand text-xs disabled:opacity-40">{statementAction === "force" ? "Registrando…" : "Registrar ajuste"}</button>
           </div>
         </div>}
+
 
         <div className="mb-3 flex items-center justify-between">
           <div><h3 className="text-sm font-semibold">Lançamentos</h3><p className="text-xs text-muted-foreground">Corrija, exclua ou adicione linhas até a fatura fechar.</p></div>

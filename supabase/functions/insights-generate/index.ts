@@ -1,18 +1,17 @@
 // Edge function: insights-generate
-// Gera UMA dica do Nino usando a política única de seleção (tipPolicy).
-// - JWT obrigatório.
-// - Sem short-circuit de categorização: ela concorre como qualquer outra dica.
-// - "Agora não" e "não útil" viram cooldown real; diversidade por família.
-// - `force` nunca gera duas dicas em sequência (janela mínima).
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Gera as dicas do Nino usando UM único motor: o catálogo determinístico
+// (insights_catalog.v1) + política única de seleção (tipPolicy).
+// - O motor antigo de candidatos genéricos foi removido (nada de dica sem evidência).
+// - Modo usuário: JWT obrigatório, devolve um lote de até 5 dicas ativas.
+// - Modo cron: cabeçalho x-cron-secret, varre usuários ativos e grava heartbeat
+//   real (sucesso e falha) em job_heartbeats.
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail, respond } from "../_shared/http.ts";
 
 const FN = "insights-generate";
 import {
   InsightSchema,
-  candidates as buildCandidates,
-  pickFallback,
   parseInsightResponse,
   type InsightFacts,
 } from "../_shared/insights/fallbacks.ts";
@@ -31,35 +30,93 @@ import {
 } from "../_shared/finance-core/index.ts";
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
+import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
 
-const PROMPT_VERSION = "v6-evidence-action";
+const PROMPT_VERSION = "v7-catalog-only";
 const ACCOUNTING_SCOPE = "behavioral_v1";
 // Insights exigem raciocínio e síntese; extração continua no modelo rápido.
 // O modelo é configurável para permitir troca controlada e rollback sem deploy.
 const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "google/gemini-2.5-pro";
 const AI_TIMEOUT_MS = 8000;
+/** Quantas dicas o lote entrega por vez (carrossel do app). */
+const BATCH_SIZE = 5;
 
 function logEvent(event: Record<string, unknown>) {
-  try { console.log(JSON.stringify({ fn: "insights-generate", ...event })); } catch { /* noop */ }
+  try { console.log(JSON.stringify({ fn: FN, ...event })); } catch { /* noop */ }
 }
+
+type InsightRow = Record<string, unknown>;
+type RunResult = {
+  insights: InsightRow[];
+  cached: boolean;
+  throttled?: boolean;
+  no_candidate?: boolean;
+  fallback?: boolean;
+  created: number;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  const cronHeader = req.headers.get("x-cron-secret") ?? "";
+  const isCron = CRON_SECRET !== "" && cronHeader === CRON_SECRET;
   const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
+  if (!isCron && !auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
 
   const started = Date.now();
-  let body: { force?: boolean } = {};
+  let body: { force?: boolean; user_id?: string } = {};
   try { body = (await req.json()) ?? {}; } catch { /* empty body ok */ }
   const force = body.force === true;
 
+  const supa = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+
+  // -------------------- modo cron (lote) --------------------
+  if (isCron) {
+    let processed = 0;
+    let failed = 0;
+    try {
+      const targets = await activeUserIds(supa, body.user_id ?? null);
+      for (const uid of targets) {
+        try {
+          await runForUser(supa, uid, false);
+          processed++;
+        } catch (e) {
+          failed++;
+          logEvent({ event: "cron_user_error", user_id: uid, err: (e as Error).message });
+        }
+      }
+      await writeJobHeartbeat({
+        jobKey: FN,
+        ok: failed === 0,
+        processed,
+        failed,
+        errorCode: failed > 0 ? "partial_user_failures" : null,
+        nextRunAt: new Date(Date.now() + 3600_000).toISOString(),
+        sb: supa,
+      });
+      logEvent({ event: "cron_done", processed, failed, latency_ms: Date.now() - started });
+      return respond({ processed, failed });
+    } catch (e) {
+      await writeJobHeartbeat({
+        jobKey: FN,
+        ok: false,
+        processed,
+        failed: failed + 1,
+        errorCode: ((e as Error).message ?? "cron_error").slice(0, 120),
+        sb: supa,
+      });
+      return fail("cron_failed", { status: 500, functionName: FN });
+    }
+  }
+
+  // -------------------- modo usuário --------------------
   const supaUser = createClient(SUPABASE_URL, SERVICE_ROLE, {
     global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
@@ -68,11 +125,43 @@ Deno.serve(async (req) => {
   const uid = userData?.user?.id;
   if (!uid) return fail("unauthorized", { status: 401, functionName: FN });
 
-  const supa = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  try {
+    const result = await runForUser(supa, uid, force);
+    logEvent({ event: "user_done", created: result.created, latency_ms: Date.now() - started });
+    return respond({
+      insight: result.insights[0] ?? null,
+      insights: result.insights,
+      cached: result.cached,
+      throttled: result.throttled ?? false,
+      no_candidate: result.no_candidate ?? false,
+      fallback: result.fallback ?? false,
+    });
+  } catch (e) {
+    logEvent({ event: "user_error", err: (e as Error).message });
+    return fail("insights_failed", { status: 500, functionName: FN });
+  }
+});
 
+/** Usuários com atividade recente (base do lote do cron). */
+async function activeUserIds(supa: SupabaseClient, only: string | null): Promise<string[]> {
+  if (only) return [only];
+  const since = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const { data } = await supa
+    .from("transactions")
+    .select("user_id")
+    .gte("occurred_at", since)
+    .limit(2000);
+  const set = new Set<string>();
+  for (const row of ((data ?? []) as Array<{ user_id?: string }>)) {
+    if (row?.user_id) set.add(row.user_id);
+  }
+  return Array.from(set).slice(0, 50);
+}
+
+async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Promise<RunResult> {
   const nowIso = new Date().toISOString();
 
-  // Insight ativo mais recente (cache e controle de janela mínima).
+  // Dicas ativas (cache e controle de janela mínima).
   const { data: activeRows } = await supa
     .from("user_insights")
     .select("*")
@@ -80,23 +169,21 @@ Deno.serve(async (req) => {
     .eq("status", "active")
     .gt("expires_at", nowIso)
     .order("generated_at", { ascending: false })
-    .limit(5);
-  const active = (activeRows ?? []) as Record<string, unknown>[];
-  const usable = active.find(
+    .limit(BATCH_SIZE);
+  const active = (activeRows ?? []) as InsightRow[];
+  const renderable = active.filter(
     (r) => typeof r.title === "string" && r.title.trim() && typeof r.body === "string" && r.body.trim(),
   );
+  const usable = renderable[0];
 
-  if (!force && usable) {
+  // Já existe carrossel cheio e recente: devolve o cache.
+  if (!force && renderable.length >= 3 && usable) {
     const cutoff = Date.now() - 6 * 3600 * 1000;
     if (new Date(String(usable.generated_at)).getTime() > cutoff) {
-      logEvent({ event: "cached", latency_ms: Date.now() - started });
-      return respond({ insight: usable, cached: true });
+      return { insights: renderable, cached: true, created: 0 };
     }
   }
 
-  // Janela mínima entre gerações. Quando o usuário pede outro assunto
-  // ("Agora não"), a janela é dispensada — os cooldowns de feedback seguem
-  // valendo e continuam impedindo repetir o mesmo tema.
   const { data: lastRow } = await supa
     .from("user_insights")
     .select("generated_at")
@@ -105,11 +192,12 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
   const minGapConfig = force ? { minGapMinutes: 0 } : undefined;
-  if (!canGenerateNow((lastRow as { generated_at?: string } | null)?.generated_at ?? null, { config: minGapConfig })) {
-    logEvent({ event: "throttled" });
-    return respond({ insight: usable ?? null, cached: !!usable, throttled: true });
+  if (
+    renderable.length > 0 &&
+    !canGenerateNow((lastRow as { generated_at?: string } | null)?.generated_at ?? null, { config: minGapConfig })
+  ) {
+    return { insights: renderable, cached: true, throttled: true, created: 0 };
   }
-
 
   // Histórico unificado (dicas + entregas proativas) para a política.
   const since = new Date(Date.now() - 60 * 86400_000).toISOString();
@@ -145,6 +233,7 @@ Deno.serve(async (req) => {
     { data: installmentRows },
     { data: debtRows },
     { data: recurringRules },
+    { data: accountRows },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", uid).eq("status", "active"),
@@ -181,6 +270,7 @@ Deno.serve(async (req) => {
     supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
     supa.from("debts").select("outstanding_balance,status").eq("user_id", uid).eq("status", "active"),
     supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,next_due_date,type,category_id,account_id,description").eq("user_id", uid).eq("status", "active"),
+    supa.from("accounts").select("current_balance,active").eq("user_id", uid),
   ]);
 
   const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -239,16 +329,6 @@ Deno.serve(async (req) => {
     days_without_entry: signals.days_without_entry,
     goal_pace: signals.goal_pace,
     uncategorized_tx,
-  };
-
-  const evidenceExtra = {
-    accounting_scope: ACCOUNTING_SCOPE,
-    behavioral_income: behavioral.income,
-    behavioral_expense: behavioral.expense,
-    behavioral_net: behavioral.net,
-    gross_account_in: gross.accountIn,
-    gross_account_out: gross.accountOut,
-    gross_card_out: gross.cardOut,
   };
 
   // ------- catálogo determinístico (insights_catalog.v1) -------
@@ -355,6 +435,30 @@ Deno.serve(async (req) => {
     }
     : null;
 
+  // Caixa disponível hoje e projeção 30d: alimentam cashflow_forecast.
+  const availableToday = Number(
+    ((accountRows ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
+      .filter((a) => a?.active !== false)
+      .reduce((acc, a) => acc + Number(a.current_balance ?? 0), 0)
+      .toFixed(2),
+  );
+  const projectedBalance = Number(
+    (availableToday - Number(commitments30d.totalExpense ?? 0) - totalCardDebtOf(exposures)).toFixed(2),
+  );
+
+  const evidenceExtra = {
+    accounting_scope: ACCOUNTING_SCOPE,
+    behavioral_income: behavioral.income,
+    behavioral_expense: behavioral.expense,
+    behavioral_net: behavioral.net,
+    gross_account_in: gross.accountIn,
+    gross_account_out: gross.accountOut,
+    gross_card_out: gross.cardOut,
+    available_today: availableToday,
+    projected_balance: projectedBalance,
+    commitments_next_30d: Number(commitments30d.totalExpense ?? 0),
+  };
+
   const deterministic = deterministicCandidates({
     cardDebtToday: totalCardDebtOf(exposures),
     cardFutureInstallments: totalFutureInstallmentsOf(exposures),
@@ -365,6 +469,8 @@ Deno.serve(async (req) => {
     incomeMonth: behavioral.income,
     upcomingCommitments7d: Number(commitments7d.totalExpense ?? 0),
     upcomingCommitments30d: Number(commitments30d.totalExpense ?? 0),
+    availableToday,
+    projectedBalance,
     categoryGrowth,
     amountAnomaly,
     rhythm,
@@ -380,32 +486,36 @@ Deno.serve(async (req) => {
     uncategorizedCount: categorizable.length,
   });
 
-
-  // ------- seleção pela política única -------
-  const fullPool = [...deterministic, ...buildCandidates(facts)] as TipCandidate[];
-  // Em "Agora não", nunca reapresentamos o assunto que está ativo agora.
-  const activeKeys = new Set(
-    active.map((r) => String(r.dedup_key ?? "")).filter(Boolean),
-  );
-  const pool = force && activeKeys.size > 0
-    ? fullPool.filter((c) => !activeKeys.has(dedupKeyForTip(c)))
-    : fullPool;
-  const selection = selectTip(pool.length > 0 ? pool : fullPool, ledger);
-  const chosen = selection.chosen;
-
-  if (!chosen) {
-    logEvent({ event: "no_eligible_tip", force });
-    // Com force, devolver o cache reapresentaria a dica dispensada.
-    return respond({ insight: force ? null : (usable ?? null), cached: !force && !!usable, no_candidate: true });
+  // ------- seleção pela política única (motor único, sem pool genérico) -------
+  const activeKeys = new Set(renderable.map((r) => String(r.dedup_key ?? "")).filter(Boolean));
+  let remaining = (deterministic as TipCandidate[]).filter((c) => !activeKeys.has(dedupKeyForTip(c)));
+  if (remaining.length === 0) {
+    return {
+      insights: renderable,
+      cached: renderable.length > 0,
+      no_candidate: true,
+      created: 0,
+    };
   }
 
+  const missingSlots = Math.max(0, BATCH_SIZE - renderable.length);
+  const wanted = force ? Math.max(1, missingSlots) : (missingSlots > 0 ? missingSlots : 1);
+  const created: InsightRow[] = [];
+  let anyFallback = false;
 
-  let payload = { ...chosen.candidate };
-  let fallbackReason: string | null = null;
-  const allowAi = LOVABLE_API_KEY && chosen.family !== "categorizacao";
+  for (let slot = 0; slot < wanted && remaining.length > 0; slot++) {
+    const selection = selectTip(remaining, ledger);
+    const chosen = selection.chosen;
+    if (!chosen) break;
+    remaining = remaining.filter((c) => dedupKeyForTip(c) !== chosen.dedup_key);
 
-  if (allowAi) {
-    const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
+    let payload = { ...chosen.candidate };
+    let fallbackReason: string | null = null;
+    // A IA só reescreve a dica principal do lote (custo e latência controlados).
+    const allowAi = !!LOVABLE_API_KEY && chosen.family !== "categorizacao" && slot === 0;
+
+    if (allowAi) {
+      const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
 - Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos, pagamento de fatura e crédito de empréstimo. Se balance_month >= 0, não é déficit.
 - Não mude o assunto nem o cta_route da dica base. Transforme o fato em uma leitura específica e uma ação realizável em até 10 minutos.
 - Evite frases genéricas como "acompanhe seus gastos", "continue assim" e "reveja seu orçamento". Cite a evidência mais relevante e diga por que ela importa agora.
@@ -414,111 +524,121 @@ Deno.serve(async (req) => {
 - type deve ser "${payload.type}".
 - Tom caloroso, direto, aliado. Sem julgamento, sem promessa de retorno e sem conselho de investimento regulado.
 Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
-    const userMsg = `Dica base: ${JSON.stringify(payload)}. Fatos: ${JSON.stringify(facts)}.`;
+      const userMsg = `Dica base: ${JSON.stringify(payload)}. Fatos: ${JSON.stringify(facts)}.`;
 
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
-    try {
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
-          response_format: { type: "json_object" },
-        }),
-      });
-      if (!resp.ok) {
-        fallbackReason = `ai_status_${resp.status}`;
-      } else {
-        const j = await resp.json();
-        const content = j?.choices?.[0]?.message?.content;
-        const parsed = typeof content === "string" ? safeJson(content) : content;
-        const validated = parseInsightResponse(parsed);
-        if (!validated) {
-          fallbackReason = "ai_invalid_schema";
-        } else {
-          payload = {
-            ...payload,
-            title: validated.title,
-            body: validated.body,
-            cta_label: validated.cta_label ?? payload.cta_label,
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
+      try {
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          signal: ctrl.signal,
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
+          body: JSON.stringify({
             model: MODEL,
-          };
+            messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (!resp.ok) {
+          fallbackReason = `ai_status_${resp.status}`;
+        } else {
+          const j = await resp.json();
+          const content = j?.choices?.[0]?.message?.content;
+          const parsed = typeof content === "string" ? safeJson(content) : content;
+          const validated = parseInsightResponse(parsed);
+          if (!validated) {
+            fallbackReason = "ai_invalid_schema";
+          } else {
+            payload = {
+              ...payload,
+              title: validated.title,
+              body: validated.body,
+              cta_label: validated.cta_label ?? payload.cta_label,
+              model: MODEL,
+            };
+          }
         }
+      } catch (e) {
+        fallbackReason = (e as Error)?.name === "AbortError" ? "ai_timeout" : "ai_error";
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (e) {
-      fallbackReason = (e as Error)?.name === "AbortError" ? "ai_timeout" : "ai_error";
-    } finally {
-      clearTimeout(timer);
+    } else {
+      fallbackReason = LOVABLE_API_KEY ? "deterministic_only" : "no_api_key";
     }
-  } else {
-    fallbackReason = LOVABLE_API_KEY ? "deterministic_family" : "no_api_key";
-  }
 
-  const finalCheck = InsightSchema.safeParse(payload);
-  if (!finalCheck.success) {
-    payload = { ...chosen.candidate };
-    fallbackReason = `${fallbackReason ?? ""}|final_invalid`;
-    const guard = InsightSchema.safeParse(payload);
-    if (!guard.success) payload = pickFallback(facts);
-  }
-
-  // Guardrail numérico: nenhum número pode aparecer no texto sem existir na
-  // evidência determinística. Se aparecer, volta ao candidato do catálogo.
-  {
-    const evidencePool = { ...facts, ...evidenceExtra, candidate: chosen.candidate };
-    const bad = unsupportedNumbers(`${payload.title} ${payload.body}`, evidencePool);
-    if (bad.length > 0) {
+    const finalCheck = InsightSchema.safeParse(payload);
+    if (!finalCheck.success) {
       payload = { ...chosen.candidate };
-      fallbackReason = `${fallbackReason ?? ""}|numeric_guard`;
+      fallbackReason = `${fallbackReason ?? ""}|final_invalid`;
     }
-  }
 
+    // Guardrail numérico: nenhum número pode aparecer no texto sem existir na
+    // evidência determinística. Se aparecer, volta ao candidato do catálogo.
+    {
+      const evidencePool = { ...facts, ...evidenceExtra, candidate: chosen.candidate };
+      const bad = unsupportedNumbers(`${payload.title} ${payload.body}`, evidencePool);
+      if (bad.length > 0) {
+        payload = { ...chosen.candidate };
+        fallbackReason = `${fallbackReason ?? ""}|numeric_guard`;
+      }
+    }
+    if (fallbackReason) anyFallback = true;
 
-  const now = new Date();
-  const { data: inserted, error } = await supa
-    .from("user_insights")
-    .insert({
-      user_id: uid,
-      type: payload.type,
-      title: payload.title,
-      body: payload.body,
-      cta_label: payload.cta_label,
-      cta_route: payload.cta_route,
-      model: payload.model,
+    const now = new Date();
+    const detector = (chosen.candidate as { detector?: string }).detector ?? null;
+    const { data: inserted, error } = await supa
+      .from("user_insights")
+      .insert({
+        user_id: uid,
+        type: payload.type,
+        title: payload.title,
+        body: payload.body,
+        cta_label: payload.cta_label,
+        cta_route: payload.cta_route,
+        model: payload.model,
+        family: chosen.family,
+        dedup_key: chosen.dedup_key,
+        evidence: {
+          ...facts,
+          ...evidenceExtra,
+          detector,
+          catalog: "insights_catalog.v1",
+          ...((chosen.candidate as { evidence?: Record<string, unknown> }).evidence ?? {}),
+          ...(uncategorized_tx && chosen.family === "categorizacao" ? { transaction_id: uncategorized_tx.id } : {}),
+          selection: { score: chosen.score, relaxed: selection.relaxed, family: chosen.family },
+        },
+        prompt_version: PROMPT_VERSION,
+        generated_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
+        status: "active",
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      logEvent({ event: "insert_error", err: error.message, detector, fallbackReason });
+      continue;
+    }
+    created.push(inserted as InsightRow);
+    logEvent({
+      event: fallbackReason ? "fallback" : "generated",
+      fallback_reason: fallbackReason,
       family: chosen.family,
+      detector,
       dedup_key: chosen.dedup_key,
-      evidence: {
-        ...facts,
-        ...evidenceExtra,
-        ...(uncategorized_tx && chosen.family === "categorizacao" ? { transaction_id: uncategorized_tx.id } : {}),
-        selection: { score: chosen.score, relaxed: selection.relaxed, family: chosen.family },
-      },
-      prompt_version: PROMPT_VERSION,
-      generated_at: now.toISOString(),
-      expires_at: new Date(now.getTime() + 24 * 3600 * 1000).toISOString(),
-      status: "active",
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    logEvent({ event: "insert_error", err: error.message, fallbackReason });
-    return fail("insert_failed", { status: 500, functionName: FN });
+    });
   }
 
-  logEvent({
-    event: fallbackReason ? "fallback" : "generated",
-    fallback_reason: fallbackReason,
-    family: chosen.family,
-    dedup_key: chosen.dedup_key,
-    relaxed: selection.relaxed,
-    latency_ms: Date.now() - started,
-  });
-  return respond({ insight: inserted, cached: false, fallback: !!fallbackReason, family: chosen.family });
-});
+  const merged = [...created, ...renderable].slice(0, BATCH_SIZE);
+  return {
+    insights: merged,
+    cached: created.length === 0 && renderable.length > 0,
+    no_candidate: created.length === 0,
+    fallback: anyFallback,
+    created: created.length,
+  };
+}
 
 function safeJson(s: string): unknown {
   try { return JSON.parse(s); } catch { return null; }
