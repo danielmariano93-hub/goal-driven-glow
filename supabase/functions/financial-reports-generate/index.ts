@@ -20,7 +20,10 @@ import {
   deterministicSummary,
   whatsappMessage,
 } from "../_shared/reports-core/narrative.ts";
+import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
+import { buildCatalogHighlights } from "./catalogHighlights.ts";
+
 
 const FN = "financial-reports-generate";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
