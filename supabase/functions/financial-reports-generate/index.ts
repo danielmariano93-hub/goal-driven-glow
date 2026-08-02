@@ -305,7 +305,8 @@ async function generateForUser(
       type: "financial_report",
       title: reportType === "weekly" ? "Seu relatório da semana está pronto" : "Seu relatório do mês está pronto",
       body: `${period.label} • nota de saúde ${report.healthScore}/10`,
-      data: { report_id: reportId, route: `/app/relatorios-inteligentes/${reportId}` },
+      action_url: `/app/relatorios-inteligentes/${reportId}`,
+      dedup_key: `financial_report:${reportId}`,
     });
     await sb.from("financial_report_deliveries").upsert({
       report_id: reportId,
@@ -446,6 +447,6 @@ Deno.serve(async (req) => {
     return respond(result);
   } catch (e) {
     logEvent({ event: "user_generate_error", err: (e as Error).message });
-    return fail("report_generation_failed", { status: 500, functionName: FN, detail: (e as Error).message });
+    return fail("report_generation_failed", { status: 500, functionName: FN, details: { message: (e as Error).message } });
   }
 });
