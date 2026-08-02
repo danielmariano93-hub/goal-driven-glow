@@ -61,12 +61,23 @@ export default function RelatorioInteligenteDetalhe() {
             </h1>
             <p className="text-xs text-muted-foreground">{periodLabel(report)} · período fechado</p>
           </div>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold shadow-card print:hidden"
-          >
-            <Printer size={14} /> PDF
-          </button>
+          <div className="flex shrink-0 items-center gap-2 print:hidden">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold shadow-card disabled:opacity-60"
+            >
+              {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Atualizar dados
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold shadow-card"
+            >
+              <Printer size={14} /> PDF
+            </button>
+          </div>
+
         </div>
       </header>
 
