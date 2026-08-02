@@ -7,7 +7,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
+const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
 
 Deno.serve(async (req) => {
   const h = httpContext("whatsapp-ack-watchdog", req);
@@ -15,11 +15,12 @@ Deno.serve(async (req) => {
 
   // Gate: service-role bearer OR internal cron secret. Never publicly callable.
   const auth = req.headers.get("Authorization") ?? "";
-  const providedSecret = req.headers.get("x-internal-secret") ?? "";
+  const providedSecret = req.headers.get("x-internal-secret") ?? req.headers.get("x-cron-secret") ?? "";
   const authorized =
     auth === `Bearer ${SERVICE_ROLE}` ||
     (INTERNAL_SECRET.length > 0 && providedSecret === INTERNAL_SECRET);
   if (!authorized) return h.fail("unauthorized", 401);
+
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
