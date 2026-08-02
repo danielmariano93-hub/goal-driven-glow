@@ -59,7 +59,66 @@ function supabaseForUser(ctx) {
 }
 
 // src/lib/engine/facts.ts
+function cashDateOf(t) {
+  return t.posted_at || t.competence_date || t.occurred_at;
+}
+function txOrigin(t) {
+  if (t.credit_card_id) return "credit_card";
+  const pm = (t.payment_method ?? "").toString().toLowerCase();
+  if (pm === "credit_card") return "credit_card";
+  return "account";
+}
 var round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+function computeAccountBalances(accounts, txs, snapshots = [], opts) {
+  const map = {};
+  const cutoff = {};
+  const asOf = opts?.asOf ?? null;
+  for (const a of accounts) map[a.id] = Number(a.opening_balance || 0);
+  const anchors = snapshots.filter((x) => !x.status || x.status === "confirmed").filter((x) => !asOf || x.balance_date <= asOf).sort((a, b) => a.balance_date.localeCompare(b.balance_date));
+  for (const s of anchors) {
+    map[s.account_id] = Number(s.balance);
+    cutoff[s.account_id] = s.balance_date;
+  }
+  const withinWindow = (accountId, t) => {
+    const d = cashDateOf(t);
+    if (cutoff[accountId] && d <= cutoff[accountId]) return false;
+    if (asOf && d > asOf) return false;
+    return true;
+  };
+  for (const t of txs) {
+    if (t.status !== "confirmed") continue;
+    if (t.type === "transfer") continue;
+    if (txOrigin(t) !== "account") continue;
+    if (!t.account_id) continue;
+    if (!withinWindow(t.account_id, t)) continue;
+    const amt = Number(t.amount || 0);
+    if (!map[t.account_id] && map[t.account_id] !== 0) map[t.account_id] = 0;
+    if (t.type === "income") map[t.account_id] += amt;
+    else if (t.type === "expense") map[t.account_id] -= amt;
+  }
+  const groups = {};
+  for (const t of txs) {
+    if (t.type !== "transfer" || t.status !== "confirmed" || !t.transfer_group_id) continue;
+    (groups[t.transfer_group_id] ||= []).push(t);
+  }
+  for (const legs of Object.values(groups)) {
+    if (legs.length < 2) continue;
+    const sorted = [...legs].sort((a, b) => a.id.localeCompare(b.id));
+    const src = sorted[0];
+    const dst = sorted[1];
+    if (!withinWindow(src.account_id, src)) continue;
+    if (!withinWindow(dst.account_id, dst)) continue;
+    const amt = Number(src.amount || 0);
+    map[src.account_id] = (map[src.account_id] || 0) - amt;
+    map[dst.account_id] = (map[dst.account_id] || 0) + amt;
+  }
+  for (const k of Object.keys(map)) map[k] = round2(map[k]);
+  return map;
+}
+function computeTotalCash(accounts, txs, snapshots = [], opts) {
+  const bals = computeAccountBalances(accounts, txs, snapshots, opts);
+  return round2(Object.values(bals).reduce((a, b) => a + b, 0));
+}
 function isInMonth(dateStr, ym) {
   return dateStr.startsWith(ym);
 }
@@ -103,6 +162,14 @@ function computeMonthlyTotals(txs, ym) {
   }
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
+function computeBehavioralExpense(txs, range) {
+  let expense = 0;
+  for (const t of txs) {
+    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    expense += behavioralMetricAmount(t, "expense");
+  }
+  return round2(expense);
+}
 function computeCategoryBreakdown(txs, categories, ym, type = "expense") {
   const byCat = {};
   for (const t of txs) {
@@ -131,6 +198,7 @@ function currentMonthYM(now = /* @__PURE__ */ new Date()) {
 }
 
 // src/lib/engine/bridges.ts
+var BRIDGE_FORMULA_VERSION = "cash_bridge.v1";
 var NEUTRAL = { performanceImpact: 0 };
 var MOVEMENT_SEMANTICS = {
   income: {
@@ -295,6 +363,233 @@ var MOVEMENT_SEMANTICS = {
     explanation: "Corre\xE7\xE3o para o saldo do app bater com o extrato do banco."
   }
 };
+function semanticsOf(t) {
+  if (t.settles_card_id) return MOVEMENT_SEMANTICS.card_payment;
+  const mk = String(t.movement_kind ?? "").trim();
+  if (mk && mk !== "transaction" && MOVEMENT_SEMANTICS[mk]) return MOVEMENT_SEMANTICS[mk];
+  if (t.type === "transfer") return MOVEMENT_SEMANTICS.internal_transfer;
+  if (t.type === "income") return MOVEMENT_SEMANTICS.income;
+  if (txOrigin(t) === "credit_card") return MOVEMENT_SEMANTICS.card_expense;
+  return MOVEMENT_SEMANTICS.expense;
+}
+function dayBefore(iso2) {
+  const [y, m, d] = iso2.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+var LINE_LABELS = {
+  operational_income: "Receitas recebidas",
+  operational_account_expense: "Gastos pagos pela conta",
+  investment_redemptions: "Resgates de investimentos",
+  investment_applications: "Aplica\xE7\xF5es em investimentos",
+  investment_yield_cash: "Rendimentos creditados",
+  external_transfers_in: "Transfer\xEAncias recebidas",
+  external_transfers_out: "Transfer\xEAncias enviadas",
+  internal_transfers_net: "Transfer\xEAncias entre suas contas",
+  loan_proceeds: "Empr\xE9stimos creditados",
+  debt_principal_payments: "Pagamentos de d\xEDvidas",
+  debt_interest_and_fees: "Juros e tarifas",
+  card_payments: "Pagamentos de fatura",
+  refunds_and_reimbursements: "Estornos e reembolsos",
+  adjustments: "Ajustes e concilia\xE7\xF5es"
+};
+function computeCashBridge(input) {
+  const { period } = input;
+  const scope = input.accountId ?? null;
+  const accounts = scope ? input.accounts.filter((a) => a.id === scope) : input.accounts;
+  const snapshots = (input.snapshots ?? []).filter((s) => !scope || s.account_id === scope);
+  const openingCash = computeTotalCash(accounts, input.txs, snapshots, { asOf: dayBefore(period.start) });
+  const confirmedClosingCash = computeTotalCash(accounts, input.txs, snapshots, { asOf: period.end });
+  const buckets = /* @__PURE__ */ new Map();
+  const bump = (line, amount, direction) => {
+    const cur = buckets.get(line) ?? { amount: 0, count: 0, direction };
+    cur.amount += Math.abs(amount);
+    cur.count += 1;
+    cur.direction = direction;
+    buckets.set(line, cur);
+  };
+  let transactionCount = 0;
+  let inferredCashDateCount = 0;
+  let internalNet = 0;
+  const transferGroups = /* @__PURE__ */ new Map();
+  for (const t of input.txs) {
+    if (t.status !== "confirmed") continue;
+    if (txOrigin(t) !== "account") continue;
+    const d = cashDateOf(t);
+    if (d < period.start || d > period.end) continue;
+    if (scope && t.account_id !== scope && t.type !== "transfer") continue;
+    if (t.type === "transfer" && t.transfer_group_id) {
+      const arr = transferGroups.get(t.transfer_group_id) ?? [];
+      arr.push(t);
+      transferGroups.set(t.transfer_group_id, arr);
+      continue;
+    }
+    const sem = semanticsOf(t);
+    if (sem.cashImpact === 0) continue;
+    transactionCount += 1;
+    if (!t.posted_at || t.posted_at_source === "inferred") inferredCashDateCount += 1;
+    bump(sem.bridgeLine, Number(t.amount || 0), sem.cashImpact);
+  }
+  for (const legs of transferGroups.values()) {
+    if (legs.length < 2) continue;
+    const sorted = [...legs].sort((a, b) => a.id.localeCompare(b.id));
+    const [src, dst] = sorted;
+    const amt = Number(src.amount || 0);
+    if (!scope) continue;
+    if (src.account_id === scope) internalNet -= amt;
+    if (dst.account_id === scope) internalNet += amt;
+  }
+  if (internalNet !== 0) {
+    bump("internal_transfers_net", internalNet, internalNet > 0 ? 1 : -1);
+  }
+  const get = (line) => round2(buckets.get(line)?.amount ?? 0);
+  const operationalIncome = get("operational_income");
+  const operationalAccountExpense = get("operational_account_expense");
+  const investmentRedemptions = get("investment_redemptions");
+  const investmentApplications = get("investment_applications");
+  const investmentYieldCash = get("investment_yield_cash");
+  const externalTransfersIn = get("external_transfers_in");
+  const externalTransfersOut = get("external_transfers_out");
+  const loanProceeds = get("loan_proceeds");
+  const debtPrincipalPayments = get("debt_principal_payments");
+  const debtInterestAndFees = get("debt_interest_and_fees");
+  const cardPayments = get("card_payments");
+  const refundsAndReimbursements = get("refunds_and_reimbursements");
+  const internalTransfersNet = round2(internalNet);
+  const movementsSum = round2(
+    operationalIncome - operationalAccountExpense + investmentRedemptions - investmentApplications + investmentYieldCash + externalTransfersIn - externalTransfersOut + internalTransfersNet + loanProceeds - debtPrincipalPayments - debtInterestAndFees - cardPayments + refundsAndReimbursements
+  );
+  const adjustments = round2(confirmedClosingCash - openingCash - movementsSum);
+  const calculatedClosingCash = round2(openingCash + movementsSum + adjustments);
+  const reconciliationDifference = round2(confirmedClosingCash - calculatedClosingCash);
+  const anchors = snapshots.filter((s) => !s.status || s.status === "confirmed").filter((s) => s.balance_date >= period.start && s.balance_date <= period.end);
+  const lastConfirmed = [...snapshots].filter((s) => !s.status || s.status === "confirmed").sort((a, b) => a.balance_date.localeCompare(b.balance_date)).pop();
+  let confidence = "high";
+  const tolerance = Math.max(50, Math.abs(confirmedClosingCash) * 0.05);
+  if (Math.abs(adjustments) > 0.01) confidence = "medium";
+  if (Math.abs(adjustments) > tolerance) confidence = "low";
+  const lines = [
+    ["operational_income", operationalIncome, 1],
+    ["operational_account_expense", operationalAccountExpense, -1],
+    ["refunds_and_reimbursements", refundsAndReimbursements, 1],
+    ["investment_redemptions", investmentRedemptions, 1],
+    ["investment_applications", investmentApplications, -1],
+    ["investment_yield_cash", investmentYieldCash, 1],
+    ["external_transfers_in", externalTransfersIn, 1],
+    ["external_transfers_out", externalTransfersOut, -1],
+    ["internal_transfers_net", Math.abs(internalTransfersNet), internalTransfersNet >= 0 ? 1 : -1],
+    ["loan_proceeds", loanProceeds, 1],
+    ["card_payments", cardPayments, -1],
+    ["debt_principal_payments", debtPrincipalPayments, -1],
+    ["debt_interest_and_fees", debtInterestAndFees, -1],
+    ["adjustments", Math.abs(adjustments), adjustments >= 0 ? 1 : -1]
+  ].filter(([, amount]) => Math.abs(amount) > 5e-3).map(([key, amount, direction]) => ({
+    key,
+    label: LINE_LABELS[key],
+    amount: round2(amount),
+    direction,
+    count: buckets.get(key)?.count ?? 0
+  }));
+  return {
+    formulaVersion: BRIDGE_FORMULA_VERSION,
+    period,
+    accountId: scope,
+    openingCash,
+    operationalIncome,
+    operationalAccountExpense,
+    investmentRedemptions,
+    investmentApplications,
+    externalTransfersIn,
+    externalTransfersOut,
+    internalTransfersNet,
+    loanProceeds,
+    debtPrincipalPayments,
+    debtInterestAndFees,
+    cardPayments,
+    refundsAndReimbursements,
+    adjustments,
+    calculatedClosingCash,
+    confirmedClosingCash,
+    reconciliationDifference,
+    confidence,
+    lines,
+    evidence: {
+      transactionCount,
+      inferredCashDateCount,
+      snapshotAnchorsInPeriod: anchors.length,
+      lastConfirmedSnapshot: lastConfirmed?.balance_date ?? null
+    }
+  };
+}
+function computePeriodPerformance(txs, period) {
+  let income = 0;
+  let refunds = 0;
+  for (const t of txs) {
+    if (t.status !== "confirmed") continue;
+    if (t.occurred_at < period.start || t.occurred_at > period.end) continue;
+    const sem = semanticsOf(t);
+    if (sem.performanceImpact !== 1) continue;
+    if (sem.bridgeLine === "refunds_and_reimbursements") {
+      refunds += Number(t.amount || 0);
+      continue;
+    }
+    income += Number(t.amount || 0);
+  }
+  const operationalIncome = round2(income);
+  const operationalExpense = round2(computeBehavioralExpense(txs, period));
+  const operationalResult = round2(operationalIncome - operationalExpense);
+  return {
+    period,
+    operationalIncome,
+    operationalExpense,
+    operationalResult,
+    operationalGap: operationalResult < 0 ? round2(-operationalResult) : 0,
+    savingsRate: operationalIncome > 0 ? round2(operationalResult / operationalIncome) : null,
+    refunds: round2(refunds)
+  };
+}
+var money = (n) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+function explainBalanceChange(bridge, performance) {
+  const steps = [];
+  steps.push(`Voc\xEA come\xE7ou o per\xEDodo com ${money(bridge.openingCash)} em conta.`);
+  if (bridge.operationalIncome > 0) steps.push(`Recebeu ${money(bridge.operationalIncome)} de receitas.`);
+  if (bridge.operationalAccountExpense > 0) steps.push(`Pagou ${money(bridge.operationalAccountExpense)} de gastos pela conta.`);
+  if (bridge.refundsAndReimbursements > 0) steps.push(`Recebeu ${money(bridge.refundsAndReimbursements)} em estornos e reembolsos.`);
+  if (bridge.investmentRedemptions > 0) steps.push(`Resgatou ${money(bridge.investmentRedemptions)} dos investimentos.`);
+  if (bridge.investmentApplications > 0) steps.push(`Aplicou ${money(bridge.investmentApplications)} em investimentos.`);
+  if (bridge.externalTransfersIn > 0) steps.push(`Recebeu ${money(bridge.externalTransfersIn)} em transfer\xEAncias.`);
+  if (bridge.externalTransfersOut > 0) steps.push(`Enviou ${money(bridge.externalTransfersOut)} em transfer\xEAncias.`);
+  if (bridge.loanProceeds > 0) steps.push(`Recebeu ${money(bridge.loanProceeds)} de cr\xE9dito \u2014 isso \xE9 d\xEDvida, n\xE3o receita.`);
+  if (bridge.cardPayments > 0) steps.push(`Pagou ${money(bridge.cardPayments)} de fatura do cart\xE3o (consumo j\xE1 contado antes).`);
+  if (bridge.debtPrincipalPayments > 0) steps.push(`Amortizou ${money(bridge.debtPrincipalPayments)} de d\xEDvidas.`);
+  if (bridge.debtInterestAndFees > 0) steps.push(`Pagou ${money(bridge.debtInterestAndFees)} de juros e tarifas.`);
+  if (Math.abs(bridge.adjustments) > 0.01) {
+    steps.push(
+      bridge.adjustments > 0 ? `Somamos ${money(bridge.adjustments)} de ajuste para bater com o extrato do banco.` : `Descontamos ${money(Math.abs(bridge.adjustments))} de ajuste para bater com o extrato do banco.`
+    );
+  }
+  steps.push(`Por isso terminou com ${money(bridge.confirmedClosingCash)} em conta.`);
+  const gap = performance?.operationalGap ?? 0;
+  const delta = round2(bridge.confirmedClosingCash - bridge.openingCash);
+  let headline;
+  let tone;
+  if (gap > 0) {
+    headline = `Gastos acima das receitas: ${money(gap)}`;
+    tone = "attention";
+  } else if (delta >= 0) {
+    headline = `Seu saldo em conta cresceu ${money(delta)}`;
+    tone = "positive";
+  } else {
+    headline = `Voc\xEA usou ${money(Math.abs(delta))} de recursos acumulados`;
+    tone = "neutral";
+  }
+  const body = [
+    steps.join(" "),
+    gap > 0 && bridge.confirmedClosingCash > 0 ? "Sua conta continua positiva porque havia saldo anterior e/ou movimenta\xE7\xF5es patrimoniais." : null
+  ].filter(Boolean).join(" ");
+  return { headline, body, tone, steps, confidence: bridge.confidence };
+}
 
 // src/lib/engine/cardExposure.ts
 var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
@@ -588,9 +883,11 @@ var monthly_summary_default = defineTool2({
     if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.", "unauthorized");
     const supabase = supabaseForUser(ctx);
     const target = month && /^\d{4}-\d{2}$/.test(month) ? month : currentMonth();
-    const [txRes, catRes] = await Promise.all([
-      supabase.from("transactions").select(TX_COLUMNS).like("occurred_at", `${target}%`),
-      supabase.from("categories").select("id, name, type")
+    const [txRes, catRes, accRes, snapRes] = await Promise.all([
+      supabase.from("transactions").select(TX_COLUMNS),
+      supabase.from("categories").select("id, name, type"),
+      supabase.from("accounts").select("id,name,type,opening_balance,active"),
+      supabase.from("account_balance_snapshots").select("account_id,balance,snapshot_date,source")
     ]);
     if (txRes.error) return errorResult(txRes.error.message, "internal");
     const txs = (txRes.data ?? []).map((t) => ({
@@ -614,6 +911,24 @@ var monthly_summary_default = defineTool2({
       name: String(c.name ?? ""),
       type: c.type ?? "expense"
     }));
+    const accounts = (accRes.data ?? []).map((a) => ({
+      id: String(a.id),
+      name: String(a.name ?? ""),
+      type: String(a.type ?? "checking"),
+      opening_balance: Number(a.opening_balance ?? 0),
+      active: Boolean(a.active ?? true)
+    }));
+    const snapshots = (snapRes.data ?? []).map((s2) => ({
+      account_id: String(s2.account_id ?? ""),
+      balance: Number(s2.balance ?? 0),
+      snapshot_date: String(s2.snapshot_date ?? ""),
+      source: s2.source ?? null
+    }));
+    const lastDay = new Date(Date.UTC(Number(target.slice(0, 4)), Number(target.slice(5, 7)), 0)).getUTCDate();
+    const period = { start: `${target}-01`, end: `${target}-${String(lastDay).padStart(2, "0")}` };
+    const bridge = computeCashBridge({ accounts, txs, snapshots, period });
+    const performance = computePeriodPerformance(txs, period);
+    const explanation = explainBalanceChange(bridge, performance);
     const totals = computeMonthlyTotals(txs, target);
     const breakdown = computeCategoryBreakdown(txs, categories, target, "expense");
     const top = breakdown.slice(0, 5);
@@ -623,7 +938,13 @@ var monthly_summary_default = defineTool2({
       `Despesas: ${brl(totals.expense)}`,
       `Saldo do per\xEDodo: ${brl(totals.net)}`,
       top.length ? "\nMaiores gastos por categoria:" : "\nNenhuma despesa registrada no per\xEDodo.",
-      ...top.map((c) => `- ${c.name}: ${brl(c.amount)}`)
+      ...top.map((c) => `- ${c.name}: ${brl(c.amount)}`),
+      "",
+      "Como o saldo se formou (ponte de caixa):",
+      `Saldo inicial: ${brl(bridge.openingCash)} \u2192 Saldo final: ${brl(bridge.confirmedClosingCash)}`,
+      explanation.headline,
+      ...explanation.lines.map((l) => `- ${l}`),
+      Math.abs(bridge.reconciliationDifference) > 0.01 ? `Aten\xE7\xE3o: reconcilia\xE7\xE3o pendente de ${brl(bridge.reconciliationDifference)} \u2014 n\xE3o afirme o saldo como exato.` : "Ponte reconciliada (diferen\xE7a \u2264 R$ 0,01)."
     ];
     return ok(lines.join("\n"), {
       month: target,
@@ -631,6 +952,30 @@ var monthly_summary_default = defineTool2({
       expense: totals.expense,
       balance: totals.net,
       top_categories: top.map((c) => ({ name: c.name, total: c.amount, share: c.share })),
+      cash_bridge: {
+        opening_cash: bridge.openingCash,
+        closing_cash: bridge.confirmedClosingCash,
+        operational_income: bridge.operationalIncome,
+        operational_account_expense: bridge.operationalAccountExpense,
+        investment_redemptions: bridge.investmentRedemptions,
+        investment_applications: bridge.investmentApplications,
+        card_payments: bridge.cardPayments,
+        loan_proceeds: bridge.loanProceeds,
+        debt_principal_payments: bridge.debtPrincipalPayments,
+        external_transfers_in: bridge.externalTransfersIn,
+        external_transfers_out: bridge.externalTransfersOut,
+        refunds_and_reimbursements: bridge.refundsAndReimbursements,
+        adjustments: bridge.adjustments,
+        reconciliation_difference: bridge.reconciliationDifference,
+        confidence: bridge.confidence
+      },
+      period_performance: {
+        operational_income: performance.operationalIncome,
+        operational_expense: performance.operationalExpense,
+        operational_result: performance.operationalResult,
+        used_accumulated_resources: performance.usedAccumulatedResources
+      },
+      balance_explanation: { headline: explanation.headline, lines: explanation.lines },
       formula_version: FINANCE_CONTRACT_VERSION
     });
   }
