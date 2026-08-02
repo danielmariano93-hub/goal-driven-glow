@@ -336,3 +336,11 @@
     background-size: 32px 32px;
   }
 }
+
+/* Impressão / PDF dos Relatórios Inteligentes */
+@media print {
+  aside, nav, header button, .print\:hidden { display: none !important; }
+  body { background: #fff !important; }
+  #report-print-area { padding: 0 !important; }
+  #report-print-area section { break-inside: avoid; box-shadow: none !important; }
+}

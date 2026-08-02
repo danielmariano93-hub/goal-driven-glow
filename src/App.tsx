@@ -30,6 +30,8 @@ const Metas = lazy(() => import("./pages/Metas"));
 const Dividas = lazy(() => import("./pages/Dividas"));
 const Planejamento = lazy(() => import("./pages/Planejamento"));
 const Relatorios = lazy(() => import("./pages/Relatorios"));
+const RelatoriosInteligentes = lazy(() => import("./pages/RelatoriosInteligentes"));
+const RelatorioInteligenteDetalhe = lazy(() => import("./pages/RelatorioInteligenteDetalhe"));
 const Emocoes = lazy(() => import("./pages/Emocoes"));
 const Perfil = lazy(() => import("./pages/Perfil"));
 const Investimentos = lazy(() => import("./pages/Investimentos"));
@@ -113,6 +115,8 @@ const App = () => (
                 <Route path="metas-conjuntas" element={<MetasConjuntas />} />
                 <Route path="metas-conjuntas/:id" element={<MetaConjuntaDetalhe />} />
                 <Route path="relatorios" element={<Relatorios />} />
+                <Route path="relatorios-inteligentes" element={<RelatoriosInteligentes />} />
+                <Route path="relatorios-inteligentes/:id" element={<RelatorioInteligenteDetalhe />} />
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
                 <Route path="perfil" element={<Perfil />} />
