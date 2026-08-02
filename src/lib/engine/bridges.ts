@@ -382,12 +382,13 @@ export function computeCashBridge(input: CashBridgeInput): CashBridge {
     .sort((a, b) => a.balance_date.localeCompare(b.balance_date))
     .pop();
 
-  const inferredShare = transactionCount > 0 ? inferredCashDateCount / transactionCount : 0;
+  // Confiança = qualidade da RECONCILIAÇÃO. A ausência de `posted_at` fica
+  // registrada em `evidence` (inferredCashDateCount) mas só derruba a confiança
+  // quando também há divergência de saldo — caso contrário a equação já fechou.
   let confidence: BridgeConfidence = "high";
-  if (Math.abs(adjustments) > 0.01 || inferredShare > 0.5) confidence = "medium";
-  if (Math.abs(adjustments) > Math.max(50, Math.abs(confirmedClosingCash) * 0.05) || inferredShare > 0.9) {
-    confidence = "low";
-  }
+  const tolerance = Math.max(50, Math.abs(confirmedClosingCash) * 0.05);
+  if (Math.abs(adjustments) > 0.01) confidence = "medium";
+  if (Math.abs(adjustments) > tolerance) confidence = "low";
 
   const lines: CashBridgeLineValue[] = ([
     ["operational_income", operationalIncome, 1],

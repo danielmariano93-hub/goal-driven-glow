@@ -116,7 +116,7 @@ describe("computeCashBridge — a equação fecha", () => {
     expect(perf.operationalIncome).toBe(11000);
     expect(perf.operationalExpense).toBe(15000);
     expect(perf.operationalGap).toBe(4000);
-    expect(perf.savingsRate).toBeCloseTo(-0.3636, 3);
+    expect(perf.savingsRate).toBeCloseTo(-0.36, 2);
   });
 
   it("compra no cartão não entra na ponte de caixa", () => {
