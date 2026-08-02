@@ -455,6 +455,13 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     const { data, error } = await (supabase as any).rpc("force_reconcile_credit_card_statement", {
       p_statement_id: current.id,
       p_justification: justification,
+      p_reason_code: reasonCode,
+      p_evidence: {
+        reference: evidenceRef.trim(),
+        source_document_id: current.source_document_id ?? null,
+        difference: Math.abs(difference),
+        registered_at: new Date().toISOString(),
+      },
     });
     setStatementAction(null);
     if (error || !data?.ok) {
@@ -463,9 +470,12 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     }
     setForcing(false);
     setJustification("");
+    setReasonCode("");
+    setEvidenceRef("");
     await afterMutation();
     toast.success("Conciliação fechada com ajuste registrado", { description: `Ajuste de ${formatBRL(Math.abs(Number(data.adjustment ?? 0)))} com trilha de auditoria.` });
   }
+
 
   async function approveStatement() {
     setStatementAction("approve");
