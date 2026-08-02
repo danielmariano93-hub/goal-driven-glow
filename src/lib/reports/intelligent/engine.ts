@@ -298,7 +298,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
       else if (isEssentialCategory(cat)) essential = round2(essential + exp);
       if (!biggest || exp > biggest.amount) {
         biggest = {
-          description: (t.friendly_description || t.description || cat || "Lançamento").slice(0, 80),
+          description: (((t as { friendly_description?: string | null }).friendly_description) || t.description || cat || "Lançamento").slice(0, 80),
           amount: exp,
           date: t.occurred_at,
           category: cat,
