@@ -3748,6 +3748,107 @@ export type Database = {
         }
         Relationships: []
       }
+      financial_cash_bridges: {
+        Row: {
+          account_id: string | null
+          adjustments: number
+          calculated_closing_cash: number
+          card_payments: number
+          computed_at: string
+          confidence: string
+          confirmed_closing_cash: number
+          created_at: string
+          debt_interest_and_fees: number
+          debt_principal_payments: number
+          evidence: Json
+          external_transfers_in: number
+          external_transfers_out: number
+          formula_version: string
+          id: string
+          internal_transfers_net: number
+          investment_applications: number
+          investment_redemptions: number
+          loan_proceeds: number
+          opening_cash: number
+          operational_account_expense: number
+          operational_income: number
+          period_end: string
+          period_start: string
+          reconciliation_difference: number
+          refunds_and_reimbursements: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          adjustments?: number
+          calculated_closing_cash?: number
+          card_payments?: number
+          computed_at?: string
+          confidence?: string
+          confirmed_closing_cash?: number
+          created_at?: string
+          debt_interest_and_fees?: number
+          debt_principal_payments?: number
+          evidence?: Json
+          external_transfers_in?: number
+          external_transfers_out?: number
+          formula_version?: string
+          id?: string
+          internal_transfers_net?: number
+          investment_applications?: number
+          investment_redemptions?: number
+          loan_proceeds?: number
+          opening_cash?: number
+          operational_account_expense?: number
+          operational_income?: number
+          period_end: string
+          period_start: string
+          reconciliation_difference?: number
+          refunds_and_reimbursements?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          adjustments?: number
+          calculated_closing_cash?: number
+          card_payments?: number
+          computed_at?: string
+          confidence?: string
+          confirmed_closing_cash?: number
+          created_at?: string
+          debt_interest_and_fees?: number
+          debt_principal_payments?: number
+          evidence?: Json
+          external_transfers_in?: number
+          external_transfers_out?: number
+          formula_version?: string
+          id?: string
+          internal_transfers_net?: number
+          investment_applications?: number
+          investment_redemptions?: number
+          loan_proceeds?: number
+          opening_cash?: number
+          operational_account_expense?: number
+          operational_income?: number
+          period_end?: string
+          period_start?: string
+          reconciliation_difference?: number
+          refunds_and_reimbursements?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_cash_bridges_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_current_snapshots: {
         Row: {
           account_consumption: number
@@ -4025,6 +4126,90 @@ export type Database = {
           },
         ]
       }
+      financial_net_worth_bridges: {
+        Row: {
+          closing_cash: number
+          closing_debts: number
+          closing_investments: number
+          closing_net_worth: number
+          computed_at: string
+          confidence: string
+          created_at: string
+          debt_principal_change: number
+          evidence: Json
+          formula_version: string
+          id: string
+          interest_and_fees: number
+          investment_applications: number
+          investment_redemptions: number
+          investment_return: number
+          opening_cash: number
+          opening_debts: number
+          opening_investments: number
+          opening_net_worth: number
+          operational_result: number
+          period_end: string
+          period_start: string
+          updated_at: string
+          user_id: string
+          valuation_adjustments: number
+        }
+        Insert: {
+          closing_cash?: number
+          closing_debts?: number
+          closing_investments?: number
+          closing_net_worth?: number
+          computed_at?: string
+          confidence?: string
+          created_at?: string
+          debt_principal_change?: number
+          evidence?: Json
+          formula_version?: string
+          id?: string
+          interest_and_fees?: number
+          investment_applications?: number
+          investment_redemptions?: number
+          investment_return?: number
+          opening_cash?: number
+          opening_debts?: number
+          opening_investments?: number
+          opening_net_worth?: number
+          operational_result?: number
+          period_end: string
+          period_start: string
+          updated_at?: string
+          user_id: string
+          valuation_adjustments?: number
+        }
+        Update: {
+          closing_cash?: number
+          closing_debts?: number
+          closing_investments?: number
+          closing_net_worth?: number
+          computed_at?: string
+          confidence?: string
+          created_at?: string
+          debt_principal_change?: number
+          evidence?: Json
+          formula_version?: string
+          id?: string
+          interest_and_fees?: number
+          investment_applications?: number
+          investment_redemptions?: number
+          investment_return?: number
+          opening_cash?: number
+          opening_debts?: number
+          opening_investments?: number
+          opening_net_worth?: number
+          operational_result?: number
+          period_end?: string
+          period_start?: string
+          updated_at?: string
+          user_id?: string
+          valuation_adjustments?: number
+        }
+        Relationships: []
+      }
       financial_reconciliation_audit: {
         Row: {
           actor_id: string | null
@@ -4081,6 +4266,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      financial_report_deletions: {
+        Row: {
+          deleted_at: string
+          deliveries_deleted: number
+          highlights_deleted: number
+          id: string
+          metrics_deleted: number
+          period_end: string | null
+          period_start: string | null
+          report_id: string
+          report_type: string | null
+          user_id: string
+        }
+        Insert: {
+          deleted_at?: string
+          deliveries_deleted?: number
+          highlights_deleted?: number
+          id?: string
+          metrics_deleted?: number
+          period_end?: string | null
+          period_start?: string | null
+          report_id: string
+          report_type?: string | null
+          user_id: string
+        }
+        Update: {
+          deleted_at?: string
+          deliveries_deleted?: number
+          highlights_deleted?: number
+          id?: string
+          metrics_deleted?: number
+          period_end?: string | null
+          period_start?: string | null
+          report_id?: string
+          report_type?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       financial_report_deliveries: {
         Row: {
@@ -8568,6 +8792,7 @@ export type Database = {
         Args: { p_item_id: string }
         Returns: Json
       }
+      delete_financial_report: { Args: { p_report_id: string }; Returns: Json }
       discard_credit_card_statement: {
         Args: { p_statement_id: string }
         Returns: Json
@@ -9076,6 +9301,8 @@ export type Database = {
         }
         Returns: Json
       }
+      upsert_cash_bridge: { Args: { p_bridge: Json }; Returns: string }
+      upsert_net_worth_bridge: { Args: { p_bridge: Json }; Returns: string }
       user_cancel_deletion_request: {
         Args: { p_id: string }
         Returns: undefined
