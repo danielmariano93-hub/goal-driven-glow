@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 // shim determinístico do formatador (Deno não tem contexto de privacidade da UI)
 const formatPrivateBRL = (n: number): string =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));

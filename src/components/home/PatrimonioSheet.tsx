@@ -41,11 +41,12 @@ export function PatrimonioSheet({
           <Row icon={<Wallet size={14} />} label="Em conta" value={Math.max(0, cash)} tone="positive" />
           <Row icon={<LineChart size={14} />} label="Investido" value={invested} tone="positive" />
           <div className="flex items-center justify-between rounded-[18px] bg-primary/8 px-4 py-3">
-            <span className="text-sm font-semibold text-foreground">Total guardado</span>
+            <span className="text-sm font-semibold text-foreground">Seus recursos hoje</span>
             <span className="font-display text-lg font-bold tabular-nums text-foreground">{formatBRL(assets)}</span>
           </div>
           <p className="px-1 pt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Suas dívidas não reduzem o valor que você guardou. Elas aparecem separadas abaixo para mostrar sua posição líquida.
+            "Seus recursos hoje" é o dinheiro em conta somado ao investido. Suas obrigações aparecem
+            separadas abaixo para mostrar a posição líquida — dívida não reduz o que você já guardou.
           </p>
           {accountOverdraft > 0 && <Row icon={<TrendingDown size={14} />} label="Saldo negativo em conta" value={-accountOverdraft} tone="negative" />}
           <Row

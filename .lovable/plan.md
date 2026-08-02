@@ -1,124 +1,91 @@
-# Plano único e final — Verdade de caixa bancária, reparo dos dados do Daniel e prevenção de recorrência
+# Visão Financeira Completa e Reconciliável — `finance_contract.v4`
 
-Decisões do usuário (1–6) incorporadas. Nada implementado nesta rodada.
+## 1. Diagnóstico do estado atual (verificado em leitura)
 
-## 1. Diagnóstico confirmado (leitura de código e banco)
+- `src/lib/engine/facts.ts` (756 linhas) já tem: `cashDateOf` (posted_at), `computeAccountBalances` ancorado em snapshot, `EXCLUDED_MOVEMENT_KINDS`, `EXTERNAL_TRANSFER_KINDS`, `computeAccountStatementTotals` (bruto), `computeNetWorth`, `computeMonthlyIncomeExpense`. Falta: decomposição por natureza de movimento, ponte de caixa fechada, ponte patrimonial, posição inicial/final de investimentos e dívidas.
+- `src/lib/ledger/canonical.ts` já define 13 `movement_kind` com `cash_effect` / `result_effect` / `liability_effect`. Falta `investmentImpact` e `netWorthImpact` explícitos, e o mapa não é reutilizado nas leituras (só na ingestão).
+- `metrics.ts` expõe `FINANCE_CONTRACT_VERSION = finance_contract.v3` e `computeFinancialSnapshot` (posição atual + ritmo). Não produz blocos B/C/D.
+- `PonteCaixaCard.tsx` é uma ponte **derivada** (`opening = closing − income + expense`), não uma ponte reconciliada por natureza — é o gap central da pergunta 3.
+- `Relatorios.tsx` (234 linhas) mostra "Resultado do período" isolado; sem saldo inicial/final nem bloco patrimonial.
+- Relatórios inteligentes: `ReportPayload.totals` não tem opening/closing nem naturezas; `healthBreakdown` pune saldo negativo do período; **não existe exclusão** de relatório.
+- MCP `financial_position` cobre só cartões/dívidas/metas.
+- `pulse-compute`, insights e Nino consomem income/expense — não distinguem caixa vs. patrimônio.
 
-Banco:
-- `public.transactions` tem 40 colunas e **não possui `posted_at`** (só `occurred_at`, `purchase_date`, `competence_date`). Impossível hoje separar data econômica de data bancária.
-- Snapshots da conta Itaú: `380b5a34…` 18/07/2026 R$ 139,95 `confirmed` (source `manual`) e `629b7088…` 20/07/2026 R$ 49,91 **`pending_review`** (extrato oficial diz R$ 39,97 nesse dia).
-- Investimentos: `CDB DI Itaú` R$ 5.576,79 (ref. 18/07), `Fundo de Investimentos` R$ 3.000,00 e o duplicado **`CDB DI` R$ 0,00 (ref. 31/07)**.
-- 373 transações no usuário; `extracted_items` usa `document_id` + `idx`, **sem** `posted_at`, `external_id` ou `source_line_index`.
+## 2. Modelo canônico novo (núcleo do trabalho)
 
-Código:
-- `src/lib/engine/facts.ts:122-165` (`computeAccountBalances`): âncora = snapshot confirmado, corte por **`occurred_at <= cutoff`**, soma income/expense por `occurred_at`. Reproduz exatamente R$ 2.447,58 (139,95 + 2.307,63). Espelhado em `supabase/functions/_shared/finance-core/facts.ts` via `scripts/sync-finance-core.mjs`.
-- `tf_transactions_investment_link` (lido de `pg_proc`): canonicaliza para o literal `'CDB DI'` quando a descrição contém “CDB”, casa por `name ILIKE`, e **cria investimento zerado com `applied=true`** quando não acha; `GREATEST(0, current_value - amount)` faz o resgate “sumir”. Não trata `UPDATE` de valor/kind.
-- `_shared/import/dedupe.ts`: classifica por tipo+valor+janela+comerciante, **sem chave documental** (`document_id+idx`/`external_id`); `import/schema.ts` não tem o estado `repeated_legitimate`. Daí o colapso de linhas legítimas repetidas (2× R$ 600, 2× Uber R$ 12,95).
+Novo módulo `src/lib/engine/bridges.ts` (espelhado para Edge por `scripts/sync-finance-core.mjs`):
 
-A verificar como passo 0 da execução (read-only): as 42 linhas do lote `6e768b47-…`, vínculos do reembolso R$ 135,31 (`shared_expense_id`, contribuições de metas), e alocações existentes do `card_payment` de R$ 4.636,08.
+- `MOVEMENT_SEMANTICS`: mapa único `movement_kind × type →` `{ cashImpact, performanceImpact, investmentImpact, debtImpact, netWorthImpact, bridgeLine }`. Substitui toda classificação ad-hoc.
+- `computeCashBridge({accounts, txs, snapshots, period})` → linhas: `opening_cash`, `operational_income`, `operational_account_expense`, `investment_redemptions`, `investment_applications`, `external_transfers_in/out`, `internal_transfers_net`, `loan_proceeds`, `debt_principal_payments`, `debt_interest_and_fees`, `card_payments`, `refunds_and_reimbursements`, `adjustments`, `calculated_closing_cash`, `confirmed_closing_cash`, `reconciliation_difference`, `confidence`, `formula_version`, `evidence`. Windowing por `cashDateOf` (posted_at → occurred_at).
+- `computeNetWorthBridge(...)` → `opening_*`, `operational_result`, `investment_return`, `applications/redemptions`, `debt_principal_change`, `interest_and_fees`, `valuation_adjustments`, `closing_*`, `reconciliation_difference`.
+- `computePeriodPerformance(...)` → receitas reais, gastos reais líquidos de estorno, `operational_gap`, taxa de sobra — nenhum movimento patrimonial incluído.
+- `explainBalanceChange(bridge)` → texto determinístico em PT-BR (template com os números reais, sem LLM), mais `tone` e `headline` orientados a leigo.
+- Invariantes com tolerância de 1 centavo; divergência vira `reconciliation_difference` + `confidence: low`.
 
-## 2. Migrations
+`metrics.ts`: `FINANCE_CONTRACT_VERSION = "finance_contract.v4"`; `computeFinancialSnapshot` passa a devolver `{ currentPosition, periodPerformance, cashBridge, netWorthBridge }` mantendo os campos atuais como aliases (compatibilidade).
 
-**M1 — `posted_at` com qualidade de origem (decisão 6)**
-- `transactions`: `ADD COLUMN posted_at date`, `ADD COLUMN posted_at_source text` (`statement | import | inferred | manual`).
-- `extracted_items`: `ADD COLUMN posted_at date, posted_at_source text, external_id text, source_line_index int`.
-- Backfill provisório idempotente: `posted_at = occurred_at`, `posted_at_source = 'inferred'` apenas onde nulo. Itens de cartão ficam com `posted_at` nulo (não movem caixa).
-- Todo o período do extrato (03/07–02/08) e os itens de maior impacto recebem `posted_at` real (`statement`) no reparo, **antes** da reconciliação.
-- Índices: `transactions(user_id, account_id, posted_at)`, `extracted_items(document_id, source_line_index)`; trigger de validação `posted_at >= occurred_at - 5 dias`.
+## 3. Migrations
 
-**M2 — transferências externas (decisão 4)**
-- `external_transfer_in` / `external_transfer_out` no vocabulário de `movement_kind` (constraint atualizada), incluídos no conjunto neutro em resultado em `src/lib/ledger/canonical.ts` e no espelho `_shared/ledger/canonical.ts`. Afetam caixa; **não** entram em renda/despesa comportamental; **não** usam `transfer_group_id` nem geram duas pernas (distintas de transferência entre contas próprias).
+1. `financial_cash_bridges` — todas as colunas listadas no pedido + `formula_version`, `evidence jsonb`, `confidence`, `computed_at`, `unique(user_id, account_id, period_start, period_end, formula_version)`. GRANT `authenticated` (SELECT/INSERT/UPDATE/DELETE) + `service_role` ALL; RLS por `auth.uid()`.
+2. `financial_net_worth_bridges` — colunas de abertura/fechamento e variações; mesmos GRANT/RLS.
+3. `financial_report_metrics`: garantir as 22 chaves canônicas (registro em `intelligence_metric_registry`).
+4. `report_deletion_audit` (ou reuso de `platform_admin_audit` com `scope='report'`) + RPC `delete_financial_report(p_report_id uuid)` `SECURITY DEFINER` que valida `user_id = auth.uid()` e apaga em transação `financial_report_metrics`, `financial_report_highlights`, `financial_report_deliveries` e o relatório, gravando auditoria.
+5. RPC `upsert_cash_bridge` / `upsert_net_worth_bridge` (service_role + owner) usadas pelas Edge Functions.
+6. Backfill: recomputa pontes dos últimos 13 meses por usuário a partir de `transactions` + `account_balance_snapshots` (idempotente por unique key).
+7. `movement_kind` sem valor em transações antigas: inferência conservadora (`settles_card_id` → `card_payment`; contrapartida de investimento → application/redemption; resto → `transaction`), gravando `movement_kind_source='inferred'`.
 
-**M3 — estados explícitos de importação**
-- `extracted_items.status`: `ready_to_import | repeated_legitimate | probable_duplicate | exact_duplicate | needs_review | confirmed | rejected`.
-- Trigger impedindo `document_imports.status='completed'` com qualquer item sem estado final.
+## 4. Alterações por tela
 
-**M4 — trigger de investimentos reescrito**
-- Matching por nome normalizado (unaccent+lower, remoção de instituição), tabela nova `investment_aliases(user_id, investment_id, alias)`, categoria e similaridade `pg_trgm` (limiar ≥ 0,55): “CDB DI”, “CDB DI Itaú”, “RESGATE CDB DI” = mesmo ativo.
-- **Nunca** cria investimento zerado para resgate; sem match seguro → `investment_movements.applied=false` + revisão, sem alterar saldos.
-- Resgate acima do `current_value` → `applied=false` + revisão.
-- Unicidade em `investment_movements(transaction_id)`; `UPDATE` reverte delta antigo e aplica novo; `DELETE` reverte só se `applied=true`.
+**Home** (`Index.tsx`, `HeroDisponivelCard`, `PatrimonioSheet`, `PonteCaixaCard`, `PrevisaoFechamentoCard`, `RitmoCard`, `RitmoGastosCard`)
+- "Disponível hoje" ganha selo "não muda com o período".
+- `PonteCaixaCard` reescrito sobre `computeCashBridge`: cascata resumida (início → naturezas agrupadas → final) + link "Entenda como esse saldo foi formado" abrindo sheet com a ponte completa e a explicação determinística.
+- `PatrimonioSheet`: "Total guardado" → "Seus recursos hoje"; blocos Dinheiro em conta / Investido / Recursos totais / Obrigações (fatura aberta + dívidas) / Parcelas futuras (compromisso) / Patrimônio líquido.
+- `PrevisaoFechamentoCard`: premissas explícitas (saldo atual, receitas previstas, compromissos, fatura, projeção de consumo, movimentações patrimoniais programadas).
 
-**M5 — snapshots e reconciliação**
-- Status `superseded` em `account_balance_snapshots` (decisão 3).
-- RPC `reconcile_account_from_statement(account_id, balance_date, balance, source, period_start, period_end, issued_at)`: grava snapshot `confirmed`, marca conflitantes como `superseded`, registra em `financial_reconciliation_audit`.
+**Relatórios tradicionais** (`Relatorios.tsx`, `lib/reports/aggregations.ts`) — quatro blocos A/B/C/D; tabela mensal → cards expansíveis mobile-first com saldo inicial, receitas, gastos, movimentações patrimoniais, pagamentos financeiros, saldo final e divergência; copy sem "Resultado: −R$ X".
 
-## 3. Contratos e tipos
+**Relatórios inteligentes** (`reports/intelligent/{types,engine,highlights,narrative,numericGuard}.ts`, `ReportMetricsGrid`, `ReportCharts`, `RelatoriosInteligentes.tsx`, `RelatorioInteligenteDetalhe.tsx`, `financial-reports-generate`)
+- `ReportPayload` ganha `cashBridge`, `netWorthBridge`, `position`; as 22 métricas canônicas persistidas.
+- `healthBreakdown` passa a 6 dimensões (rotina, liquidez, compromissos, patrimônio, dívidas, qualidade dos dados); uso planejado de reserva não penaliza.
+- Novas famílias de highlight de ponte; `mergeHighlights` mantém dedupe por família.
+- `REPORT_TEMPLATE_VERSION` → `report_template.v3` (auto-heal já existente regenera relatórios antigos).
+- **Exclusão**: botão em listagem e detalhe, `AlertDialog` de confirmação, chamada da RPC, `invalidateFinancialQueries` + remoção otimista, toast.
 
-- `finance_contract.v3`: `TransactionRow.posted_at?: string | null`; helper canônico `cashDateOf(t) = t.posted_at ?? t.competence_date ?? t.occurred_at`.
-- `import_item.v2`: `posted_at` (nullable) + `posted_at_source`, `source_document_id`, `source_line_index`, `external_id`, status `repeated_legitimate`.
-- `DupeVerdict` ganha `repeated_legitimate` e recebe a chave de identidade documental.
+**Contas** (`Contas.tsx`) — por conta: saldo atual, última conciliação, origem, confiança, calculado pós-snapshot, diferença, histórico; aba "Movimentação do período" (inicial, créditos, débitos, final, divergência).
 
-## 4. Código
+**Lançamentos** (`Lancamentos.tsx`, `LancamentoDetalhe.tsx`) — badge de natureza a partir de `MOVEMENT_SEMANTICS` + painel "O que isso afeta" (caixa / resultado / investimento / dívida / patrimônio) e datas econômica vs. bancária.
 
-**Motor de caixa** (`src/lib/engine/facts.ts` + espelho, via `scripts/sync-finance-core.mjs`):
-- Âncora = snapshot **`confirmed`** mais recente com `balance_date <= asOf`; `pending_review`/`superseded` ignorados.
-- Aplica só transações confirmadas de origem conta com `cashDateOf(t) > cutoff` **e** `cashDateOf(t) <= asOf`; pernas de transferência própria também por `cashDateOf`.
-- `card_payment` reduz caixa uma vez e não é consumo; aplicação/resgate afetam caixa e investimentos, não consumo; `external_transfer_*` afetam caixa e não são renda/despesa; estorno afeta caixa por `posted_at` e abate consumo por `occurred_at`.
-- Comportamento, categorias, ritmo e relatórios seguem em `occurred_at` — sem mudança.
-- Consumidores unificados: `useFinancialSnapshot`, `pulse-compute`, `reports-core/engine.ts`, MCP (`financial-position`, `monthly-summary`).
+**Investimentos** (`Investimentos.tsx`) — por ativo: saldo inicial, aplicações, resgates, rentabilidade, saldo final; explicação de efeito patrimonial neutro; endurecer matching de alias (normalização + `investment_aliases`) para não criar ativo zerado duplicado.
 
-**Importador único (PDF/JSON/CSV/OFX)** (`_shared/import/{schema,dedupe,stage,commit}.ts`, `assistant-ingest-document`, `BulkEntry.ts`, `src/lib/import/{csv,ofx}.ts`, `assistant-review-actions`, `ReviewSheet.tsx`):
-- Identidade: `external_id` → `document_id + source_line_index`. Linhas repetidas do mesmo documento nunca colapsam entre si; comparação apenas contra transações pré-existentes, com consumo 1:1.
-- Grava `occurred_at` (econômica) e `posted_at` (bancária, `posted_at_source='statement'`) separadamente.
-- Confirmação individual ou em lote de `needs_review`; resposta sempre com `criados / ignorados / em revisão / falhos`; nunca “sucesso completo” em importação parcial; `completed` só com todos os itens em estado final.
+**Cartões / Dívidas / Metas** — semântica unificada (compra = consumo + obrigação, pagamento = caixa + obrigação); dívidas separam principal, saldo, amortização, juros/tarifas; metas separam contribuição registrada, dinheiro reservado, investimento vinculado e saldo em conta, com guarda anti-dupla-contagem.
 
-## 5. Reparo dos dados (SQL transacional e idempotente — descrito, não executado)
+**Insights** (`insights-generate`, `insights/fallbacks.ts`) — 11 novas famílias listadas no pedido, cada uma com evidência numérica e distinção caixa/resultado/patrimônio.
 
-Uma transação única; cada bloco guardado por `WHERE NOT EXISTS`, com `notes` marcada `REPAIR-2026-08-02` e linha do extrato, e entrada em `financial_reconciliation_audit`.
+**Nino / WhatsApp / Agente** (`AgentCore`, `IntentRouter`, `tools.ts`, `ResponseValidator`) — 4 intents novas (posição, rotina, formação do saldo, variação patrimonial); validador bloqueia resposta de saldo/patrimônio derivada de `income − expense`.
 
-- **R1 — 13/07 PIX (efeito líquido zero, três movimentos reais):** 2× +600,00 `external_transfer_in` (PIX TRANSF VERA LU) e 1× −1.200,00 `external_transfer_out` (PIX TRANSF LUCI HA), `occurred_at=2026-07-11`, `posted_at=2026-07-13` (`statement`), `external_id = stmt:2026-07-13:<idx>` distintos.
-- **R2 — 23/07 Uber:** inserir a segunda despesa real R$ 12,95 com `external_id` próprio; despesa + estorno existentes preservados; líquido −12,95.
-- **R3 — 31/07 needs_review:** materializar +2.802,03 `external_transfer_in` (não é renda comportamental) e −3.760,82 despesa real (L S PRADO, categoria Serviços, `payment_method=account`), `posted_at=2026-07-31`; itens de staging correspondentes → `confirmed` com `transaction_id` vinculado.
-- **R4 — pagamentos de fatura (decisão 5):** corrigir `709237d7…` para R$ 4.639,73 com `occurred_at/posted_at=2026-07-27`, mantendo `movement_kind=card_payment` e `settles_card_id`; inserir os quatro parciais (300,00 em 22/07; 50,00 e 220,00 em 23/07; 200,00 em 31/07). Se a alocação interna da fatura permanecer em R$ 4.636,08, a diferença de **R$ 3,65** é registrada em `financial_reconciliation_audit` como `manual_review` — sem classificar como consumo, juros ou tarifa, sem ajuste fictício e sem distorcer o caixa. Nenhuma reabertura artificial da fatura.
-- **R5 — reembolso R$ 135,31 (decisão 1):** verificar `shared_expense_id`, `shared_goal_contributions`, `goal_contributions`. Sem evidência → `status='planned'` + nota de auditoria (sai do caixa, permanece rastreável). Nenhuma exclusão física. O R$ 135,30 de 30/07 (PIX LINCOLN) é preservado intacto.
-- **R6 — Farmácia R$ 60,01 (decisão 2):** remover `account_id`, `status='planned'`, nota “origem bancária não comprovada”; não atribuir a cartão automaticamente; aguarda indicação do usuário.
-- **R7 — itens processados em 03/08:** `posted_at='2026-08-03'` (`statement`) nos 16 movimentos listados, mantendo `occurred_at='2026-08-01'`. Soma de controle obrigatória: **−R$ 334,46**.
-- **R8 — investimentos:** desmarcar `applied` do movimento `f7101603…` no duplicado zerado (sem alterar saldo), religar `investment_id` para `39c13ca8…`, aplicar o resgate (5.576,79 → **4.576,61** em `current_value` e `invested_amount`, `reference_date=2026-07-31`), `applied=true`; criar alias “CDB DI” → CDB DI Itaú; remover o duplicado `12092c98…` após confirmar zero movimentos remanescentes, com merge auditado. Fundo permanece R$ 3.000,00.
-- **R9 — snapshots (decisão 3):** registrar snapshot histórico `confirmed` de **R$ 39,97 em 20/07/2026** (source `statement`) e marcar `629b7088…` (R$ 49,91) como `superseded` com auditoria; criar o snapshot oficial mais recente via RPC: `6c1cf814…`, `2026-08-02`, **R$ 589,39**, `statement`, `confirmed`, período 03/07–02/08/2026, emissão 02/08/2026 14:27:44.
-- **R10 — cache:** `invalidateFinancialQueries` + recomputo de `financial_current_snapshots` e `pulse-compute`.
+**MCP** (`src/lib/mcp/tools/*`) — novas tools `get_current_position`, `get_period_result`, `get_cash_bridge`, `get_net_worth_change`, `explain_balance_change`, todas com `formula_version`, `confidence` e explicação; `financial_position` mantida como alias.
 
-## 6. Ordem de execução
+**Pulso** (`pulse-compute`, `pulse/rules.ts`) — 5 fatores: rotina, caixa, patrimônio, dívidas, qualidade dos dados.
 
-1. Verificação read-only pré-reparo + backup das tabelas tocadas.
-2. M1 → M2 → M3 → M4 → M5.
-3. Sync do core + motor de caixa + importador; suíte de testes verde.
-4. `posted_at` real para todo o período do extrato (03/07–02/08) e itens de alto impacto.
-5. Reparo R1…R9 em transação única, validando os 11 checkpoints antes do `COMMIT`.
-6. Deploy das Edge Functions (`assistant-ingest-document`, `assistant-review-actions`, `agent-chat`, `insights-generate`, `pulse-compute`, `mcp`, `financial-reports-generate`).
-7. R10 e validação E2E. Publicação **somente com autorização explícita**.
+## 5. Testes e critérios de aceite
 
-## 7. Rollback
+- Unitário por natureza de movimento (13 kinds × income/expense) em `src/test/movement-semantics.test.ts`.
+- `cash-bridge.test.ts` e `net-worth-bridge.test.ts`: invariantes de fechamento ≤ R$0,01.
+- Paridade em centavos entre Home, Relatórios, Relatórios Inteligentes, Contas, Investimentos, MCP, Pulso e Nino (teste de contrato cruzado, estendendo `finance-contract.test.ts`).
+- Asserts negativos: resgate ≠ receita; aplicação ≠ gasto; compra no cartão não reduz caixa; pagamento de fatura não gera consumo; empréstimo ≠ receita.
+- Exclusão de relatório: RLS (usuário não apaga de outro), cascata completa, auditoria.
+- E2E Playwright mobile (390×844) nas telas alteradas + verificação de ausência de "Resultado: −R$".
 
-- Backup pré-reparo (`repair_20260802_backup_*`) de `transactions`, `investments`, `investment_movements`, `account_balance_snapshots`, `extracted_items` do usuário.
-- Reparo em transação única: checkpoint divergente → `ROLLBACK`.
-- Reversão pós-commit por `notes LIKE 'REPAIR-2026-08-02%'` + restauração de UPDATEs a partir do backup.
-- M1–M3 aditivas e reversíveis (`DROP COLUMN`); M4 guarda a versão anterior do trigger.
+## 6. Sequência de execução (uma rodada)
 
-## 8. Testes
+1. `bridges.ts` + `MOVEMENT_SEMANTICS` + testes unitários.
+2. `metrics.ts` v4 e sync do core para Edge (`npm run sync` no prebuild).
+3. Migrations 1–5 (uma migration consolidada), depois backfill (migration 6–7) com verificação de reconciliação.
+4. Camada de leitura: hooks, Home, Relatórios, Contas, Lançamentos, Investimentos, Cartões, Dívidas, Metas.
+5. Relatórios inteligentes + exclusão.
+6. Edge Functions: `financial-reports-generate`, `insights-generate`, `pulse-compute`, `agent-chat`, `mcp`, `assistant-review-actions`.
+7. Suíte completa de testes, deploy das Edge Functions, rebuild e publicação.
 
-Unitários: motor de caixa com `posted_at` (itens 1, 2, 3, 6); dedupe preservando repetidas legítimas (4, 5); neutralidade de `external_transfer_*` e `card_payment`; `pending_review`/`superseded` fora do cálculo oficial.
-Integração SQL: trigger de investimentos (alias, sem criação de zerado, resgate acima do saldo em revisão, idempotência INSERT/UPDATE/DELETE) — itens 10, 11; RPC de snapshot; reimportação do mesmo arquivo sem duplicar (14); rollback e reexecução seguros (15).
-E2E: recomputo dia a dia comparado aos 11 checkpoints (20/07→02/08) e paridade em centavos entre Home, Contas, Patrimônio, Investimentos, Relatórios, Nino, WhatsApp, MCP e Pulso (13). Itens 7, 8, 9, 12 como asserções de estado final.
+**Rollback**: contrato v4 é aditivo (aliases v3 preservados); tabelas de ponte são derivadas e podem ser truncadas/recomputadas; `report_template.v3` regenera sob demanda; revert de código restaura leituras v3 sem perda de dados. Backfill de `movement_kind` grava `movement_kind_source='inferred'` para reversão seletiva.
 
-## 9. Critérios de aceite
-
-- Itaú em 02/08 = **R$ 589,39**; em 03/08 = **R$ 254,93**.
-- Os 11 checkpoints do extrato reproduzidos exatamente.
-- CDB DI Itaú R$ 4.576,61 + Fundo R$ 3.000,00 = **R$ 7.576,61**; duplicado removido.
-- Total guardado em 02/08 = **R$ 8.166,00**.
-- Lote `6e768b47…` com 42 linhas rastreáveis e nenhum item sem estado final.
-- Diferença de R$ 3,65 visível como reconciliação manual, não como consumo.
-- Nenhum ajuste artificial, nenhum consumo novo, nenhum pagamento duplicado.
-
-## 10. Arquivos e tabelas afetados
-
-Arquivos: `src/lib/engine/facts.ts`, `src/lib/engine/metrics.ts`, `src/lib/hooks/useFinancialSnapshot.ts`, `src/lib/ledger/canonical.ts`, `src/lib/db/invalidation.ts`, `src/lib/import/{csv,ofx}.ts`, `src/components/assessor/ReviewSheet.tsx`, `supabase/functions/_shared/finance-core/*`, `_shared/import/{schema,dedupe,stage,commit}.ts`, `_shared/ledger/canonical.ts`, `_shared/agent/**/BulkEntry.ts`, funções `assistant-ingest-document`, `assistant-review-actions`, `pulse-compute`, `mcp`, `financial-reports-generate`, `insights-generate`, `scripts/sync-finance-core.mjs`, `docs/FINANCIAL_SOURCES.md`.
-Tabelas: `transactions`, `extracted_items`, `document_imports`, `account_balance_snapshots`, `investments`, `investment_movements`, `investment_aliases` (nova), `credit_card_payments`, `credit_card_payment_allocations`, `financial_reconciliation_audit`, `financial_current_snapshots`.
-
-## 11. Riscos remanescentes
-
-- As 4 linhas `needs_review` e as 2 linhas perdidas do lote `6e768b47…` serão confirmadas na leitura do passo 0; se o conteúdo divergir do extrato, o reparo para e reporta antes do `COMMIT`.
-- `posted_at` fora do período do extrato permanece `inferred`; futuros extratos sobrescrevem com `statement`.
-- Reprocessar alocações de fatura depende da reversão limpa das alocações já gravadas para os R$ 4.636,08 — se houver estado inconsistente, entra em `manual_review` em vez de forçar.
-- Farmácia R$ 60,01 e reembolso R$ 135,31 seguem pendentes de informação do usuário; ficam visíveis como `planned` até então.
+**Riscos**: (a) transações legadas sem `movement_kind` → mitigado por inferência conservadora + `confidence` na ponte; (b) snapshots antigos/ausentes → ponte marca `confidence: low` e a UI mostra "conciliação pendente" em vez de número falso; (c) custo de recomputo → pontes persistidas e cache invalidado centralmente por `invalidateFinancialQueries`.

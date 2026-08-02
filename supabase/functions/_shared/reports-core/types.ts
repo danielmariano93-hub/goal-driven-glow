@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 // Contratos dos Relatórios Financeiros Inteligentes (reports_catalog.v1).
 // Puro: nenhuma dependência de browser/Deno — espelhado para as Edge Functions
 // por scripts/sync-finance-core.mjs.

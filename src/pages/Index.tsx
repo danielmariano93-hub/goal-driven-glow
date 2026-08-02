@@ -16,6 +16,8 @@ import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { SharedGoalHighlight } from "@/components/home/SharedGoalHighlight";
+import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
+import { RoutineBlock } from "@/components/finance/FinanceBlocks";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -77,7 +79,8 @@ export default function Index() {
   const hasGoal = (goals ?? []).length > 0;
   const isFresh = !hasAccount && !hasTransaction && !hasGoal;
 
-  const heroLabel = period === "month" ? "Disponível hoje" : "Disponível hoje";
+  const heroLabel = "Disponível hoje";
+  const periodLabelShort = `${periodRange.start.split("-").reverse().slice(0, 2).join("/")} – ${periodRange.end.split("-").reverse().slice(0, 2).join("/")}`;
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5 md:max-w-2xl" data-surface="home">
@@ -93,6 +96,10 @@ export default function Index() {
         rangeStart={periodRange.start}
         rangeEnd={periodRange.end}
       />
+
+      <p className="-mt-3 px-1 text-[11px] leading-snug text-muted-foreground">
+        O período muda as análises abaixo. O saldo disponível é sempre o de hoje.
+      </p>
 
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
@@ -119,6 +126,18 @@ export default function Index() {
         }}
         loading={loading}
       />
+
+      {/* BLOCOS B e C (`finance_contract.v4`) — rotina do período e formação do saldo. */}
+      {!loading && snap ? (
+        <>
+          <RoutineBlock performance={snap.periodPerformance} periodLabel={periodLabelShort} />
+          <PonteCaixaCard
+            bridge={snap.cashBridge}
+            explanation={snap.balanceExplanation}
+            periodLabel={periodLabelShort}
+          />
+        </>
+      ) : null}
 
       <RitmoGastosCard rhythm={snap?.rhythm ?? null} loading={loading} />
 

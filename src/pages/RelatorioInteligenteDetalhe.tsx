@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Info, Loader2, Printer, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowLeft, Info, Loader2, Printer, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import ReportHealthGauge from "@/components/relatorios/ReportHealthGauge";
 import ReportMetricsGrid from "@/components/relatorios/ReportMetricsGrid";
 import ReportHighlightList from "@/components/relatorios/ReportHighlightList";
 import ReportCharts from "@/components/relatorios/ReportCharts";
-import { generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { deleteReport, generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { notifySuccess } from "@/lib/ui/feedback";
 
 import { notifyError } from "@/lib/ui/feedback";
@@ -31,6 +35,22 @@ export default function RelatorioInteligenteDetalhe() {
   }, [id]);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!id) return;
+    setDeleting(true);
+    try {
+      await deleteReport(id);
+      notifySuccess("Relatório excluído.");
+      navigate("/app/relatorios-inteligentes");
+    } catch {
+      notifyError("Não consegui excluir esse relatório agora.");
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
 
   // Recalcula o relatório com os dados atuais (categorias, cartão, dívidas)
   // e recarrega a leitura — sem criar número novo no cliente.
@@ -99,10 +119,39 @@ export default function RelatorioInteligenteDetalhe() {
             >
               <Printer size={14} /> PDF
             </button>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              aria-label="Excluir relatório"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-destructive shadow-card"
+            >
+              <Trash2 size={14} />
+            </button>
           </div>
 
         </div>
       </header>
+
+      <AlertDialog open={confirmDelete} onOpenChange={(o) => { if (!o && !deleting) setConfirmDelete(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir este relatório?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O relatório de {periodLabel(report)} e a leitura do Nino serão apagados. Seus lançamentos
+              continuam intactos e você pode gerar esse período novamente depois.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Manter</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); void handleDelete(); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Excluindo…" : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <section className="rounded-2xl border border-border bg-gradient-to-br from-card to-secondary/30 p-4 shadow-card">
         <ReportHealthGauge score={report.health_score ?? 0} />

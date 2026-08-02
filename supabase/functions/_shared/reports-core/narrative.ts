@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 // Narrativa determinística: usada como base e como fallback quando a IA falha
 // no guardrail numérico. Nunca cria número novo.
 import type { IntelligentReport } from "./types.ts";

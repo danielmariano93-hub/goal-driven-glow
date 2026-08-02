@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 // Motor determinístico dos Relatórios Inteligentes (reports_catalog.v1).
 // Todas as métricas derivam de finance_contract.v2 (src/lib/engine/facts).
 import {

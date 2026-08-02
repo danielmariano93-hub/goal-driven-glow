@@ -130,6 +130,172 @@ function currentMonthYM(now = /* @__PURE__ */ new Date()) {
   return todaySP(now).slice(0, 7);
 }
 
+// src/lib/engine/bridges.ts
+var NEUTRAL = { performanceImpact: 0 };
+var MOVEMENT_SEMANTICS = {
+  income: {
+    cashImpact: 1,
+    performanceImpact: 1,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: 1,
+    bridgeLine: "operational_income",
+    label: "Receita",
+    explanation: "Dinheiro que entrou na conta e conta como receita da sua rotina."
+  },
+  expense: {
+    cashImpact: -1,
+    performanceImpact: -1,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: -1,
+    bridgeLine: "operational_account_expense",
+    label: "Gasto",
+    explanation: "Dinheiro que saiu da conta e conta como gasto da sua rotina."
+  },
+  card_expense: {
+    cashImpact: 0,
+    performanceImpact: -1,
+    investmentImpact: 0,
+    debtImpact: 1,
+    netWorthImpact: -1,
+    bridgeLine: "operational_account_expense",
+    label: "Compra no cart\xE3o",
+    explanation: "Conta como consumo agora e aumenta a fatura, mas s\xF3 sai da conta quando voc\xEA pagar a fatura."
+  },
+  refund: {
+    ...NEUTRAL,
+    cashImpact: 1,
+    performanceImpact: 1,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: 1,
+    bridgeLine: "refunds_and_reimbursements",
+    label: "Estorno / reembolso",
+    explanation: "Devolu\xE7\xE3o de um valor: entra na conta e abate o gasto original."
+  },
+  internal_transfer: {
+    cashImpact: 0,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: 0,
+    bridgeLine: "internal_transfers_net",
+    label: "Transfer\xEAncia entre suas contas",
+    explanation: "Muda o dinheiro de lugar. N\xE3o \xE9 receita nem gasto, e n\xE3o altera seu patrim\xF4nio."
+  },
+  external_transfer_in: {
+    cashImpact: 1,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: 1,
+    bridgeLine: "external_transfers_in",
+    label: "Transfer\xEAncia recebida",
+    explanation: "Entrou dinheiro de terceiro. Aumenta o saldo, mas n\xE3o \xE9 receita da sua rotina."
+  },
+  external_transfer_out: {
+    cashImpact: -1,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: -1,
+    bridgeLine: "external_transfers_out",
+    label: "Transfer\xEAncia enviada",
+    explanation: "Saiu dinheiro para terceiro. Reduz o saldo, mas n\xE3o \xE9 gasto da sua rotina."
+  },
+  investment_application: {
+    cashImpact: -1,
+    performanceImpact: 0,
+    investmentImpact: 1,
+    debtImpact: 0,
+    netWorthImpact: 0,
+    bridgeLine: "investment_applications",
+    label: "Aplica\xE7\xE3o",
+    explanation: "Saiu da conta e entrou no investimento. Seu patrim\xF4nio n\xE3o muda."
+  },
+  investment_redemption: {
+    cashImpact: 1,
+    performanceImpact: 0,
+    investmentImpact: -1,
+    debtImpact: 0,
+    netWorthImpact: 0,
+    bridgeLine: "investment_redemptions",
+    label: "Resgate",
+    explanation: "Saiu do investimento e entrou na conta. Seu patrim\xF4nio n\xE3o muda."
+  },
+  investment_yield: {
+    cashImpact: 0,
+    performanceImpact: 0,
+    investmentImpact: 1,
+    debtImpact: 0,
+    netWorthImpact: 1,
+    bridgeLine: "investment_yield_cash",
+    label: "Rendimento",
+    explanation: "Ganho do investimento. Aumenta seu patrim\xF4nio sem ser receita da rotina."
+  },
+  loan_proceeds: {
+    cashImpact: 1,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: 1,
+    netWorthImpact: 0,
+    bridgeLine: "loan_proceeds",
+    label: "Cr\xE9dito de empr\xE9stimo",
+    explanation: "Entrou dinheiro na conta, mas criou uma d\xEDvida do mesmo valor. N\xE3o \xE9 receita."
+  },
+  debt_payment: {
+    cashImpact: -1,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: -1,
+    netWorthImpact: 0,
+    bridgeLine: "debt_principal_payments",
+    label: "Amortiza\xE7\xE3o de d\xEDvida",
+    explanation: "Saiu da conta e reduziu sua d\xEDvida no mesmo valor. N\xE3o \xE9 gasto novo."
+  },
+  card_payment: {
+    cashImpact: -1,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: -1,
+    netWorthImpact: 0,
+    bridgeLine: "card_payments",
+    label: "Pagamento de fatura",
+    explanation: "Saiu da conta e reduziu a fatura. O consumo j\xE1 foi contado na data da compra."
+  },
+  fee: {
+    cashImpact: -1,
+    performanceImpact: -1,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: -1,
+    bridgeLine: "debt_interest_and_fees",
+    label: "Tarifa",
+    explanation: "Custo banc\xE1rio: sai da conta e reduz seu patrim\xF4nio."
+  },
+  interest: {
+    cashImpact: -1,
+    performanceImpact: -1,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: -1,
+    bridgeLine: "debt_interest_and_fees",
+    label: "Juros",
+    explanation: "Custo do cr\xE9dito: sai da conta e reduz seu patrim\xF4nio."
+  },
+  adjustment: {
+    cashImpact: 1,
+    performanceImpact: 0,
+    investmentImpact: 0,
+    debtImpact: 0,
+    netWorthImpact: 1,
+    bridgeLine: "adjustments",
+    label: "Ajuste de concilia\xE7\xE3o",
+    explanation: "Corre\xE7\xE3o para o saldo do app bater com o extrato do banco."
+  }
+};
+
 // src/lib/engine/cardExposure.ts
 var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
 var CARD_CYCLE_VERSION = "card_cycle.v2";
@@ -313,7 +479,7 @@ function totalFutureInstallmentsOf(exposures) {
 }
 
 // src/lib/engine/metrics.ts
-var FINANCE_CONTRACT_VERSION = "finance_contract.v3";
+var FINANCE_CONTRACT_VERSION = "finance_contract.v4";
 
 // src/lib/mcp/shared.ts
 var ERROR_CONTRACT_VERSION = "edge_error.v1";

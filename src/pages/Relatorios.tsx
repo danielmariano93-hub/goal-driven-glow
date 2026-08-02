@@ -23,6 +23,81 @@ import { formatBRL } from "@/lib/split/math";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { clampRangeToToday } from "@/lib/engine/spendingRhythm";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
+import { useAccounts, useAccountBalanceSnapshots, useAllTransactions } from "@/lib/db/finance";
+import { computeCashBridge, computePeriodPerformance } from "@/lib/engine/bridges";
+import {
+  CashBridgeBlock,
+  PatrimonialBlock,
+  PositionBlock,
+  RoutineBlock,
+} from "@/components/finance/FinanceBlocks";
+
+const round2cents = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+type MonthBridge = {
+  ym: string;
+  bridge: ReturnType<typeof computeCashBridge>;
+  perf: ReturnType<typeof computePeriodPerformance>;
+  patrimonial: number;
+  financialPayments: number;
+};
+
+/** Card expansível mobile-first — substitui a tabela contábil. */
+function MonthCard({ month }: { month: MonthBridge }) {
+  const [open, setOpen] = useState(false);
+  const [y, m] = month.ym.split("-");
+  const label = new Date(Date.UTC(Number(y), Number(m) - 1, 1))
+    .toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
+  const delta = round2cents(month.bridge.confirmedClosingCash - month.bridge.openingCash);
+  return (
+    <article className="surface-card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold capitalize">{label}</span>
+          <span className="block text-[11px] text-muted-foreground">
+            Saldo {formatBRL(month.bridge.openingCash)} → {formatBRL(month.bridge.confirmedClosingCash)}
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span className={`block text-sm font-bold ${delta >= 0 ? "text-success" : "text-destructive"}`}>
+            {delta >= 0 ? "+" : "−"} {formatBRL(Math.abs(delta))}
+          </span>
+          <span className="block text-[10px] text-muted-foreground">{open ? "ocultar" : "detalhes"}</span>
+        </span>
+      </button>
+      {open ? (
+        <dl className="grid grid-cols-2 gap-2 border-t border-border px-4 py-3 text-[11px]">
+          <MonthRow label="Saldo inicial" value={month.bridge.openingCash} />
+          <MonthRow label="Receitas" value={month.perf.operationalIncome} tone="positive" />
+          <MonthRow label="Gastos" value={month.perf.operationalExpense} tone="negative" />
+          <MonthRow label="Movimentações patrimoniais" value={month.patrimonial} />
+          <MonthRow label="Pagamentos financeiros" value={month.financialPayments} tone="negative" />
+          <MonthRow label="Saldo final" value={month.bridge.confirmedClosingCash} strong />
+          {Math.abs(month.bridge.reconciliationDifference) > 0.01 ? (
+            <MonthRow label="Divergência" value={month.bridge.reconciliationDifference} tone="negative" />
+          ) : null}
+        </dl>
+      ) : null}
+    </article>
+  );
+}
+
+function MonthRow({
+  label, value, tone = "neutral", strong,
+}: { label: string; value: number; tone?: "neutral" | "positive" | "negative"; strong?: boolean }) {
+  const color = tone === "positive" ? "text-success" : tone === "negative" ? "text-destructive" : "text-foreground";
+  return (
+    <div className="min-w-0 rounded-lg bg-muted/40 px-2.5 py-1.5">
+      <dt className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className={`truncate ${strong ? "text-sm font-bold" : "text-xs font-semibold"} ${color}`}>{formatBRL(value)}</dd>
+    </div>
+  );
+}
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
@@ -31,6 +106,9 @@ export default function Relatorios() {
   const [to, setTo] = useState(initialRange.end);
   const reportRange = clampRangeToToday({ start: from, end: to });
   const { data: financialSnapshot, loading: financialLoading } = useFinancialSnapshot(reportRange);
+  const { data: bridgeAccounts } = useAccounts();
+  const { data: bridgeSnapshots } = useAccountBalanceSnapshots();
+  const { data: bridgeTxs } = useAllTransactions();
 
   useEffect(() => {
     (async () => {
@@ -69,6 +147,34 @@ export default function Relatorios() {
   const totalExpense = monthly.reduce((s, m) => s + m.expense, 0);
   const maxCat = Math.max(1, ...byCat.map(c => c.total));
   const highlights = spendingHighlights(byCat, totalExpense);
+
+  // Mês a mês com a MESMA ponte canônica do período (nenhum cálculo paralelo).
+  const bridgeAccountRows = (bridgeAccounts ?? []).map((a: any) => ({
+    id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active,
+  }));
+  const bridgeTxRows = ((bridgeTxs ?? []) as any[]).map((t) => ({ ...t, amount: Number(t.amount) })) as any[];
+  const bridgeSnapRows = ((bridgeSnapshots ?? []) as any[]).map((s2) => ({ ...s2, balance: Number(s2.balance) })) as any[];
+  const monthlyBridges = monthly.map((m) => {
+    const [y, mm] = m.ym.split("-").map(Number);
+    const last = new Date(Date.UTC(y, mm, 0)).getUTCDate();
+    const monthPeriod = { start: `${m.ym}-01`, end: `${m.ym}-${String(last).padStart(2, "0")}` };
+    const bridge = computeCashBridge({
+      accounts: bridgeAccountRows,
+      txs: bridgeTxRows,
+      snapshots: bridgeSnapRows,
+      period: monthPeriod,
+    });
+    const perf = computePeriodPerformance(bridgeTxRows, monthPeriod);
+    const patrimonial = round2cents(
+      bridge.investmentRedemptions - bridge.investmentApplications
+      + bridge.externalTransfersIn - bridge.externalTransfersOut
+      + bridge.loanProceeds,
+    );
+    const financialPayments = round2cents(
+      bridge.cardPayments + bridge.debtPrincipalPayments + bridge.debtInterestAndFees,
+    );
+    return { ym: m.ym, bridge, perf, patrimonial, financialPayments };
+  });
 
   const download = () => {
     const csv = toCsv(filtered.map(t => ({
@@ -117,18 +223,41 @@ export default function Relatorios() {
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Renda no período</p><p className="text-sm font-bold text-success">{formatBRL(totalIncome)}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Consumo no período</p><p className="text-sm font-bold text-destructive">{formatBRL(totalExpense)}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Resultado do período</p><p className={`text-sm font-bold ${totalIncome-totalExpense>=0?"text-success":"text-destructive"}`}>{formatBRL(totalIncome - totalExpense)}</p></div>
-        <div className="surface-card p-3"><p className="text-[10px] text-muted-foreground">Disponível hoje</p><p className="text-sm font-bold text-foreground">{financialLoading ? "—" : formatBRL(financialSnapshot?.availableToday ?? 0)}</p></div>
-      </div>
-      <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 text-[11px] leading-relaxed text-muted-foreground">
-        <p className="font-semibold text-foreground">Por que esses números podem ser diferentes?</p>
-        <p className="mt-1">
-          Resultado do período é renda menos consumo — inclusive compras no cartão. Disponível hoje é o dinheiro que está nas contas agora e considera o saldo que já existia antes do período. Por isso, um resultado negativo não significa que sua conta esteja negativa.
-        </p>
-      </div>
+      {/* BLOCO A — sua posição atual (não depende do período). */}
+      {financialLoading || !financialSnapshot ? (
+        <div className="surface-card grid place-items-center p-6"><Loader2 className="animate-spin text-muted-foreground" /></div>
+      ) : (
+        <>
+          <PositionBlock
+            position={{
+              cash: financialSnapshot.netWorth.cash,
+              invested: financialSnapshot.investmentsTotal,
+              resources: financialSnapshot.netWorth.assets,
+              cardsOwed: financialSnapshot.cardDebtToday,
+              otherDebts: financialSnapshot.activeDebtTotal,
+              netWorth: financialSnapshot.netWorth.net,
+              futureInstallments: financialSnapshot.cardFutureInstallments,
+            }}
+          />
+
+          {/* BLOCO B — como foi sua rotina financeira. */}
+          <RoutineBlock performance={financialSnapshot.periodPerformance} periodLabel={`${from} a ${to}`} />
+
+          {/* BLOCO C — como seu saldo mudou (equação fechada). */}
+          <CashBridgeBlock
+            bridge={financialSnapshot.cashBridge}
+            explanation={financialSnapshot.balanceExplanation}
+            periodLabel={`${from} a ${to}`}
+            defaultOpen
+          />
+
+          {/* BLOCO D — movimentações que não são receita nem gasto. */}
+          <PatrimonialBlock
+            cashBridge={financialSnapshot.cashBridge}
+            netWorth={financialSnapshot.netWorthBridge}
+          />
+        </>
+      )}
 
       <section>
         <div className="mb-2">
@@ -169,23 +298,9 @@ export default function Relatorios() {
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground" /> Média total até o dia</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico até o dia</span>
         </div>
-        <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Resumo mensal do período</h3>
-        <div className="surface-card overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-secondary/40">
-              <tr><th className="px-3 py-2 text-left">Mês</th><th className="px-3 py-2 text-right">Renda</th><th className="px-3 py-2 text-right">Consumo</th><th className="px-3 py-2 text-right">Resultado</th></tr>
-            </thead>
-            <tbody>
-              {monthly.map(m => (
-                <tr key={m.ym} className="border-t border-border">
-                  <td className="px-3 py-2">{m.ym}</td>
-                  <td className="px-3 py-2 text-right text-success">{formatBRL(m.income)}</td>
-                  <td className="px-3 py-2 text-right text-destructive">{formatBRL(m.expense)}</td>
-                  <td className={`px-3 py-2 text-right font-medium ${m.net>=0?"text-success":"text-destructive"}`}>{formatBRL(m.net)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Mês a mês</h3>
+        <div className="space-y-2">
+          {monthlyBridges.map((m) => <MonthCard key={m.ym} month={m} />)}
         </div>
       </section>
 

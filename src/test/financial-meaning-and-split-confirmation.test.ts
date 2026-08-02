@@ -24,9 +24,12 @@ describe("financial concepts shown to the user", () => {
 
   it("does not call period result an account balance", () => {
     const reports = read("src/pages/Relatorios.tsx");
-    expect(reports).toContain("Resultado do período");
-    expect(reports).toContain("Disponível hoje");
-    expect(reports).toContain("um resultado negativo não significa que sua conta esteja negativa");
+    // v4: a tela usa os blocos canônicos — posição de hoje, rotina e ponte de caixa.
+    expect(reports).toContain("PositionBlock");
+    expect(reports).toContain("RoutineBlock");
+    expect(reports).toContain("CashBridgeBlock");
+    expect(reports).toContain("Saldo inicial");
+    expect(reports).toContain("Saldo final");
     expect(reports).not.toContain(">Saldo</p>");
   });
 
