@@ -7936,6 +7936,19 @@ export type Database = {
         Args: { p_statement_id: string }
         Returns: Json
       }
+      audit_card_reconciliation: {
+        Args: { _user_id?: string }
+        Returns: {
+          competence_month: string
+          credit_card_id: string
+          items_total: number
+          outstanding_amount: number
+          reconciled_total: number
+          residual: number
+          stated_total: number
+          statement_status: string
+        }[]
+      }
       backfill_product_events_from_history: {
         Args: { _days?: number }
         Returns: Json
@@ -8259,6 +8272,7 @@ export type Database = {
         }
         Returns: string
       }
+      product_events_prune: { Args: { _days?: number }; Returns: number }
       prune_product_events: { Args: { _days?: number }; Returns: number }
       recalc_credit_card_statement: {
         Args: { p_statement_id: string }
