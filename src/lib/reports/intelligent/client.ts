@@ -106,6 +106,12 @@ export async function generateReportNow(reportType: ReportType): Promise<{ repor
   return (data ?? {}) as { report_id?: string | null };
 }
 
+/** Exclusão definitiva via RPC transacional (remove métricas, destaques e envios). */
+export async function deleteReport(id: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_financial_report" as never, { p_report_id: id } as never);
+  if (error) throw error;
+}
+
 export function periodLabel(item: Pick<ReportListItem, "report_type" | "period_start" | "period_end">): string {
   const short = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
   if (item.report_type === "weekly") return `${short(item.period_start)} a ${short(item.period_end)}`;

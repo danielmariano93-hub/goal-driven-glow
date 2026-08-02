@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, ChevronRight, FileText, Loader2, Sparkles } from "lucide-react";
-import { listReports, generateReportNow, periodLabel, type ReportListItem } from "@/lib/reports/intelligent/client";
+import { CalendarDays, ChevronRight, FileText, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { listReports, generateReportNow, deleteReport, periodLabel, type ReportListItem } from "@/lib/reports/intelligent/client";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { notifyError, notifySuccess } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +20,8 @@ export default function RelatoriosInteligentes() {
   const navigate = useNavigate();
   const [items, setItems] = useState<ReportListItem[] | null>(null);
   const [generating, setGenerating] = useState<"weekly" | "monthly" | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ReportListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     try {
@@ -39,6 +45,21 @@ export default function RelatoriosInteligentes() {
       notifyError("Não consegui gerar o relatório agora. Tente novamente em instantes.");
     } finally {
       setGenerating(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await deleteReport(pendingDelete.id);
+      setItems((prev) => (prev ?? []).filter((r) => r.id !== pendingDelete.id));
+      notifySuccess("Relatório excluído.");
+      setPendingDelete(null);
+    } catch {
+      notifyError("Não consegui excluir esse relatório agora.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -86,7 +107,7 @@ export default function RelatoriosInteligentes() {
       ) : (
         <ul className="space-y-3">
           {items.map((r) => (
-            <li key={r.id}>
+            <li key={r.id} className="relative">
               <button
                 onClick={() => navigate(`/app/relatorios-inteligentes/${r.id}`)}
                 className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
@@ -107,10 +128,41 @@ export default function RelatoriosInteligentes() {
                 </span>
                 <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
               </button>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(r)}
+                aria-label={`Excluir relatório de ${periodLabel(r)}`}
+                className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Trash2 size={14} />
+              </button>
             </li>
           ))}
         </ul>
       )}
+
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir este relatório?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `O relatório de ${periodLabel(pendingDelete)} e sua leitura do Nino serão apagados. Seus lançamentos não são afetados e você pode gerar o período novamente depois.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Manter</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); void handleDelete(); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Excluindo…" : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
