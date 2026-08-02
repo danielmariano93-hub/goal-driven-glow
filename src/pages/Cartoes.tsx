@@ -393,10 +393,15 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   const difference = Number(current.reconciliation_difference ?? 0);
   const reconciled = Math.abs(difference) <= 0.05;
 
+  // Ajuste manual é excepcional: teto de 2% do total oficial da fatura.
+  const adjustmentCap = Math.max(1, Number((Math.abs(Number(current.stated_total ?? 0)) * 0.02).toFixed(2)));
+  const cappedAdjustment = Math.abs(difference) > adjustmentCap;
+
   async function afterMutation() {
     await onChanged();
     await detail.refetch();
   }
+
 
   async function saveItem(item: StatementItemRow, patch: { description?: string; category_id?: string | null; amount?: number; occurred_at?: string; item_kind?: string }) {
     setSavingId(item.id);
