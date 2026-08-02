@@ -943,7 +943,7 @@ var monthly_summary_default = defineTool2({
       "Como o saldo se formou (ponte de caixa):",
       `Saldo inicial: ${brl(bridge.openingCash)} \u2192 Saldo final: ${brl(bridge.confirmedClosingCash)}`,
       explanation.headline,
-      ...explanation.lines.map((l) => `- ${l}`),
+      ...explanation.steps.map((l) => `- ${l}`),
       Math.abs(bridge.reconciliationDifference) > 0.01 ? `Aten\xE7\xE3o: reconcilia\xE7\xE3o pendente de ${brl(bridge.reconciliationDifference)} \u2014 n\xE3o afirme o saldo como exato.` : "Ponte reconciliada (diferen\xE7a \u2264 R$ 0,01)."
     ];
     return ok(lines.join("\n"), {
@@ -973,9 +973,10 @@ var monthly_summary_default = defineTool2({
         operational_income: performance.operationalIncome,
         operational_expense: performance.operationalExpense,
         operational_result: performance.operationalResult,
-        used_accumulated_resources: performance.usedAccumulatedResources
+        operational_gap: performance.operationalGap,
+        savings_rate: performance.savingsRate
       },
-      balance_explanation: { headline: explanation.headline, lines: explanation.lines },
+      balance_explanation: { headline: explanation.headline, body: explanation.body, steps: explanation.steps },
       formula_version: FINANCE_CONTRACT_VERSION
     });
   }
