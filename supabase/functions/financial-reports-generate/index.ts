@@ -301,7 +301,7 @@ async function generateForUser(
     priority: h.priority,
     confidence: h.confidence,
     category: h.category ?? null,
-    evidence: h.evidence,
+    evidence: { ...h.evidence, insight_family: h.family ?? h.detectorKey, insight_source: h.source ?? "period" },
     cta_label: h.ctaLabel ?? null,
     cta_route: h.ctaRoute ?? null,
     dedup_key: h.dedupKey,
