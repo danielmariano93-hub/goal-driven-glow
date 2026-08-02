@@ -42,7 +42,12 @@ export interface ReportHighlight {
   ctaRoute?: string | null;
   dedupKey: string;
   selectionReason: string;
+  /** Família usada para deduplicar leituras equivalentes. */
+  family?: string;
+  /** Origem do destaque: motor do período ou catálogo de insights. */
+  source?: "period" | "catalog";
 }
+
 
 export interface HealthComponent {
   key: string;
