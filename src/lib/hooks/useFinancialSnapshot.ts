@@ -146,6 +146,7 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
       cardInstallments: (cardInstallments ?? []).map((i) => ({ ...i, amount: Number(i.amount ?? 0) })),
       cardIds: (cards ?? []).map((c) => c.id),
+      cards: (cards ?? []).map((c) => ({ id: c.id, closing_day: c.closing_day, due_day: c.due_day })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, period.start, period.end, todayKey, loading]);
