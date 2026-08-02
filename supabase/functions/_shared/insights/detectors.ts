@@ -147,5 +147,134 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     });
   }
 
+  // ---------- novos detectores (insights_catalog.v1) ----------
+
+  if (s.expenseMonth > 0 && s.incomeMonth > 0 && s.expenseMonth > s.incomeMonth) {
+    out.push({
+      detector: "financial_risk",
+      type: "alert",
+      title: "O mês está gastando mais do que entrou",
+      body: `Você já consumiu ${brl(s.expenseMonth)} contra ${brl(s.incomeMonth)} de entrada. Escolher um corte agora evita usar o cartão como caixa.`,
+      cta_label: "Ver planejamento",
+      cta_route: "/app/planejamento",
+      model: "deterministic",
+      evidence: { expense_month: s.expenseMonth, income_month: s.incomeMonth },
+    });
+  }
+
+  const commit30 = Number(s.upcomingCommitments30d ?? 0);
+  const available = Number(s.availableToday ?? 0);
+  if (commit30 > 0 && available > 0 && commit30 > available) {
+    out.push({
+      detector: "cashflow_forecast",
+      type: "alert",
+      title: "Projeção de caixa aponta aperto",
+      body: `Os próximos 30 dias somam ${brl(commit30)} de compromissos e hoje há ${brl(available)} disponível. Antecipar uma decisão agora custa menos que juros depois.`,
+      cta_label: "Ver planejamento",
+      cta_route: "/app/planejamento",
+      model: "deterministic",
+      evidence: { commitments_next_30d: commit30, projected_balance: available - commit30, available_today: available },
+    });
+  }
+
+  const anomaly = s.amountAnomaly;
+  if (anomaly && anomaly.amount > 0 && anomaly.typicalAmount > 0 && anomaly.amount >= anomaly.typicalAmount * 3) {
+    out.push({
+      detector: "amount_anomaly",
+      type: "alert",
+      title: "Gasto fora do padrão",
+      body: `${anomaly.description || "Um lançamento"} de ${brl(anomaly.amount)} ficou muito acima do seu ticket típico de ${brl(anomaly.typicalAmount)}. Confirma se está certo?`,
+      cta_label: "Ver lançamento",
+      cta_route: "/app/lancamentos",
+      model: "deterministic",
+      evidence: { amount: anomaly.amount, typical_amount: anomaly.typicalAmount, occurred_at: anomaly.occurredAt, description: anomaly.description },
+    });
+  }
+
+  const growth = s.categoryGrowth;
+  if (growth && growth.previous > 0 && growth.growthPct >= 30) {
+    out.push({
+      detector: "category_growth",
+      type: "habit",
+      title: `${growth.name} subiu neste mês`,
+      body: `Você já gastou ${brl(growth.current)} em ${growth.name}, contra ${brl(growth.previous)} no mês anterior. Vale decidir um teto antes do fim do mês.`,
+      cta_label: "Definir meta",
+      cta_route: "/app/metas",
+      model: "deterministic",
+      evidence: { category: growth.name, amount: growth.current, previous: growth.previous, growth_pct: growth.growthPct },
+    });
+  }
+
+  const subs = s.subscriptions;
+  if (subs && subs.count > 0 && subs.total > 0) {
+    out.push({
+      detector: "subscriptions_load",
+      type: "opportunity",
+      title: "Assinaturas somando todo mês",
+      body: `Suas ${subs.count} recorrências somam ${brl(subs.total)} por mês. Cancelar uma que você não usa é economia garantida.`,
+      cta_label: "Ver recorrências",
+      cta_route: "/app/recorrencias",
+      model: "deterministic",
+      evidence: { subscriptions_count: subs.count, subscriptions_total: subs.total },
+    });
+  }
+
+  const merchant = s.recurringMerchant;
+  if (merchant && merchant.occurrences >= 4 && merchant.total > 0) {
+    out.push({
+      detector: "recurring_merchant",
+      type: "habit",
+      title: `${merchant.name} aparece com frequência`,
+      body: `Foram ${merchant.occurrences} compras somando ${brl(merchant.total)}. Se for hábito, virar meta ajuda mais que cortar de vez.`,
+      cta_label: "Ver lançamentos",
+      cta_route: "/app/lancamentos",
+      model: "deterministic",
+      evidence: { merchant: merchant.name, occurrences: merchant.occurrences, total: merchant.total },
+    });
+  }
+
+  const rhythm = s.rhythm;
+  if (rhythm && rhythm.dailyTypical > 0 && rhythm.daysLeft > 0 && rhythm.projectedExpense > 0) {
+    out.push({
+      detector: "spending_rhythm",
+      type: "habit",
+      title: "Seu ritmo aponta o fechamento do mês",
+      body: `No ritmo de ${brl(rhythm.dailyTypical)} por dia e ${rhythm.daysLeft} dias restantes, o mês fecha perto de ${brl(rhythm.projectedExpense)}.`,
+      cta_label: "Ver ritmo",
+      cta_route: "/app/relatorios",
+      model: "deterministic",
+      evidence: { daily_typical: rhythm.dailyTypical, days_left: rhythm.daysLeft, projected_expense: rhythm.projectedExpense },
+    });
+  }
+
+  const uncategorized = Number(s.uncategorizedCount ?? 0);
+  if (uncategorized >= 3) {
+    out.push({
+      detector: "data_quality_uncategorized",
+      type: "categorize_transaction",
+      title: "Alguns lançamentos ainda sem categoria",
+      body: `Tenho ${uncategorized} lançamentos sem categoria. Organizando isso, minhas leituras ficam exatas.`,
+      cta_label: "Organizar agora",
+      cta_route: "/app/lancamentos",
+      model: "deterministic",
+      evidence: { uncategorized_count: uncategorized },
+    });
+  }
+
+  const idleDays = Number(s.daysWithoutEntry ?? 0);
+  if (idleDays >= 4) {
+    out.push({
+      detector: "days_without_entry",
+      type: "habit",
+      title: "Faz alguns dias sem registro",
+      body: `São ${idleDays} dias sem nenhum lançamento. Um registro rápido agora mantém as contas confiáveis.`,
+      cta_label: "Registrar gasto",
+      cta_route: "/app/lancamentos",
+      model: "deterministic",
+      evidence: { days_without_entry: idleDays },
+    });
+  }
+
+
   return out;
 }
