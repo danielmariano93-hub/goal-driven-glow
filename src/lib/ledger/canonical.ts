@@ -23,7 +23,8 @@ export type Ledger = "bank_account" | "credit_card" | "debt" | "cash" | "payable
 export type MovementKindLike =
   | "transaction" | "refund" | "internal_transfer"
   | "investment_application" | "investment_redemption" | "investment_yield"
-  | "loan_proceeds" | "debt_payment" | "card_payment" | "fee" | "interest";
+  | "loan_proceeds" | "debt_payment" | "card_payment" | "fee" | "interest"
+  | "external_transfer_in" | "external_transfer_out";
 
 export type CanonicalItemInput = {
   type: "income" | "expense";
@@ -80,6 +81,8 @@ export function resolveLedger(kind: DocumentKind | string, item: CanonicalItemIn
 const NEUTRAL_RESULT = new Set<string>([
   "internal_transfer", "card_payment", "debt_payment", "loan_proceeds",
   "investment_application", "investment_redemption",
+  // PIX/TED de ou para terceiros: mexem no caixa, nunca no resultado.
+  "external_transfer_in", "external_transfer_out",
 ]);
 
 export function buildCanonicalMovement(args: {

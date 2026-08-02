@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v2)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
 // Detectores determinísticos de destaques (reports_catalog.v1).
 // Cada detector só usa números já calculados pelo motor — nunca cria valor novo.
 import { round2 } from "../finance-core/facts.ts";

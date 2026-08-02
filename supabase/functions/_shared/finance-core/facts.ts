@@ -1,5 +1,5 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
-// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v2)
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v3)
 // shim determinístico do formatador (Deno não tem contexto de privacidade da UI)
 const formatPrivateBRL = (n: number): string =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -33,17 +33,33 @@ export interface TransactionRow {
   type: "income" | "expense" | "transfer";
   status: "confirmed" | "planned";
   amount: number;
-  occurred_at: string; // YYYY-MM-DD
+  occurred_at: string; // YYYY-MM-DD — data econômica (competência do consumo)
   description: string | null;
   transfer_group_id: string | null;
   payment_method?: PaymentMethod | string | null;
   credit_card_id?: string | null;
   competence_date?: string | null;
+  /** Data bancária (caixa) — quando o dinheiro efetivamente entrou/saiu da conta. */
+  posted_at?: string | null;
+  /** Qualidade da data bancária: statement | import | inferred | manual. */
+  posted_at_source?: string | null;
   /** Se preenchido, esta transação é um pagamento de fatura do cartão indicado. */
   settles_card_id?: string | null;
   /** Kind of movement — usado para excluir transferências internas e movimentações de investimento dos totais mensais. */
   movement_kind?: string | null;
 }
+
+/**
+ * Data canônica de CAIXA (`finance_contract.v3`).
+ * Precedência: data bancária real → competência → data econômica.
+ * Nunca usar para métricas comportamentais (essas seguem `occurred_at`).
+ */
+export function cashDateOf(
+  t: Pick<TransactionRow, "posted_at" | "competence_date" | "occurred_at">,
+): string {
+  return t.posted_at || t.competence_date || t.occurred_at;
+}
+
 
 export interface CreditCardRow {
   id: string;
@@ -120,28 +136,42 @@ export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 10
 const sumBy = <T>(arr: T[], get: (x: T) => number) => round2(arr.reduce((a, b) => a + (get(b) || 0), 0));
 
 /**
- * Balance per account = opening_balance + confirmed(income) - confirmed(expense) + transfer(in) - transfer(out)
- * Transfers move money between accounts and NEVER count as income/expense.
+ * Saldo por conta (`finance_contract.v3`).
+ * Âncora = snapshot CONFIRMADO mais recente com balance_date <= asOf.
+ * Snapshots `pending_review`/`superseded`/`canceled` são ignorados.
+ * O corte e a aplicação usam a data de CAIXA (`cashDateOf`), não a econômica.
  */
 export function computeAccountBalances(
   accounts: AccountRow[],
   txs: TransactionRow[],
-  snapshots: AccountBalanceSnapshotRow[] = []
+  snapshots: AccountBalanceSnapshotRow[] = [],
+  opts?: { asOf?: string },
 ): Record<string, number> {
   const map: Record<string, number> = {};
   const cutoff: Record<string, string> = {};
+  const asOf = opts?.asOf ?? null;
   for (const a of accounts) map[a.id] = Number(a.opening_balance || 0);
-  for (const s of snapshots.filter((x) => !x.status || x.status === "confirmed").sort((a,b) => a.balance_date.localeCompare(b.balance_date))) {
+  const anchors = snapshots
+    .filter((x) => !x.status || x.status === "confirmed")
+    .filter((x) => !asOf || x.balance_date <= asOf)
+    .sort((a, b) => a.balance_date.localeCompare(b.balance_date));
+  for (const s of anchors) {
     map[s.account_id] = Number(s.balance);
     cutoff[s.account_id] = s.balance_date;
   }
+  const withinWindow = (accountId: string, t: TransactionRow) => {
+    const d = cashDateOf(t);
+    if (cutoff[accountId] && d <= cutoff[accountId]) return false;
+    if (asOf && d > asOf) return false;
+    return true;
+  };
   for (const t of txs) {
     if (t.status !== "confirmed") continue;
     if (t.type === "transfer") continue;
     // Só afeta a conta se a origem for a própria conta (não cartão).
     if (txOrigin(t) !== "account") continue;
     if (!t.account_id) continue;
-    if (cutoff[t.account_id] && t.occurred_at <= cutoff[t.account_id]) continue;
+    if (!withinWindow(t.account_id, t)) continue;
     const amt = Number(t.amount || 0);
     if (!map[t.account_id] && map[t.account_id] !== 0) map[t.account_id] = 0;
     if (t.type === "income") map[t.account_id] += amt;
@@ -158,19 +188,21 @@ export function computeAccountBalances(
     const sorted = [...legs].sort((a, b) => a.id.localeCompare(b.id));
     const src = sorted[0];
     const dst = sorted[1];
-    if (cutoff[src.account_id] && src.occurred_at <= cutoff[src.account_id]) continue;
-    if (cutoff[dst.account_id] && dst.occurred_at <= cutoff[dst.account_id]) continue;
+    if (!withinWindow(src.account_id, src)) continue;
+    if (!withinWindow(dst.account_id, dst)) continue;
     const amt = Number(src.amount || 0);
     map[src.account_id] = (map[src.account_id] || 0) - amt;
     map[dst.account_id] = (map[dst.account_id] || 0) + amt;
   }
   for (const k of Object.keys(map)) map[k] = round2(map[k]);
   return map;
+
 }
 
-export function computeTotalCash(accounts: AccountRow[], txs: TransactionRow[], snapshots: AccountBalanceSnapshotRow[] = []): number {
-  const bals = computeAccountBalances(accounts, txs, snapshots);
+export function computeTotalCash(accounts: AccountRow[], txs: TransactionRow[], snapshots: AccountBalanceSnapshotRow[] = [], opts?: { asOf?: string }): number {
+  const bals = computeAccountBalances(accounts, txs, snapshots, opts);
   return round2(Object.values(bals).reduce((a, b) => a + b, 0));
+
 }
 
 /** Fatura em aberto (estimativa v1): soma expenses confirmadas com credit_card_id.
@@ -207,15 +239,30 @@ export function isInMonth(dateStr: string, ym: string): boolean {
   return dateStr.startsWith(ym);
 }
 
-/** Kinds que NÃO representam entrada/saída real de dinheiro no mês (transferência entre contas próprias,
- *  aplicação/resgate de investimento). Devem ser filtrados de totais e insights. */
+/** Kinds que NÃO representam consumo nem renda comportamental (transferência entre contas
+ *  próprias, aplicação/resgate de investimento, transferências externas de/para terceiros).
+ *  Afetam caixa, mas ficam fora de totais comportamentais e insights. */
 export const EXCLUDED_MOVEMENT_KINDS = new Set([
   "internal_transfer",
   "investment_application",
   "investment_redemption",
   "investment_yield",
   "loan_proceeds",
+  "external_transfer_in",
+  "external_transfer_out",
 ]);
+
+/** Transferências externas (PIX de/para terceiros): afetam caixa, nunca resultado,
+ *  e NÃO usam `transfer_group_id` (não são pares entre contas próprias). */
+export const EXTERNAL_TRANSFER_KINDS = new Set([
+  "external_transfer_in",
+  "external_transfer_out",
+]);
+
+export function isExternalTransfer(t: Pick<TransactionRow, "movement_kind">): boolean {
+  return EXTERNAL_TRANSFER_KINDS.has(String(t.movement_kind ?? ""));
+}
+
 
 /** Versão canônica do motor comportamental — deve casar com o `formula_version`
  *  registrado em `financial_daily_facts` e nos templates de relatório. */
@@ -361,7 +408,9 @@ export function computeAccountStatementTotals(
   let accountOut = 0;
   let cardOut = 0;
   for (const t of txs) {
-    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    // Fluxo bancário usa data de CAIXA; itens de cartão seguem a data econômica.
+    const refDate = txOrigin(t) === "credit_card" ? t.occurred_at : cashDateOf(t);
+    if (refDate < range.start || refDate > range.end) continue;
     if (scope && t.account_id !== scope) {
       // Para transferências internas (par), inclui apenas se a perna é da conta escopada.
       // Caso contrário, ignora — mas para as demais movimentações permanece o filtro de conta.
