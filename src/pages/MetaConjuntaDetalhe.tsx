@@ -40,8 +40,16 @@ export default function MetaConjuntaDetalhe() {
   const [openInvite, setOpenInvite] = useState(false);
   const [openEdit, setOpenEdit] = useState(false);
 
-  const total = useMemo(() => contribs.reduce((s, c) => s + Number(c.amount), 0), [contribs]);
-  const pct = goal ? Math.min(1, total / Number(goal.target_amount)) : 0;
+  const progress = useMemo(
+    () => computeGoalProgressFacts(
+      goal?.target_amount ?? 0,
+      id ?? "",
+      contribs.map((c) => ({ goal_id: id ?? "", amount: Number(c.amount) })),
+    ),
+    [contribs, goal?.target_amount, id],
+  );
+  const total = progress.total;
+  const pct = progress.pct;
   const isOwner = role === "owner";
   const isMember = role === "owner" || role === "member";
   const isPending = role === "pending";

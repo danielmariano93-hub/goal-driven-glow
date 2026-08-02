@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Users, ArrowRight } from "lucide-react";
 import { useSharedGoals, useSharedGoalContribs } from "@/lib/db/sharedGoals";
-import { formatBRL } from "@/lib/engine/facts";
+import { computeGoalProgressFacts, formatBRL } from "@/lib/engine/facts";
 
 /**
  * Destaque de meta conjunta na Home.
@@ -17,9 +17,12 @@ export function SharedGoalHighlight() {
   if (isLoading) return null;
   if (!goal) return null;
 
-  const total = contribs.reduce((s, c) => s + Number(c.amount), 0);
   const target = Number(goal.target_amount);
-  const pct = target > 0 ? Math.min(1, total / target) : 0;
+  const { total, pct } = computeGoalProgressFacts(
+    target,
+    goal.id,
+    contribs.map((c) => ({ goal_id: goal.id, amount: Number(c.amount) })),
+  );
 
   return (
     <Link

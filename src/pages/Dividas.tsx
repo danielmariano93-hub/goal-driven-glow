@@ -23,7 +23,8 @@ export default function Dividas() {
   const [editing, setEditing] = useState<DebtRow | null>(null);
   const [paying, setPaying] = useState<DebtRow | null>(null);
 
-  const totalOutstanding = (items ?? []).filter((d) => d.status === "active").reduce((a, b) => a + Number(b.outstanding_balance), 0);
+  // Fonte única (finance_contract.v2): total de dívidas ativas pelo core.
+  const totalOutstanding = computeActiveDebtsTotal(items ?? []);
 
   return (
     <div>

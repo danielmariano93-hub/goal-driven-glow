@@ -15,8 +15,9 @@ export default function Investimentos() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InvestmentRow | null>(null);
 
-  const total = (items ?? []).reduce((a, i) => a + Number(i.current_value), 0);
-  const invested = (items ?? []).reduce((a, i) => a + Number(i.invested_amount), 0);
+  // Fonte única (finance_contract.v2): helpers puros do core.
+  const total = computeInvestmentsTotal(items ?? []);
+  const invested = computeInvestedPrincipal(items ?? []);
 
   return (
     <div>
