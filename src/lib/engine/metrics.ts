@@ -129,6 +129,9 @@ export interface CategoryGoalEvaluation {
   projectedOverspend: number;
 }
 
+/** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
+export const FINANCE_CONTRACT_VERSION = "finance_contract.v2";
+
 export interface FinancialSnapshotInput {
   accounts: AccountRow[];
   txs: TransactionRow[];
@@ -144,9 +147,26 @@ export interface FinancialSnapshotInput {
   cardStatements?: CardStatementRow[];
   cardInstallments?: CardInstallmentRow[];
   cardIds?: string[];
+  /** Metas individuais + contribuições (progresso canônico no snapshot). */
+  goals?: GoalRow[];
+  goalContributions?: GoalContributionRow[];
+  /** Categorias para o breakdown canônico do mês. */
+  categories?: CategoryRow[];
+}
+
+export interface SnapshotGoalProgress {
+  id: string;
+  name: string;
+  target: number;
+  contributed: number;
+  investedLinked: number;
+  total: number;
+  remaining: number;
+  pct: number;
 }
 
 export interface FinancialSnapshot {
+  contractVersion: string;
   today: string;
   period: DateRange;
   availableToday: number;
@@ -175,6 +195,19 @@ export interface FinancialSnapshot {
   cardFutureInstallments: number;
   /** true quando algum número de cartão veio de estimativa (sem fatura oficial). */
   cardDebtIsEstimated: boolean;
+  /** Totais comportamentais do mês corrente (mesma regra de Relatórios/MCP). */
+  monthlyTotals: { month: string; income: number; expense: number; net: number };
+  /** Breakdown de despesa do mês corrente por categoria. */
+  categoryBreakdown: ReturnType<typeof computeCategoryBreakdown>;
+  /** Saldo devedor das dívidas ativas (fora do cartão). */
+  activeDebtTotal: number;
+  /** Valor atual da carteira e principal aportado. */
+  investmentsTotal: number;
+  investedPrincipal: number;
+  /** Progresso canônico das metas individuais. */
+  goalProgress: SnapshotGoalProgress[];
+  /** Compromissos conhecidos nos próximos 30 dias. */
+  upcomingCommitments: ReturnType<typeof computeUpcomingCommitments>;
 }
 
 
