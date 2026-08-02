@@ -112,16 +112,14 @@ Deno.serve(async (req) => {
     const cardTotalLimit = cards.reduce((a, c) => a + Number(c.total_limit || 0), 0);
 
     // Consumo comportamental dos últimos 30 dias (mesma regra da Home/Relatórios).
-    const monthlyExpense30 = computeBehavioralExpense(last30, iso(cutoff30), iso(today));
+    const monthlyExpense30 = computeBehavioralExpense(last30, { start: iso(cutoff30), end: iso(today) });
 
     // Metas — helper canônico (contribuições + investimentos vinculados).
     const goalsPct = goals.map(
       (g) => computeGoalProgressFacts(g.target_amount, g.id, contribs, investments).pct,
     );
 
-    const outstandingToday = computeActiveDebtsTotal(
-      debts.map((d) => ({ outstanding_balance: d.outstanding_balance, status: d.status ?? "active" })) as never,
-    );
+    const outstandingToday = computeActiveDebtsTotal(debts);
 
     const emoDays14 = new Set(emos.filter((e) => e.occurred_at.slice(0, 10) >= iso(cutoff14)).map((e) => e.occurred_at.slice(0, 10))).size;
     const emoTxIds = new Set(emos.filter((e) => e.transaction_id).map((e) => e.transaction_id as string));
