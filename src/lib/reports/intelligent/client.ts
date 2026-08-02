@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Acesso aos Relatórios Inteligentes. Somente leitura pela Data API (RLS já
 // restringe ao dono) + geração on-demand pela Edge Function.
 import { supabase } from "@/integrations/supabase/client";
@@ -55,8 +56,8 @@ const LIST_COLUMNS =
   "id,report_type,period_start,period_end,status,health_score,executive_summary,data_quality_status,generated_at,viewed_at";
 
 export async function listReports(): Promise<ReportListItem[]> {
-  const { data, error } = await supabase
-    .from("financial_reports" as never)
+  const { data, error } = await (supabase as any)
+    .from("financial_reports")
     .select(LIST_COLUMNS)
     .order("period_start", { ascending: false })
     .limit(60);
@@ -66,18 +67,18 @@ export async function listReports(): Promise<ReportListItem[]> {
 
 export async function getReport(id: string): Promise<ReportDetail | null> {
   const [reportRes, metricsRes, highlightsRes] = await Promise.all([
-    supabase
-      .from("financial_reports" as never)
+    (supabase as any)
+      .from("financial_reports")
       .select(`${LIST_COLUMNS},timezone,closing_text,text_source,health_breakdown,data_quality_flags,payload`)
       .eq("id", id)
       .maybeSingle(),
-    supabase
-      .from("financial_report_metrics" as never)
+    (supabase as any)
+      .from("financial_report_metrics")
       .select("metric_key,metric_label,metric_value,metric_text,comparison_value,comparison_percentage,unit,sort_order")
       .eq("report_id", id)
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("financial_report_highlights" as never)
+    (supabase as any)
+      .from("financial_report_highlights")
       .select("id,detector_key,type,title,body,confidence,category,cta_label,cta_route,sort_order")
       .eq("report_id", id)
       .order("sort_order", { ascending: true }),
