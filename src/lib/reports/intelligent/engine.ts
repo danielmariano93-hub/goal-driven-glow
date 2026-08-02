@@ -370,7 +370,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     period,
     previousPeriod: previous,
     metrics: buildMetrics(payload),
-    highlights: detectHighlights(payload),
+    highlights: mergeHighlights(detectHighlights(payload), input.extraHighlights ?? []),
     healthScore: health.score,
     healthBreakdown: health.breakdown,
     dataQualityStatus: quality.status,
