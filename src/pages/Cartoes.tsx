@@ -381,6 +381,9 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   const [adding, setAdding] = useState(false);
   const [forcing, setForcing] = useState(false);
   const [justification, setJustification] = useState("");
+  const [reasonCode, setReasonCode] = useState("");
+  const [evidenceRef, setEvidenceRef] = useState("");
+
 
   const current = detail.data?.statement ?? (statement as StatementRow & { reconciled_total?: number; opening_balance?: number });
   const items = detail.data?.items ?? [];
