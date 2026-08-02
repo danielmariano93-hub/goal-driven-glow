@@ -152,3 +152,35 @@ describe("guardrail numérico", () => {
     expect(validateNumbers("Foram 3 lançamentos em 7 dias.", allowed).ok).toBe(true);
   });
 });
+
+describe("mergeHighlights", () => {
+  const base = {
+    type: "risk" as const,
+    title: "t",
+    body: "b",
+    confidence: "high" as const,
+    evidence: {},
+    selectionReason: "r",
+  };
+  it("mantém apenas um destaque por família, favorecendo o período no empate", () => {
+    const merged = mergeHighlights(
+      [{ ...base, detectorKey: "card_over_cash", family: "cartao", priority: 95, dedupKey: "p:cartao" }],
+      [{ ...base, detectorKey: "card_debt_vs_income", family: "cartao", priority: 95, dedupKey: "c:cartao" }],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].detectorKey).toBe("card_over_cash");
+    expect(merged[0].source).toBe("period");
+  });
+  it("agrega destaques do catálogo em famílias novas e respeita o limite", () => {
+    const merged = mergeHighlights(
+      [{ ...base, detectorKey: "negative_result", family: "resultado", priority: 100, dedupKey: "p:res" }],
+      [
+        { ...base, detectorKey: "debt_above_income", family: "dividas", priority: 93, dedupKey: "c:div" },
+        { ...base, detectorKey: "subscriptions_load", family: "assinaturas", priority: 62, dedupKey: "c:ass" },
+      ],
+      2,
+    );
+    expect(merged.map((h) => h.family)).toEqual(["resultado", "dividas"]);
+    expect(merged[1].source).toBe("catalog");
+  });
+});
