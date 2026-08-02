@@ -1,63 +1,55 @@
-## Objetivo
+# Relatórios Inteligentes: dados reais nos highlights + insights integrados
 
-Entregar, numa única rodada de implementação, os Relatórios Financeiros Inteligentes semanais e mensais do Meu Nino: cálculo determinístico, highlights, texto de IA validado, página premium, histórico, notificação in-app, cron real e envio pelo WhatsApp com deep link autenticado.
+## Diagnóstico confirmado (verificado em código e banco)
 
-Observação: o HTML premium citado não veio anexado nesta mensagem. Vou recriar o layout a partir dos tokens listados no pedido e do design system atual. Se você anexar o HTML depois, ajusto o visual sem mexer no restante.
+A causa raiz do "75,4% das despesas estão sem categoria" está na Edge Function `financial-reports-generate` (linha 55):
 
-## 1. Banco de dados (uma migration)
+```
+sb.from("categories").select("id,name").eq("user_id", userId)
+```
 
-- `financial_reports` (user_id, report_type semanal/mensal, period_start/end, timezone, status, generated_at/published_at/viewed_at, finance_contract_version, insight_catalog_version, template_version, health_score, health_breakdown, executive_summary, closing_text, text_source (ai/deterministic), data_quality_status, data_quality_flags, request_id, idempotency_key, timestamps). Índice único por (user_id, report_type, period_start).
-- `financial_report_metrics` (report_id, metric_key, metric_value, comparison_value, comparison_percentage, unit, source, evidence jsonb, sort_order).
-- `financial_report_highlights` (report_id, detector_key, detector_version, type, title, body, priority, confidence, evidence, cta_label, cta_route, dedup_key, selection_reason, sort_order).
-- `financial_report_deliveries` (report_id, channel, recipient, status, provider_message_id, attempt_count, last_attempt_at, delivered_at, failed_at, error_code, error_details).
-- Extensão de `notification_preferences`: `weekly_report_enabled`, `monthly_report_enabled`, `report_weekday`, `report_hour`, `report_timezone`, `report_channel`, `report_detail_level`, `report_tone`.
-- Para cada tabela nova: GRANT para `authenticated`/`service_role`, RLS ativa com políticas por `auth.uid()` (leitura própria; escrita só service role), FKs `on delete cascade`, trigger de `updated_at`.
-- RPC `mark_financial_report_viewed(p_report_id)` — grava `viewed_at` só do dono.
+Ela busca **apenas categorias próprias do usuário** e ignora as **categorias globais** (`user_id IS NULL`). Quando o motor não encontra o nome da categoria, o lançamento cai em "Sem categoria".
 
-## 2. Motor de métricas (determinístico, fonte única)
+Evidência no banco (julho/2026, usuário principal):
+- 175 despesas no período, **0 com `category_id` nulo** e **0 órfãs**.
+- Dos `category_id` usados: **164 lançamentos apontam para categorias globais** (`user_id IS NULL`, 13 categorias) e apenas 38 para categorias próprias (10 categorias).
+- O relatório gravado (`financial_report_highlights`) registra `uncategorized` com `count: 155`, `total: 11.411,75`, `share: 75.37` — exatamente o efeito de perder os nomes das globais.
+- A tela de Lançamentos usa `useCategories()` **sem filtro de `user_id`** (a RLS já devolve próprias + globais), por isso mostra corretamente ~6 sem categoria. Ou seja: divergência de fonte de nomes, não de dados.
 
-Novo módulo `supabase/functions/_shared/reports/` espelhado em `src/lib/reports/` pelo `scripts/sync-finance-core.mjs`:
+Todas as outras funções (`insights-generate`, `assistant-ingest-document`, `_shared/engine/metrics.ts`, tools do agente) já usam `or(user_id.eq.X,user_id.is.null)`. A função de relatórios é a única fora do padrão.
 
-- `periods.ts`: janelas semana fechada (seg–dom), mês fechado, semana anterior, mesmo período relativo do mês anterior, próximos 7 dias — tudo em `America/Sao_Paulo`.
-- `metricsWeekly.ts` / `metricsMonthly.ts`: montam todos os blocos pedidos (resumo, comparações, categorias, comerciantes, cartões, fluxo de caixa, dívidas, metas, investimentos/patrimônio, projeções; no mensal também composição, comportamento e previsão do mês seguinte). Todo número vem de `facts.ts` / `metrics.ts` / `finance_contract.v2` — sem recálculo paralelo, sem contar pagamento de fatura como despesa, separando gasto do período, fatura em formação, dívida atual e parcelas futuras.
-- `healthScore.ts`: nota 0–10 determinística com breakdown por componente (resultado, poupança, risco de caixa, cartão, dívidas, patrimônio, metas, qualidade de registro), exibível ao usuário.
-- `dataQuality.ts`: sinaliza sem categoria, fatura estimada, conciliação pendente, histórico insuficiente, comparação não confiável.
-- `highlights.ts`: os ~25 detectores pedidos, cada um com tipo, título, corpo, evidências, números usados, período, prioridade, confiança, categoria, CTA/rota, dedup_key, versão e motivo de seleção. Dedup + cooldown reaproveitando a política de `tipPolicy.ts`.
+Consequências em cadeia (todas resolvidas pela mesma correção): a "Maior categoria", a concentração por categoria, o split essencial vs. flexível, as flags de qualidade de dados e a **nota de saúde** (componentes `composition` e `data_quality`) estavam todos distorcidos, além da narrativa da IA que se baseia nesses números.
 
-## 3. IA com validação numérica
+## O que será feito
 
-- Chamada única no gateway (`openai/gpt-5.6-sol`, `reasoning_effort: "none"`) que recebe apenas métricas e highlights já calculados e devolve introdução, explicações e conclusão.
-- `numericGuard.ts`: extrai todo valor, percentual, data e quantidade do texto e exige correspondência nas evidências. Falha ⇒ texto determinístico, `text_source='deterministic'` e motivo registrado.
+### 1. Fonte única de nomes de categoria (correção da causa raiz)
+- Em `financial-reports-generate/index.ts`: trocar o filtro por `or("user_id.eq.<uid>,user_id.is.null")`, sem filtro de `archived_at` (lançamentos históricos mantêm o rótulo).
+- Adicionar teste de regressão garantindo que uma transação com categoria global não seja classificada como "Sem categoria".
+- Revisão dos demais consumidores de nome de categoria para confirmar o padrão único (incluindo `supabase/functions/mcp/index.ts`, que hoje seleciona categorias sem escopo explícito).
 
-## 4. Geração e agendamento
+### 2. Regeneração dos relatórios já gravados
+Os relatórios existentes contêm números errados persistidos. Serão regenerados:
+- A função ganha modo `force` (regenerar sobrescrevendo métricas/highlights do mesmo período em vez de retornar o relatório em cache).
+- Execução única de regeneração dos relatórios semanais/mensais já existentes, para que o histórico da tela passe a exibir dados corretos.
+- Na tela de detalhe, botão "Atualizar dados deste relatório" (regenera o período), útil quando o usuário categoriza lançamentos depois da geração.
 
-- Nova Edge Function `financial-reports-generate`:
-  - modos: `single` (user/tipo/período) e `cron` (lote).
-  - pipeline idempotente: elegíveis → período → snapshot → métricas → comparações → candidatos → highlights → texto → validação → gravar → publicar → link → enfileirar comunicação → registrar entrega.
-  - `request_id`, `idempotency_key`, `writeJobHeartbeat`, contagem processada/falhas/duração, resposta 207 em falha parcial, envelope `edge_error.v1`.
-- Autenticação de cron via `x-cron-secret`, no mesmo padrão de `documents-cleanup`.
-- `pg_cron` real: função `financial_reports_weekly_tick` (segunda 07:00 BRT = 10:00 UTC) e `financial_reports_monthly_tick` (dia 1, 07:00 BRT), ambas chamando a função com o secret. Jobs adicionados ao painel de Saúde operacional (`admin/operacao/Saude.tsx`) com alerta de atraso.
+### 3. Highlights alimentados também pelos insights já prontos
+Hoje os highlights vêm só de `reports/intelligent/highlights.ts` (13 detectores de período). O `insights_catalog.v1` (17 detectores em `_shared/insights/detectors.ts`: fatura vencendo, dívida vs. renda, pressão de parcelas futuras, projeção de caixa, compromissos de 7 dias, anomalia de valor, peso de assinaturas, comerciante recorrente, ritmo de gastos, risco financeiro, próxima melhor ação etc.) não é aproveitado.
 
-## 5. WhatsApp e notificação in-app
+Integração:
+- A função de relatórios passa a montar os sinais determinísticos e executar `deterministicCandidates(...)` do catálogo de insights, reaproveitando o mesmo código já usado pela Home/WhatsApp (nada duplicado).
+- Os candidatos são convertidos para o contrato de highlight (tipo risco/conquista/oportunidade/leitura, prioridade, evidência, CTA) e **mesclados** com os detectores de período, com deduplicação por família (um highlight por família: cartão, dívidas, caixa, assinaturas, ritmo, categorização) e ordenação por prioridade.
+- O limite sobe de 5 para até 8 highlights, mantendo no máximo 1 por família para não repetir leitura.
+- Cada highlight mesclado carrega `source` ("periodo" ou "catalogo") e a evidência numérica original — o guardrail numérico continua validando a narrativa da IA contra esses números.
+- A UI (`ReportHighlightList`) ganha agrupamento por tipo e o rótulo de origem discreto, sem mudar a identidade visual.
 
-- Mensagem curta (semanal/mensal) com 1–2 highlights e CTA, tom do Nino, via `whatsapp-send` e templates em `messageTemplates.ts`; deep link `https://meunino.com.br/app/relatorios-inteligentes/<tipo>/<reportId>`.
-- Entrega registrada em `financial_report_deliveries` com idempotência por `report_id+channel`, retry com backoff, `provider_message_id`, falha explícita (nunca sucesso falso), respeitando preferências e WhatsApp desconectado.
-- Notificação in-app em `notifications` (novo tipo de relatório), badge de não lido no histórico, leitura registrada ao abrir.
+### 4. Verificação antes de considerar concluído
+- Consulta de conferência comparando, para o mesmo período: total de despesas, contagem sem categoria e top categorias — banco vs. relatório gerado vs. tela de Lançamentos. O highlight `uncategorized` só deve aparecer se realmente houver ≥10% sem categoria.
+- Sincronização do core (`scripts/sync-finance-core.mjs`) para manter o espelho das Edge Functions.
+- Suíte de testes completa + validação no preview da tela de relatórios (histórico e detalhe).
 
-## 6. Frontend
+## Detalhes técnicos
 
-- Rotas autenticadas: `/app/relatorios-inteligentes` (histórico), `/app/relatorios-inteligentes/semanal/:reportId`, `/app/relatorios-inteligentes/mensal/:reportId`. Login redireciona preservando o `reportId`; relatório de outro usuário retorna “não encontrado”.
-- Histórico: último relatório em destaque, listas semanal/mensal, período, status, indicadores-chave, filtros por tipo e período, marcador de não lido; acesso a partir de Relatórios e do menu Mais.
-- Página do relatório: componentes novos em `src/components/relatorios-inteligentes/` (Hero, HealthScoreCard com explicação, KPIs, comparativos, categorias, highlights do Nino, cartões, compromissos, metas/patrimônio, evolução mensal, previsão, plano recomendado, rodapé de geração) usando os tokens informados, Recharts, mobile-first.
-- Estados: carregando, gerando, disponível, não lido, sem dados, dados insuficientes, falha parcial, falha de geração, relatório antigo, baixa qualidade, WhatsApp não conectado — sempre com copy amigável em pt-BR.
-- Impressão: botão “Salvar como PDF” + CSS `@media print` A4, sem menus, quebras controladas.
-
-## 7. Testes e validação
-
-- Suites novas: métricas semanais/mensais, regras de borda (semana/mês incompletos, fatura oficial vs estimada, parcelas futuras, pagamento de fatura, reembolso, estorno, duplicidade, sem categoria), health score, highlights (dedup, prioridade, confiança, CTA, cooldown), guard numérico da IA e fallback, idempotência/retry/falha parcial da geração, entrega WhatsApp (link, usuário e HTTP corretos), UI (histórico, filtros, vazios, não lido) e paridade financeira ao centavo com Home, Relatórios, Cartões, Nino app/WhatsApp, MCP e Pulso.
-- Rodar `vitest`, testes de Edge Functions, typecheck, lint, build; disparar os ticks de cron manualmente para evidência; validar RLS tentando ler relatório de outro usuário.
-- Ao final, apresento: arquivos alterados, migration, tabelas/funções/jobs criados, rotas, Edge Functions, nº de testes aprovados, evidência de cron ativo, de envio no WhatsApp, de link abrindo o relatório correto e limitações reais, se houver.
-
-## 8. Fora de escopo
-
-Nenhuma publicação em produção: implemento, testo e apresento para sua validação antes de publicar.
+- Arquivos afetados: `supabase/functions/financial-reports-generate/index.ts` (fonte de categorias, modo `force`, merge de insights), `src/lib/reports/intelligent/highlights.ts` + espelho `supabase/functions/_shared/reports-core/highlights.ts` (merge/dedup por família, limite 8), `src/lib/reports/intelligent/types.ts` (campos `source`/`family`), `src/lib/reports/intelligent/client.ts` e `src/pages/RelatorioInteligenteDetalhe.tsx` (ação de atualizar), `src/components/relatorios/ReportHighlightList.tsx`, testes em `src/test/reports-intelligent.test.ts`.
+- Sem mudança de schema: `financial_report_highlights` já possui `detector_key`, `evidence`, `priority` e `dedup_key`. Se o rótulo de origem exigir persistência, ele vai dentro de `evidence` (nenhuma migration necessária).
+- Deploy: apenas `financial-reports-generate` precisa de deploy; frontend publicado somente após sua autorização explícita.
