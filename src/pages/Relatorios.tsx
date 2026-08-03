@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
+import { ChevronDown, Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
 import {
   CartesianGrid,
   Line,
