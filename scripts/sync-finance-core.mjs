@@ -57,8 +57,21 @@ export function toEdgeSource(source) {
 export function toEdgeReportSource(source) {
   const out = source
     .replace(/from "@\/lib\/engine\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|metrics)"/g, 'from "../finance-core/$1.ts"')
+    .replace(/from "@\/lib\/copy\/(resultWording)"/g, 'from "../copy/$1.ts"')
     .replace(/from "\.\/(types|periods|engine|highlights|numericGuard|narrative)"/g, 'from "./$1.ts"');
   return HEADER + out;
+}
+
+export function toEdgeCopySource(source) {
+  return HEADER + source;
+}
+
+export function readCopySource(mod) {
+  return readFileSync(resolve(`src/lib/copy/${mod}.ts`), "utf8");
+}
+
+export function copyEdgePath(mod) {
+  return resolve(`supabase/functions/_shared/copy/${mod}.ts`);
 }
 
 export function readReportSource(mod) {
@@ -76,6 +89,7 @@ export function readAppSource(mod) {
 export function edgePath(mod) {
   return resolve(`supabase/functions/_shared/finance-core/${mod}.ts`);
 }
+
 
 function main() {
   mkdirSync(resolve("supabase/functions/_shared/finance-core"), { recursive: true });
