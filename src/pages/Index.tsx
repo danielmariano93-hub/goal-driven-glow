@@ -77,7 +77,6 @@ export default function Index() {
   const isFresh = !hasAccount && !hasTransaction && !hasGoal;
 
   const heroLabel = "Disponível hoje";
-  const periodLabelShort = `${periodRange.start.split("-").reverse().slice(0, 2).join("/")} – ${periodRange.end.split("-").reverse().slice(0, 2).join("/")}`;
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5 md:max-w-2xl" data-surface="home">
