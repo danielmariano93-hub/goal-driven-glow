@@ -258,11 +258,12 @@ export default function AssessorAcompanhamento() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-border/70 bg-background/80 p-3">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-bold">{value}</p>
+      {hint && <p className="mt-1 text-[10px] leading-snug text-muted-foreground">{hint}</p>}
     </div>
   );
 }
