@@ -32,6 +32,10 @@ import {
   RoutineBlock,
 } from "@/components/finance/FinanceBlocks";
 
+type BridgeAccount = Parameters<typeof computeCashBridge>[0]["accounts"][number];
+type BridgeTxn = Parameters<typeof computeCashBridge>[0]["txs"][number];
+type BridgeSnapshot = NonNullable<Parameters<typeof computeCashBridge>[0]["snapshots"]>[number];
+
 const round2cents = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 type MonthBridge = {
@@ -116,16 +120,12 @@ export default function Relatorios() {
         .from("transactions")
         .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
         .order("occurred_at", { ascending: false });
-      setTxns((data ?? []).map((t: any) => ({
-        id: t.id, account_id: t.account_id, type: t.type, status: t.status,
-        amount: Number(t.amount), occurred_at: t.occurred_at,
-        category_id: t.category_id, category_name: t.categories?.name ?? null,
-        transfer_group_id: t.transfer_group_id, payment_method: t.payment_method,
-        credit_card_id: t.credit_card_id, settles_card_id: t.settles_card_id,
-        movement_kind: t.movement_kind, origin: t.origin,
-        installments_total: t.installments_total, description: t.description,
-        friendly_description: t.friendly_description,
-      })));
+      type RawTxn = Record<string, unknown> & { categories?: { name?: string | null } | null };
+      setTxns(((data ?? []) as unknown as RawTxn[]).map((t) => ({
+        ...(t as object),
+        amount: Number(t.amount),
+        category_name: t.categories?.name ?? null,
+      }) as unknown as ReportTxn));
     })();
   }, []);
 
@@ -149,11 +149,13 @@ export default function Relatorios() {
   const highlights = spendingHighlights(byCat, totalExpense);
 
   // Mês a mês com a MESMA ponte canônica do período (nenhum cálculo paralelo).
-  const bridgeAccountRows = (bridgeAccounts ?? []).map((a: any) => ({
+  const bridgeAccountRows = (bridgeAccounts ?? []).map((a) => ({
     id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active,
-  }));
-  const bridgeTxRows = ((bridgeTxs ?? []) as any[]).map((t) => ({ ...t, amount: Number(t.amount) })) as any[];
-  const bridgeSnapRows = ((bridgeSnapshots ?? []) as any[]).map((s2) => ({ ...s2, balance: Number(s2.balance) })) as any[];
+  })) as unknown as BridgeAccount[];
+  const bridgeTxRows = ((bridgeTxs ?? []) as unknown as Array<Record<string, unknown>>)
+    .map((t) => ({ ...t, amount: Number(t.amount) })) as unknown as BridgeTxn[];
+  const bridgeSnapRows = ((bridgeSnapshots ?? []) as unknown as Array<Record<string, unknown>>)
+    .map((s2) => ({ ...s2, balance: Number(s2.balance) })) as unknown as BridgeSnapshot[];
   const monthlyBridges = monthly.map((m) => {
     const [y, mm] = m.ym.split("-").map(Number);
     const last = new Date(Date.UTC(y, mm, 0)).getUTCDate();
