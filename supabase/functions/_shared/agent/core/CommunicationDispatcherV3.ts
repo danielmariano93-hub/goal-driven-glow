@@ -358,12 +358,24 @@ export async function dispatchSuggestions(
     }
 
     if (!dryRun) {
+      // Adiada ≠ descartada ≠ aguardando aprovação: cada estado tem retorno próprio.
+      const nextStatus = anyQueued
+        ? "dispatched"
+        : deferUntil
+        ? "deferred"
+        : awaitingApproval
+        ? "awaiting_approval"
+        : "dismissed";
       await sb.from("pending_proactive_suggestions").update({
-        status: anyQueued ? "dispatched" : "dismissed",
+        status: nextStatus,
         dispatched_at: anyQueued ? new Date().toISOString() : null,
-        dismissed_at: anyQueued ? null : new Date().toISOString(),
+        dismissed_at: nextStatus === "dismissed" ? new Date().toISOString() : null,
+        next_attempt_at: nextStatus === "deferred" ? deferUntil : null,
+        defer_reason: nextStatus === "deferred" ? deferReason : null,
+        logical_dedup_key: candidate.dedup_key,
       }).eq("id", candidate.id).eq("status", "pending");
     }
+
   }
   return results;
 }
