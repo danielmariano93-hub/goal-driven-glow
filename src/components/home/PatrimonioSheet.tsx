@@ -45,9 +45,10 @@ export function PatrimonioSheet({
             <span className="font-display text-lg font-bold tabular-nums text-foreground">{formatBRL(assets)}</span>
           </div>
           <p className="px-1 pt-2 text-[11px] leading-relaxed text-muted-foreground">
-            "Seus recursos hoje" é o dinheiro em conta somado ao investido. Suas obrigações aparecem
-            separadas abaixo para mostrar a posição líquida — dívida não reduz o que você já guardou.
+            "Seus recursos hoje" é o dinheiro em conta somado ao investido, <strong className="font-semibold text-foreground">antes</strong> de
+            descontar as obrigações. Elas aparecem abaixo e entram no cálculo do patrimônio líquido.
           </p>
+
           {accountOverdraft > 0 && <Row icon={<TrendingDown size={14} />} label="Saldo negativo em conta" value={-accountOverdraft} tone="negative" />}
           <Row
             icon={<CreditCard size={14} />}
@@ -67,10 +68,17 @@ export function PatrimonioSheet({
             />
           )}
         </div>
-        <div className="mt-4 flex items-center justify-between rounded-[18px] bg-muted px-4 py-3">
-          <span className="text-sm font-semibold text-foreground">Patrimônio líquido</span>
-          <span className="font-display text-lg font-bold tabular-nums text-foreground">{formatBRL(net)}</span>
+        <div className="mt-4 rounded-[18px] bg-muted px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-foreground">Patrimônio líquido</span>
+            <span className="font-display text-lg font-bold tabular-nums text-foreground">{formatBRL(net)}</span>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            {formatBRL(assets)} de recursos − {formatBRL(accountOverdraft + cardsOwed + otherDebts)} de obrigações
+            (fatura em aberto e dívidas já descontadas).
+          </p>
         </div>
+
       </SheetContent>
     </Sheet>
   );
