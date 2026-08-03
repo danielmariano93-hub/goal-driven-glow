@@ -617,6 +617,9 @@ export async function generateAdvisorReviews(
       },
       channel_ready: "app",
       dedup_key: `advisor_review:${review.period_kind}:${review.period_start}`,
+      // Mesmo assunto do relatório inteligente do período (comms_contract.v2).
+      logical_dedup_key: periodReviewKey(review.period_kind, userId, review.period_start),
+
       expires_at: new Date(Date.now() + 14 * DAY).toISOString(),
       status: "pending",
     }, { onConflict: "user_id,dedup_key", ignoreDuplicates: true });
