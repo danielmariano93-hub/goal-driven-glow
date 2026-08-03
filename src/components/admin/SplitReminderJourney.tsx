@@ -27,8 +27,24 @@ export function SplitReminderJourney() {
       adminToast.success("Régua do rolê atualizada");
     } catch (e) { adminToast.fromError(e, "Não foi possível salvar a régua"); }
   }
+  const [reconciling, setReconciling] = useState(false);
+  // Reconciliação manual: recoloca na fila lembretes que ficaram sem job vivo
+  // (cancelados, perdidos ou fora da janela) sem duplicar cobranças.
+  async function reconcile() {
+    setReconciling(true);
+    try {
+      const result = await callAdminRpc<{ reactivated?: number; created?: number }>("admin_reconcile_split_reminders");
+      const reactivated = Number(result?.reactivated ?? 0);
+      const created = Number(result?.created ?? 0);
+      adminToast.success(reactivated + created === 0
+        ? "Nada a reconciliar: a fila já está consistente"
+        : `Fila reconciliada: ${reactivated} reativados, ${created} criados`);
+    } catch (e) { adminToast.fromError(e, "Não foi possível reconciliar a fila"); }
+    finally { setReconciling(false); }
+  }
   return <section className="space-y-5 rounded-lg border bg-card p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-display text-lg font-bold">Lembretes da divisão do rolê</h2><p className="text-sm text-muted-foreground">Uma cobrança no vencimento e uma última no dia seguinte. Pagou, respondeu ou saiu? A jornada para.</p></div><Button onClick={save}><Save size={14} />Salvar</Button></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-display text-lg font-bold">Lembretes da divisão do rolê</h2><p className="text-sm text-muted-foreground">Uma cobrança no vencimento e uma última no dia seguinte. Pagou, respondeu ou saiu? A jornada para.</p></div><div className="flex gap-2"><Button variant="outline" onClick={reconcile} disabled={reconciling}><RefreshCw size={14} className={reconciling ? "animate-spin" : undefined} />Reconciliar fila</Button><Button onClick={save}><Save size={14} />Salvar</Button></div></div>
+
     <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-center">
       <JourneyStep icon={CalendarClock} eyebrow="1º envio" title="No vencimento" text={`Às ${String(policy.send_hour).padStart(2, "0")}:00`} />
       <div className="hidden h-px w-10 bg-border md:block" />
