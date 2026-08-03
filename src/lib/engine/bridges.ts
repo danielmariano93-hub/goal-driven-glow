@@ -236,7 +236,15 @@ export interface CashBridge {
   debtInterestAndFees: number;
   cardPayments: number;
   refundsAndReimbursements: number;
+  /** Rendimentos creditados diretamente na conta. */
+  investmentYieldCash: number;
+  /** Somente lançamentos declarados como ajuste de conciliação. */
   adjustments: number;
+  /**
+   * Diferença entre o saldo confirmado e a soma dos lançamentos.
+   * NUNCA é apresentada como ajuste: é falta de dado, e derruba a confiança.
+   */
+  unexplainedDifference: number;
   calculatedClosingCash: number;
   confirmedClosingCash: number;
   reconciliationDifference: number;
@@ -272,6 +280,7 @@ const LINE_LABELS: Record<CashBridgeLine, string> = {
   card_payments: "Pagamentos de fatura",
   refunds_and_reimbursements: "Estornos e reembolsos",
   adjustments: "Ajustes e conciliações",
+  unexplained: "Diferença ainda não explicada",
 };
 
 /**
@@ -368,12 +377,16 @@ export function computeCashBridge(input: CashBridgeInput): CashBridge {
     - debtPrincipalPayments
     - debtInterestAndFees
     - cardPayments
-    + refundsAndReimbursements,
+    + refundsAndReimbursements
+    + get("adjustments"),
   );
 
-  const adjustments = round2(confirmedClosingCash - openingCash - movementsSum);
-  const calculatedClosingCash = round2(openingCash + movementsSum + adjustments);
-  const reconciliationDifference = round2(confirmedClosingCash - calculatedClosingCash);
+  // `adjustments` é APENAS o que o usuário/importação declarou como ajuste.
+  // O resíduo entre saldo confirmado e lançamentos é `unexplainedDifference`.
+  const adjustments = get("adjustments");
+  const calculatedClosingCash = round2(openingCash + movementsSum);
+  const unexplainedDifference = round2(confirmedClosingCash - calculatedClosingCash);
+  const reconciliationDifference = unexplainedDifference;
 
   const anchors = snapshots
     .filter((s) => !s.status || s.status === "confirmed")
@@ -388,8 +401,8 @@ export function computeCashBridge(input: CashBridgeInput): CashBridge {
   // quando também há divergência de saldo — caso contrário a equação já fechou.
   let confidence: BridgeConfidence = "high";
   const tolerance = Math.max(50, Math.abs(confirmedClosingCash) * 0.05);
-  if (Math.abs(adjustments) > 0.01) confidence = "medium";
-  if (Math.abs(adjustments) > tolerance) confidence = "low";
+  if (Math.abs(unexplainedDifference) > 0.01) confidence = "medium";
+  if (Math.abs(unexplainedDifference) > tolerance) confidence = "low";
 
   const lines: CashBridgeLineValue[] = ([
     ["operational_income", operationalIncome, 1],
@@ -406,6 +419,7 @@ export function computeCashBridge(input: CashBridgeInput): CashBridge {
     ["debt_principal_payments", debtPrincipalPayments, -1],
     ["debt_interest_and_fees", debtInterestAndFees, -1],
     ["adjustments", Math.abs(adjustments), adjustments >= 0 ? 1 : -1],
+    ["unexplained", Math.abs(unexplainedDifference), unexplainedDifference >= 0 ? 1 : -1],
   ] as Array<[CashBridgeLine, number, ImpactSign]>)
     .filter(([, amount]) => Math.abs(amount) > 0.005)
     .map(([key, amount, direction]) => ({
@@ -433,7 +447,9 @@ export function computeCashBridge(input: CashBridgeInput): CashBridge {
     debtInterestAndFees,
     cardPayments,
     refundsAndReimbursements,
+    investmentYieldCash,
     adjustments,
+    unexplainedDifference,
     calculatedClosingCash,
     confirmedClosingCash,
     reconciliationDifference,
@@ -564,13 +580,17 @@ export function computeNetWorthBridge(input: NetWorthBridgeInput): NetWorthBridg
   const closingNetWorth = round2(cash.confirmedClosingCash + closingInvestments - closingDebts);
   const netWorthChange = round2(closingNetWorth - openingNetWorth);
 
+  // Movimentos patrimonialmente neutros (aplicação, resgate, empréstimo,
+  // amortização, pagamento de fatura) NÃO entram aqui. A variação da dívida já
+  // está capturada em `operationalResult` (compra no cartão) — subtraí-la de
+  // novo era dupla contagem.
   const explained = round2(
     perf.operationalResult
     + investmentReturn
     - cash.debtInterestAndFees
-    - debtPrincipalChange
     + cash.externalTransfersIn
-    - cash.externalTransfersOut,
+    - cash.externalTransfersOut
+    + cash.unexplainedDifference,
   );
   const valuationAdjustments = round2(netWorthChange - explained);
 
@@ -636,11 +656,17 @@ export function explainBalanceChange(
   if (bridge.cardPayments > 0) steps.push(`Pagou ${money(bridge.cardPayments)} de fatura do cartão (consumo já contado antes).`);
   if (bridge.debtPrincipalPayments > 0) steps.push(`Amortizou ${money(bridge.debtPrincipalPayments)} de dívidas.`);
   if (bridge.debtInterestAndFees > 0) steps.push(`Pagou ${money(bridge.debtInterestAndFees)} de juros e tarifas.`);
+  if (bridge.investmentYieldCash > 0) steps.push(`Recebeu ${money(bridge.investmentYieldCash)} de rendimentos creditados na conta.`);
   if (Math.abs(bridge.adjustments) > 0.01) {
     steps.push(
       bridge.adjustments > 0
-        ? `Somamos ${money(bridge.adjustments)} de ajuste para bater com o extrato do banco.`
-        : `Descontamos ${money(Math.abs(bridge.adjustments))} de ajuste para bater com o extrato do banco.`,
+        ? `Somamos ${money(bridge.adjustments)} de ajuste de conciliação registrado por você.`
+        : `Descontamos ${money(Math.abs(bridge.adjustments))} de ajuste de conciliação registrado por você.`,
+    );
+  }
+  if (Math.abs(bridge.unexplainedDifference) > 0.01) {
+    steps.push(
+      `Ainda faltam ${money(Math.abs(bridge.unexplainedDifference))} para os lançamentos explicarem o saldo confirmado — provavelmente há movimentos não importados nesse período.`,
     );
   }
   steps.push(`Por isso terminou com ${money(bridge.confirmedClosingCash)} em conta.`);
