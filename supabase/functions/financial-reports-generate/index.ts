@@ -10,6 +10,8 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { corsHeaders } from "../_shared/cors.ts";
 import { fail, respond } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { periodReviewKey } from "../_shared/intelligence/logicalDedup.ts";
+
 import { resolveAppPublicUrl } from "../_shared/messaging/appUrl.ts";
 import type { TransactionRow } from "../_shared/finance-core/facts.ts";
 import { buildIntelligentReport } from "../_shared/reports-core/engine.ts";
@@ -323,7 +325,11 @@ async function generateForUser(
       body: `${period.label} • nota de saúde ${report.healthScore}/10`,
       action_url: `/app/relatorios-inteligentes/${reportId}`,
       dedup_key: `financial_report:${reportId}`,
+      // Relatório e revisão do mesmo período são o mesmo assunto: quem chegar
+      // primeiro comunica, o outro é suprimido pela chave lógica.
+      logical_dedup_key: periodReviewKey(reportType, userId, period.start),
     });
+
     await sb.from("financial_report_deliveries").upsert({
       report_id: reportId,
       user_id: userId,

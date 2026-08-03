@@ -5,6 +5,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { decideCommunication, type CommunicationPreferences, type DeliveryHistory } from "../../intelligence/communicationPolicy.ts";
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
+import { suggestionLogicalKey } from "../../intelligence/logicalDedup.ts";
+
 
 export type DispatchOutcome = {
   id: string;
@@ -175,6 +177,8 @@ async function record(sb: SupabaseClient, args: {
     status: args.status,
     reason: args.reason ?? null,
     dedup_key: args.dedup_key ?? null,
+    logical_dedup_key: args.dedup_key ? suggestionLogicalKey(args.user_id, args.dedup_key) : null,
+
     evidence: args.evidence ?? {},
     cost_usd: 0,
     block_context: args.block_context ?? {},
@@ -312,6 +316,22 @@ export async function dispatchSuggestions(
 
       try {
         if (target === "app") {
+          const logicalKey = suggestionLogicalKey(userId, candidate.dedup_key);
+          // Mesmo assunto já comunicado (ex.: relatório inteligente do período)
+          // não gera segunda notificação, mesmo com dedup_key de superfície
+          // diferente.
+          const { data: alreadyCommunicated } = await sb.from("notifications")
+            .select("id").eq("user_id", userId).eq("logical_dedup_key", logicalKey).maybeSingle();
+          if (alreadyCommunicated) {
+            await record(sb, {
+              user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
+              status: "suppressed", reason: "logical_duplicate",
+              dedup_key: candidate.dedup_key, evidence: candidate.evidence,
+              block_context: { policy_reason: "logical_duplicate", logical_dedup_key: logicalKey },
+            });
+            results.push({ id: candidate.id, channel: target, status: "skipped", reason: "logical_duplicate" });
+            continue;
+          }
           const { error: notificationError } = await sb.from("notifications").upsert({
             user_id: userId,
             type: notificationType(candidate.kind),
@@ -319,6 +339,7 @@ export async function dispatchSuggestions(
             body: rendered.body,
             action_url: actionUrl,
             dedup_key: `proactive:${candidate.dedup_key}`,
+            logical_dedup_key: logicalKey,
           }, { onConflict: "user_id,dedup_key" });
           if (notificationError) throw notificationError;
           await record(sb, {
@@ -328,6 +349,7 @@ export async function dispatchSuggestions(
           });
           anyQueued = true;
           results.push({ id: candidate.id, channel: target, status: "delivered", title: rendered.title, body: rendered.body });
+
         } else {
           if (!(link as any)?.phone_e164) {
             await record(sb, {
@@ -394,7 +416,7 @@ export async function dispatchSuggestions(
         dismissed_at: nextStatus === "dismissed" ? new Date().toISOString() : null,
         next_attempt_at: nextStatus === "deferred" ? deferUntil : null,
         defer_reason: nextStatus === "deferred" ? deferReason : null,
-        logical_dedup_key: candidate.dedup_key,
+        logical_dedup_key: suggestionLogicalKey(userId, candidate.dedup_key),
       }).eq("id", candidate.id).eq("status", "pending");
     }
 

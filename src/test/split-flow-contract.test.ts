@@ -53,9 +53,10 @@ describe("Divisão do Rolê — contrato integrado", () => {
     expect(dispatcher).not.toContain("Lembrete amigável do Lucas");
   });
 
-  it("processa a fila outbound continuamente mesmo sem novos lembretes", () => {
-    expect(dispatcher).toContain("Todo tick autorizado também processa outbound_messages já existentes");
+  it("delega o consumo da fila outbound a um único caminho", () => {
+    expect(dispatcher).toContain('sb.rpc("whatsapp_send_dispatch_tick")');
     expect(dispatcher).toContain("outbound_kicked");
-    expect(dispatcher).not.toContain("if (enqueued > 0)");
+    expect(dispatcher).not.toContain("functions/v1/whatsapp-send");
   });
+
 });

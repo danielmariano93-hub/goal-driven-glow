@@ -430,24 +430,18 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Todo tick autorizado também processa outbound_messages já existentes:
-  // o convite não espera o cron para sair (comportamento herdado da V1).
+  // comms_contract.v2: este worker é apenas produtor da fila. O consumo de
+  // outbound_messages tem um único caminho (whatsapp_send_dispatch_tick), que
+  // só acorda o whatsapp-send quando existe trabalho pendente. Assim o convite
+  // continua saindo na hora, sem dois consumidores competindo pela fila.
   let outboundProcessed = 0;
   let outboundKicked = false;
-  try {
-    const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-send`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${SERVICE_ROLE}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ source: "split-reminders-dispatch-v2", claimed: jobs.length }),
-    });
-    const sendResult = await sendResponse.json().catch(() => ({}));
-    outboundProcessed = Number(sendResult?.processed ?? 0);
-    outboundKicked = sendResponse.ok;
-    if (!sendResponse.ok) {
-      console.error(JSON.stringify({ event: "split_outbound_kick_failed", status: sendResponse.status }));
+  {
+    const { error: kickError } = await sb.rpc("whatsapp_send_dispatch_tick");
+    outboundKicked = !kickError;
+    if (kickError) {
+      console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: kickError.message.slice(0, 160) }));
     }
-  } catch (error) {
-    console.error(JSON.stringify({ event: "split_outbound_kick_failed", error: String((error as Error).message).slice(0, 160) }));
   }
 
   let outboundSent = 0, outboundPending = 0, outboundFailed = 0;
@@ -466,8 +460,16 @@ Deno.serve(async (req) => {
     ok: failed === 0,
     processed: whatsappQueued + appDelivered,
     failed,
+    stages: {
+      claimed: jobs.length,
+      enqueued: whatsappQueued,
+      app_delivered: appDelivered,
+      skipped,
+      failed,
+    },
     sb: sb as never,
   });
+
 
   // partial_success: um único job falho impede ok:true (P1-3).
   return h.partial({

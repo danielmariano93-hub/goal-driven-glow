@@ -31,6 +31,8 @@ import {
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { insightLogicalKey } from "../_shared/intelligence/logicalDedup.ts";
+
 
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
@@ -601,6 +603,8 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
         model: payload.model,
         family: chosen.family,
         dedup_key: chosen.dedup_key,
+        logical_dedup_key: insightLogicalKey(uid, chosen.family, chosen.dedup_key),
+
         evidence: {
           ...facts,
           ...evidenceExtra,
