@@ -79,8 +79,9 @@ async function backfillUser(
   const debts = ((debtsR.data ?? []) as unknown as DebtRow[]).map((d) => ({
     ...d, outstanding_balance: Number(d.outstanding_balance || 0), original_amount: Number(d.original_amount || 0),
   }));
-  const investmentMovements = ((movR.data ?? []) as unknown as Array<{ type: string; amount: number | string; occurred_at: string }>)
-    .map((m) => ({ type: String(m.type), amount: Number(m.amount || 0), occurred_at: m.occurred_at }));
+  // A coluna canônica é `kind`; o contrato da ponte usa `type`.
+  const investmentMovements = ((movR.data ?? []) as unknown as Array<{ kind: string; amount: number | string; occurred_at: string }>)
+    .map((m) => ({ type: String(m.kind), amount: Number(m.amount || 0), occurred_at: m.occurred_at }));
 
   let pending = 0;
   const windows = monthWindows(months);
