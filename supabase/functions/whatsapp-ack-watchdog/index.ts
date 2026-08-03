@@ -65,37 +65,86 @@ Deno.serve(async (req) => {
   }
 
   // ACK stall: mensagens já enviadas mas sem `delivered_at` há > 10 min.
+  // Antes de declarar falha, perguntamos o ACK real à WAHA — só o provedor sabe
+  // se a entrega aconteceu sem o webhook ter chegado.
   const ackStallCutoff = new Date(Date.now() - 10 * 60_000).toISOString();
   const { data: ackStalled } = await supabase
     .from("outbound_messages")
-    .select("id, retry_count")
+    .select("id, retry_count, provider_message_id, to_phone, user_id, context_type, context_id, participant_id")
     .eq("status", "sent")
     .is("delivered_at", null)
     .lt("sent_at", ackStallCutoff)
     .limit(50);
+
+  await loadWahaConfig(supabase).catch(() => {});
+  const waha = getWahaAccess();
+
   let stalledCount = 0;
+  let reconciled = 0;
+  let ownerAlerts = 0;
   for (const m of ackStalled ?? []) {
-    const rc = Number((m as any).retry_count ?? 0);
-    if (rc >= 2) {
+    const row = m as any;
+    const rc = Number(row.retry_count ?? 0);
+    const ack = await fetchWahaAck({
+      apiUrl: waha.api_url,
+      apiKey: waha.api_key,
+      session: waha.session,
+      providerMessageId: String(row.provider_message_id ?? ""),
+      toPhone: String(row.to_phone ?? ""),
+    });
+
+    if (ack === "delivered" || ack === "read") {
+      // Webhook perdido: reconciliamos o estado real sem gerar falso incidente.
+      const now = new Date().toISOString();
+      await supabase.from("outbound_messages").update({
+        status: "delivered",
+        delivered_at: now,
+        read_at: ack === "read" ? now : row.read_at ?? null,
+        last_ack_at: now,
+      }).eq("id", row.id);
+      reconciled++;
+      continue;
+    }
+
+    if (ack === "failed" || rc >= 2) {
       await supabase.from("outbound_messages").update({
         status: "failed",
-        last_error: "ack_stalled_no_delivery",
-      }).eq("id", m.id);
+        last_error: ack === "failed" ? "provider_ack_error" : "ack_stalled_no_delivery",
+        last_ack_at: new Date().toISOString(),
+      }).eq("id", row.id);
       await recordIncident({
         functionName: "whatsapp-ack-watchdog",
         errorCode: "outbound_ack_stalled",
         requestId: h.requestId,
-        retryable: true,
-        details: { outbound_message_id: m.id, retry_count: rc },
+        retryable: false,
+        details: { outbound_message_id: row.id, retry_count: rc, provider_ack: ack },
       });
+      // Falha terminal de lembrete de rolê: o dono precisa saber que o
+      // participante não recebeu, para cobrar por outro caminho.
+      if (row.context_type === "shared_expense" && row.user_id) {
+        const alerted = await notifyOwnerOfUndelivered(supabase, {
+          ownerUserId: String(row.user_id),
+          sharedExpenseId: row.context_id ? String(row.context_id) : null,
+          participantId: row.participant_id ? String(row.participant_id) : null,
+          outboundMessageId: String(row.id),
+        });
+        if (alerted) ownerAlerts++;
+      }
+      if (row.participant_id) {
+        await supabase.from("reminder_jobs").update({
+          delivery_status: "failed",
+          last_error: "ack_stalled_no_delivery",
+        }).eq("outbound_message_id", row.id);
+      }
     } else {
       await supabase.from("outbound_messages").update({
         retry_count: rc + 1,
         last_ack_at: new Date().toISOString(),
-      }).eq("id", m.id);
+      }).eq("id", row.id);
     }
     stalledCount++;
   }
+
 
   const deadLettered = results.filter((r) => r.action === "dead_letter").length;
   console.log(JSON.stringify({
