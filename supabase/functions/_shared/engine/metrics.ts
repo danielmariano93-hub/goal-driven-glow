@@ -1,4 +1,4 @@
-// Snapshot financeiro para o agente (WhatsApp + App) — finance_contract.v1.
+// Snapshot financeiro para o agente (WhatsApp + App) — finance_contract.v4.
 // ========================================================================
 // NÃO calcula nada por conta própria: busca os dados e delega ao núcleo
 // canônico `finance-core` (espelho de src/lib/engine/*). A saída mantém o
@@ -121,6 +121,41 @@ export interface AgentFinancialSnapshot {
   net_worth: number;
   active_category_goals: CategoryGoalEvaluation[];
   top_category_goal: CategoryGoalEvaluation | null;
+  /** Ponte de caixa do mês (finance_contract.v4) — como o saldo se formou. */
+  cash_bridge: {
+    opening_cash: number;
+    closing_cash: number;
+    operational_income: number;
+    operational_account_expense: number;
+    investment_applications: number;
+    investment_redemptions: number;
+    card_payments: number;
+    loan_proceeds: number;
+    debt_principal_payments: number;
+    external_transfers_in: number;
+    external_transfers_out: number;
+    refunds_and_reimbursements: number;
+    adjustments: number;
+    reconciliation_difference: number;
+    confidence: string;
+  };
+  /** Resultado comportamental do período (nunca exibir isolado como saldo). */
+  period_performance: {
+    operational_income: number;
+    operational_expense: number;
+    operational_result: number;
+    operational_gap: number;
+    savings_rate: number | null;
+  };
+  /** Ponte patrimonial do mês. */
+  net_worth_bridge: {
+    opening_net_worth: number;
+    closing_net_worth: number;
+    reconciliation_difference: number;
+    confidence: string;
+  };
+  /** Explicação determinística (sem LLM) de como o saldo se formou. */
+  balance_explanation: { headline: string; body: string; steps: string[] };
   formula_version: string;
 }
 
@@ -147,6 +182,7 @@ export async function computeAgentSnapshot(
   const [
     accountsRes, txsRes, recurringRes, catGoalsRes, catNamesRes,
     snapshotsRes, investmentsRes, debtsRes, cardsRes, statementsRes, installmentsRes,
+    investmentMovementsRes,
   ] = await Promise.all([
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id).eq("active", true),
     sb.from("transactions")
@@ -167,6 +203,7 @@ export async function computeAgentSnapshot(
     sb.from("credit_card_installments")
       .select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id")
       .eq("user_id", user_id),
+    sb.from("investment_movements").select("kind,amount,occurred_at").eq("user_id", user_id),
   ]);
 
   const accounts = (accountsRes.data ?? []) as AccountRow[];
@@ -196,6 +233,10 @@ export async function computeAgentSnapshot(
     cardStatements: (statementsRes.data ?? []) as CardStatementRow[],
     cardInstallments: (installmentsRes.data ?? []) as CardInstallmentRow[],
     cardIds: ((cardsRes.data ?? []) as any[]).map((c) => c.id),
+    // A coluna canônica é `kind`; o contrato da ponte usa `type`.
+    investmentMovements: ((investmentMovementsRes.data ?? []) as any[]).map((m) => ({
+      type: String(m.kind), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
+    })),
   });
 
   // Entradas/saídas brutas do mês — mesma regra da Home (conta bruta + cartão consumido).
@@ -236,6 +277,41 @@ export async function computeAgentSnapshot(
     net_worth: snap.netWorth?.net ?? 0,
     active_category_goals: snap.activeCategoryGoals.map(flattenGoal),
     top_category_goal: snap.topCategoryGoal ? flattenGoal(snap.topCategoryGoal) : null,
-    formula_version: "finance_contract.v1",
+    cash_bridge: {
+      opening_cash: snap.cashBridge.openingCash,
+      closing_cash: snap.cashBridge.confirmedClosingCash,
+      operational_income: snap.cashBridge.operationalIncome,
+      operational_account_expense: snap.cashBridge.operationalAccountExpense,
+      investment_applications: snap.cashBridge.investmentApplications,
+      investment_redemptions: snap.cashBridge.investmentRedemptions,
+      card_payments: snap.cashBridge.cardPayments,
+      loan_proceeds: snap.cashBridge.loanProceeds,
+      debt_principal_payments: snap.cashBridge.debtPrincipalPayments,
+      external_transfers_in: snap.cashBridge.externalTransfersIn,
+      external_transfers_out: snap.cashBridge.externalTransfersOut,
+      refunds_and_reimbursements: snap.cashBridge.refundsAndReimbursements,
+      adjustments: snap.cashBridge.adjustments,
+      reconciliation_difference: snap.cashBridge.reconciliationDifference,
+      confidence: snap.cashBridge.confidence,
+    },
+    period_performance: {
+      operational_income: snap.periodPerformance.operationalIncome,
+      operational_expense: snap.periodPerformance.operationalExpense,
+      operational_result: snap.periodPerformance.operationalResult,
+      operational_gap: snap.periodPerformance.operationalGap,
+      savings_rate: snap.periodPerformance.savingsRate,
+    },
+    net_worth_bridge: {
+      opening_net_worth: snap.netWorthBridge.openingNetWorth,
+      closing_net_worth: snap.netWorthBridge.closingNetWorth,
+      reconciliation_difference: snap.netWorthBridge.reconciliationDifference,
+      confidence: snap.netWorthBridge.confidence,
+    },
+    balance_explanation: {
+      headline: snap.balanceExplanation.headline,
+      body: snap.balanceExplanation.body,
+      steps: snap.balanceExplanation.steps,
+    },
+    formula_version: "finance_contract.v4",
   };
 }

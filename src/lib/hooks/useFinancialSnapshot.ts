@@ -91,9 +91,11 @@ export function useFinancialSnapshot(period: DateRange): {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("investment_movements" as never)
-        .select("type,amount,occurred_at");
+        .select("kind,amount,occurred_at");
       if (error) throw error;
-      return (data as unknown as Array<{ type: string; amount: number; occurred_at: string }> | null) ?? [];
+      // A coluna canônica é `kind`; o contrato da ponte usa `type`.
+      return ((data as unknown as Array<{ kind: string; amount: number; occurred_at: string }> | null) ?? [])
+        .map((m) => ({ type: m.kind, amount: Number(m.amount || 0), occurred_at: m.occurred_at }));
     },
   });
 

@@ -8804,6 +8804,10 @@ export type Database = {
         Args: { p_document_id: string; p_item_ids: string[] }
         Returns: Json
       }
+      finance_bridges_backfill_tick: {
+        Args: { p_months?: number }
+        Returns: number
+      }
       financial_reports_monthly_tick: { Args: never; Returns: number }
       financial_reports_tick: {
         Args: { p_report_type: string }

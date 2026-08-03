@@ -7,7 +7,10 @@ import {
   computeMonthlyTotals,
   type CategoryRow,
   type TransactionRow,
+  type AccountRow,
+  type AccountBalanceSnapshotRow,
 } from "../../engine/facts";
+import { computeCashBridge, computePeriodPerformance, explainBalanceChange } from "../../engine/bridges";
 import { FINANCE_CONTRACT_VERSION } from "../../engine/metrics";
 
 /** Colunas exigidas pelo contrato `TransactionRow` do finance-core. */
@@ -28,9 +31,12 @@ export default defineTool({
     const supabase = supabaseForUser(ctx);
     const target = month && /^\d{4}-\d{2}$/.test(month) ? month : currentMonth();
 
-    const [txRes, catRes] = await Promise.all([
-      supabase.from("transactions").select(TX_COLUMNS).like("occurred_at", `${target}%`),
+    // A ponte de caixa exige o histórico completo (saldo inicial é derivado).
+    const [txRes, catRes, accRes, snapRes] = await Promise.all([
+      supabase.from("transactions").select(TX_COLUMNS),
       supabase.from("categories").select("id, name, type"),
+      supabase.from("accounts").select("id,name,type,opening_balance,active"),
+      supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status"),
     ]);
 
     if (txRes.error) return errorResult(txRes.error.message, "internal");
@@ -58,6 +64,22 @@ export default defineTool({
       type: (c.type as "income" | "expense") ?? "expense",
     })) as CategoryRow[];
 
+    const accounts = ((accRes.data ?? []) as unknown as Array<Record<string, unknown>>).map((a) => ({
+      id: String(a.id), name: String(a.name ?? ""), type: String(a.type ?? "checking"),
+      opening_balance: Number(a.opening_balance ?? 0), active: Boolean(a.active ?? true),
+    })) as unknown as AccountRow[];
+    const snapshots = ((snapRes.data ?? []) as unknown as Array<Record<string, unknown>>).map((s2) => ({
+      account_id: String(s2.account_id ?? ""), balance: Number(s2.balance ?? 0),
+      balance_date: String(s2.balance_date ?? ""), status: String(s2.status ?? "confirmed"),
+    })) as unknown as AccountBalanceSnapshotRow[];
+
+    const lastDay = new Date(Date.UTC(Number(target.slice(0, 4)), Number(target.slice(5, 7)), 0))
+      .getUTCDate();
+    const period = { start: `${target}-01`, end: `${target}-${String(lastDay).padStart(2, "0")}` };
+    const bridge = computeCashBridge({ accounts, txs, snapshots, period });
+    const performance = computePeriodPerformance(txs, period);
+    const explanation = explainBalanceChange(bridge, performance);
+
     const totals = computeMonthlyTotals(txs, target);
     const breakdown = computeCategoryBreakdown(txs, categories, target, "expense");
     const top = breakdown.slice(0, 5);
@@ -69,6 +91,14 @@ export default defineTool({
       `Saldo do período: ${brl(totals.net)}`,
       top.length ? "\nMaiores gastos por categoria:" : "\nNenhuma despesa registrada no período.",
       ...top.map((c) => `- ${c.name}: ${brl(c.amount)}`),
+      "",
+      "Como o saldo se formou (ponte de caixa):",
+      `Saldo inicial: ${brl(bridge.openingCash)} → Saldo final: ${brl(bridge.confirmedClosingCash)}`,
+      explanation.headline,
+      ...explanation.steps.map((l) => `- ${l}`),
+      Math.abs(bridge.reconciliationDifference) > 0.01
+        ? `Atenção: reconciliação pendente de ${brl(bridge.reconciliationDifference)} — não afirme o saldo como exato.`
+        : "Ponte reconciliada (diferença ≤ R$ 0,01).",
     ];
 
     return ok(lines.join("\n"), {
@@ -77,6 +107,31 @@ export default defineTool({
       expense: totals.expense,
       balance: totals.net,
       top_categories: top.map((c) => ({ name: c.name, total: c.amount, share: c.share })),
+      cash_bridge: {
+        opening_cash: bridge.openingCash,
+        closing_cash: bridge.confirmedClosingCash,
+        operational_income: bridge.operationalIncome,
+        operational_account_expense: bridge.operationalAccountExpense,
+        investment_redemptions: bridge.investmentRedemptions,
+        investment_applications: bridge.investmentApplications,
+        card_payments: bridge.cardPayments,
+        loan_proceeds: bridge.loanProceeds,
+        debt_principal_payments: bridge.debtPrincipalPayments,
+        external_transfers_in: bridge.externalTransfersIn,
+        external_transfers_out: bridge.externalTransfersOut,
+        refunds_and_reimbursements: bridge.refundsAndReimbursements,
+        adjustments: bridge.adjustments,
+        reconciliation_difference: bridge.reconciliationDifference,
+        confidence: bridge.confidence,
+      },
+      period_performance: {
+        operational_income: performance.operationalIncome,
+        operational_expense: performance.operationalExpense,
+        operational_result: performance.operationalResult,
+        operational_gap: performance.operationalGap,
+        savings_rate: performance.savingsRate,
+      },
+      balance_explanation: { headline: explanation.headline, body: explanation.body, steps: explanation.steps },
       formula_version: FINANCE_CONTRACT_VERSION,
     });
   },
