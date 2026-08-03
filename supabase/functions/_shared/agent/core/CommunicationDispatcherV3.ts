@@ -20,7 +20,35 @@ type CatalogEntry = {
   active: boolean;
   allowed_channels: string[];
   requires_manual_approval: boolean;
+  default_channels?: string[] | null;
+  sensitivity?: string | null;
+  fallback_policy?: string | null;
+  min_severity_for_whatsapp?: string | null;
 };
+
+const SEVERITY_RANK: Record<string, number> = { info: 1, attention: 2, critical: 3 };
+
+/**
+ * Canal elegível vem do catálogo (tipo, sensibilidade, severidade mínima) — não
+ * mais da severidade sozinha. `channel_ready` do candidato deixa de anular a
+ * preferência de WhatsApp do usuário.
+ */
+export function catalogAllowsChannel(
+  entry: CatalogEntry | undefined,
+  target: "app" | "whatsapp",
+  severity: string,
+): { ok: boolean; reason?: string } {
+  if (!entry) return { ok: true };
+  if (entry.active === false) return { ok: false, reason: "kind_disabled_in_catalog" };
+  const channels = (entry.default_channels?.length ? entry.default_channels : entry.allowed_channels) ?? ["app"];
+  if (!channels.includes(target)) return { ok: false, reason: "channel_disabled_in_catalog" };
+  if (target === "whatsapp") {
+    const min = SEVERITY_RANK[String(entry.min_severity_for_whatsapp ?? "attention")] ?? 2;
+    if ((SEVERITY_RANK[severity] ?? 1) < min) return { ok: false, reason: "severity_below_whatsapp_threshold" };
+    if (String(entry.sensitivity ?? "normal") === "high") return { ok: false, reason: "sensitive_kind_app_only" };
+  }
+  return { ok: true };
+}
 
 type TemplateRow = {
   id: string;
@@ -33,12 +61,13 @@ type TemplateRow = {
 
 async function loadCatalog(sb: SupabaseClient): Promise<Map<string, CatalogEntry>> {
   const { data, error } = await sb.from("communication_catalog")
-    .select("kind,active,allowed_channels,requires_manual_approval");
+    .select("kind,active,allowed_channels,requires_manual_approval,default_channels,sensitivity,fallback_policy,min_severity_for_whatsapp");
   if (error) throw new Error(`communication_catalog:${error.message}`);
   const map = new Map<string, CatalogEntry>();
   for (const row of ((data as CatalogEntry[] | null) ?? [])) map.set(row.kind, row);
   return map;
 }
+
 
 async function loadTemplates(sb: SupabaseClient): Promise<Map<string, TemplateRow>> {
   const { data, error } = await sb.from("communication_templates")
@@ -91,10 +120,15 @@ export function renderCommunicationTemplate(
 }
 
 async function loadPreferences(sb: SupabaseClient, userId: string): Promise<CommunicationPreferences> {
-  const { data, error } = await sb.from("notification_preferences")
-    .select("proactive_financial,emotional_checkin,smart_tips,whatsapp_proactive,quiet_start,quiet_end,max_proactive_per_week,max_proactive_per_day,muted_proactive_kinds")
-    .eq("user_id", userId).maybeSingle();
+  const [prefsResp, profileResp] = await Promise.all([
+    sb.from("notification_preferences")
+      .select("proactive_financial,emotional_checkin,smart_tips,whatsapp_proactive,quiet_start,quiet_end,max_proactive_per_week,max_proactive_per_day,muted_proactive_kinds,timezone,quiet_behavior")
+      .eq("user_id", userId).maybeSingle(),
+    sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
+  ]);
+  const { data, error } = prefsResp;
   if (error) throw new Error(`notification_preferences:${error.message}`);
+
   return {
     proactive_financial: (data as any)?.proactive_financial ?? true,
     emotional_checkin: (data as any)?.emotional_checkin ?? true,
@@ -105,7 +139,11 @@ async function loadPreferences(sb: SupabaseClient, userId: string): Promise<Comm
     max_proactive_per_week: Number((data as any)?.max_proactive_per_week ?? 3),
     max_proactive_per_day: Number((data as any)?.max_proactive_per_day ?? 1),
     muted_proactive_kinds: Array.isArray((data as any)?.muted_proactive_kinds) ? (data as any).muted_proactive_kinds : [],
+    // Fuso: preferência do usuário → perfil → fallback do produto.
+    timezone: (data as any)?.timezone ?? (profileResp.data as any)?.timezone ?? null,
+    quiet_behavior: (data as any)?.quiet_behavior ?? "defer",
   };
+
 }
 
 async function history(sb: SupabaseClient, userId: string): Promise<DeliveryHistory[]> {
@@ -155,14 +193,36 @@ export async function dispatchSuggestions(
     dryRun?: boolean;
   } = {},
 ): Promise<DispatchOutcome[]> {
-  const { data, error } = await sb.from("pending_proactive_suggestions")
-    .select("id,user_id,channel_ready,kind,title,body,severity,dedup_key,action,evidence")
-    .eq("user_id", userId).eq("status", "pending")
-    .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
-    .order("created_at", { ascending: true }).limit(opts.max ?? 5);
+  const nowIso = new Date().toISOString();
+  const columns = "id,user_id,channel_ready,kind,title,body,severity,dedup_key,action,evidence";
+  const limit = opts.max ?? 5;
+  const [pendingResp, deferredResp] = await Promise.all([
+    sb.from("pending_proactive_suggestions").select(columns)
+      .eq("user_id", userId).eq("status", "pending")
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .order("created_at", { ascending: true }).limit(limit),
+    // Adiadas voltam à fila quando a janela de silêncio/cap expira.
+    sb.from("pending_proactive_suggestions").select(columns)
+      .eq("user_id", userId).eq("status", "deferred")
+      .lte("next_attempt_at", nowIso)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .order("next_attempt_at", { ascending: true }).limit(limit),
+  ]);
+  const error = pendingResp.error ?? deferredResp.error;
   if (error) throw new Error(`pending_suggestions:${error.message}`);
 
-  const rows = ((data as any[] | null) ?? []) as CommunicationCandidate[];
+  const deferredIds = ((deferredResp.data as any[] | null) ?? []).map((row) => row.id);
+  if (deferredIds.length > 0 && opts.dryRun !== true) {
+    await sb.from("pending_proactive_suggestions")
+      .update({ status: "pending", next_attempt_at: null, defer_reason: null })
+      .in("id", deferredIds);
+  }
+
+  const rows = [
+    ...(((pendingResp.data as any[] | null) ?? [])),
+    ...(((deferredResp.data as any[] | null) ?? [])),
+  ].slice(0, limit) as CommunicationCandidate[];
+
   const [prefs, recent, catalog, templates] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
@@ -181,16 +241,16 @@ export async function dispatchSuggestions(
 
   for (const candidate of rows) {
     let anyQueued = false;
+    let deferUntil: string | null = null;
+    let deferReason: string | null = null;
+    let awaitingApproval = false;
     for (const target of targets) {
       const entry = catalog.get(candidate.kind);
+      const catalogGate = catalogAllowsChannel(entry, target, String(candidate.severity));
       const gate = !rollout.includes(target)
         ? "rollout_channel_disabled"
-        : candidate.channel_ready !== "both" && candidate.channel_ready !== target
-        ? "candidate_channel_not_ready"
-        : entry && entry.active === false
-        ? "kind_disabled_in_catalog"
-        : entry && !entry.allowed_channels.includes(target)
-        ? "channel_disabled_in_catalog"
+        : !catalogGate.ok
+        ? catalogGate.reason!
         : entry?.requires_manual_approval && (candidate as unknown as { approved_at?: string }).approved_at == null
         ? "awaiting_manual_approval"
         : null;
@@ -199,7 +259,10 @@ export async function dispatchSuggestions(
         // bloqueio de política: não vira "mensagem bloqueada" no painel.
         const configuredOff = gate === "rollout_channel_disabled"
           || gate === "kind_disabled_in_catalog"
-          || gate === "channel_disabled_in_catalog";
+          || gate === "channel_disabled_in_catalog"
+          || gate === "severity_below_whatsapp_threshold"
+          || gate === "sensitive_kind_app_only";
+        if (gate === "awaiting_manual_approval") awaitingApproval = true;
         if (!dryRun && !configuredOff) {
           await record(sb, {
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
@@ -214,16 +277,23 @@ export async function dispatchSuggestions(
 
       const decision = decideCommunication({ candidate, target, preferences: prefs, history: recent });
       if (!decision.allowed) {
+        if (decision.temporary) {
+          // Bloqueio temporário: adia, não descarta.
+          deferReason = decision.reason;
+          deferUntil = decision.retryAt ?? new Date(Date.now() + 3_600_000).toISOString();
+        }
         if (!dryRun) {
           await record(sb, {
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "suppressed", reason: decision.reason, dedup_key: candidate.dedup_key,
-            evidence: candidate.evidence, block_context: { policy_reason: decision.reason, target },
+            evidence: candidate.evidence,
+            block_context: { policy_reason: decision.reason, target, temporary: Boolean(decision.temporary) },
           });
         }
         results.push({ id: candidate.id, channel: target, status: "skipped", reason: decision.reason });
         continue;
       }
+
 
       const actionUrl = typeof candidate.action?.route === "string" ? candidate.action.route : null;
       const template = templates.get(`${candidate.kind}:${target}`);
@@ -310,12 +380,24 @@ export async function dispatchSuggestions(
     }
 
     if (!dryRun) {
+      // Adiada ≠ descartada ≠ aguardando aprovação: cada estado tem retorno próprio.
+      const nextStatus = anyQueued
+        ? "dispatched"
+        : deferUntil
+        ? "deferred"
+        : awaitingApproval
+        ? "awaiting_approval"
+        : "dismissed";
       await sb.from("pending_proactive_suggestions").update({
-        status: anyQueued ? "dispatched" : "dismissed",
+        status: nextStatus,
         dispatched_at: anyQueued ? new Date().toISOString() : null,
-        dismissed_at: anyQueued ? null : new Date().toISOString(),
+        dismissed_at: nextStatus === "dismissed" ? new Date().toISOString() : null,
+        next_attempt_at: nextStatus === "deferred" ? deferUntil : null,
+        defer_reason: nextStatus === "deferred" ? deferReason : null,
+        logical_dedup_key: candidate.dedup_key,
       }).eq("id", candidate.id).eq("status", "pending");
     }
+
   }
   return results;
 }

@@ -12,7 +12,7 @@ import { httpContext } from "../_shared/http.ts";
 import { scanUser } from "../_shared/agent/core/ProactiveEngineV2.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
-import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
+import { markProactiveScan, selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
 import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
 
@@ -216,6 +216,16 @@ Deno.serve(async (req) => {
   }
 
   const durationMs = Date.now() - startedAt;
+
+  // Rotação justa: registra a rodada para a próxima seleção priorizar quem
+  // ficou mais tempo sem varredura.
+  if (!selfMode && !dryRun && userIds.length > 0) {
+    try {
+      await markProactiveScan(sb, userIds);
+    } catch (_error) { /* telemetria de rotação não deve derrubar o tick */ }
+  }
+
+
 
   // Telemetria só para execuções do motor (não para o botão do usuário final).
   if (!selfMode && !dryRun && isAdmin) {

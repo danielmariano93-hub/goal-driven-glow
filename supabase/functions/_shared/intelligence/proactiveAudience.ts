@@ -1,6 +1,9 @@
 // Bounded audience selector for proactive communications.
 // Includes users active outside the assistant so habits, transactions and
 // onboarding can trigger communication even without a recent agent_run.
+// Excludes test/sandbox accounts, accounts pending deletion and users that
+// never finished onboarding, and rotates fairly so the same users are not
+// always at the head of the queue.
 // deno-lint-ignore-file no-explicit-any
 type SupabaseClient = any;
 
@@ -19,9 +22,33 @@ export function mergeProactiveAudience(
   return [...ids];
 }
 
+/**
+ * Rotação justa: nunca escaneado primeiro, depois o escaneado há mais tempo.
+ * Determinística e testável sem banco.
+ */
+export function rotateProactiveAudience(
+  candidates: string[],
+  lastScan: Map<string, string | null>,
+  limit: number,
+): string[] {
+  return [...candidates]
+    .sort((a, b) => {
+      const sa = lastScan.get(a) ?? "";
+      const sb = lastScan.get(b) ?? "";
+      if (sa === sb) return a < b ? -1 : 1;
+      return sa < sb ? -1 : 1;
+    })
+    .slice(0, Math.max(1, limit));
+}
+
 export async function selectProactiveUserIds(
   sb: SupabaseClient,
-  opts: { limit?: number; activityDays?: number; onboardingDays?: number } = {},
+  opts: {
+    limit?: number;
+    activityDays?: number;
+    onboardingDays?: number;
+    includeTestUsers?: boolean;
+  } = {},
 ): Promise<string[]> {
   const limit = Math.max(1, Math.min(300, opts.limit ?? 100));
   const activityCutoff = new Date(Date.now() - (opts.activityDays ?? 60) * 86400000).toISOString();
@@ -44,10 +71,47 @@ export async function selectProactiveUserIds(
     eventUsers = (mapped.data as any[] | null) ?? [];
   }
 
-  return mergeProactiveAudience([
+  const candidates = mergeProactiveAudience([
     (recentRegistrations.data as any[] | null) ?? [],
     (runs.data as any[] | null) ?? [],
     (transactions.data as any[] | null) ?? [],
     eventUsers,
-  ], limit);
+  ], 300);
+  if (candidates.length === 0) return [];
+
+  // ---- Exclusões duras: teste, sandbox, sem onboarding, exclusão em curso ----
+  const [profiles, deletions] = await Promise.all([
+    sb.from("profiles").select("id,is_test,is_sandbox,onboarding_completed_at").in("id", candidates),
+    sb.from("account_deletion_requests").select("user_id,status")
+      .in("user_id", candidates)
+      .in("status", ["pending", "approved", "processing"]),
+  ]);
+  const deleting = new Set(((deletions.data as any[] | null) ?? []).map((row) => String(row.user_id)));
+  const eligible: string[] = [];
+  for (const row of ((profiles.data as any[] | null) ?? [])) {
+    const id = String(row.id);
+    if (deleting.has(id)) continue;
+    if (!opts.includeTestUsers && (row.is_test === true || row.is_sandbox === true)) continue;
+    if (!row.onboarding_completed_at) continue;
+    eligible.push(id);
+  }
+  if (eligible.length === 0) return [];
+
+  const { data: scans } = await sb.from("user_profiles_snapshot")
+    .select("user_id,last_proactive_scan_at").in("user_id", eligible);
+  const lastScan = new Map<string, string | null>();
+  for (const row of ((scans as any[] | null) ?? [])) {
+    lastScan.set(String(row.user_id), row.last_proactive_scan_at ?? null);
+  }
+  return rotateProactiveAudience(eligible, lastScan, limit);
+}
+
+/** Marca a rodada para a rotação justa da próxima execução. */
+export async function markProactiveScan(sb: SupabaseClient, userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  const now = new Date();
+  await sb.from("user_profiles_snapshot").update({
+    last_proactive_scan_at: now.toISOString(),
+    next_proactive_scan_at: new Date(now.getTime() + 6 * 3_600_000).toISOString(),
+  }).in("user_id", userIds);
 }

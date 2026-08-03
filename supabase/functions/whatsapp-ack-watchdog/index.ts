@@ -1,13 +1,51 @@
-// Watchdog: recover stuck leases and dead-letter old messages.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Watchdog: recover stuck leases, reconcile real WhatsApp ACKs and
+// dead-letter old messages.
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext, recordIncident } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { fetchWahaAck } from "../_shared/messaging/wahaAck.ts";
+import { getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
+
+/**
+ * Falha terminal de lembrete: avisa o dono do rolê no app, com dedup por
+ * mensagem, para que ele cobre o participante por outro canal.
+ */
+async function notifyOwnerOfUndelivered(
+  sb: SupabaseClient,
+  args: {
+    ownerUserId: string;
+    sharedExpenseId: string | null;
+    participantId: string | null;
+    outboundMessageId: string;
+  },
+): Promise<boolean> {
+  let who = "um participante";
+  if (args.participantId) {
+    const { data } = await sb.from("shared_expense_participants")
+      .select("name").eq("id", args.participantId).maybeSingle();
+    const name = String((data as any)?.name ?? "").trim();
+    if (name) who = name;
+  }
+  const { error } = await sb.from("notifications").insert({
+    user_id: args.ownerUserId,
+    type: "split_reminder",
+    title: "Lembrete não entregue no WhatsApp",
+    body: `Não conseguimos entregar o lembrete para ${who}. Vale combinar por outro caminho.`,
+    action_url: args.sharedExpenseId ? `/app/divisao-do-role/${args.sharedExpenseId}` : "/app/divisao-do-role",
+    // Dedup por mensagem: um alerta por falha terminal, sem repetir a cada tick.
+    dedup_key: `undelivered:${args.outboundMessageId}`,
+  });
+  if (error && !/duplicate|unique/i.test(String(error.message ?? ""))) return false;
+  return !error;
+}
+
+
 
 Deno.serve(async (req) => {
   const h = httpContext("whatsapp-ack-watchdog", req);
@@ -65,37 +103,87 @@ Deno.serve(async (req) => {
   }
 
   // ACK stall: mensagens já enviadas mas sem `delivered_at` há > 10 min.
+  // Antes de declarar falha, perguntamos o ACK real à WAHA — só o provedor sabe
+  // se a entrega aconteceu sem o webhook ter chegado.
   const ackStallCutoff = new Date(Date.now() - 10 * 60_000).toISOString();
   const { data: ackStalled } = await supabase
     .from("outbound_messages")
-    .select("id, retry_count")
+    .select("id, retry_count, provider_message_id, to_phone, user_id, context_type, context_id, participant_id")
     .eq("status", "sent")
     .is("delivered_at", null)
     .lt("sent_at", ackStallCutoff)
     .limit(50);
+
+  await loadWahaConfig(supabase).catch(() => {});
+  const waha = getWahaAccess();
+
   let stalledCount = 0;
+  let reconciled = 0;
+  let ownerAlerts = 0;
   for (const m of ackStalled ?? []) {
-    const rc = Number((m as any).retry_count ?? 0);
-    if (rc >= 2) {
+    const row = m as any;
+    const rc = Number(row.retry_count ?? 0);
+    const ack = await fetchWahaAck({
+      apiUrl: waha.api_url,
+      apiKey: waha.api_key,
+      session: waha.session,
+      providerMessageId: String(row.provider_message_id ?? ""),
+      toPhone: String(row.to_phone ?? ""),
+    });
+
+    if (ack === "delivered" || ack === "read") {
+      // Webhook perdido: reconciliamos o estado real sem gerar falso incidente.
+      const now = new Date().toISOString();
+      await supabase.from("outbound_messages").update({
+        status: "delivered",
+        delivered_at: now,
+        read_at: ack === "read" ? now : row.read_at ?? null,
+        last_ack_at: now,
+      }).eq("id", row.id);
+      reconciled++;
+      continue;
+    }
+
+    if (ack === "failed" || rc >= 2) {
       await supabase.from("outbound_messages").update({
         status: "failed",
-        last_error: "ack_stalled_no_delivery",
-      }).eq("id", m.id);
+        last_error: ack === "failed" ? "provider_ack_error" : "ack_stalled_no_delivery",
+        last_ack_at: new Date().toISOString(),
+      }).eq("id", row.id);
       await recordIncident({
         functionName: "whatsapp-ack-watchdog",
         errorCode: "outbound_ack_stalled",
         requestId: h.requestId,
-        retryable: true,
-        details: { outbound_message_id: m.id, retry_count: rc },
+        retryable: false,
+        details: { outbound_message_id: row.id, retry_count: rc, provider_ack: ack },
       });
+      // Falha terminal de lembrete de rolê: o dono precisa saber que o
+      // participante não recebeu, para cobrar por outro caminho.
+      if (row.context_type === "shared_expense" && row.user_id) {
+        const alerted = await notifyOwnerOfUndelivered(supabase, {
+          ownerUserId: String(row.user_id),
+          sharedExpenseId: row.context_id ? String(row.context_id) : null,
+          participantId: row.participant_id ? String(row.participant_id) : null,
+          outboundMessageId: String(row.id),
+        });
+        if (alerted) ownerAlerts++;
+      }
+      if (row.participant_id) {
+        await supabase.from("reminder_jobs").update({
+          delivery_status: "failed_terminal",
+          last_error: "ack_stalled_no_delivery",
+        }).eq("outbound_message_id", row.id);
+      }
+
     } else {
       await supabase.from("outbound_messages").update({
         retry_count: rc + 1,
         last_ack_at: new Date().toISOString(),
-      }).eq("id", m.id);
+      }).eq("id", row.id);
     }
     stalledCount++;
   }
+
 
   const deadLettered = results.filter((r) => r.action === "dead_letter").length;
   console.log(JSON.stringify({
@@ -105,12 +193,14 @@ Deno.serve(async (req) => {
     requeued: results.filter((r) => r.action === "requeued").length,
     dead_lettered: deadLettered,
     ack_stalled: stalledCount,
+    ack_reconciled: reconciled,
+    owner_alerts: ownerAlerts,
   }));
 
   await writeJobHeartbeat({
     jobKey: "whatsapp-ack-watchdog",
     ok: deadLettered === 0,
-    processed: recoveredCount + (stuck ?? []).length + stalledCount,
+    processed: recoveredCount + (stuck ?? []).length + stalledCount + reconciled,
     failed: deadLettered,
     sb: supabase,
   });
@@ -118,8 +208,11 @@ Deno.serve(async (req) => {
     recovered: recoveredCount,
     checked: (stuck ?? []).length,
     ack_stalled: stalledCount,
+    ack_reconciled: reconciled,
+    owner_alerts: ownerAlerts,
     results,
   });
+
   } catch (e) {
     // Qualquer exceção precisa deixar rastro: heartbeat com falha + incidente.
     const code = (e as Error)?.message?.slice(0, 120) ?? "unknown_error";
