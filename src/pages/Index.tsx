@@ -97,10 +97,6 @@ export default function Index() {
         rangeEnd={periodRange.end}
       />
 
-      <p className="-mt-3 px-1 text-[11px] leading-snug text-muted-foreground">
-        O período muda as análises abaixo. O saldo disponível é sempre o de hoje.
-      </p>
-
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
@@ -116,8 +112,7 @@ export default function Index() {
         loading={loading}
       />
 
-
-      <RitmoCard
+      <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}
         card={{
           value: snap?.currentCardSpend ?? 0,
@@ -127,19 +122,6 @@ export default function Index() {
         loading={loading}
       />
 
-      {/* BLOCOS B e C (`finance_contract.v4`) — rotina do período e formação do saldo. */}
-      {!loading && snap ? (
-        <>
-          <RoutineBlock performance={snap.periodPerformance} periodLabel={periodLabelShort} />
-          <PonteCaixaCard
-            bridge={snap.cashBridge}
-            explanation={snap.balanceExplanation}
-            periodLabel={periodLabelShort}
-          />
-        </>
-      ) : null}
-
-      <RitmoGastosCard rhythm={snap?.rhythm ?? null} loading={loading} />
 
       <AssistantTipCard />
 
