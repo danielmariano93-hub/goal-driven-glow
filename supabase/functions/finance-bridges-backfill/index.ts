@@ -30,7 +30,7 @@ import {
 const FN = "finance-bridges-backfill";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? "";
+const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
 const DEFAULT_MONTHS = 13;
 
 function monthWindows(months: number): Array<{ start: string; end: string }> {
