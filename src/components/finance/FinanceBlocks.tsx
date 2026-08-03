@@ -287,6 +287,7 @@ function BridgeRow({
 export function PatrimonialBlock({
   cashBridge, netWorth,
 }: { cashBridge: CashBridge; netWorth: NetWorthBridge }) {
+  const [showAll, setShowAll] = useState(false);
   const rows: Array<{ label: string; amount: number; hint: string }> = [
     { label: "Aplicações em investimentos", amount: cashBridge.investmentApplications, hint: "Saiu da conta, entrou no investimento." },
     { label: "Resgates de investimentos", amount: cashBridge.investmentRedemptions, hint: "Saiu do investimento, entrou na conta." },
@@ -299,6 +300,7 @@ export function PatrimonialBlock({
     { label: "Juros e tarifas", amount: cashBridge.debtInterestAndFees, hint: "Custo financeiro real — reduz seu patrimônio." },
   ].filter((r) => Math.abs(r.amount) > 0.005);
 
+  const visible = showAll ? rows : rows.slice(0, 4);
   const nwDelta = netWorth.netWorthChange;
 
   return (
@@ -313,18 +315,28 @@ export function PatrimonialBlock({
       {rows.length === 0 ? (
         <p className="mt-3 text-[11px] text-muted-foreground">Nenhuma movimentação patrimonial no período.</p>
       ) : (
-        <ul className="mt-3 space-y-2">
-          {rows.map((r) => (
-            <li key={r.label} className="rounded-xl bg-muted/40 px-3 py-2">
-              <div className="flex items-baseline justify-between gap-3">
+        <>
+          <ul className="mt-3 space-y-1.5">
+            {visible.map((r) => (
+              <li key={r.label} className="flex items-baseline justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
                 <span className="min-w-0 truncate text-[11px] font-medium text-foreground">{r.label}</span>
-                <span className="shrink-0 text-xs font-semibold text-foreground">{formatBRL(r.amount)}</span>
-              </div>
-              <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{r.hint}</p>
-            </li>
-          ))}
-        </ul>
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground">{formatBRL(r.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          {rows.length > 4 ? (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              aria-expanded={showAll}
+              className="mt-2 text-[11px] font-semibold text-primary"
+            >
+              {showAll ? "Ver menos" : `Ver tudo (${rows.length})`}
+            </button>
+          ) : null}
+        </>
       )}
+
 
       <div className="mt-3 rounded-xl border border-border px-3 py-2.5">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Patrimônio no período</p>
