@@ -14,6 +14,16 @@ const labels:Record<string,string>={active:"Aguardando pagamentos",settled:"Tudo
 const messageLabels:Record<string,string>={queued:"Preparando",processing:"Preparando",enqueued:"Na fila do WhatsApp",sent:"Enviada ao WhatsApp",delivered:"Entregue",read:"Lida",failed:"Falhou",dead:"Não entregue",skipped:"Não enviada"};
 const terminalMessageStatuses=new Set(["sent","delivered","read","failed","dead","skipped"]);
 function deliveryLabel(msg:any){const outbound=msg?.outbound_status;if(outbound==="queued")return "Na fila do WhatsApp";if(outbound==="processing")return "Enviando";return messageLabels[outbound??msg?.job_status]??outbound??msg?.job_status??"Preparando";}
+// Confirmação real de entrega por participante: vem dos contadores de ACK do
+// WhatsApp, não da nossa fila. "Enviada" não é o mesmo que "entregue".
+const ackLabels:Record<string,{text:string;tone:string}>={read:{text:"Lida no WhatsApp",tone:"text-success"},delivered:{text:"Entregue no WhatsApp",tone:"text-success"},sent:{text:"Enviada — sem confirmação de entrega",tone:"text-muted-foreground"},failed_terminal:{text:"Não entregue no WhatsApp",tone:"text-destructive"},failed_retryable:{text:"Falhou — vamos tentar de novo",tone:"text-destructive"},provider_accepted:{text:"Aceita pelo WhatsApp",tone:"text-muted-foreground"},none:{text:"Sem envio ainda",tone:"text-muted-foreground"}};
+function ackInfo(p:any){
+  if(Number(p?.read_count??0)>0)return ackLabels.read;
+  if(Number(p?.delivered_count??0)>0)return ackLabels.delivered;
+  const status=String(p?.communication_status??"none");
+  return ackLabels[status]??(Number(p?.sent_count??0)>0?ackLabels.sent:ackLabels.none);
+}
+
 
 export default function DivisaoDoRoleDetalhe() {
   const { id }=useParams(); const nav=useNavigate();
