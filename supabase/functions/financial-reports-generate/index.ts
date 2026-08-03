@@ -10,6 +10,8 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { corsHeaders } from "../_shared/cors.ts";
 import { fail, respond } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { periodReviewKey } from "../_shared/intelligence/logicalDedup.ts";
+
 import { resolveAppPublicUrl } from "../_shared/messaging/appUrl.ts";
 import type { TransactionRow } from "../_shared/finance-core/facts.ts";
 import { buildIntelligentReport } from "../_shared/reports-core/engine.ts";
