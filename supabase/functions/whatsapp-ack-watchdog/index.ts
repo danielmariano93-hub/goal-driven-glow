@@ -28,8 +28,8 @@ async function notifyOwnerOfUndelivered(
   let who = "um participante";
   if (args.participantId) {
     const { data } = await sb.from("shared_expense_participants")
-      .select("display_name").eq("id", args.participantId).maybeSingle();
-    const name = String((data as any)?.display_name ?? "").trim();
+      .select("name").eq("id", args.participantId).maybeSingle();
+    const name = String((data as any)?.name ?? "").trim();
     if (name) who = name;
   }
   const { error } = await sb.from("notifications").insert({
@@ -37,17 +37,14 @@ async function notifyOwnerOfUndelivered(
     type: "split_reminder",
     title: "Lembrete não entregue no WhatsApp",
     body: `Não conseguimos entregar o lembrete para ${who}. Vale combinar por outro caminho.`,
-    data: {
-      reason: "whatsapp_undelivered",
-      outbound_message_id: args.outboundMessageId,
-      shared_expense_id: args.sharedExpenseId,
-      participant_id: args.participantId,
-      dedup_key: `undelivered:${args.outboundMessageId}`,
-    },
+    action_url: args.sharedExpenseId ? `/app/divisao-do-role/${args.sharedExpenseId}` : "/app/divisao-do-role",
+    // Dedup por mensagem: um alerta por falha terminal, sem repetir a cada tick.
+    dedup_key: `undelivered:${args.outboundMessageId}`,
   });
   if (error && !/duplicate|unique/i.test(String(error.message ?? ""))) return false;
   return !error;
 }
+
 
 
 Deno.serve(async (req) => {
