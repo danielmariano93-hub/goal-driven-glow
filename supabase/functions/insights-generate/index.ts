@@ -601,6 +601,8 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
         model: payload.model,
         family: chosen.family,
         dedup_key: chosen.dedup_key,
+        logical_dedup_key: insightLogicalKey(uid, chosen.family, chosen.dedup_key),
+
         evidence: {
           ...facts,
           ...evidenceExtra,
