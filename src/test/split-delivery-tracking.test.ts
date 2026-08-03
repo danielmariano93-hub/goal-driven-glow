@@ -30,13 +30,14 @@ describe("Divisão do Rolê — tracking e exclusão", () => {
     expect(dispatcher).toContain("claim_reminder_jobs_for_owner");
   });
 
-  it("encadeia dispatcher e envio ao WhatsApp no mesmo tick", () => {
-    expect(dispatcher).toContain("/functions/v1/whatsapp-send");
+  it("acorda o envio ao WhatsApp no mesmo tick por um único caminho", () => {
+    expect(dispatcher).toContain('sb.rpc("whatsapp_send_dispatch_tick")');
     expect(dispatcher).toContain("outbound_processed");
     expect(dispatcher).toContain("outbound_kicked");
     expect(dispatcher).not.toContain("if (enqueued > 0)");
     expect(migration).toContain("split-message-pipeline-1m");
   });
+
 
   it("mostra jornada amigável e atualiza sem recarregar", () => {
     expect(detail).toContain("setInterval(load,6000)");
