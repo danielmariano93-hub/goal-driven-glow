@@ -5,6 +5,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { decideCommunication, type CommunicationPreferences, type DeliveryHistory } from "../../intelligence/communicationPolicy.ts";
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
+import { suggestionLogicalKey } from "../../intelligence/logicalDedup.ts";
+
 
 export type DispatchOutcome = {
   id: string;
