@@ -195,12 +195,14 @@ Deno.serve(async (req) => {
     requeued: results.filter((r) => r.action === "requeued").length,
     dead_lettered: deadLettered,
     ack_stalled: stalledCount,
+    ack_reconciled: reconciled,
+    owner_alerts: ownerAlerts,
   }));
 
   await writeJobHeartbeat({
     jobKey: "whatsapp-ack-watchdog",
     ok: deadLettered === 0,
-    processed: recoveredCount + (stuck ?? []).length + stalledCount,
+    processed: recoveredCount + (stuck ?? []).length + stalledCount + reconciled,
     failed: deadLettered,
     sb: supabase,
   });
@@ -208,8 +210,11 @@ Deno.serve(async (req) => {
     recovered: recoveredCount,
     checked: (stuck ?? []).length,
     ack_stalled: stalledCount,
+    ack_reconciled: reconciled,
+    owner_alerts: ownerAlerts,
     results,
   });
+
   } catch (e) {
     // Qualquer exceção precisa deixar rastro: heartbeat com falha + incidente.
     const code = (e as Error)?.message?.slice(0, 120) ?? "unknown_error";
