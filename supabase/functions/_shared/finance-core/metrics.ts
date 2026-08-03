@@ -212,6 +212,11 @@ export interface FinancialSnapshot {
   cardFutureInstallments: number;
   /** true quando algum número de cartão veio de estimativa (sem fatura oficial). */
   cardDebtIsEstimated: boolean;
+  /**
+   * Patrimônio líquido já descontando as parcelas de competências futuras.
+   * Responde "quanto sobra depois de honrar o que já comprometi?".
+   */
+  committedNetWorth: number;
   /** Totais comportamentais do mês corrente (mesma regra de Relatórios/MCP). */
   monthlyTotals: { month: string; income: number; expense: number; net: number };
   /** Breakdown de despesa do mês corrente por categoria. */
@@ -627,6 +632,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     cardDebtToday,
     cardFutureInstallments,
     cardDebtIsEstimated,
+    committedNetWorth: round2(netWorth.net - cardFutureInstallments),
   };
 }
 

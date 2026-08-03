@@ -392,7 +392,8 @@ var LINE_LABELS = {
   debt_interest_and_fees: "Juros e tarifas",
   card_payments: "Pagamentos de fatura",
   refunds_and_reimbursements: "Estornos e reembolsos",
-  adjustments: "Ajustes e concilia\xE7\xF5es"
+  adjustments: "Ajustes e concilia\xE7\xF5es",
+  unexplained: "Diferen\xE7a ainda n\xE3o explicada"
 };
 function computeCashBridge(input) {
   const { period } = input;
@@ -458,17 +459,18 @@ function computeCashBridge(input) {
   const refundsAndReimbursements = get("refunds_and_reimbursements");
   const internalTransfersNet = round2(internalNet);
   const movementsSum = round2(
-    operationalIncome - operationalAccountExpense + investmentRedemptions - investmentApplications + investmentYieldCash + externalTransfersIn - externalTransfersOut + internalTransfersNet + loanProceeds - debtPrincipalPayments - debtInterestAndFees - cardPayments + refundsAndReimbursements
+    operationalIncome - operationalAccountExpense + investmentRedemptions - investmentApplications + investmentYieldCash + externalTransfersIn - externalTransfersOut + internalTransfersNet + loanProceeds - debtPrincipalPayments - debtInterestAndFees - cardPayments + refundsAndReimbursements + get("adjustments")
   );
-  const adjustments = round2(confirmedClosingCash - openingCash - movementsSum);
-  const calculatedClosingCash = round2(openingCash + movementsSum + adjustments);
-  const reconciliationDifference = round2(confirmedClosingCash - calculatedClosingCash);
+  const adjustments = get("adjustments");
+  const calculatedClosingCash = round2(openingCash + movementsSum);
+  const unexplainedDifference = round2(confirmedClosingCash - calculatedClosingCash);
+  const reconciliationDifference = unexplainedDifference;
   const anchors = snapshots.filter((s) => !s.status || s.status === "confirmed").filter((s) => s.balance_date >= period.start && s.balance_date <= period.end);
   const lastConfirmed = [...snapshots].filter((s) => !s.status || s.status === "confirmed").sort((a, b) => a.balance_date.localeCompare(b.balance_date)).pop();
   let confidence = "high";
   const tolerance = Math.max(50, Math.abs(confirmedClosingCash) * 0.05);
-  if (Math.abs(adjustments) > 0.01) confidence = "medium";
-  if (Math.abs(adjustments) > tolerance) confidence = "low";
+  if (Math.abs(unexplainedDifference) > 0.01) confidence = "medium";
+  if (Math.abs(unexplainedDifference) > tolerance) confidence = "low";
   const lines = [
     ["operational_income", operationalIncome, 1],
     ["operational_account_expense", operationalAccountExpense, -1],
@@ -483,7 +485,8 @@ function computeCashBridge(input) {
     ["card_payments", cardPayments, -1],
     ["debt_principal_payments", debtPrincipalPayments, -1],
     ["debt_interest_and_fees", debtInterestAndFees, -1],
-    ["adjustments", Math.abs(adjustments), adjustments >= 0 ? 1 : -1]
+    ["adjustments", Math.abs(adjustments), adjustments >= 0 ? 1 : -1],
+    ["unexplained", Math.abs(unexplainedDifference), unexplainedDifference >= 0 ? 1 : -1]
   ].filter(([, amount]) => Math.abs(amount) > 5e-3).map(([key, amount, direction]) => ({
     key,
     label: LINE_LABELS[key],
@@ -508,7 +511,9 @@ function computeCashBridge(input) {
     debtInterestAndFees,
     cardPayments,
     refundsAndReimbursements,
+    investmentYieldCash,
     adjustments,
+    unexplainedDifference,
     calculatedClosingCash,
     confirmedClosingCash,
     reconciliationDifference,
@@ -564,9 +569,15 @@ function explainBalanceChange(bridge, performance) {
   if (bridge.cardPayments > 0) steps.push(`Pagou ${money(bridge.cardPayments)} de fatura do cart\xE3o (consumo j\xE1 contado antes).`);
   if (bridge.debtPrincipalPayments > 0) steps.push(`Amortizou ${money(bridge.debtPrincipalPayments)} de d\xEDvidas.`);
   if (bridge.debtInterestAndFees > 0) steps.push(`Pagou ${money(bridge.debtInterestAndFees)} de juros e tarifas.`);
+  if (bridge.investmentYieldCash > 0) steps.push(`Recebeu ${money(bridge.investmentYieldCash)} de rendimentos creditados na conta.`);
   if (Math.abs(bridge.adjustments) > 0.01) {
     steps.push(
-      bridge.adjustments > 0 ? `Somamos ${money(bridge.adjustments)} de ajuste para bater com o extrato do banco.` : `Descontamos ${money(Math.abs(bridge.adjustments))} de ajuste para bater com o extrato do banco.`
+      bridge.adjustments > 0 ? `Somamos ${money(bridge.adjustments)} de ajuste de concilia\xE7\xE3o registrado por voc\xEA.` : `Descontamos ${money(Math.abs(bridge.adjustments))} de ajuste de concilia\xE7\xE3o registrado por voc\xEA.`
+    );
+  }
+  if (Math.abs(bridge.unexplainedDifference) > 0.01) {
+    steps.push(
+      `Ainda faltam ${money(Math.abs(bridge.unexplainedDifference))} para os lan\xE7amentos explicarem o saldo confirmado \u2014 provavelmente h\xE1 movimentos n\xE3o importados nesse per\xEDodo.`
     );
   }
   steps.push(`Por isso terminou com ${money(bridge.confirmedClosingCash)} em conta.`);

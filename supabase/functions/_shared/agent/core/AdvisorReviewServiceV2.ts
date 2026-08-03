@@ -305,11 +305,17 @@ function buildHighlights(facts: PeriodFacts): string[] {
     const retained = Math.round(facts.savingsRate * 100);
     highlights.push(retained >= 0
       ? `A cada R$ 100 de renda, ${formatBRL(retained)} permaneceram livres neste período.`
-      : `A cada R$ 100 de renda, o consumo passou ${formatBRL(Math.abs(retained))} do que entrou.`);
+      : `A cada R$ 100 de renda, o consumo passou ${formatBRL(Math.abs(retained))} do que entrou.`
+    );
   }
-  if (facts.expenseChangePct != null) {
+  // Comparação percentual só é honesta quando o período anterior tem base
+  // suficiente. Com base ínfima, "-100%" engana: dizemos o valor absoluto.
+  const comparableBase = facts.previousExpense >= 50;
+  if (facts.expenseChangePct != null && comparableBase) {
     const direction = facts.expenseChangePct >= 0 ? "aumentaram" : "diminuíram";
     highlights.push(`As despesas ${direction} ${Math.abs(Math.round(facts.expenseChangePct))}% em relação ao período anterior (${formatBRL(facts.previousExpense)}).`);
+  } else if (facts.previousExpense > 0) {
+    highlights.push(`O período anterior teve pouca movimentação (${formatBRL(facts.previousExpense)}), então a comparação percentual ainda não é confiável. Agora foram ${formatBRL(facts.expense)}.`);
   } else {
     highlights.push("Ainda não há um período anterior comparável com despesas registradas.");
   }

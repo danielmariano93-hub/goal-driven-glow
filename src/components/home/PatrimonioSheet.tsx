@@ -77,6 +77,13 @@ export function PatrimonioSheet({
             {formatBRL(assets)} de recursos − {formatBRL(accountOverdraft + cardsOwed + otherDebts)} de obrigações
             (fatura em aberto e dívidas já descontadas).
           </p>
+          {cardFutureInstallments > 0 && (
+            <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Considerando também as {formatBRL(cardFutureInstallments)} de parcelas já comprometidas em meses
+              futuros, sobrariam{" "}
+              <strong className="font-semibold text-foreground">{formatBRL(net - cardFutureInstallments)}</strong>.
+            </p>
+          )}
         </div>
 
       </SheetContent>
