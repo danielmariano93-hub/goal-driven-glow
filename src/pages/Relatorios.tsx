@@ -103,6 +103,29 @@ function MonthRow({
   );
 }
 
+/** Seção colapsável: uma pergunta por vez, sem parede de números. */
+function Group({
+  title, subtitle, defaultOpen = false, children,
+}: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{title}</span>
+          {subtitle ? <span className="block text-[11px] text-muted-foreground">{subtitle}</span> : null}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? <div className="space-y-3">{children}</div> : null}
+    </section>
+  );
+
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
   const initialRange = resolvePeriodRange();
