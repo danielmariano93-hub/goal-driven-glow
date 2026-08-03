@@ -92,13 +92,14 @@ export function PositionBlock({ position }: { position: PositionSummary }) {
 }
 
 function Cell({
-  label, value, tone = "neutral", strong, icon,
+  label, value, tone = "neutral", strong, icon, hint,
 }: {
   label: string;
   value: number;
   tone?: "neutral" | "negative";
   strong?: boolean;
   icon?: React.ReactNode;
+  hint?: string;
 }) {
   return (
     <div className="min-w-0 rounded-xl bg-muted/40 px-3 py-2">
@@ -113,7 +114,9 @@ function Cell({
       >
         {formatBRL(value)}
       </dd>
+      {hint ? <p className="truncate text-[10px] text-muted-foreground">{hint}</p> : null}
     </div>
+
   );
 }
 
