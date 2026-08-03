@@ -7,6 +7,7 @@ import {
   explainBalanceChange,
   semanticsOf,
 } from "@/lib/engine/bridges";
+import { round2 } from "@/lib/engine/facts";
 import type { AccountRow, TransactionRow } from "@/lib/engine/facts";
 
 const acc = (id: string, opening = 0): AccountRow => ({
