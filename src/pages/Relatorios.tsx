@@ -125,6 +125,9 @@ function Group({
       {open ? <div className="space-y-3">{children}</div> : null}
     </section>
   );
+}
+
+
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
