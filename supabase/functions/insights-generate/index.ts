@@ -31,6 +31,8 @@ import {
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { insightLogicalKey } from "../_shared/intelligence/logicalDedup.ts";
+
 
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
 
