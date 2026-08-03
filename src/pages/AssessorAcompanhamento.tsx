@@ -180,7 +180,12 @@ export default function AssessorAcompanhamento() {
             <div className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4">
               <Metric label="Renda média" value={formatBRL(indicators.estimated_income)} />
               <Metric label="Folga estimada" value={formatBRL(indicators.savings_capacity)} />
-              <Metric label="Patrimônio" value={formatBRL(indicators.net_worth)} />
+              <Metric
+                label="Patrimônio líquido"
+                value={formatBRL(indicators.net_worth)}
+                hint="Já sem fatura em aberto e dívidas"
+              />
+
               <Metric
                 label="Taxa de poupança"
                 value={`${Math.round(Number(indicators.savings_rate ?? 0) * 100)}%`}
@@ -258,11 +263,12 @@ export default function AssessorAcompanhamento() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-border/70 bg-background/80 p-3">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-bold">{value}</p>
+      {hint && <p className="mt-1 text-[10px] leading-snug text-muted-foreground">{hint}</p>}
     </div>
   );
 }

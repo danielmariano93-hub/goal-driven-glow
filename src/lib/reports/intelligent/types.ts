@@ -4,7 +4,7 @@
 import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } from "@/lib/engine/facts";
 
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
-export const REPORT_TEMPLATE_VERSION = "report_template.v2";
+export const REPORT_TEMPLATE_VERSION = "report_template.v3";
 
 export type ReportType = "weekly" | "monthly";
 export type MetricUnit = "BRL" | "pct" | "count" | "days" | "score" | "text";
