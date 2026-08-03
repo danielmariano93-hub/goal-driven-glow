@@ -37,6 +37,9 @@ export const REPORT_MODULES = [
   "index",
 ];
 
+export const COPY_MODULES = ["resultWording"];
+
+
 export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
 
 const HEADER = `// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.\n` +
@@ -107,11 +110,18 @@ function main() {
       `export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";\n`,
   );
 
+  mkdirSync(resolve("supabase/functions/_shared/copy"), { recursive: true });
+  for (const mod of COPY_MODULES) {
+    writeFileSync(copyEdgePath(mod), toEdgeCopySource(readCopySource(mod)));
+    console.log(`copy: ${mod}.ts sincronizado`);
+  }
+
   mkdirSync(resolve("supabase/functions/_shared/reports-core"), { recursive: true });
   for (const mod of REPORT_MODULES) {
     writeFileSync(reportEdgePath(mod), toEdgeReportSource(readReportSource(mod)));
     console.log(`reports-core: ${mod}.ts sincronizado`);
   }
+
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
