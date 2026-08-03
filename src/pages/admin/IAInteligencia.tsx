@@ -233,7 +233,13 @@ function SummaryPanel({ snap, prefs }: { snap: InspectResult["profile_snapshot"]
     <div className="space-y-6">
       {snap ? (
         <StatGrid cols={4}>
-          <StatCard label="Patrimônio" value={fmt(snap.net_worth)} tone="primary" />
+          <StatCard
+            label="Patrimônio líquido"
+            value={fmt(snap.net_worth)}
+            hint="Conta + investido − fatura em aberto − dívidas"
+            tone="primary"
+          />
+
           <StatCard label="Capacidade poupar/mês" value={fmt(snap.savings_capacity)} tone="success" />
           <StatCard label="Renda estimada" value={fmt(snap.estimated_income)} />
           <StatCard label="Perfil de risco" value={snap.risk_level ?? "—"} />
