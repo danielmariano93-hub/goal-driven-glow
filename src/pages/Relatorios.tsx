@@ -331,8 +331,7 @@ export default function Relatorios() {
       )}
 
 
-      <section>
-        <h2 className="text-sm font-semibold mb-2">Por categoria (despesas)</h2>
+      <Group title="Para onde foi o dinheiro" subtitle="Despesas por categoria">
         <div className="surface-card p-4 space-y-3">
           {byCat.map(c => (
             <div key={c.category}>
@@ -341,21 +340,21 @@ export default function Relatorios() {
                   <span className="block truncate font-medium">{c.category}</span>
                   <span className="text-[10px] text-muted-foreground">{c.percentOfExpenses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das despesas</span>
                 </div>
-                <span className="shrink-0 text-right font-medium">{formatBRL(c.total)} · {c.count}x</span>
+                <span className="shrink-0 text-right font-medium tabular-nums">{formatBRL(c.total)} · {c.count}x</span>
               </div>
               <div className="mt-1 h-1.5 rounded-full bg-secondary overflow-hidden">
                 <div className="h-full bg-primary" style={{ width: `${(c.total/maxCat)*100}%` }} />
               </div>
             </div>
           ))}
+          <p className="text-[10px] text-muted-foreground">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
-      </section>
+      </Group>
 
       <section>
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Principais leituras do período</h2>
         <div className="space-y-2">
-          {highlights.map((h) => (
+          {highlights.slice(0, 3).map((h) => (
             <article key={h.id} className="surface-card p-4">
               <div className="flex min-w-0 gap-3">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
@@ -371,6 +370,7 @@ export default function Relatorios() {
           ))}
         </div>
       </section>
+
     </div>
   );
 }
