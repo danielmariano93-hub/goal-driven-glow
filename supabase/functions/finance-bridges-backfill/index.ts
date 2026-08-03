@@ -57,7 +57,7 @@ async function backfillUser(
       .select("id,account_id,type,status,amount,occurred_at,posted_at,competence_date,category_id,credit_card_id,payment_method,settles_card_id,transfer_group_id,movement_kind,description")
       .eq("user_id", userId),
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId),
-    sb.from("account_balance_snapshots").select("account_id,balance,snapshot_date,source").eq("user_id", userId),
+    sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status").eq("user_id", userId),
     sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId),
     sb.from("debts").select("id,name,outstanding_balance,original_amount,status").eq("user_id", userId),
     sb.from("investment_movements").select("type,amount,occurred_at").eq("user_id", userId),

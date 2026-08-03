@@ -36,7 +36,7 @@ export default defineTool({
       supabase.from("transactions").select(TX_COLUMNS),
       supabase.from("categories").select("id, name, type"),
       supabase.from("accounts").select("id,name,type,opening_balance,active"),
-      supabase.from("account_balance_snapshots").select("account_id,balance,snapshot_date,source"),
+      supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status"),
     ]);
 
     if (txRes.error) return errorResult(txRes.error.message, "internal");
@@ -70,7 +70,7 @@ export default defineTool({
     })) as unknown as AccountRow[];
     const snapshots = ((snapRes.data ?? []) as unknown as Array<Record<string, unknown>>).map((s2) => ({
       account_id: String(s2.account_id ?? ""), balance: Number(s2.balance ?? 0),
-      snapshot_date: String(s2.snapshot_date ?? ""), source: (s2.source as string | null) ?? null,
+      balance_date: String(s2.balance_date ?? ""), status: String(s2.status ?? "confirmed"),
     })) as unknown as AccountBalanceSnapshotRow[];
 
     const lastDay = new Date(Date.UTC(Number(target.slice(0, 4)), Number(target.slice(5, 7)), 0))
