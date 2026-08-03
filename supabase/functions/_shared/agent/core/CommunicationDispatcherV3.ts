@@ -177,6 +177,8 @@ async function record(sb: SupabaseClient, args: {
     status: args.status,
     reason: args.reason ?? null,
     dedup_key: args.dedup_key ?? null,
+    logical_dedup_key: args.dedup_key ? suggestionLogicalKey(args.user_id, args.dedup_key) : null,
+
     evidence: args.evidence ?? {},
     cost_usd: 0,
     block_context: args.block_context ?? {},
