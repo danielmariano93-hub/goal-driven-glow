@@ -266,6 +266,7 @@ export default function Relatorios() {
                 otherDebts: financialSnapshot.activeDebtTotal,
                 netWorth: financialSnapshot.netWorth.net,
                 futureInstallments: financialSnapshot.cardFutureInstallments,
+                committedNetWorth: financialSnapshot.committedNetWorth,
               }}
             />
           </Group>

@@ -47,6 +47,8 @@ export interface PositionSummary {
   otherDebts: number;
   netWorth: number;
   futureInstallments: number;
+  /** Patrimônio já descontando as parcelas de meses futuros. */
+  committedNetWorth?: number;
 }
 
 export function PositionBlock({ position }: { position: PositionSummary }) {
@@ -85,6 +87,12 @@ export function PositionBlock({ position }: { position: PositionSummary }) {
         <p className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
           <strong className="font-semibold text-foreground">{formatBRL(position.futureInstallments)}</strong>{" "}
           em parcelas de meses futuros. Isso é compromisso agendado, não dívida de hoje.
+          {typeof position.committedNetWorth === "number" ? (
+            <>
+              {" "}Depois de honrar tudo isso, sobrariam{" "}
+              <strong className="font-semibold text-foreground">{formatBRL(position.committedNetWorth)}</strong>.
+            </>
+          ) : null}
         </p>
       ) : null}
     </section>
