@@ -1,38 +1,51 @@
-# Home mais limpa + informação densa nos Relatórios
+## O que encontrei
 
-Objetivo: reduzir poluição visual. A Home responde só 3 perguntas ("quanto tenho hoje", "estou no ritmo", "o que fazer agora"). Todo detalhamento contábil vive em Relatórios / Relatórios Inteligentes.
+Os números estão certos (o motor `finance_contract.v4` já usa despesa comportamental e pontes reconciliadas). O problema está em **duas camadas**:
 
-## 1. Remover da Home
-Em `src/pages/Index.tsx`:
-- Remover o bloco `RoutineBlock` ("Como foi sua rotina financeira").
-- Remover `PonteCaixaCard` ("Como seu saldo mudou").
-- Remover o cálculo/props que só serviam a eles e o texto auxiliar duplicado sobre período.
-Os componentes continuam existindo (`FinanceBlocks.tsx`, `PonteCaixaCard.tsx`) porque Relatórios os usa — nada é apagado do motor.
+### 1. Vocabulário antigo de "resultado negativo"
+O motor v4 definiu a regra: nunca expor resultado negativo isolado — usar "gastos acima das receitas" (`operationalGap`, em `bridges.ts` → `explainBalanceChange`). Mas estes pontos ainda usam a linguagem antiga:
 
-## 2. Consolidar o que sobra (ordem final da Home)
-1. `HomeHeader`
-2. `PeriodPicker` (com o range já no próprio componente, sem parágrafo extra embaixo)
-3. `HeroDisponivelCard` — "Disponível hoje" (patrimônio continua no sheet, em toque)
-4. **Card único de ritmo**: fundir `RitmoCard` + `RitmoGastosCard` num só card "Seu ritmo", com o número grande (R$/dia), o badge de variação e o gráfico compacto abaixo. Detalhes secundários (estornos, exclusões, comparativo do cartão) passam a ficar num "ver detalhes" recolhido — não visíveis por padrão.
-5. `AssistantTipCard` (carrossel de dicas — 1 por vez)
-6. `QuickActions`
-7. `SharedGoalHighlight` (só quando existir)
-8. `PrevisaoFechamentoCard` ou `ComecePorAqui`
-9. `EmotionalCheckinCard`
+- `src/lib/reports/intelligent/highlights.ts` (detector `negative_result`): título "O mês fechou negativo em R$ X".
+- `src/lib/reports/intelligent/narrative.ts`: "...fechando positivo/negativo em R$ X" (resumo do relatório e mensagem de WhatsApp com "Resultado: -R$ X").
+- Espelhos em `supabase/functions/_shared/reports-core/highlights.ts` e `.../narrative.ts` (arquivos gerados por `scripts/sync-finance-core.mjs`).
+- `src/lib/insights/fallbacks.ts` e `supabase/functions/_shared/insights/fallbacks.ts`: "Você fechou R$ X no positivo" (assimetria de linguagem com o caso de gap).
+- `supabase/functions/_shared/agent/core/UserProfile.ts`: tag comportamental `deficit` alimenta o prompt do assessor e induz a fala de "déficit/mês negativo".
+- `supabase/functions/insights-generate/index.ts` já tem a instrução correta no prompt, mas ela não cobre a palavra "fechou negativo" nem o vocabulário canônico.
 
-Fica um card por pergunta, com no máximo 1 número protagonista + 1 comparação por card.
+### 2. Patrimônio líquido inconsistente
+- **Cálculo divergente**: `UserProfile.ts` (perfil que o Nino usa no app e no WhatsApp) calcula `net_worth` como saldos de conta + investimentos − dívidas da tabela `debts`, **sem a fatura de cartão em aberto**. O canônico `computeNetWorth` (`src/lib/engine/facts.ts`, espelhado em `_shared/finance-core/facts.ts`) subtrai cheque especial + fatura de cartão + outras dívidas. Resultado: o Nino fala um patrimônio diferente do que a Home/Relatórios mostram.
+- **Copy contraditória**: em `src/components/home/PatrimonioSheet.tsx` o texto diz "dívida não reduz o que você já guardou" logo acima de uma linha chamada **"Patrimônio líquido"** que subtrai justamente as dívidas. A frase é sobre "Seus recursos hoje", mas lida na sequência parece dizer que o número final ignora dívidas.
+- **Labels sem definição** em `src/components/finance/FinanceBlocks.tsx` (`PositionBlock`), `src/pages/AssessorAcompanhamento.tsx` e `src/pages/admin/IAInteligencia.tsx`: só "Patrimônio"/"Patrimônio líquido", sem dizer que já está líquido de fatura e dívidas.
 
-## 3. Link de continuidade
-No rodapé do card de ritmo e na Previsão, uma linha discreta "Ver rotina e como o saldo mudou →" apontando para `/app/relatorios`, para o usuário não perder o acesso à informação retirada.
+## Correções propostas
 
-## 4. Relatórios (destino da informação)
-`src/pages/Relatorios.tsx` já monta `PositionBlock`, `RoutineBlock`, `CashBridgeBlock`, `PatrimonialBlock` e os `MonthCard` expansíveis. Ajustes de legibilidade:
-- Agrupar a página em 3 seções com títulos claros: **Onde estou**, **Como foi minha rotina**, **Como o saldo mudou** (histórico mensal).
-- Manter tudo colapsado por padrão, expandindo apenas a seção "Onde estou".
-- Em `FinanceBlocks.tsx`, reduzir densidade: máximo 4 linhas visíveis por bloco, o resto atrás de "ver tudo"; padronizar tipografia (rótulo 10px uppercase, valor 13–14px) e usar tokens semânticos.
+### A. Dicionário único de resultado (novo `src/lib/copy/resultWording.ts`, espelhado para as functions)
+Funções puras de copy, sem cálculo:
+- `resultHeadline(income, expense, periodWord)` → sobra: "Sobraram R$ X de R$ Y recebidos"; gap: "Gastos acima das receitas: R$ X"; zero: "Receitas e gastos empatados".
+- `resultSentence(...)` para narrativa: "Você registrou R$ Y de receitas e R$ Z de gastos — **gastou R$ X acima do que recebeu** neste mês" (nunca "fechou negativo").
+- Regra fixa: nada de "negativo", "déficit", "no vermelho" na copy de usuário.
 
-## 5. Detalhes técnicos
-- Somente frontend/apresentação: `src/pages/Index.tsx`, novo `src/components/home/RitmoUnificadoCard.tsx` (ou refactor de `RitmoCard` recebendo a série), `src/components/finance/FinanceBlocks.tsx`, `src/pages/Relatorios.tsx`.
-- Nenhuma alteração em `bridges.ts`, `metrics.ts`, hooks, banco, RPCs ou Edge Functions — a verdade financeira `finance_contract.v4` fica intacta.
-- `useFinancialSnapshot` continua igual; a Home apenas deixa de renderizar campos.
-- Rodar testes + build; sem migration, sem deploy, sem publicar (publicação só com sua autorização).
+Aplicar em:
+1. `highlights.ts` — detector `negative_result` passa a título "Você gastou R$ X acima do que recebeu" e corpo já existente sobre categorias flexíveis (mantendo `detectorKey`, `family` e `dedupKey` para não quebrar dedup/telemetria e testes).
+2. `narrative.ts` — `deterministicSummary` e `whatsappMessage` (linha "Resultado" vira "Sobra" ou "Gastos acima das receitas", sempre valor absoluto).
+3. `fallbacks.ts` (app + function) — títulos simétricos ("Sobraram R$ X este mês" / "Você gastou R$ X acima do que recebeu").
+4. `UserProfile.ts` — renomear a tag `deficit` para `gasto_acima_da_receita` e ajustar onde ela é lida no prompt.
+5. Reforçar no `SYSTEM_PROMPT` do assessor (`_shared/agent/prompt.ts`) e no prompt do `insights-generate`: proibição explícita de "fechou negativo/déficit/no vermelho"; usar sempre a formulação de gap.
+
+### B. Patrimônio líquido: uma fonte, um label
+1. `UserProfile.ts` passa a usar o canônico `computeNetWorth` (`_shared/finance-core/facts.ts`), incluindo fatura de cartão em aberto e cheque especial — mesmo número da Home.
+2. `PatrimonioSheet.tsx`: reescrever o texto explicativo para eliminar a contradição — deixar claro que "Seus recursos hoje" = conta + investido (bruto) e que "Patrimônio líquido" = recursos − fatura em aberto − outras dívidas; incluir a conta na própria linha final ("R$ recursos − R$ obrigações").
+3. `FinanceBlocks.PositionBlock`: adicionar hint curto em "Patrimônio líquido" ("já descontadas fatura e dívidas") e em "Seus recursos hoje" ("antes das obrigações").
+4. `AssessorAcompanhamento.tsx` e `admin/IAInteligencia.tsx`: label "Patrimônio líquido" + tooltip/legenda com a mesma definição.
+5. Glossário do assessor: definir `net_worth` como líquido de fatura e dívidas, para o Nino nunca dizer que não considera dívidas.
+
+### C. Sincronização e validação
+- Rodar `scripts/sync-finance-core.mjs` para regenerar os espelhos em `supabase/functions/_shared/*` (os arquivos gerados não são editados à mão).
+- Novos testes: (a) nenhum texto de highlight/narrativa/fallback contém "negativo|déficit|vermelho"; (b) `UserProfile.net_worth` == `computeNetWorth().net` no mesmo conjunto de dados; (c) simetria de copy para sobra e gap.
+- Rodar a suíte completa (~954 testes) e o typecheck.
+
+## Detalhes técnicos
+- Nenhuma alteração de motor, schema, migration ou RPC: só camada de copy + troca do cálculo divergente do `UserProfile` pelo canônico já existente.
+- `detectorKey`/`dedupKey`/`family` preservados para não invalidar relatórios já gerados nem a telemetria de utilidade.
+- Relatórios já publicados continuam com o texto antigo até o próximo `REPORT_TEMPLATE_VERSION`; proponho incrementar essa versão para o auto-heal reescrever os textos na próxima abertura.
+- Deploy das Edge Functions afetadas (`financial-reports-generate`, `insights-generate`, `agent-chat`, `whatsapp-webhook`) e publicação só com sua autorização.
