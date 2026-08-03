@@ -1,51 +1,76 @@
-## O que encontrei
+# Plano único — Subsistema de Comunicação do Meu Nino (`comms_contract.v1`)
 
-Os números estão certos (o motor `finance_contract.v4` já usa despesa comportamental e pontes reconciliadas). O problema está em **duas camadas**:
+## 1. Diagnóstico verificado (banco + código, hoje)
 
-### 1. Vocabulário antigo de "resultado negativo"
-O motor v4 definiu a regra: nunca expor resultado negativo isolado — usar "gastos acima das receitas" (`operationalGap`, em `bridges.ts` → `explainBalanceChange`). Mas estes pontos ainda usam a linguagem antiga:
+- **Motor proativo quebrado para 100% dos usuários.** `agent_settings.last_tick_at = 2026-08-03 13:17`, `last_tick_users = 6`, e os 6 registros de `last_tick_errors` são `proactive:agent_runs:column agent_runs.created_at does not exist`. A tabela `agent_runs` tem `started_at`/`ended_at`, **não** `created_at`. Ocorrências: `ProactiveEngineV2.ts` (linhas 125, 127, 148) e `ProactiveEngine.ts` (38, 40, 57). O `for` do `agent-proactive-tick` já isola erro por usuário (try/catch por estágio), mas o estágio `proactive` morre para todos.
+- **Audiência sem filtro de teste.** `_shared/intelligence/proactiveAudience.ts` une 4 fontes (runs, transactions, user_pseudonyms, product_events) com `limit` e ordem fixa, **sem** excluir `is_test`, sandbox, contas em exclusão ou onboarding incompleto, e sem rotação justa (nada de `last_proactive_scan_at`).
+- **Lembretes do Rolê bloqueados.** Índice `split_jobs_idempotent_uniq (shared_expense_id, participant_id, kind, scheduled_for)` + `ON CONFLICT DO NOTHING` em `schedule_split_due_reminders`. `admin_split_reminder_policy_update` marca os antigos como `skipped/policy_replaced_due_plus_one` **antes** de garantir substituto, e o `INSERT` só cria com `scheduled_for > now()`. Resultado real: no rolê **Festival** (`c15bca45…`), o participante **Frasao** (`744b6d0f…`, pending, R$ 135,31, `+5511962297091`) tem `due_today` (03/08 12:00Z) e `overdue d1/d3` todos `skipped` e nenhum job ativo — a recriação é impossível (conflito de tupla + horário passado).
+- **Entrega sem confirmação.** As duas tentativas para Frasao (`9d379e2e…` convite, `dbd0beea…` lembrete) têm `sent_at` preenchido, `provider_message_id` presente e `status=failed / last_error=ack_stalled_no_delivery`. O watchdog marca `failed` e para: não consulta a WAHA pelo `provider_message_id`, não faz backoff, não avisa o dono, e o `reminder_jobs` correspondente segue `enqueued`.
+- **Contador antes da entrega.** `split-reminders-dispatch-v2` incrementa `reminder_count`/`last_reminded_at` logo após o insert em `outbound_messages` (linhas 402‑407). Frasao tem `reminder_count = 1` sem nenhuma entrega confirmada.
+- **Dois consumidores da fila.** `whatsapp_send_dispatch_tick` (cron 1 min) e chamada direta a `whatsapp-send` no fim de todo tick do split (linhas 437‑451).
+- **Segredos de cron divergentes.** No vault existe **apenas** `nocontrole_cron_secret`. `split_message_pipeline_tick` aceita 3 nomes; `whatsapp_send_dispatch_tick` aceita só o legado; as Edge Functions leem `INTERNAL_CRON_SECRET`/`CRON_SECRET`.
+- **Política proativa.** `CommunicationDispatcherV3` grava `dismissed` para bloqueios temporários (quiet hours, caps); `channel_ready` é definido só por severidade (`critical → both`, resto `app`), o que anula `whatsapp_proactive`; `communicationPolicy.ts` fixa `America/Sao_Paulo` e conta cap **por entrega de canal**, não por comunicação lógica.
+- **Duplicidade e divergência.** Crons `financial-reports-weekly` (seg 10:00) + estágio `advisor` + sugestão “revisão semanal” geram até 3 avisos do mesmo artefato. `user_insights` e `pending_proactive_suggestions` são objetos distintos, sem `formula_version`/`as_of` compartilhados.
+- **Telemetria falsa.** Os `*_tick` gravam heartbeat pelo sucesso do `net.http_post`; a Edge Function final não atualiza o mesmo `job_key`.
 
-- `src/lib/reports/intelligent/highlights.ts` (detector `negative_result`): título "O mês fechou negativo em R$ X".
-- `src/lib/reports/intelligent/narrative.ts`: "...fechando positivo/negativo em R$ X" (resumo do relatório e mensagem de WhatsApp com "Resultado: -R$ X").
-- Espelhos em `supabase/functions/_shared/reports-core/highlights.ts` e `.../narrative.ts` (arquivos gerados por `scripts/sync-finance-core.mjs`).
-- `src/lib/insights/fallbacks.ts` e `supabase/functions/_shared/insights/fallbacks.ts`: "Você fechou R$ X no positivo" (assimetria de linguagem com o caso de gap).
-- `supabase/functions/_shared/agent/core/UserProfile.ts`: tag comportamental `deficit` alimenta o prompt do assessor e induz a fala de "déficit/mês negativo".
-- `supabase/functions/insights-generate/index.ts` já tem a instrução correta no prompt, mas ela não cobre a palavra "fechou negativo" nem o vocabulário canônico.
+## 2. Causas raiz
 
-### 2. Patrimônio líquido inconsistente
-- **Cálculo divergente**: `UserProfile.ts` (perfil que o Nino usa no app e no WhatsApp) calcula `net_worth` como saldos de conta + investimentos − dívidas da tabela `debts`, **sem a fatura de cartão em aberto**. O canônico `computeNetWorth` (`src/lib/engine/facts.ts`, espelhado em `_shared/finance-core/facts.ts`) subtrai cheque especial + fatura de cartão + outras dívidas. Resultado: o Nino fala um patrimônio diferente do que a Home/Relatórios mostram.
-- **Copy contraditória**: em `src/components/home/PatrimonioSheet.tsx` o texto diz "dívida não reduz o que você já guardou" logo acima de uma linha chamada **"Patrimônio líquido"** que subtrai justamente as dívidas. A frase é sobre "Seus recursos hoje", mas lida na sequência parece dizer que o número final ignora dívidas.
-- **Labels sem definição** em `src/components/finance/FinanceBlocks.tsx` (`PositionBlock`), `src/pages/AssessorAcompanhamento.tsx` e `src/pages/admin/IAInteligencia.tsx`: só "Patrimônio"/"Patrimônio líquido", sem dizer que já está líquido de fatura e dívidas.
+1. Consulta a coluna inexistente (sem teste de contrato de schema).
+2. Unicidade de job por tupla de agendamento, com jobs terminais bloqueando substitutos.
+3. Troca de política não transacional (cancela antes de criar).
+4. Estado do job desacoplado do estado real da entrega.
+5. Política de canal derivada de severidade, e caps contados por canal.
+6. Ausência de reconciliador e de recuperação por janela.
 
-## Correções propostas
+## 3. Execução (uma única rodada)
 
-### A. Dicionário único de resultado (novo `src/lib/copy/resultWording.ts`, espelhado para as functions)
-Funções puras de copy, sem cálculo:
-- `resultHeadline(income, expense, periodWord)` → sobra: "Sobraram R$ X de R$ Y recebidos"; gap: "Gastos acima das receitas: R$ X"; zero: "Receitas e gastos empatados".
-- `resultSentence(...)` para narrativa: "Você registrou R$ Y de receitas e R$ Z de gastos — **gastou R$ X acima do que recebeu** neste mês" (nunca "fechou negativo").
-- Regra fixa: nada de "negativo", "déficit", "no vermelho" na copy de usuário.
+### Migration A — `comms_contract.v1` (schema)
+- `reminder_jobs`: novas colunas `policy_version`, `retry_count`, `next_attempt_at`, `deliver_after`, `delivery_status`, `sent_at`, `delivered_at`, `read_at`, `cancel_reason`, `superseded_by`. Substituir `split_jobs_idempotent_uniq` por índice único **parcial** cobrindo apenas estados vivos (`queued|processing|enqueued`), preservando histórico.
+- `shared_expense_participants`: `attempts`, `queued_count`, `sent_count`, `delivered_count`, `read_count`, `last_attempted_at`, `last_sent_at`, `last_delivered_at`, `communication_status`.
+- `pending_proactive_suggestions`: status ganha `deferred`/`awaiting_approval`, mais `next_attempt_at`, `defer_reason`, `logical_dedup_key`.
+- `communication_catalog`: `default_channels`, `sensitivity`, `fallback_policy`, `min_severity_for_whatsapp`.
+- `profiles`/`notification_preferences`: `timezone` (fallback `America/Sao_Paulo`), `quiet_behavior` (`defer|silent|immediate`).
+- `user_insights`: `formula_version`, `as_of`, `validity_until`, `eligible_channels`, `logical_dedup_key`, `source_snapshot_id`.
+- Índices de fila: `reminder_jobs (status, scheduled_for)`, `outbound_messages (status, next_attempt_at)`, `communication_deliveries (user_id, logical_dedup_key, created_at)`.
 
-Aplicar em:
-1. `highlights.ts` — detector `negative_result` passa a título "Você gastou R$ X acima do que recebeu" e corpo já existente sobre categorias flexíveis (mantendo `detectorKey`, `family` e `dedupKey` para não quebrar dedup/telemetria e testes).
-2. `narrative.ts` — `deterministicSummary` e `whatsappMessage` (linha "Resultado" vira "Sobra" ou "Gastos acima das receitas", sempre valor absoluto).
-3. `fallbacks.ts` (app + function) — títulos simétricos ("Sobraram R$ X este mês" / "Você gastou R$ X acima do que recebeu").
-4. `UserProfile.ts` — renomear a tag `deficit` para `gasto_acima_da_receita` e ajustar onde ela é lida no prompt.
-5. Reforçar no `SYSTEM_PROMPT` do assessor (`_shared/agent/prompt.ts`) e no prompt do `insights-generate`: proibição explícita de "fechou negativo/déficit/no vermelho"; usar sempre a formulação de gap.
+### Migration B — funções transacionais
+- `apply_split_reminder_policy()`: calcula elegíveis → cria/reativa (zera `attempts`, limpa `last_error`, `outbound_message_id`, `lease_expires_at`, grava `policy_version`) → valida cobertura → **só então** cancela antigos; nunca reativa job com `delivered_at`/`read_at`; retorna `{created, reactivated, kept, cancelled, conflicts, participants_without_job}`.
+- `schedule_split_due_reminders()`: `ON CONFLICT … DO UPDATE` nos jobs vivos e recuperação por janela: `due_today` até o fim do dia local, `overdue` por N dias configuráveis, `invite`/`payment_confirmation` imediatos; fora da janela → alerta ao dono, não envio tardio.
+- `reconcile_split_reminder_jobs()`: audita pendentes × esperados × ausentes/bloqueados/cancelados indevidamente e repara; chamada por cron 15 min, ao criar/editar rolê, ao mudar política, ao registrar pagamento e sob demanda no admin.
+- `mark_reminder_delivery(job_id, state)` + trigger em `outbound_messages`: propaga `provider_accepted|sent|delivered|read|failed_retryable|failed_terminal` para `reminder_jobs.delivery_status` e incrementa os contadores do participante **apenas** em `sent`/`delivered`/`read`.
+- Padronizar segredo: `INTERNAL_CRON_SECRET` no vault, aliases legados aceitos com log de uso.
 
-### B. Patrimônio líquido: uma fonte, um label
-1. `UserProfile.ts` passa a usar o canônico `computeNetWorth` (`_shared/finance-core/facts.ts`), incluindo fatura de cartão em aberto e cheque especial — mesmo número da Home.
-2. `PatrimonioSheet.tsx`: reescrever o texto explicativo para eliminar a contradição — deixar claro que "Seus recursos hoje" = conta + investido (bruto) e que "Patrimônio líquido" = recursos − fatura em aberto − outras dívidas; incluir a conta na própria linha final ("R$ recursos − R$ obrigações").
-3. `FinanceBlocks.PositionBlock`: adicionar hint curto em "Patrimônio líquido" ("já descontadas fatura e dívidas") e em "Seus recursos hoje" ("antes das obrigações").
-4. `AssessorAcompanhamento.tsx` e `admin/IAInteligencia.tsx`: label "Patrimônio líquido" + tooltip/legenda com a mesma definição.
-5. Glossário do assessor: definir `net_worth` como líquido de fatura e dívidas, para o Nino nunca dizer que não considera dívidas.
+### Código
+- `ProactiveEngineV2.ts` / `ProactiveEngine.ts`: `started_at` como coluna canônica.
+- Novo `_shared/intelligence/schemaContract.ts` + teste que valida colunas usadas contra `information_schema`.
+- `proactiveAudience.ts`: exclui `is_test`, sandbox, contas em exclusão, sem onboarding e sem dados mínimos; rotação justa por `last_proactive_scan_at`/`next_proactive_scan_at`, priorizando nunca processados e severidade crítica; flag admin `include_test_users` só em `dry_run`.
+- `communicationPolicy.ts`: timezone do usuário → profile → fallback; cap por **comunicação lógica**; retorna `deferred + next_attempt_at` em bloqueio temporário.
+- `CommunicationDispatcherV3.ts`: canal vindo do catálogo (tipo, sensibilidade, severidade, preferência, consentimento); `deferred`/`awaiting_approval`/`dismissed` distintos; fallback de canal por tipo (participante externo com WhatsApp falho → notificação ao dono).
+- `split-reminders-dispatch-v2`: deixa de chamar `whatsapp-send`; produtor apenas enfileira. `whatsapp_send_dispatch_tick` fica o único consumidor.
+- `whatsapp-ack-watchdog`: consulta a WAHA por `provider_message_id`, classifica recuperável/definitivo/desconhecido, backoff exponencial com `retry_count` limitado, sem reenvio imediato, e notifica o dono quando o participante não recebeu.
+- Unificação relatório/revisão: um artefato por período, uma `logical_dedup_key`, uma notificação, destino único `/app/assessor/acompanhamento`; `insights-generate` e o motor proativo passam a consumir o mesmo insight canônico (`type`, `facts`, `evidence`, `formula_version`, `as_of`, `validity`, `eligible_channels`).
+- Cada Edge Function final grava o heartbeat do próprio `job_key` com os estágios (`request_enqueued → generated → persisted → eligible → scheduled → queued → provider_accepted → sent → delivered → read → clicked → failed`).
 
-### C. Sincronização e validação
-- Rodar `scripts/sync-finance-core.mjs` para regenerar os espelhos em `supabase/functions/_shared/*` (os arquivos gerados não são editados à mão).
-- Novos testes: (a) nenhum texto de highlight/narrativa/fallback contém "negativo|déficit|vermelho"; (b) `UserProfile.net_worth` == `computeNetWorth().net` no mesmo conjunto de dados; (c) simetria de copy para sobra e gap.
-- Rodar a suíte completa (~954 testes) e o typecheck.
+### UI e Admin
+- `DivisaoDoRoleDetalhe`: separa `payment_status` de `communication_status` por participante (pendente, agendado, tentativa feita, enviado, entregue, lido, falhou, telefone inválido, próxima tentativa), mobile-first.
+- Admin: painel de cobertura de lembretes com botões “Reconciliar” e “Aplicar política”, fila com motivo real de bloqueio, distinção `deferred` × `dismissed`, e heartbeats por estágio.
 
-## Detalhes técnicos
-- Nenhuma alteração de motor, schema, migration ou RPC: só camada de copy + troca do cálculo divergente do `UserProfile` pelo canônico já existente.
-- `detectorKey`/`dedupKey`/`family` preservados para não invalidar relatórios já gerados nem a telemetria de utilidade.
-- Relatórios já publicados continuam com o texto antigo até o próximo `REPORT_TEMPLATE_VERSION`; proponho incrementar essa versão para o auto-heal reescrever os textos na próxima abertura.
-- Deploy das Edge Functions afetadas (`financial-reports-generate`, `insights-generate`, `agent-chat`, `whatsapp-webhook`) e publicação só com sua autorização.
+### Correção de dados (na mesma rodada)
+1. Backfill de `policy_version`, `delivery_status` e contadores a partir de `outbound_messages`.
+2. `reminder_jobs` `enqueued` cujo outbound está `failed/dead` → `failed_terminal` com motivo.
+3. Corrigir `reminder_count` inflado (ex.: Frasao 1 → 0 entregues confirmados).
+4. **Caso Festival/Frasao:** valida pendente + telefone + rolê ativo; se pago, não agenda; recria job vivo `due_today` com a régua de horário — antes das 11h BRT agenda hoje 11h, depois disso o próximo horário seguro do dia, senão o próximo dia permitido; nunca em quiet hours, nunca duplicando mensagem já entregue; registra `shared_expense_events` de auditoria. Copy do lembrete: “Oi, Frasao! Passando só para lembrar da sua parte de R$ 135,31 do Festival 💛 / Se você já tiver feito o pagamento, pode desconsiderar esta mensagem e avisar o Daniel para ele atualizar por lá. / Se ainda não, os dados do Pix estão no link do rolê.”
+
+### Testes (vitest, somados aos 957 atuais)
+Job `skipped` não bloqueia substituto; política cobre todos os participantes; recuperação após o horário; outbound `failed` atualiza o job; contador só sobe em `sent`/`delivered`; ausência de ACK não duplica; participante pago cancela futuros; rolê cancelado não envia; test users excluídos; quiet hours adiam (`deferred`); relatório e revisão não duplicam; insight idêntico em todas as superfícies; erro de um usuário não interrompe os demais; contrato de schema de `agent_runs`; idempotência de reprocessamento; concorrência/lease.
+
+### Ordem de implantação
+Migration A → Migration B → código + testes + typecheck → backfills e correção de dados → reparo do caso Frasao → deploy de `agent-proactive-tick`, `split-reminders-dispatch-v2`, `whatsapp-send`, `whatsapp-ack-watchdog`, `insights-generate`, `financial-reports-generate`, `agent-chat`, `whatsapp-webhook` → publicação do frontend.
+
+### Validação pós-deploy e aceite
+`agent-proactive-tick` com `last_tick_errors = []` e sugestões > 0 sem perfis de teste; `reconcile_split_reminder_jobs()` retornando `participants_without_job = 0`; Frasao com job vivo e, após o envio, `delivery_status` real; nenhum `reminder_jobs.enqueued` com outbound `failed`; heartbeats refletindo a função final; um único aviso por relatório semanal.
+
+### Rollback
+Colunas novas são aditivas; índice antigo recriável; funções versionadas (`_v1` mantidas) e crons revertidos por `cron.alter_job`. Reversão de código por deploy anterior, sem perda de dados.
+
+Nada fica para execução manual posterior: migrations, backfills, reparo do caso real, testes, deploys e publicação acontecem na mesma rodada.
