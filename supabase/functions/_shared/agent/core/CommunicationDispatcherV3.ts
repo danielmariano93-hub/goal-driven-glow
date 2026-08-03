@@ -416,7 +416,7 @@ export async function dispatchSuggestions(
         dismissed_at: nextStatus === "dismissed" ? new Date().toISOString() : null,
         next_attempt_at: nextStatus === "deferred" ? deferUntil : null,
         defer_reason: nextStatus === "deferred" ? deferReason : null,
-        logical_dedup_key: candidate.dedup_key,
+        logical_dedup_key: suggestionLogicalKey(userId, candidate.dedup_key),
       }).eq("id", candidate.id).eq("status", "pending");
     }
 
