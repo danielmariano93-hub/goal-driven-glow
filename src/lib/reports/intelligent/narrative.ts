@@ -46,8 +46,9 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
     titulo,
     "",
     `Receitas: ${BRL(t.income)}`,
-    `Despesas: ${BRL(t.expense)}`,
-    `Resultado: ${BRL(t.net)}`,
+    `Gastos: ${BRL(t.expense)}`,
+    `${resultLineLabel(t.income, t.expense)}: ${resultLineValue(t.income, t.expense)}`,
+
     `Nota de saúde: ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/10`,
   ];
   const first = report.highlights[0];
