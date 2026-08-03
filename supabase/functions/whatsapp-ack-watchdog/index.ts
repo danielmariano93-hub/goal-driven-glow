@@ -170,10 +170,11 @@ Deno.serve(async (req) => {
       }
       if (row.participant_id) {
         await supabase.from("reminder_jobs").update({
-          delivery_status: "failed",
+          delivery_status: "failed_terminal",
           last_error: "ack_stalled_no_delivery",
         }).eq("outbound_message_id", row.id);
       }
+
     } else {
       await supabase.from("outbound_messages").update({
         retry_count: rc + 1,
