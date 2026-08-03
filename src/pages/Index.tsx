@@ -8,16 +8,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
-import { RitmoCard } from "@/components/home/RitmoCard";
+import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { AssistantTipCard } from "@/components/home/AssistantTipCard";
-import { RitmoGastosCard } from "@/components/home/RitmoGastosCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 import { SharedGoalHighlight } from "@/components/home/SharedGoalHighlight";
-import { PonteCaixaCard } from "@/components/home/PonteCaixaCard";
-import { RoutineBlock } from "@/components/finance/FinanceBlocks";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
