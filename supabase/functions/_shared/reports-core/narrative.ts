@@ -2,6 +2,7 @@
 // Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 // Narrativa determinística: usada como base e como fallback quando a IA falha
 // no guardrail numérico. Nunca cria número novo.
+import { resultLineLabel, resultLineValue, resultSentence } from "../copy/resultWording.ts";
 import type { IntelligentReport } from "./types.ts";
 
 const BRL = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -11,9 +12,8 @@ export function deterministicSummary(report: IntelligentReport): string {
   const t = report.payload.totals;
   const periodWord = report.reportType === "weekly" ? "semana" : "mês";
   const parts: string[] = [];
-  parts.push(
-    `No período de ${report.period.label} você registrou ${BRL(t.income)} de receitas e ${BRL(t.expense)} de despesas, fechando ${t.net >= 0 ? "positivo" : "negativo"} em ${BRL(Math.abs(t.net))}.`,
-  );
+  parts.push(`No período de ${report.period.label} ${resultSentence(t.income, t.expense, periodWord)}.`);
+
   if (t.expenseDeltaPct !== null) {
     parts.push(
       `Comparando com ${report.previousPeriod.label}, as despesas ${t.expenseDeltaPct >= 0 ? "subiram" : "caíram"} ${PCT(Math.abs(t.expenseDeltaPct))}.`,
@@ -48,8 +48,9 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
     titulo,
     "",
     `Receitas: ${BRL(t.income)}`,
-    `Despesas: ${BRL(t.expense)}`,
-    `Resultado: ${BRL(t.net)}`,
+    `Gastos: ${BRL(t.expense)}`,
+    `${resultLineLabel(t.income, t.expense)}: ${resultLineValue(t.income, t.expense)}`,
+
     `Nota de saúde: ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/10`,
   ];
   const first = report.highlights[0];
