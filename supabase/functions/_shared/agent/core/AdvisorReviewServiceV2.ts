@@ -6,6 +6,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { loadProfile } from "./UserProfile.ts";
 import { remember } from "./MemoryStore.ts";
+import { periodReviewKey } from "../../intelligence/logicalDedup.ts";
+
 
 export type AdvisorAction = {
   key: string;
