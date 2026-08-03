@@ -217,6 +217,16 @@ Deno.serve(async (req) => {
 
   const durationMs = Date.now() - startedAt;
 
+  // Rotação justa: registra a rodada para a próxima seleção priorizar quem
+  // ficou mais tempo sem varredura.
+  if (!selfMode && !dryRun && userIds.length > 0) {
+    try {
+      await markProactiveScan(sb, userIds);
+    } catch (_error) { /* telemetria de rotação não deve derrubar o tick */ }
+  }
+
+
+
   // Telemetria só para execuções do motor (não para o botão do usuário final).
   if (!selfMode && !dryRun && isAdmin) {
     const allErrors = results.flatMap((r) => r.errors.map((e) => ({ user_id: r.user_id, error: e })));
