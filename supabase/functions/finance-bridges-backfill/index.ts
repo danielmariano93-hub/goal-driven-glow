@@ -60,7 +60,7 @@ async function backfillUser(
     sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status").eq("user_id", userId),
     sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId),
     sb.from("debts").select("id,name,outstanding_balance,original_amount,status").eq("user_id", userId),
-    sb.from("investment_movements").select("type,amount,occurred_at").eq("user_id", userId),
+    sb.from("investment_movements").select("kind,amount,occurred_at").eq("user_id", userId),
   ]);
 
   const firstError = [txsR, accountsR, snapsR, invR, debtsR, movR].find((r) => r.error)?.error;
