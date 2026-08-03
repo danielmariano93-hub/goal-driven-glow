@@ -8,7 +8,9 @@ export type AckState = "unknown" | "pending" | "server" | "delivered" | "read" |
 
 /** ACK numérico da WAHA/WhatsApp: -1 erro, 0 pendente, 1 servidor, 2 entregue, 3 lido. */
 export function ackFromNumber(value: unknown): AckState {
+  if (value === null || value === undefined || value === "") return "unknown";
   const n = Number(value);
+
   if (!Number.isFinite(n)) return "unknown";
   if (n < 0) return "failed";
   if (n === 0) return "pending";
