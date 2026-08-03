@@ -162,7 +162,7 @@ describe("computeCashBridge — a equação fecha", () => {
     expect(b.confirmedClosingCash).toBe(800);
   });
 
-  it("snapshot confirmado dentro do período vira ajuste explícito", () => {
+  it("snapshot confirmado dentro do período expõe diferença NÃO explicada (nunca como ajuste)", () => {
     const b = computeCashBridge({
       accounts,
       txs,
@@ -170,8 +170,11 @@ describe("computeCashBridge — a equação fecha", () => {
       period: PERIOD,
     });
     expect(b.evidence.snapshotAnchorsInPeriod).toBe(1);
-    expect(b.calculatedClosingCash).toBe(b.confirmedClosingCash);
-    expect(Math.abs(b.reconciliationDifference)).toBeLessThanOrEqual(0.01);
+    // lançamentos não explicam o saldo confirmado: a diferença fica visível
+    expect(b.adjustments).toBe(0);
+    expect(Math.abs(b.unexplainedDifference)).toBeGreaterThan(0.01);
+    expect(b.reconciliationDifference).toBe(b.unexplainedDifference);
+    expect(round2(b.calculatedClosingCash + b.unexplainedDifference)).toBe(b.confirmedClosingCash);
     expect(b.confidence).not.toBe("high");
   });
 });
