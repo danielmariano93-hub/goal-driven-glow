@@ -117,7 +117,7 @@ export function candidates(f: InsightFacts): InsightPayload[] {
     list.push({
       type: "alert",
       title: "Este mês tá apertado",
-      body: `Você gastou ${brl(gap)} a mais do que entrou. Dá pra virar isso ainda — vamos ver onde ajustar?`,
+      body: `Você gastou ${brl(gap)} acima do que entrou. Dá pra virar isso ainda — vamos ver onde ajustar?`,
       cta_label: "Ver relatório",
       cta_route: "/app/relatorios",
       model: "fallback",
@@ -138,7 +138,7 @@ export function candidates(f: InsightFacts): InsightPayload[] {
     } else {
       list.push({
         type: "celebration",
-        title: `Você fechou ${brl(f.balance_month)} no positivo`,
+        title: `Sobraram ${brl(f.balance_month)} este mês`,
         body: "Que tal criar uma meta pra esse dinheiro trabalhar por você em vez de sumir sem rumo?",
         cta_label: "Criar meta",
         cta_route: "/app/metas",
@@ -146,6 +146,7 @@ export function candidates(f: InsightFacts): InsightPayload[] {
       });
     }
   }
+
 
   if ((f.active_goals ?? 0) > 0 && f.goal_names?.[0]) {
     list.push({
