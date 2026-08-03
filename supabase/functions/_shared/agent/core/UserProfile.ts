@@ -3,7 +3,7 @@
 // from real data (transactions, investments, debts, goals).
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { behavioralMetricAmount, computeAccountBalances, type TransactionRow } from "../../engine/facts.ts";
+import { behavioralMetricAmount, computeNetWorth, type TransactionRow } from "../../engine/facts.ts";
 
 export type UserProfile = {
   user_id: string;
@@ -43,16 +43,18 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString();
 
   const txFields = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind";
-  const [txResp, balanceTxResp, accResp, invResp, debtResp, categoryResp] = await Promise.all([
+  const [txResp, balanceTxResp, accResp, invResp, debtResp, categoryResp, snapResp] = await Promise.all([
     sb.from("transactions").select(txFields)
       .eq("user_id", user_id).gte("occurred_at", sixMonthsAgo.slice(0, 10)).limit(5000),
     sb.from("transactions").select(txFields)
       .eq("user_id", user_id).order("occurred_at", { ascending: true }).limit(10000),
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id),
     sb.from("investments").select("current_value").eq("user_id", user_id),
-    sb.from("debts").select("outstanding_balance").eq("user_id", user_id),
+    sb.from("debts").select("outstanding_balance,status").eq("user_id", user_id),
     sb.from("categories").select("id,name").or(`user_id.eq.${user_id},user_id.is.null`),
+    sb.from("account_balance_snapshots").select("*").eq("user_id", user_id),
   ]);
+
 
   const tx = ((txResp.data as any[] | null) ?? []).map(t => ({ ...t, amount: Number(t.amount || 0) }));
   const balanceTx = ((balanceTxResp.data as any[] | null) ?? []).map(t => ({ ...t, amount: Number(t.amount || 0) }));
@@ -97,15 +99,21 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const accounts = ((accResp.data as any[] | null) ?? []).map(a => ({
     ...a, opening_balance: Number(a.opening_balance || 0), active: a.active !== false,
   }));
-  const balances = computeAccountBalances(accounts as any, balanceTx as TransactionRow[]);
-  const netWorth =
-    (Object.values(balances) as number[]).reduce((sum, value) => sum + Number(value || 0), 0) +
-    ((invResp.data as any[] | null) ?? []).reduce((sum, i) => sum + Number(i.current_value || 0), 0) -
-    ((debtResp.data as any[] | null) ?? []).reduce((sum, d) => sum + Number(d.outstanding_balance || 0), 0);
+  // FONTE ÚNICA: mesmo cálculo da Home e dos relatórios — patrimônio líquido
+  // já desconta cheque especial, fatura de cartão em aberto e outras dívidas.
+  const netWorthBreakdown = computeNetWorth(
+    accounts as any,
+    balanceTx as TransactionRow[],
+    ((invResp.data as any[] | null) ?? []) as any,
+    ((debtResp.data as any[] | null) ?? []) as any,
+    ((snapResp.data as any[] | null) ?? []) as any,
+  );
+  const netWorth = netWorthBreakdown.net;
 
   const tags: string[] = [];
   if (savings > incomeAvg * 0.2) tags.push("poupador");
-  if (savings < 0) tags.push("deficit");
+  if (savings < 0) tags.push("gasto_acima_da_receita");
+
   if (top_categories[0]?.share > 0.4) tags.push("concentrado");
   if (monthly_evolution.length >= 3 && trend(monthly_evolution.map(m => m.expense)) > 0.1) tags.push("gasto_crescente");
 

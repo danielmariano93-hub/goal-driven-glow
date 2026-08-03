@@ -1,6 +1,7 @@
 // Detectores determinísticos de destaques (reports_catalog.v1).
 // Cada detector só usa números já calculados pelo motor — nunca cria valor novo.
 import { round2 } from "@/lib/engine/facts";
+import { resultHeadline } from "@/lib/copy/resultWording";
 import { isFlexibleCategory } from "./engine";
 import type { ReportHighlight, ReportPayload } from "./types";
 
@@ -17,16 +18,17 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "negative_result",
       type: "risk",
-      title: `O ${periodWord} fechou negativo em ${BRL(Math.abs(t.net))}`,
-      body: `As despesas (${BRL(t.expense)}) superaram as receitas (${BRL(t.income)}). O ajuste mais rápido está nas categorias flexíveis, que somaram ${BRL(t.flexibleTotal)}.`,
+      title: resultHeadline(t.income, t.expense, periodWord),
+      body: `Os gastos (${BRL(t.expense)}) passaram das receitas (${BRL(t.income)}) neste ${periodWord}. O ajuste mais rápido está nas categorias flexíveis, que somaram ${BRL(t.flexibleTotal)}.`,
       priority: 100,
       confidence: t.income > 0 ? "high" : "medium",
       evidence: { net: t.net, income: t.income, expense: t.expense },
       ctaLabel: "Ver lançamentos",
       ctaRoute: "/app/lancamentos",
       dedupKey: `${prefix}:negative_result`,
-      selectionReason: "resultado do período abaixo de zero",
+      selectionReason: "gastos do período acima das receitas",
     });
+
   } else if (t.savingsRate !== null && t.savingsRate >= 0.2) {
     out.push({
       detectorKey: "strong_savings",

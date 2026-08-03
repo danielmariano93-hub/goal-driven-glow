@@ -65,8 +65,15 @@ export function PositionBlock({ position }: { position: PositionSummary }) {
       <dl className="grid grid-cols-2 gap-2">
         <Cell label="Dinheiro em conta" value={position.cash} icon={<Landmark size={12} />} />
         <Cell label="Investido" value={position.invested} icon={<PiggyBank size={12} />} />
-        <Cell label="Seus recursos hoje" value={position.resources} strong />
-        <Cell label="Patrimônio líquido" value={position.netWorth} strong icon={<Scale size={12} />} />
+        <Cell label="Seus recursos hoje" value={position.resources} strong hint="Antes das obrigações" />
+        <Cell
+          label="Patrimônio líquido"
+          value={position.netWorth}
+          strong
+          icon={<Scale size={12} />}
+          hint="Já sem fatura e dívidas"
+        />
+
       </dl>
 
       <dl className="mt-2 grid grid-cols-2 gap-2">
@@ -85,13 +92,14 @@ export function PositionBlock({ position }: { position: PositionSummary }) {
 }
 
 function Cell({
-  label, value, tone = "neutral", strong, icon,
+  label, value, tone = "neutral", strong, icon, hint,
 }: {
   label: string;
   value: number;
   tone?: "neutral" | "negative";
   strong?: boolean;
   icon?: React.ReactNode;
+  hint?: string;
 }) {
   return (
     <div className="min-w-0 rounded-xl bg-muted/40 px-3 py-2">
@@ -106,7 +114,9 @@ function Cell({
       >
         {formatBRL(value)}
       </dd>
+      {hint ? <p className="truncate text-[10px] text-muted-foreground">{hint}</p> : null}
     </div>
+
   );
 }
 

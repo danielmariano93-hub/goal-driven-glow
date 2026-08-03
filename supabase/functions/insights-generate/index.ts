@@ -517,6 +517,8 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     if (allowAi) {
       const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
 - Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos, pagamento de fatura e crédito de empréstimo. Se balance_month >= 0, não é déficit.
+- VOCABULÁRIO PROIBIDO: "fechou negativo", "fechou no negativo", "déficit", "no vermelho", "saldo negativo do mês". Quando os gastos superam as receitas, escreva "você gastou R$ X acima do que recebeu" (valor absoluto). Quando sobra, escreva "sobraram R$ X".
+- Patrimônio líquido JÁ desconta fatura de cartão em aberto e outras dívidas. Nunca diga que ele ignora dívidas.
 - Não mude o assunto nem o cta_route da dica base. Transforme o fato em uma leitura específica e uma ação realizável em até 10 minutos.
 - Evite frases genéricas como "acompanhe seus gastos", "continue assim" e "reveja seu orçamento". Cite a evidência mais relevante e diga por que ela importa agora.
 - Nunca invente valores fora dos fatos.
