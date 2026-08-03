@@ -1736,6 +1736,7 @@ export type Database = {
           id: string
           interacted_at: string | null
           kind: string
+          logical_dedup_key: string | null
           reason: string | null
           status: string
           suggestion_id: string | null
@@ -1756,6 +1757,7 @@ export type Database = {
           id?: string
           interacted_at?: string | null
           kind: string
+          logical_dedup_key?: string | null
           reason?: string | null
           status: string
           suggestion_id?: string | null
@@ -1776,6 +1778,7 @@ export type Database = {
           id?: string
           interacted_at?: string | null
           kind?: string
+          logical_dedup_key?: string | null
           reason?: string | null
           status?: string
           suggestion_id?: string | null
@@ -5154,6 +5157,7 @@ export type Database = {
           last_run_at: string | null
           next_run_at: string | null
           processed: number
+          stages: Json
           updated_at: string
         }
         Insert: {
@@ -5164,6 +5168,7 @@ export type Database = {
           last_run_at?: string | null
           next_run_at?: string | null
           processed?: number
+          stages?: Json
           updated_at?: string
         }
         Update: {
@@ -5174,6 +5179,7 @@ export type Database = {
           last_run_at?: string | null
           next_run_at?: string | null
           processed?: number
+          stages?: Json
           updated_at?: string
         }
         Relationships: []
@@ -5408,6 +5414,7 @@ export type Database = {
           created_at: string
           dedup_key: string
           id: string
+          logical_dedup_key: string | null
           read_at: string | null
           title: string
           type: Database["public"]["Enums"]["notification_type"]
@@ -5419,6 +5426,7 @@ export type Database = {
           created_at?: string
           dedup_key: string
           id?: string
+          logical_dedup_key?: string | null
           read_at?: string | null
           title: string
           type: Database["public"]["Enums"]["notification_type"]
@@ -5430,6 +5438,7 @@ export type Database = {
           created_at?: string
           dedup_key?: string
           id?: string
+          logical_dedup_key?: string | null
           read_at?: string | null
           title?: string
           type?: Database["public"]["Enums"]["notification_type"]
@@ -8288,6 +8297,7 @@ export type Database = {
     }
     Functions: {
       _break_glass_allowed_fields: { Args: never; Returns: string[] }
+      _cron_secret: { Args: never; Returns: string }
       _envelope: {
         Args: {
           _extras?: Json
@@ -9152,6 +9162,18 @@ export type Database = {
           p_paid_at: string
         }
         Returns: Json
+      }
+      record_job_stages: {
+        Args: {
+          p_error_code?: string
+          p_failed?: number
+          p_job_key: string
+          p_next_run_at?: string
+          p_ok?: boolean
+          p_processed?: number
+          p_stages?: Json
+        }
+        Returns: undefined
       }
       recover_expired_outbound_leases: { Args: never; Returns: number }
       recurring_confirm: { Args: { p_occurrence_id: string }; Returns: string }
