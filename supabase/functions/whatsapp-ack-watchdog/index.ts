@@ -1,13 +1,54 @@
-// Watchdog: recover stuck leases and dead-letter old messages.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Watchdog: recover stuck leases, reconcile real WhatsApp ACKs and
+// dead-letter old messages.
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext, recordIncident } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { fetchWahaAck } from "../_shared/messaging/wahaAck.ts";
+import { getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const INTERNAL_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
+
+/**
+ * Falha terminal de lembrete: avisa o dono do rolê no app, com dedup por
+ * mensagem, para que ele cobre o participante por outro canal.
+ */
+async function notifyOwnerOfUndelivered(
+  sb: SupabaseClient,
+  args: {
+    ownerUserId: string;
+    sharedExpenseId: string | null;
+    participantId: string | null;
+    outboundMessageId: string;
+  },
+): Promise<boolean> {
+  let who = "um participante";
+  if (args.participantId) {
+    const { data } = await sb.from("shared_expense_participants")
+      .select("display_name").eq("id", args.participantId).maybeSingle();
+    const name = String((data as any)?.display_name ?? "").trim();
+    if (name) who = name;
+  }
+  const { error } = await sb.from("notifications").insert({
+    user_id: args.ownerUserId,
+    type: "split_reminder",
+    title: "Lembrete não entregue no WhatsApp",
+    body: `Não conseguimos entregar o lembrete para ${who}. Vale combinar por outro caminho.`,
+    data: {
+      reason: "whatsapp_undelivered",
+      outbound_message_id: args.outboundMessageId,
+      shared_expense_id: args.sharedExpenseId,
+      participant_id: args.participantId,
+      dedup_key: `undelivered:${args.outboundMessageId}`,
+    },
+  });
+  if (error && !/duplicate|unique/i.test(String(error.message ?? ""))) return false;
+  return !error;
+}
+
 
 Deno.serve(async (req) => {
   const h = httpContext("whatsapp-ack-watchdog", req);
