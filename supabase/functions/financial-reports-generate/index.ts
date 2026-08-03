@@ -323,7 +323,11 @@ async function generateForUser(
       body: `${period.label} • nota de saúde ${report.healthScore}/10`,
       action_url: `/app/relatorios-inteligentes/${reportId}`,
       dedup_key: `financial_report:${reportId}`,
+      // Relatório e revisão do mesmo período são o mesmo assunto: quem chegar
+      // primeiro comunica, o outro é suprimido pela chave lógica.
+      logical_dedup_key: periodReviewKey(reportType, userId, period.start),
     });
+
     await sb.from("financial_report_deliveries").upsert({
       report_id: reportId,
       user_id: userId,
