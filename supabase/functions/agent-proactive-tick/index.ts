@@ -12,7 +12,7 @@ import { httpContext } from "../_shared/http.ts";
 import { scanUser } from "../_shared/agent/core/ProactiveEngineV2.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
-import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
+import { markProactiveScan, selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
 import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
 
