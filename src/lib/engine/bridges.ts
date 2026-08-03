@@ -50,7 +50,8 @@ export type CashBridgeLine =
   | "debt_interest_and_fees"
   | "card_payments"
   | "refunds_and_reimbursements"
-  | "adjustments";
+  | "adjustments"
+  | "unexplained";
 
 export interface MovementSemantics {
   /** Efeito no saldo em conta. */
