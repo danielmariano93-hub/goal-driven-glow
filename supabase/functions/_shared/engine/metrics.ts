@@ -304,7 +304,7 @@ export async function computeAgentSnapshot(
     net_worth_bridge: {
       opening_net_worth: snap.netWorthBridge.openingNetWorth,
       closing_net_worth: snap.netWorthBridge.closingNetWorth,
-      reconciliation_difference: snap.netWorthBridge.reconciliationDifference,
+      reconciliation_difference: snap.netWorthBridge.valuationAdjustments,
       confidence: snap.netWorthBridge.confidence,
     },
     balance_explanation: {

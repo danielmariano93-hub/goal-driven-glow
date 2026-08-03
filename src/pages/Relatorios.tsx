@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
+import { ChevronDown, Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -102,6 +102,32 @@ function MonthRow({
     </div>
   );
 }
+
+/** Seção colapsável: uma pergunta por vez, sem parede de números. */
+function Group({
+  title, subtitle, defaultOpen = false, children,
+}: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{title}</span>
+          {subtitle ? <span className="block text-[11px] text-muted-foreground">{subtitle}</span> : null}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? <div className="space-y-3">{children}</div> : null}
+    </section>
+  );
+}
+
+
 
 export default function Relatorios() {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
@@ -225,89 +251,87 @@ export default function Relatorios() {
         </label>
       </div>
 
-      {/* BLOCO A — sua posição atual (não depende do período). */}
+      {/* Três perguntas, três seções. Só a primeira abre por padrão. */}
       {financialLoading || !financialSnapshot ? (
         <div className="surface-card grid place-items-center p-6"><Loader2 className="animate-spin text-muted-foreground" /></div>
       ) : (
         <>
-          <PositionBlock
-            position={{
-              cash: financialSnapshot.netWorth.cash,
-              invested: financialSnapshot.investmentsTotal,
-              resources: financialSnapshot.netWorth.assets,
-              cardsOwed: financialSnapshot.cardDebtToday,
-              otherDebts: financialSnapshot.activeDebtTotal,
-              netWorth: financialSnapshot.netWorth.net,
-              futureInstallments: financialSnapshot.cardFutureInstallments,
-            }}
-          />
+          <Group title="Onde estou" subtitle="Sua posição de hoje" defaultOpen>
+            <PositionBlock
+              position={{
+                cash: financialSnapshot.netWorth.cash,
+                invested: financialSnapshot.investmentsTotal,
+                resources: financialSnapshot.netWorth.assets,
+                cardsOwed: financialSnapshot.cardDebtToday,
+                otherDebts: financialSnapshot.activeDebtTotal,
+                netWorth: financialSnapshot.netWorth.net,
+                futureInstallments: financialSnapshot.cardFutureInstallments,
+              }}
+            />
+          </Group>
 
-          {/* BLOCO B — como foi sua rotina financeira. */}
-          <RoutineBlock performance={financialSnapshot.periodPerformance} periodLabel={`${from} a ${to}`} />
+          <Group title="Como foi minha rotina" subtitle="Receitas, gastos e ritmo do período">
+            <RoutineBlock performance={financialSnapshot.periodPerformance} periodLabel={`${from} a ${to}`} />
 
-          {/* BLOCO C — como seu saldo mudou (equação fechada). */}
-          <CashBridgeBlock
-            bridge={financialSnapshot.cashBridge}
-            explanation={financialSnapshot.balanceExplanation}
-            periodLabel={`${from} a ${to}`}
-            defaultOpen
-          />
+            <div className="surface-card p-3">
+              <p className="mb-1 text-[11px] font-semibold">Ritmo de gastos no período</p>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={dailyRhythm} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [
+                        formatBRL(Number(value)),
+                        name === "gastoDoDia"
+                          ? "Gasto do dia"
+                          : name === "mediaTotal"
+                            ? "Média total até o dia"
+                            : "Ritmo típico até o dia",
+                      ]}
+                      labelFormatter={(label) => `Dia ${label}`}
+                      contentStyle={{
+                        borderRadius: 16,
+                        border: "1px solid hsl(var(--border))",
+                        background: "hsl(var(--background))",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Line type="monotone" dataKey="gastoDoDia" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="mediaTotal" name="Média total até o dia" stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
+                    <Line type="monotone" dataKey="ritmoTipico" name="Ritmo típico até o dia" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Gasto do dia</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground" /> Média até o dia</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico</span>
+              </div>
+            </div>
+          </Group>
 
-          {/* BLOCO D — movimentações que não são receita nem gasto. */}
-          <PatrimonialBlock
-            cashBridge={financialSnapshot.cashBridge}
-            netWorth={financialSnapshot.netWorthBridge}
-          />
+          <Group title="Como o saldo mudou" subtitle="Formação do saldo e histórico mensal">
+            <CashBridgeBlock
+              bridge={financialSnapshot.cashBridge}
+              explanation={financialSnapshot.balanceExplanation}
+              periodLabel={`${from} a ${to}`}
+            />
+            <PatrimonialBlock
+              cashBridge={financialSnapshot.cashBridge}
+              netWorth={financialSnapshot.netWorthBridge}
+            />
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-muted-foreground">Mês a mês</h3>
+              {monthlyBridges.map((m) => <MonthCard key={m.ym} month={m} />)}
+            </div>
+          </Group>
         </>
       )}
 
-      <section>
-        <div className="mb-2">
-          <h2 className="text-sm font-semibold">Ritmo de gastos no período</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Mesma fórmula da Home: picos do dia, média total e ritmo típico acumulados. Dias sem gastos entram no cálculo.</p>
-        </div>
-        <div className="surface-card mb-3 h-64 p-3">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={dailyRhythm} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip
-                formatter={(value: number, name: string) => [
-                  formatBRL(Number(value)),
-                  name === "gastoDoDia"
-                    ? "Gasto do dia"
-                    : name === "mediaTotal"
-                      ? "Média total até o dia"
-                      : "Ritmo típico até o dia",
-                ]}
-                labelFormatter={(label) => `Dia ${label}`}
-                contentStyle={{
-                  borderRadius: 16,
-                  border: "1px solid hsl(var(--border))",
-                  background: "hsl(var(--background))",
-                  fontSize: 12,
-                }}
-              />
-              <Line type="monotone" dataKey="gastoDoDia" name="Gasto do dia" stroke="hsl(var(--primary))" strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} />
-              <Line type="monotone" dataKey="mediaTotal" name="Média total até o dia" stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
-              <Line type="monotone" dataKey="ritmoTipico" name="Ritmo típico até o dia" stroke="#2FC99A" strokeWidth={2.25} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Gasto do dia</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-muted-foreground" /> Média total até o dia</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#2FC99A]" /> Ritmo típico até o dia</span>
-        </div>
-        <h3 className="mb-2 text-xs font-semibold text-muted-foreground">Mês a mês</h3>
-        <div className="space-y-2">
-          {monthlyBridges.map((m) => <MonthCard key={m.ym} month={m} />)}
-        </div>
-      </section>
 
-      <section>
-        <h2 className="text-sm font-semibold mb-2">Por categoria (despesas)</h2>
+      <Group title="Para onde foi o dinheiro" subtitle="Despesas por categoria">
         <div className="surface-card p-4 space-y-3">
           {byCat.map(c => (
             <div key={c.category}>
@@ -316,21 +340,21 @@ export default function Relatorios() {
                   <span className="block truncate font-medium">{c.category}</span>
                   <span className="text-[10px] text-muted-foreground">{c.percentOfExpenses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das despesas</span>
                 </div>
-                <span className="shrink-0 text-right font-medium">{formatBRL(c.total)} · {c.count}x</span>
+                <span className="shrink-0 text-right font-medium tabular-nums">{formatBRL(c.total)} · {c.count}x</span>
               </div>
               <div className="mt-1 h-1.5 rounded-full bg-secondary overflow-hidden">
                 <div className="h-full bg-primary" style={{ width: `${(c.total/maxCat)*100}%` }} />
               </div>
             </div>
           ))}
+          <p className="text-[10px] text-muted-foreground">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
-      </section>
+      </Group>
 
       <section>
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Principais leituras do período</h2>
         <div className="space-y-2">
-          {highlights.map((h) => (
+          {highlights.slice(0, 3).map((h) => (
             <article key={h.id} className="surface-card p-4">
               <div className="flex min-w-0 gap-3">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
@@ -346,6 +370,7 @@ export default function Relatorios() {
           ))}
         </div>
       </section>
+
     </div>
   );
 }
