@@ -99,15 +99,21 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
   const accounts = ((accResp.data as any[] | null) ?? []).map(a => ({
     ...a, opening_balance: Number(a.opening_balance || 0), active: a.active !== false,
   }));
-  const balances = computeAccountBalances(accounts as any, balanceTx as TransactionRow[]);
-  const netWorth =
-    (Object.values(balances) as number[]).reduce((sum, value) => sum + Number(value || 0), 0) +
-    ((invResp.data as any[] | null) ?? []).reduce((sum, i) => sum + Number(i.current_value || 0), 0) -
-    ((debtResp.data as any[] | null) ?? []).reduce((sum, d) => sum + Number(d.outstanding_balance || 0), 0);
+  // FONTE ÚNICA: mesmo cálculo da Home e dos relatórios — patrimônio líquido
+  // já desconta cheque especial, fatura de cartão em aberto e outras dívidas.
+  const netWorthBreakdown = computeNetWorth(
+    accounts as any,
+    balanceTx as TransactionRow[],
+    ((invResp.data as any[] | null) ?? []) as any,
+    ((debtResp.data as any[] | null) ?? []) as any,
+    ((snapResp.data as any[] | null) ?? []) as any,
+  );
+  const netWorth = netWorthBreakdown.net;
 
   const tags: string[] = [];
   if (savings > incomeAvg * 0.2) tags.push("poupador");
-  if (savings < 0) tags.push("deficit");
+  if (savings < 0) tags.push("gasto_acima_da_receita");
+
   if (top_categories[0]?.share > 0.4) tags.push("concentrado");
   if (monthly_evolution.length >= 3 && trend(monthly_evolution.map(m => m.expense)) > 0.1) tags.push("gasto_crescente");
 
