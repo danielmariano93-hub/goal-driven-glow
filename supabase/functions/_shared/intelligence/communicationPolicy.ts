@@ -10,7 +10,10 @@ export type CommunicationPreferences = {
   max_proactive_per_week?: number;
   max_proactive_per_day?: number;
   muted_proactive_kinds?: string[];
+  timezone?: string | null;
+  quiet_behavior?: "defer" | "silent" | "immediate" | null;
 };
+
 
 export type DeliveryHistory = {
   created_at: string;
@@ -25,7 +28,13 @@ export type CommunicationDecision = {
   reason: string;
   channel: "app" | "whatsapp";
   priority: number;
+  /** Bloqueio temporário (quiet hours / cap): a comunicação deve ser adiada, não descartada. */
+  temporary?: boolean;
+  retryAt?: string | null;
 };
+
+export const DEFAULT_TIMEZONE = "America/Sao_Paulo";
+
 
 const ACCEPTED_STATUSES = new Set(["queued", "sent", "delivered", "acted"]);
 const BEHAVIOR_KINDS = new Set([
@@ -48,11 +57,11 @@ function minutes(hhmm: string | null | undefined): number | null {
   return h * 60 + m;
 }
 
-function isQuiet(now: Date, start?: string | null, end?: string | null): boolean {
+function isQuiet(now: Date, start: string | null | undefined, end: string | null | undefined, tz: string): boolean {
   const s = minutes(start); const e = minutes(end);
   if (s === null || e === null || s === e) return false;
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -61,20 +70,39 @@ function isQuiet(now: Date, start?: string | null, end?: string | null): boolean
   return s < e ? n >= s && n < e : n >= s || n < e;
 }
 
-function localDay(value: Date): string {
+/** Próximo instante fora do horário de silêncio, no fuso do usuário. */
+export function quietWindowEnd(now: Date, end: string | null | undefined, tz: string): string {
+  const e = minutes(end);
+  if (e === null) return new Date(now.getTime() + 3_600_000).toISOString();
+  for (let step = 1; step <= 24 * 4; step++) {
+    const candidate = new Date(now.getTime() + step * 15 * 60_000);
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(candidate).split(":").map(Number);
+    if (parts[0] * 60 + parts[1] >= e) return candidate.toISOString();
+  }
+  return new Date(now.getTime() + 3_600_000).toISOString();
+}
+
+function localDay(value: Date, tz: string): string {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(value);
 }
 
+/**
+ * Cap contado por comunicação lógica (dedup_key), não por entrega de canal:
+ * a mesma comunicação enviada no app e no WhatsApp conta uma única vez.
+ */
 function uniqueCommunications(rows: DeliveryHistory[]): number {
   return new Set(rows.map((row) =>
-    row.dedup_key ? `${row.channel}:${row.dedup_key}` : `${row.channel}:${row.kind}:${row.created_at}`,
+    row.dedup_key ? `logical:${row.dedup_key}` : `logical:${row.kind}:${row.created_at}`,
   )).size;
 }
+
 
 export function decideCommunication(args: {
   candidate: CommunicationCandidate;
@@ -85,7 +113,9 @@ export function decideCommunication(args: {
 }): CommunicationDecision {
   const now = args.now ?? new Date();
   const { candidate, preferences, history, target } = args;
+  const tz = (preferences.timezone ?? "").trim() || DEFAULT_TIMEZONE;
   const muted = new Set(preferences.muted_proactive_kinds ?? []);
+
 
   if (candidate.channel_ready !== "both" && candidate.channel_ready !== target) {
     return { allowed: false, reason: "channel_not_ready", channel: target, priority: 0 };
@@ -107,9 +137,18 @@ export function decideCommunication(args: {
   if (target === "whatsapp" && !preferences.whatsapp_proactive) {
     return { allowed: false, reason: "whatsapp_opt_out", channel: target, priority: 0 };
   }
-  if (target === "whatsapp" && isQuiet(now, preferences.quiet_start, preferences.quiet_end)) {
-    return { allowed: false, reason: "quiet_hours", channel: target, priority: 0 };
+  if (target === "whatsapp" && isQuiet(now, preferences.quiet_start, preferences.quiet_end, tz)) {
+    // Silêncio é adiamento, nunca descarte.
+    return {
+      allowed: false,
+      reason: "quiet_hours",
+      channel: target,
+      priority: 0,
+      temporary: (preferences.quiet_behavior ?? "defer") !== "silent",
+      retryAt: quietWindowEnd(now, preferences.quiet_end, tz),
+    };
   }
+
 
   const accepted = history.filter((row) => ACCEPTED_STATUSES.has(row.status));
   const fourteenDaysAgo = now.getTime() - 14 * 86_400_000;
@@ -132,20 +171,27 @@ export function decideCommunication(args: {
   }
 
   if (candidate.severity !== "critical") {
-    const today = localDay(now);
-    const dayRows = accepted.filter((row) => localDay(new Date(row.created_at)) === today);
+    const today = localDay(now, tz);
+    const dayRows = accepted.filter((row) => localDay(new Date(row.created_at), tz) === today);
     const dailyCap = Math.max(0, Math.min(5, preferences.max_proactive_per_day ?? 1));
     if (dailyCap === 0 || uniqueCommunications(dayRows) >= dailyCap) {
-      return { allowed: false, reason: "daily_frequency_cap", channel: target, priority: 0 };
+      return {
+        allowed: false, reason: "daily_frequency_cap", channel: target, priority: 0,
+        temporary: true, retryAt: new Date(now.getTime() + 24 * 3_600_000).toISOString(),
+      };
     }
 
     const weekAgo = now.getTime() - 7 * 86_400_000;
     const weekRows = accepted.filter((row) => new Date(row.created_at).getTime() >= weekAgo);
     const weeklyCap = Math.max(1, Math.min(14, preferences.max_proactive_per_week ?? 3));
     if (uniqueCommunications(weekRows) >= weeklyCap) {
-      return { allowed: false, reason: "weekly_frequency_cap", channel: target, priority: 0 };
+      return {
+        allowed: false, reason: "weekly_frequency_cap", channel: target, priority: 0,
+        temporary: true, retryAt: new Date(now.getTime() + 3 * 86_400_000).toISOString(),
+      };
     }
   }
+
 
   const priority = candidate.severity === "critical" ? 300
     : candidate.severity === "attention" ? 200

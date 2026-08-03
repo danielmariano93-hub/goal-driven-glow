@@ -1661,14 +1661,18 @@ export type Database = {
           content_mode: string
           cooldown_hours: number
           created_at: string
+          default_channels: string[]
           description: string | null
           dismiss_cooldown_days: number
+          fallback_policy: string
           family: string
           kind: string
           label: string
           max_per_day: number
+          min_severity_for_whatsapp: string
           not_useful_cooldown_days: number
           requires_manual_approval: boolean
+          sensitivity: string
           updated_at: string
         }
         Insert: {
@@ -1679,14 +1683,18 @@ export type Database = {
           content_mode?: string
           cooldown_hours?: number
           created_at?: string
+          default_channels?: string[]
           description?: string | null
           dismiss_cooldown_days?: number
+          fallback_policy?: string
           family: string
           kind: string
           label: string
           max_per_day?: number
+          min_severity_for_whatsapp?: string
           not_useful_cooldown_days?: number
           requires_manual_approval?: boolean
+          sensitivity?: string
           updated_at?: string
         }
         Update: {
@@ -1697,14 +1705,18 @@ export type Database = {
           content_mode?: string
           cooldown_hours?: number
           created_at?: string
+          default_channels?: string[]
           description?: string | null
           dismiss_cooldown_days?: number
+          fallback_policy?: string
           family?: string
           kind?: string
           label?: string
           max_per_day?: number
+          min_severity_for_whatsapp?: string
           not_useful_cooldown_days?: number
           requires_manual_approval?: boolean
+          sensitivity?: string
           updated_at?: string
         }
         Relationships: []
@@ -5293,6 +5305,7 @@ export type Database = {
           monthly_report_enabled: boolean
           muted_proactive_kinds: string[]
           proactive_financial: boolean
+          quiet_behavior: string
           quiet_end: string | null
           quiet_start: string | null
           recurrence_due: boolean
@@ -5305,6 +5318,7 @@ export type Database = {
           smart_tips: boolean
           split_reminder: boolean
           system: boolean
+          timezone: string | null
           updated_at: string
           user_id: string
           weekly_report_enabled: boolean
@@ -5321,6 +5335,7 @@ export type Database = {
           monthly_report_enabled?: boolean
           muted_proactive_kinds?: string[]
           proactive_financial?: boolean
+          quiet_behavior?: string
           quiet_end?: string | null
           quiet_start?: string | null
           recurrence_due?: boolean
@@ -5333,6 +5348,7 @@ export type Database = {
           smart_tips?: boolean
           split_reminder?: boolean
           system?: boolean
+          timezone?: string | null
           updated_at?: string
           user_id: string
           weekly_report_enabled?: boolean
@@ -5349,6 +5365,7 @@ export type Database = {
           monthly_report_enabled?: boolean
           muted_proactive_kinds?: string[]
           proactive_financial?: boolean
+          quiet_behavior?: string
           quiet_end?: string | null
           quiet_start?: string | null
           recurrence_due?: boolean
@@ -5361,6 +5378,7 @@ export type Database = {
           smart_tips?: boolean
           split_reminder?: boolean
           system?: boolean
+          timezone?: string | null
           updated_at?: string
           user_id?: string
           weekly_report_enabled?: boolean
@@ -5693,12 +5711,15 @@ export type Database = {
           channel_ready: string
           created_at: string
           dedup_key: string
+          defer_reason: string | null
           dismissed_at: string | null
           dispatched_at: string | null
           evidence: Json
           expires_at: string | null
           id: string
           kind: string
+          logical_dedup_key: string | null
+          next_attempt_at: string | null
           severity: string
           status: string
           title: string
@@ -5710,12 +5731,15 @@ export type Database = {
           channel_ready?: string
           created_at?: string
           dedup_key: string
+          defer_reason?: string | null
           dismissed_at?: string | null
           dispatched_at?: string | null
           evidence?: Json
           expires_at?: string | null
           id?: string
           kind: string
+          logical_dedup_key?: string | null
+          next_attempt_at?: string | null
           severity?: string
           status?: string
           title: string
@@ -5727,12 +5751,15 @@ export type Database = {
           channel_ready?: string
           created_at?: string
           dedup_key?: string
+          defer_reason?: string | null
           dismissed_at?: string | null
           dispatched_at?: string | null
           evidence?: Json
           expires_at?: string | null
           id?: string
           kind?: string
+          logical_dedup_key?: string | null
+          next_attempt_at?: string | null
           severity?: string
           status?: string
           title?: string
@@ -6469,53 +6496,83 @@ export type Database = {
       reminder_jobs: {
         Row: {
           attempts: number
+          cancel_reason: string | null
           created_at: string
+          deliver_after: string | null
+          delivered_at: string | null
+          delivery_status: string
           followup_of: string | null
           id: string
           idempotency_key: string | null
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          next_attempt_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
           participant_id: string | null
+          policy_version: string | null
+          read_at: string | null
+          retry_count: number
           scheduled_for: string
+          sent_at: string | null
           shared_expense_id: string
           status: Database["public"]["Enums"]["reminder_status"]
+          superseded_by: string | null
           updated_at: string
         }
         Insert: {
           attempts?: number
+          cancel_reason?: string | null
           created_at?: string
+          deliver_after?: string | null
+          delivered_at?: string | null
+          delivery_status?: string
           followup_of?: string | null
           id?: string
           idempotency_key?: string | null
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
+          next_attempt_at?: string | null
           outbound_message_id?: string | null
           owner_user_id: string
           participant_id?: string | null
+          policy_version?: string | null
+          read_at?: string | null
+          retry_count?: number
           scheduled_for?: string
+          sent_at?: string | null
           shared_expense_id: string
           status?: Database["public"]["Enums"]["reminder_status"]
+          superseded_by?: string | null
           updated_at?: string
         }
         Update: {
           attempts?: number
+          cancel_reason?: string | null
           created_at?: string
+          deliver_after?: string | null
+          delivered_at?: string | null
+          delivery_status?: string
           followup_of?: string | null
           id?: string
           idempotency_key?: string | null
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
+          next_attempt_at?: string | null
           outbound_message_id?: string | null
           owner_user_id?: string
           participant_id?: string | null
+          policy_version?: string | null
+          read_at?: string | null
+          retry_count?: number
           scheduled_for?: string
+          sent_at?: string | null
           shared_expense_id?: string
           status?: Database["public"]["Enums"]["reminder_status"]
+          superseded_by?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -6545,6 +6602,13 @@ export type Database = {
             columns: ["shared_expense_id"]
             isOneToOne: false
             referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_jobs_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "reminder_jobs"
             referencedColumns: ["id"]
           },
         ]
@@ -6605,13 +6669,19 @@ export type Database = {
         Row: {
           amount_due: number
           amount_paid: number
+          attempts: number
+          communication_status: string
           created_at: string
+          delivered_count: number
           dispute_status: string
           id: string
           invite_expires_at: string | null
           invite_status: string
           invite_token_hash: string | null
+          last_attempted_at: string | null
+          last_delivered_at: string | null
           last_reminded_at: string | null
+          last_sent_at: string | null
           linked_user_id: string | null
           name: string
           opt_out_at: string | null
@@ -6620,7 +6690,10 @@ export type Database = {
           paid_at: string | null
           phone_e164: string | null
           phone_masked: string | null
+          queued_count: number
+          read_count: number
           reminder_count: number
+          sent_count: number
           shared_expense_id: string
           status: Database["public"]["Enums"]["participant_status"]
           updated_at: string
@@ -6628,13 +6701,19 @@ export type Database = {
         Insert: {
           amount_due: number
           amount_paid?: number
+          attempts?: number
+          communication_status?: string
           created_at?: string
+          delivered_count?: number
           dispute_status?: string
           id?: string
           invite_expires_at?: string | null
           invite_status?: string
           invite_token_hash?: string | null
+          last_attempted_at?: string | null
+          last_delivered_at?: string | null
           last_reminded_at?: string | null
+          last_sent_at?: string | null
           linked_user_id?: string | null
           name: string
           opt_out_at?: string | null
@@ -6643,7 +6722,10 @@ export type Database = {
           paid_at?: string | null
           phone_e164?: string | null
           phone_masked?: string | null
+          queued_count?: number
+          read_count?: number
           reminder_count?: number
+          sent_count?: number
           shared_expense_id: string
           status?: Database["public"]["Enums"]["participant_status"]
           updated_at?: string
@@ -6651,13 +6733,19 @@ export type Database = {
         Update: {
           amount_due?: number
           amount_paid?: number
+          attempts?: number
+          communication_status?: string
           created_at?: string
+          delivered_count?: number
           dispute_status?: string
           id?: string
           invite_expires_at?: string | null
           invite_status?: string
           invite_token_hash?: string | null
+          last_attempted_at?: string | null
+          last_delivered_at?: string | null
           last_reminded_at?: string | null
+          last_sent_at?: string | null
           linked_user_id?: string | null
           name?: string
           opt_out_at?: string | null
@@ -6666,7 +6754,10 @@ export type Database = {
           paid_at?: string | null
           phone_e164?: string | null
           phone_masked?: string | null
+          queued_count?: number
+          read_count?: number
           reminder_count?: number
+          sent_count?: number
           shared_expense_id?: string
           status?: Database["public"]["Enums"]["participant_status"]
           updated_at?: string
@@ -7569,73 +7660,91 @@ export type Database = {
       }
       user_insights: {
         Row: {
+          as_of: string | null
           body: string
           created_at: string
           cta_label: string | null
           cta_route: string | null
           dedup_key: string | null
+          eligible_channels: string[]
           evidence: Json
           expires_at: string
           family: string | null
           feedback: string | null
+          formula_version: string | null
           generated_at: string
           id: string
+          logical_dedup_key: string | null
           model: string | null
           prompt_version: string | null
           resolved_at: string | null
           score: number | null
           severity: string | null
+          source_snapshot_id: string | null
           status: string
           title: string
           type: string
           updated_at: string
           user_id: string
+          validity_until: string | null
         }
         Insert: {
+          as_of?: string | null
           body: string
           created_at?: string
           cta_label?: string | null
           cta_route?: string | null
           dedup_key?: string | null
+          eligible_channels?: string[]
           evidence?: Json
           expires_at?: string
           family?: string | null
           feedback?: string | null
+          formula_version?: string | null
           generated_at?: string
           id?: string
+          logical_dedup_key?: string | null
           model?: string | null
           prompt_version?: string | null
           resolved_at?: string | null
           score?: number | null
           severity?: string | null
+          source_snapshot_id?: string | null
           status?: string
           title: string
           type: string
           updated_at?: string
           user_id: string
+          validity_until?: string | null
         }
         Update: {
+          as_of?: string | null
           body?: string
           created_at?: string
           cta_label?: string | null
           cta_route?: string | null
           dedup_key?: string | null
+          eligible_channels?: string[]
           evidence?: Json
           expires_at?: string
           family?: string | null
           feedback?: string | null
+          formula_version?: string | null
           generated_at?: string
           id?: string
+          logical_dedup_key?: string | null
           model?: string | null
           prompt_version?: string | null
           resolved_at?: string | null
           score?: number | null
           severity?: string | null
+          source_snapshot_id?: string | null
           status?: string
           title?: string
           type?: string
           updated_at?: string
           user_id?: string
+          validity_until?: string | null
         }
         Relationships: [
           {
@@ -7687,8 +7796,10 @@ export type Database = {
           computed_at: string
           estimated_income: number | null
           indicators: Json
+          last_proactive_scan_at: string | null
           monthly_evolution: Json
           net_worth: number | null
+          next_proactive_scan_at: string | null
           risk_level: string | null
           savings_capacity: number | null
           seasonality: Json
@@ -7701,8 +7812,10 @@ export type Database = {
           computed_at?: string
           estimated_income?: number | null
           indicators?: Json
+          last_proactive_scan_at?: string | null
           monthly_evolution?: Json
           net_worth?: number | null
+          next_proactive_scan_at?: string | null
           risk_level?: string | null
           savings_capacity?: number | null
           seasonality?: Json
@@ -7715,8 +7828,10 @@ export type Database = {
           computed_at?: string
           estimated_income?: number | null
           indicators?: Json
+          last_proactive_scan_at?: string | null
           monthly_evolution?: Json
           net_worth?: number | null
+          next_proactive_scan_at?: string | null
           risk_level?: string | null
           savings_capacity?: number | null
           seasonality?: Json
@@ -8407,6 +8522,10 @@ export type Database = {
         Args: { p_action: string; p_limit?: number }
         Returns: boolean
       }
+      admin_reconcile_split_reminders: {
+        Args: { p_expense_id?: string }
+        Returns: Json
+      }
       admin_reject_deletion_request: {
         Args: { p_id: string; p_notes: string }
         Returns: undefined
@@ -8584,6 +8703,10 @@ export type Database = {
         }[]
       }
       apply_safe_category_suggestions: { Args: never; Returns: Json }
+      apply_split_reminder_policy: {
+        Args: { p_expense_id?: string }
+        Returns: Json
+      }
       approve_credit_card_statement: {
         Args: { p_statement_id: string }
         Returns: Json
@@ -8683,19 +8806,29 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: {
           attempts: number
+          cancel_reason: string | null
           created_at: string
+          deliver_after: string | null
+          delivered_at: string | null
+          delivery_status: string
           followup_of: string | null
           id: string
           idempotency_key: string | null
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          next_attempt_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
           participant_id: string | null
+          policy_version: string | null
+          read_at: string | null
+          retry_count: number
           scheduled_for: string
+          sent_at: string | null
           shared_expense_id: string
           status: Database["public"]["Enums"]["reminder_status"]
+          superseded_by: string | null
           updated_at: string
         }[]
         SetofOptions: {
@@ -8709,19 +8842,29 @@ export type Database = {
         Args: { p_limit?: number; p_owner_user_id: string }
         Returns: {
           attempts: number
+          cancel_reason: string | null
           created_at: string
+          deliver_after: string | null
+          delivered_at: string | null
+          delivery_status: string
           followup_of: string | null
           id: string
           idempotency_key: string | null
           kind: string
           last_error: string | null
           lease_expires_at: string | null
+          next_attempt_at: string | null
           outbound_message_id: string | null
           owner_user_id: string
           participant_id: string | null
+          policy_version: string | null
+          read_at: string | null
+          retry_count: number
           scheduled_for: string
+          sent_at: string | null
           shared_expense_id: string
           status: Database["public"]["Enums"]["reminder_status"]
+          superseded_by: string | null
           updated_at: string
         }[]
         SetofOptions: {
@@ -8991,6 +9134,10 @@ export type Database = {
         Args: { p_document_id: string }
         Returns: number
       }
+      reconcile_split_reminder_jobs: {
+        Args: { p_expense_id?: string }
+        Returns: Json
+      }
       record_admin_reauth: { Args: { _method?: string }; Returns: string }
       record_debt_payment: {
         Args: {
@@ -9213,6 +9360,10 @@ export type Database = {
           scheduled_for: string
           updated_at: string
         }[]
+      }
+      split_participant_is_eligible: {
+        Args: { p_participant_id: string }
+        Returns: boolean
       }
       split_participant_report: {
         Args: { p_action: string; p_participant_id: string }

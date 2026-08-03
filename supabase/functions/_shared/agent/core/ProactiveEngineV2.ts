@@ -122,10 +122,12 @@ export async function scanUser(
       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
       .limit(50),
     sb.from("agent_runs")
-      .select("created_at")
+      // `agent_runs` não tem created_at: a coluna canônica é started_at.
+      .select("started_at")
       .eq("user_id", userId)
-      .gte("created_at", new Date(Date.now() - 75 * 86400000).toISOString())
+      .gte("started_at", new Date(Date.now() - 75 * 86400000).toISOString())
       .limit(1000),
+
   ]);
   assertQuery("transactions", txResp.error);
   assertQuery("goals", goalsResp.error);
@@ -145,7 +147,7 @@ export async function scanUser(
 
   const activityDates = [
     ...((txResp.data as any[] | null) ?? []).map((row) => String(row.occurred_at)),
-    ...((runsResp.data as any[] | null) ?? []).map((row) => String(row.created_at)),
+    ...((runsResp.data as any[] | null) ?? []).map((row) => String(row.started_at)),
   ].filter(Boolean);
   const uniqueDays = new Set(activityDates.map((value) => value.slice(0, 10)));
   const currentStart = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);

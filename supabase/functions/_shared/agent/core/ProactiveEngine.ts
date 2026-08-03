@@ -35,10 +35,12 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
       .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
       .limit(50),
     sb.from("agent_runs")
-      .select("created_at")
+      // `agent_runs` não tem created_at: a coluna canônica é started_at.
+      .select("started_at")
       .eq("user_id", user_id)
-      .gte("created_at", new Date(Date.now() - 75 * 86400000).toISOString())
+      .gte("started_at", new Date(Date.now() - 75 * 86400000).toISOString())
       .limit(1000),
+
   ]);
 
   // Goal contributions (sum per goal)
@@ -54,7 +56,7 @@ export async function scanUser(sb: SupabaseClient, user_id: string): Promise<Pro
 
   const activityDates = [
     ...((txResp.data as any[] | null) ?? []).map((row) => String(row.occurred_at)),
-    ...((runsResp.data as any[] | null) ?? []).map((row) => String(row.created_at)),
+    ...((runsResp.data as any[] | null) ?? []).map((row) => String(row.started_at)),
   ].filter(Boolean);
   const uniqueActivityDays = new Set(activityDates.map((value) => value.slice(0, 10)));
   const now = Date.now();
