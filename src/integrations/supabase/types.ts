@@ -10270,6 +10270,18 @@ export type Database = {
         Args: { _feedback: string; _insight_id: string }
         Returns: undefined
       }
+      nino_backfill_items: { Args: { _dry_run?: boolean }; Returns: Json }
+      nino_backfill_rollback: { Args: never; Returns: Json }
+      nino_build_facts: { Args: { _user_id: string }; Returns: number }
+      nino_expense_sum: {
+        Args: { _from: string; _to: string; _user_id: string }
+        Returns: number
+      }
+      nino_intelligence_tick: { Args: never; Returns: Json }
+      nino_rebuild_items: {
+        Args: { _created_by?: string; _user_id: string }
+        Returns: number
+      }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
       normalize_investment_name: { Args: { p_name: string }; Returns: string }
       notifications_mark_interacted: {
