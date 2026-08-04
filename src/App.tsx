@@ -51,6 +51,8 @@ const NinoHub = lazy(() => import("./pages/NinoHub"));
 const NinoContextoV2 = lazy(() => import("./pages/NinoContextoV2"));
 
 const ProactiveAlertDetail = lazy(() => import("./pages/ProactiveAlertDetail"));
+const Antecipacoes = lazy(() => import("./pages/Antecipacoes"));
+
 const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
