@@ -13,17 +13,17 @@ describe("motor único de dicas + ajuste restrito + crons observáveis", () => {
     expect(card).not.toContain("localFallback");
   });
 
-  it("o card de dicas é um carrossel navegável", () => {
+  it("o card da Home consome a inteligência unificada do Nino", () => {
     const card = read("src/components/home/AssistantTipCard.tsx");
-    expect(card).toContain('aria-label="Próxima dica"');
-    expect(card).toContain('aria-label="Dica anterior"');
-    expect(card).toContain("Ver dica");
+    expect(card).toContain("useNinoHomeItem");
+    expect(card).toContain("recordNinoExposure");
+    expect(card).toContain('aria-label="Atualizar leitura do Nino"');
   });
 
-  it("o botão Útil registra e sai do carrossel sem travar", () => {
+  it("o botão Útil registra retorno no item de inteligência", () => {
     const card = read("src/components/home/AssistantTipCard.tsx");
-    expect(card).toContain('sendTipFeedback(id, "acted")');
-    expect(card).toContain("removeCurrent(id)");
+    expect(card).toContain('feedback: kind, surface: "home"');
+    expect(card).toContain("useNinoFeedback");
   });
 
   it("insights-generate usa só o catálogo determinístico e entrega lote", () => {
