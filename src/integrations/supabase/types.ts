@@ -9787,6 +9787,7 @@ export type Database = {
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
       admin_v2_metrics_universe: { Args: never; Returns: Json }
+      admin_v2_nino_item_trace: { Args: { _item_id: string }; Returns: Json }
       admin_v2_nino_quality_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
       admin_v2_proactive_summary: {
@@ -10244,12 +10245,38 @@ export type Database = {
         Args: { _delivery_id: string; _feedback: string }
         Returns: Json
       }
+      my_more_menu_context: { Args: never; Returns: Json }
       my_nino_context: { Args: never; Returns: Json }
+      my_nino_home_item: { Args: never; Returns: Json }
+      my_nino_intelligence_context: { Args: never; Returns: Json }
+      my_nino_item_act: {
+        Args: { _item_id: string; _surface?: string }
+        Returns: Json
+      }
+      my_nino_item_feedback: {
+        Args: { _feedback: string; _item_id: string; _surface?: string }
+        Returns: Json
+      }
+      my_nino_mark_seen: {
+        Args: { _section?: string; _surface: string }
+        Returns: Json
+      }
       my_nino_memory_delete: { Args: { _memory_id: string }; Returns: boolean }
       my_nino_memory_update: {
         Args: { _expires_at?: string; _memory_id: string; _value: Json }
         Returns: Json
       }
+      my_nino_record_exposure: {
+        Args: {
+          _channel?: string
+          _item_id: string
+          _rank?: number
+          _selection_reason?: string
+          _surface: string
+        }
+        Returns: Json
+      }
+      my_nino_refresh: { Args: never; Returns: Json }
       my_proactive_preferences_update: {
         Args: {
           _emotional?: boolean
@@ -10266,6 +10293,10 @@ export type Database = {
         Args: { _dedup_key: string; _feedback: string }
         Returns: undefined
       }
+      my_reports_current_context: {
+        Args: { _end?: string; _start?: string }
+        Returns: Json
+      }
       my_tip_feedback: {
         Args: { _feedback: string; _insight_id: string }
         Returns: undefined
@@ -10278,6 +10309,12 @@ export type Database = {
         Returns: number
       }
       nino_intelligence_tick: { Args: never; Returns: Json }
+      nino_item_json: {
+        Args: {
+          _row: Database["public"]["Tables"]["nino_intelligence_items"]["Row"]
+        }
+        Returns: Json
+      }
       nino_rebuild_items: {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
