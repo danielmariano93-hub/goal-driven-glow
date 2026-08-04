@@ -15,6 +15,8 @@ import {
   LogOut,
   ClipboardCheck,
   FileText,
+  TrendingUp,
+
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
