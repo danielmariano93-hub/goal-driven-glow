@@ -3,14 +3,56 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import {
+  NinoContractError,
+  parseNinoContext,
+  parseItems,
+  refreshResultSchema,
+  type RefreshResult,
+} from "@/lib/nino/contracts.zod";
+import { fixMoneyLocale } from "@/lib/nino/format";
 
-type Rpc = (name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
-const rpc = supabase.rpc as unknown as Rpc;
+export type NinoErrorKind = "network" | "auth" | "rpc" | "contract";
 
+export class NinoRpcError extends Error {
+  kind: NinoErrorKind;
+  fn: string;
+  code?: string;
+  constructor(message: string, kind: NinoErrorKind, fn: string, code?: string) {
+    super(message);
+    this.name = "NinoRpcError";
+    this.kind = kind;
+    this.fn = fn;
+    this.code = code;
+  }
+}
+
+function classify(fn: string, error: { message?: string; code?: string; details?: string } | null, thrown?: unknown): NinoRpcError {
+  const message = error?.message ?? (thrown instanceof Error ? thrown.message : "Falha ao consultar o Nino");
+  const code = error?.code;
+  const lower = message.toLowerCase();
+  let kind: NinoErrorKind = "rpc";
+  if (code === "PGRST301" || code === "401" || lower.includes("jwt") || lower.includes("not authenticated")) kind = "auth";
+  else if (lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("timeout")) kind = "network";
+  // Log estruturado sem valores financeiros.
+  console.warn("[nino.rpc]", JSON.stringify({ fn, kind, code: code ?? null, message }));
+  return new NinoRpcError(message, kind, fn, code);
+}
+
+/**
+ * IMPORTANTE: `supabase.rpc` depende da instância (`this.rest`).
+ * Nunca guardar a referência solta do método — chame sempre a partir do cliente.
+ */
 async function callRpc<T>(name: string, args?: Record<string, unknown>): Promise<T> {
-  const { data, error } = await rpc(name, args);
-  if (error) throw new Error(error.message);
-  return data as T;
+  let payload: { data: unknown; error: { message?: string; code?: string } | null };
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    payload = (await (supabase.rpc as any).call(supabase, name, args ?? {})) as typeof payload;
+  } catch (e) {
+    throw classify(name, null, e);
+  }
+  if (payload.error) throw classify(name, payload.error);
+  return payload.data as T;
 }
 
 export type NinoItemKind =
@@ -58,7 +100,8 @@ export type NinoContext = {
   prepare: NinoItem[];
   history: NinoItem[];
   achievements: NinoItem[];
-  data_quality: { status: "ok" | "attention" | "insufficient"; uncategorized_count: number };
+  data_quality: { status: "ok" | "attention" | "insufficient"; uncategorized_count: number; reason?: string | null };
+  invalidItems: number;
 };
 
 export type MoreMenuContext = {
@@ -91,23 +134,63 @@ export type ReportsContext = {
   }>;
 };
 
+/** Normaliza textos monetários que possam ter vindo com separador americano. */
+function normalizeItem(item: Record<string, unknown>): NinoItem {
+  return {
+    ...(item as unknown as NinoItem),
+    title: fixMoneyLocale(String(item.title ?? "")),
+    summary: fixMoneyLocale(String(item.summary ?? "")),
+    explanation: fixMoneyLocale(String(item.explanation ?? "")),
+  };
+}
+
 export function useNinoContext() {
   const { user } = useAuth();
   return useQuery<NinoContext>({
     queryKey: ["nino-intelligence", user?.id],
     enabled: !!user,
     staleTime: 30_000,
-    queryFn: () => callRpc<NinoContext>("my_nino_intelligence_context"),
+    retry: (count, error) => (error instanceof NinoRpcError && error.kind === "network" ? count < 2 : false),
+    queryFn: async () => {
+      const raw = await callRpc<unknown>("my_nino_intelligence_context");
+      const parsed = parseNinoContext(raw);
+      if (parsed.ok === false) {
+        throw new NinoRpcError(parsed.error ?? "A inteligência do Nino não pôde ser lida.", "rpc", "my_nino_intelligence_context");
+      }
+      return {
+        ok: true,
+        as_of: parsed.as_of ?? new Date().toISOString(),
+        continuity_topic: parsed.continuity_topic ?? null,
+        last_seen_at: parsed.last_seen_at ?? null,
+        new_since_last_visit: parsed.new_since_last_visit ?? 0,
+        now: parsed.sections.now.map(normalizeItem),
+        changes: parsed.sections.changes.map(normalizeItem),
+        learnings: parsed.sections.learnings.map(normalizeItem),
+        prepare: parsed.sections.prepare.map(normalizeItem),
+        history: parsed.sections.history.map(normalizeItem),
+        achievements: parsed.sections.achievements.map(normalizeItem),
+        data_quality: (parsed.data_quality ?? { status: "ok", uncategorized_count: 0 }) as NinoContext["data_quality"],
+        invalidItems: parsed.invalidItems,
+      };
+    },
   });
 }
 
 export function useNinoHomeItem() {
   const { user } = useAuth();
-  return useQuery<{ ok: boolean; kind: "item" | "stability"; item: NinoItem }>({
+  return useQuery<{ ok: boolean; kind: "item" | "stability"; item: NinoItem | null }>({
     queryKey: ["nino-home-item", user?.id],
     enabled: !!user,
     staleTime: 60_000,
-    queryFn: () => callRpc("my_nino_home_item"),
+    queryFn: async () => {
+      const raw = (await callRpc<Record<string, unknown>>("my_nino_home_item")) ?? {};
+      const { items } = parseItems([raw.item].filter(Boolean));
+      return {
+        ok: raw.ok !== false,
+        kind: (raw.kind as "item" | "stability") ?? "stability",
+        item: items[0] ? normalizeItem(items[0] as unknown as Record<string, unknown>) : null,
+      };
+    },
   });
 }
 
@@ -127,23 +210,53 @@ export function useReportsContext(range?: { start: string; end: string }) {
     queryKey: ["reports-context", user?.id, range?.start, range?.end],
     enabled: !!user,
     staleTime: 30_000,
-    queryFn: () =>
-      callRpc<ReportsContext>("my_reports_current_context", {
+    queryFn: async () => {
+      const raw = await callRpc<ReportsContext>("my_reports_current_context", {
         _start: range?.start ?? null,
         _end: range?.end ?? null,
-      }),
+      });
+      const { items } = parseItems((raw as unknown as Record<string, unknown>)?.items);
+      return { ...raw, items: items.map((i) => normalizeItem(i as unknown as Record<string, unknown>)) };
+    },
   });
 }
 
+export type NinoRefreshSummary = {
+  ok: boolean;
+  at: string;
+  created: number;
+  updated: number;
+  superseded: number;
+  expired: number;
+  activeTotal: number;
+};
+
+/** Refresh manual: só considera sucesso quando a nova consulta também conclui. */
 export function useNinoRefresh() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => callRpc<{ ok: boolean }>("my_nino_refresh"),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["nino-intelligence"] });
-      void qc.invalidateQueries({ queryKey: ["nino-home-item"] });
-      void qc.invalidateQueries({ queryKey: ["more-menu-context"] });
-      void qc.invalidateQueries({ queryKey: ["reports-context"] });
+  return useMutation<NinoRefreshSummary>({
+    mutationFn: async () => {
+      const raw = await callRpc<unknown>("my_nino_refresh");
+      const parsed: RefreshResult = refreshResultSchema.parse(raw ?? {});
+      if (parsed.ok === false) throw new NinoRpcError(parsed.error ?? "Não foi possível atualizar as leituras.", "rpc", "my_nino_refresh");
+      const summary: NinoRefreshSummary = {
+        ok: true,
+        at: parsed.at ?? new Date().toISOString(),
+        created: parsed.counts?.created ?? 0,
+        updated: parsed.counts?.updated ?? 0,
+        superseded: parsed.counts?.superseded ?? 0,
+        expired: parsed.counts?.expired ?? 0,
+        activeTotal: parsed.counts?.active_total ?? parsed.items ?? 0,
+      };
+      // Sucesso só depois do refetch concluído.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["nino-intelligence"] }),
+        qc.invalidateQueries({ queryKey: ["nino-home-item"] }),
+        qc.invalidateQueries({ queryKey: ["more-menu-context"] }),
+        qc.invalidateQueries({ queryKey: ["reports-context"] }),
+      ]);
+      await qc.refetchQueries({ queryKey: ["nino-intelligence"], type: "active" });
+      return summary;
     },
   });
 }
@@ -192,16 +305,41 @@ export async function recordNinoExposure(itemId: string, surface: string, rank?:
   }
 }
 
-const SAFE_ROUTE = /^\/app\/[A-Za-z0-9\-/?=&_.]*$/;
+const SAFE_ROUTE = /^\/app\/[A-Za-z0-9\-/?=&_.~:@!$'()*+,;[\]]*$/;
 
+/** Aceita rotas internas, inclusive com percent-encoding válido; bloqueia esquemas externos. */
 export function safeRoute(action: NinoAction, fallback = "/app/nino"): string {
-  const route = action?.route ?? "";
-  return SAFE_ROUTE.test(route) ? route : fallback;
+  const route = (action?.route ?? "").trim();
+  if (!route || route.startsWith("//")) return fallback;
+  let decoded = route;
+  try {
+    decoded = decodeURI(route);
+  } catch {
+    return fallback;
+  }
+  if (/[<>"\s\\]/.test(decoded)) return fallback;
+  if (!SAFE_ROUTE.test(decoded.replace(/%[0-9A-Fa-f]{2}/g, "a"))) return fallback;
+  return route;
 }
 
-export function actionLabel(action: NinoAction, fallback = "Abrir"): string {
+const DEFAULT_ACTION_LABEL: Record<string, string> = {
+  risk: "Ver detalhes",
+  change: "Ver relatório",
+  pattern: "Entender padrão",
+  recommendation: "Resolver agora",
+  data_quality: "Classificar",
+  opportunity: "Ver oportunidade",
+  achievement: "Ver conquista",
+  closed_period_summary: "Ver fechamento",
+  pending_confirmation: "Confirmar",
+  projection: "Ver projeção",
+  commitment: "Ver compromisso",
+};
+
+export function actionLabel(action: NinoAction, fallback = "Abrir", kind?: string): string {
   const label = (action?.label ?? "").trim();
-  return label || fallback;
+  if (label) return label;
+  return (kind && DEFAULT_ACTION_LABEL[kind]) || fallback;
 }
 
 export const KIND_LABEL: Record<string, string> = {
@@ -223,3 +361,5 @@ export const MATURITY_LABEL: Record<string, string> = {
   observing: "Em observação",
   confirmed: "Confirmado",
 };
+
+export { NinoContractError };
