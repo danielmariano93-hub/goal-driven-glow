@@ -133,12 +133,8 @@ export default function Index() {
       ) : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
-        <PrevisaoFechamentoCard
-          projectedMonthEndAvailable={snap?.projectedMonthEndAvailable ?? 0}
-          monthToDateAverageConsumption={snap?.monthToDateAverageConsumption ?? 0}
-          daysRemainingInMonth={snap?.daysRemainingInMonth ?? 0}
-          projectedRemainingConsumption={snap?.projectedRemainingConsumption ?? 0}
-        />
+        <PrevisaoFechamentoCard projection={snap?.projection ?? null} />
+
       )}
 
       <EmotionalCheckinCard />
