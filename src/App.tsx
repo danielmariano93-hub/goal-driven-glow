@@ -136,6 +136,8 @@ const App = () => (
                 <Route path="assessor/acompanhamento" element={<NinoHub />} />
                 <Route path="nino-contexto" element={<NinoContextoV2 />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
+                <Route path="antecipacoes" element={<Antecipacoes />} />
+
               </Route>
 
               {/* Platform admin — separate application */}
