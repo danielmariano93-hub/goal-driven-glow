@@ -589,7 +589,19 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const daysTotal = daysInclusive(monthRange.start, monthRange.end);
   const daysRemainingInMonth = Math.max(0, daysTotal - daysElapsed);
   const mtdAvg = round2(mtdExpense / daysElapsed);
-  const projectedRemainingConsumption = round2(mtdAvg * daysRemainingInMonth);
+
+  // ── Ritmo típico (janela móvel de 90 dias, sem fixas nem atípicos) ─────────
+  const typicalWindowStart = todayISO(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 89));
+  const typicalRhythm = computeRhythm(input.txs as RhythmTx[], { start: typicalWindowStart, end: todayIso }, {
+    categoryNameById: input.categoryNameById ?? {},
+  });
+  const typicalDailyPace = typicalRhythm.typicalAverage;
+
+  // Blend: o ritmo do mês só ganha peso pleno com 7 dias observados.
+  const paceWeight = Math.min(1, daysElapsed / 7);
+  const blendedPace = round2(mtdAvg * paceWeight + typicalDailyPace * (1 - paceWeight));
+  const projectedVariableSpending = round2(blendedPace * daysRemainingInMonth);
+  const projectedRemainingConsumption = projectedVariableSpending;
 
   const availUntilEnd = computeAvailableUntil({
     accounts: input.accounts,
@@ -604,9 +616,35 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
   const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
+  // Somente a fatura da competência corrente (vencimento dentro do mês) pesa no
+  // saldo projetado. A dívida total inclui competências futuras e exageraria o
+  // número negativo.
+  const cardDueThisMonth = hasCardSource
+    ? round2(Object.values(cardExposures).reduce((sum, e) => sum + Number(e.currentStatement.amount || 0), 0))
+    : cardDebtToday;
   const projectedMonthEndAvailable = round2(
-    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDebtToday - projectedRemainingConsumption,
+    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
   );
+  const projection: SpendingProjection = {
+    formulaVersion: SPENDING_PROJECTION_VERSION,
+    monthStart: monthRange.start,
+    monthEnd: monthRange.end,
+    daysElapsed,
+    daysRemaining: daysRemainingInMonth,
+    realizedConsumption: round2(mtdExpense),
+    currentDailyPace: mtdAvg,
+    typicalDailyPace,
+    paceWeight: round2(paceWeight),
+    projectedVariableSpending,
+    upcomingConfirmedCommitments: knownFutureCommitments,
+    projectedTotalSpending: round2(mtdExpense + projectedVariableSpending + knownFutureCommitments),
+    confirmedFutureInflows: confirmedFutureIncome,
+    currentAvailableBalance: availableToday,
+    cardDueThisMonth,
+    projectedEndBalance: projectedMonthEndAvailable,
+    confidence: projectionConfidenceOf(daysElapsed),
+  };
+
 
   const categoryNameById = input.categoryNameById ?? {};
   const activeCategoryGoals: CategoryGoalEvaluation[] = input.categoryGoals
