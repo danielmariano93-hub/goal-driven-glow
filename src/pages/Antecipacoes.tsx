@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CalendarClock, Loader2, RefreshCw, ShieldCheck, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { invokeEdge } from "@/lib/edge/invoke";
+import { failureDescription, invokeEdge } from "@/lib/edge/invoke";
 
 type PatternRow = {
   id: string;
