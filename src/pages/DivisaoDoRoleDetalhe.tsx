@@ -10,7 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { formatBRL } from "@/lib/split/math";
 import { dispatchSplitReminders } from "@/lib/split/dispatch";
 
-const labels:Record<string,string>={active:"Aguardando pagamentos",settled:"Tudo recebido",cancelled:"Cancelada",pending:"Aguardando você",notified:"Convite enviado",partial:"Recebido em parte",paid:"Pago",waived:"Isento",opted_out:"Você saiu"};
+const labels:Record<string,string>={active:"Aguardando pagamentos",settled:"Tudo recebido",cancelled:"Cancelada",pending:"Aguardando você",notified:"Convite enviado",partial:"Recebido em parte",paid:"Pago",waived:"Isento",opted_out:"Você saiu",payment_reported:"Pagamento informado",awaiting_owner_confirmation:"Comprovante recebido — confirme"};
 const messageLabels:Record<string,string>={queued:"Preparando",processing:"Preparando",enqueued:"Na fila do WhatsApp",sent:"Enviada ao WhatsApp",delivered:"Entregue",read:"Lida",failed:"Falhou",dead:"Não entregue",skipped:"Não enviada"};
 const terminalMessageStatuses=new Set(["sent","delivered","read","failed","dead","skipped"]);
 function deliveryLabel(msg:any){const outbound=msg?.outbound_status;if(outbound==="queued")return "Na fila do WhatsApp";if(outbound==="processing")return "Enviando";return messageLabels[outbound??msg?.job_status]??outbound??msg?.job_status??"Preparando";}

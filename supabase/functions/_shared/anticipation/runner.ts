@@ -24,6 +24,108 @@ import { discoverPatterns, reconcilePattern } from "./patterns.ts";
 import { buildOpportunity, stillValid } from "./opportunities.ts";
 import { orchestrateAttention } from "./orchestrator.ts";
 import { decideStale } from "./staleness.ts";
+import { detectCashPressure, type Commitment, type ExpectedIncome } from "./cashPressure.ts";
+
+/**
+ * Coleta os compromissos REAIS já registrados até a próxima entrada prevista e
+ * delega a decisão ao detector puro. Nenhuma projeção estatística aqui.
+ */
+async function detectCashPressureForUser(
+  sb: SupabaseClient,
+  userId: string,
+  opts: { now: Date; coverage: number; config: DetectorConfig },
+): Promise<BehavioralPattern | null> {
+  const todayIso = opts.now.toISOString().slice(0, 10);
+  const horizonIso = new Date(opts.now.getTime() + 45 * 86_400_000).toISOString().slice(0, 10);
+
+  const [snapshot, statements, occurrences, planned, rules] = await Promise.all([
+    sb.from("financial_current_snapshots").select("available_balance,as_of_date").eq("user_id", userId).maybeSingle(),
+    sb.from("credit_card_statements")
+      .select("id,due_date,status,reconciled_total,stated_total,credit_card_id")
+      .eq("user_id", userId).gte("due_date", todayIso).lte("due_date", horizonIso)
+      .neq("status", "paid"),
+    sb.from("recurring_occurrences")
+      .select("id,due_date,status,recurring_rule_id")
+      .eq("user_id", userId).eq("status", "planned").gte("due_date", todayIso).lte("due_date", horizonIso),
+    sb.from("transactions")
+      .select("id,occurred_at,amount,description,type,status")
+      .eq("user_id", userId).eq("status", "planned").eq("type", "expense")
+      .gte("occurred_at", todayIso).lte("occurred_at", horizonIso).limit(200),
+    sb.from("recurring_rules")
+      .select("id,name,amount,kind,day_of_month,status")
+      .eq("user_id", userId).eq("status", "active"),
+  ]);
+
+  const available = Number((snapshot.data as any)?.available_balance ?? NaN);
+  if (!Number.isFinite(available)) return null;
+
+  const ruleById = new Map<string, any>(((rules.data as any[] | null) ?? []).map((r) => [String(r.id), r]));
+  const commitments: Commitment[] = [];
+
+  for (const s of ((statements.data as any[] | null) ?? [])) {
+    const amount = Math.abs(Number(s.reconciled_total ?? s.stated_total ?? 0));
+    if (amount <= 0 || !s.due_date) continue;
+    commitments.push({
+      kind: "card_statement",
+      label: "Fatura de cartão",
+      due_date: String(s.due_date).slice(0, 10),
+      amount,
+      source_id: String(s.id),
+    });
+  }
+  for (const o of ((occurrences.data as any[] | null) ?? [])) {
+    const rule = ruleById.get(String(o.recurring_rule_id));
+    if (!rule || String(rule.kind) === "income") continue;
+    const amount = Math.abs(Number(rule.amount ?? 0));
+    if (amount <= 0) continue;
+    commitments.push({
+      kind: "recurring",
+      label: String(rule.name ?? "Compromisso recorrente"),
+      due_date: String(o.due_date).slice(0, 10),
+      amount,
+      source_id: String(o.id),
+    });
+  }
+  for (const t of ((planned.data as any[] | null) ?? [])) {
+    const amount = Math.abs(Number(t.amount ?? 0));
+    if (amount <= 0) continue;
+    commitments.push({
+      kind: "planned_expense",
+      label: String(t.description ?? "Lançamento previsto"),
+      due_date: String(t.occurred_at).slice(0, 10),
+      amount,
+      source_id: String(t.id),
+    });
+  }
+
+  // Próxima entrada prevista: regra de receita ativa com dia do mês definido.
+  let nextIncome: ExpectedIncome | null = null;
+  for (const r of ((rules.data as any[] | null) ?? [])) {
+    if (String(r.kind) !== "income") continue;
+    const day = Number(r.day_of_month ?? 0);
+    const amount = Math.abs(Number(r.amount ?? 0));
+    if (day < 1 || day > 31 || amount <= 0) continue;
+    const base = new Date(opts.now);
+    let candidate = `${base.toISOString().slice(0, 7)}-${String(day).padStart(2, "0")}`;
+    if (candidate <= todayIso) {
+      const next = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 1));
+      candidate = `${next.toISOString().slice(0, 7)}-${String(day).padStart(2, "0")}`;
+    }
+    if (!nextIncome || candidate < nextIncome.date) {
+      nextIncome = { date: candidate, amount, label: String(r.name ?? "próxima entrada") };
+    }
+  }
+
+  return detectCashPressure({
+    userId,
+    todayIso,
+    availableCash: available,
+    commitments,
+    nextIncome,
+    coverage: opts.coverage,
+    config: opts.config,
+  });
+}
 
 const TX_FIELDS = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,posted_at,competence_date,occurred_at_time,occurred_at_timezone,occurred_at_precision,category_source,category_confidence";
 const WINDOW_DAYS = 210;
@@ -81,12 +183,14 @@ type UserContext = {
   anticipationWhatsapp: boolean;
   mutedKinds: string[];
   mutedPatternIds: string[];
+  maxPerWeek: number;
+  consentAt: string | null;
 };
 
 async function loadUserContext(sb: SupabaseClient, userId: string): Promise<UserContext> {
   const [prefsResp, profileResp] = await Promise.all([
     sb.from("notification_preferences")
-      .select("quiet_start,quiet_end,timezone,anticipation_enabled,anticipation_whatsapp,anticipation_kinds,muted_pattern_ids,muted_proactive_kinds")
+      .select("quiet_start,quiet_end,timezone,anticipation_enabled,anticipation_whatsapp,anticipation_kinds,muted_pattern_ids,muted_proactive_kinds,anticipation_max_per_week,anticipation_consent_at")
       .eq("user_id", userId).maybeSingle(),
     sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
   ]);
@@ -99,6 +203,8 @@ async function loadUserContext(sb: SupabaseClient, userId: string): Promise<User
     anticipationWhatsapp: prefs.anticipation_whatsapp ?? false,
     mutedKinds: Array.isArray(prefs.muted_proactive_kinds) ? prefs.muted_proactive_kinds.map(String) : [],
     mutedPatternIds: Array.isArray(prefs.muted_pattern_ids) ? prefs.muted_pattern_ids.map(String) : [],
+    maxPerWeek: Number.isFinite(Number(prefs.anticipation_max_per_week)) ? Number(prefs.anticipation_max_per_week) : 3,
+    consentAt: prefs.anticipation_consent_at ?? null,
   };
 }
 
@@ -235,11 +341,30 @@ export async function runAnticipationForUser(
   for (const [detector, config] of configs) {
     if (detectorEligible(quality, config)) eligible.set(detector, config);
   }
+
+  // `upcoming_cash_pressure` não depende de cobertura comportamental: ele lê
+  // compromissos já registrados. Por isso é avaliado fora do quality gate.
+  const cashConfig = configs.get("upcoming_cash_pressure");
+  let cashPattern: BehavioralPattern | null = null;
+  if (cashConfig) {
+    try {
+      cashPattern = await detectCashPressureForUser(sb, userId, {
+        now,
+        coverage: quality.coverage,
+        config: cashConfig,
+      });
+      if (cashPattern) eligible.set("upcoming_cash_pressure", cashConfig);
+    } catch (error) {
+      errors.push(`cash_pressure:${error instanceof Error ? error.message : String(error)}`.slice(0, 200));
+    }
+  }
+
   result.detectors_eligible = [...eligible.keys()];
   if (eligible.size === 0) {
     result.skipped = `quality_gate:${quality.reasons.join("|") || "detectors_not_eligible"}`;
     return result;
   }
+
 
   // Ciclos de fatura fechados/abertos para o detector de aceleração.
   const cardCycles = ((statementsResp.data as any[] | null) ?? []).map((s) => {
@@ -279,6 +404,8 @@ export async function runAnticipationForUser(
     cardCycles,
     recurringHistory,
   });
+  if (cashPattern) fresh.push(cashPattern);
+
 
   const { data: storedRows, error: storedError } = await sb.from("behavioral_patterns")
     .select("*").eq("user_id", userId).eq("formula_version", ANTICIPATION_FORMULA_VERSION);
@@ -376,7 +503,8 @@ export async function runAnticipationForUser(
       fatigue,
       receptivity,
       stalePolicy,
-      channelTarget: context.anticipationWhatsapp && !dryRun ? "both" : "app",
+      // WhatsApp exige consentimento explícito registrado; sem ele, só card no app.
+      channelTarget: context.anticipationWhatsapp && context.consentAt !== null && !dryRun ? "both" : "app",
       dryRun,
     });
     if (!opportunity) continue;
@@ -384,12 +512,24 @@ export async function runAnticipationForUser(
     candidates.push(opportunity);
   }
 
-  const orchestrated = orchestrateAttention(candidates, { maxAppOnly: 2 });
+  // Teto semanal declarado pelo usuário (padrão 3): oportunidades além do
+  // limite são registradas como suprimidas, nunca silenciosamente perdidas.
+  const weekAgoIso = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+  const { count: dispatchedLast7 } = await sb.from("anticipation_opportunities")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId).eq("status", "dispatched").gte("dispatched_at", weekAgoIso);
+  const remaining = Math.max(0, context.maxPerWeek - Number(dispatchedLast7 ?? 0));
+
+  const orchestrated = orchestrateAttention(candidates.slice(0, remaining), { maxAppOnly: 2 });
+  const overCap = candidates.slice(remaining).map((o) => ({ ...o, status: "suppressed" as const }));
   const scheduled = [
     ...(orchestrated.primary ? [orchestrated.primary] : []),
     ...orchestrated.appOnly,
   ];
-  const suppressed = orchestrated.deferred.map((o) => ({ ...o, status: "suppressed" as const }));
+  const suppressed = [
+    ...orchestrated.deferred.map((o) => ({ ...o, status: "suppressed" as const })),
+    ...overCap,
+  ];
 
   const rows = [...scheduled, ...suppressed].map((o) => ({
     user_id: o.user_id,
@@ -418,7 +558,9 @@ export async function runAnticipationForUser(
     dry_run: o.dry_run,
     dedup_key: o.dedup_key,
     logical_dedup_key: o.logical_dedup_key,
-    suppress_reason: o.status === "suppressed" ? "attention_budget" : null,
+    suppress_reason: o.status === "suppressed"
+      ? (overCap.some((c) => c.logical_dedup_key === o.logical_dedup_key) ? "weekly_cap" : "attention_budget")
+      : null,
   }));
 
   for (const row of rows) {

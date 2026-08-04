@@ -283,6 +283,8 @@ const participantStatusLabels: Record<string, string> = {
   paid: "Pago",
   waived: "Isento",
   opted_out: "Você saiu",
+  payment_reported: "Pagamento informado",
+  awaiting_owner_confirmation: "Comprovante recebido",
 };
 
 function JoinedList({ items }: { items: JoinedItem[] }) {

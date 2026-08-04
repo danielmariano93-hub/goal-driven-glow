@@ -179,6 +179,39 @@ export function decideByRule(description: string, candidates: CategoryCandidate[
   return null;
 }
 
+const REFUND_MARKERS = /\b(estorno|estornado|reembolso|reembolsado|devolucao|devolução|refund|cancelamento|chargeback)\b/i;
+
+/** Verdadeiro quando a descrição indica estorno/reembolso de um gasto anterior. */
+export function looksLikeRefund(description: string): boolean {
+  return REFUND_MARKERS.test((description ?? "").normalize("NFC"));
+}
+
+/**
+ * Estorno herda a categoria do gasto original: removemos o marcador de estorno
+ * e decidimos pelo estabelecimento remanescente. Sem isso, todo reembolso caía
+ * em "sem categoria" e sujava o histórico do usuário.
+ */
+export function decideByRefundOrigin(input: {
+  description: string;
+  candidates: CategoryCandidate[];
+  aliases: AliasRow[];
+  history: HistoryRow[];
+}): CategoryDecision | null {
+  if (!looksLikeRefund(input.description)) return null;
+  const stripped = (input.description ?? "").replace(new RegExp(REFUND_MARKERS.source, "gi"), " ").replace(/\s+/g, " ").trim();
+  if (stripped.length < 3) return null;
+  const pattern = normalizedPattern(stripped);
+  const inherited = decideByAlias(pattern, input.aliases)
+    ?? decideByFuzzyAlias(pattern, input.aliases)
+    ?? decideByHistory(pattern, input.history)
+    ?? decideByRule(stripped, input.candidates);
+  if (!inherited) return null;
+  return {
+    ...inherited,
+    category_reason: `estorno herda a categoria do gasto original — ${inherited.category_reason}`,
+  };
+}
+
 /** Combina os estágios determinísticos (1–4). LLM fica fora, para ser
  *  chamado em lote pelo caller apenas quando este devolve null. */
 export function decideCategoryDeterministic(input: {
@@ -194,8 +227,10 @@ export function decideCategoryDeterministic(input: {
       ?? decideByAlias(pattern, input.aliases)
       ?? decideByFuzzyAlias(pattern, input.aliases)
       ?? decideByHistory(pattern, input.history)
+      ?? decideByRefundOrigin(input)
       ?? decideByRule(input.description, input.candidates);
 }
+
 
 export function shouldAutoApply(decision: CategoryDecision | null, thresholds?: EffectiveThresholds): boolean {
   if (!decision) return false;

@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { runAnticipationForUser, dispatchAnticipations } from "../_shared/anticipation/runner.ts";
+import { evaluateAnticipationOutcomes } from "../_shared/anticipation/outcomes.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
@@ -55,7 +56,7 @@ Deno.serve(async (req) => {
   const dryRun = selfMode ? true : body?.dry_run !== false;
   const stages: string[] = Array.isArray(body?.only) && body.only.length > 0
     ? body.only.map(String)
-    : ["run", "dispatch"];
+    : ["run", "dispatch", "outcomes"];
 
   let userIds: string[] = [];
   if (selfMode) userIds = [selfUserId!];
@@ -105,6 +106,19 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Estágio de aprendizado: janelas encerradas viram outcome e ajustam confiança.
+  let outcomes = { evaluated: 0, written: 0, confirmed: 0, not_confirmed: 0, insufficient: 0, patterns_adjusted: 0, errors: [] as string[] };
+  if (stages.includes("outcomes")) {
+    try {
+      outcomes = await evaluateAnticipationOutcomes(sb, {
+        userId: selfMode ? selfUserId! : (body?.user_id ? String(body.user_id) : undefined),
+        limit: Number(body?.outcome_limit) || 100,
+      });
+    } catch (error) {
+      errors.push(`outcomes:${error instanceof Error ? error.message : String(error)}`.slice(0, 200));
+    }
+  }
+
   const durationMs = Date.now() - startedAt;
   if (!selfMode && isAdmin) {
     await writeJobHeartbeat({
@@ -114,7 +128,7 @@ Deno.serve(async (req) => {
       failed: errors.length,
       errorCode: errors[0]?.slice(0, 80) ?? null,
       stages: {
-        generated: runs.reduce((sum, r) => sum + Number((r as { opportunities_scheduled?: number }).opportunities_scheduled ?? 0), 0),
+        generated: runs.reduce((sum: number, r) => sum + Number((r as { opportunities_scheduled?: number }).opportunities_scheduled ?? 0), 0),
         enqueued: dispatch.queued,
         app_delivered: delivered,
         skipped: dispatch.expired + dispatch.simulated,
@@ -131,6 +145,7 @@ Deno.serve(async (req) => {
     duration_ms: durationMs,
     runs,
     dispatch: { ...dispatch, delivered },
+    outcomes,
     errors,
   });
 });
