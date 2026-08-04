@@ -59,11 +59,14 @@ const K = {
 };
 
 // Sem tipagem estrita do Database — usa cast controlado para RPCs custom novas.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const rpc = supabase.rpc as unknown as (name: string, args?: Record<string, unknown>) => Promise<{ data: any; error: { message: string } | null }>;
-
+// IMPORTANTE: `supabase.rpc` depende da instância; chamar sempre a partir do cliente.
 async function callRpc<T = unknown>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-  const { data, error } = await rpc(name, args);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = (await (supabase.rpc as any).call(supabase, name, args)) as {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: any;
+    error: { message: string } | null;
+  };
   if (error) throw new Error(error.message);
   return data as T;
 }
