@@ -4,6 +4,8 @@ import { Area, AreaChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAx
 import { ArrowDownRight, ArrowUpRight, ArrowRight, ChevronDown, Minus } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
 import { EXCLUSION_REASON_LABEL, formatRangeShort, type RhythmComparison } from "@/lib/engine/spendingRhythm";
+import type { SpendingProjection } from "@/lib/engine/metrics";
+
 
 type Trend = "up" | "down" | "stable";
 
