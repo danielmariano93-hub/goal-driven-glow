@@ -177,7 +177,40 @@ export default function Antecipacoes() {
         </button>
       </header>
 
+      {diag && (
+        <section className="rounded-2xl border border-border bg-card p-4 text-xs shadow-card md:p-6">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold">Como está a leitura dos seus dados</h2>
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+            {[
+              { label: "Lançamentos lidos", value: String(diag.transaction_facts) },
+              { label: "Dias com movimento", value: String(diag.daily_facts) },
+              { label: "Cobertura de categorias", value: `${Math.round(Number(diag.quality?.coverage ?? 0) * 100)}%` },
+              { label: "Detectores elegíveis", value: String(diag.detectors_eligible?.length ?? 0) },
+            ].map((item) => (
+              <div key={item.label} className="rounded-xl border border-border bg-background p-2">
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{item.label}</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums">{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {describeBlock(diag) ? (
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              Por que ainda não há padrão: {describeBlock(diag)}
+            </p>
+          ) : (
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              {diag.patterns_validated} padrão(ões) confirmado(s) e {diag.opportunities_scheduled} antecipação(ões)
+              programada(s) na última análise.
+            </p>
+          )}
+        </section>
+      )}
+
       {query.isError && (
+
         <div className="rounded-2xl border border-destructive/30 bg-card p-4 text-sm">
           Não foi possível carregar seus padrões agora.
         </div>
