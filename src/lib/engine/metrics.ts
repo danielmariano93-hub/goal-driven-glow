@@ -695,7 +695,9 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const balanceExplanation = explainBalanceChange(cashBridge, periodPerformance);
 
   return {
+    projection,
     periodPerformance,
+
     cashBridge,
     netWorthBridge,
     balanceExplanation,
