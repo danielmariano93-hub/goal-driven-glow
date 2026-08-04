@@ -77,8 +77,10 @@ export default function Antecipacoes() {
 
   const refresh = useMutation({
     mutationFn: async () => {
-      await invokeEdge("anticipation-tick", { self: true, only: ["run"] });
+      const { failure } = await invokeEdge("anticipation-tick", { self: true, only: ["run"] });
+      if (failure) throw new Error(failure.userMessage ?? "Não foi possível recalcular agora.");
     },
+
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["antecipacoes"] });
       toast.success("Padrões recalculados com os seus lançamentos mais recentes.");
