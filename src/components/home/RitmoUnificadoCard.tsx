@@ -40,15 +40,17 @@ function shortDay(iso: string) {
 
 type Props = {
   rhythm: RhythmComparison | null;
+  projection: SpendingProjection | null;
   card: { value: number; trend: Trend; deltaPct: number | null };
   loading?: boolean;
 };
 
 /**
- * Card único de ritmo da Home: um número protagonista (R$/dia), uma comparação
- * e o gráfico compacto. Tudo o que é detalhe fica recolhido em "ver detalhes".
+ * Card único de ritmo da Home. O número protagonista é o RITMO ATUAL do mês
+ * (`projection.currentDailyPace`) — a mesma definição usada na projeção e no
+ * assessor. O ritmo típico aparece rotulado, nunca com o mesmo nome.
  */
-export function RitmoUnificadoCard({ rhythm, card, loading }: Props) {
+export function RitmoUnificadoCard({ rhythm, projection, card, loading }: Props) {
   const [open, setOpen] = useState(false);
   const cur = rhythm?.current;
   const prev = rhythm?.previous;
@@ -70,23 +72,26 @@ export function RitmoUnificadoCard({ rhythm, card, loading }: Props) {
       <div className="flex items-end justify-between gap-3 px-4 pt-3">
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase" style={{ letterSpacing: "0.14em", color: "var(--home-text-3)" }}>
-            Seu ritmo
+            Ritmo atual
           </p>
           <p
             className="mt-1 truncate font-display font-extrabold tabular-nums"
             style={{ fontSize: 26, lineHeight: 1.05, letterSpacing: "-0.025em", color: "var(--home-text-1)" }}
           >
-            {loading || !cur ? "—" : formatBRL(cur.typicalAverage)}
+            {loading || !projection ? "—" : formatBRL(projection.currentDailyPace)}
             <span className="text-[13px] font-semibold" style={{ color: "var(--home-text-2)" }}>/dia</span>
           </p>
-          <p className="mt-1 truncate text-[11px]" style={{ color: "var(--home-text-2)" }}>
-            {cur ? formatRangeShort(cur.range) : "Calculando"}
+          <p className="mt-1 truncate text-[11px] tabular-nums" style={{ color: "var(--home-text-2)" }}>
+            {projection
+              ? `Ritmo típico ${formatBRL(projection.typicalDailyPace)}/dia · mês até hoje (${projection.daysElapsed} dia(s))`
+              : "Calculando"}
           </p>
         </div>
         <div className="shrink-0 pb-1">
           <Badge trend={rhythm?.typicalTrend ?? "stable"} deltaPct={rhythm?.typicalDeltaPct ?? null} />
         </div>
       </div>
+
 
       <div className="px-1 pt-2">
         {loading ? (
