@@ -386,6 +386,8 @@ Deno.serve(async (req) => {
           dueDate: expense.due_date,
           pixKey: expense.pix_key,
           siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
+          hasAttachment: !!(evt.media && shouldFallbackForMedia(evt.media)),
+
         });
         await sb.from("outbound_messages").insert({ to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp" });
         triggerDispatcher();
