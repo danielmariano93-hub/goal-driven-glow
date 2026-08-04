@@ -4657,7 +4657,11 @@ export type Database = {
           use_chart_templates: boolean
           use_commit_movement_rpc: boolean
           use_daily_financial_facts: boolean
+          use_more_menu_v2: boolean
+          use_nino_home_orchestrator: boolean
+          use_nino_unified_intelligence: boolean
           use_report_templates: boolean
+          use_reports_unified: boolean
           use_v2_artifact_normalizer: boolean
           use_wave1_bill_payment: boolean
           user_id: string
@@ -4671,7 +4675,11 @@ export type Database = {
           use_chart_templates?: boolean
           use_commit_movement_rpc?: boolean
           use_daily_financial_facts?: boolean
+          use_more_menu_v2?: boolean
+          use_nino_home_orchestrator?: boolean
+          use_nino_unified_intelligence?: boolean
           use_report_templates?: boolean
+          use_reports_unified?: boolean
           use_v2_artifact_normalizer?: boolean
           use_wave1_bill_payment?: boolean
           user_id: string
@@ -4685,7 +4693,11 @@ export type Database = {
           use_chart_templates?: boolean
           use_commit_movement_rpc?: boolean
           use_daily_financial_facts?: boolean
+          use_more_menu_v2?: boolean
+          use_nino_home_orchestrator?: boolean
+          use_nino_unified_intelligence?: boolean
           use_report_templates?: boolean
+          use_reports_unified?: boolean
           use_v2_artifact_normalizer?: boolean
           use_wave1_bill_payment?: boolean
           user_id?: string
@@ -4706,6 +4718,84 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      financial_insight_facts: {
+        Row: {
+          absolute_delta: number | null
+          as_of: string
+          category_id: string | null
+          comparison_value: number | null
+          confidence: number
+          coverage: number
+          created_at: string
+          current_value: number | null
+          evidence: Json
+          fact_type: string
+          formula_version: string
+          id: string
+          merchant_normalized: string | null
+          metric_key: string
+          percentage_delta: number | null
+          period_end: string
+          period_start: string
+          source_snapshot_id: string | null
+          transaction_ids: string[]
+          updated_at: string
+          user_id: string
+          valid_from: string
+          valid_until: string | null
+        }
+        Insert: {
+          absolute_delta?: number | null
+          as_of?: string
+          category_id?: string | null
+          comparison_value?: number | null
+          confidence?: number
+          coverage?: number
+          created_at?: string
+          current_value?: number | null
+          evidence?: Json
+          fact_type: string
+          formula_version?: string
+          id?: string
+          merchant_normalized?: string | null
+          metric_key: string
+          percentage_delta?: number | null
+          period_end: string
+          period_start: string
+          source_snapshot_id?: string | null
+          transaction_ids?: string[]
+          updated_at?: string
+          user_id: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Update: {
+          absolute_delta?: number | null
+          as_of?: string
+          category_id?: string | null
+          comparison_value?: number | null
+          confidence?: number
+          coverage?: number
+          created_at?: string
+          current_value?: number | null
+          evidence?: Json
+          fact_type?: string
+          formula_version?: string
+          id?: string
+          merchant_normalized?: string | null
+          metric_key?: string
+          percentage_delta?: number | null
+          period_end?: string
+          period_start?: string
+          source_snapshot_id?: string | null
+          transaction_ids?: string[]
+          updated_at?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Relationships: []
       }
       financial_metric_diffs: {
         Row: {
@@ -5973,6 +6063,310 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      nino_intelligence_items: {
+        Row: {
+          acted_at: string | null
+          confidence: number
+          created_at: string
+          created_by: string
+          data_quality: string
+          dedup_key: string
+          dismissed_at: string | null
+          evidence: Json
+          explanation: string
+          facts: Json
+          formula_version: string
+          id: string
+          insight_id: string | null
+          kind: Database["public"]["Enums"]["nino_item_kind"]
+          narrative_version: string
+          opportunity_id: string | null
+          pattern_id: string | null
+          primary_action: Json | null
+          priority: number
+          report_id: string | null
+          review_id: string | null
+          secondary_action: Json | null
+          severity: string
+          source: string
+          source_period_end: string | null
+          source_period_start: string | null
+          status: Database["public"]["Enums"]["nino_item_status"]
+          suggestion_id: string | null
+          summary: string
+          superseded_at: string | null
+          temporal_role: Database["public"]["Enums"]["nino_temporal_role"]
+          title: string
+          updated_at: string
+          user_id: string
+          valid_from: string
+          valid_until: string | null
+        }
+        Insert: {
+          acted_at?: string | null
+          confidence?: number
+          created_at?: string
+          created_by?: string
+          data_quality?: string
+          dedup_key: string
+          dismissed_at?: string | null
+          evidence?: Json
+          explanation?: string
+          facts?: Json
+          formula_version?: string
+          id?: string
+          insight_id?: string | null
+          kind: Database["public"]["Enums"]["nino_item_kind"]
+          narrative_version?: string
+          opportunity_id?: string | null
+          pattern_id?: string | null
+          primary_action?: Json | null
+          priority?: number
+          report_id?: string | null
+          review_id?: string | null
+          secondary_action?: Json | null
+          severity?: string
+          source?: string
+          source_period_end?: string | null
+          source_period_start?: string | null
+          status?: Database["public"]["Enums"]["nino_item_status"]
+          suggestion_id?: string | null
+          summary?: string
+          superseded_at?: string | null
+          temporal_role?: Database["public"]["Enums"]["nino_temporal_role"]
+          title: string
+          updated_at?: string
+          user_id: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Update: {
+          acted_at?: string | null
+          confidence?: number
+          created_at?: string
+          created_by?: string
+          data_quality?: string
+          dedup_key?: string
+          dismissed_at?: string | null
+          evidence?: Json
+          explanation?: string
+          facts?: Json
+          formula_version?: string
+          id?: string
+          insight_id?: string | null
+          kind?: Database["public"]["Enums"]["nino_item_kind"]
+          narrative_version?: string
+          opportunity_id?: string | null
+          pattern_id?: string | null
+          primary_action?: Json | null
+          priority?: number
+          report_id?: string | null
+          review_id?: string | null
+          secondary_action?: Json | null
+          severity?: string
+          source?: string
+          source_period_end?: string | null
+          source_period_start?: string | null
+          status?: Database["public"]["Enums"]["nino_item_status"]
+          suggestion_id?: string | null
+          summary?: string
+          superseded_at?: string | null
+          temporal_role?: Database["public"]["Enums"]["nino_temporal_role"]
+          title?: string
+          updated_at?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_intelligence_items_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "anticipation_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nino_intelligence_items_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "behavioral_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nino_intelligence_items_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nino_intelligence_items_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "advisor_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nino_item_exposures: {
+        Row: {
+          acted_at: string | null
+          blocked_reason: string | null
+          channel: string
+          created_at: string
+          feedback: string | null
+          id: string
+          item_id: string
+          outcome: string | null
+          rank: number | null
+          selection_reason: string | null
+          shown_at: string | null
+          surface: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          acted_at?: string | null
+          blocked_reason?: string | null
+          channel?: string
+          created_at?: string
+          feedback?: string | null
+          id?: string
+          item_id: string
+          outcome?: string | null
+          rank?: number | null
+          selection_reason?: string | null
+          shown_at?: string | null
+          surface: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          acted_at?: string | null
+          blocked_reason?: string | null
+          channel?: string
+          created_at?: string
+          feedback?: string | null
+          id?: string
+          item_id?: string
+          outcome?: string | null
+          rank?: number | null
+          selection_reason?: string | null
+          shown_at?: string | null
+          surface?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_item_exposures_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "nino_intelligence_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nino_narrative_catalog: {
+        Row: {
+          active: boolean
+          allowed_channels: string[]
+          allowed_terms: string[]
+          body_template: string
+          caution_level: string
+          created_at: string
+          default_cta_label: string | null
+          default_cta_route: string | null
+          forbidden_terms: string[]
+          id: string
+          kind: Database["public"]["Enums"]["nino_item_kind"]
+          narrative_key: string
+          narrative_version: string
+          required_evidence: string[]
+          title_template: string
+          tone: string
+          updated_at: string
+          variant: string
+        }
+        Insert: {
+          active?: boolean
+          allowed_channels?: string[]
+          allowed_terms?: string[]
+          body_template: string
+          caution_level?: string
+          created_at?: string
+          default_cta_label?: string | null
+          default_cta_route?: string | null
+          forbidden_terms?: string[]
+          id?: string
+          kind: Database["public"]["Enums"]["nino_item_kind"]
+          narrative_key: string
+          narrative_version?: string
+          required_evidence?: string[]
+          title_template: string
+          tone?: string
+          updated_at?: string
+          variant?: string
+        }
+        Update: {
+          active?: boolean
+          allowed_channels?: string[]
+          allowed_terms?: string[]
+          body_template?: string
+          caution_level?: string
+          created_at?: string
+          default_cta_label?: string | null
+          default_cta_route?: string | null
+          forbidden_terms?: string[]
+          id?: string
+          kind?: Database["public"]["Enums"]["nino_item_kind"]
+          narrative_key?: string
+          narrative_version?: string
+          required_evidence?: string[]
+          title_template?: string
+          tone?: string
+          updated_at?: string
+          variant?: string
+        }
+        Relationships: []
+      }
+      nino_surface_state: {
+        Row: {
+          continuity_topic: string | null
+          created_at: string
+          id: string
+          last_item_id: string | null
+          last_seen_at: string
+          section: string
+          surface: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          continuity_topic?: string | null
+          created_at?: string
+          id?: string
+          last_item_id?: string | null
+          last_seen_at?: string
+          section?: string
+          surface: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          continuity_topic?: string | null
+          created_at?: string
+          id?: string
+          last_item_id?: string | null
+          last_seen_at?: string
+          section?: string
+          surface?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       notification_preferences: {
         Row: {
@@ -10309,6 +10703,27 @@ export type Database = {
         | "read"
         | "failed"
         | "dead"
+      nino_item_kind:
+        | "change"
+        | "risk"
+        | "opportunity"
+        | "achievement"
+        | "data_quality"
+        | "pattern"
+        | "commitment"
+        | "projection"
+        | "pending_confirmation"
+        | "recommendation"
+        | "closed_period_summary"
+      nino_item_status:
+        | "candidate"
+        | "active"
+        | "superseded"
+        | "expired"
+        | "acted"
+        | "dismissed"
+        | "archived"
+      nino_temporal_role: "now" | "historical" | "future" | "closed_period"
       notification_type:
         | "agent_confirmation"
         | "recurrence_due"
@@ -10515,6 +10930,29 @@ export const Constants = {
         "failed",
         "dead",
       ],
+      nino_item_kind: [
+        "change",
+        "risk",
+        "opportunity",
+        "achievement",
+        "data_quality",
+        "pattern",
+        "commitment",
+        "projection",
+        "pending_confirmation",
+        "recommendation",
+        "closed_period_summary",
+      ],
+      nino_item_status: [
+        "candidate",
+        "active",
+        "superseded",
+        "expired",
+        "acted",
+        "dismissed",
+        "archived",
+      ],
+      nino_temporal_role: ["now", "historical", "future", "closed_period"],
       notification_type: [
         "agent_confirmation",
         "recurrence_due",
