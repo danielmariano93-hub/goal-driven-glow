@@ -158,7 +158,25 @@ export function RitmoUnificadoCard({ rhythm, projection, card, loading }: Props)
 
         {open && cur ? (
           <div className="space-y-2 px-4 pb-3 text-[11px]" style={{ color: "var(--home-text-2)" }}>
+            {projection ? (
+              <div className="rounded-lg p-2" style={{ background: "var(--home-neutral-bg)" }}>
+                <div className="flex justify-between tabular-nums">
+                  <span>Ritmo atual (mês até hoje)</span>
+                  <span className="font-semibold">{formatBRL(projection.currentDailyPace)}/dia</span>
+                </div>
+                <div className="flex justify-between tabular-nums">
+                  <span>Ritmo típico (90 dias, sem fixas)</span>
+                  <span className="font-semibold">{formatBRL(projection.typicalDailyPace)}/dia</span>
+                </div>
+                <p className="mt-1 text-[10px]" style={{ color: "var(--home-text-3)" }}>
+                  Ritmo atual = gasto realizado do mês ÷ dias corridos ({projection.daysElapsed}).
+                  Confiança: {projection.confidence === "high" ? "alta" : projection.confidence === "medium" ? "média" : "preliminar"} ·
+                  {" "}{projection.formulaVersion}
+                </p>
+              </div>
+            ) : null}
             <div className="rounded-lg p-2" style={{ background: "var(--home-neutral-bg)" }}>
+
               <div className="flex justify-between tabular-nums">
                 <span>Média total do período</span>
                 <span className="font-semibold">{formatBRL(cur.average)}/dia</span>
