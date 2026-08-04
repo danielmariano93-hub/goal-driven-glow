@@ -110,6 +110,7 @@ export default function Index() {
 
       <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}
+        projection={snap?.projection ?? null}
         card={{
           value: snap?.currentCardSpend ?? 0,
           trend: (snap?.cardSpendVariationPct ?? 0) > 0 ? "up" : (snap?.cardSpendVariationPct ?? 0) < 0 ? "down" : "stable",
@@ -117,6 +118,7 @@ export default function Index() {
         }}
         loading={loading}
       />
+
 
 
       <AssistantTipCard />
@@ -133,12 +135,8 @@ export default function Index() {
       ) : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
-        <PrevisaoFechamentoCard
-          projectedMonthEndAvailable={snap?.projectedMonthEndAvailable ?? 0}
-          monthToDateAverageConsumption={snap?.monthToDateAverageConsumption ?? 0}
-          daysRemainingInMonth={snap?.daysRemainingInMonth ?? 0}
-          projectedRemainingConsumption={snap?.projectedRemainingConsumption ?? 0}
-        />
+        <PrevisaoFechamentoCard projection={snap?.projection ?? null} />
+
       )}
 
       <EmotionalCheckinCard />

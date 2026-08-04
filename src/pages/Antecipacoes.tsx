@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CalendarClock, Loader2, RefreshCw, ShieldCheck, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
@@ -71,22 +71,77 @@ async function loadData() {
   };
 }
 
+type RunDiagnostics = {
+  transaction_facts: number;
+  daily_facts: number;
+  detectors_eligible: string[];
+  patterns_validated: number;
+  opportunities_scheduled: number;
+  quality?: { ok?: boolean; coverage?: number; days_with_data?: number; window_days?: number; reasons?: string[] };
+  skipped?: string;
+  errors?: string[];
+};
+
+const BLOCK_REASON_LABEL: Record<string, string> = {
+  no_active_detectors: "Nenhum detector está ativo neste momento.",
+  anticipation_disabled_by_user: "As antecipações estão desligadas nas suas preferências.",
+  low_coverage: "Muitos lançamentos ainda estão sem categoria.",
+  few_days: "Ainda há poucos dias com movimento registrado.",
+  short_window: "A janela de histórico ainda é curta para concluir um padrão.",
+  detectors_not_eligible: "Os dados ainda não atingem o mínimo exigido pelos detectores.",
+};
+
+function describeBlock(diag: RunDiagnostics | null): string | null {
+  if (!diag) return null;
+  const skipped = diag.skipped ?? "";
+  if (!skipped) return null;
+  if (skipped.startsWith("quality_gate:")) {
+    const reasons = skipped.slice("quality_gate:".length).split("|").filter(Boolean);
+    const parts = reasons.map((r) => BLOCK_REASON_LABEL[r] ?? r);
+    return parts.length > 0 ? parts.join(" ") : BLOCK_REASON_LABEL.detectors_not_eligible;
+  }
+  return BLOCK_REASON_LABEL[skipped] ?? skipped;
+}
+
 export default function Antecipacoes() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["antecipacoes"], queryFn: loadData });
+  const [diag, setDiag] = useState<RunDiagnostics | null>(null);
 
   const refresh = useMutation({
     mutationFn: async () => {
-      const { failure } = await invokeEdge("anticipation-tick", { self: true, only: ["run"] });
+      const { data, failure } = await invokeEdge<{ runs?: RunDiagnostics[] }>("anticipation-tick", { self: true, only: ["run"] });
       if (failure) throw new Error(failureDescription(failure));
+      return (data?.runs ?? [])[0] ?? null;
     },
 
-    onSuccess: async () => {
+    onSuccess: async (run) => {
+      setDiag(run);
       await queryClient.invalidateQueries({ queryKey: ["antecipacoes"] });
-      toast.success("Padrões recalculados com os seus lançamentos mais recentes.");
+      if (!run) {
+        toast.error("O recálculo não retornou resultado. Tente novamente em alguns minutos.");
+        return;
+      }
+      if (run.errors && run.errors.length > 0) {
+        toast.error("O recálculo terminou com erro ao gravar seus dados comportamentais.");
+        return;
+      }
+      const block = describeBlock(run);
+      if (block) {
+        toast.info(`Nada novo por enquanto. ${block}`);
+        return;
+      }
+      if (run.patterns_validated === 0 && run.opportunities_scheduled === 0) {
+        toast.info(`Analisei ${run.daily_facts} dia(s) de movimento e ainda não fechei nenhum padrão.`);
+        return;
+      }
+      toast.success(
+        `${run.patterns_validated} padrão(ões) confirmado(s) e ${run.opportunities_scheduled} antecipação(ões) programada(s).`,
+      );
     },
     onError: (error: Error) => toast.error(error.message || "Não foi possível recalcular agora."),
   });
+
 
   const active = useMemo(
     () => (query.data?.patterns ?? []).filter((p) => p.status === "validated" || p.status === "active"),
@@ -122,7 +177,40 @@ export default function Antecipacoes() {
         </button>
       </header>
 
+      {diag && (
+        <section className="rounded-2xl border border-border bg-card p-4 text-xs shadow-card md:p-6">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold">Como está a leitura dos seus dados</h2>
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+            {[
+              { label: "Lançamentos lidos", value: String(diag.transaction_facts) },
+              { label: "Dias com movimento", value: String(diag.daily_facts) },
+              { label: "Cobertura de categorias", value: `${Math.round(Number(diag.quality?.coverage ?? 0) * 100)}%` },
+              { label: "Detectores elegíveis", value: String(diag.detectors_eligible?.length ?? 0) },
+            ].map((item) => (
+              <div key={item.label} className="rounded-xl border border-border bg-background p-2">
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{item.label}</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums">{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {describeBlock(diag) ? (
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              Por que ainda não há padrão: {describeBlock(diag)}
+            </p>
+          ) : (
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              {diag.patterns_validated} padrão(ões) confirmado(s) e {diag.opportunities_scheduled} antecipação(ões)
+              programada(s) na última análise.
+            </p>
+          )}
+        </section>
+      )}
+
       {query.isError && (
+
         <div className="rounded-2xl border border-destructive/30 bg-card p-4 text-sm">
           Não foi possível carregar seus padrões agora.
         </div>

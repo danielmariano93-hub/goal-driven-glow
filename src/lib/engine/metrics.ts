@@ -48,10 +48,12 @@ import {
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
 import {
   clampRangeToToday,
+  computeRhythm,
   computeRhythmComparison,
   type RhythmComparison,
   type RhythmTx,
 } from "./spendingRhythm";
+
 
 export type CategoryGoalMode = "percent_reduction" | "fixed_limit";
 export type CategoryGoalBaselineKind = "prev_month" | "avg_3m" | "custom";
@@ -180,6 +182,63 @@ export interface SnapshotGoalProgress {
   pct: number;
 }
 
+/** Nível de confiança da projeção — função apenas dos dias já observados. */
+export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
+
+export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v5";
+
+/**
+ * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v5`).
+ *
+ * Regras invioláveis:
+ *  - "Ritmo atual" tem UMA definição: consumo realizado do mês ÷ dias corridos.
+ *  - "Ritmo típico" tem UMA definição: ritmo da janela móvel de 90 dias, sem
+ *    fixas e sem atípicos.
+ *  - Gasto projetado e saldo projetado são números DISTINTOS e nunca aparecem
+ *    na mesma frase sem rótulo próprio.
+ *  - O saldo projetado desconta somente a fatura com vencimento no mês, nunca
+ *    a dívida total do cartão (que inclui competências futuras).
+ */
+export interface SpendingProjection {
+  formulaVersion: string;
+  monthStart: string;
+  monthEnd: string;
+  daysElapsed: number;
+  daysRemaining: number;
+  /** Consumo comportamental líquido do mês até hoje. */
+  realizedConsumption: number;
+  /** R$/dia realizado no mês (dias sem gasto contam). */
+  currentDailyPace: number;
+  /** R$/dia típico dos últimos 90 dias, sem fixas nem atípicos. */
+  typicalDailyPace: number;
+  /** Peso do ritmo atual no blend (0..1), cresce com os dias observados. */
+  paceWeight: number;
+  /** Gasto variável esperado até o fim do mês. */
+  projectedVariableSpending: number;
+  /** Compromissos já conhecidos (recorrências e planejados) até o fim do mês. */
+  upcomingConfirmedCommitments: number;
+  /** Gasto total esperado no mês = realizado + variável + compromissos. */
+  projectedTotalSpending: number;
+  /** Entradas futuras confirmadas até o fim do mês. */
+  confirmedFutureInflows: number;
+  /** Saldo disponível hoje. */
+  currentAvailableBalance: number;
+  /** Fatura com vencimento dentro do mês corrente. */
+  cardDueThisMonth: number;
+  /** Saldo esperado no último dia do mês. */
+  projectedEndBalance: number;
+  confidence: ProjectionConfidence;
+}
+
+function projectionConfidenceOf(daysElapsed: number): ProjectionConfidence {
+  if (daysElapsed < 4) return "insufficient";
+  if (daysElapsed < 7) return "low";
+  if (daysElapsed < 14) return "medium";
+  return "high";
+}
+
+
+
 export interface FinancialSnapshot {
   contractVersion: string;
   today: string;
@@ -236,6 +295,9 @@ export interface FinancialSnapshot {
   netWorthBridge: NetWorthBridge;
   /** Explicação determinística de como o saldo se formou. */
   balanceExplanation: BalanceExplanation;
+  /** Contrato v5 — ritmo e projeção do mês (fonte única para toda a UI). */
+  projection: SpendingProjection;
+
 }
 
 
@@ -527,7 +589,19 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const daysTotal = daysInclusive(monthRange.start, monthRange.end);
   const daysRemainingInMonth = Math.max(0, daysTotal - daysElapsed);
   const mtdAvg = round2(mtdExpense / daysElapsed);
-  const projectedRemainingConsumption = round2(mtdAvg * daysRemainingInMonth);
+
+  // ── Ritmo típico (janela móvel de 90 dias, sem fixas nem atípicos) ─────────
+  const typicalWindowStart = todayISO(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 89));
+  const typicalRhythm = computeRhythm(input.txs as RhythmTx[], { start: typicalWindowStart, end: todayIso }, {
+    categoryNameById: input.categoryNameById ?? {},
+  });
+  const typicalDailyPace = typicalRhythm.typicalAverage;
+
+  // Blend: o ritmo do mês só ganha peso pleno com 7 dias observados.
+  const paceWeight = Math.min(1, daysElapsed / 7);
+  const blendedPace = round2(mtdAvg * paceWeight + typicalDailyPace * (1 - paceWeight));
+  const projectedVariableSpending = round2(blendedPace * daysRemainingInMonth);
+  const projectedRemainingConsumption = projectedVariableSpending;
 
   const availUntilEnd = computeAvailableUntil({
     accounts: input.accounts,
@@ -542,9 +616,35 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
   const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
+  // Somente a fatura da competência corrente (vencimento dentro do mês) pesa no
+  // saldo projetado. A dívida total inclui competências futuras e exageraria o
+  // número negativo.
+  const cardDueThisMonth = hasCardSource
+    ? round2(Object.values(cardExposures).reduce((sum, e) => sum + Number(e.currentStatement.amount || 0), 0))
+    : cardDebtToday;
   const projectedMonthEndAvailable = round2(
-    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDebtToday - projectedRemainingConsumption,
+    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
   );
+  const projection: SpendingProjection = {
+    formulaVersion: SPENDING_PROJECTION_VERSION,
+    monthStart: monthRange.start,
+    monthEnd: monthRange.end,
+    daysElapsed,
+    daysRemaining: daysRemainingInMonth,
+    realizedConsumption: round2(mtdExpense),
+    currentDailyPace: mtdAvg,
+    typicalDailyPace,
+    paceWeight: round2(paceWeight),
+    projectedVariableSpending,
+    upcomingConfirmedCommitments: knownFutureCommitments,
+    projectedTotalSpending: round2(mtdExpense + projectedVariableSpending + knownFutureCommitments),
+    confirmedFutureInflows: confirmedFutureIncome,
+    currentAvailableBalance: availableToday,
+    cardDueThisMonth,
+    projectedEndBalance: projectedMonthEndAvailable,
+    confidence: projectionConfidenceOf(daysElapsed),
+  };
+
 
   const categoryNameById = input.categoryNameById ?? {};
   const activeCategoryGoals: CategoryGoalEvaluation[] = input.categoryGoals
@@ -595,7 +695,9 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const balanceExplanation = explainBalanceChange(cashBridge, periodPerformance);
 
   return {
+    projection,
     periodPerformance,
+
     cashBridge,
     netWorthBridge,
     balanceExplanation,

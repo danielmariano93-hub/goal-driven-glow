@@ -6,6 +6,8 @@ export type ParticipantSplitContext = {
   dueDate: string | null;
   pixKey: string | null;
   siteUrl?: string;
+  /** Verdadeiro quando a mensagem trouxe imagem/PDF (provável comprovante). */
+  hasAttachment?: boolean;
 };
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -14,6 +16,9 @@ export function participantSplitReply(message: string, context: ParticipantSplit
   const text = message.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/\p{Diacritic}/gu, "");
   const remaining = Math.max(0, context.amountDue - context.amountPaid);
   const site = context.siteUrl || "https://meunino.com.br";
+  if (context.hasAttachment) {
+    return `Recebi seu anexo, ${firstName(context.participantName)}. Não consigo ler comprovantes por aqui, mas já avisei quem criou o rolê “${context.title}” para confirmar a baixa dos ${BRL.format(remaining)} pendentes.`;
+  }
   if (/\b(site|link|pagina|app)\b/.test(text)) {
     return `O site oficial do MeuNino é ${site}. Sobre “${context.title}”, sua parte pendente é ${BRL.format(remaining)}.`;
   }
