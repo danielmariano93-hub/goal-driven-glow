@@ -51,6 +51,8 @@ const NinoHub = lazy(() => import("./pages/NinoHub"));
 const NinoContextoV2 = lazy(() => import("./pages/NinoContextoV2"));
 
 const ProactiveAlertDetail = lazy(() => import("./pages/ProactiveAlertDetail"));
+const Antecipacoes = lazy(() => import("./pages/Antecipacoes"));
+
 const MetasConjuntas = lazy(() => import("./pages/MetasConjuntas"));
 const MetaConjuntaDetalhe = lazy(() => import("./pages/MetaConjuntaDetalhe"));
 
@@ -136,6 +138,8 @@ const App = () => (
                 <Route path="assessor/acompanhamento" element={<NinoHub />} />
                 <Route path="nino-contexto" element={<NinoContextoV2 />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
+                <Route path="antecipacoes" element={<Antecipacoes />} />
+
               </Route>
 
               {/* Platform admin — separate application */}

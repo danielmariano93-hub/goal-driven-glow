@@ -15,6 +15,8 @@ import {
   LogOut,
   ClipboardCheck,
   FileText,
+  TrendingUp,
+
 } from "lucide-react";
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
@@ -40,6 +42,8 @@ const understand: Item[] = [
   { path: "/app/relatorios-inteligentes", label: "Relatórios inteligentes", desc: "Fechamento semanal e mensal com leitura do Nino", icon: FileText },
   { path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart },
   { path: "/app/assessor/acompanhamento", label: "Meu Nino", desc: "Insights, plano e aprendizados em um só lugar", icon: ClipboardCheck },
+  { path: "/app/antecipacoes", label: "Antecipações", desc: "Padrões que o Nino usa para avisar antes do gasto", icon: TrendingUp },
+
 ];
 
 const account: Item[] = [
