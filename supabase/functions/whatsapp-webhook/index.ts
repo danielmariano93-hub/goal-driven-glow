@@ -27,6 +27,8 @@ import { buildAssessorLink } from "../_shared/messaging/appUrl.ts";
 import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/mediaFallback.ts";
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
+import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
+import { getWahaAccess } from "../_shared/messaging/waha.ts";
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -283,6 +285,12 @@ Deno.serve(async (req) => {
   };
 
   const raw_hash = await sha256Hex(raw);
+  const mediaMime = String(
+    (evt.media as any)?.mime_type ?? (evt.media as any)?.mimeType ?? (evt.media as any)?.mimetype ?? "",
+  ).toLowerCase() || null;
+  const mediaKind = mediaMime
+    ? (mediaMime.startsWith("image/") ? "image" : mediaMime === "application/pdf" ? "pdf" : mediaMime.split("/")[0])
+    : null;
   const { data: inb, error: insErr } = await sb.from("inbound_messages").insert({
     provider: evt.provider,
     provider_message_id: evt.provider_message_id,
@@ -291,6 +299,11 @@ Deno.serve(async (req) => {
     body: evt.body,
     raw_hash,
     received_at: evt.received_at,
+    has_media: Boolean(evt.media),
+    media_kind: mediaKind,
+    media_mime: mediaMime,
+    media_bytes: Number((evt.media as any)?.mediaSize ?? 0) || null,
+    logical_dedup_key: `inbound:waha:${evt.provider_message_id}`,
   }).select("id").maybeSingle();
   if (insErr && !String(insErr.message).toLowerCase().includes("duplicate")) {
     console.error("[webhook] insert failed", insErr.message);
@@ -358,14 +371,14 @@ Deno.serve(async (req) => {
     const { data: participant } = await sb.from("shared_expense_participants")
       .select("id,name,amount_due,amount_paid,shared_expense_id")
       .eq("phone_e164", evt.from_phone)
-      .in("status", ["pending", "partial", "notified"])
+      .in("status", ["pending", "partial", "notified", "payment_reported", "awaiting_owner_confirmation"])
       .is("opt_out_at", null)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (participant) {
       const { data: expense } = await sb.from("shared_expenses")
-        .select("title,due_date,pix_key,status")
+        .select("title,due_date,pix_key,status,owner_user_id")
         .eq("id", participant.shared_expense_id)
         .eq("status", "active")
         .maybeSingle();
@@ -378,20 +391,68 @@ Deno.serve(async (req) => {
             .eq("status", "queued")
             .in("kind", ["reminder", "due_soon", "due_today", "overdue"]);
         }
-        const body = participantSplitReply(evt.body, {
-          participantName: participant.name,
-          title: expense.title,
-          amountDue: Number(participant.amount_due),
-          amountPaid: Number(participant.amount_paid),
-          dueDate: expense.due_date,
-          pixKey: expense.pix_key,
-          siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
-          hasAttachment: !!(evt.media && shouldFallbackForMedia(evt.media)),
-
-        });
-        await sb.from("outbound_messages").insert({ to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp" });
+        // Participante externo COM anexo processável: o comprovante é baixado,
+        // arquivado no storage do dono e o estado do participante avança para
+        // "aguardando confirmação". Mídia NUNCA é descartada antes disso.
+        const hasProcessableMedia = !!(evt.media && shouldFallbackForMedia(evt.media));
+        let body: string;
+        let pipelineResult: Awaited<ReturnType<typeof handleParticipantInbound>> | null = null;
+        try {
+          const access = getWahaAccess();
+          pipelineResult = await handleParticipantInbound(sb, {
+            participant: {
+              id: String(participant.id),
+              name: String(participant.name ?? ""),
+              amount_due: Number(participant.amount_due ?? 0),
+              amount_paid: Number(participant.amount_paid ?? 0),
+              shared_expense_id: String(participant.shared_expense_id),
+              phone_e164: evt.from_phone,
+            },
+            expense: {
+              id: String(participant.shared_expense_id),
+              title: String(expense.title ?? "rolê"),
+              due_date: expense.due_date ?? null,
+              pix_key: expense.pix_key ?? null,
+              user_id: String((expense as any).owner_user_id),
+            },
+            text: evt.body,
+            media: hasProcessableMedia ? (evt.media as any) : null,
+            providerMessageId: evt.provider_message_id,
+            inboundMessageId: inbound_message_id,
+            waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },
+          });
+          body = pipelineResult.reply;
+        } catch (e) {
+          console.error("[webhook] participant_pipeline_failed", String((e as Error).message ?? "").slice(0, 200));
+          body = participantSplitReply(evt.body, {
+            participantName: participant.name,
+            title: expense.title,
+            amountDue: Number(participant.amount_due),
+            amountPaid: Number(participant.amount_paid),
+            dueDate: expense.due_date,
+            pixKey: expense.pix_key,
+            siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
+            hasAttachment: hasProcessableMedia,
+          });
+        }
+        await sb.from("outbound_messages").insert({
+          to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp",
+          inbound_message_id, idempotency_key: `split-support:${evt.provider_message_id}`, status: "queued",
+        }).then(() => {}, () => {});
+        await sb.from("inbound_messages").update({
+          processed_at: new Date().toISOString(),
+          participant_id: String(participant.id),
+          detected_intent: pipelineResult?.intent ?? "participant_support",
+          media_storage_path: pipelineResult?.storage_path ?? null,
+          media_error: pipelineResult?.media_error ?? null,
+        }).eq("id", inbound_message_id).then(() => {}, () => {});
         triggerDispatcher();
-        return json({ ok: true, participant_support: true });
+        return json({
+          ok: true,
+          participant_support: true,
+          intent: pipelineResult?.intent ?? null,
+          receipt_stored: pipelineResult?.receipt_stored ?? false,
+        });
       }
     }
     await sb.from("outbound_messages").insert({
