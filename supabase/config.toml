@@ -42,3 +42,6 @@ verify_jwt = true
 
 [functions.documents-cleanup]
 verify_jwt = false
+
+[functions.nino-intelligence-tick]
+verify_jwt = false
