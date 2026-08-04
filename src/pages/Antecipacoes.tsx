@@ -4,6 +4,7 @@ import { Activity, CalendarClock, Loader2, RefreshCw, ShieldCheck, TrendingUp } 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { failureDescription, invokeEdge } from "@/lib/edge/invoke";
+import AnticipationPreferencesCard from "@/components/antecipacoes/AnticipationPreferencesCard";
 
 type BlockReason = { criterion: string; observed: number; required: number };
 
@@ -216,6 +217,8 @@ export default function Antecipacoes() {
           Atualizar
         </button>
       </header>
+
+      <AnticipationPreferencesCard />
 
       {diag && (
         <section className="rounded-2xl border border-border bg-card p-4 text-xs shadow-card md:p-6">
