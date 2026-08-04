@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { copy } from "@/lib/copy/strings";
+import { NinoErrorBlock } from "@/components/nino/NinoStateBlocks";
 import {
   actionLabel,
   recordNinoExposure,
@@ -15,7 +16,7 @@ import {
 
 /** Dica da Home — sempre alimentada pela inteligência unificada do Nino. */
 export function AssistantTipCard() {
-  const { data, isLoading } = useNinoHomeItem();
+  const { data, isLoading, isError, error, refetch, isFetching } = useNinoHomeItem();
   const refresh = useNinoRefresh();
   const feedback = useNinoFeedback();
   const act = useNinoAct();
@@ -35,6 +36,14 @@ export function AssistantTipCard() {
         <div className="h-3 w-32 animate-pulse rounded bg-[color:var(--home-surface-neutral)]" />
         <div className="mt-2 h-4 w-3/4 animate-pulse rounded bg-[color:var(--home-surface-neutral)]" />
         <div className="mt-2 h-3 w-full animate-pulse rounded bg-[color:var(--home-surface-neutral)]" />
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section aria-label={copy.tip.header}>
+        <NinoErrorBlock error={error} onRetry={() => void refetch()} retrying={isFetching} />
       </section>
     );
   }
@@ -92,7 +101,7 @@ export function AssistantTipCard() {
           className="inline-flex items-center gap-1.5 rounded-full px-4 text-[12px] font-semibold text-white transition hover:opacity-95"
           style={{ background: "var(--home-brand-ink)", height: 36 }}
         >
-          {actionLabel(item.primary_action, "Ver detalhes")}
+          {actionLabel(item.primary_action, "Ver detalhes", item.kind)}
         </Link>
         {item.id && (
           <>
