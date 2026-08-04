@@ -5517,9 +5517,19 @@ export type Database = {
       inbound_messages: {
         Row: {
           body: string | null
+          detected_intent: string | null
+          document_import_id: string | null
           from_phone: string
+          has_media: boolean
           id: string
           ignored_reason: string | null
+          logical_dedup_key: string | null
+          media_bytes: number | null
+          media_error: string | null
+          media_kind: string | null
+          media_mime: string | null
+          media_storage_path: string | null
+          participant_id: string | null
           processed_at: string | null
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string
@@ -5529,9 +5539,19 @@ export type Database = {
         }
         Insert: {
           body?: string | null
+          detected_intent?: string | null
+          document_import_id?: string | null
           from_phone: string
+          has_media?: boolean
           id?: string
           ignored_reason?: string | null
+          logical_dedup_key?: string | null
+          media_bytes?: number | null
+          media_error?: string | null
+          media_kind?: string | null
+          media_mime?: string | null
+          media_storage_path?: string | null
+          participant_id?: string | null
           processed_at?: string | null
           provider: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id: string
@@ -5541,9 +5561,19 @@ export type Database = {
         }
         Update: {
           body?: string | null
+          detected_intent?: string | null
+          document_import_id?: string | null
           from_phone?: string
+          has_media?: boolean
           id?: string
           ignored_reason?: string | null
+          logical_dedup_key?: string | null
+          media_bytes?: number | null
+          media_error?: string | null
+          media_kind?: string | null
+          media_mime?: string | null
+          media_storage_path?: string | null
+          participant_id?: string | null
           processed_at?: string | null
           provider?: Database["public"]["Enums"]["messaging_provider"]
           provider_message_id?: string
@@ -5551,7 +5581,29 @@ export type Database = {
           received_at?: string
           to_phone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "inbound_messages_document_import_id_fkey"
+            columns: ["document_import_id"]
+            isOneToOne: false
+            referencedRelation: "document_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inbound_messages_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "inbound_messages_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       intelligence_metric_registry: {
         Row: {
@@ -5926,8 +5978,10 @@ export type Database = {
         Row: {
           achievement: boolean
           agent_confirmation: boolean
+          anticipation_consent_at: string | null
           anticipation_enabled: boolean
           anticipation_kinds: Json
+          anticipation_max_per_week: number
           anticipation_whatsapp: boolean
           emotional_checkin: boolean
           goal_reached: boolean
@@ -5960,8 +6014,10 @@ export type Database = {
         Insert: {
           achievement?: boolean
           agent_confirmation?: boolean
+          anticipation_consent_at?: string | null
           anticipation_enabled?: boolean
           anticipation_kinds?: Json
+          anticipation_max_per_week?: number
           anticipation_whatsapp?: boolean
           emotional_checkin?: boolean
           goal_reached?: boolean
@@ -5994,8 +6050,10 @@ export type Database = {
         Update: {
           achievement?: boolean
           agent_confirmation?: boolean
+          anticipation_consent_at?: string | null
           anticipation_enabled?: boolean
           anticipation_kinds?: Json
+          anticipation_max_per_week?: number
           anticipation_whatsapp?: boolean
           emotional_checkin?: boolean
           goal_reached?: boolean
@@ -6274,6 +6332,82 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      participant_contexts: {
+        Row: {
+          awaiting_receipt: boolean
+          awaiting_receipt_since: string | null
+          created_at: string
+          id: string
+          last_intent: string | null
+          last_message_at: string | null
+          last_receipt_at: string | null
+          owner_user_id: string
+          participant_id: string
+          phone_e164: string
+          receipt_count: number
+          reported_amount: number | null
+          shared_expense_id: string
+          state: Json
+          updated_at: string
+        }
+        Insert: {
+          awaiting_receipt?: boolean
+          awaiting_receipt_since?: string | null
+          created_at?: string
+          id?: string
+          last_intent?: string | null
+          last_message_at?: string | null
+          last_receipt_at?: string | null
+          owner_user_id: string
+          participant_id: string
+          phone_e164: string
+          receipt_count?: number
+          reported_amount?: number | null
+          shared_expense_id: string
+          state?: Json
+          updated_at?: string
+        }
+        Update: {
+          awaiting_receipt?: boolean
+          awaiting_receipt_since?: string | null
+          created_at?: string
+          id?: string
+          last_intent?: string | null
+          last_message_at?: string | null
+          last_receipt_at?: string | null
+          owner_user_id?: string
+          participant_id?: string
+          phone_e164?: string
+          receipt_count?: number
+          reported_amount?: number | null
+          shared_expense_id?: string
+          state?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participant_contexts_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: true
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "participant_contexts_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: true
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participant_contexts_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pending_confirmations: {
         Row: {
@@ -10196,6 +10330,8 @@ export type Database = {
         | "paid"
         | "waived"
         | "opted_out"
+        | "payment_reported"
+        | "awaiting_owner_confirmation"
       platform_role: "platform_owner" | "platform_admin" | "support" | "analyst"
       prompt_status: "draft" | "active" | "archived"
       recurring_frequency: "daily" | "weekly" | "monthly" | "yearly"
@@ -10401,6 +10537,8 @@ export const Constants = {
         "paid",
         "waived",
         "opted_out",
+        "payment_reported",
+        "awaiting_owner_confirmation",
       ],
       platform_role: ["platform_owner", "platform_admin", "support", "analyst"],
       prompt_status: ["draft", "active", "archived"],
