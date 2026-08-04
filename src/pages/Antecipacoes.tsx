@@ -78,7 +78,7 @@ export default function Antecipacoes() {
   const refresh = useMutation({
     mutationFn: async () => {
       const { failure } = await invokeEdge("anticipation-tick", { self: true, only: ["run"] });
-      if (failure) throw new Error(failure.userMessage ?? "Não foi possível recalcular agora.");
+      if (failure) throw new Error(failureDescription(failure));
     },
 
     onSuccess: async () => {
