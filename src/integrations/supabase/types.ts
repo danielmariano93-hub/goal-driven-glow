@@ -926,6 +926,10 @@ export type Database = {
       }
       agent_settings: {
         Row: {
+          anticipation_dry_run: boolean
+          anticipation_enabled: boolean
+          anticipation_rollout_pct: number
+          anticipation_rollout_user_ids: string[]
           default_proactivity: string | null
           default_retention_days: number | null
           default_technical_level: string | null
@@ -946,6 +950,10 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          anticipation_dry_run?: boolean
+          anticipation_enabled?: boolean
+          anticipation_rollout_pct?: number
+          anticipation_rollout_user_ids?: string[]
           default_proactivity?: string | null
           default_retention_days?: number | null
           default_technical_level?: string | null
@@ -966,6 +974,10 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          anticipation_dry_run?: boolean
+          anticipation_enabled?: boolean
+          anticipation_rollout_pct?: number
+          anticipation_rollout_user_ids?: string[]
           default_proactivity?: string | null
           default_retention_days?: number | null
           default_technical_level?: string | null
@@ -1186,6 +1198,254 @@ export type Database = {
         }
         Relationships: []
       }
+      anticipation_detector_config: {
+        Row: {
+          active: boolean
+          created_at: string
+          detector: string
+          kind: string
+          lead_time_hours: number
+          min_absolute_delta: number
+          min_confidence: number
+          min_coverage: number
+          min_hit_rate: number
+          min_sample: number
+          min_uplift_pct: number
+          min_utility_score: number
+          min_window_days: number
+          notes: string | null
+          updated_at: string
+          version: string
+          window_hours: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          detector: string
+          kind: string
+          lead_time_hours?: number
+          min_absolute_delta?: number
+          min_confidence?: number
+          min_coverage?: number
+          min_hit_rate?: number
+          min_sample?: number
+          min_uplift_pct?: number
+          min_utility_score?: number
+          min_window_days?: number
+          notes?: string | null
+          updated_at?: string
+          version?: string
+          window_hours?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          detector?: string
+          kind?: string
+          lead_time_hours?: number
+          min_absolute_delta?: number
+          min_confidence?: number
+          min_coverage?: number
+          min_hit_rate?: number
+          min_sample?: number
+          min_uplift_pct?: number
+          min_utility_score?: number
+          min_window_days?: number
+          notes?: string | null
+          updated_at?: string
+          version?: string
+          window_hours?: number
+        }
+        Relationships: []
+      }
+      anticipation_opportunities: {
+        Row: {
+          action: Json | null
+          baseline_value: number
+          body: string
+          channel_target: string
+          confidence: number
+          created_at: string
+          dedup_key: string
+          detector: string
+          dispatched_at: string | null
+          dry_run: boolean
+          eligible_from: string
+          evidence: Json
+          expected_value: number
+          id: string
+          kind: string
+          logical_dedup_key: string
+          opportunity_date: string
+          optimal_send_at: string | null
+          pattern_id: string | null
+          severity: string
+          stale_policy: string
+          status: string
+          suppress_reason: string | null
+          timezone: string
+          title: string
+          updated_at: string
+          user_id: string
+          utility_breakdown: Json
+          utility_score: number
+          window_end: string
+          window_start: string
+        }
+        Insert: {
+          action?: Json | null
+          baseline_value?: number
+          body: string
+          channel_target?: string
+          confidence?: number
+          created_at?: string
+          dedup_key: string
+          detector: string
+          dispatched_at?: string | null
+          dry_run?: boolean
+          eligible_from: string
+          evidence?: Json
+          expected_value?: number
+          id?: string
+          kind: string
+          logical_dedup_key: string
+          opportunity_date: string
+          optimal_send_at?: string | null
+          pattern_id?: string | null
+          severity?: string
+          stale_policy?: string
+          status?: string
+          suppress_reason?: string | null
+          timezone?: string
+          title: string
+          updated_at?: string
+          user_id: string
+          utility_breakdown?: Json
+          utility_score?: number
+          window_end: string
+          window_start: string
+        }
+        Update: {
+          action?: Json | null
+          baseline_value?: number
+          body?: string
+          channel_target?: string
+          confidence?: number
+          created_at?: string
+          dedup_key?: string
+          detector?: string
+          dispatched_at?: string | null
+          dry_run?: boolean
+          eligible_from?: string
+          evidence?: Json
+          expected_value?: number
+          id?: string
+          kind?: string
+          logical_dedup_key?: string
+          opportunity_date?: string
+          optimal_send_at?: string | null
+          pattern_id?: string | null
+          severity?: string
+          stale_policy?: string
+          status?: string
+          suppress_reason?: string | null
+          timezone?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+          utility_breakdown?: Json
+          utility_score?: number
+          window_end?: string
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anticipation_opportunities_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "behavioral_patterns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      anticipation_outcomes: {
+        Row: {
+          acted: boolean
+          actual_value: number
+          baseline_value: number
+          confidence_delta: number
+          created_at: string
+          detector: string
+          evidence: Json
+          formula_version: string
+          id: string
+          interacted: boolean
+          opportunity_date: string
+          opportunity_id: string | null
+          outcome: string
+          pattern_id: string | null
+          predicted_value: number
+          updated_at: string
+          user_feedback: string | null
+          user_id: string
+        }
+        Insert: {
+          acted?: boolean
+          actual_value?: number
+          baseline_value?: number
+          confidence_delta?: number
+          created_at?: string
+          detector: string
+          evidence?: Json
+          formula_version?: string
+          id?: string
+          interacted?: boolean
+          opportunity_date: string
+          opportunity_id?: string | null
+          outcome?: string
+          pattern_id?: string | null
+          predicted_value?: number
+          updated_at?: string
+          user_feedback?: string | null
+          user_id: string
+        }
+        Update: {
+          acted?: boolean
+          actual_value?: number
+          baseline_value?: number
+          confidence_delta?: number
+          created_at?: string
+          detector?: string
+          evidence?: Json
+          formula_version?: string
+          id?: string
+          interacted?: boolean
+          opportunity_date?: string
+          opportunity_id?: string | null
+          outcome?: string
+          pattern_id?: string | null
+          predicted_value?: number
+          updated_at?: string
+          user_feedback?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anticipation_outcomes_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: true
+            referencedRelation: "anticipation_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anticipation_outcomes_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "behavioral_patterns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       behavior_hypotheses: {
         Row: {
           confidence: number
@@ -1251,6 +1511,339 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      behavioral_cycle_facts: {
+        Row: {
+          created_at: string
+          cycle_key: string
+          cycle_kind: string
+          data_confidence: number
+          days_covered: number
+          entries_count: number
+          formula_version: string
+          id: string
+          metrics: Json
+          period_end: string
+          period_start: string
+          total_adjustable: number
+          total_card: number
+          total_consumption: number
+          total_fixed: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_key: string
+          cycle_kind: string
+          data_confidence?: number
+          days_covered?: number
+          entries_count?: number
+          formula_version?: string
+          id?: string
+          metrics?: Json
+          period_end: string
+          period_start: string
+          total_adjustable?: number
+          total_card?: number
+          total_consumption?: number
+          total_fixed?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          cycle_key?: string
+          cycle_kind?: string
+          data_confidence?: number
+          days_covered?: number
+          entries_count?: number
+          formula_version?: string
+          id?: string
+          metrics?: Json
+          period_end?: string
+          period_start?: string
+          total_adjustable?: number
+          total_card?: number
+          total_consumption?: number
+          total_fixed?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      behavioral_daily_facts: {
+        Row: {
+          amount_uncategorized: number
+          categorization_coverage: number
+          created_at: string
+          data_confidence: number
+          entries_count: number
+          formula_version: string
+          is_exceptional_day: boolean
+          is_holiday: boolean
+          is_payday_window: boolean
+          local_date: string
+          month_phase: string
+          small_spend_count: number
+          total_adjustable: number
+          total_card: number
+          total_consumption: number
+          total_fixed: number
+          total_food: number
+          total_leisure: number
+          total_small_spend: number
+          updated_at: string
+          user_id: string
+          week_start: string
+          weekday: number
+        }
+        Insert: {
+          amount_uncategorized?: number
+          categorization_coverage?: number
+          created_at?: string
+          data_confidence?: number
+          entries_count?: number
+          formula_version?: string
+          is_exceptional_day?: boolean
+          is_holiday?: boolean
+          is_payday_window?: boolean
+          local_date: string
+          month_phase: string
+          small_spend_count?: number
+          total_adjustable?: number
+          total_card?: number
+          total_consumption?: number
+          total_fixed?: number
+          total_food?: number
+          total_leisure?: number
+          total_small_spend?: number
+          updated_at?: string
+          user_id: string
+          week_start: string
+          weekday: number
+        }
+        Update: {
+          amount_uncategorized?: number
+          categorization_coverage?: number
+          created_at?: string
+          data_confidence?: number
+          entries_count?: number
+          formula_version?: string
+          is_exceptional_day?: boolean
+          is_holiday?: boolean
+          is_payday_window?: boolean
+          local_date?: string
+          month_phase?: string
+          small_spend_count?: number
+          total_adjustable?: number
+          total_card?: number
+          total_consumption?: number
+          total_fixed?: number
+          total_food?: number
+          total_leisure?: number
+          total_small_spend?: number
+          updated_at?: string
+          user_id?: string
+          week_start?: string
+          weekday?: number
+        }
+        Relationships: []
+      }
+      behavioral_patterns: {
+        Row: {
+          absolute_delta: number
+          baseline_value: number
+          confidence: number
+          consistency: number
+          created_at: string
+          data_coverage: number
+          detector: string
+          detector_version: string
+          evidence: Json
+          exclusions: Json
+          expires_at: string | null
+          formula_version: string
+          hit_rate: number
+          id: string
+          label: string
+          last_seen_at: string | null
+          pattern_key: string
+          pattern_value: number
+          sample_size: number
+          status: string
+          updated_at: string
+          uplift_pct: number
+          user_id: string
+          validated_at: string | null
+          window_end: string | null
+          window_start: string | null
+        }
+        Insert: {
+          absolute_delta?: number
+          baseline_value?: number
+          confidence?: number
+          consistency?: number
+          created_at?: string
+          data_coverage?: number
+          detector: string
+          detector_version?: string
+          evidence?: Json
+          exclusions?: Json
+          expires_at?: string | null
+          formula_version?: string
+          hit_rate?: number
+          id?: string
+          label: string
+          last_seen_at?: string | null
+          pattern_key: string
+          pattern_value?: number
+          sample_size?: number
+          status?: string
+          updated_at?: string
+          uplift_pct?: number
+          user_id: string
+          validated_at?: string | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Update: {
+          absolute_delta?: number
+          baseline_value?: number
+          confidence?: number
+          consistency?: number
+          created_at?: string
+          data_coverage?: number
+          detector?: string
+          detector_version?: string
+          evidence?: Json
+          exclusions?: Json
+          expires_at?: string | null
+          formula_version?: string
+          hit_rate?: number
+          id?: string
+          label?: string
+          last_seen_at?: string | null
+          pattern_key?: string
+          pattern_value?: number
+          sample_size?: number
+          status?: string
+          updated_at?: string
+          uplift_pct?: number
+          user_id?: string
+          validated_at?: string | null
+          window_end?: string | null
+          window_start?: string | null
+        }
+        Relationships: []
+      }
+      behavioral_transaction_facts: {
+        Row: {
+          amount_gross: number
+          amount_net: number
+          behavioral_class: string
+          card_cycle_day: number | null
+          card_cycle_id: string | null
+          category_confidence: number
+          category_id: string | null
+          category_name: string | null
+          created_at: string
+          data_confidence: number
+          formula_version: string
+          is_adjustable: boolean
+          is_card_payment: boolean
+          is_consumption: boolean
+          is_debt_principal: boolean
+          is_exceptional: boolean
+          is_fixed: boolean
+          is_planned: boolean
+          is_refund: boolean
+          is_transfer: boolean
+          local_date: string
+          local_time: string | null
+          merchant_canonical: string | null
+          merchant_normalized: string | null
+          month_phase: string
+          movement_kind: string
+          occurred_at_precision: string
+          source_snapshot_id: string | null
+          transaction_id: string
+          updated_at: string
+          user_id: string
+          week_start: string
+          weekday: number
+        }
+        Insert: {
+          amount_gross?: number
+          amount_net?: number
+          behavioral_class?: string
+          card_cycle_day?: number | null
+          card_cycle_id?: string | null
+          category_confidence?: number
+          category_id?: string | null
+          category_name?: string | null
+          created_at?: string
+          data_confidence?: number
+          formula_version?: string
+          is_adjustable?: boolean
+          is_card_payment?: boolean
+          is_consumption?: boolean
+          is_debt_principal?: boolean
+          is_exceptional?: boolean
+          is_fixed?: boolean
+          is_planned?: boolean
+          is_refund?: boolean
+          is_transfer?: boolean
+          local_date: string
+          local_time?: string | null
+          merchant_canonical?: string | null
+          merchant_normalized?: string | null
+          month_phase: string
+          movement_kind?: string
+          occurred_at_precision?: string
+          source_snapshot_id?: string | null
+          transaction_id: string
+          updated_at?: string
+          user_id: string
+          week_start: string
+          weekday: number
+        }
+        Update: {
+          amount_gross?: number
+          amount_net?: number
+          behavioral_class?: string
+          card_cycle_day?: number | null
+          card_cycle_id?: string | null
+          category_confidence?: number
+          category_id?: string | null
+          category_name?: string | null
+          created_at?: string
+          data_confidence?: number
+          formula_version?: string
+          is_adjustable?: boolean
+          is_card_payment?: boolean
+          is_consumption?: boolean
+          is_debt_principal?: boolean
+          is_exceptional?: boolean
+          is_fixed?: boolean
+          is_planned?: boolean
+          is_refund?: boolean
+          is_transfer?: boolean
+          local_date?: string
+          local_time?: string | null
+          merchant_canonical?: string | null
+          merchant_normalized?: string | null
+          month_phase?: string
+          movement_kind?: string
+          occurred_at_precision?: string
+          source_snapshot_id?: string | null
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string
+          week_start?: string
+          weekday?: number
+        }
+        Relationships: []
       }
       break_glass_sessions: {
         Row: {
@@ -1662,6 +2255,7 @@ export type Database = {
           cooldown_hours: number
           created_at: string
           default_channels: string[]
+          default_window_hours: number
           description: string | null
           dismiss_cooldown_days: number
           fallback_policy: string
@@ -1670,9 +2264,11 @@ export type Database = {
           label: string
           max_per_day: number
           min_severity_for_whatsapp: string
+          min_utility_score: number
           not_useful_cooldown_days: number
           requires_manual_approval: boolean
           sensitivity: string
+          stale_policy: string
           updated_at: string
         }
         Insert: {
@@ -1684,6 +2280,7 @@ export type Database = {
           cooldown_hours?: number
           created_at?: string
           default_channels?: string[]
+          default_window_hours?: number
           description?: string | null
           dismiss_cooldown_days?: number
           fallback_policy?: string
@@ -1692,9 +2289,11 @@ export type Database = {
           label: string
           max_per_day?: number
           min_severity_for_whatsapp?: string
+          min_utility_score?: number
           not_useful_cooldown_days?: number
           requires_manual_approval?: boolean
           sensitivity?: string
+          stale_policy?: string
           updated_at?: string
         }
         Update: {
@@ -1706,6 +2305,7 @@ export type Database = {
           cooldown_hours?: number
           created_at?: string
           default_channels?: string[]
+          default_window_hours?: number
           description?: string | null
           dismiss_cooldown_days?: number
           fallback_policy?: string
@@ -1714,9 +2314,11 @@ export type Database = {
           label?: string
           max_per_day?: number
           min_severity_for_whatsapp?: string
+          min_utility_score?: number
           not_useful_cooldown_days?: number
           requires_manual_approval?: boolean
           sensitivity?: string
+          stale_policy?: string
           updated_at?: string
         }
         Relationships: []
@@ -4035,7 +4637,10 @@ export type Database = {
       }
       financial_feature_flags: {
         Row: {
+          anticipation_dry_run: boolean
+          anticipation_whatsapp_enabled: boolean
           updated_at: string
+          use_anticipation_engine: boolean
           use_canonical_financial_snapshot: boolean
           use_chart_templates: boolean
           use_commit_movement_rpc: boolean
@@ -4046,7 +4651,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          anticipation_dry_run?: boolean
+          anticipation_whatsapp_enabled?: boolean
           updated_at?: string
+          use_anticipation_engine?: boolean
           use_canonical_financial_snapshot?: boolean
           use_chart_templates?: boolean
           use_commit_movement_rpc?: boolean
@@ -4057,7 +4665,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          anticipation_dry_run?: boolean
+          anticipation_whatsapp_enabled?: boolean
           updated_at?: string
+          use_anticipation_engine?: boolean
           use_canonical_financial_snapshot?: boolean
           use_chart_templates?: boolean
           use_commit_movement_rpc?: boolean
@@ -5303,12 +5914,16 @@ export type Database = {
         Row: {
           achievement: boolean
           agent_confirmation: boolean
+          anticipation_enabled: boolean
+          anticipation_kinds: Json
+          anticipation_whatsapp: boolean
           emotional_checkin: boolean
           goal_reached: boolean
           import_done: boolean
           max_proactive_per_day: number
           max_proactive_per_week: number
           monthly_report_enabled: boolean
+          muted_pattern_ids: string[]
           muted_proactive_kinds: string[]
           proactive_financial: boolean
           quiet_behavior: string
@@ -5333,12 +5948,16 @@ export type Database = {
         Insert: {
           achievement?: boolean
           agent_confirmation?: boolean
+          anticipation_enabled?: boolean
+          anticipation_kinds?: Json
+          anticipation_whatsapp?: boolean
           emotional_checkin?: boolean
           goal_reached?: boolean
           import_done?: boolean
           max_proactive_per_day?: number
           max_proactive_per_week?: number
           monthly_report_enabled?: boolean
+          muted_pattern_ids?: string[]
           muted_proactive_kinds?: string[]
           proactive_financial?: boolean
           quiet_behavior?: string
@@ -5363,12 +5982,16 @@ export type Database = {
         Update: {
           achievement?: boolean
           agent_confirmation?: boolean
+          anticipation_enabled?: boolean
+          anticipation_kinds?: Json
+          anticipation_whatsapp?: boolean
           emotional_checkin?: boolean
           goal_reached?: boolean
           import_done?: boolean
           max_proactive_per_day?: number
           max_proactive_per_week?: number
           monthly_report_enabled?: boolean
+          muted_pattern_ids?: string[]
           muted_proactive_kinds?: string[]
           proactive_financial?: boolean
           quiet_behavior?: string
@@ -7294,10 +7917,14 @@ export type Database = {
           import_source_id: string | null
           installment_number: number | null
           installments_total: number | null
+          local_occurred_at: string | null
           movement_kind: string
           normalized_description: string | null
           notes: string | null
           occurred_at: string
+          occurred_at_precision: string | null
+          occurred_at_time: string | null
+          occurred_at_timezone: string | null
           origin: Database["public"]["Enums"]["txn_origin"]
           payment_method: string
           posted_at: string | null
@@ -7341,10 +7968,14 @@ export type Database = {
           import_source_id?: string | null
           installment_number?: number | null
           installments_total?: number | null
+          local_occurred_at?: string | null
           movement_kind?: string
           normalized_description?: string | null
           notes?: string | null
           occurred_at: string
+          occurred_at_precision?: string | null
+          occurred_at_time?: string | null
+          occurred_at_timezone?: string | null
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
           posted_at?: string | null
@@ -7388,10 +8019,14 @@ export type Database = {
           import_source_id?: string | null
           installment_number?: number | null
           installments_total?: number | null
+          local_occurred_at?: string | null
           movement_kind?: string
           normalized_description?: string | null
           notes?: string | null
           occurred_at?: string
+          occurred_at_precision?: string | null
+          occurred_at_time?: string | null
+          occurred_at_timezone?: string | null
           origin?: Database["public"]["Enums"]["txn_origin"]
           payment_method?: string
           posted_at?: string | null
