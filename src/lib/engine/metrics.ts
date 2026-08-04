@@ -48,10 +48,12 @@ import {
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
 import {
   clampRangeToToday,
+  computeRhythm,
   computeRhythmComparison,
   type RhythmComparison,
   type RhythmTx,
 } from "./spendingRhythm";
+
 
 export type CategoryGoalMode = "percent_reduction" | "fixed_limit";
 export type CategoryGoalBaselineKind = "prev_month" | "avg_3m" | "custom";
