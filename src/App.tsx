@@ -116,8 +116,9 @@ const App = () => (
                 <Route path="planejamento" element={<Planejamento />} />
                 <Route path="metas-conjuntas" element={<MetasConjuntas />} />
                 <Route path="metas-conjuntas/:id" element={<MetaConjuntaDetalhe />} />
-                <Route path="relatorios" element={<Relatorios />} />
-                <Route path="relatorios-inteligentes" element={<RelatoriosInteligentes />} />
+                <Route path="relatorios" element={<RelatoriosHub />} />
+                <Route path="relatorios/:id" element={<RelatorioInteligenteDetalhe />} />
+                <Route path="relatorios-inteligentes" element={<Navigate to="/app/relatorios?tab=fechamentos" replace />} />
                 <Route path="relatorios-inteligentes/:id" element={<RelatorioInteligenteDetalhe />} />
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
