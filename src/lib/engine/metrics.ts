@@ -182,6 +182,63 @@ export interface SnapshotGoalProgress {
   pct: number;
 }
 
+/** Nível de confiança da projeção — função apenas dos dias já observados. */
+export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
+
+export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v5";
+
+/**
+ * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v5`).
+ *
+ * Regras invioláveis:
+ *  - "Ritmo atual" tem UMA definição: consumo realizado do mês ÷ dias corridos.
+ *  - "Ritmo típico" tem UMA definição: ritmo da janela móvel de 90 dias, sem
+ *    fixas e sem atípicos.
+ *  - Gasto projetado e saldo projetado são números DISTINTOS e nunca aparecem
+ *    na mesma frase sem rótulo próprio.
+ *  - O saldo projetado desconta somente a fatura com vencimento no mês, nunca
+ *    a dívida total do cartão (que inclui competências futuras).
+ */
+export interface SpendingProjection {
+  formulaVersion: string;
+  monthStart: string;
+  monthEnd: string;
+  daysElapsed: number;
+  daysRemaining: number;
+  /** Consumo comportamental líquido do mês até hoje. */
+  realizedConsumption: number;
+  /** R$/dia realizado no mês (dias sem gasto contam). */
+  currentDailyPace: number;
+  /** R$/dia típico dos últimos 90 dias, sem fixas nem atípicos. */
+  typicalDailyPace: number;
+  /** Peso do ritmo atual no blend (0..1), cresce com os dias observados. */
+  paceWeight: number;
+  /** Gasto variável esperado até o fim do mês. */
+  projectedVariableSpending: number;
+  /** Compromissos já conhecidos (recorrências e planejados) até o fim do mês. */
+  upcomingConfirmedCommitments: number;
+  /** Gasto total esperado no mês = realizado + variável + compromissos. */
+  projectedTotalSpending: number;
+  /** Entradas futuras confirmadas até o fim do mês. */
+  confirmedFutureInflows: number;
+  /** Saldo disponível hoje. */
+  currentAvailableBalance: number;
+  /** Fatura com vencimento dentro do mês corrente. */
+  cardDueThisMonth: number;
+  /** Saldo esperado no último dia do mês. */
+  projectedEndBalance: number;
+  confidence: ProjectionConfidence;
+}
+
+function projectionConfidenceOf(daysElapsed: number): ProjectionConfidence {
+  if (daysElapsed < 4) return "insufficient";
+  if (daysElapsed < 7) return "low";
+  if (daysElapsed < 14) return "medium";
+  return "high";
+}
+
+
+
 export interface FinancialSnapshot {
   contractVersion: string;
   today: string;
