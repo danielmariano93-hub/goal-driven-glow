@@ -29,9 +29,9 @@ const Categorias = lazy(() => import("./pages/Categorias"));
 const Metas = lazy(() => import("./pages/Metas"));
 const Dividas = lazy(() => import("./pages/Dividas"));
 const Planejamento = lazy(() => import("./pages/Planejamento"));
-const Relatorios = lazy(() => import("./pages/Relatorios"));
-const RelatoriosInteligentes = lazy(() => import("./pages/RelatoriosInteligentes"));
+const RelatoriosHub = lazy(() => import("./pages/RelatoriosHub"));
 const RelatorioInteligenteDetalhe = lazy(() => import("./pages/RelatorioInteligenteDetalhe"));
+const Nino = lazy(() => import("./pages/Nino"));
 const Emocoes = lazy(() => import("./pages/Emocoes"));
 const Perfil = lazy(() => import("./pages/Perfil"));
 const Investimentos = lazy(() => import("./pages/Investimentos"));
@@ -116,8 +116,9 @@ const App = () => (
                 <Route path="planejamento" element={<Planejamento />} />
                 <Route path="metas-conjuntas" element={<MetasConjuntas />} />
                 <Route path="metas-conjuntas/:id" element={<MetaConjuntaDetalhe />} />
-                <Route path="relatorios" element={<Relatorios />} />
-                <Route path="relatorios-inteligentes" element={<RelatoriosInteligentes />} />
+                <Route path="relatorios" element={<RelatoriosHub />} />
+                <Route path="relatorios/:id" element={<RelatorioInteligenteDetalhe />} />
+                <Route path="relatorios-inteligentes" element={<Navigate to="/app/relatorios?tab=fechamentos" replace />} />
                 <Route path="relatorios-inteligentes/:id" element={<RelatorioInteligenteDetalhe />} />
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
@@ -135,10 +136,13 @@ const App = () => (
                 <Route path="cobrancas" element={<CobrancasRecebidas />} />
                 <Route path="cartoes" element={<Cartoes />} />
                 <Route path="assessor" element={<Assessor />} />
-                <Route path="assessor/acompanhamento" element={<NinoHub />} />
+                <Route path="nino" element={<Nino />} />
+                <Route path="assessor/acompanhamento" element={<Navigate to="/app/nino" replace />} />
+                <Route path="nino-hub" element={<NinoHub />} />
                 <Route path="nino-contexto" element={<NinoContextoV2 />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
-                <Route path="antecipacoes" element={<Antecipacoes />} />
+                <Route path="antecipacoes" element={<Navigate to="/app/nino?section=prepare-se" replace />} />
+                <Route path="antecipacoes/detalhe" element={<Antecipacoes />} />
 
               </Route>
 

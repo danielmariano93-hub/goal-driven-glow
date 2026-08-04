@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAssistantFacts } from "@/components/home/AssistantTipCard";
+import { buildAssistantFacts } from "@/lib/insights/assistantFacts";
 import { pickFallback } from "@/lib/insights/fallbacks";
 import type { TransactionRow } from "@/lib/engine/facts";
 
