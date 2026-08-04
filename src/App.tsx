@@ -136,10 +136,13 @@ const App = () => (
                 <Route path="cobrancas" element={<CobrancasRecebidas />} />
                 <Route path="cartoes" element={<Cartoes />} />
                 <Route path="assessor" element={<Assessor />} />
-                <Route path="assessor/acompanhamento" element={<NinoHub />} />
+                <Route path="nino" element={<Nino />} />
+                <Route path="assessor/acompanhamento" element={<Navigate to="/app/nino" replace />} />
+                <Route path="nino-hub" element={<NinoHub />} />
                 <Route path="nino-contexto" element={<NinoContextoV2 />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
-                <Route path="antecipacoes" element={<Antecipacoes />} />
+                <Route path="antecipacoes" element={<Navigate to="/app/nino?section=prepare-se" replace />} />
+                <Route path="antecipacoes/detalhe" element={<Antecipacoes />} />
 
               </Route>
 
