@@ -10303,11 +10303,14 @@ export type Database = {
       }
       nino_backfill_items: { Args: { _dry_run?: boolean }; Returns: Json }
       nino_backfill_rollback: { Args: never; Returns: Json }
+      nino_brl: { Args: { _v: number }; Returns: string }
       nino_build_facts: { Args: { _user_id: string }; Returns: number }
+      nino_curate_items: { Args: { _user_id: string }; Returns: Json }
       nino_expense_sum: {
         Args: { _from: string; _to: string; _user_id: string }
         Returns: number
       }
+      nino_fix_money_text: { Args: { _t: string }; Returns: string }
       nino_intelligence_tick: { Args: never; Returns: Json }
       nino_item_json: {
         Args: {
@@ -10315,6 +10318,7 @@ export type Database = {
         }
         Returns: Json
       }
+      nino_num: { Args: { _v: number }; Returns: string }
       nino_rebuild_items: {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
