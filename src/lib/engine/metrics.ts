@@ -295,6 +295,9 @@ export interface FinancialSnapshot {
   netWorthBridge: NetWorthBridge;
   /** Explicação determinística de como o saldo se formou. */
   balanceExplanation: BalanceExplanation;
+  /** Contrato v5 — ritmo e projeção do mês (fonte única para toda a UI). */
+  projection: SpendingProjection;
+
 }
 
 
