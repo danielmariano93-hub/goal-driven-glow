@@ -523,21 +523,38 @@ export async function dispatchAnticipations(
         continue;
       }
 
-      const { error: queueError } = await sb.from("pending_proactive_suggestions").upsert({
-        user_id: row.user_id,
-        kind: row.kind,
-        severity: row.severity,
-        title: row.title,
-        body: row.body,
-        action: row.action,
-        evidence: { ...(row.evidence ?? {}), anticipation_opportunity_id: row.id, utility_score: row.utility_score },
-        channel_ready: channelTarget === "both" ? "whatsapp" : "app",
-        dedup_key: row.dedup_key,
-        logical_dedup_key: row.logical_dedup_key,
-        status: "pending",
-        expires_at: row.window_end,
-      }, { onConflict: "user_id,dedup_key" });
-      if (queueError) throw new Error(`queue:${queueError.message}`);
+      // `both` gera DUAS entregas irmãs (app + WhatsApp) com o mesmo
+      // `logical_dedup_key`: o card do app nunca é perdido por causa do envio.
+      const targets: Array<{ channel: "app" | "whatsapp"; dedupKey: string }> =
+        channelTarget === "both"
+          ? [
+            { channel: "app", dedupKey: row.dedup_key },
+            { channel: "whatsapp", dedupKey: `${row.dedup_key}:wa` },
+          ]
+          : [{ channel: channelTarget === "whatsapp" ? "whatsapp" : "app", dedupKey: row.dedup_key }];
+
+      for (const target of targets) {
+        const { error: queueError } = await sb.from("pending_proactive_suggestions").upsert({
+          user_id: row.user_id,
+          kind: row.kind,
+          severity: row.severity,
+          title: row.title,
+          body: row.body,
+          action: row.action,
+          evidence: {
+            ...(row.evidence ?? {}),
+            anticipation_opportunity_id: row.id,
+            utility_score: row.utility_score,
+            channel_leg: target.channel,
+          },
+          channel_ready: target.channel,
+          dedup_key: target.dedupKey,
+          logical_dedup_key: row.logical_dedup_key,
+          status: "pending",
+          expires_at: row.window_end,
+        }, { onConflict: "user_id,dedup_key" });
+        if (queueError) throw new Error(`queue:${queueError.message}`);
+      }
 
       await sb.from("anticipation_opportunities")
         .update({ status: "dispatched", dispatched_at: nowIso, channel_target: channelTarget, updated_at: nowIso })
