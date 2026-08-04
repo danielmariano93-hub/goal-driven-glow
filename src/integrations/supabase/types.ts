@@ -2258,6 +2258,7 @@ export type Database = {
           default_window_hours: number
           description: string | null
           dismiss_cooldown_days: number
+          escalation_channels: string[]
           fallback_policy: string
           family: string
           kind: string
@@ -2267,9 +2268,12 @@ export type Database = {
           min_utility_score: number
           not_useful_cooldown_days: number
           requires_manual_approval: boolean
+          same_pattern_cooldown_days: number
           sensitivity: string
           stale_policy: string
           updated_at: string
+          whatsapp_min_absolute_impact: number
+          whatsapp_min_confidence: number
         }
         Insert: {
           active?: boolean
@@ -2283,6 +2287,7 @@ export type Database = {
           default_window_hours?: number
           description?: string | null
           dismiss_cooldown_days?: number
+          escalation_channels?: string[]
           fallback_policy?: string
           family: string
           kind: string
@@ -2292,9 +2297,12 @@ export type Database = {
           min_utility_score?: number
           not_useful_cooldown_days?: number
           requires_manual_approval?: boolean
+          same_pattern_cooldown_days?: number
           sensitivity?: string
           stale_policy?: string
           updated_at?: string
+          whatsapp_min_absolute_impact?: number
+          whatsapp_min_confidence?: number
         }
         Update: {
           active?: boolean
@@ -2308,6 +2316,7 @@ export type Database = {
           default_window_hours?: number
           description?: string | null
           dismiss_cooldown_days?: number
+          escalation_channels?: string[]
           fallback_policy?: string
           family?: string
           kind?: string
@@ -2317,9 +2326,12 @@ export type Database = {
           min_utility_score?: number
           not_useful_cooldown_days?: number
           requires_manual_approval?: boolean
+          same_pattern_cooldown_days?: number
           sensitivity?: string
           stale_policy?: string
           updated_at?: string
+          whatsapp_min_absolute_impact?: number
+          whatsapp_min_confidence?: number
         }
         Relationships: []
       }

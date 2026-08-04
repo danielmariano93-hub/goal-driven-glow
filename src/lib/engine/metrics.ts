@@ -209,11 +209,17 @@ export interface SpendingProjection {
   realizedConsumption: number;
   /** R$/dia realizado no mês (dias sem gasto contam). */
   currentDailyPace: number;
+  /** R$/dia VARIÁVEL do mês (sem fixas, recorrentes e atípicos). */
+  currentVariablePace: number;
   /** R$/dia típico dos últimos 90 dias, sem fixas nem atípicos. */
   typicalDailyPace: number;
   /** Peso do ritmo atual no blend (0..1), cresce com os dias observados. */
   paceWeight: number;
-  /** Gasto variável esperado até o fim do mês. */
+  /**
+   * Gasto variável esperado até o fim do mês. Projetado SOMENTE a partir do
+   * ritmo variável (fixas e recorrentes ficam em `upcomingConfirmedCommitments`,
+   * nunca nos dois lugares).
+   */
   projectedVariableSpending: number;
   /** Compromissos já conhecidos (recorrências e planejados) até o fim do mês. */
   upcomingConfirmedCommitments: number;
@@ -245,6 +251,7 @@ export interface FinancialSnapshot {
   period: DateRange;
   availableToday: number;
   netWorth: ReturnType<typeof computeNetWorth>;
+  /** @deprecated use `projection.currentDailyPace` — proibido em componentes/páginas. */
   currentAverageDailyConsumption: number;
   previousAverageDailyConsumption: number;
   averageDailyVariationPct: number | null;
@@ -254,10 +261,13 @@ export interface FinancialSnapshot {
   previousCardSpend: number;
   cardSpendVariationPct: number | null;
   daysRemainingInMonth: number;
+  /** @deprecated use `projection.currentDailyPace`. */
   monthToDateAverageConsumption: number;
+  /** @deprecated use `projection.projectedVariableSpending`. */
   projectedRemainingConsumption: number;
   confirmedFutureIncome: number;
   knownFutureCommitments: number;
+  /** @deprecated use `projection.projectedEndBalance`. */
   projectedMonthEndAvailable: number;
   activeCategoryGoals: CategoryGoalEvaluation[];
   topCategoryGoal: CategoryGoalEvaluation | null;
@@ -597,9 +607,16 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   });
   const typicalDailyPace = typicalRhythm.typicalAverage;
 
+  // Ritmo VARIÁVEL do mês: mesmo denominador do ritmo atual, mas sem fixas,
+  // recorrentes e atípicos — são eles que já entram como compromissos conhecidos.
+  const mtdRhythm = computeRhythm(input.txs as RhythmTx[], monthToDateRange, {
+    categoryNameById: input.categoryNameById ?? {},
+  });
+  const currentVariablePace = mtdRhythm.typicalAverage;
+
   // Blend: o ritmo do mês só ganha peso pleno com 7 dias observados.
   const paceWeight = Math.min(1, daysElapsed / 7);
-  const blendedPace = round2(mtdAvg * paceWeight + typicalDailyPace * (1 - paceWeight));
+  const blendedPace = round2(currentVariablePace * paceWeight + typicalDailyPace * (1 - paceWeight));
   const projectedVariableSpending = round2(blendedPace * daysRemainingInMonth);
   const projectedRemainingConsumption = projectedVariableSpending;
 
@@ -633,6 +650,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     daysRemaining: daysRemainingInMonth,
     realizedConsumption: round2(mtdExpense),
     currentDailyPace: mtdAvg,
+    currentVariablePace,
     typicalDailyPace,
     paceWeight: round2(paceWeight),
     projectedVariableSpending,

@@ -637,6 +637,9 @@ export function computeAvailableUntil(input: AvailableUntilInput): AvailableUnti
   for (const t of input.txs) {
     if (t.status !== "planned") continue;
     if (t.type === "transfer") continue;
+    // Pagamento de fatura planejado NÃO entra em compromissos: a fatura já é
+    // descontada em `cardsOwed`. Somar os dois contaria a mesma dívida 2x.
+    if (t.settles_card_id) continue;
     if (t.occurred_at < todayISO(today) || t.occurred_at > input.endDate) continue;
     const amt = Number(t.amount || 0);
     if (t.type === "income") plannedIncome += amt;

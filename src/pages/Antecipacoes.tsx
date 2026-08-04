@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { failureDescription, invokeEdge } from "@/lib/edge/invoke";
 
+type BlockReason = { criterion: string; observed: number; required: number };
+
 type PatternRow = {
   id: string;
   detector: string;
@@ -19,6 +21,7 @@ type PatternRow = {
   confidence: number;
   data_coverage: number;
   last_seen_at: string | null;
+  evidence: { block_reasons?: BlockReason[] } | null;
 };
 
 type OpportunityRow = {
@@ -57,7 +60,7 @@ const STATUS_LABEL: Record<string, string> = {
 async function loadData() {
   const [patterns, opportunities] = await Promise.all([
     supabase.from("behavioral_patterns")
-      .select("id,detector,pattern_key,label,status,sample_size,baseline_value,pattern_value,uplift_pct,absolute_delta,confidence,data_coverage,last_seen_at")
+      .select("id,detector,pattern_key,label,status,sample_size,baseline_value,pattern_value,uplift_pct,absolute_delta,confidence,data_coverage,last_seen_at,evidence")
       .order("confidence", { ascending: false }).limit(30),
     supabase.from("anticipation_opportunities")
       .select("id,detector,kind,severity,status,opportunity_date,title,body,utility_score,confidence,channel_target,dry_run")
@@ -103,6 +106,41 @@ function describeBlock(diag: RunDiagnostics | null): string | null {
   return BLOCK_REASON_LABEL[skipped] ?? skipped;
 }
 
+const PCT = (v: number) => `${Math.round(v * 100)}%`;
+
+/** Motivo exato, em português claro, de um padrão ainda não confirmado. */
+function describeCriterion(reason: BlockReason): string {
+  switch (reason.criterion) {
+    case "absolute_delta":
+      return `a diferença observada foi de ${BRL.format(reason.observed)} e o critério exige pelo menos ${BRL.format(reason.required)}`;
+    case "uplift_pct":
+      return `o aumento foi de ${Math.round(reason.observed)}% e o critério exige pelo menos ${Math.round(reason.required)}%`;
+    case "hit_rate":
+      return `o comportamento se repetiu em ${PCT(reason.observed)} das vezes e o critério exige ${PCT(reason.required)}`;
+    case "confidence":
+      return `a confiança ficou em ${PCT(reason.observed)} e o critério exige ${PCT(reason.required)}`;
+    case "coverage":
+      return `a cobertura de categorias está em ${PCT(reason.observed)} e o critério exige ${PCT(reason.required)}`;
+    case "sample_size":
+      return `há ${reason.observed} dia(s) na amostra e o critério exige ${reason.required}`;
+    default:
+      return `o critério ${reason.criterion} ainda não foi atendido`;
+  }
+}
+
+function describeCandidate(pattern: PatternRow): string {
+  const reasons = pattern.evidence?.block_reasons ?? [];
+  const isRisk = Number(pattern.absolute_delta) > 0;
+  if (!isRisk) {
+    return `Nesses dias você gasta menos que o seu padrão (${BRL.format(Number(pattern.pattern_value))} contra ${BRL.format(Number(pattern.baseline_value))}). Não é risco, então não vira aviso.`;
+  }
+  const head = `Encontramos um possível aumento de gastos. O valor observado foi de ${BRL.format(Number(pattern.pattern_value))} contra ${BRL.format(Number(pattern.baseline_value))} do seu padrão.`;
+  if (reasons.length === 0) {
+    return `${head} O padrão continuará em observação.`;
+  }
+  return `${head} Ainda falta: ${reasons.map(describeCriterion).join("; ")}. O padrão continuará em observação.`;
+}
+
 export default function Antecipacoes() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["antecipacoes"], queryFn: loadData });
@@ -132,7 +170,9 @@ export default function Antecipacoes() {
         return;
       }
       if (run.patterns_validated === 0 && run.opportunities_scheduled === 0) {
-        toast.info(`Analisei ${run.daily_facts} dia(s) de movimento e ainda não fechei nenhum padrão.`);
+        toast.info(
+          `${run.transaction_facts} lançamento(s) e ${run.daily_facts} dia(s) analisados. Nenhum padrão atingiu todos os critérios para virar comunicação — veja o motivo em "Em observação".`,
+        );
         return;
       }
       toast.success(
@@ -287,10 +327,17 @@ export default function Antecipacoes() {
           </div>
           <div className="mt-3 space-y-2">
             {watching.map((pattern) => (
-              <div key={pattern.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background p-3">
-                <p className="min-w-0 truncate text-xs">{pattern.label}</p>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{STATUS_LABEL[pattern.status] ?? pattern.status}</span>
-              </div>
+              <article key={pattern.id} className="rounded-xl border border-border bg-background p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 text-xs font-semibold">{pattern.label}</p>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{STATUS_LABEL[pattern.status] ?? pattern.status}</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{describeCandidate(pattern)}</p>
+                <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                  Amostra {pattern.sample_size} dia(s) · Confiança {PCT(Number(pattern.confidence))} · Cobertura{" "}
+                  {PCT(Number(pattern.data_coverage))}
+                </p>
+              </article>
             ))}
           </div>
         </section>

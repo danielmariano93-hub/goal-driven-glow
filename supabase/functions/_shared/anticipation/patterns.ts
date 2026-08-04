@@ -107,11 +107,16 @@ function finalize(
     Math.max(0, Math.min(0.95, 0.35 * sampleFactor + 0.35 * hitRate + 0.3 * consistency)),
   );
 
-  const passes = uplift >= config.min_uplift_pct
-    && delta >= config.min_absolute_delta
-    && hitRate >= config.min_hit_rate
-    && confidence >= config.min_confidence
-    && coverage >= config.min_coverage;
+  // Motivo EXATO de cada critério não atendido — a UI mostra isso ao usuário.
+  const blockReasons: Array<{ criterion: string; observed: number; required: number }> = [];
+  if (uplift < config.min_uplift_pct) blockReasons.push({ criterion: "uplift_pct", observed: uplift, required: config.min_uplift_pct });
+  if (delta < config.min_absolute_delta) blockReasons.push({ criterion: "absolute_delta", observed: delta, required: config.min_absolute_delta });
+  if (hitRate < config.min_hit_rate) blockReasons.push({ criterion: "hit_rate", observed: hitRate, required: config.min_hit_rate });
+  if (confidence < config.min_confidence) blockReasons.push({ criterion: "confidence", observed: confidence, required: config.min_confidence });
+  if (coverage < config.min_coverage) blockReasons.push({ criterion: "coverage", observed: round2(coverage), required: config.min_coverage });
+  if (group.kept.length < config.min_sample) blockReasons.push({ criterion: "sample_size", observed: group.kept.length, required: config.min_sample });
+
+  const passes = blockReasons.length === 0;
 
   return {
     ...pattern,
@@ -130,11 +135,14 @@ function finalize(
       baseline_sample: other.kept.length,
       excluded_outliers: group.removed.length + other.removed.length,
       window: { from: pattern.window_start, to: pattern.window_end },
+      block_reasons: blockReasons,
       thresholds: {
         min_sample: config.min_sample,
         min_uplift_pct: config.min_uplift_pct,
         min_absolute_delta: config.min_absolute_delta,
         min_hit_rate: config.min_hit_rate,
+        min_confidence: config.min_confidence,
+        min_coverage: config.min_coverage,
       },
     },
     exclusions: [
