@@ -71,22 +71,77 @@ async function loadData() {
   };
 }
 
+type RunDiagnostics = {
+  transaction_facts: number;
+  daily_facts: number;
+  detectors_eligible: string[];
+  patterns_validated: number;
+  opportunities_scheduled: number;
+  quality?: { ok?: boolean; coverage?: number; days_with_data?: number; window_days?: number; reasons?: string[] };
+  skipped?: string;
+  errors?: string[];
+};
+
+const BLOCK_REASON_LABEL: Record<string, string> = {
+  no_active_detectors: "Nenhum detector está ativo neste momento.",
+  anticipation_disabled_by_user: "As antecipações estão desligadas nas suas preferências.",
+  low_coverage: "Muitos lançamentos ainda estão sem categoria.",
+  few_days: "Ainda há poucos dias com movimento registrado.",
+  short_window: "A janela de histórico ainda é curta para concluir um padrão.",
+  detectors_not_eligible: "Os dados ainda não atingem o mínimo exigido pelos detectores.",
+};
+
+function describeBlock(diag: RunDiagnostics | null): string | null {
+  if (!diag) return null;
+  const skipped = diag.skipped ?? "";
+  if (!skipped) return null;
+  if (skipped.startsWith("quality_gate:")) {
+    const reasons = skipped.slice("quality_gate:".length).split("|").filter(Boolean);
+    const parts = reasons.map((r) => BLOCK_REASON_LABEL[r] ?? r);
+    return parts.length > 0 ? parts.join(" ") : BLOCK_REASON_LABEL.detectors_not_eligible;
+  }
+  return BLOCK_REASON_LABEL[skipped] ?? skipped;
+}
+
 export default function Antecipacoes() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["antecipacoes"], queryFn: loadData });
+  const [diag, setDiag] = useState<RunDiagnostics | null>(null);
 
   const refresh = useMutation({
     mutationFn: async () => {
-      const { failure } = await invokeEdge("anticipation-tick", { self: true, only: ["run"] });
+      const { data, failure } = await invokeEdge<{ runs?: RunDiagnostics[] }>("anticipation-tick", { self: true, only: ["run"] });
       if (failure) throw new Error(failureDescription(failure));
+      return (data?.runs ?? [])[0] ?? null;
     },
 
-    onSuccess: async () => {
+    onSuccess: async (run) => {
+      setDiag(run);
       await queryClient.invalidateQueries({ queryKey: ["antecipacoes"] });
-      toast.success("Padrões recalculados com os seus lançamentos mais recentes.");
+      if (!run) {
+        toast.error("O recálculo não retornou resultado. Tente novamente em alguns minutos.");
+        return;
+      }
+      if (run.errors && run.errors.length > 0) {
+        toast.error("O recálculo terminou com erro ao gravar seus dados comportamentais.");
+        return;
+      }
+      const block = describeBlock(run);
+      if (block) {
+        toast.info(`Nada novo por enquanto. ${block}`);
+        return;
+      }
+      if (run.patterns_validated === 0 && run.opportunities_scheduled === 0) {
+        toast.info(`Analisei ${run.daily_facts} dia(s) de movimento e ainda não fechei nenhum padrão.`);
+        return;
+      }
+      toast.success(
+        `${run.patterns_validated} padrão(ões) confirmado(s) e ${run.opportunities_scheduled} antecipação(ões) programada(s).`,
+      );
     },
     onError: (error: Error) => toast.error(error.message || "Não foi possível recalcular agora."),
   });
+
 
   const active = useMemo(
     () => (query.data?.patterns ?? []).filter((p) => p.status === "validated" || p.status === "active"),
