@@ -14,35 +14,35 @@
 
 @layer base {
   :root {
-    --background: 250 29% 97%;
-    --foreground: 237 24% 8%;
+    --background: 240 18% 97%;
+    --foreground: 240 10% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 237 24% 8%;
+    --card-foreground: 240 10% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 237 24% 8%;
+    --popover-foreground: 240 10% 10%;
 
-    --primary: 252 100% 65%;
+    --primary: 252 88% 58%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 250 27% 95%;
-    --secondary-foreground: 237 24% 8%;
+    --secondary: 252 100% 97%;
+    --secondary-foreground: 240 10% 10%;
 
-    --muted: 250 27% 95%;
-    --muted-foreground: 235 8% 46%;
+    --muted: 240 18% 96%;
+    --muted-foreground: 240 5% 43%;
 
-    --accent: 250 100% 96%;
-    --accent-foreground: 252 100% 65%;
+    --accent: 252 100% 97%;
+    --accent-foreground: 252 88% 58%;
 
-    --destructive: 350 68% 58%;
+    --destructive: 0 64% 56%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 160 62% 49%;
+    --success: 160 73% 31%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 5 100% 69%;
-    --warning-foreground: 252 26% 10%;
+    --warning: 35 100% 36%;
+    --warning-foreground: 240 10% 10%;
 
     --risk: 5 100% 69%;
     --risk-foreground: 0 0% 100%;
@@ -51,20 +51,20 @@
     --brand-coral: 5 100% 69%;
     --brand-amber: 246 100% 61%;
 
-    --border: 250 20% 91%;
-    --input: 250 20% 91%;
-    --ring: 252 100% 65%;
+    --border: 240 15% 92%;
+    --input: 240 15% 92%;
+    --ring: 252 88% 58%;
 
     --radius: 1rem;
 
     --gradient-brand: linear-gradient(135deg, #6D4AFF 0%, #4338FF 54%, #FF6B5F 100%);
     --gradient-brand-soft: linear-gradient(135deg, hsl(252 100% 65% / 0.12) 0%, hsl(5 100% 69% / 0.10) 100%);
-    --gradient-brand-dark: linear-gradient(135deg, #10111A 0%, #181A25 58%, #4338FF 145%);
+    --gradient-brand-dark: linear-gradient(135deg, hsl(258 54% 18%) 0%, hsl(252 52% 24%) 100%);
     --gradient-hero:
       radial-gradient(circle at 88% 16%, rgba(255,255,255,0.14), transparent 24%),
       linear-gradient(135deg, #17102F 0%, #2B175F 42%, #5B2BE0 82%, #A849C8 115%);
     --gradient-fab: linear-gradient(145deg, #5B2BE0, #7A3FF2 62%, #C957A5);
-    --shadow-hero: 0 18px 40px rgba(38, 20, 89, 0.20);
+    --shadow-hero: 0 14px 32px hsl(258 54% 18% / 0.18);
 
     --shadow-sm: 0 1px 2px 0 hsl(252 26% 10% / 0.04);
     --shadow-card: 0 1px 3px 0 hsl(252 26% 10% / 0.04), 0 1px 2px -1px hsl(252 26% 10% / 0.04);
@@ -73,24 +73,24 @@
     --shadow-soft: 0 8px 24px rgba(32, 22, 48, 0.045);
     --shadow-fab: 0 14px 30px rgba(91, 43, 224, 0.35);
 
-    /* Home premium tokens */
-    --home-bg: #F7F6FB;
-    --home-surface: #FFFFFF;
-    --home-surface-soft: #F7F6FB;
-    --home-surface-neutral: #F2F0F8;
-    --home-text-1: #10111A;
-    --home-text-2: #6D7080;
-    --home-text-3: #9294A0;
-    --home-hairline: #E7E5EE;
-    --home-hairline-strong: #D9D6E4;
-    --home-brand-ink: #10111A;
-    --home-brand-violet: #6D4AFF;
-    --home-pos: #198D6D;
-    --home-pos-bg: #E8F8F3;
-    --home-neg: #D84F46;
-    --home-neg-bg: #FFF0EF;
-    --home-neutral-bg: #F2F0F8;
-    --home-quick-bg: #F0EDFF;
+    /* Aliases legados reconciliados com os papéis semânticos. */
+    --home-bg: hsl(var(--background));
+    --home-surface: hsl(var(--card));
+    --home-surface-soft: hsl(var(--background));
+    --home-surface-neutral: hsl(var(--muted));
+    --home-text-1: hsl(var(--foreground));
+    --home-text-2: hsl(var(--muted-foreground));
+    --home-text-3: hsl(var(--muted-foreground));
+    --home-hairline: hsl(var(--border));
+    --home-hairline-strong: hsl(var(--input));
+    --home-brand-ink: hsl(258 54% 18%);
+    --home-brand-violet: hsl(var(--primary));
+    --home-pos: hsl(var(--success));
+    --home-pos-bg: hsl(var(--success) / 0.10);
+    --home-neg: hsl(var(--destructive));
+    --home-neg-bg: hsl(var(--destructive) / 0.10);
+    --home-neutral-bg: hsl(var(--muted));
+    --home-quick-bg: hsl(var(--secondary));
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 252 26% 10%;
