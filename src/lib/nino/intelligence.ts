@@ -82,6 +82,14 @@ export type NinoItem = {
   data_quality?: string;
   report_id?: string | null;
   dedup_key?: string;
+  category?: string | null;
+  logical_topic_key?: string | null;
+  group_key?: string | null;
+  group_size?: number | null;
+  impact_amount?: number | null;
+  impact_pct?: number | null;
+  selection_reason?: Record<string, unknown> | null;
+
   created_at?: string;
   updated_at?: string;
   acted_at?: string | null;
