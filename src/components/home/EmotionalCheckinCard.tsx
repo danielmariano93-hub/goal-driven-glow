@@ -10,13 +10,13 @@ import { Button } from "@/components/ui/button";
 
 const PRIMARY_MOODS = [
   { key: "tranquilo", v: 5, label: "Tranquilo" },
-  { key: "confiante", v: 4, label: "Confiante" },
-  { key: "ansioso", v: 3, label: "Ansioso" },
+  { key: "ansioso", v: 3, label: "Atento" },
+  { key: "preocupado", v: 1, label: "Preocupado" },
 ] as const;
 const EXTRA_MOODS = [
+  { key: "confiante", v: 4, label: "Confiante" },
   { key: "impulsivo", v: 2, label: "Impulsivo" },
   { key: "frustrado", v: 1, label: "Frustrado" },
-  { key: "preocupado", v: 1, label: "Preocupado" },
 ] as const;
 const ALL_MOODS = [...PRIMARY_MOODS, ...EXTRA_MOODS];
 
@@ -128,7 +128,7 @@ export function EmotionalCheckinCard() {
   return (
     <section
       aria-label="Check-in emocional"
-      className="rounded-[20px] border border-brand-coral/20 bg-brand-coral/10 p-4 shadow-sm animate-fade-in"
+       className="rounded-2xl border border-border bg-card p-4 animate-fade-in"
     >
       <h3 className="text-[15px] font-bold text-foreground">
         Como você está com o dinheiro hoje?

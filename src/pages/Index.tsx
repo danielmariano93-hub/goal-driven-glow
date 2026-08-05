@@ -9,10 +9,8 @@ import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
-import { AssistantTipCard, BestActionCard } from "@/components/home/AssistantTipCard";
-import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
+import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
-import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 
 import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -57,14 +55,13 @@ export default function Index() {
     return resolvePeriodRange({ period, customStart, customEnd });
   }, [period, customStart, customEnd]);
 
-  const { data: snap, loading } = useFinancialSnapshot(periodRange);
+  const { data: snap, loading, error: snapshotError, refetch: refetchSnapshot } = useFinancialSnapshot(periodRange);
   const diagnosis = useNinoDiagnosisContext();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
   const hasAccount = (accounts ?? []).length > 0;
   const hasTransaction = (txs ?? []).length > 0;
   const hasGoal = (goals ?? []).length > 0;
-  const isFresh = !hasAccount && !hasTransaction && !hasGoal;
 
   const heroLabel = "Disponível hoje";
 
@@ -86,18 +83,15 @@ export default function Index() {
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
-        assets={snap?.netWorth.assets ?? 0}
-        netWorth={snap?.netWorth.net ?? 0}
-        cash={snap?.netWorth.cash ?? 0}
-        accountOverdraft={snap?.netWorth.accountOverdraft ?? 0}
-        cardsOwed={snap?.netWorth.cardsOwed ?? 0}
-        invested={snap?.netWorth.invested ?? 0}
-        otherDebts={snap?.netWorth.otherDebts ?? 0}
-        cardFutureInstallments={snap?.cardFutureInstallments ?? 0}
-        cardDebtIsEstimated={snap?.cardDebtIsEstimated ?? false}
+        confirmedFutureInflows={snap?.projection.confirmedFutureInflows ?? 0}
+        upcomingCommitments={snap?.projection.upcomingConfirmedCommitments ?? 0}
+        cardDueThisMonth={snap?.projection.cardDueThisMonth ?? 0}
+        projectedEndBalance={snap?.projection.projectedEndBalance ?? 0}
         loading={loading}
         hasAccount={hasAccount}
       />
+
+      {snapshotError ? <section aria-label="Erro no resumo financeiro" className="rounded-2xl border border-border bg-card p-4"><p className="text-sm font-semibold text-foreground">Não foi possível atualizar todo o resumo financeiro.</p><button type="button" onClick={() => void refetchSnapshot()} className="mt-2 text-sm font-bold text-primary">Tentar novamente</button></section> : null}
 
       <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}
@@ -105,25 +99,13 @@ export default function Index() {
         loading={loading}
       />
 
-      <AssistantTipCard
+      <NinoGuidanceCard
         diagnosis={homeDiagnosis}
+        projection={snap?.projection ?? null}
         loading={diagnosis.isLoading}
         error={diagnosis.error}
         retrying={diagnosis.isFetching}
         onRetry={() => void diagnosis.refetch()}
-      />
-
-      {loading ? <div className="h-44 animate-pulse rounded-[20px] bg-secondary" aria-label="Carregando projeção" /> : isFresh ? (
-        <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
-      ) : (
-        <PrevisaoFechamentoCard projection={snap?.projection ?? null} />
-      )}
-
-      <BestActionCard
-        diagnosis={homeDiagnosis}
-        loading={diagnosis.isLoading}
-        refreshing={diagnosis.isFetching}
-        onRefresh={() => void diagnosis.refetch()}
       />
 
       <QuickActions />
