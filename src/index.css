@@ -199,6 +199,11 @@
     letter-spacing: 0;
   }
 
+  [data-surface="home"] {
+    --home-insight-surface: hsl(var(--accent));
+    --home-action-surface: var(--gradient-brand-dark);
+  }
+
   .font-numeric {
     font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum';
