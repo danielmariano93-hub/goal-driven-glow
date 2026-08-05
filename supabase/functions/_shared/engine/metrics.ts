@@ -1,4 +1,4 @@
-// Snapshot financeiro para o agente (WhatsApp + App) — finance_contract.v4.
+// Snapshot financeiro para o agente (WhatsApp + App) — financial_snapshot_contract.v6.
 // ========================================================================
 // NÃO calcula nada por conta própria: busca os dados e delega ao núcleo
 // canônico `finance-core` (espelho de src/lib/engine/*). A saída mantém o
@@ -312,6 +312,6 @@ export async function computeAgentSnapshot(
       body: snap.balanceExplanation.body,
       steps: snap.balanceExplanation.steps,
     },
-    formula_version: "finance_contract.v4",
+    formula_version: "financial_snapshot_contract.v6",
   };
 }
