@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.nino_diagnosis_contract_healthcheck();

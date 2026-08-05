@@ -1,0 +1,1 @@
+ALTER FUNCTION public.my_nino_diagnosis_context() STABLE;

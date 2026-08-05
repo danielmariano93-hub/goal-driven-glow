@@ -1,0 +1,1 @@
+COMMENT ON COLUMN public.nino_diagnosis_snapshots.payload IS 'Payload editorial canônico usado pelo contrato Nino Diagnosis v1.1.';

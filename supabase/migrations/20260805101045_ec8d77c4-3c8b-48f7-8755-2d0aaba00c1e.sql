@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.my_nino_diagnosis_context() TO authenticated;

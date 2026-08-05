@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { NinoRpcError } from "@/lib/nino/intelligence";
 
 const finiteNumber = z.coerce.number().finite();
 const confidenceNumber = finiteNumber.min(0).max(1);
@@ -104,11 +105,23 @@ export type FinancialSituationEvent = z.infer<typeof financialSituationEventSche
 export type NinoTimelineEntry = z.infer<typeof timelineEntrySchema>;
 export type NinoDiagnosisContext = z.infer<typeof ninoDiagnosisContextSchema>;
 
-export class NinoDiagnosisContractError extends Error {
+export class NinoDiagnosisContractError extends NinoRpcError {
   constructor(message: string, readonly cause?: unknown) {
-    super(message);
+    super(message, "contract", "my_nino_diagnosis_context");
     this.name = "NinoDiagnosisContractError";
   }
+}
+
+function diagnosisRpcError(error: unknown): NinoRpcError {
+  const value = error as { message?: string; code?: string } | null;
+  const message = value?.message ?? (error instanceof Error ? error.message : "Não foi possível carregar o diagnóstico do Nino.");
+  const lower = message.toLowerCase();
+  const kind = value?.code === "PGRST301" || lower.includes("jwt") || lower.includes("authenticated")
+    ? "auth"
+    : lower.includes("fetch") || lower.includes("network") || lower.includes("timeout")
+      ? "network"
+      : "rpc";
+  return new NinoRpcError(message, kind, "my_nino_diagnosis_context", value?.code);
 }
 
 async function fetchDiagnosis(): Promise<NinoDiagnosisContext> {
@@ -125,10 +138,7 @@ async function fetchDiagnosis(): Promise<NinoDiagnosisContext> {
     return parsed.data;
   } catch (error) {
     if (error instanceof NinoDiagnosisContractError) throw error;
-    throw new NinoDiagnosisContractError(
-      error instanceof Error ? error.message : "Não foi possível carregar o diagnóstico do Nino.",
-      error,
-    );
+    throw diagnosisRpcError(error);
   }
 }
 
@@ -139,7 +149,7 @@ export function useNinoDiagnosisContext() {
     queryKey: ["nino-diagnosis", user?.id],
     enabled: !!user,
     staleTime: 30_000,
-    retry: 1,
+    retry: (count, error) => error instanceof NinoRpcError && error.kind === "network" && count < 2,
     queryFn: fetchDiagnosis,
   });
 }
