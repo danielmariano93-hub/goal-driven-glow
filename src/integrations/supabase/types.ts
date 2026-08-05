@@ -4694,11 +4694,18 @@ export type Database = {
           behavioral_consumption: number
           card_consumption: number
           cash_outflow: number
+          completeness: string
           computed_at: string
           confidence: string
+          contract_version: string
           formula_versions: Json
+          generated_at: string
           income: number
+          missing_sources: string[]
+          payload: Json | null
           period_start: string
+          period_status: string
+          source_freshness: Json
           user_id: string
         }
         Insert: {
@@ -4708,11 +4715,18 @@ export type Database = {
           behavioral_consumption?: number
           card_consumption?: number
           cash_outflow?: number
+          completeness?: string
           computed_at?: string
           confidence?: string
+          contract_version?: string
           formula_versions?: Json
+          generated_at?: string
           income?: number
+          missing_sources?: string[]
+          payload?: Json | null
           period_start: string
+          period_status?: string
+          source_freshness?: Json
           user_id: string
         }
         Update: {
@@ -4722,11 +4736,18 @@ export type Database = {
           behavioral_consumption?: number
           card_consumption?: number
           cash_outflow?: number
+          completeness?: string
           computed_at?: string
           confidence?: string
+          contract_version?: string
           formula_versions?: Json
+          generated_at?: string
           income?: number
+          missing_sources?: string[]
+          payload?: Json | null
           period_start?: string
+          period_status?: string
+          source_freshness?: Json
           user_id?: string
         }
         Relationships: [
@@ -5010,40 +5031,49 @@ export type Database = {
           absolute_diff: number | null
           canonical_formula: string | null
           canonical_value: number | null
+          comparison_contract: string | null
           created_at: string
           id: number
           legacy_formula: string | null
           legacy_value: number | null
+          metadata: Json
           metric_key: string
           period_end: string
           period_start: string
           user_id: string
+          within_tolerance: boolean | null
         }
         Insert: {
           absolute_diff?: number | null
           canonical_formula?: string | null
           canonical_value?: number | null
+          comparison_contract?: string | null
           created_at?: string
           id?: never
           legacy_formula?: string | null
           legacy_value?: number | null
+          metadata?: Json
           metric_key: string
           period_end: string
           period_start: string
           user_id: string
+          within_tolerance?: boolean | null
         }
         Update: {
           absolute_diff?: number | null
           canonical_formula?: string | null
           canonical_value?: number | null
+          comparison_contract?: string | null
           created_at?: string
           id?: never
           legacy_formula?: string | null
           legacy_value?: number | null
+          metadata?: Json
           metric_key?: string
           period_end?: string
           period_start?: string
           user_id?: string
+          within_tolerance?: boolean | null
         }
         Relationships: [
           {
@@ -11115,6 +11145,10 @@ export type Database = {
       }
       my_communication_feedback: {
         Args: { _delivery_id: string; _feedback: string }
+        Returns: Json
+      }
+      my_financial_snapshot_v6: {
+        Args: { _period_end?: string; _period_start?: string }
         Returns: Json
       }
       my_more_menu_context: { Args: never; Returns: Json }

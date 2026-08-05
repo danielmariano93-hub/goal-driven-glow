@@ -145,7 +145,29 @@ export interface CategoryGoalEvaluation {
 }
 
 /** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
-export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
+export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v6";
+
+export type SnapshotCompleteness = "complete" | "partial" | "unavailable";
+export type SnapshotPeriodStatus = "open" | "closed";
+export type SnapshotSourceFreshness = Record<string, { status: "fresh" | "stale" | "missing"; checkedAt: string }>;
+
+export interface SnapshotAuditMetadata {
+  generatedAt: string;
+  asOf: string;
+  periodStatus: SnapshotPeriodStatus;
+  completeness: SnapshotCompleteness;
+  missingSources: string[];
+  sourceFreshness: SnapshotSourceFreshness;
+  confidence: ProjectionConfidence;
+  formulaVersions: Record<string, string>;
+}
+
+export interface SnapshotMetricEvidence {
+  source: string;
+  formula: string;
+  observedDays?: number;
+  transactionCount?: number;
+}
 
 export interface FinancialSnapshotInput {
   accounts: AccountRow[];
@@ -171,6 +193,7 @@ export interface FinancialSnapshotInput {
   categories?: CategoryRow[];
   /** Movimentos de investimento do período (habilita ponte patrimonial precisa). */
   investmentMovements?: Array<{ type: string; amount: number; occurred_at: string }>;
+  audit?: Partial<Pick<SnapshotAuditMetadata, "generatedAt" | "completeness" | "missingSources" | "sourceFreshness">>;
 }
 
 export interface SnapshotGoalProgress {
@@ -309,6 +332,12 @@ export interface FinancialSnapshot {
   balanceExplanation: BalanceExplanation;
   /** Contrato v5 — ritmo e projeção do mês (fonte única para toda a UI). */
   projection: SpendingProjection;
+  audit: SnapshotAuditMetadata;
+  evidence: {
+    availableToday: SnapshotMetricEvidence;
+    currentDailyPace: SnapshotMetricEvidence;
+    projectedEndBalance: SnapshotMetricEvidence;
+  };
 
 }
 
@@ -713,8 +742,29 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     investmentMovements: input.investmentMovements,
   });
   const balanceExplanation = explainBalanceChange(cashBridge, periodPerformance);
+  const periodStatus: SnapshotPeriodStatus = input.period.end < todayIso ? "closed" : "open";
+  const audit: SnapshotAuditMetadata = {
+    generatedAt: input.audit?.generatedAt ?? today.toISOString(),
+    asOf: todayIso,
+    periodStatus,
+    completeness: input.audit?.completeness ?? "complete",
+    missingSources: input.audit?.missingSources ?? [],
+    sourceFreshness: input.audit?.sourceFreshness ?? {},
+    confidence: projection.confidence,
+    formulaVersions: {
+      snapshot: FINANCE_CONTRACT_VERSION,
+      projection: SPENDING_PROJECTION_VERSION,
+      rhythm: rhythm.current.formulaVersion,
+    },
+  };
 
   return {
+    audit,
+    evidence: {
+      availableToday: { source: "accounts+transactions+account_balance_snapshots", formula: "total_cash" },
+      currentDailyPace: { source: "transactions", formula: "behavioral_consumption / observed_days", observedDays: daysElapsed },
+      projectedEndBalance: { source: "financial_snapshot", formula: "available + inflows - commitments - card_due - projected_variable_spending", observedDays: daysElapsed },
+    },
     projection,
     periodPerformance,
 

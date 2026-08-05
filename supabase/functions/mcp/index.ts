@@ -785,7 +785,7 @@ function totalFutureInstallmentsOf(exposures) {
 }
 
 // src/lib/engine/metrics.ts
-var FINANCE_CONTRACT_VERSION = "finance_contract.v4";
+var FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v6";
 
 // src/lib/mcp/shared.ts
 var ERROR_CONTRACT_VERSION = "edge_error.v1";

@@ -255,9 +255,17 @@ export function useFinancialSnapshot(period: DateRange): {
       investmentMovements: (investmentMovements ?? []).map((m) => ({
         type: String(m.type), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
       })),
+      audit: {
+        completeness,
+        missingSources,
+        sourceFreshness: Object.fromEntries(sources.map((item) => [item.source, {
+          status: item.query.isError ? "missing" : item.query.isFetching ? "stale" : "fresh",
+          checkedAt: new Date().toISOString(),
+        }])),
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, criticalError]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, criticalError, completeness, missingSources.join("|")]);
 
   const refetchSources = async (selected: typeof sources) => {
     await Promise.all(selected.map((item) => item.query.refetch()));
