@@ -1,4 +1,4 @@
-// Validação runtime dos contratos da inteligência unificada do Nino.
+// Validação runtime dos contratos da inteligência unificada do Nino (nino_contract.v2).
 // Itens inválidos são descartados individualmente — nunca derrubam a seção inteira.
 import { z } from "zod";
 
@@ -30,6 +30,13 @@ export const ninoItemSchema = z
     data_quality: z.string().nullish(),
     report_id: z.string().nullish(),
     dedup_key: z.string().nullish(),
+    category: z.string().nullish(),
+    logical_topic_key: z.string().nullish(),
+    group_key: z.string().nullish(),
+    group_size: z.number().nullish(),
+    impact_amount: z.number().nullish(),
+    impact_pct: z.number().nullish(),
+    selection_reason: z.record(z.unknown()).nullish(),
     created_at: z.string().nullish(),
     updated_at: z.string().nullish(),
     acted_at: z.string().nullish(),
@@ -60,25 +67,48 @@ const dataQualitySchema = z
   })
   .passthrough();
 
+const engineStateSchema = z
+  .object({
+    patterns_tracked: z.number().catch(0),
+    anticipations_open: z.number().catch(0),
+    suppressed_total: z.number().catch(0),
+  })
+  .partial()
+  .passthrough();
+
+export type NinoEngineState = z.infer<typeof engineStateSchema>;
+
 export const ninoContextSchema = z
   .object({
     ok: z.boolean().catch(true),
+    contract: z.string().nullish(),
     as_of: z.string().nullish(),
     continuity_topic: z.string().nullable().catch(null),
     last_seen_at: z.string().nullable().catch(null),
     new_since_last_visit: z.number().catch(0),
     data_quality: dataQualitySchema.nullish(),
+    engine_state: engineStateSchema.nullish(),
     error: z.string().nullish(),
   })
   .passthrough();
 
 export type NinoContextEnvelope = z.infer<typeof ninoContextSchema>;
 
-export const SECTION_KEYS = ["now", "changes", "learnings", "prepare", "history", "achievements"] as const;
+export const SECTION_KEYS = [
+  "now",
+  "secondary_changes",
+  "operational_tasks",
+  "changes",
+  "learnings",
+  "prepare",
+  "history",
+  "achievements",
+] as const;
 export type SectionKey = (typeof SECTION_KEYS)[number];
 
 export type ParsedNinoContext = NinoContextEnvelope & {
   sections: Record<SectionKey, NinoItemParsed[]>;
+  primaryItem: NinoItemParsed | null;
   invalidItems: number;
 };
 
@@ -103,7 +133,13 @@ export function parseNinoContext(raw: unknown): ParsedNinoContext {
     sections[key] = parsed.items;
     invalidItems += parsed.invalid;
   }
-  return { ...envelope.data, sections, invalidItems };
+  const primary = ninoItemSchema.safeParse(record.primary_item);
+  return {
+    ...envelope.data,
+    sections,
+    primaryItem: primary.success ? primary.data : null,
+    invalidItems,
+  };
 }
 
 export const refreshResultSchema = z
@@ -111,12 +147,15 @@ export const refreshResultSchema = z
     ok: z.boolean().catch(true),
     at: z.string().nullish(),
     items: z.number().nullish(),
+    facts_processed: z.number().nullish(),
     counts: z
       .object({
         created: z.number().nullish(),
         updated: z.number().nullish(),
         superseded: z.number().nullish(),
         expired: z.number().nullish(),
+        grouped: z.number().nullish(),
+        suppressed: z.number().nullish(),
         active_total: z.number().nullish(),
       })
       .partial()
