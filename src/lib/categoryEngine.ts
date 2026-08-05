@@ -17,11 +17,13 @@ export async function classifyTransaction(input: {
   explicit_category?: string | null;
   movement_kind?: string | null;
 }) {
-  const data = await invokeEdge<{ decision: CategoryEngineDecision }>("category-engine", {
+  const result = await invokeEdge<{ decision: CategoryEngineDecision }>("category-engine", {
     operation: "classify",
     input,
   });
-  return data.decision;
+  if (result.failure) throw new Error(result.failure.message);
+  if (!result.data) throw new Error("Resposta vazia do motor de categorização");
+  return result.data.decision;
 }
 
 export async function processCategoryQueue() {
