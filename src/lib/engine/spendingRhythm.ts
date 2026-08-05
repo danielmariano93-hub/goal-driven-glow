@@ -158,13 +158,13 @@ function previousMonthSameDay(iso: string): string {
 export function previousComparableRange(range: DateRange): DateRange {
   const n = daysInclusive(range.start, range.end);
   if (n <= 0) return range;
-  const start = parseLocal(range.start);
-  const end = parseLocal(range.end);
-  const isCalendarMonthRange = !isNaN(start.getTime())
-    && !isNaN(end.getTime())
-    && start.getDate() === 1
-    && start.getFullYear() === end.getFullYear()
-    && start.getMonth() === end.getMonth();
+  const startDate = parseLocal(range.start);
+  const endDate = parseLocal(range.end);
+  const isCalendarMonthRange = !isNaN(startDate.getTime())
+    && !isNaN(endDate.getTime())
+    && startDate.getDate() === 1
+    && startDate.getFullYear() === endDate.getFullYear()
+    && startDate.getMonth() === endDate.getMonth();
   if (isCalendarMonthRange) {
     return { start: previousMonthSameDay(range.start), end: previousMonthSameDay(range.end) };
   }
