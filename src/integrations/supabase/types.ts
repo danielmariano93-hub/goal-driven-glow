@@ -5337,6 +5337,359 @@ export type Database = {
         }
         Relationships: []
       }
+      financial_situation_actions: {
+        Row: {
+          action_key: string
+          action_type: string
+          created_at: string
+          estimated_impact: number | null
+          expires_at: string | null
+          explanation: string | null
+          id: string
+          metadata: Json
+          priority: number
+          route: string
+          situation_id: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          action_key: string
+          action_type: string
+          created_at?: string
+          estimated_impact?: number | null
+          expires_at?: string | null
+          explanation?: string | null
+          id?: string
+          metadata?: Json
+          priority?: number
+          route: string
+          situation_id: string
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          action_key?: string
+          action_type?: string
+          created_at?: string
+          estimated_impact?: number | null
+          expires_at?: string | null
+          explanation?: string | null
+          id?: string
+          metadata?: Json
+          priority?: number
+          route?: string
+          situation_id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_situation_actions_situation_id_fkey"
+            columns: ["situation_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_situation_evidence: {
+        Row: {
+          confidence: number | null
+          contribution_amount: number | null
+          contribution_pct: number | null
+          created_at: string
+          evaluation_run_id: string | null
+          evidence_type: string
+          fact_id: string | null
+          id: string
+          metadata: Json
+          metric_key: string | null
+          opportunity_id: string | null
+          pattern_id: string | null
+          report_id: string | null
+          situation_id: string
+          transaction_id: string | null
+          value: number | null
+        }
+        Insert: {
+          confidence?: number | null
+          contribution_amount?: number | null
+          contribution_pct?: number | null
+          created_at?: string
+          evaluation_run_id?: string | null
+          evidence_type: string
+          fact_id?: string | null
+          id?: string
+          metadata?: Json
+          metric_key?: string | null
+          opportunity_id?: string | null
+          pattern_id?: string | null
+          report_id?: string | null
+          situation_id: string
+          transaction_id?: string | null
+          value?: number | null
+        }
+        Update: {
+          confidence?: number | null
+          contribution_amount?: number | null
+          contribution_pct?: number | null
+          created_at?: string
+          evaluation_run_id?: string | null
+          evidence_type?: string
+          fact_id?: string | null
+          id?: string
+          metadata?: Json
+          metric_key?: string | null
+          opportunity_id?: string | null
+          pattern_id?: string | null
+          report_id?: string | null
+          situation_id?: string
+          transaction_id?: string | null
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_situation_evidence_evaluation_run_id_fkey"
+            columns: ["evaluation_run_id"]
+            isOneToOne: false
+            referencedRelation: "nino_diagnosis_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_evidence_fact_id_fkey"
+            columns: ["fact_id"]
+            isOneToOne: false
+            referencedRelation: "financial_insight_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_evidence_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "anticipation_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_evidence_pattern_id_fkey"
+            columns: ["pattern_id"]
+            isOneToOne: false
+            referencedRelation: "behavioral_patterns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_evidence_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "financial_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_evidence_situation_id_fkey"
+            columns: ["situation_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_evidence_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_situation_feedback: {
+        Row: {
+          created_at: string
+          feedback: string
+          id: string
+          item_id: string | null
+          situation_id: string
+          surface: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          feedback: string
+          id?: string
+          item_id?: string | null
+          situation_id: string
+          surface: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          feedback?: string
+          id?: string
+          item_id?: string | null
+          situation_id?: string
+          surface?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_situation_feedback_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "nino_intelligence_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_feedback_situation_id_fkey"
+            columns: ["situation_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situation_feedback_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "financial_situation_feedback_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      financial_situations: {
+        Row: {
+          absolute_delta: number | null
+          baseline_value: number | null
+          cause_summary: string | null
+          confidence: number
+          consequence_summary: string | null
+          created_at: string
+          current_value: number | null
+          evaluation: Json
+          forecast_summary: string | null
+          formula_version: string
+          headline: string
+          id: string
+          impact_amount: number | null
+          last_evaluation_run_id: string | null
+          percentage_delta: number | null
+          period_end: string | null
+          period_start: string | null
+          relevance_score: number
+          resolved_at: string | null
+          run_mode: string
+          severity: string
+          situation_key: string
+          situation_type: string
+          status: string
+          supersedes_id: string | null
+          temporal_scope: string
+          updated_at: string
+          user_id: string
+          valid_from: string
+          valid_until: string | null
+        }
+        Insert: {
+          absolute_delta?: number | null
+          baseline_value?: number | null
+          cause_summary?: string | null
+          confidence: number
+          consequence_summary?: string | null
+          created_at?: string
+          current_value?: number | null
+          evaluation?: Json
+          forecast_summary?: string | null
+          formula_version?: string
+          headline: string
+          id?: string
+          impact_amount?: number | null
+          last_evaluation_run_id?: string | null
+          percentage_delta?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          relevance_score?: number
+          resolved_at?: string | null
+          run_mode?: string
+          severity: string
+          situation_key: string
+          situation_type: string
+          status: string
+          supersedes_id?: string | null
+          temporal_scope: string
+          updated_at?: string
+          user_id: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Update: {
+          absolute_delta?: number | null
+          baseline_value?: number | null
+          cause_summary?: string | null
+          confidence?: number
+          consequence_summary?: string | null
+          created_at?: string
+          current_value?: number | null
+          evaluation?: Json
+          forecast_summary?: string | null
+          formula_version?: string
+          headline?: string
+          id?: string
+          impact_amount?: number | null
+          last_evaluation_run_id?: string | null
+          percentage_delta?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          relevance_score?: number
+          resolved_at?: string | null
+          run_mode?: string
+          severity?: string
+          situation_key?: string
+          situation_type?: string
+          status?: string
+          supersedes_id?: string | null
+          temporal_scope?: string
+          updated_at?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_situations_last_evaluation_run_id_fkey"
+            columns: ["last_evaluation_run_id"]
+            isOneToOne: false
+            referencedRelation: "nino_diagnosis_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situations_supersedes_id_fkey"
+            columns: ["supersedes_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_situations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "financial_situations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       goal_contributions: {
         Row: {
           account_id: string | null
@@ -6061,6 +6414,191 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_outbound_sla_breach"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      nino_diagnosis_config: {
+        Row: {
+          communication_mode: string
+          contract_version: string
+          enabled: boolean
+          max_supporting: number
+          min_primary_confidence: number
+          rollout_mode: string
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          communication_mode?: string
+          contract_version?: string
+          enabled?: boolean
+          max_supporting?: number
+          min_primary_confidence?: number
+          rollout_mode?: string
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          communication_mode?: string
+          contract_version?: string
+          enabled?: boolean
+          max_supporting?: number
+          min_primary_confidence?: number
+          rollout_mode?: string
+          singleton?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      nino_diagnosis_runs: {
+        Row: {
+          as_of: string
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          projected_items: number
+          run_mode: string
+          situations_created: number
+          situations_resolved: number
+          situations_updated: number
+          source: string
+          started_at: string
+          status: string
+          user_id: string
+          warnings: Json
+        }
+        Insert: {
+          as_of: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          projected_items?: number
+          run_mode: string
+          situations_created?: number
+          situations_resolved?: number
+          situations_updated?: number
+          source?: string
+          started_at?: string
+          status?: string
+          user_id: string
+          warnings?: Json
+        }
+        Update: {
+          as_of?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          projected_items?: number
+          run_mode?: string
+          situations_created?: number
+          situations_resolved?: number
+          situations_updated?: number
+          source?: string
+          started_at?: string
+          status?: string
+          user_id?: string
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_diagnosis_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "nino_diagnosis_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      nino_diagnosis_snapshots: {
+        Row: {
+          as_of: string
+          confidence: number
+          contract_version: string
+          created_at: string
+          data_quality: Json
+          forecast: Json
+          id: string
+          is_current: boolean
+          overall_state: string
+          payload: Json
+          primary_action_id: string | null
+          primary_situation_id: string | null
+          rationale: Json
+          run_mode: string
+          supporting_situation_ids: string[]
+          user_id: string
+        }
+        Insert: {
+          as_of: string
+          confidence?: number
+          contract_version?: string
+          created_at?: string
+          data_quality?: Json
+          forecast?: Json
+          id?: string
+          is_current?: boolean
+          overall_state: string
+          payload?: Json
+          primary_action_id?: string | null
+          primary_situation_id?: string | null
+          rationale?: Json
+          run_mode?: string
+          supporting_situation_ids?: string[]
+          user_id: string
+        }
+        Update: {
+          as_of?: string
+          confidence?: number
+          contract_version?: string
+          created_at?: string
+          data_quality?: Json
+          forecast?: Json
+          id?: string
+          is_current?: boolean
+          overall_state?: string
+          payload?: Json
+          primary_action_id?: string | null
+          primary_situation_id?: string | null
+          rationale?: Json
+          run_mode?: string
+          supporting_situation_ids?: string[]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_diagnosis_snapshots_primary_action_id_fkey"
+            columns: ["primary_action_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situation_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nino_diagnosis_snapshots_primary_situation_id_fkey"
+            columns: ["primary_situation_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nino_diagnosis_snapshots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "nino_diagnosis_snapshots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
           },
         ]
       }
@@ -10298,7 +10836,12 @@ export type Database = {
       }
       my_more_menu_context: { Args: never; Returns: Json }
       my_nino_context: { Args: never; Returns: Json }
+      my_nino_diagnosis_context: { Args: never; Returns: Json }
       my_nino_duplicate_decision: {
+        Args: { _decision: string; _pair_key: string }
+        Returns: Json
+      }
+      my_nino_duplicate_decision_legacy: {
         Args: { _decision: string; _pair_key: string }
         Returns: Json
       }
@@ -10332,6 +10875,7 @@ export type Database = {
         Returns: Json
       }
       my_nino_refresh: { Args: never; Returns: Json }
+      my_nino_refresh_legacy: { Args: never; Returns: Json }
       my_proactive_preferences_update: {
         Args: {
           _emotional?: boolean
@@ -10356,12 +10900,84 @@ export type Database = {
         Args: { _feedback: string; _insight_id: string }
         Returns: undefined
       }
+      nino_assemble_diagnosis: {
+        Args: { _as_of?: string; _run_mode?: string; _user_id: string }
+        Returns: string
+      }
       nino_backfill_items: { Args: { _dry_run?: boolean }; Returns: Json }
       nino_backfill_rollback: { Args: never; Returns: Json }
       nino_brl: { Args: { _v: number }; Returns: string }
       nino_build_facts: { Args: { _user_id: string }; Returns: number }
       nino_consolidate_topics: { Args: { _user_id: string }; Returns: number }
       nino_curate_items: { Args: { _user_id: string }; Returns: Json }
+      nino_diag_brl: { Args: { _value: number }; Returns: string }
+      nino_diag_pct: { Args: { _value: number }; Returns: string }
+      nino_diag_put_situation: {
+        Args: {
+          _absolute_delta: number
+          _action: Json
+          _as_of: string
+          _baseline_value: number
+          _cause: string
+          _confidence: number
+          _consequence: string
+          _current_value: number
+          _evaluation: Json
+          _evidence: Json
+          _forecast: string
+          _headline: string
+          _impact_amount: number
+          _percentage_delta: number
+          _period_end: string
+          _period_start: string
+          _run_id: string
+          _run_mode: string
+          _severity: string
+          _situation_key: string
+          _situation_type: string
+          _status: string
+          _temporal_scope: string
+          _user_id: string
+          _valid_until: string
+        }
+        Returns: string
+      }
+      nino_diag_score: {
+        Args: {
+          _actionable: boolean
+          _confidence: number
+          _impact: number
+          _impact_pct: number
+          _positive?: boolean
+          _severity: string
+          _temporal_scope: string
+        }
+        Returns: number
+      }
+      nino_diagnosis_backtest: {
+        Args: {
+          _from: string
+          _step_days?: number
+          _to: string
+          _user_id: string
+        }
+        Returns: Json
+      }
+      nino_diagnosis_context_for_user: {
+        Args: { _user_id: string }
+        Returns: Json
+      }
+      nino_diagnosis_rollback: { Args: never; Returns: Json }
+      nino_diagnosis_tick: { Args: never; Returns: Json }
+      nino_evaluate_financial_situations: {
+        Args: {
+          _as_of?: string
+          _run_mode?: string
+          _source?: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       nino_expense_sum: {
         Args: { _from: string; _to: string; _user_id: string }
         Returns: number
@@ -10379,11 +10995,33 @@ export type Database = {
         }
         Returns: Json
       }
+      nino_legacy_intelligence_tick: { Args: never; Returns: Json }
+      nino_legacy_rebuild_items: {
+        Args: { _created_by?: string; _user_id: string }
+        Returns: number
+      }
       nino_norm_text: { Args: { _t: string }; Returns: string }
       nino_num: { Args: { _v: number }; Returns: string }
+      nino_project_diagnosis: {
+        Args: { _snapshot_id: string; _user_id: string }
+        Returns: number
+      }
+      nino_project_diagnosis_communications: {
+        Args: { _snapshot_id: string; _user_id: string }
+        Returns: number
+      }
       nino_rebuild_items: {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
+      }
+      nino_refresh_diagnosis: {
+        Args: {
+          _as_of?: string
+          _run_mode?: string
+          _source?: string
+          _user_id: string
+        }
+        Returns: Json
       }
       nino_score_item: {
         Args: {
