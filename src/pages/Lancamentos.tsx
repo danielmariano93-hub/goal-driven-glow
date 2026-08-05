@@ -204,7 +204,12 @@ export default function Lancamentos() {
     setBulkRunning(true);
     try {
       const ids = Array.from(selected);
-      const { error } = await supabase.from("transactions").update({ category_id: bulkCategoryId }).in("id", ids);
+      const { error } = await supabase.from("transactions").update({
+        category_id: bulkCategoryId,
+        category_source: bulkCategoryId ? "user" : null,
+        category_confidence: bulkCategoryId ? 1 : null,
+        category_reason: bulkCategoryId ? "escolha explícita em lote" : null,
+      }).in("id", ids);
       if (error) throw error;
       notifySuccess(
         `${ids.length} lançamento${ids.length === 1 ? "" : "s"} atualizado${ids.length === 1 ? "" : "s"}`,
@@ -631,6 +636,7 @@ export default function Lancamentos() {
                                 {accName(t)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
                                 {t.status === "planned" ? " · Planejado" : ""}
                                 {!t.category_id && !isTransfer ? " · Sem categoria" : ""}
+                                {t.category_id && t.category_source && t.category_source !== "user" && !isTransfer ? " · Identificado pelo Nino" : ""}
                               </p>
                             </div>
                             <span
