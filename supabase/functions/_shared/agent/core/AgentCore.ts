@@ -333,6 +333,49 @@ ${JSON.stringify(hints)}
     }
   }, (m) => metrics.errors.push("accounts_prompt:" + m), null);
 
+  // A conversa do App e do WhatsApp recebe a mesma situação financeira usada
+  // pela Home, Nino e Relatórios. O diagnóstico orienta síntese e continuidade;
+  // perguntas factuais continuam exigindo as tools canônicas do turno.
+  const diagnosisForPrompt = await guard(async () => {
+    const { data, error } = await sb.rpc("nino_diagnosis_context_for_user", { _user_id: input.user_id });
+    if (error) throw error;
+    return data as any;
+  }, (m) => metrics.errors.push("diagnosis_prompt:" + m), null as any);
+
+  if (diagnosisForPrompt?.ok && diagnosisForPrompt?.primary_situation) {
+    const primary = diagnosisForPrompt.primary_situation;
+    const supporting = (diagnosisForPrompt.supporting_situations ?? []).slice(0, 2).map((s: any) => ({
+      situation_type: s.situation_type,
+      headline: s.headline,
+      cause_summary: s.cause_summary,
+      consequence_summary: s.consequence_summary,
+      forecast_summary: s.forecast_summary,
+      confidence: s.confidence,
+    }));
+    const compactDiagnosis = {
+      contract: diagnosisForPrompt.contract,
+      as_of: diagnosisForPrompt.as_of,
+      overall_state: diagnosisForPrompt.overall_state,
+      primary_situation: {
+        situation_type: primary.situation_type,
+        headline: primary.headline,
+        cause_summary: primary.cause_summary,
+        consequence_summary: primary.consequence_summary,
+        forecast_summary: primary.forecast_summary,
+        confidence: primary.confidence,
+      },
+      primary_action: diagnosisForPrompt.primary_action,
+      supporting_situations: supporting,
+    };
+    systemPrompt =
+      `[DIAGNÓSTICO FINANCEIRO CANÔNICO DO NINO]\n` +
+      `${JSON.stringify(compactDiagnosis)}\n` +
+      `Use este diagnóstico para manter a mesma história financeira entre App e WhatsApp. ` +
+      `Não recalcule valores, não invente causas e não contradiga as evidências. ` +
+      `Quando a pergunta pedir valor, período, lista ou gráfico exato, consulte a tool correspondente.\n\n` +
+      systemPrompt;
+  }
+
 
   // Safety net: if there's a pending confirmation and the parser did not
   // intercept (loose "sim pode" / "manda" wasn't detected), prepend an
