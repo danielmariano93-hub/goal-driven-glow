@@ -271,7 +271,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     supa.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", uid),
     supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
     supa.from("debts").select("outstanding_balance,status").eq("user_id", uid).eq("status", "active"),
-    supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,next_due_date,type,category_id,account_id,description").eq("user_id", uid).eq("status", "active"),
+    supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,category_id,account_id,name").eq("user_id", uid).eq("status", "active"),
     supa.from("accounts").select("current_balance,active").eq("user_id", uid),
   ]);
 
