@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, ChevronDown, Info } from "lucide-react";
+import { ArrowRight, CaretDown, Info } from "@phosphor-icons/react";
 import { useState } from "react";
 import { formatBRL } from "@/lib/engine/facts";
 import type { SpendingProjection } from "@/lib/engine/metrics";
@@ -50,14 +50,14 @@ export function PrevisaoFechamentoCard({ projection }: Props) {
   return (
     <section
       aria-label="Projeção fim de mês"
-      className="rounded-[20px] border border-border/70 bg-card px-4 py-4"
+      className="rounded-[20px] border border-border/70 bg-card px-4 py-4 shadow-sm animate-fade-in"
     >
-      <p className="text-[10px] font-bold uppercase text-muted-foreground">
+        <p className="text-[10px] font-bold uppercase text-primary">
         Projeção fim de mês
       </p>
       <div className="mt-2">
         <p className="text-[11px] font-medium text-muted-foreground">Saldo estimado no fim do mês</p>
-         <div className="mt-1 flex flex-wrap items-center gap-2"><p className={`font-display text-[28px] font-extrabold leading-none tabular-nums ${positive ? "text-success" : "text-destructive"}`}>{formatBRL(projection.projectedEndBalance)}</p><span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-muted-foreground">Confiança {CONFIDENCE_LABEL[projection.confidence].toLowerCase()}</span></div>
+         <div className="mt-1 flex flex-wrap items-center gap-2"><p className={`font-display text-[28px] font-extrabold leading-none tabular-nums ${positive ? "text-success" : "text-brand-coral"}`}>{formatBRL(projection.projectedEndBalance)}</p><span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">Confiança {CONFIDENCE_LABEL[projection.confidence].toLowerCase()}</span></div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           Disponível hoje + entradas confirmadas − compromissos − fatura do mês − gasto variável esperado.
         </p>
@@ -74,7 +74,7 @@ export function PrevisaoFechamentoCard({ projection }: Props) {
 
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="mt-3 rounded-full px-2 text-[11px] text-muted-foreground">
         {open ? "Ocultar composição" : "Ver composição"}
-        <ChevronDown size={12} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
+         <CaretDown size={12} weight="bold" className={open ? "rotate-180 transition-transform" : "transition-transform"} />
       </Button>
 
       {open ? (
