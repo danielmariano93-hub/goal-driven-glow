@@ -10,7 +10,6 @@ import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
-import { Button } from "@/components/ui/button";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 
 import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
@@ -86,9 +85,9 @@ export default function Index() {
         projectedEndBalance={snap?.projection.projectedEndBalance ?? 0}
         loading={loading}
         hasAccount={hasAccount}
+        error={snapshotError}
+        onRetry={() => void refetchSnapshot()}
       />
-
-      {snapshotError ? <section aria-label="Erro no resumo financeiro" className="rounded-2xl border border-border bg-card p-4"><p className="text-sm font-semibold text-foreground">Não foi possível atualizar todo o resumo financeiro.</p><Button type="button" variant="link" onClick={() => void refetchSnapshot()} className="mt-1 h-10 px-0">Tentar novamente</Button></section> : null}
 
       <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}

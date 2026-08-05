@@ -6,15 +6,13 @@ import { formatBRL } from "@/lib/engine/facts";
 const read = (path: string) => readFileSync(`${process.cwd()}/${path}`, "utf8");
 
 describe("composição narrativa da Home", () => {
-  it("mantém os oito blocos na ordem de decisão", () => {
+  it("mantém as sete seções na ordem de decisão", () => {
     const source = read("src/pages/Index.tsx");
     const markers = [
       "<HomeHeader",
       "<HeroDisponivelCard",
       "<RitmoUnificadoCard",
-      "<AssistantTipCard",
-      "<PrevisaoFechamentoCard",
-      "<BestActionCard",
+      "<NinoGuidanceCard",
       "<QuickActions",
       "<EmotionalCheckinCard",
     ];
@@ -37,11 +35,11 @@ describe("composição narrativa da Home", () => {
       "src/components/home/PeriodPicker.tsx",
       "src/components/home/HeroDisponivelCard.tsx",
       "src/components/home/RitmoUnificadoCard.tsx",
-      "src/components/home/AssistantTipCard.tsx",
-      "src/components/home/PrevisaoFechamentoCard.tsx",
+      "src/components/home/NinoGuidanceCard.tsx",
+      "src/components/home/AvailableBalanceDetails.tsx",
+      "src/components/home/RhythmMethodSheet.tsx",
       "src/components/home/QuickActions.tsx",
       "src/components/home/EmotionalCheckinCard.tsx",
-      "src/components/home/ComecePorAqui.tsx",
     ].map(read).join("\n");
     expect(theme).toContain('"DM Sans"');
     expect(theme).not.toContain('"Inter"');

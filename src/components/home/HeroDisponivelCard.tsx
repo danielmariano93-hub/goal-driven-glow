@@ -14,6 +14,8 @@ type Props = {
   periodLabel: string;
   loading?: boolean;
   hasAccount?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
 };
 
 export function HeroDisponivelCard(p: Props) {
@@ -27,12 +29,17 @@ export function HeroDisponivelCard(p: Props) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-semibold uppercase text-primary-foreground/70">{p.periodLabel}</p>
-            {p.loading ? <div className="mt-2 h-9 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : <p className="mt-2 font-display text-[36px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
+             {p.loading ? <div className="mt-2 h-9 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-sm font-semibold text-primary-foreground">Resumo indisponível agora</p> : <p className="mt-2 font-display text-[36px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
           </div>
           <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
         </div>
 
-        {!p.loading && p.hasAccount === false ? (
+        {!p.loading && p.error ? (
+          <div className="mt-4 border-t border-primary-foreground/15 pt-4">
+            <p className="text-xs leading-relaxed text-primary-foreground/75">Não foi possível atualizar os dados financeiros.</p>
+            {p.onRetry ? <Button type="button" variant="ghost" onClick={p.onRetry} className="mt-2 min-h-11 rounded-full px-3 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">Tentar novamente</Button> : null}
+          </div>
+        ) : !p.loading && p.hasAccount === false ? (
           <div className="mt-4 border-t border-primary-foreground/15 pt-4">
             <p className="text-[12px] leading-relaxed text-primary-foreground/75">
               Cadastre sua primeira conta para o Nino mostrar o dinheiro realmente disponível.

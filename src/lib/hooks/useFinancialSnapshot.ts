@@ -123,7 +123,7 @@ export function useFinancialSnapshot(period: DateRange): {
   const todayKey = todayISO();
 
   const snapshot = useMemo<FinancialSnapshot | null>(() => {
-    if (loading) return null;
+    if (loading || error) return null;
     const numericAccounts = (accounts ?? []).map((a) => ({
       id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active,
     }));
@@ -187,7 +187,7 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, error]);
 
   return {
     data: snapshot,
