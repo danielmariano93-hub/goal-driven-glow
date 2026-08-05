@@ -24,6 +24,7 @@ import { clampRangeToToday } from "@/lib/engine/spendingRhythm";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions } from "@/lib/db/finance";
 import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
+import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
 import { computeCashBridge, computePeriodPerformance } from "@/lib/engine/bridges";
 import {
   CashBridgeBlock,
@@ -378,14 +379,7 @@ export default function Relatorios() {
           <div className="surface-card p-4 text-xs text-muted-foreground">Nenhuma mudança relevante foi confirmada para este período.</div>
         ) : (
           <div className="space-y-2">
-            {diagnosisItems.map((item) => (
-              <article key={item.id} className="surface-card p-4">
-                <h3 className="text-sm font-semibold leading-snug">{item.headline}</h3>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {[item.cause_summary, item.consequence_summary].filter(Boolean).join(" ")}
-                </p>
-              </article>
-            ))}
+            {diagnosisItems.map((item) => <NinoSituationCard key={item.id} situation={item} action={item.id === diagnosis?.primary_situation?.id ? diagnosis.primary_action : null} surface="relatorios" compact />)}
           </div>
         )}
       </section>

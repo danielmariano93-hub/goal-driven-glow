@@ -5396,6 +5396,53 @@ export type Database = {
           },
         ]
       }
+      financial_situation_events: {
+        Row: {
+          delta_amount: number | null
+          event_type: string
+          from_status: string | null
+          id: string
+          metadata: Json
+          narrative: string
+          occurred_at: string
+          situation_id: string
+          to_status: string | null
+          user_id: string
+        }
+        Insert: {
+          delta_amount?: number | null
+          event_type: string
+          from_status?: string | null
+          id?: string
+          metadata?: Json
+          narrative: string
+          occurred_at?: string
+          situation_id: string
+          to_status?: string | null
+          user_id: string
+        }
+        Update: {
+          delta_amount?: number | null
+          event_type?: string
+          from_status?: string | null
+          id?: string
+          metadata?: Json
+          narrative?: string
+          occurred_at?: string
+          situation_id?: string
+          to_status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_situation_events_situation_id_fkey"
+            columns: ["situation_id"]
+            isOneToOne: false
+            referencedRelation: "financial_situations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_situation_evidence: {
         Row: {
           confidence: number | null
@@ -5578,6 +5625,8 @@ export type Database = {
           id: string
           impact_amount: number | null
           last_evaluation_run_id: string | null
+          narrative_role: string
+          one_line_summary: string | null
           percentage_delta: number | null
           period_end: string | null
           period_start: string | null
@@ -5610,6 +5659,8 @@ export type Database = {
           id?: string
           impact_amount?: number | null
           last_evaluation_run_id?: string | null
+          narrative_role?: string
+          one_line_summary?: string | null
           percentage_delta?: number | null
           period_end?: string | null
           period_start?: string | null
@@ -5642,6 +5693,8 @@ export type Database = {
           id?: string
           impact_amount?: number | null
           last_evaluation_run_id?: string | null
+          narrative_role?: string
+          one_line_summary?: string | null
           percentage_delta?: number | null
           period_end?: string | null
           period_start?: string | null
@@ -6419,6 +6472,7 @@ export type Database = {
       }
       nino_diagnosis_config: {
         Row: {
+          assembler_version: string
           communication_mode: string
           contract_version: string
           enabled: boolean
@@ -6429,6 +6483,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          assembler_version?: string
           communication_mode?: string
           contract_version?: string
           enabled?: boolean
@@ -6439,6 +6494,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          assembler_version?: string
           communication_mode?: string
           contract_version?: string
           enabled?: boolean
@@ -10876,6 +10932,10 @@ export type Database = {
       }
       my_nino_refresh: { Args: never; Returns: Json }
       my_nino_refresh_legacy: { Args: never; Returns: Json }
+      my_nino_situation_feedback: {
+        Args: { _feedback: string; _situation_id: string; _surface?: string }
+        Returns: Json
+      }
       my_proactive_preferences_update: {
         Args: {
           _emotional?: boolean
@@ -10942,6 +11002,10 @@ export type Database = {
         }
         Returns: string
       }
+      nino_diag_resolve_conflicts: {
+        Args: { _run_mode?: string; _user_id: string }
+        Returns: number
+      }
       nino_diag_score: {
         Args: {
           _actionable: boolean
@@ -10953,6 +11017,15 @@ export type Database = {
           _temporal_scope: string
         }
         Returns: number
+      }
+      nino_diag_select_action: {
+        Args: {
+          _evaluation?: Json
+          _impact?: number
+          _situation_type: string
+          _status: string
+        }
+        Returns: Json
       }
       nino_diagnosis_backtest: {
         Args: {
@@ -10977,6 +11050,15 @@ export type Database = {
           _user_id: string
         }
         Returns: Json
+      }
+      nino_evaluate_future_situations: {
+        Args: {
+          _as_of: string
+          _run_id: string
+          _run_mode: string
+          _user_id: string
+        }
+        Returns: number
       }
       nino_expense_sum: {
         Args: { _from: string; _to: string; _user_id: string }
