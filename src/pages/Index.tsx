@@ -11,6 +11,7 @@ import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
+import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 
 import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -63,7 +64,7 @@ export default function Index() {
   const heroLabel = "Disponível hoje";
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-5 pb-20 [scroll-padding-bottom:9rem] md:max-w-2xl" data-surface="home">
+    <div className="mx-auto w-full max-w-md space-y-4 pb-20 [scroll-padding-bottom:9rem] md:max-w-4xl md:space-y-5" data-surface="home">
       <HomeHeader />
 
       <PeriodPicker
@@ -91,15 +92,6 @@ export default function Index() {
         onRetry={() => void (snapshotError ? snapshot.refetchCritical() : snapshot.refetchMissing())}
       />
 
-      <RitmoUnificadoCard
-        rhythm={snap?.rhythm ?? null}
-        projection={snap?.projection ?? null}
-        loading={loading}
-        partial={completeness === "partial"}
-        error={availability.rhythm === "unavailable" ? snapshotError : null}
-        onRetry={() => void snapshot.refetchCritical()}
-      />
-
       <NinoGuidanceCard
         diagnosis={homeDiagnosis}
         projection={snap?.projection ?? null}
@@ -111,6 +103,22 @@ export default function Index() {
       />
 
       <QuickActions />
+
+      <div className="grid gap-4 md:grid-cols-2 md:items-start">
+        <RitmoUnificadoCard
+          rhythm={snap?.rhythm ?? null}
+          projection={snap?.projection ?? null}
+          loading={loading}
+          partial={completeness === "partial"}
+          error={availability.rhythm === "unavailable" ? snapshotError : null}
+          onRetry={() => void snapshot.refetchCritical()}
+        />
+        <PrevisaoFechamentoCard
+          projection={snap?.projection ?? null}
+          availability={availability.projection}
+          loading={loading}
+        />
+      </div>
 
       <EmotionalCheckinCard />
     </div>
