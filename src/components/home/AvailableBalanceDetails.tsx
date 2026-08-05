@@ -10,6 +10,7 @@ type Props = {
   upcomingCommitments: number;
   cardDueThisMonth: number;
   projectedEndBalance: number;
+  freeAfterKnownCommitments: number | null;
 };
 
 function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
@@ -36,12 +37,12 @@ export function AvailableBalanceDetails(props: Props) {
           {props.upcomingCommitments > 0 ? <Row icon={<ArrowDown weight="bold" />} label="Compromissos conhecidos" value={-props.upcomingCommitments} /> : null}
           {props.cardDueThisMonth > 0 ? <Row icon={<CreditCard weight="duotone" />} label="Fatura deste mês" value={-props.cardDueThisMonth} /> : null}
         </div>
-        <div className="mt-3 flex items-center justify-between rounded-xl bg-secondary p-4">
+        <div className="mt-3 flex items-center justify-between rounded-2xl bg-secondary p-4">
           <div>
-            <p className="text-sm font-semibold text-foreground">Saldo estimado no fim do mês</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Inclui também o gasto variável esperado.</p>
+             <p className="text-sm font-semibold text-foreground">Livre após compromissos conhecidos</p>
+             <p className="mt-0.5 text-xs text-muted-foreground">Não inclui uma estimativa dos gastos variáveis.</p>
           </div>
-          <strong className="text-base font-bold tabular-nums text-foreground">{formatBRL(props.projectedEndBalance)}</strong>
+           <strong className="text-base font-bold tabular-nums text-foreground">{props.freeAfterKnownCommitments == null ? "—" : formatBRL(props.freeAfterKnownCommitments)}</strong>
         </div>
       </SheetContent>
     </Sheet>

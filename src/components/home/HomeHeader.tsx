@@ -13,7 +13,7 @@ export function HomeHeader() {
       <div className="min-w-0">
         <p className="text-[12px] font-semibold text-primary">Olá, {name}</p>
         <h1 className="font-display text-[22px] font-bold leading-[1.2] text-foreground">
-          Seu dinheiro, com o Nino.
+          Seu dinheiro, com clareza.
         </h1>
       </div>
       <div className="flex shrink-0 items-center gap-1">

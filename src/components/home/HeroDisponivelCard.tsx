@@ -11,6 +11,7 @@ type Props = {
   upcomingCommitments: number;
   cardDueThisMonth: number;
   projectedEndBalance: number;
+  freeAfterKnownCommitments: number | null;
   periodLabel: string;
   loading?: boolean;
   hasAccount?: boolean;
@@ -25,12 +26,13 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className={`relative overflow-hidden rounded-2xl bg-gradient-hero p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[140px]" : "min-h-[196px]"}`}
+        className={`relative overflow-hidden rounded-[28px] bg-gradient-hero p-6 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[156px]" : "min-h-[216px]"}`}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-             <p className="text-xs font-semibold text-primary-foreground/70">{p.periodLabel}</p>
-              {p.loading ? <div className="mt-3 h-10 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-3 text-lg font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-3 break-words font-display text-[38px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
+             <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">Disponível hoje</p>
+               {p.loading ? <div className="mt-3 h-10 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-3 text-lg font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-3 break-words font-display text-[32px] font-bold leading-[38px] tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
+               <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">Posição atual · análise de {p.periodLabel}</p>
           </div>
           <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
         </div>
@@ -42,7 +44,7 @@ export function HeroDisponivelCard(p: Props) {
           </div>
         ) : !p.loading && p.partial ? (
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-primary-foreground/15 pt-3">
-            <div><p className="text-xs font-semibold text-primary-foreground">Dados incompletos</p><p className="mt-0.5 text-[11px] leading-relaxed text-primary-foreground/75">O saldo disponível está preservado; projeções podem mudar.</p></div>
+             <div><p className="text-xs font-semibold text-primary-foreground">Dados incompletos</p><p className="mt-0.5 text-xs leading-[18px] text-primary-foreground/80">O saldo disponível está preservado; projeções podem mudar.</p></div>
             {p.onRetry ? <Button type="button" variant="ghost" onClick={p.onRetry} className="min-h-11 shrink-0 rounded-full px-3 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">Atualizar</Button> : null}
           </div>
         ) : !p.loading && p.hasAccount === false ? (
@@ -55,13 +57,12 @@ export function HeroDisponivelCard(p: Props) {
             </Button>
           </div>
         ) : (
-          <div className="mt-4 flex items-end justify-between gap-3 border-t border-primary-foreground/15 pt-4">
-             <div className="min-w-0 space-y-1 text-[11px] text-primary-foreground/70">
-               {p.confirmedFutureInflows > 0 ? <p>+ {formatBRL(p.confirmedFutureInflows)} em entradas confirmadas</p> : null}
-               {p.upcomingCommitments > 0 ? <p>− {formatBRL(p.upcomingCommitments)} em compromissos conhecidos</p> : null}
-               {p.confirmedFutureInflows <= 0 && p.upcomingCommitments <= 0 ? <p>Sem movimentos futuros confirmados neste mês</p> : null}
+          <div className="mt-5 flex items-end justify-between gap-3 border-t border-primary-foreground/20 pt-4">
+             <div className="min-w-0">
+               <p className="text-xs leading-4 text-primary-foreground/80">Livre após compromissos conhecidos</p>
+               <p className="mt-1 font-display text-lg font-bold leading-6 tabular-nums text-primary-foreground">{p.freeAfterKnownCommitments == null ? "Ainda calculando" : formatBRL(p.freeAfterKnownCommitments)}</p>
              </div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenSheet(true)} className="min-h-11 shrink-0 rounded-full px-3 text-[11px] text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenSheet(true)} className="min-h-11 shrink-0 rounded-full px-3 text-xs text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
               Ver composição <ArrowRight />
             </Button>
           </div>
@@ -76,6 +77,7 @@ export function HeroDisponivelCard(p: Props) {
         upcomingCommitments={p.upcomingCommitments}
         cardDueThisMonth={p.cardDueThisMonth}
         projectedEndBalance={p.projectedEndBalance}
+        freeAfterKnownCommitments={p.freeAfterKnownCommitments}
       />
     </>
   );
