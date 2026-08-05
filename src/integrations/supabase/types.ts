@@ -11040,7 +11040,6 @@ export type Database = {
         Args: { _user_id: string }
         Returns: Json
       }
-      nino_diagnosis_contract_healthcheck: { Args: never; Returns: Json }
       nino_diagnosis_rollback: { Args: never; Returns: Json }
       nino_diagnosis_tick: { Args: never; Returns: Json }
       nino_evaluate_financial_situations: {

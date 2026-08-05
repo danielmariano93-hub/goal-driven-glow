@@ -1,0 +1,1 @@
+COMMENT ON FUNCTION public.nino_diagnosis_context_for_user(uuid) IS 'Monta o contrato nino_diagnosis_contract.v1.1 usando executive_summary nos fechamentos financeiros.';
