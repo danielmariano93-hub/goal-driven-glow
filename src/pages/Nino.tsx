@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Sparkles } from "lucide-react";
-import { NinoItemCard } from "@/components/nino/NinoItemCard";
-import { NinoPrimaryInsightCard } from "@/components/nino/NinoPrimaryInsightCard";
-import { NinoChangeRow } from "@/components/nino/NinoChangeRow";
-import { NinoOperationalSummaryCard } from "@/components/nino/NinoOperationalSummaryCard";
+import { CalendarDays, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
 import { NinoRefreshButton } from "@/components/nino/NinoRefreshButton";
-import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock, NinoStaleBadge } from "@/components/nino/NinoStateBlocks";
-import { markNinoSeen, useNinoContext, type NinoItem } from "@/lib/nino/intelligence";
+import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock } from "@/components/nino/NinoStateBlocks";
+import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
 
 const SECTIONS = [
   { id: "agora", label: "Agora" },
@@ -22,35 +20,29 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 export default function Nino() {
   const [params, setParams] = useSearchParams();
   const active = (params.get("section") ?? "agora") as SectionId;
-  const { data, isLoading, isError, error, isFetching, refetch } = useNinoContext();
+  const { data, isLoading, isError, error, isFetching, refetch } = useNinoDiagnosisContext();
   const [expanded, setExpanded] = useState(false);
 
   const section = useMemo(() => SECTIONS.find((s) => s.id === active) ?? SECTIONS[0], [active]);
 
-  useEffect(() => {
-    // last_seen_at só depois de conteúdo realmente entregue na tela.
-    if (data?.ok && !isLoading) void markNinoSeen("nino", "all");
-  }, [data?.ok, isLoading]);
-
   useEffect(() => setExpanded(false), [section.id]);
 
   const quality = data?.data_quality;
-  const insufficient = quality?.status === "insufficient";
-  const engine = data?.engine_state;
+  const insufficient = data?.overall_state === "insufficient_data";
+  const current = [data?.primary_situation, ...(data?.supporting_situations ?? [])].filter((item): item is FinancialSituation => Boolean(item));
 
   const counts: Record<SectionId, number> = {
-    agora: (data?.primary_item ? 1 : 0) + (data?.secondary_changes.length ?? 0) + (data?.operational_tasks.length ?? 0),
-    mudancas: data?.changes.length ?? 0,
-    aprendizados: data?.learnings.length ?? 0,
-    "prepare-se": data?.prepare.length ?? 0,
-    historico: data?.history.length ?? 0,
+    agora: current.length + (data?.operational_tasks.length ?? 0),
+    mudancas: current.filter((item) => item.status === "improving" || item.status === "worsening").length,
+    aprendizados: data?.patterns.length ?? 0,
+    "prepare-se": data?.anticipations.length ?? 0,
+    historico: (data?.timeline.length ?? 0) + (data?.closings.length ?? 0),
   };
 
-  const listFor = (id: SectionId): NinoItem[] => {
-    if (id === "mudancas") return data?.changes ?? [];
-    if (id === "aprendizados") return data?.learnings ?? [];
-    if (id === "prepare-se") return data?.prepare ?? [];
-    if (id === "historico") return data?.history ?? [];
+  const listFor = (id: SectionId): FinancialSituation[] => {
+    if (id === "mudancas") return current.filter((item) => item.status === "improving" || item.status === "worsening");
+    if (id === "aprendizados") return data?.patterns ?? [];
+    if (id === "prepare-se") return data?.anticipations ?? [];
     return [];
   };
 
@@ -60,16 +52,8 @@ export default function Nino() {
     }
     if (id === "agora") return "Nada urgente pede sua atenção neste momento.";
     if (id === "mudancas") return "Nenhuma mudança relevante no período comparado.";
-    if (id === "aprendizados") {
-      return engine?.patterns_tracked
-        ? `O Nino acompanha ${engine.patterns_tracked} padrão${engine.patterns_tracked > 1 ? "ões" : ""}, mas nenhum com confiança suficiente para virar aprendizado agora.`
-        : "O Nino ainda está aprendendo seus padrões. Registre mais alguns dias.";
-    }
-    if (id === "prepare-se") {
-      return engine?.patterns_tracked
-        ? `Nenhum evento futuro exige preparação: o Nino acompanha ${engine.patterns_tracked} padrão${engine.patterns_tracked > 1 ? "ões" : ""} e ${engine.anticipations_open ?? 0} antecipação${(engine.anticipations_open ?? 0) === 1 ? "" : "ões"} em aberto.`
-        : "Ainda não há histórico suficiente para antecipar eventos com confiança.";
-    }
+    if (id === "aprendizados") return "O Nino ainda está aprendendo seus padrões. Registre mais alguns dias.";
+    if (id === "prepare-se") return "Nenhum compromisso futuro exige preparação agora.";
     return "Seu histórico aparece aqui conforme o Nino acompanha suas semanas.";
   };
 
@@ -85,37 +69,28 @@ export default function Nino() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">Nino</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {data?.continuity_topic
-                ? `Continuando: ${data.continuity_topic}`
-                : "Sua inteligência financeira em um só lugar"}
+              Diagnóstico causal baseado na sua vida financeira
             </p>
-            {isError && data && <NinoStaleBadge asOf={data.as_of} />}
           </div>
           <NinoRefreshButton asOf={data?.as_of} />
         </div>
 
-        {(data?.new_since_last_visit ?? 0) > 0 && (
-          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-[11px] font-semibold text-primary">
-            <Sparkles className="h-3 w-3" />
-            {data?.new_since_last_visit} novidade{(data?.new_since_last_visit ?? 0) > 1 ? "s" : ""} desde sua última visita
-          </p>
-        )}
       </header>
 
       {isError && (
         <NinoErrorBlock error={error} onRetry={() => void refetch()} retrying={isFetching} hasStaleData={!!data} />
       )}
 
-      {data && quality && quality.status === "insufficient" && (
+      {data && insufficient && (
         <div
           className="rounded-[18px] p-3 text-[12px]"
           style={{ border: "1px solid var(--home-hairline)", background: "var(--home-surface-neutral)" }}
         >
-          Ainda não há lançamentos suficientes para leituras confiáveis. Registre alguns gastos para começar.
+          Ainda não há lançamentos suficientes para leituras confiáveis. Registre alguns gastos para começar. {quality?.uncategorized_count ? `${quality.uncategorized_count} lançamento(s) ainda precisam de categoria.` : ""}
         </div>
       )}
 
-      <nav className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" aria-label="Seções do Nino">
+      <nav className="-mx-4 flex scroll-px-4 gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Seções do Nino">
         {SECTIONS.map((s) => {
           const isActive = s.id === section.id;
           return (
@@ -139,19 +114,19 @@ export default function Nino() {
         <NinoLoadingBlock />
       ) : !data ? null : section.id === "agora" ? (
         <div className={`space-y-4 transition-opacity ${isFetching ? "opacity-60" : ""}`} aria-busy={isFetching}>
-          {data.primary_item ? (
-            <NinoPrimaryInsightCard item={data.primary_item} surface="nino:agora" />
+          {data.primary_situation ? (
+            <NinoSituationCard situation={data.primary_situation} action={data.primary_action} surface="nino:agora" />
           ) : (
             <NinoEmptyBlock>{emptyText("agora")}</NinoEmptyBlock>
           )}
 
-          {data.secondary_changes.length > 0 && (
+          {data.supporting_situations.length > 0 && (
             <section className="space-y-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Também vale saber
               </p>
-              {data.secondary_changes.slice(0, 3).map((item, i) => (
-                <NinoChangeRow key={item.id ?? `sec-${i}`} item={item} surface="nino:agora" rank={i + 2} />
+              {data.supporting_situations.slice(0, 3).map((item) => (
+                <NinoSituationCard key={item.id} situation={item} surface="nino:agora" compact />
               ))}
             </section>
           )}
@@ -162,40 +137,33 @@ export default function Nino() {
                 Pendências para organizar
               </p>
               {data.operational_tasks.map((item, i) => (
-                <NinoOperationalSummaryCard
-                  key={item.id ?? `op-${i}`}
-                  item={item}
-                  surface="nino:operacional"
-                  rank={i + 1}
-                />
+                <NinoSituationCard key={item.id} situation={item} surface="nino:operacional" compact />
               ))}
             </section>
           )}
 
-          {data.achievements.length > 0 && (
-            <section className="space-y-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Conquistas</p>
-              {data.achievements.slice(0, 2).map((item, i) => (
-                <NinoItemCard key={item.id ?? `ach-${i}`} item={item} surface="nino:conquistas" rank={i + 1} compact />
-              ))}
-            </section>
-          )}
+        </div>
+      ) : section.id === "historico" ? (
+        counts.historico === 0 ? <NinoEmptyBlock>{emptyText("historico")}</NinoEmptyBlock> : <div className="space-y-4">
+          {data.timeline.slice(0, expanded ? 20 : 6).map((entry) => <article key={entry.situation_id} className="relative border-l-2 border-border pl-5"><span className="absolute -left-[5px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-[10px] text-muted-foreground">{new Date(entry.last_event_at).toLocaleDateString("pt-BR")}</p><h2 className="text-sm font-semibold">{entry.headline}</h2><p className="mt-1 text-xs text-muted-foreground">{entry.events[0]?.narrative}</p></article>)}
+          {data.closings.map((closing) => <details key={closing.id} className="rounded-[18px] border border-border bg-card p-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-primary" />Fechamento até {new Date(`${closing.period_end}T12:00:00`).toLocaleDateString("pt-BR")}</span><ChevronDown className="h-4 w-4" /></summary><p className="mt-3 text-xs leading-relaxed text-muted-foreground">{closing.closing_text || "Resumo consolidado do período."}</p></details>)}
+          {data.timeline.length > 6 && !expanded ? <Button variant="outline" className="w-full rounded-full" onClick={() => setExpanded(true)}>Ver histórico completo</Button> : null}
         </div>
       ) : items.length === 0 ? (
         <NinoEmptyBlock>{emptyText(section.id)}</NinoEmptyBlock>
       ) : (
         <div className={`space-y-3 transition-opacity ${isFetching ? "opacity-60" : ""}`} aria-busy={isFetching}>
-          {visible.map((item, i) => (
-            <NinoItemCard key={item.id ?? `${section.id}-${i}`} item={item} surface={`nino:${section.id}`} rank={i + 1} />
+          {visible.map((item) => (
+            <NinoSituationCard key={item.id} situation={item} surface={`nino:${section.id}`} />
           ))}
           {overflow > 0 && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
               onClick={() => setExpanded(true)}
-              className="min-h-[44px] w-full rounded-full border border-border text-[12px] font-semibold text-muted-foreground transition active:scale-[0.99]"
+              className="w-full rounded-full"
             >
               Ver mais {overflow} leitura{overflow > 1 ? "s" : ""}
-            </button>
+            </Button>
           )}
         </div>
       )}

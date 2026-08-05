@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +25,8 @@ export const financialSituationSchema = z.object({
   percentage_delta: nullableNumber,
   impact_amount: nullableNumber,
   headline: z.string(),
+  narrative_role: z.enum(["primary", "support", "counterpoint", "operational"]).default("support"),
+  one_line_summary: z.string().nullable().optional(),
   cause_summary: z.string().nullable().optional(),
   consequence_summary: z.string().nullable().optional(),
   forecast_summary: z.string().nullable().optional(),
@@ -45,9 +47,38 @@ export const financialSituationActionSchema = z.object({
   status: z.enum(["proposed", "accepted", "in_progress", "done", "dismissed", "expired"]),
 }).passthrough();
 
+export const financialSituationEventSchema = z.object({
+  id: z.string().uuid(),
+  situation_id: z.string().uuid(),
+  event_type: z.string(),
+  from_status: z.string().nullable().optional(),
+  to_status: z.string().nullable().optional(),
+  delta_amount: nullableNumber,
+  narrative: z.string(),
+  occurred_at: z.string(),
+}).passthrough();
+
+export const timelineEntrySchema = z.object({
+  situation_id: z.string().uuid(),
+  situation_key: z.string(),
+  headline: z.string(),
+  last_event_at: z.string(),
+  events: z.array(financialSituationEventSchema),
+});
+
+export const closingSchema = z.object({
+  id: z.string().uuid(),
+  report_type: z.string(),
+  period_start: z.string(),
+  period_end: z.string(),
+  summary: z.unknown().nullable().optional(),
+  closing_text: z.string().nullable().optional(),
+  created_at: z.string(),
+}).passthrough();
+
 export const ninoDiagnosisContextSchema = z.object({
   ok: z.literal(true),
-  contract: z.literal("nino_diagnosis_contract.v1"),
+  contract: z.enum(["nino_diagnosis_contract.v1", "nino_diagnosis_contract.v1.1"]),
   snapshot_id: z.string().uuid().nullable(),
   as_of: z.string(),
   overall_state: z.enum(["stable", "positive", "attention", "critical", "insufficient_data"]),
@@ -57,6 +88,9 @@ export const ninoDiagnosisContextSchema = z.object({
   patterns: z.array(financialSituationSchema),
   anticipations: z.array(financialSituationSchema),
   operational_tasks: z.array(financialSituationSchema),
+  timeline: z.array(timelineEntrySchema).default([]),
+  closings: z.array(closingSchema).default([]),
+  narrative: z.record(z.unknown()).default({}),
   forecast: z.record(z.unknown()).default({}),
   data_quality: z.record(z.unknown()).default({}),
   confidence: confidenceNumber,
@@ -66,6 +100,8 @@ export const ninoDiagnosisContextSchema = z.object({
 
 export type FinancialSituation = z.infer<typeof financialSituationSchema>;
 export type FinancialSituationAction = z.infer<typeof financialSituationActionSchema>;
+export type FinancialSituationEvent = z.infer<typeof financialSituationEventSchema>;
+export type NinoTimelineEntry = z.infer<typeof timelineEntrySchema>;
 export type NinoDiagnosisContext = z.infer<typeof ninoDiagnosisContextSchema>;
 
 export class NinoDiagnosisContractError extends Error {
@@ -105,5 +141,23 @@ export function useNinoDiagnosisContext() {
     staleTime: 30_000,
     retry: 1,
     queryFn: fetchDiagnosis,
+  });
+}
+
+export function useNinoSituationFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ situationId, feedback, surface }: { situationId: string; feedback: "useful" | "not_useful" | "dismiss" | "acted"; surface: string }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any).call(supabase, "my_nino_situation_feedback", {
+        _situation_id: situationId,
+        _feedback: feedback,
+        _surface: surface,
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error("Não foi possível registrar seu feedback.");
+      return data as { ok: true };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["nino-diagnosis"] }),
   });
 }

@@ -344,9 +344,10 @@ ${JSON.stringify(hints)}
 
   if (diagnosisForPrompt?.ok && diagnosisForPrompt?.primary_situation) {
     const primary = diagnosisForPrompt.primary_situation;
-    const supporting = (diagnosisForPrompt.supporting_situations ?? []).slice(0, 2).map((s: any) => ({
+    const supporting = (diagnosisForPrompt.supporting_situations ?? []).slice(0, 3).map((s: any) => ({
       situation_type: s.situation_type,
-      headline: s.headline,
+      narrative_role: s.narrative_role,
+      headline: s.one_line_summary ?? s.headline,
       cause_summary: s.cause_summary,
       consequence_summary: s.consequence_summary,
       forecast_summary: s.forecast_summary,
@@ -358,7 +359,8 @@ ${JSON.stringify(hints)}
       overall_state: diagnosisForPrompt.overall_state,
       primary_situation: {
         situation_type: primary.situation_type,
-        headline: primary.headline,
+        narrative_role: primary.narrative_role,
+        headline: primary.one_line_summary ?? primary.headline,
         cause_summary: primary.cause_summary,
         consequence_summary: primary.consequence_summary,
         forecast_summary: primary.forecast_summary,
@@ -366,6 +368,13 @@ ${JSON.stringify(hints)}
       },
       primary_action: diagnosisForPrompt.primary_action,
       supporting_situations: supporting,
+      narrative: diagnosisForPrompt.narrative,
+      anticipations: (diagnosisForPrompt.anticipations ?? []).slice(0, 3).map((s: any) => ({
+        headline: s.one_line_summary ?? s.headline,
+        impact_amount: s.impact_amount,
+        period_end: s.period_end,
+        forecast_summary: s.forecast_summary,
+      })),
     };
     systemPrompt =
       `[DIAGNÓSTICO FINANCEIRO CANÔNICO DO NINO]\n` +
