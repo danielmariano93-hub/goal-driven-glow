@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText, ChevronRight, X, RotateCcw } from "lucide-react";
 import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
 import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
@@ -29,6 +30,7 @@ type StatementPaymentRow = {
 };
 
 export default function Cartoes() {
+  const [searchParams] = useSearchParams();
   const { data: cards, isLoading } = useCreditCards();
   const { data: txs } = useAllTransactions();
   const { data: accounts = [] } = useAccounts();
@@ -41,6 +43,12 @@ export default function Cartoes() {
   const save = useSaveCreditCard();
   const del = useDeleteCreditCard();
   const ym = currentMonthYM();
+
+  useEffect(() => {
+    const cardId = searchParams.get("card");
+    if (!cardId || !cards?.some((card) => card.id === cardId)) return;
+    requestAnimationFrame(() => document.getElementById(`card-${cardId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [cards, searchParams]);
   const { data: statements = [] } = useQuery({
     queryKey: ["credit_card_statements"],
     queryFn: async () => {
@@ -110,7 +118,7 @@ export default function Cartoes() {
             const usedPct = c.total_limit > 0 ? Math.min(1, commitment / Number(c.total_limit)) : 0;
             const available = Math.max(0, Number(c.total_limit) - commitment);
             return (
-              <li key={c.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+              <li id={`card-${c.id}`} key={c.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="font-medium">{c.name}{c.last_four ? ` •••• ${c.last_four}` : ""}</p>

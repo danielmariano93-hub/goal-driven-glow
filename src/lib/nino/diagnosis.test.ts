@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diagnosisActionLabel, diagnosisRoute } from "@/lib/nino/actions";
+import { diagnosisActionLabel, diagnosisRoute, diagnosisRouteForSituation } from "@/lib/nino/actions";
 import { financialSituationSchema, NinoDiagnosisContractError, ninoDiagnosisContextSchema } from "@/lib/nino/diagnosis";
 import { NinoRpcError } from "@/lib/nino/intelligence";
 
@@ -22,6 +22,16 @@ describe("nino_diagnosis_contract.v1.1", () => {
   it("seleciona CTA determinístico e bloqueia rota externa", () => {
     expect(diagnosisActionLabel(situation, null)).toBe("Planejar agora");
     expect(diagnosisRoute({ route: "https://example.com" } as never)).toBe("/app/nino");
+  });
+
+  it("leva tarefas operacionais sem ação anexada ao filtro correto", () => {
+    const quality = { ...situation, situation_type: "data_quality_issue", evaluation: { uncategorized_count: 8 } };
+    expect(diagnosisRouteForSituation(quality, null)).toBe("/app/lancamentos?filtro=sem-categoria");
+  });
+
+  it("leva revisão de duplicidades somente aos lançamentos envolvidos", () => {
+    const duplicates = { ...situation, situation_type: "duplicate_review", evaluation: { pairs: [{ transactions: ["a", "b"] }] } };
+    expect(diagnosisRouteForSituation(duplicates, null)).toContain("ids=a%2Cb");
   });
 
   it("classifica falhas de contrato para a mensagem correta da interface", () => {

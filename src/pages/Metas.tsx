@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2, Loader2, Target, TrendingUp, Users, ArrowRight, Sliders } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -37,6 +37,7 @@ type GoalTab = "all" | "individual" | "shared";
 
 
 export default function Metas() {
+  const [searchParams] = useSearchParams();
   const { data: goals, isLoading } = useGoals();
   const { data: contribs } = useContributions();
   const { data: investments } = useInvestments();
@@ -61,6 +62,14 @@ export default function Metas() {
   const [openNewSelector, setOpenNewSelector] = useState(false);
   const [editingCatGoal, setEditingCatGoal] = useState<CategorySpendingGoalRow | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const goalId = searchParams.get("goal");
+    if (!goalId || !goals?.some((goal) => goal.id === goalId)) return;
+    setTab("individual");
+    setExpanded(goalId);
+    requestAnimationFrame(() => document.getElementById(`goal-${goalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [goals, searchParams]);
 
 
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
@@ -186,7 +195,7 @@ export default function Metas() {
             const linkedInvestments = (investments ?? []).filter((i) => i.goal_id === g.id);
             const isOpen = expanded === g.id;
             return (
-              <li key={g.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+              <li id={`goal-${g.id}`} key={g.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{g.name}</p>

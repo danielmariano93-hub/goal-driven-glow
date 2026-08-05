@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, Lightbulb, Loader2, Printer } from "lucide-react";
 import {
   CartesianGrid,
@@ -130,7 +130,8 @@ function Group({
 
 
 
-export default function Relatorios() {
+export default function Relatorios({ focus }: { focus?: "categorias" }) {
+  const categoriesRef = useRef<HTMLDivElement>(null);
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
   const initialRange = resolvePeriodRange();
   const [from, setFrom] = useState(initialRange.start);
@@ -163,6 +164,11 @@ export default function Relatorios() {
       }) as unknown as ReportTxn));
     })();
   }, []);
+
+  useEffect(() => {
+    if (focus !== "categorias" || !categoriesRef.current || txns === null) return;
+    categoriesRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focus, txns]);
 
   if (txns === null) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
@@ -343,25 +349,27 @@ export default function Relatorios() {
       )}
 
 
-      <Group title="Para onde foi o dinheiro" subtitle="Despesas por categoria">
-        <div className="surface-card p-4 space-y-3">
-          {byCat.map(c => (
-            <div key={c.category}>
-              <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
-                <div className="min-w-0">
-                  <span className="block truncate font-medium">{c.category}</span>
-                  <span className="text-[10px] text-muted-foreground">{c.percentOfExpenses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das despesas</span>
+      <div id="categorias" ref={categoriesRef}>
+        <Group title="Para onde foi o dinheiro" subtitle="Despesas por categoria" defaultOpen={focus === "categorias"}>
+          <div className="surface-card space-y-3 p-4">
+            {byCat.map(c => (
+              <div key={c.category}>
+                <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <span className="block truncate font-medium">{c.category}</span>
+                    <span className="text-[10px] text-muted-foreground">{c.percentOfExpenses.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das despesas</span>
+                  </div>
+                  <span className="shrink-0 text-right font-medium tabular-nums">{formatBRL(c.total)} · {c.count}x</span>
                 </div>
-                <span className="shrink-0 text-right font-medium tabular-nums">{formatBRL(c.total)} · {c.count}x</span>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <div className="h-full bg-primary" style={{ width: `${(c.total/maxCat)*100}%` }} />
+                </div>
               </div>
-              <div className="mt-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-                <div className="h-full bg-primary" style={{ width: `${(c.total/maxCat)*100}%` }} />
-              </div>
-            </div>
-          ))}
-          <p className="text-[10px] text-muted-foreground">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
-        </div>
-      </Group>
+            ))}
+            <p className="text-[10px] text-muted-foreground">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
+          </div>
+        </Group>
+      </div>
 
       <section>
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Leitura do Nino</h2>

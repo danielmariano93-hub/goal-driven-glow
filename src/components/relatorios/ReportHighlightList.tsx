@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ChevronRight, Info, Lightbulb, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReportHighlightRow } from "@/lib/reports/intelligent/client";
+import { safeRoute } from "@/lib/nino/intelligence";
 
 const TONE = {
   risk: { icon: AlertTriangle, chip: "bg-rose-500/10 text-rose-600", label: "Risco" },
@@ -46,7 +47,7 @@ export default function ReportHighlightList({ highlights }: { highlights: Report
 
                 {h.cta_route && (
                   <button
-                    onClick={() => navigate(h.cta_route!)}
+                    onClick={() => navigate(safeRoute({ route: h.cta_route }))}
                     className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary print:hidden"
                   >
                     {h.cta_label ?? "Abrir"} <ChevronRight size={13} />
