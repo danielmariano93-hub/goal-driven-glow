@@ -25,10 +25,9 @@ const CONFIDENCE_LABEL: Record<SpendingProjection["confidence"], string> = {
 function Row({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3 tabular-nums">
-      <span className="text-[11px]" style={{ color: "var(--home-text-2)" }}>{label}</span>
+      <span className="text-[11px] text-muted-foreground">{label}</span>
       <span
-        className={strong ? "text-[13px] font-extrabold" : "text-[12px] font-semibold"}
-        style={{ color: "var(--home-text-1)" }}
+        className={strong ? "text-[13px] font-extrabold text-foreground" : "text-[12px] font-semibold text-foreground"}
       >
         {formatBRL(value)}
       </span>

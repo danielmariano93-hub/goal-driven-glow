@@ -139,10 +139,7 @@ export function EmotionalCheckinCard() {
 
       {saved && selected ? (
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span
-            className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[12px] font-semibold"
-            style={{ background: "var(--home-pos-bg)", color: "var(--home-pos)" }}
-          >
+          <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-semibold text-success">
             <Check size={12} weight="bold" /> {selected.label} · hoje
           </span>
           <Button
@@ -191,7 +188,7 @@ export function EmotionalCheckinCard() {
             <div className="mt-3 space-y-2">
               {(recentTxs?.length ?? 0) > 0 && (
                 <div>
-                  <label className="flex items-center gap-1 text-[11px]" style={{ color: "var(--home-text-2)" }}>
+                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     <LinkSimple size={11} weight="bold" /> Relacionar a um gasto <span className="opacity-70">(opcional)</span>
                   </label>
                   <select
@@ -216,7 +213,7 @@ export function EmotionalCheckinCard() {
                 placeholder="Quer contar o que aconteceu? (opcional)"
               />
               <div className="flex items-center justify-between gap-2">
-                <Link to="/app/emocoes" className="text-[12px] font-semibold hover:underline" style={{ color: "var(--home-brand-violet)" }}>
+                <Link to="/app/emocoes" className="text-[12px] font-semibold text-primary hover:underline">
                   Ver relatório
                 </Link>
                 <Button
