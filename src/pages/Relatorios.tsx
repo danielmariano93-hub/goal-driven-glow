@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Download, Lightbulb, Loader2, Printer, TrendingDown } from "lucide-react";
+import { ChevronDown, Download, Lightbulb, Loader2, Printer } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -15,7 +15,6 @@ import {
   byCategory,
   filterCanonicalReportTransactions,
   filterPeriod,
-  spendingHighlights,
   toCsv,
   type ReportTxn,
 } from "@/lib/reports/aggregations";
@@ -24,6 +23,7 @@ import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { clampRangeToToday } from "@/lib/engine/spendingRhythm";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { useAccounts, useAccountBalanceSnapshots, useAllTransactions } from "@/lib/db/finance";
+import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
 import { computeCashBridge, computePeriodPerformance } from "@/lib/engine/bridges";
 import {
   CashBridgeBlock,
@@ -139,6 +139,14 @@ export default function Relatorios() {
   const { data: bridgeAccounts } = useAccounts();
   const { data: bridgeSnapshots } = useAccountBalanceSnapshots();
   const { data: bridgeTxs } = useAllTransactions();
+  const {
+    data: diagnosis,
+    isLoading: diagnosisLoading,
+    isError: diagnosisError,
+  } = useNinoDiagnosisContext();
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const isCurrentDiagnosisRange = reportRange.end === today && reportRange.start.slice(0, 7) === today.slice(0, 7);
 
   useEffect(() => {
     (async () => {
@@ -169,10 +177,12 @@ export default function Relatorios() {
     label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
   }));
   const byCat = byCategory(filtered);
-  const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
-  const totalExpense = monthly.reduce((s, m) => s + m.expense, 0);
   const maxCat = Math.max(1, ...byCat.map(c => c.total));
-  const highlights = spendingHighlights(byCat, totalExpense);
+  const diagnosisItems = isCurrentDiagnosisRange
+    ? [diagnosis?.primary_situation, ...(diagnosis?.supporting_situations ?? [])]
+      .filter((item): item is FinancialSituation => Boolean(item))
+      .slice(0, 3)
+    : [];
 
   // Mês a mês com a MESMA ponte canônica do período (nenhum cálculo paralelo).
   const bridgeAccountRows = (bridgeAccounts ?? []).map((a) => ({
@@ -353,23 +363,31 @@ export default function Relatorios() {
       </Group>
 
       <section>
-        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Principais leituras do período</h2>
-        <div className="space-y-2">
-          {highlights.slice(0, 3).map((h) => (
-            <article key={h.id} className="surface-card p-4">
-              <div className="flex min-w-0 gap-3">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-                  <TrendingDown size={15} />
-                </span>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-semibold leading-snug">{h.title}</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{h.body}</p>
-                  {h.impact ? <p className="mt-2 text-[11px] font-medium text-foreground">{h.impact}</p> : null}
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Leitura do Nino</h2>
+        {!isCurrentDiagnosisRange ? (
+          <div className="surface-card p-4 text-xs text-muted-foreground">
+            As interpretações de períodos encerrados ficam em Fechamentos. Esta visão mantém somente os dados factuais do intervalo escolhido.
+          </div>
+        ) : diagnosisLoading ? (
+          <div className="surface-card grid place-items-center p-5"><Loader2 className="animate-spin text-muted-foreground" /></div>
+        ) : diagnosisError ? (
+          <div className="surface-card p-4 text-xs text-muted-foreground">
+            O diagnóstico não pôde ser carregado. Os valores factuais do relatório continuam disponíveis acima.
+          </div>
+        ) : diagnosisItems.length === 0 ? (
+          <div className="surface-card p-4 text-xs text-muted-foreground">Nenhuma mudança relevante foi confirmada para este período.</div>
+        ) : (
+          <div className="space-y-2">
+            {diagnosisItems.map((item) => (
+              <article key={item.id} className="surface-card p-4">
+                <h3 className="text-sm font-semibold leading-snug">{item.headline}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {[item.cause_summary, item.consequence_summary].filter(Boolean).join(" ")}
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
     </div>

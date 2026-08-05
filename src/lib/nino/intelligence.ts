@@ -293,6 +293,7 @@ export function useNinoRefresh() {
       // Sucesso só depois do refetch concluído.
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["nino-intelligence"] }),
+        qc.invalidateQueries({ queryKey: ["nino-diagnosis"] }),
         qc.invalidateQueries({ queryKey: ["nino-home-item"] }),
         qc.invalidateQueries({ queryKey: ["more-menu-context"] }),
         qc.invalidateQueries({ queryKey: ["reports-context"] }),
@@ -315,14 +316,21 @@ export function useNinoFeedback() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["nino-intelligence"] });
       void qc.invalidateQueries({ queryKey: ["nino-home-item"] });
+      void qc.invalidateQueries({ queryKey: ["nino-diagnosis"] });
     },
   });
 }
 
 export function useNinoAct() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { itemId: string; surface?: string }) =>
       callRpc<{ ok: boolean }>("my_nino_item_act", { _item_id: v.itemId, _surface: v.surface ?? "nino" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["nino-intelligence"] });
+      void qc.invalidateQueries({ queryKey: ["nino-home-item"] });
+      void qc.invalidateQueries({ queryKey: ["nino-diagnosis"] });
+    },
   });
 }
 
@@ -418,6 +426,7 @@ export function useNinoDuplicateDecision() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["nino-intelligence"] });
       void qc.invalidateQueries({ queryKey: ["nino-home-item"] });
+      void qc.invalidateQueries({ queryKey: ["nino-diagnosis"] });
     },
   });
 }
