@@ -25,12 +25,12 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className={`relative overflow-hidden rounded-2xl bg-gradient-brand-dark p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[124px]" : "min-h-[168px]"}`}
+        className={`relative overflow-hidden rounded-2xl bg-gradient-hero p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[140px]" : "min-h-[196px]"}`}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase text-primary-foreground/70">{p.periodLabel}</p>
-             {p.loading ? <div className="mt-2 h-9 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-lg font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-2 truncate font-display text-[36px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
+             <p className="text-xs font-semibold text-primary-foreground/70">{p.periodLabel}</p>
+              {p.loading ? <div className="mt-3 h-10 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-3 text-lg font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-3 break-words font-display text-[38px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
           </div>
           <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
         </div>
@@ -42,7 +42,7 @@ export function HeroDisponivelCard(p: Props) {
           </div>
         ) : !p.loading && p.partial ? (
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-primary-foreground/15 pt-3">
-            <p className="text-xs leading-relaxed text-primary-foreground/75">Algumas informações ainda não foram atualizadas.</p>
+            <div><p className="text-xs font-semibold text-primary-foreground">Dados incompletos</p><p className="mt-0.5 text-[11px] leading-relaxed text-primary-foreground/75">O saldo disponível está preservado; projeções podem mudar.</p></div>
             {p.onRetry ? <Button type="button" variant="ghost" onClick={p.onRetry} className="min-h-11 shrink-0 rounded-full px-3 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">Atualizar</Button> : null}
           </div>
         ) : !p.loading && p.hasAccount === false ? (

@@ -61,8 +61,7 @@
     --gradient-brand-soft: linear-gradient(135deg, hsl(252 100% 65% / 0.12) 0%, hsl(5 100% 69% / 0.10) 100%);
     --gradient-brand-dark: linear-gradient(135deg, hsl(258 54% 18%) 0%, hsl(252 52% 24%) 100%);
     --gradient-hero:
-      radial-gradient(circle at 88% 16%, rgba(255,255,255,0.14), transparent 24%),
-      linear-gradient(135deg, #17102F 0%, #2B175F 42%, #5B2BE0 82%, #A849C8 115%);
+      linear-gradient(135deg, hsl(237 24% 8%) 0%, hsl(250 50% 16%) 34%, hsl(252 88% 58%) 76%, hsl(5 100% 69%) 122%);
     --gradient-fab: linear-gradient(145deg, #5B2BE0, #7A3FF2 62%, #C957A5);
     --shadow-hero: 0 14px 32px hsl(258 54% 18% / 0.18);
 
@@ -202,6 +201,14 @@
   [data-surface="home"] {
     --home-insight-surface: var(--gradient-brand-soft);
     --home-action-surface: var(--gradient-brand-dark);
+    font-family: 'Manrope', 'Inter', 'DM Sans', -apple-system, sans-serif;
+  }
+
+  [data-surface="home"] h1,
+  [data-surface="home"] h2,
+  [data-surface="home"] h3,
+  [data-surface="home"] .font-display {
+    font-family: 'Manrope', 'Inter', 'DM Sans', -apple-system, sans-serif;
   }
 
   .font-numeric {
