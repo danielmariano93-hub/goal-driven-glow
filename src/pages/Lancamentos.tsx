@@ -33,6 +33,7 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { EmptyState } from "@/components/ui/empty-state";
 import { notifySuccess, notifyError, notifyInfo, humanizeError } from "@/lib/ui/feedback";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { processCategoryQueue } from "@/lib/categoryEngine";
 
 type SortMode = "date_desc" | "date_asc" | "amount_desc" | "amount_asc";
 type PersistedFilters = TxFilters & { sort?: SortMode };
@@ -456,13 +457,13 @@ export default function Lancamentos() {
                 onClick={async () => {
                   setCategorizing(true);
                   try {
-                    const { data, error } = await (supabase.rpc as unknown as (fn: string) => Promise<{ data: unknown; error: { message: string } | null }>)("apply_safe_category_suggestions");
-                    if (error) throw error;
-                    const count = Number((data as { updated?: number } | null)?.updated ?? 0);
+                    const result = await processCategoryQueue();
+                    const count = result.decisions.filter((decision) => decision.action === "auto_apply").length;
+                    const pending = result.decisions.filter((decision) => decision.action !== "auto_apply" && decision.action !== "exclude").length;
                     if (count) {
                       notifySuccess(
                         `${count} lançamento${count === 1 ? "" : "s"} categorizado${count === 1 ? "" : "s"}`,
-                        "Aplicamos apenas correspondências de alta confiança.",
+                        pending ? `${pending} ainda precisa${pending === 1 ? "" : "m"} da sua validação.` : "Aplicamos apenas correspondências de alta confiança.",
                       );
                     } else {
                       notifyInfo("Nenhuma sugestão segura encontrada", "Os demais continuam para sua revisão.");

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/context/AuthContext";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { classifyTransaction, learnCategory } from "@/lib/categoryEngine";
 import type {
   AccountInput,
   CategoryInput,
@@ -327,6 +328,15 @@ export function useSaveTransaction() {
   return useMutation({
     mutationFn: async (input: TransactionInput & { id?: string }) => {
       if (!user) throw new Error("not authenticated");
+      const inferred = input.category_id ? null : await classifyTransaction({
+        type: input.type,
+        description: input.description || null,
+        movement_kind: "transaction",
+      }).catch((error) => {
+        console.warn("[category-engine] classification fallback", error);
+        return null;
+      });
+      const inferredCategory = inferred?.action === "auto_apply" ? inferred.category_id : null;
       // Deriva competência da fatura no cliente quando for despesa de cartão.
       // Um trigger no banco cobre o mesmo caso como rede de segurança, mas
       // preencher aqui garante que a UI reflita a competência correta sem
@@ -352,7 +362,12 @@ export function useSaveTransaction() {
         account_id: input.payment_method === "credit_card" ? null : input.account_id,
         credit_card_id: input.payment_method === "credit_card" ? input.credit_card_id : null,
         payment_method: input.payment_method,
-        category_id: input.category_id || null,
+        category_id: input.category_id || inferredCategory || null,
+        category_source: input.category_id ? "user" : (inferredCategory ? inferred?.category_source : null),
+        category_confidence: input.category_id ? 1 : (inferredCategory ? inferred?.category_confidence : null),
+        category_reason: input.category_id ? "escolha explícita" : (inferredCategory ? inferred?.category_reason : null),
+        category_engine_version: inferred?.engine_version ?? null,
+        category_classified_at: inferred ? new Date().toISOString() : null,
         type: input.type,
         status: input.status,
         amount: input.amount,
@@ -377,13 +392,7 @@ export function useSaveTransaction() {
         if (error) throw error;
         if (!data) throw new Error("read_after_write_failed: linha atualizada não retornada");
         saved = data as unknown as Record<string, unknown>;
-        if (input.category_id) {
-          const { error: learnError } = await (supabase.rpc as any)("learn_transaction_category", {
-            p_transaction_id: input.id,
-            p_category_id: input.category_id,
-          });
-          if (learnError) console.warn("[category-learning]", learnError.message);
-        }
+        if (input.category_id) await learnCategory(input.id, input.category_id).catch((error) => console.warn("[category-learning]", error));
       } else {
         const { data, error } = await supabase
           .from("transactions")
@@ -393,6 +402,10 @@ export function useSaveTransaction() {
         if (error) throw error;
         if (!data) throw new Error("read_after_write_failed: linha inserida não retornada");
         saved = data as unknown as Record<string, unknown>;
+        if (input.category_id) {
+          const savedId = String(saved.id ?? "");
+          if (savedId) await learnCategory(savedId, input.category_id).catch((error) => console.warn("[category-learning]", error));
+        }
       }
       return saved;
     },
