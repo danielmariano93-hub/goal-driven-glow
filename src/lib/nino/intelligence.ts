@@ -397,3 +397,19 @@ export const MATURITY_LABEL: Record<string, string> = {
 };
 
 export { NinoContractError };
+
+/** Decisão do usuário sobre um par possivelmente duplicado. */
+export function useNinoDuplicateDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { pairKey: string; decision: "distinct" | "duplicate" | "ignored" }) =>
+      callRpc<{ ok: boolean; error?: string }>("my_nino_duplicate_decision", {
+        _pair_key: v.pairKey,
+        _decision: v.decision,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["nino-intelligence"] });
+      void qc.invalidateQueries({ queryKey: ["nino-home-item"] });
+    },
+  });
+}
