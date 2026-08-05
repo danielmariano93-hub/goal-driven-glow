@@ -6,12 +6,15 @@ import { PlusCircle, Users, Calculator, LayoutGrid } from "lucide-react";
  */
 export function QuickActions() {
   return (
-    <nav aria-label="Ações rápidas" className="grid grid-cols-4 gap-2">
-      <Action to="/app/lancamentos" label="Anotar" icon={<PlusCircle />} />
-      <Action to="/app/divisao-do-role" label={"Dividir\nrolê"} icon={<Users />} />
-      <Action to="/app/planejamento" label={"Antes de\ncomprar"} icon={<Calculator />} />
-      <Action to="/app/mais" label="Mais" icon={<LayoutGrid />} />
-    </nav>
+    <section aria-labelledby="quick-actions-title">
+      <h2 id="quick-actions-title" className="mb-2 text-[13px] font-bold text-foreground">Atalhos</h2>
+      <nav aria-label="Ações rápidas" className="grid grid-cols-4 gap-2">
+        <Action to="/app/lancamentos" label="Anotar" icon={<PlusCircle />} />
+        <Action to="/app/divisao-do-role" label={"Dividir\nrolê"} icon={<Users />} />
+        <Action to="/app/planejamento" label={"Antes de\ncomprar"} icon={<Calculator />} />
+        <Action to="/app/mais" label="Mais" icon={<LayoutGrid />} />
+      </nav>
+    </section>
   );
 }
 
@@ -19,17 +22,16 @@ function Action({ to, label, icon }: { to: string; label: string; icon: React.Re
   return (
     <Link
       to={to}
-      className="flex min-h-[88px] flex-col items-center justify-start gap-2 pt-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-lg"
+      className="flex min-h-[86px] flex-col items-center justify-start gap-2 rounded-lg pt-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
       <span
         className="grid h-11 w-11 place-items-center rounded-full [&>svg]:h-5 [&>svg]:w-5"
-        style={{ background: "var(--home-quick-bg)", color: "var(--home-brand-violet)" }}
+        className="grid h-11 w-11 place-items-center rounded-full bg-secondary text-primary [&>svg]:h-5 [&>svg]:w-5"
       >
         {icon}
       </span>
       <span
-        className="whitespace-pre-line text-[11px] font-medium leading-tight"
-        style={{ color: "var(--home-text-1)" }}
+        className="whitespace-pre-line text-[11px] font-medium leading-tight text-foreground"
       >
         {label}
       </span>
