@@ -13,6 +13,7 @@ const TABS = [
 export default function RelatoriosHub() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "fechamentos" ? "fechamentos" : "atual";
+  const focus = params.get("foco") === "categorias" ? "categorias" : undefined;
 
   return (
     <div className="space-y-4">
@@ -38,7 +39,7 @@ export default function RelatoriosHub() {
           </div>
         }
       >
-        {tab === "fechamentos" ? <RelatoriosFechamentos /> : <RelatoriosAtual />}
+        {tab === "fechamentos" ? <RelatoriosFechamentos /> : <RelatoriosAtual focus={focus} />}
       </Suspense>
     </div>
   );

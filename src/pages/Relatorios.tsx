@@ -130,7 +130,7 @@ function Group({
 
 
 
-export default function Relatorios() {
+export default function Relatorios({ focus }: { focus?: "categorias" }) {
   const [txns, setTxns] = useState<ReportTxn[] | null>(null);
   const initialRange = resolvePeriodRange();
   const [from, setFrom] = useState(initialRange.start);
@@ -343,8 +343,13 @@ export default function Relatorios() {
       )}
 
 
-      <Group title="Para onde foi o dinheiro" subtitle="Despesas por categoria">
-        <div className="surface-card p-4 space-y-3">
+      <div id="categorias" ref={(node) => {
+        if (node && focus === "categorias") {
+          window.requestAnimationFrame(() => node.scrollIntoView({ behavior: "smooth", block: "center" }));
+        }
+      }}>
+      <Group title="Para onde foi o dinheiro" subtitle="Despesas por categoria" defaultOpen={focus === "categorias"}>
+        <div className="surface-card space-y-3 p-4">
           {byCat.map(c => (
             <div key={c.category}>
               <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
@@ -362,6 +367,7 @@ export default function Relatorios() {
           <p className="text-[10px] text-muted-foreground">Consumo real: exclui transferências, investimentos, empréstimos e pagamento de fatura; estornos reduzem o total.</p>
         </div>
       </Group>
+      </div>
 
       <section>
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Leitura do Nino</h2>
