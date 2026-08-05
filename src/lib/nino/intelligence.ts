@@ -175,18 +175,30 @@ export function useNinoContext() {
       return {
         ok: true,
         as_of: parsed.as_of ?? new Date().toISOString(),
+        contract: parsed.contract ?? null,
         continuity_topic: parsed.continuity_topic ?? null,
         last_seen_at: parsed.last_seen_at ?? null,
         new_since_last_visit: parsed.new_since_last_visit ?? 0,
+        primary_item: parsed.primaryItem
+          ? normalizeItem(parsed.primaryItem as unknown as Record<string, unknown>)
+          : null,
+        secondary_changes: parsed.sections.secondary_changes.map(normalizeItem),
+        operational_tasks: parsed.sections.operational_tasks.map(normalizeItem),
         now: parsed.sections.now.map(normalizeItem),
         changes: parsed.sections.changes.map(normalizeItem),
         learnings: parsed.sections.learnings.map(normalizeItem),
         prepare: parsed.sections.prepare.map(normalizeItem),
         history: parsed.sections.history.map(normalizeItem),
         achievements: parsed.sections.achievements.map(normalizeItem),
+        engine_state: {
+          patterns_tracked: parsed.engine_state?.patterns_tracked ?? 0,
+          anticipations_open: parsed.engine_state?.anticipations_open ?? 0,
+          suppressed_total: parsed.engine_state?.suppressed_total ?? 0,
+        },
         data_quality: (parsed.data_quality ?? { status: "ok", uncategorized_count: 0 }) as NinoContext["data_quality"],
         invalidItems: parsed.invalidItems,
       };
+
     },
   });
 }
