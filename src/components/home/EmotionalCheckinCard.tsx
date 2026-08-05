@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Link2, Check } from "lucide-react";
+import { SpinnerGap, LinkSimple, Check } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -128,7 +128,7 @@ export function EmotionalCheckinCard() {
   return (
     <section
       aria-label="Check-in emocional"
-      className="rounded-[20px] border border-brand-coral/20 bg-brand-coral/5 p-4"
+      className="rounded-[20px] border border-brand-coral/20 bg-brand-coral/10 p-4 shadow-sm animate-fade-in"
     >
       <h3 className="text-[15px] font-bold text-foreground">
         Como você está com o dinheiro hoje?
@@ -143,7 +143,7 @@ export function EmotionalCheckinCard() {
             className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[12px] font-semibold"
             style={{ background: "var(--home-pos-bg)", color: "var(--home-pos)" }}
           >
-            <Check size={12} /> {selected.label} · hoje
+            <Check size={12} weight="bold" /> {selected.label} · hoje
           </span>
           <Button
             type="button"
@@ -192,7 +192,7 @@ export function EmotionalCheckinCard() {
               {(recentTxs?.length ?? 0) > 0 && (
                 <div>
                   <label className="flex items-center gap-1 text-[11px]" style={{ color: "var(--home-text-2)" }}>
-                    <Link2 size={11} /> Relacionar a um gasto <span className="opacity-70">(opcional)</span>
+                    <LinkSimple size={11} weight="bold" /> Relacionar a um gasto <span className="opacity-70">(opcional)</span>
                   </label>
                   <select
                     value={txId}
@@ -226,7 +226,7 @@ export function EmotionalCheckinCard() {
                   size="sm"
                   className="rounded-full px-4 text-[12px] font-semibold"
                 >
-                  {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+                  {saving ? <SpinnerGap size={12} className="animate-spin" /> : null}
                   {today ? "Atualizar" : "Registrar"}
                 </Button>
               </div>

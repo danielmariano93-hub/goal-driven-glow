@@ -29,6 +29,26 @@ describe("composição narrativa da Home", () => {
     expect(source).toContain("toHomeDiagnosisView");
     expect(source).not.toContain("useNinoHomeItem");
   });
+
+  it("aplica a identidade oficial na Home", () => {
+    const theme = read("tailwind.config.ts");
+    const files = [
+      "src/components/home/HomeHeader.tsx",
+      "src/components/home/PeriodPicker.tsx",
+      "src/components/home/HeroDisponivelCard.tsx",
+      "src/components/home/RitmoUnificadoCard.tsx",
+      "src/components/home/AssistantTipCard.tsx",
+      "src/components/home/PrevisaoFechamentoCard.tsx",
+      "src/components/home/QuickActions.tsx",
+      "src/components/home/EmotionalCheckinCard.tsx",
+      "src/components/home/ComecePorAqui.tsx",
+    ].map(read).join("\n");
+    expect(theme).toContain('"DM Sans"');
+    expect(theme).not.toContain('"Inter"');
+    expect(theme).not.toContain('"Manrope"');
+    expect(files).toContain("@phosphor-icons/react");
+    expect(files).not.toContain('from "lucide-react"');
+  });
 });
 
 describe("privacidade financeira da Home", () => {
