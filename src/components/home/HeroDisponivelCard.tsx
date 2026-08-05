@@ -61,7 +61,7 @@ export function HeroDisponivelCard(p: Props) {
               Ver composição <ArrowRight />
             </Button>
           </div>
-        </div>
+        )}
       </section>
 
       <PatrimonioSheet
