@@ -53,7 +53,8 @@ export default function Index() {
     return resolvePeriodRange({ period, customStart, customEnd });
   }, [period, customStart, customEnd]);
 
-  const { data: snap, loading, error: snapshotError, refetch: refetchSnapshot } = useFinancialSnapshot(periodRange);
+  const snapshot = useFinancialSnapshot(periodRange);
+  const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const diagnosis = useNinoDiagnosisContext();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
@@ -62,7 +63,7 @@ export default function Index() {
   const heroLabel = "Disponível hoje";
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-5 md:max-w-2xl" data-surface="home">
+    <div className="mx-auto w-full max-w-md space-y-5 pb-20 [scroll-padding-bottom:9rem] md:max-w-2xl" data-surface="home">
       <HomeHeader />
 
       <PeriodPicker
@@ -79,20 +80,24 @@ export default function Index() {
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
-        confirmedFutureInflows={snap?.projection.confirmedFutureInflows ?? 0}
-        upcomingCommitments={snap?.projection.upcomingConfirmedCommitments ?? 0}
-        cardDueThisMonth={snap?.projection.cardDueThisMonth ?? 0}
-        projectedEndBalance={snap?.projection.projectedEndBalance ?? 0}
+        confirmedFutureInflows={availability.projection === "available" ? snap?.projection.confirmedFutureInflows ?? 0 : 0}
+        upcomingCommitments={availability.projection === "available" ? snap?.projection.upcomingConfirmedCommitments ?? 0 : 0}
+        cardDueThisMonth={availability.cardExposure === "available" ? snap?.projection.cardDueThisMonth ?? 0 : 0}
+        projectedEndBalance={availability.projection === "available" ? snap?.projection.projectedEndBalance ?? 0 : 0}
         loading={loading}
         hasAccount={hasAccount}
         error={snapshotError}
-        onRetry={() => void refetchSnapshot()}
+        partial={completeness === "partial"}
+        onRetry={() => void (snapshotError ? snapshot.refetchCritical() : snapshot.refetchMissing())}
       />
 
       <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}
         projection={snap?.projection ?? null}
         loading={loading}
+        partial={completeness === "partial"}
+        error={availability.rhythm === "unavailable" ? snapshotError : null}
+        onRetry={() => void snapshot.refetchCritical()}
       />
 
       <NinoGuidanceCard
@@ -102,6 +107,7 @@ export default function Index() {
         error={diagnosis.error}
         retrying={diagnosis.isFetching}
         onRetry={() => void diagnosis.refetch()}
+        projectionAvailability={availability.projection}
       />
 
       <QuickActions />
