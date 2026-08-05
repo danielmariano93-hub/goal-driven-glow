@@ -1,4 +1,5 @@
 import { AlertTriangle, Loader2, LogIn, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { NinoRpcError, type NinoErrorKind } from "@/lib/nino/intelligence";
 import { hourBR } from "@/lib/nino/format";
 
@@ -78,16 +79,16 @@ export function NinoErrorBlock({
             {hasStaleData ? " Mantivemos as últimas leituras carregadas abaixo." : ""}
           </p>
           {onRetry && (
-            <button
+            <Button
               type="button"
               onClick={onRetry}
               disabled={retrying}
-              className="mt-2.5 inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3.5 text-[12px] font-semibold text-white transition active:scale-[0.98] disabled:opacity-60"
-              style={{ background: "var(--home-brand-ink)" }}
+              size="sm"
+              className="mt-2.5 min-h-[36px] rounded-full px-3.5 text-[12px]"
             >
               {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Tentar novamente
-            </button>
+            </Button>
           )}
         </div>
       </div>

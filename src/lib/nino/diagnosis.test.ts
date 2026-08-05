@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { diagnosisActionLabel, diagnosisRoute } from "@/lib/nino/actions";
-import { financialSituationSchema, ninoDiagnosisContextSchema } from "@/lib/nino/diagnosis";
+import { financialSituationSchema, NinoDiagnosisContractError, ninoDiagnosisContextSchema } from "@/lib/nino/diagnosis";
+import { NinoRpcError } from "@/lib/nino/intelligence";
 
 const situation = financialSituationSchema.parse({
   id: "550e8400-e29b-41d4-a716-446655440000", situation_type: "anticipation", situation_key: "future:bill:1",
@@ -21,5 +22,11 @@ describe("nino_diagnosis_contract.v1.1", () => {
   it("seleciona CTA determinístico e bloqueia rota externa", () => {
     expect(diagnosisActionLabel(situation, null)).toBe("Planejar agora");
     expect(diagnosisRoute({ route: "https://example.com" } as never)).toBe("/app/nino");
+  });
+
+  it("classifica falhas de contrato para a mensagem correta da interface", () => {
+    const error = new NinoDiagnosisContractError("Contrato inválido");
+    expect(error).toBeInstanceOf(NinoRpcError);
+    expect(error.kind).toBe("contract");
   });
 });

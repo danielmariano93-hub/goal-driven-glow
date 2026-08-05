@@ -94,18 +94,20 @@ export default function Nino() {
         {SECTIONS.map((s) => {
           const isActive = s.id === section.id;
           return (
-            <button
+              <Button
               key={s.id}
               type="button"
               aria-current={isActive}
               onClick={() => setParams({ section: s.id }, { replace: true })}
+                variant={isActive ? "default" : "outline"}
+                size="sm"
               className={`min-h-[40px] whitespace-nowrap rounded-full px-3 text-[12px] font-semibold transition active:scale-[0.97] ${
-                isActive ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground"
+                  isActive ? "" : "text-muted-foreground"
               }`}
             >
               {s.label}
               {counts[s.id] > 0 && <span className="ml-1 tabular-nums opacity-80">{counts[s.id]}</span>}
-            </button>
+              </Button>
           );
         })}
       </nav>
@@ -136,7 +138,7 @@ export default function Nino() {
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Pendências para organizar
               </p>
-              {data.operational_tasks.map((item, i) => (
+              {data.operational_tasks.map((item) => (
                 <NinoSituationCard key={item.id} situation={item} surface="nino:operacional" compact />
               ))}
             </section>
