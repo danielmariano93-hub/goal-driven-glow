@@ -1,7 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
-import { AssessorFab } from '@/components/assessor/AssessorFab';
 import { AssessorPanel } from '@/components/assessor/AssessorPanel';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
 import { usePrivacyMode } from '@/context/PrivacyModeContext';
@@ -37,7 +36,6 @@ export function AppLayout() {
             </div>
           </main>
           <BottomTabBar />
-          <AssessorFab />
           <GlobalAssessorPanel />
         </div>
       </AssessorProvider>
