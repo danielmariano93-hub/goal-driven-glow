@@ -58,20 +58,18 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
         type="button"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className="flex w-full items-center gap-3 rounded-[14px] bg-[color:var(--home-surface)] px-3.5 text-left"
-        style={{ border: "1px solid var(--home-hairline)", height: 50 }}
+        className="flex h-11 w-full items-center gap-3 rounded-[14px] border border-border/70 bg-card px-3.5 text-left"
       >
         <span
-          className="grid h-7 w-7 place-items-center rounded-full"
-          style={{ background: "var(--home-surface-soft)", color: "var(--home-brand-violet)" }}
+          className="grid h-7 w-7 place-items-center rounded-full bg-secondary text-primary"
         >
           <CalendarDays size={14} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[11px]" style={{ color: "var(--home-text-2)" }}>Resumo financeiro</span>
-          <span className="block truncate text-[14px] font-semibold" style={{ color: "var(--home-text-1)" }}>{label}</span>
+          <span className="block text-[10px] text-muted-foreground">Período do resumo</span>
+          <span className="block truncate text-[13px] font-semibold text-foreground">{label}</span>
         </span>
-        <ChevronRight size={14} style={{ color: "var(--home-text-3)" }} />
+        <ChevronRight size={14} className="text-muted-foreground" />
       </button>
 
       <Sheet open={open} onOpenChange={setOpen}>

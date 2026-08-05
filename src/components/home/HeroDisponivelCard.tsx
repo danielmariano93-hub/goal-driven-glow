@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { ArrowRight, WalletCards } from "lucide-react";
+import { Link } from "react-router-dom";
 import { formatBRL } from "@/lib/engine/facts";
+import { Button } from "@/components/ui/button";
 import { PatrimonioSheet } from "./PatrimonioSheet";
 
 type Props = {
@@ -13,6 +16,7 @@ type Props = {
   otherDebts: number;
   periodLabel: string;
   loading?: boolean;
+  hasAccount?: boolean;
   cardFutureInstallments?: number;
   cardDebtIsEstimated?: boolean;
 };
@@ -23,46 +27,42 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className="relative overflow-hidden rounded-[24px] bg-gradient-hero p-5 text-white"
-        style={{ boxShadow: "var(--shadow-hero)", minHeight: 172 }}
+        className="rounded-[20px] border border-border/70 bg-card p-5 shadow-sm"
       >
-        <div className="relative flex h-full flex-col">
-          <p
-            className="text-[10px] font-bold uppercase text-white/72"
-            style={{ letterSpacing: "0.14em" }}
-          >
-            {p.periodLabel.toUpperCase()}
-          </p>
-          <p
-            className="mt-2 font-display font-extrabold tabular-nums text-white"
-            style={{ fontSize: 34, lineHeight: 1.05, letterSpacing: "-0.035em" }}
-          >
-            {p.loading ? "—" : formatBRL(p.available)}
-          </p>
-          <p className="mt-1 truncate text-[12px] leading-snug text-white/78">
-            Saldo real em conta agora, sem descontar fatura futura.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase text-muted-foreground">{p.periodLabel}</p>
+            <p className="mt-2 font-display text-[34px] font-extrabold leading-none tabular-nums text-foreground">
+              {p.loading ? "—" : formatBRL(p.available)}
+            </p>
+          </div>
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-secondary text-primary">
+            <WalletCards className="h-5 w-5" aria-hidden="true" />
+          </span>
+        </div>
 
-          <div
-            className="mt-auto flex items-end justify-between gap-3 pt-4"
-            style={{ borderTop: "1px solid rgba(255,255,255,0.16)" }}
-          >
+        {!p.loading && p.hasAccount === false ? (
+          <div className="mt-4 border-t border-border/70 pt-4">
+            <p className="text-[12px] leading-relaxed text-muted-foreground">
+              Cadastre sua primeira conta para o Nino mostrar o dinheiro realmente disponível.
+            </p>
+            <Button asChild size="sm" className="mt-3 rounded-full">
+              <Link to="/app/contas">Cadastrar conta <ArrowRight /></Link>
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-4 flex items-end justify-between gap-3 border-t border-border/70 pt-4">
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-white/60">Total guardado</p>
-              <p className="mt-0.5 truncate font-display text-[15px] font-bold tabular-nums text-white">
-                {p.loading ? "—" : formatBRL(p.assets)}
+              <p className="text-[11px] text-muted-foreground">Em conta agora, antes de faturas futuras</p>
+              <p className="mt-1 truncate text-[12px] font-semibold tabular-nums text-foreground">
+                Recursos hoje: {p.loading ? "—" : formatBRL(p.assets)}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpenSheet(true)}
-              className="shrink-0 rounded-full border border-white/28 bg-white/12 px-3.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-              style={{ height: 34 }}
-            >
-              Ver composição
-            </button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpenSheet(true)} className="shrink-0 rounded-full px-3 text-[11px]">
+              Ver composição <ArrowRight />
+            </Button>
           </div>
-        </div>
+        )}
       </section>
 
       <PatrimonioSheet

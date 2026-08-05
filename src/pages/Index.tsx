@@ -10,15 +10,15 @@ import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
-import { AssistantTipCard } from "@/components/home/AssistantTipCard";
+import { AssistantTipCard, BestActionCard } from "@/components/home/AssistantTipCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
-import { SharedGoalHighlight } from "@/components/home/SharedGoalHighlight";
 
 import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { useNinoHomeItem } from "@/lib/nino/intelligence";
 
 function isoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -69,6 +69,7 @@ export default function Index() {
   }, [period, customStart, customEnd]);
 
   const { data: snap, loading } = useFinancialSnapshot(periodRange);
+  const homeInsight = useNinoHomeItem();
 
   const hasAccount = (accounts ?? []).length > 0;
   const hasTransaction = (txs ?? []).length > 0;
@@ -105,27 +106,23 @@ export default function Index() {
         cardFutureInstallments={snap?.cardFutureInstallments ?? 0}
         cardDebtIsEstimated={snap?.cardDebtIsEstimated ?? false}
         loading={loading}
+        hasAccount={hasAccount}
       />
 
       <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}
         projection={snap?.projection ?? null}
-        card={{
-          value: snap?.currentCardSpend ?? 0,
-          trend: (snap?.cardSpendVariationPct ?? 0) > 0 ? "up" : (snap?.cardSpendVariationPct ?? 0) < 0 ? "down" : "stable",
-          deltaPct: snap?.cardSpendVariationPct ?? null,
-        }}
         loading={loading}
       />
 
-
-
-      <AssistantTipCard />
-
-      <QuickActions />
-
-      <SharedGoalHighlight />
-
+      <AssistantTipCard
+        item={homeInsight.data?.item ?? null}
+        kind={homeInsight.data?.kind}
+        loading={homeInsight.isLoading}
+        error={homeInsight.error}
+        retrying={homeInsight.isFetching}
+        onRetry={() => void homeInsight.refetch()}
+      />
 
       {loading ? (
         <div className="grid place-items-center py-6">
@@ -135,8 +132,16 @@ export default function Index() {
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
         <PrevisaoFechamentoCard projection={snap?.projection ?? null} />
-
       )}
+
+      <BestActionCard
+        item={homeInsight.data?.item ?? null}
+        loading={homeInsight.isLoading}
+        refreshing={homeInsight.isFetching}
+        onRefresh={() => void homeInsight.refetch()}
+      />
+
+      <QuickActions />
 
       <EmotionalCheckinCard />
     </div>
