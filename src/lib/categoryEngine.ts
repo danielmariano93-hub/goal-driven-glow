@@ -27,9 +27,12 @@ export async function classifyTransaction(input: {
 }
 
 export async function processCategoryQueue() {
-  return invokeEdge<{ decisions: CategoryEngineDecision[]; processed: number }>("category-engine", {
+  const result = await invokeEdge<{ decisions: CategoryEngineDecision[]; processed: number }>("category-engine", {
     operation: "process_queue",
   });
+  if (result.failure) throw new Error(result.failure.message);
+  if (!result.data) throw new Error("Resposta vazia do motor de categorização");
+  return result.data;
 }
 
 export async function learnCategory(transactionId: string, categoryId: string) {
