@@ -20,7 +20,7 @@ describe("Home runtime hotfix", () => {
 
   it("não bloqueia a troca explícita de dica por 60 segundos", () => {
     const server = read("supabase/functions/insights-generate/index.ts");
-    const client = read("src/components/home/AssistantTipCard.tsx");
+    const client = read("src/components/home/NinoGuidanceCard.tsx");
     expect(server).not.toContain("retry_after_seconds: 60");
     expect(client).not.toContain("< 60_000");
     expect(client).not.toContain('await refetch()');
