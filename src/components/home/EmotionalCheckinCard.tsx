@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBRL } from "@/lib/engine/facts";
+import { Button } from "@/components/ui/button";
 
 const PRIMARY_MOODS = [
   { key: "tranquilo", v: 5, label: "Tranquilo" },
@@ -127,14 +128,13 @@ export function EmotionalCheckinCard() {
   return (
     <section
       aria-label="Check-in emocional"
-      className="rounded-[20px] bg-[color:var(--home-surface)] p-4"
-      style={{ border: "1px solid var(--home-hairline)" }}
+      className="rounded-[20px] border border-border/70 bg-card p-4"
     >
-      <h3 className="text-[15px] font-bold" style={{ color: "var(--home-text-1)", letterSpacing: "-0.015em" }}>
+      <h3 className="text-[15px] font-bold text-foreground">
         Como você está com o dinheiro hoje?
       </h3>
-      <p className="mt-0.5 text-[12px]" style={{ color: "var(--home-text-2)" }}>
-        Um toque ajuda o assessor a entender seu momento.
+      <p className="mt-0.5 text-[12px] text-muted-foreground">
+        Um toque ajuda o Nino a entender seu momento.
       </p>
 
       {saved && selected ? (
@@ -145,14 +145,15 @@ export function EmotionalCheckinCard() {
           >
             <Check size={12} /> {selected.label} · hoje
           </span>
-          <button
+          <Button
             type="button"
             onClick={() => setCollapsedAfterSave(false)}
-            className="text-[12px] font-bold hover:underline"
-            style={{ color: "var(--home-brand-violet)" }}
+            variant="ghost"
+            size="sm"
+            className="rounded-full text-[12px] font-bold"
           >
             Editar
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -167,7 +168,7 @@ export function EmotionalCheckinCard() {
                   className="shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition"
                   style={{
                     background: active ? "var(--home-brand-ink)" : "var(--home-surface-soft)",
-                    color: active ? "#fff" : "var(--home-text-1)",
+                    color: active ? "hsl(var(--primary-foreground))" : "var(--home-text-1)",
                     border: "1px solid var(--home-hairline)",
                   }}
                   aria-pressed={active}
@@ -177,14 +178,16 @@ export function EmotionalCheckinCard() {
               );
             })}
             {!showMore && !visibleMoods.some((m) => EXTRA_MOODS.some((e) => e.key === m.key)) && (
-              <button
+                <Button
                 type="button"
                 onClick={() => setShowMore(true)}
-                className="shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold"
                 style={{ background: "var(--home-surface-soft)", color: "var(--home-text-2)", border: "1px solid var(--home-hairline)" }}
               >
                 Outro
-              </button>
+                </Button>
             )}
           </div>
 
@@ -220,16 +223,16 @@ export function EmotionalCheckinCard() {
                 <Link to="/app/emocoes" className="text-[12px] font-semibold hover:underline" style={{ color: "var(--home-brand-violet)" }}>
                   Ver relatório
                 </Link>
-                <button
+                <Button
                   type="button"
                   onClick={save}
                   disabled={saving || !selected}
-                  className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50"
-                  style={{ background: "var(--home-brand-ink)" }}
+                  size="sm"
+                  className="rounded-full px-4 text-[12px] font-semibold"
                 >
                   {saving ? <Loader2 size={12} className="animate-spin" /> : null}
                   {today ? "Atualizar" : "Registrar"}
-                </button>
+                </Button>
               </div>
             </div>
           )}
