@@ -3,7 +3,7 @@ import { CalendarClock, CheckCircle2, CircleAlert, Lightbulb, ThumbsDown, Thumbs
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { NinoCardShell } from "@/components/nino/NinoCardShell";
-import { diagnosisActionLabel, diagnosisRoute } from "@/lib/nino/actions";
+import { diagnosisActionLabel, diagnosisRouteForSituation } from "@/lib/nino/actions";
 import { useNinoSituationFeedback, type FinancialSituation, type FinancialSituationAction } from "@/lib/nino/diagnosis";
 import { brl } from "@/lib/nino/format";
 
@@ -23,7 +23,7 @@ export function NinoSituationCard({ situation, action, surface, compact = false 
     <NinoCardShell compact={compact} tone={tone} badge={<><Icon className="h-3 w-3" />{LABEL[situation.situation_type] ?? (situation.narrative_role === "counterpoint" ? "Contraponto" : "Leitura")}</>} title={situation.one_line_summary || situation.headline}
       metric={situation.impact_amount != null ? `Impacto estimado: ${brl(Math.abs(situation.impact_amount))}` : undefined}
       details={details.length ? <div className="space-y-1">{details.map((text) => <p key={text}>{text}</p>)}<p>Confiança: {Math.round(situation.confidence * 100)}%</p></div> : undefined}
-      actions={label ? <Button asChild className="rounded-full"><Link to={diagnosisRoute(action)} onClick={() => void send("acted")}>{label}</Link></Button> : undefined}
+      actions={label ? <Button asChild className="rounded-full"><Link to={diagnosisRouteForSituation(situation, action)} onClick={() => void send("acted")}>{label}</Link></Button> : undefined}
       feedback={<><Button type="button" variant="ghost" size="sm" onClick={() => void send("useful")}><ThumbsUp /> Útil</Button><Button type="button" variant="ghost" size="sm" onClick={() => void send("not_useful")}><ThumbsDown /> Não ajudou</Button></>}
     >
       {situation.cause_summary || situation.consequence_summary || "Leitura baseada nos seus dados financeiros mais recentes."}

@@ -270,6 +270,7 @@ export type TxFilters = {
   accountId?: string;
   categoryId?: string;
   uncategorized?: boolean;
+  ids?: string[];
   search?: string;
 };
 
@@ -297,6 +298,7 @@ export function useTransactions(filters: TxFilters = {}) {
         if (filters.accountId) q = q.eq("account_id", filters.accountId);
         if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
         if (filters.uncategorized) q = q.is("category_id", null);
+        if (filters.ids?.length) q = q.in("id", filters.ids.slice(0, 100));
         if (filters.search?.trim()) {
           // Remove os caracteres que alteram a gramática do filtro `or` do
           // PostgREST; a busca continua livre para nomes com espaços/acentos.

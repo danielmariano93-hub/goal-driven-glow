@@ -83,20 +83,25 @@ export default function Lancamentos() {
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const [filters, setFilters] = useState<PersistedFilters>(() => {
-    // Deep link vindo de Metas / dicas / highlights: aplica category+start+end
-    // por cima dos filtros persistidos. Ex.: ?category=UUID&start=2026-07-01&end=2026-07-31
+    // Deep links de metas, dicas e situações do Nino prevalecem sobre os filtros
+    // persistidos para levar o usuário exatamente à pendência citada.
     try {
       const sp = new URLSearchParams(window.location.search);
       const category = sp.get("category") ?? undefined;
       const start = sp.get("start") ?? undefined;
       const end = sp.get("end") ?? undefined;
+      const uncategorized = sp.get("filtro") === "sem-categoria" || undefined;
+      const ids = (sp.get("ids") ?? "").split(",").filter(Boolean);
       const base = loadFilters();
-      if (category || start || end) {
+      if (category || start || end || uncategorized || ids.length) {
         return {
           ...base,
           categoryId: category ?? base.categoryId,
           from: start ?? base.from,
           to: end ?? base.to,
+          uncategorized,
+          ids: ids.length ? ids : undefined,
+          search: undefined,
         };
       }
       return base;

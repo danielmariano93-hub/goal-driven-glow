@@ -8,6 +8,49 @@ export function diagnosisRoute(action?: FinancialSituationAction | null, fallbac
   return SAFE_NINO_ROUTE.test(route.replace(/%[0-9A-Fa-f]{2}/g, "a")) ? route : fallback;
 }
 
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function transactionIds(situation: FinancialSituation): string[] {
+  const pairs = Array.isArray(situation.evaluation?.pairs) ? situation.evaluation.pairs : [];
+  return pairs.flatMap((pair) => {
+    if (!pair || typeof pair !== "object") return [];
+    const rows = (pair as { transactions?: unknown }).transactions;
+    return Array.isArray(rows) ? rows.filter((id): id is string => typeof id === "string") : [];
+  });
+}
+
+/** Resolve o destino usando o contexto da situação, inclusive em cards secundários sem ação anexada. */
+export function diagnosisRouteForSituation(
+  situation: FinancialSituation,
+  action?: FinancialSituationAction | null,
+) {
+  const evaluation = situation.evaluation ?? {};
+  if (situation.situation_type === "data_quality_issue") return "/app/lancamentos?filtro=sem-categoria";
+  if (situation.situation_type === "duplicate_review") {
+    const query = new URLSearchParams({ revisar: "duplicidades" });
+    const ids = transactionIds(situation);
+    if (ids.length) query.set("ids", ids.join(","));
+    return `/app/lancamentos?${query.toString()}`;
+  }
+  if (situation.situation_type === "goal_feasibility") {
+    const goalId = stringValue(evaluation.goal_id);
+    return goalId ? `/app/metas?goal=${encodeURIComponent(goalId)}` : "/app/metas";
+  }
+  if (situation.situation_type === "card_cycle_pressure" || ["bill", "installment"].includes(String(evaluation.future_kind ?? ""))) {
+    const cardId = stringValue(evaluation.card_id);
+    return cardId ? `/app/cartoes?card=${encodeURIComponent(cardId)}` : "/app/cartoes";
+  }
+  if (situation.situation_type === "behavioral_pattern") {
+    return situation.status === "observed" ? "/app/nino?section=aprendizados" : "/app/lancamentos";
+  }
+  if (situation.situation_type === "anticipation") return "/app/planejamento";
+  if (situation.situation_type === "cash_flow_imbalance") return "/app/relatorios?foco=categorias&periodo=atual";
+  if (situation.situation_type === "spending_pace_change") return "/app/relatorios";
+  return diagnosisRoute(action, "/app/relatorios");
+}
+
 export function diagnosisActionLabel(situation: FinancialSituation, action?: FinancialSituationAction | null) {
   if (["resolved", "expired", "suppressed"].includes(situation.status)) return null;
   const title = action?.title?.trim();
