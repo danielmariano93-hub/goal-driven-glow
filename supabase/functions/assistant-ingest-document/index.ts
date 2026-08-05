@@ -25,7 +25,7 @@ import { applyCreditSignGuard } from "../_shared/ledger/creditSemantics.ts";
 import { classifyBatch, fetchExistingCandidates } from "../_shared/import/dedupe.ts";
 
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
-import { decideByRule } from "../_shared/categorization/pipeline.ts";
+import { classifyWithContext, loadCategorizationContext } from "../_shared/categorization/engine.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -497,6 +497,10 @@ async function enrichItems(
   ]);
   const aliasByKey = new Map<string, { friendly_name: string | null; category_id: string | null }>();
   for (const a of (aliasResp.data ?? [])) aliasByKey.set(a.alias_key, { friendly_name: a.friendly_name, category_id: a.category_id });
+  const [expenseCategoryContext, incomeCategoryContext] = await Promise.all([
+    loadCategorizationContext(sb, userId, "expense"),
+    loadCategorizationContext(sb, userId, "income"),
+  ]);
 
 
   // 3) Índice de histórico por chave normalizada — normaliza cada linha do histórico UMA vez.
@@ -537,31 +541,18 @@ async function enrichItems(
       if (aliasHit.category_id) { categoryId = aliasHit.category_id; categorySource = "alias"; categoryConfidence = 0.98; }
     }
 
-    if (!categoryId && ruleCategory) {
-      const c = findCatByName(ruleCategory);
-      if (c) { categoryId = c; categorySource = "rule"; categoryConfidence = 0.9; }
-    }
     if (!categoryId) {
-      const decision = decideByRule(friendly || rawDesc, (categories ?? [])
-        .filter((c) => c.type === item.type || c.type === "both")
-        .map((c) => ({ id: c.id, name: c.name })));
-      if (decision?.category_id) {
-        categoryId = decision.category_id;
-        categorySource = "rule";
-        categoryConfidence = decision.category_confidence;
+      const central = classifyWithContext({
+        type: item.type,
+        description: friendly || rawDesc,
+        explicit_category: ruleCategory ?? item.category_hint ?? null,
+        movement_kind: item.movement_kind ?? ruleMovementKind ?? "transaction",
+      }, item.type === "income" ? incomeCategoryContext : expenseCategoryContext);
+      if (central.category_id && central.action !== "leave_unresolved") {
+        categoryId = central.category_id;
+        categorySource = central.category_source;
+        categoryConfidence = central.category_confidence;
       }
-    }
-    if (!categoryId) {
-      const bucket = historyByKey.get(`${item.type}|${normalizedKey}`);
-      if (bucket) {
-        const top = [...bucket.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (top) { categoryId = top[0]; categorySource = "history"; categoryConfidence = Math.min(1, 0.5 + top[1] * 0.1); }
-      }
-    }
-
-    if (!categoryId && item.category_hint) {
-      const c = findCatByName(item.category_hint);
-      if (c) { categoryId = c; categorySource = "hint"; categoryConfidence = 0.5; }
     }
 
     const normalizeBankText = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();

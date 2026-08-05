@@ -99,6 +99,21 @@ export async function classifyDeterministic(sb: any, userId: string, input: Clas
   }
   const type = input.type as "income" | "expense";
   const context = await loadCategorizationContext(sb, userId, type);
+  return classifyWithContext(input, context);
+}
+
+export function classifyWithContext(
+  input: ClassificationInput,
+  context: Awaited<ReturnType<typeof loadCategorizationContext>>,
+): ClassificationResult {
+  if (!isCategorizationEligible(input)) {
+    return {
+      category_id: null, category_source: "none", category_confidence: 0,
+      category_reason: "movimento contábil excluído da categorização de consumo",
+      action: "exclude", reason_code: "non_consumption_movement",
+      engine_version: CATEGORY_ENGINE_VERSION, alternatives: [],
+    };
+  }
   const decision = decideCategoryDeterministic({
     explicit: input.explicit_category,
     description: input.description ?? "",
