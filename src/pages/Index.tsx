@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useAccounts, useAllTransactions, useGoals } from "@/lib/db/finance";
+import { useAccounts } from "@/lib/db/finance";
 import { useAuth } from "@/context/AuthContext";
 import { processCategoryQueue } from "@/lib/categoryEngine";
 import { HomeHeader } from "@/components/home/HomeHeader";
@@ -10,6 +10,7 @@ import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
 import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
+import { Button } from "@/components/ui/button";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 
 import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
@@ -31,8 +32,6 @@ export default function Index() {
   }, [period, customStart, customEnd]);
 
   const { data: accounts } = useAccounts();
-  const { data: txs } = useAllTransactions();
-  const { data: goals } = useGoals();
 
   useEffect(() => {
     if (!user?.id || categorizationStarted.current) return;
@@ -60,8 +59,6 @@ export default function Index() {
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
   const hasAccount = (accounts ?? []).length > 0;
-  const hasTransaction = (txs ?? []).length > 0;
-  const hasGoal = (goals ?? []).length > 0;
 
   const heroLabel = "Disponível hoje";
 
@@ -91,7 +88,7 @@ export default function Index() {
         hasAccount={hasAccount}
       />
 
-      {snapshotError ? <section aria-label="Erro no resumo financeiro" className="rounded-2xl border border-border bg-card p-4"><p className="text-sm font-semibold text-foreground">Não foi possível atualizar todo o resumo financeiro.</p><button type="button" onClick={() => void refetchSnapshot()} className="mt-2 text-sm font-bold text-primary">Tentar novamente</button></section> : null}
+      {snapshotError ? <section aria-label="Erro no resumo financeiro" className="rounded-2xl border border-border bg-card p-4"><p className="text-sm font-semibold text-foreground">Não foi possível atualizar todo o resumo financeiro.</p><Button type="button" variant="link" onClick={() => void refetchSnapshot()} className="mt-1 h-10 px-0">Tentar novamente</Button></section> : null}
 
       <RitmoUnificadoCard
         rhythm={snap?.rhythm ?? null}
