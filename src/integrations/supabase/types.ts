@@ -10900,6 +10900,50 @@ export type Database = {
       nino_build_facts: { Args: { _user_id: string }; Returns: number }
       nino_consolidate_topics: { Args: { _user_id: string }; Returns: number }
       nino_curate_items: { Args: { _user_id: string }; Returns: Json }
+      nino_diag_brl: { Args: { _value: number }; Returns: string }
+      nino_diag_pct: { Args: { _value: number }; Returns: string }
+      nino_diag_put_situation: {
+        Args: {
+          _absolute_delta: number
+          _action: Json
+          _as_of: string
+          _baseline_value: number
+          _cause: string
+          _confidence: number
+          _consequence: string
+          _current_value: number
+          _evaluation: Json
+          _evidence: Json
+          _forecast: string
+          _headline: string
+          _impact_amount: number
+          _percentage_delta: number
+          _period_end: string
+          _period_start: string
+          _run_id: string
+          _run_mode: string
+          _severity: string
+          _situation_key: string
+          _situation_type: string
+          _status: string
+          _temporal_scope: string
+          _user_id: string
+          _valid_until: string
+        }
+        Returns: string
+      }
+      nino_diag_score: {
+        Args: {
+          _actionable: boolean
+          _confidence: number
+          _impact: number
+          _impact_pct: number
+          _positive?: boolean
+          _severity: string
+          _temporal_scope: string
+        }
+        Returns: number
+      }
       nino_expense_sum: {
         Args: { _from: string; _to: string; _user_id: string }
         Returns: number
