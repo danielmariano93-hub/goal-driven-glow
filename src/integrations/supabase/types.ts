@@ -2022,6 +2022,214 @@ export type Database = {
         }
         Relationships: []
       }
+      category_classification_queue: {
+        Row: {
+          attempts: number
+          available_at: string
+          created_at: string
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          processed_at: string | null
+          status: string
+          transaction_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          processed_at?: string | null
+          status?: string
+          transaction_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          processed_at?: string | null
+          status?: string
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_classification_queue_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: true
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      category_decisions: {
+        Row: {
+          action: string
+          actor: string
+          alternatives: Json
+          applied_at: string | null
+          confidence: number
+          created_at: string
+          decided_category_id: string | null
+          engine_version: string
+          id: string
+          input_fingerprint: string | null
+          mode: string
+          previous_category_id: string | null
+          reason: string | null
+          reason_code: string
+          run_id: string | null
+          source: string
+          transaction_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          actor?: string
+          alternatives?: Json
+          applied_at?: string | null
+          confidence?: number
+          created_at?: string
+          decided_category_id?: string | null
+          engine_version?: string
+          id?: string
+          input_fingerprint?: string | null
+          mode?: string
+          previous_category_id?: string | null
+          reason?: string | null
+          reason_code: string
+          run_id?: string | null
+          source: string
+          transaction_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          actor?: string
+          alternatives?: Json
+          applied_at?: string | null
+          confidence?: number
+          created_at?: string
+          decided_category_id?: string | null
+          engine_version?: string
+          id?: string
+          input_fingerprint?: string | null
+          mode?: string
+          previous_category_id?: string | null
+          reason?: string | null
+          reason_code?: string
+          run_id?: string | null
+          source?: string
+          transaction_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_decisions_decided_category_id_fkey"
+            columns: ["decided_category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "category_decisions_previous_category_id_fkey"
+            columns: ["previous_category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "category_decisions_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "category_engine_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "category_decisions_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      category_engine_runs: {
+        Row: {
+          auto_applied: number
+          checkpoint: Json
+          completed_at: string | null
+          created_at: string
+          dry_run: boolean
+          engine_version: string
+          error: string | null
+          failed: number
+          heartbeat_at: string | null
+          id: string
+          mode: string
+          processed_items: number
+          started_at: string | null
+          status: string
+          suggested: number
+          total_items: number
+          unresolved: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auto_applied?: number
+          checkpoint?: Json
+          completed_at?: string | null
+          created_at?: string
+          dry_run?: boolean
+          engine_version?: string
+          error?: string | null
+          failed?: number
+          heartbeat_at?: string | null
+          id?: string
+          mode: string
+          processed_items?: number
+          started_at?: string | null
+          status?: string
+          suggested?: number
+          total_items?: number
+          unresolved?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auto_applied?: number
+          checkpoint?: Json
+          completed_at?: string | null
+          created_at?: string
+          dry_run?: boolean
+          engine_version?: string
+          error?: string | null
+          failed?: number
+          heartbeat_at?: string | null
+          id?: string
+          mode?: string
+          processed_items?: number
+          started_at?: string | null
+          status?: string
+          suggested?: number
+          total_items?: number
+          unresolved?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       category_spending_goal_cycles: {
         Row: {
           actual_spend: number
@@ -9085,9 +9293,13 @@ export type Database = {
           amount: number
           bank_description: string | null
           bank_reference: string | null
+          category_classified_at: string | null
           category_confidence: number | null
+          category_decision_id: string | null
+          category_engine_version: string | null
           category_id: string | null
           category_reason: string | null
+          category_review_status: string
           category_source: string | null
           competence_date: string | null
           created_at: string
@@ -9136,9 +9348,13 @@ export type Database = {
           amount: number
           bank_description?: string | null
           bank_reference?: string | null
+          category_classified_at?: string | null
           category_confidence?: number | null
+          category_decision_id?: string | null
+          category_engine_version?: string | null
           category_id?: string | null
           category_reason?: string | null
+          category_review_status?: string
           category_source?: string | null
           competence_date?: string | null
           created_at?: string
@@ -9187,9 +9403,13 @@ export type Database = {
           amount?: number
           bank_description?: string | null
           bank_reference?: string | null
+          category_classified_at?: string | null
           category_confidence?: number | null
+          category_decision_id?: string | null
+          category_engine_version?: string | null
           category_id?: string | null
           category_reason?: string | null
+          category_review_status?: string
           category_source?: string | null
           competence_date?: string | null
           created_at?: string
@@ -9239,6 +9459,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_category_decision_id_fkey"
+            columns: ["category_decision_id"]
+            isOneToOne: false
+            referencedRelation: "category_decisions"
             referencedColumns: ["id"]
           },
           {

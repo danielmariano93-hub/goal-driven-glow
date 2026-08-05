@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccounts, useAllTransactions, useGoals } from "@/lib/db/finance";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { processCategoryQueue } from "@/lib/categoryEngine";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
@@ -45,13 +45,12 @@ export default function Index() {
     if (!user?.id || categorizationStarted.current) return;
     categorizationStarted.current = true;
     void (async () => {
-      const { data, error } = await (supabase.rpc as unknown as (name: string) => Promise<{ data: { updated?: number } | null; error: { message: string } | null }>)("apply_safe_category_suggestions");
-      if (error) {
+      const result = await processCategoryQueue().catch((error) => {
         categorizationStarted.current = false;
-        console.warn("[safe-category-bootstrap]", error.message);
-        return;
-      }
-      const updated = Number(data?.updated ?? 0);
+        console.warn("[category-engine-bootstrap]", error);
+        return null;
+      });
+      const updated = Number(result?.decisions.filter((item) => item.action === "auto_apply").length ?? 0);
       if (updated > 0) {
         await invalidateFinancialQueries(queryClient);
         toast.success(`${updated} lançamento${updated === 1 ? " foi organizado" : "s foram organizados"} com segurança.`);

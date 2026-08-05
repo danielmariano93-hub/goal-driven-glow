@@ -753,6 +753,13 @@ export function ReviewSheet({
                               className="input-base text-xs"
                               showManageLink={false}
                             />
+                            {it.category_id && it.category_source && it.category_source !== "user" ? (
+                              <p className="mt-1 text-[10px] text-muted-foreground">
+                                Identificado pelo Nino{it.category_confidence != null ? ` · ${Math.round(Number(it.category_confidence) * 100)}%` : ""}
+                              </p>
+                            ) : !it.category_id ? (
+                              <p className="mt-1 text-[10px] text-warning">Precisa da sua validação</p>
+                            ) : null}
                           </div>
                           {it.payment_method === "account" && (
                             <div className="col-span-2">

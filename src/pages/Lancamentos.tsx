@@ -33,6 +33,7 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { EmptyState } from "@/components/ui/empty-state";
 import { notifySuccess, notifyError, notifyInfo, humanizeError } from "@/lib/ui/feedback";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { processCategoryQueue } from "@/lib/categoryEngine";
 
 type SortMode = "date_desc" | "date_asc" | "amount_desc" | "amount_asc";
 type PersistedFilters = TxFilters & { sort?: SortMode };
@@ -203,7 +204,12 @@ export default function Lancamentos() {
     setBulkRunning(true);
     try {
       const ids = Array.from(selected);
-      const { error } = await supabase.from("transactions").update({ category_id: bulkCategoryId }).in("id", ids);
+      const { error } = await supabase.from("transactions").update({
+        category_id: bulkCategoryId,
+        category_source: bulkCategoryId ? "user" : null,
+        category_confidence: bulkCategoryId ? 1 : null,
+        category_reason: bulkCategoryId ? "escolha explícita em lote" : null,
+      }).in("id", ids);
       if (error) throw error;
       notifySuccess(
         `${ids.length} lançamento${ids.length === 1 ? "" : "s"} atualizado${ids.length === 1 ? "" : "s"}`,
@@ -456,13 +462,13 @@ export default function Lancamentos() {
                 onClick={async () => {
                   setCategorizing(true);
                   try {
-                    const { data, error } = await (supabase.rpc as unknown as (fn: string) => Promise<{ data: unknown; error: { message: string } | null }>)("apply_safe_category_suggestions");
-                    if (error) throw error;
-                    const count = Number((data as { updated?: number } | null)?.updated ?? 0);
+                    const result = await processCategoryQueue();
+                    const count = result.decisions.filter((decision) => decision.action === "auto_apply").length;
+                    const pending = result.decisions.filter((decision) => decision.action !== "auto_apply" && decision.action !== "exclude").length;
                     if (count) {
                       notifySuccess(
                         `${count} lançamento${count === 1 ? "" : "s"} categorizado${count === 1 ? "" : "s"}`,
-                        "Aplicamos apenas correspondências de alta confiança.",
+                        pending ? `${pending} ainda precisa${pending === 1 ? "" : "m"} da sua validação.` : "Aplicamos apenas correspondências de alta confiança.",
                       );
                     } else {
                       notifyInfo("Nenhuma sugestão segura encontrada", "Os demais continuam para sua revisão.");
@@ -630,6 +636,7 @@ export default function Lancamentos() {
                                 {accName(t)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
                                 {t.status === "planned" ? " · Planejado" : ""}
                                 {!t.category_id && !isTransfer ? " · Sem categoria" : ""}
+                                {t.category_id && t.category_source && t.category_source !== "user" && !isTransfer ? " · Identificado pelo Nino" : ""}
                               </p>
                             </div>
                             <span
