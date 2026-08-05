@@ -3,22 +3,17 @@ import { ArrowRight, Wallet } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
-import { PatrimonioSheet } from "./PatrimonioSheet";
+import { AvailableBalanceDetails } from "./AvailableBalanceDetails";
 
 type Props = {
   available: number;
-  assets: number;
-  netWorth: number;
-  cash: number;
-  accountOverdraft: number;
-  cardsOwed: number;
-  invested: number;
-  otherDebts: number;
+  confirmedFutureInflows: number;
+  upcomingCommitments: number;
+  cardDueThisMonth: number;
+  projectedEndBalance: number;
   periodLabel: string;
   loading?: boolean;
   hasAccount?: boolean;
-  cardFutureInstallments?: number;
-  cardDebtIsEstimated?: boolean;
 };
 
 export function HeroDisponivelCard(p: Props) {
@@ -27,17 +22,14 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className="relative overflow-hidden rounded-[20px] bg-gradient-brand-dark p-5 text-primary-foreground shadow-hero animate-fade-in"
+        className="relative overflow-hidden rounded-2xl bg-gradient-brand-dark p-5 text-primary-foreground shadow-hero animate-fade-in"
       >
-        <span className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-semibold uppercase text-primary-foreground/70">{p.periodLabel}</p>
             {p.loading ? <div className="mt-2 h-9 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : <p className="mt-2 font-display text-[36px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
           </div>
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary-foreground/10 text-primary-foreground">
-            <Wallet className="h-5 w-5" weight="duotone" aria-hidden="true" />
-          </span>
+          <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
         </div>
 
         {!p.loading && p.hasAccount === false ? (
@@ -51,12 +43,11 @@ export function HeroDisponivelCard(p: Props) {
           </div>
         ) : (
           <div className="mt-4 flex items-end justify-between gap-3 border-t border-primary-foreground/15 pt-4">
-            <div className="min-w-0">
-              <p className="text-[11px] text-primary-foreground/65">Composição detalhada de caixa e patrimônio</p>
-              <p className="mt-1 truncate text-[12px] font-semibold text-primary-foreground/90">
-                Veja o que compõe este valor
-              </p>
-            </div>
+             <div className="min-w-0 space-y-1 text-[11px] text-primary-foreground/70">
+               {p.confirmedFutureInflows > 0 ? <p>+ {formatBRL(p.confirmedFutureInflows)} em entradas confirmadas</p> : null}
+               {p.upcomingCommitments > 0 ? <p>− {formatBRL(p.upcomingCommitments)} em compromissos conhecidos</p> : null}
+               {p.confirmedFutureInflows <= 0 && p.upcomingCommitments <= 0 ? <p>Sem movimentos futuros confirmados neste mês</p> : null}
+             </div>
             <Button type="button" variant="ghost" size="sm" onClick={() => setOpenSheet(true)} className="shrink-0 rounded-full px-3 text-[11px] text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
               Ver composição <ArrowRight />
             </Button>
@@ -64,18 +55,14 @@ export function HeroDisponivelCard(p: Props) {
         )}
       </section>
 
-      <PatrimonioSheet
+      <AvailableBalanceDetails
         open={openSheet}
         onOpenChange={setOpenSheet}
-        cash={p.cash}
-        accountOverdraft={p.accountOverdraft}
-        cardsOwed={p.cardsOwed}
-        invested={p.invested}
-        assets={p.assets}
-        otherDebts={p.otherDebts}
-        net={p.netWorth}
-        cardFutureInstallments={p.cardFutureInstallments ?? 0}
-        cardDebtIsEstimated={p.cardDebtIsEstimated ?? false}
+        availableToday={p.available}
+        confirmedFutureInflows={p.confirmedFutureInflows}
+        upcomingCommitments={p.upcomingCommitments}
+        cardDueThisMonth={p.cardDueThisMonth}
+        projectedEndBalance={p.projectedEndBalance}
       />
     </>
   );

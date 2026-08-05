@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarBlank, CaretRight } from "@phosphor-icons/react";
+import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import type { PeriodKind } from "@/lib/ui/periodStore";
@@ -9,7 +9,7 @@ const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "
 function fmt(iso: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return iso;
-  return `${Number(m[3])} de ${MONTHS[Number(m[2]) - 1]}`;
+  return `${Number(m[3])} de ${MONTHS[Number(m[2]) - 1]} de ${m[1]}`;
 }
 function iso(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -29,6 +29,8 @@ type Props = {
 export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCustomStart, setCustomEnd, rangeStart, rangeEnd }: Props) {
   const [open, setOpen] = useState(false);
   const label = useMemo(() => `${fmt(rangeStart)} – ${fmt(rangeEnd)}`, [rangeStart, rangeEnd]);
+  const today = iso(new Date());
+  const customValid = Boolean(customStart && customEnd && customStart <= customEnd && customEnd <= today);
 
   const pick = (kind: PeriodKind) => {
     setPeriod(kind);
@@ -39,21 +41,13 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
     <>
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className="flex h-11 w-full items-center justify-start gap-3 rounded-xl border-border/80 bg-card px-3 text-left shadow-sm"
+        className="flex min-h-11 max-w-full items-center justify-start gap-2 rounded-lg px-1 text-left text-muted-foreground"
       >
-        <span
-          className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"
-        >
-          <CalendarBlank size={15} weight="bold" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[10px] text-muted-foreground">Período do resumo</span>
-          <span className="block truncate text-[13px] font-semibold text-foreground">{label}</span>
-        </span>
-        <CaretRight size={14} weight="bold" className="text-muted-foreground" />
+        <span className="min-w-0 whitespace-normal text-[13px] font-semibold leading-snug text-foreground">{label}</span>
+        <CaretDown size={14} weight="bold" className="shrink-0 text-muted-foreground" />
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -74,7 +68,7 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
                 <input
                   type="date"
                   value={customStart}
-                  max={customEnd}
+                   max={customEnd || today}
                   onChange={(e) => setCustomStart(e.target.value)}
                   className="mt-1 w-full rounded-[14px] border border-border bg-background px-3 py-2 text-sm"
                 />
@@ -85,12 +79,14 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
                   type="date"
                   value={customEnd}
                   min={customStart}
+                   max={today}
                   onChange={(e) => setCustomEnd(e.target.value)}
                   className="mt-1 w-full rounded-[14px] border border-border bg-background px-3 py-2 text-sm"
                 />
               </label>
               <Button
                 onClick={() => setOpen(false)}
+                 disabled={!customValid}
                 className="col-span-2 mt-1 rounded-full"
               >
                 Aplicar
