@@ -105,6 +105,57 @@ export type FinancialSituationEvent = z.infer<typeof financialSituationEventSche
 export type NinoTimelineEntry = z.infer<typeof timelineEntrySchema>;
 export type NinoDiagnosisContext = z.infer<typeof ninoDiagnosisContextSchema>;
 
+export type HomeDiagnosisView = {
+  snapshotId: string | null;
+  asOf: string;
+  overallState: NinoDiagnosisContext["overall_state"];
+  diagnosisConfidence: number;
+  isStale: boolean;
+  primary: FinancialSituation | null;
+  counterpoint: FinancialSituation | null;
+  evidenceSummary: string | null;
+  action: FinancialSituationAction | null;
+  hasTrustedAction: boolean;
+};
+
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Adaptador puro: não escolhe outra conclusão nem fabrica ação para a Home. */
+export function toHomeDiagnosisView(context: NinoDiagnosisContext): HomeDiagnosisView {
+  const primary = context.primary_situation;
+  const action = context.primary_action;
+  const counterpoint = context.supporting_situations.find((item) => item.narrative_role === "counterpoint") ?? null;
+  const evidenceSummary = primary
+    ? textValue(primary.evaluation?.plain_language_reason)
+      ?? textValue(context.rationale?.plain_language_reason)
+      ?? null
+    : null;
+  const actionRoute = action?.route?.trim() ?? "";
+  const hasTrustedAction = !!primary
+    && !!action
+    && action.situation_id === primary.id
+    && ["proposed", "accepted", "in_progress"].includes(action.status)
+    && !!action.title.trim()
+    && actionRoute.startsWith("/app/")
+    && !actionRoute.startsWith("//");
+  const validUntil = primary?.valid_until ? Date.parse(primary.valid_until) : Number.NaN;
+
+  return {
+    snapshotId: context.snapshot_id,
+    asOf: context.as_of,
+    overallState: context.overall_state,
+    diagnosisConfidence: context.confidence,
+    isStale: Number.isFinite(validUntil) && validUntil < Date.now(),
+    primary,
+    counterpoint,
+    evidenceSummary,
+    action,
+    hasTrustedAction,
+  };
+}
+
 export class NinoDiagnosisContractError extends NinoRpcError {
   constructor(message: string, readonly cause?: unknown) {
     super(message, "contract", "my_nino_diagnosis_context");

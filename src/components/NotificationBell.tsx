@@ -26,10 +26,10 @@ export function NotificationBell() {
   return (
     <Link
       to="/app/notificacoes"
-      className="relative inline-flex items-center justify-center rounded-full border border-border bg-card w-8 h-8 text-muted-foreground hover:text-foreground"
+      className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       aria-label={`Notificações${count > 0 ? `, ${count} não lidas` : ""}`}
     >
-      <Bell size={14} />
+      <Bell size={16} />
       {count > 0 && (
         <span className="absolute -top-1 -right-1 grid place-items-center min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold">
           {count > 9 ? "9+" : count}
