@@ -67,7 +67,7 @@ export function NinoRefreshButton({ asOf }: { asOf?: string | null }) {
 
       <p aria-live="polite" className="text-right text-[10px] font-medium" style={{ color: "var(--home-text-3)" }}>
         {busy
-          ? "Recalculando leituras…"
+          ? "Analisando seus dados…"
           : failed
             ? failed
             : stamp
