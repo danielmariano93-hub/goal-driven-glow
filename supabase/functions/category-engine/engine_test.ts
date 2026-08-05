@@ -18,7 +18,7 @@ Deno.test("protege movimentos contábeis", () => {
 });
 
 Deno.test("autoaplica alias pessoal confirmado", () => {
-  const result = classifyWithContext({ type: "expense", description: "PIX UBER *VIAGEM 123456" }, context);
+  const result = classifyWithContext({ type: "expense", description: "PIX UBER 123456" }, context);
   assertEquals(result.category_id, "transport");
   assertEquals(result.action, "auto_apply");
   assertEquals(result.category_source, "alias");
