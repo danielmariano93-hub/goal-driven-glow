@@ -20,13 +20,18 @@ export function NinoRefreshButton({ asOf }: { asOf?: string | null }) {
     refresh.mutate(undefined, {
       onSuccess: (summary) => {
         setLast(summary);
-        const changed = summary.created + summary.updated + summary.superseded + summary.expired;
+        const parts: string[] = [];
+        if (summary.factsProcessed) parts.push(`${summary.factsProcessed} leituras analisadas`);
+        if (summary.created) parts.push(`${summary.created} novas`);
+        if (summary.updated) parts.push(`${summary.updated} atualizadas`);
+        if (summary.grouped) parts.push(`${summary.grouped} duplicidades agrupadas`);
+        if (summary.suppressed) parts.push(`${summary.suppressed} descartadas por regra`);
+        if (summary.superseded + summary.expired) parts.push(`${summary.superseded + summary.expired} encerradas`);
         toast.success("Leituras atualizadas agora", {
-          description: changed
-            ? `${summary.created} novas · ${summary.updated} atualizadas · ${summary.superseded + summary.expired} encerradas`
-            : "Nenhuma mudança desde a última leitura.",
+          description: parts.length ? parts.join(" · ") : "Nenhuma mudança desde a última leitura.",
         });
       },
+
       onError: (e) => {
         const message =
           e instanceof NinoRpcError && e.kind === "auth"
@@ -62,7 +67,7 @@ export function NinoRefreshButton({ asOf }: { asOf?: string | null }) {
 
       <p aria-live="polite" className="text-right text-[10px] font-medium" style={{ color: "var(--home-text-3)" }}>
         {busy
-          ? "Recalculando leituras…"
+          ? "Analisando seus dados…"
           : failed
             ? failed
             : stamp

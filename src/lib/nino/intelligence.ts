@@ -82,27 +82,50 @@ export type NinoItem = {
   data_quality?: string;
   report_id?: string | null;
   dedup_key?: string;
+  category?: string | null;
+  logical_topic_key?: string | null;
+  group_key?: string | null;
+  group_size?: number | null;
+  impact_amount?: number | null;
+  impact_pct?: number | null;
+  selection_reason?: Record<string, unknown> | null;
+
   created_at?: string;
   updated_at?: string;
   acted_at?: string | null;
   dismissed_at?: string | null;
 };
 
+export type NinoDuplicatePair = {
+  pair_key: string;
+  merchant: string;
+  amount: number;
+  occurred_at?: string | null;
+  count?: number;
+  transactions?: Array<Record<string, unknown>>;
+};
+
 export type NinoContext = {
   ok: boolean;
   as_of: string;
+  contract: string | null;
   continuity_topic: string | null;
   last_seen_at: string | null;
   new_since_last_visit: number;
+  primary_item: NinoItem | null;
+  secondary_changes: NinoItem[];
+  operational_tasks: NinoItem[];
   now: NinoItem[];
   changes: NinoItem[];
   learnings: NinoItem[];
   prepare: NinoItem[];
   history: NinoItem[];
   achievements: NinoItem[];
+  engine_state: { patterns_tracked: number; anticipations_open: number; suppressed_total: number };
   data_quality: { status: "ok" | "attention" | "insufficient"; uncategorized_count: number; reason?: string | null };
   invalidItems: number;
 };
+
 
 export type MoreMenuContext = {
   ok: boolean;
@@ -160,18 +183,30 @@ export function useNinoContext() {
       return {
         ok: true,
         as_of: parsed.as_of ?? new Date().toISOString(),
+        contract: parsed.contract ?? null,
         continuity_topic: parsed.continuity_topic ?? null,
         last_seen_at: parsed.last_seen_at ?? null,
         new_since_last_visit: parsed.new_since_last_visit ?? 0,
+        primary_item: parsed.primaryItem
+          ? normalizeItem(parsed.primaryItem as unknown as Record<string, unknown>)
+          : null,
+        secondary_changes: parsed.sections.secondary_changes.map(normalizeItem),
+        operational_tasks: parsed.sections.operational_tasks.map(normalizeItem),
         now: parsed.sections.now.map(normalizeItem),
         changes: parsed.sections.changes.map(normalizeItem),
         learnings: parsed.sections.learnings.map(normalizeItem),
         prepare: parsed.sections.prepare.map(normalizeItem),
         history: parsed.sections.history.map(normalizeItem),
         achievements: parsed.sections.achievements.map(normalizeItem),
+        engine_state: {
+          patterns_tracked: parsed.engine_state?.patterns_tracked ?? 0,
+          anticipations_open: parsed.engine_state?.anticipations_open ?? 0,
+          suppressed_total: parsed.engine_state?.suppressed_total ?? 0,
+        },
         data_quality: (parsed.data_quality ?? { status: "ok", uncategorized_count: 0 }) as NinoContext["data_quality"],
         invalidItems: parsed.invalidItems,
       };
+
     },
   });
 }
@@ -228,6 +263,9 @@ export type NinoRefreshSummary = {
   updated: number;
   superseded: number;
   expired: number;
+  grouped: number;
+  suppressed: number;
+  factsProcessed: number;
   activeTotal: number;
 };
 
@@ -246,8 +284,12 @@ export function useNinoRefresh() {
         updated: parsed.counts?.updated ?? 0,
         superseded: parsed.counts?.superseded ?? 0,
         expired: parsed.counts?.expired ?? 0,
+        grouped: parsed.counts?.grouped ?? 0,
+        suppressed: parsed.counts?.suppressed ?? 0,
+        factsProcessed: parsed.facts_processed ?? parsed.items ?? 0,
         activeTotal: parsed.counts?.active_total ?? parsed.items ?? 0,
       };
+
       // Sucesso só depois do refetch concluído.
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["nino-intelligence"] }),
@@ -363,3 +405,19 @@ export const MATURITY_LABEL: Record<string, string> = {
 };
 
 export { NinoContractError };
+
+/** Decisão do usuário sobre um par possivelmente duplicado. */
+export function useNinoDuplicateDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { pairKey: string; decision: "distinct" | "duplicate" | "ignored" }) =>
+      callRpc<{ ok: boolean; error?: string }>("my_nino_duplicate_decision", {
+        _pair_key: v.pairKey,
+        _decision: v.decision,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["nino-intelligence"] });
+      void qc.invalidateQueries({ queryKey: ["nino-home-item"] });
+    },
+  });
+}

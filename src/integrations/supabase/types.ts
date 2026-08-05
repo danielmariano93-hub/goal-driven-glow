@@ -6064,9 +6064,37 @@ export type Database = {
           },
         ]
       }
+      nino_duplicate_decisions: {
+        Row: {
+          created_at: string
+          decision: string
+          id: string
+          pair_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision: string
+          id?: string
+          pair_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decision?: string
+          id?: string
+          pair_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       nino_intelligence_items: {
         Row: {
           acted_at: string | null
+          category: string
           confidence: number
           created_at: string
           created_by: string
@@ -6077,9 +6105,14 @@ export type Database = {
           explanation: string
           facts: Json
           formula_version: string
+          group_key: string | null
+          group_size: number
           id: string
+          impact_amount: number | null
+          impact_pct: number | null
           insight_id: string | null
           kind: Database["public"]["Enums"]["nino_item_kind"]
+          logical_topic_key: string | null
           narrative_version: string
           opportunity_id: string | null
           pattern_id: string | null
@@ -6088,6 +6121,7 @@ export type Database = {
           report_id: string | null
           review_id: string | null
           secondary_action: Json | null
+          selection_reason: Json
           severity: string
           source: string
           source_period_end: string | null
@@ -6096,6 +6130,7 @@ export type Database = {
           suggestion_id: string | null
           summary: string
           superseded_at: string | null
+          suppression_reason: string | null
           temporal_role: Database["public"]["Enums"]["nino_temporal_role"]
           title: string
           updated_at: string
@@ -6105,6 +6140,7 @@ export type Database = {
         }
         Insert: {
           acted_at?: string | null
+          category?: string
           confidence?: number
           created_at?: string
           created_by?: string
@@ -6115,9 +6151,14 @@ export type Database = {
           explanation?: string
           facts?: Json
           formula_version?: string
+          group_key?: string | null
+          group_size?: number
           id?: string
+          impact_amount?: number | null
+          impact_pct?: number | null
           insight_id?: string | null
           kind: Database["public"]["Enums"]["nino_item_kind"]
+          logical_topic_key?: string | null
           narrative_version?: string
           opportunity_id?: string | null
           pattern_id?: string | null
@@ -6126,6 +6167,7 @@ export type Database = {
           report_id?: string | null
           review_id?: string | null
           secondary_action?: Json | null
+          selection_reason?: Json
           severity?: string
           source?: string
           source_period_end?: string | null
@@ -6134,6 +6176,7 @@ export type Database = {
           suggestion_id?: string | null
           summary?: string
           superseded_at?: string | null
+          suppression_reason?: string | null
           temporal_role?: Database["public"]["Enums"]["nino_temporal_role"]
           title: string
           updated_at?: string
@@ -6143,6 +6186,7 @@ export type Database = {
         }
         Update: {
           acted_at?: string | null
+          category?: string
           confidence?: number
           created_at?: string
           created_by?: string
@@ -6153,9 +6197,14 @@ export type Database = {
           explanation?: string
           facts?: Json
           formula_version?: string
+          group_key?: string | null
+          group_size?: number
           id?: string
+          impact_amount?: number | null
+          impact_pct?: number | null
           insight_id?: string | null
           kind?: Database["public"]["Enums"]["nino_item_kind"]
+          logical_topic_key?: string | null
           narrative_version?: string
           opportunity_id?: string | null
           pattern_id?: string | null
@@ -6164,6 +6213,7 @@ export type Database = {
           report_id?: string | null
           review_id?: string | null
           secondary_action?: Json | null
+          selection_reason?: Json
           severity?: string
           source?: string
           source_period_end?: string | null
@@ -6172,6 +6222,7 @@ export type Database = {
           suggestion_id?: string | null
           summary?: string
           superseded_at?: string | null
+          suppression_reason?: string | null
           temporal_role?: Database["public"]["Enums"]["nino_temporal_role"]
           title?: string
           updated_at?: string
@@ -10247,6 +10298,10 @@ export type Database = {
       }
       my_more_menu_context: { Args: never; Returns: Json }
       my_nino_context: { Args: never; Returns: Json }
+      my_nino_duplicate_decision: {
+        Args: { _decision: string; _pair_key: string }
+        Returns: Json
+      }
       my_nino_home_item: { Args: never; Returns: Json }
       my_nino_intelligence_context: { Args: never; Returns: Json }
       my_nino_item_act: {
@@ -10305,23 +10360,59 @@ export type Database = {
       nino_backfill_rollback: { Args: never; Returns: Json }
       nino_brl: { Args: { _v: number }; Returns: string }
       nino_build_facts: { Args: { _user_id: string }; Returns: number }
+      nino_consolidate_topics: { Args: { _user_id: string }; Returns: number }
       nino_curate_items: { Args: { _user_id: string }; Returns: Json }
       nino_expense_sum: {
         Args: { _from: string; _to: string; _user_id: string }
         Returns: number
       }
       nino_fix_money_text: { Args: { _t: string }; Returns: string }
+      nino_group_duplicates: { Args: { _user_id: string }; Returns: number }
       nino_intelligence_tick: { Args: never; Returns: Json }
+      nino_item_category: {
+        Args: { _kind: string; _topic: string }
+        Returns: string
+      }
       nino_item_json: {
         Args: {
           _row: Database["public"]["Tables"]["nino_intelligence_items"]["Row"]
         }
         Returns: Json
       }
+      nino_norm_text: { Args: { _t: string }; Returns: string }
       nino_num: { Args: { _v: number }; Returns: string }
       nino_rebuild_items: {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
+      }
+      nino_score_item: {
+        Args: {
+          _category: string
+          _confidence: number
+          _exposures: number
+          _group_size: number
+          _impact: number
+          _impact_pct: number
+          _kind: string
+          _severity: string
+          _valid_from: string
+        }
+        Returns: number
+      }
+      nino_semantic_gate: {
+        Args: { _kind: string; _text: string }
+        Returns: string
+      }
+      nino_topic_key: {
+        Args: {
+          _action: Json
+          _evidence: Json
+          _kind: string
+          _period_start: string
+          _source: string
+          _title: string
+        }
+        Returns: string
       }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
       normalize_investment_name: { Args: { p_name: string }; Returns: string }
