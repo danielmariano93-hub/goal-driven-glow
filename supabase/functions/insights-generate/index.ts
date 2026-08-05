@@ -357,13 +357,22 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
       dueDate: String((st as unknown as { due_date?: string }).due_date),
       amount: Number((st as unknown as { outstanding_amount?: number | string }).outstanding_amount ?? 0),
     }));
+  const normalizedRecurringRules = ((recurringRules ?? []) as Array<Record<string, unknown>>).map((rule) => ({
+    id: String(rule.id),
+    name: String(rule.name ?? "Compromisso"),
+    type: rule.kind === "income" ? "income" : "expense",
+    amount: Number(rule.amount ?? 0),
+    frequency: String(rule.frequency ?? "monthly"),
+    next_due_date: String(rule.start_date ?? todayIsoSP),
+    active: rule.status === "active",
+  }));
   const commitments7d = computeUpcomingCommitments(
-    (recurringRules ?? []) as never,
+    normalizedRecurringRules as never,
     allTx,
     7,
   );
   const commitments30d = computeUpcomingCommitments(
-    (recurringRules ?? []) as never,
+    normalizedRecurringRules as never,
     allTx,
     30,
   );

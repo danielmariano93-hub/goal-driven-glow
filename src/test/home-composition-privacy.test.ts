@@ -28,6 +28,13 @@ describe("composição narrativa da Home", () => {
     expect(source).not.toContain("useNinoHomeItem");
   });
 
+  it("não converte indisponibilidade complementar em zero sem checar capacidade", () => {
+    const source = read("src/pages/Index.tsx");
+    expect(source).toContain('availability.projection === "available"');
+    expect(source).toContain('availability.cardExposure === "available"');
+    expect(source).toContain("projectionAvailability={availability.projection}");
+  });
+
   it("aplica a identidade oficial na Home", () => {
     const theme = read("tailwind.config.ts");
     const files = [

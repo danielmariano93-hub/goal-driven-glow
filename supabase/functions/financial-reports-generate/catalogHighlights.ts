@@ -127,8 +127,17 @@ export async function buildCatalogHighlights(
       }));
 
     const ruleRows = (rules.data ?? []) as Array<{ kind?: string; frequency?: string; amount?: number | string }>;
-    const commitments7d = computeUpcomingCommitments(rules.data as never, transactions, 7);
-    const commitments30d = computeUpcomingCommitments(rules.data as never, transactions, 30);
+    const normalizedRules = ((rules.data ?? []) as Array<Record<string, unknown>>).map((rule) => ({
+      id: String(rule.id),
+      name: String(rule.name ?? "Compromisso"),
+      type: rule.kind === "income" ? "income" : "expense",
+      amount: Number(rule.amount ?? 0),
+      frequency: String(rule.frequency ?? "monthly"),
+      next_due_date: String(rule.start_date ?? todayISO),
+      active: rule.status === "active",
+    }));
+    const commitments7d = computeUpcomingCommitments(normalizedRules as never, transactions, 7);
+    const commitments30d = computeUpcomingCommitments(normalizedRules as never, transactions, 30);
 
     const availableToday = Number(
       ((accounts.data ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
