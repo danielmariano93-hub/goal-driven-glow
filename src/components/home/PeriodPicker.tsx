@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronRight } from "lucide-react";
+import { CalendarBlank, CaretRight } from "@phosphor-icons/react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import type { PeriodKind } from "@/lib/ui/periodStore";
@@ -42,18 +42,18 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
         variant="outline"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className="flex h-10 w-full items-center justify-start gap-3 rounded-md bg-card px-3 text-left"
+        className="flex h-11 w-full items-center justify-start gap-3 rounded-xl border-border/80 bg-card px-3 text-left shadow-sm"
       >
         <span
-          className="grid h-7 w-7 place-items-center rounded-full bg-secondary text-primary"
+          className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"
         >
-          <CalendarDays size={14} />
+          <CalendarBlank size={15} weight="bold" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[10px] text-muted-foreground">Período do resumo</span>
           <span className="block truncate text-[13px] font-semibold text-foreground">{label}</span>
         </span>
-        <ChevronRight size={14} className="text-muted-foreground" />
+        <CaretRight size={14} weight="bold" className="text-muted-foreground" />
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -112,7 +112,7 @@ function Opt({ label, onClick }: { label: string; onClick: () => void }) {
       className="flex h-11 w-full items-center justify-between rounded-md bg-card px-4 text-left text-sm font-medium"
     >
       {label}
-      <ChevronRight size={14} className="text-muted-foreground" />
+      <CaretRight size={14} weight="bold" className="text-muted-foreground" />
     </Button>
   );
 }

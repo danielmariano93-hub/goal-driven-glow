@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, WalletCards } from "lucide-react";
+import { ArrowRight, Wallet } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
@@ -27,15 +27,16 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className="overflow-hidden rounded-[20px] bg-gradient-brand-dark p-5 text-primary-foreground shadow-hero"
+        className="relative overflow-hidden rounded-[20px] bg-gradient-brand-dark p-5 text-primary-foreground shadow-hero animate-fade-in"
       >
+        <span className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-semibold uppercase text-primary-foreground/70">{p.periodLabel}</p>
             {p.loading ? <div className="mt-2 h-9 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : <p className="mt-2 font-display text-[36px] font-extrabold leading-none tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
           </div>
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary-foreground/10 text-primary-foreground">
-            <WalletCards className="h-5 w-5" aria-hidden="true" />
+            <Wallet className="h-5 w-5" weight="duotone" aria-hidden="true" />
           </span>
         </div>
 
