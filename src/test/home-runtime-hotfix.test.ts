@@ -20,7 +20,7 @@ describe("Home runtime hotfix", () => {
 
   it("não bloqueia a troca explícita de dica por 60 segundos", () => {
     const server = read("supabase/functions/insights-generate/index.ts");
-    const client = read("src/components/home/AssistantTipCard.tsx");
+    const client = read("src/components/home/NinoGuidanceCard.tsx");
     expect(server).not.toContain("retry_after_seconds: 60");
     expect(client).not.toContain("< 60_000");
     expect(client).not.toContain('await refetch()');
@@ -29,6 +29,6 @@ describe("Home runtime hotfix", () => {
   it("remove o alerta indevido de saldo de dívida", () => {
     const source = read("src/pages/Index.tsx");
     expect(source).not.toContain("Falta informar o saldo da dívida");
-    expect(source).toContain("apply_safe_category_suggestions");
+    expect(source).toContain("processCategoryQueue");
   });
 });

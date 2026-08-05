@@ -26,19 +26,31 @@ import type { DateRange } from "@/lib/engine/dailyAverage";
 export function useFinancialSnapshot(period: DateRange): {
   data: FinancialSnapshot | null;
   loading: boolean;
+  error: unknown;
+  partial: boolean;
+  refetch: () => Promise<void>;
 } {
   const { user } = useAuth();
-  const { data: accounts, isLoading: la } = useAccounts();
-  const { data: snapshots, isLoading: ls } = useAccountBalanceSnapshots();
-  const { data: txs, isLoading: lt } = useAllTransactions();
-  const { data: investments } = useInvestments();
-  const { data: debts } = useDebts();
-  const { data: categories } = useCategories();
-  const { data: categoryGoals } = useCategorySpendingGoals();
-  const { data: goals } = useGoals();
-  const { data: goalContributions } = useContributions();
+  const accountsQuery = useAccounts();
+  const snapshotsQuery = useAccountBalanceSnapshots();
+  const txsQuery = useAllTransactions();
+  const investmentsQuery = useInvestments();
+  const debtsQuery = useDebts();
+  const categoriesQuery = useCategories();
+  const categoryGoalsQuery = useCategorySpendingGoals();
+  const goalsQuery = useGoals();
+  const contributionsQuery = useContributions();
+  const { data: accounts } = accountsQuery;
+  const { data: snapshots } = snapshotsQuery;
+  const { data: txs } = txsQuery;
+  const { data: investments } = investmentsQuery;
+  const { data: debts } = debtsQuery;
+  const { data: categories } = categoriesQuery;
+  const { data: categoryGoals } = categoryGoalsQuery;
+  const { data: goals } = goalsQuery;
+  const { data: goalContributions } = contributionsQuery;
 
-  const { data: recurring } = useQuery({
+  const recurringQuery = useQuery({
     queryKey: ["recurring_rules_active", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -49,8 +61,9 @@ export function useFinancialSnapshot(period: DateRange): {
       return (data as Array<{ id: string; name: string; kind: string; amount: number; frequency: string; next_due_date: string; status: string }> | null) ?? [];
     },
   });
+  const { data: recurring } = recurringQuery;
 
-  const { data: cardStatements } = useQuery({
+  const cardStatementsQuery = useQuery({
     queryKey: ["credit_card_statements", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -61,8 +74,9 @@ export function useFinancialSnapshot(period: DateRange): {
       return (data as unknown as CardStatementRow[] | null) ?? [];
     },
   });
+  const { data: cardStatements } = cardStatementsQuery;
 
-  const { data: cardInstallments } = useQuery({
+  const cardInstallmentsQuery = useQuery({
     queryKey: ["credit_card_installments", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -73,8 +87,9 @@ export function useFinancialSnapshot(period: DateRange): {
       return (data as unknown as CardInstallmentRow[] | null) ?? [];
     },
   });
+  const { data: cardInstallments } = cardInstallmentsQuery;
 
-  const { data: cards } = useQuery({
+  const cardsQuery = useQuery({
     queryKey: ["credit_cards", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -83,9 +98,10 @@ export function useFinancialSnapshot(period: DateRange): {
       return (data as unknown as Array<{ id: string; closing_day: number | null; due_day: number | null }> | null) ?? [];
     },
   });
+  const { data: cards } = cardsQuery;
 
   // Movimentos de investimento — habilitam a ponte patrimonial precisa (v4).
-  const { data: investmentMovements } = useQuery({
+  const investmentMovementsQuery = useQuery({
     queryKey: ["investment_movements_all", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -98,12 +114,16 @@ export function useFinancialSnapshot(period: DateRange): {
         .map((m) => ({ type: m.kind, amount: Number(m.amount || 0), occurred_at: m.occurred_at }));
     },
   });
+  const { data: investmentMovements } = investmentMovementsQuery;
 
-  const loading = la || ls || lt;
+  const queries = [accountsQuery, snapshotsQuery, txsQuery, investmentsQuery, debtsQuery, categoriesQuery, categoryGoalsQuery, goalsQuery, contributionsQuery, recurringQuery, cardStatementsQuery, cardInstallmentsQuery, cardsQuery, investmentMovementsQuery];
+  const loading = queries.some((query) => query.isLoading);
+  const error = queries.find((query) => query.error)?.error ?? null;
+  const partial = !loading && queries.some((query) => query.isError);
   const todayKey = todayISO();
 
   const snapshot = useMemo<FinancialSnapshot | null>(() => {
-    if (loading) return null;
+    if (loading || error) return null;
     const numericAccounts = (accounts ?? []).map((a) => ({
       id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active,
     }));
@@ -167,7 +187,13 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, error]);
 
-  return { data: snapshot, loading };
+  return {
+    data: snapshot,
+    loading,
+    error,
+    partial,
+    refetch: async () => { await Promise.all(queries.map((query) => query.refetch())); },
+  };
 }

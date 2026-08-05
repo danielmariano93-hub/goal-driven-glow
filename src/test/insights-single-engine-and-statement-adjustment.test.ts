@@ -7,23 +7,24 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 
 describe("motor único de dicas + ajuste restrito + crons observáveis", () => {
   it("o card de dicas não usa mais o motor legado local", () => {
-    const card = read("src/components/home/AssistantTipCard.tsx");
+    const card = read("src/components/home/NinoGuidanceCard.tsx");
     expect(card).not.toContain("buildLocalCandidates");
     expect(card).not.toContain("pickFallback");
     expect(card).not.toContain("localFallback");
   });
 
   it("o card da Home consome a inteligência unificada do Nino", () => {
-    const card = read("src/components/home/AssistantTipCard.tsx");
-    expect(card).toContain("useNinoHomeItem");
-    expect(card).toContain("recordNinoExposure");
-    expect(card).toContain('aria-label="Atualizar leitura do Nino"');
+    const card = read("src/components/home/NinoGuidanceCard.tsx");
+    const page = read("src/pages/Index.tsx");
+    expect(page).toContain("useNinoDiagnosisContext");
+    expect(page).toContain("toHomeDiagnosisView");
+    expect(card).toContain("HomeDiagnosisView");
   });
 
   it("o botão Útil registra retorno no item de inteligência", () => {
-    const card = read("src/components/home/AssistantTipCard.tsx");
-    expect(card).toContain('feedback: kind, surface: "home"');
-    expect(card).toContain("useNinoFeedback");
+    const card = read("src/components/home/NinoGuidanceCard.tsx");
+    expect(card).toContain('feedback: value, surface: "home"');
+    expect(card).toContain("useNinoSituationFeedback");
   });
 
   it("insights-generate usa só o catálogo determinístico e entrega lote", () => {
