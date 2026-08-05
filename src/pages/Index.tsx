@@ -12,6 +12,7 @@ import { QuickActions } from "@/components/home/QuickActions";
 import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
+import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
 
 import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -64,7 +65,7 @@ export default function Index() {
   const heroLabel = "Disponível hoje";
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-4 pb-20 [scroll-padding-bottom:9rem] md:max-w-4xl md:space-y-5" data-surface="home">
+    <div className="mx-auto w-full max-w-[720px] space-y-5 pb-20 [scroll-padding-bottom:9rem]" data-surface="home">
       <HomeHeader />
 
       <PeriodPicker
@@ -85,12 +86,15 @@ export default function Index() {
         upcomingCommitments={availability.projection === "available" ? snap?.projection.upcomingConfirmedCommitments ?? 0 : 0}
         cardDueThisMonth={availability.cardExposure === "available" ? snap?.projection.cardDueThisMonth ?? 0 : 0}
         projectedEndBalance={availability.projection === "available" ? snap?.projection.projectedEndBalance ?? 0 : 0}
+        freeAfterKnownCommitments={availability.projection === "available" ? snap?.projection.freeAfterKnownCommitments ?? null : null}
         loading={loading}
         hasAccount={hasAccount}
         error={snapshotError}
         partial={completeness === "partial"}
         onRetry={() => void (snapshotError ? snapshot.refetchCritical() : snapshot.refetchMissing())}
       />
+
+      <QuickActions />
 
       <NinoGuidanceCard
         diagnosis={homeDiagnosis}
@@ -102,23 +106,25 @@ export default function Index() {
         projectionAvailability={availability.projection}
       />
 
-      <QuickActions />
-
-      <div className="grid gap-4 md:grid-cols-2 md:items-start">
-        <RitmoUnificadoCard
+      <RitmoUnificadoCard
           rhythm={snap?.rhythm ?? null}
           projection={snap?.projection ?? null}
           loading={loading}
           partial={completeness === "partial"}
           error={availability.rhythm === "unavailable" ? snapshotError : null}
           onRetry={() => void snapshot.refetchCritical()}
-        />
-        <PrevisaoFechamentoCard
+      />
+      <PrevisaoFechamentoCard
           projection={snap?.projection ?? null}
           availability={availability.projection}
           loading={loading}
-        />
-      </div>
+      />
+
+      <ProximosCompromissosCard
+        commitments={snap?.upcomingCommitments.items ?? []}
+        availability={availability.projection}
+        loading={loading}
+      />
 
       <EmotionalCheckinCard />
     </div>

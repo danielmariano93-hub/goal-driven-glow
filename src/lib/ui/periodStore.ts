@@ -3,7 +3,7 @@
  * Persistência local (por dispositivo) para manter o filtro selecionado
  * na Home refletindo automaticamente em outras telas de análise.
  */
-export type PeriodKind = "month" | "30d" | "90d" | "custom";
+export type PeriodKind = "month" | "previousMonth" | "7d" | "30d" | "custom";
 
 export interface PeriodState {
   period: PeriodKind;
@@ -74,11 +74,18 @@ export function setPeriod(state: PeriodState): void {
 
 /** Resolve início/fim (YYYY-MM-DD) a partir do estado persistido. */
 export function resolvePeriodRange(state: PeriodState = getPeriod()): { start: string; end: string } {
-  const end = state.period === "custom" ? state.customEnd : isoDate(new Date());
-  const startDate = new Date();
+  const now = new Date();
+  const end = state.period === "custom"
+    ? state.customEnd
+    : state.period === "previousMonth"
+      ? isoDate(new Date(now.getFullYear(), now.getMonth(), 0))
+      : isoDate(now);
+  const startDate = state.period === "previousMonth"
+    ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    : new Date(now);
   if (state.period === "month") startDate.setDate(1);
+  if (state.period === "7d") startDate.setDate(startDate.getDate() - 6);
   if (state.period === "30d") startDate.setDate(startDate.getDate() - 29);
-  if (state.period === "90d") startDate.setDate(startDate.getDate() - 89);
   const start = state.period === "custom" ? state.customStart : isoDate(startDate);
   return { start, end };
 }

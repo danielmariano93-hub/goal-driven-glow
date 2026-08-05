@@ -208,7 +208,7 @@ export interface SnapshotGoalProgress {
 /** Nível de confiança da projeção — função apenas dos dias já observados. */
 export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
 
-export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v5";
+export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v6";
 
 /**
  * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v5`).
@@ -256,11 +256,13 @@ export interface SpendingProjection {
   cardDueThisMonth: number;
   /** Saldo esperado no último dia do mês. */
   projectedEndBalance: number;
+  /** Livre após entradas e compromissos confirmados; não inclui gasto variável. */
+  freeAfterKnownCommitments: number;
   confidence: ProjectionConfidence;
 }
 
 function projectionConfidenceOf(daysElapsed: number): ProjectionConfidence {
-  if (daysElapsed < 4) return "insufficient";
+  if (daysElapsed < 3) return "insufficient";
   if (daysElapsed < 7) return "low";
   if (daysElapsed < 14) return "medium";
   return "high";
@@ -671,6 +673,9 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const projectedMonthEndAvailable = round2(
     availableToday + confirmedFutureIncome - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
   );
+  const freeAfterKnownCommitments = round2(
+    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDueThisMonth,
+  );
   const projection: SpendingProjection = {
     formulaVersion: SPENDING_PROJECTION_VERSION,
     monthStart: monthRange.start,
@@ -689,6 +694,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     currentAvailableBalance: availableToday,
     cardDueThisMonth,
     projectedEndBalance: projectedMonthEndAvailable,
+    freeAfterKnownCommitments,
     confidence: projectionConfidenceOf(daysElapsed),
   };
 

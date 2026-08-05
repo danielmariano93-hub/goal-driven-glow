@@ -589,9 +589,13 @@ export function computeUpcomingCommitments(
   plannedTxs: TransactionRow[],
   horizonDays = 30
 ) {
+  const today = todayISO();
+  const horizon = new Date(`${today}T00:00:00`);
+  horizon.setDate(horizon.getDate() + horizonDays);
+  const horizonISO = todayISO(horizon);
   const next = nextRecurringOccurrences(recurring, horizonDays);
   const planned = plannedTxs
-    .filter((t) => t.status === "planned" && t.type !== "transfer")
+    .filter((t) => t.status === "planned" && t.type !== "transfer" && !t.settles_card_id && t.occurred_at >= today && t.occurred_at <= horizonISO)
     .map((t) => ({ id: t.id, name: t.description || "Compromisso", type: t.type as "income" | "expense", amount: Number(t.amount), date: t.occurred_at }));
   const combined = [...next, ...planned].sort((a, b) => a.date.localeCompare(b.date));
   const totalExpense = sumBy(combined.filter((c) => c.type === "expense"), (c) => c.amount);
