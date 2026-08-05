@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toHomeDiagnosisView, type NinoDiagnosisContext } from "@/lib/nino/diagnosis";
+import { buildHomeGuidancePresentation } from "@/lib/nino/homeGuidance";
 
 function context(): NinoDiagnosisContext {
   const primary = {
@@ -52,5 +53,28 @@ describe("adaptador do diagnóstico para a Home", () => {
     const input = context();
     if (input.primary_action) input.primary_action.situation_id = "55555555-5555-4555-8555-555555555555";
     expect(toHomeDiagnosisView(input).hasTrustedAction).toBe(false);
+  });
+
+  it("expõe uma única síntese e preserva a ação confiável", () => {
+    const input = context();
+    if (input.primary_situation) {
+      input.primary_situation.cause_summary = "Compras recentes explicam a alta.";
+      input.primary_situation.consequence_summary = "O saldo pode ficar mais apertado.";
+    }
+    const presentation = buildHomeGuidancePresentation(toHomeDiagnosisView(input), "available");
+    expect(presentation?.title).toBe("Seu ritmo subiu");
+    expect(presentation?.supportingText).toBe("Compras recentes explicam a alta.");
+    expect(presentation?.action?.title).toBe("Revisar gastos");
+  });
+
+  it("move metodologia para o detalhe e oculta forecast quando a projeção é parcial", () => {
+    const input = context();
+    if (input.primary_situation) {
+      input.primary_situation.cause_summary = "O cálculo considera apenas renda operacional.";
+      input.primary_situation.forecast_summary = "Mantido o ritmo, o saldo ficará pressionado.";
+    }
+    const presentation = buildHomeGuidancePresentation(toHomeDiagnosisView(input), "partial");
+    expect(presentation?.supportingText).toContain("Também vale saber");
+    expect(presentation?.supportingText).not.toContain("Mantido o ritmo");
   });
 });

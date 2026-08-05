@@ -97,7 +97,7 @@ export async function buildCatalogHighlights(
         .eq("user_id", userId),
       sb.from("debts").select("outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
       sb.from("recurring_rules")
-        .select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,next_due_date,type,description")
+        .select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,name")
         .eq("user_id", userId).eq("status", "active"),
       sb.from("accounts").select("current_balance,active").eq("user_id", userId),
     ]);
@@ -126,9 +126,18 @@ export async function buildCatalogHighlights(
         amount: Number((st as unknown as { outstanding_amount?: number | string }).outstanding_amount ?? 0),
       }));
 
-    const ruleRows = (rules.data ?? []) as Array<{ type?: string; frequency?: string; amount?: number | string }>;
-    const commitments7d = computeUpcomingCommitments(rules.data as never, transactions, 7);
-    const commitments30d = computeUpcomingCommitments(rules.data as never, transactions, 30);
+    const ruleRows = (rules.data ?? []) as Array<{ kind?: string; frequency?: string; amount?: number | string }>;
+    const normalizedRules = ((rules.data ?? []) as Array<Record<string, unknown>>).map((rule) => ({
+      id: String(rule.id),
+      name: String(rule.name ?? "Compromisso"),
+      type: rule.kind === "income" ? "income" : "expense",
+      amount: Number(rule.amount ?? 0),
+      frequency: String(rule.frequency ?? "monthly"),
+      next_due_date: String(rule.start_date ?? todayISO),
+      active: rule.status === "active",
+    }));
+    const commitments7d = computeUpcomingCommitments(normalizedRules as never, transactions, 7);
+    const commitments30d = computeUpcomingCommitments(normalizedRules as never, transactions, 30);
 
     const availableToday = Number(
       ((accounts.data ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
@@ -137,7 +146,7 @@ export async function buildCatalogHighlights(
         .toFixed(2),
     );
 
-    const subscriptionRules = ruleRows.filter((r) => r?.type === "expense" && (r.frequency ?? "monthly") === "monthly");
+    const subscriptionRules = ruleRows.filter((r) => r?.kind === "expense" && (r.frequency ?? "monthly") === "monthly");
     const subscriptions = subscriptionRules.length > 0
       ? {
         count: subscriptionRules.length,

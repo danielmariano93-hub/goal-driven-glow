@@ -2,15 +2,7 @@ import { useMemo, useState } from "react";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import type { PeriodKind } from "@/lib/ui/periodStore";
-
-const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-
-function fmt(iso: string) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return iso;
-  return `${Number(m[3])} de ${MONTHS[Number(m[2]) - 1]} de ${m[1]}`;
-}
+import { formatPeriodLabel, type PeriodKind } from "@/lib/ui/periodStore";
 function iso(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -28,7 +20,7 @@ type Props = {
 
 export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCustomStart, setCustomEnd, rangeStart, rangeEnd }: Props) {
   const [open, setOpen] = useState(false);
-  const label = useMemo(() => `${fmt(rangeStart)} – ${fmt(rangeEnd)}`, [rangeStart, rangeEnd]);
+  const label = useMemo(() => formatPeriodLabel(rangeStart, rangeEnd), [rangeStart, rangeEnd]);
   const today = iso(new Date());
   const customValid = Boolean(customStart && customEnd && customStart <= customEnd && customEnd <= today);
 

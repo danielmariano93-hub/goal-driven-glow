@@ -271,7 +271,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     supa.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", uid),
     supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
     supa.from("debts").select("outstanding_balance,status").eq("user_id", uid).eq("status", "active"),
-    supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,next_due_date,type,category_id,account_id,description").eq("user_id", uid).eq("status", "active"),
+    supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,category_id,account_id,name").eq("user_id", uid).eq("status", "active"),
     supa.from("accounts").select("current_balance,active").eq("user_id", uid),
   ]);
 
@@ -357,13 +357,22 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
       dueDate: String((st as unknown as { due_date?: string }).due_date),
       amount: Number((st as unknown as { outstanding_amount?: number | string }).outstanding_amount ?? 0),
     }));
+  const normalizedRecurringRules = ((recurringRules ?? []) as Array<Record<string, unknown>>).map((rule) => ({
+    id: String(rule.id),
+    name: String(rule.name ?? "Compromisso"),
+    type: rule.kind === "income" ? "income" : "expense",
+    amount: Number(rule.amount ?? 0),
+    frequency: String(rule.frequency ?? "monthly"),
+    next_due_date: String(rule.start_date ?? todayIsoSP),
+    active: rule.status === "active",
+  }));
   const commitments7d = computeUpcomingCommitments(
-    (recurringRules ?? []) as never,
+    normalizedRecurringRules as never,
     allTx,
     7,
   );
   const commitments30d = computeUpcomingCommitments(
-    (recurringRules ?? []) as never,
+    normalizedRecurringRules as never,
     allTx,
     30,
   );
