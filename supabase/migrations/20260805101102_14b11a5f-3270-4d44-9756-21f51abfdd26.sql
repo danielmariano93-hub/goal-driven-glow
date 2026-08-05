@@ -1,0 +1,1 @@
+COMMENT ON COLUMN public.nino_diagnosis_snapshots.contract_version IS 'Versão do envelope de diagnóstico; versão ativa: nino_diagnosis_contract.v1.1.';

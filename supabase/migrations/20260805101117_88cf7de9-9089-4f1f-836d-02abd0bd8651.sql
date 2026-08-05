@@ -1,0 +1,1 @@
+ALTER FUNCTION public.nino_diagnosis_context_for_user(uuid) SET search_path = public;

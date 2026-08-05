@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.my_nino_diagnosis_context() FROM PUBLIC, anon;

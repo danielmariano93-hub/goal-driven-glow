@@ -1,0 +1,1 @@
+COMMENT ON FUNCTION public.nino_diagnosis_context_for_user(uuid) IS 'Contrato v1.1 corrigido: executive_summary nos fechamentos e blocos JSON opcionais normalizados.';

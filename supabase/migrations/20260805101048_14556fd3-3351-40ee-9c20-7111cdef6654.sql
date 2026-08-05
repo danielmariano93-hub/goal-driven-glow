@@ -1,0 +1,1 @@
+COMMENT ON FUNCTION public.my_nino_diagnosis_context() IS 'Endpoint autenticado do contrato Nino Diagnosis v1.1, sempre vinculado a auth.uid().';
