@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccounts, useAllTransactions, useGoals } from "@/lib/db/finance";
 import { useAuth } from "@/context/AuthContext";
@@ -15,14 +14,10 @@ import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { ComecePorAqui } from "@/components/home/ComecePorAqui";
 
-import { getPeriod, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
+import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
-import { useNinoHomeItem } from "@/lib/nino/intelligence";
-
-function isoDate(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+import { toHomeDiagnosisView, useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
 
 export default function Index() {
   const { user } = useAuth();
@@ -59,17 +54,12 @@ export default function Index() {
   }, [queryClient, user?.id]);
 
   const periodRange = useMemo(() => {
-    const end = period === "custom" ? customEnd : isoDate(new Date());
-    const startDate = new Date();
-    if (period === "month") startDate.setDate(1);
-    if (period === "30d") startDate.setDate(startDate.getDate() - 29);
-    if (period === "90d") startDate.setDate(startDate.getDate() - 89);
-    const start = period === "custom" ? customStart : isoDate(startDate);
-    return { start, end };
+    return resolvePeriodRange({ period, customStart, customEnd });
   }, [period, customStart, customEnd]);
 
   const { data: snap, loading } = useFinancialSnapshot(periodRange);
-  const homeInsight = useNinoHomeItem();
+  const diagnosis = useNinoDiagnosisContext();
+  const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
   const hasAccount = (accounts ?? []).length > 0;
   const hasTransaction = (txs ?? []).length > 0;
@@ -116,29 +106,24 @@ export default function Index() {
       />
 
       <AssistantTipCard
-        item={homeInsight.data?.item ?? null}
-        kind={homeInsight.data?.kind}
-        loading={homeInsight.isLoading}
-        error={homeInsight.error}
-        retrying={homeInsight.isFetching}
-        onRetry={() => void homeInsight.refetch()}
+        diagnosis={homeDiagnosis}
+        loading={diagnosis.isLoading}
+        error={diagnosis.error}
+        retrying={diagnosis.isFetching}
+        onRetry={() => void diagnosis.refetch()}
       />
 
-      {loading ? (
-        <div className="grid place-items-center py-6">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : isFresh ? (
+      {loading ? <div className="h-44 animate-pulse rounded-[20px] bg-secondary" aria-label="Carregando projeção" /> : isFresh ? (
         <ComecePorAqui hasAccount={hasAccount} hasTransaction={hasTransaction} hasGoal={hasGoal} />
       ) : (
         <PrevisaoFechamentoCard projection={snap?.projection ?? null} />
       )}
 
       <BestActionCard
-        item={homeInsight.data?.item ?? null}
-        loading={homeInsight.isLoading}
-        refreshing={homeInsight.isFetching}
-        onRefresh={() => void homeInsight.refetch()}
+        diagnosis={homeDiagnosis}
+        loading={diagnosis.isLoading}
+        refreshing={diagnosis.isFetching}
+        onRefresh={() => void diagnosis.refetch()}
       />
 
       <QuickActions />
