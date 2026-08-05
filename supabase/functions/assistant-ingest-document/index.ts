@@ -470,13 +470,11 @@ async function enrichItems(
       item,
       rawDesc,
       friendly,
-      normalizedKey: friendly.toLowerCase().trim(),
       ruleCategory,
       ruleMovementKind,
       bankRef: extractBankReference(rawDesc),
     };
   });
-  const uniqueDescriptions = [...new Set(normalized.map((n) => n.friendly).filter(Boolean))].slice(0, 200);
   const uniqueRawKeys = [...new Set(normalized.map((n) => n.rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean))].slice(0, 200);
 
   // 2) Uma única leva de queries.
@@ -495,7 +493,7 @@ async function enrichItems(
   ]);
   const enriched = [];
   for (const n of normalized) {
-    const { item, rawDesc, friendly, normalizedKey, ruleCategory, ruleMovementKind, bankRef } = n;
+    const { item, rawDesc, friendly, ruleCategory, ruleMovementKind, bankRef } = n;
 
     let categoryId: string | null = null;
     let categorySource: string | null = null;
@@ -741,10 +739,7 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
 
 async function processDocument(documentId: string, userId: string, guidance: string, correlationId: string) {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-  const [visionModel, classificationModel] = await Promise.all([
-    resolveConfiguredModel(sb, "vision"),
-    resolveConfiguredModel(sb, "semantic_classification"),
-  ]);
+  const visionModel = await resolveConfiguredModel(sb, "vision");
   const finish = async (patch: Record<string, unknown>) => {
     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
   };
