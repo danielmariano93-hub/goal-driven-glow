@@ -10836,7 +10836,12 @@ export type Database = {
       }
       my_more_menu_context: { Args: never; Returns: Json }
       my_nino_context: { Args: never; Returns: Json }
+      my_nino_diagnosis_context: { Args: never; Returns: Json }
       my_nino_duplicate_decision: {
+        Args: { _decision: string; _pair_key: string }
+        Returns: Json
+      }
+      my_nino_duplicate_decision_legacy: {
         Args: { _decision: string; _pair_key: string }
         Returns: Json
       }
@@ -10870,6 +10875,7 @@ export type Database = {
         Returns: Json
       }
       my_nino_refresh: { Args: never; Returns: Json }
+      my_nino_refresh_legacy: { Args: never; Returns: Json }
       my_proactive_preferences_update: {
         Args: {
           _emotional?: boolean
@@ -10893,6 +10899,10 @@ export type Database = {
       my_tip_feedback: {
         Args: { _feedback: string; _insight_id: string }
         Returns: undefined
+      }
+      nino_assemble_diagnosis: {
+        Args: { _as_of?: string; _run_mode?: string; _user_id: string }
+        Returns: string
       }
       nino_backfill_items: { Args: { _dry_run?: boolean }; Returns: Json }
       nino_backfill_rollback: { Args: never; Returns: Json }
@@ -10944,6 +10954,21 @@ export type Database = {
         }
         Returns: number
       }
+      nino_diagnosis_backtest: {
+        Args: {
+          _from: string
+          _step_days?: number
+          _to: string
+          _user_id: string
+        }
+        Returns: Json
+      }
+      nino_diagnosis_context_for_user: {
+        Args: { _user_id: string }
+        Returns: Json
+      }
+      nino_diagnosis_rollback: { Args: never; Returns: Json }
+      nino_diagnosis_tick: { Args: never; Returns: Json }
       nino_evaluate_financial_situations: {
         Args: {
           _as_of?: string
@@ -10970,11 +10995,33 @@ export type Database = {
         }
         Returns: Json
       }
+      nino_legacy_intelligence_tick: { Args: never; Returns: Json }
+      nino_legacy_rebuild_items: {
+        Args: { _created_by?: string; _user_id: string }
+        Returns: number
+      }
       nino_norm_text: { Args: { _t: string }; Returns: string }
       nino_num: { Args: { _v: number }; Returns: string }
+      nino_project_diagnosis: {
+        Args: { _snapshot_id: string; _user_id: string }
+        Returns: number
+      }
+      nino_project_diagnosis_communications: {
+        Args: { _snapshot_id: string; _user_id: string }
+        Returns: number
+      }
       nino_rebuild_items: {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
+      }
+      nino_refresh_diagnosis: {
+        Args: {
+          _as_of?: string
+          _run_mode?: string
+          _source?: string
+          _user_id: string
+        }
+        Returns: Json
       }
       nino_score_item: {
         Args: {
