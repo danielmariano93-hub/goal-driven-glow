@@ -82,3 +82,27 @@ export function resolvePeriodRange(state: PeriodState = getPeriod()): { start: s
   const start = state.period === "custom" ? state.customStart : isoDate(startDate);
   return { start, end };
 }
+
+const LONG_MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+function dateParts(iso: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return match ? { year: Number(match[1]), month: Number(match[2]) - 1, day: Number(match[3]) } : null;
+}
+
+export function formatPeriodLabel(startIso: string, endIso: string): string {
+  const start = dateParts(startIso);
+  const end = dateParts(endIso);
+  if (!start || !end) return `${startIso}–${endIso}`;
+  const currentYear = new Date().getFullYear();
+  const lastDay = new Date(end.year, end.month + 1, 0).getDate();
+  if (start.day === 1 && end.day === lastDay && start.month === end.month && start.year === end.year) {
+    return `${LONG_MONTHS[start.month][0].toUpperCase()}${LONG_MONTHS[start.month].slice(1)} de ${start.year}`;
+  }
+  if (start.month === end.month && start.year === end.year) {
+    return `${start.day}–${end.day} de ${LONG_MONTHS[end.month]}${end.year === currentYear ? "" : ` de ${end.year}`}`;
+  }
+  const startYear = start.year !== end.year ? ` de ${start.year}` : "";
+  const endYear = end.year === currentYear ? "" : ` de ${end.year}`;
+  return `${start.day} de ${LONG_MONTHS[start.month]}${startYear}–${end.day} de ${LONG_MONTHS[end.month]}${endYear}`;
+}

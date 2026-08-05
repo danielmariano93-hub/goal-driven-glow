@@ -18,6 +18,7 @@ export function AssessorFab() {
        className="fixed right-4 z-40 h-[54px] w-[54px] rounded-full bg-primary text-primary-foreground shadow-lg active:scale-95"
       style={{
         bottom: "calc(56px + env(safe-area-inset-bottom) + 16px)",
+         right: "max(16px, env(safe-area-inset-right))",
       }}
     >
        <ChatCircle size={23} weight="duotone" />

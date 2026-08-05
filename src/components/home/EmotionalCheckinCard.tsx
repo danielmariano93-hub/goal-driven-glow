@@ -31,6 +31,11 @@ function saoPauloDate(value = new Date()) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+function friendlyDate(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
 export function EmotionalCheckinCard() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -199,7 +204,7 @@ export function EmotionalCheckinCard() {
                     <option value="">Sem relação com um gasto</option>
                     {recentTxs!.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.occurred_at} · {t.description ?? "(sem descrição)"} · {formatBRL(Number(t.amount))}
+                        {friendlyDate(t.occurred_at)} · {t.description ?? "(sem descrição)"} · {formatBRL(Number(t.amount))}
                       </option>
                     ))}
                   </select>
@@ -212,7 +217,7 @@ export function EmotionalCheckinCard() {
                 className="w-full resize-none rounded-xl border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                 placeholder="Quer contar o que aconteceu? (opcional)"
               />
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Link to="/app/emocoes" className="text-[12px] font-semibold text-primary hover:underline">
                   Ver relatório
                 </Link>
@@ -221,7 +226,7 @@ export function EmotionalCheckinCard() {
                   onClick={save}
                   disabled={saving || !selected}
                   size="sm"
-                  className="rounded-full px-4 text-[12px] font-semibold"
+                  className="min-h-11 rounded-full px-4 text-[12px] font-semibold"
                 >
                   {saving ? <SpinnerGap size={12} className="animate-spin" /> : null}
                   {today ? "Atualizar" : "Registrar"}
