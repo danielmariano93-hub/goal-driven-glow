@@ -88,21 +88,36 @@ export type NinoItem = {
   dismissed_at?: string | null;
 };
 
+export type NinoDuplicatePair = {
+  pair_key: string;
+  merchant: string;
+  amount: number;
+  occurred_at?: string | null;
+  count?: number;
+  transactions?: Array<Record<string, unknown>>;
+};
+
 export type NinoContext = {
   ok: boolean;
   as_of: string;
+  contract: string | null;
   continuity_topic: string | null;
   last_seen_at: string | null;
   new_since_last_visit: number;
+  primary_item: NinoItem | null;
+  secondary_changes: NinoItem[];
+  operational_tasks: NinoItem[];
   now: NinoItem[];
   changes: NinoItem[];
   learnings: NinoItem[];
   prepare: NinoItem[];
   history: NinoItem[];
   achievements: NinoItem[];
+  engine_state: { patterns_tracked: number; anticipations_open: number; suppressed_total: number };
   data_quality: { status: "ok" | "attention" | "insufficient"; uncategorized_count: number; reason?: string | null };
   invalidItems: number;
 };
+
 
 export type MoreMenuContext = {
   ok: boolean;
