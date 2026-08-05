@@ -2,6 +2,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Button } from "@/components/ui/button";
 
 export function HomeHeader() {
   const { profile } = useAuth();
@@ -16,15 +17,17 @@ export function HomeHeader() {
         </h1>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           onClick={() => void toggleValues()}
           aria-label={valuesHidden ? "Mostrar valores" : "Ocultar valores"}
-          className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="h-11 w-11 rounded-full text-muted-foreground"
         >
           {valuesHidden ? <EyeOff size={16} /> : <Eye size={16} />}
-        </button>
-        <div className="grid h-9 w-9 place-items-center">
+        </Button>
+        <div className="grid h-11 w-11 place-items-center">
           <NotificationBell />
         </div>
       </div>

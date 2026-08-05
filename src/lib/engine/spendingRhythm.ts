@@ -18,13 +18,13 @@
  *      (moradia, escola, seguro, assinatura...). Não representam decisão diária.
  *    - "atípicos": outliers estatísticos (Tukey, Q3 + 1,5·IIQ) do próprio período,
  *      só aplicados com amostra mínima de 8 lançamentos.
- * 5. Comparação: período anterior de MESMO tamanho, imediatamente antes do início.
- *    Nunca "mês anterior" com número de dias diferente.
+ * 5. Comparação: mês/mês-até-hoje usa os mesmos índices do mês anterior;
+ *    demais janelas usam o período imediatamente anterior com o mesmo tamanho.
  * 6. Uma queda no ritmo é sempre positiva; uma alta é sempre negativa.
  */
 import { behavioralMetricAmount, round2, type TransactionRow } from "./facts";
 
-export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v3";
+export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v4";
 
 export interface DateRange { start: string; end: string }
 export type Trend = "up" | "down" | "stable";
@@ -141,13 +141,35 @@ export function clampRangeToToday(range: DateRange, today = isoLocal(new Date())
   return { start: range.start, end };
 }
 
-/** Período anterior com EXATAMENTE o mesmo número de dias, colado ao início. */
+function previousMonthSameDay(iso: string): string {
+  const date = parseLocal(iso);
+  if (isNaN(date.getTime())) return iso;
+  const year = date.getMonth() === 0 ? date.getFullYear() - 1 : date.getFullYear();
+  const month = date.getMonth() === 0 ? 11 : date.getMonth() - 1;
+  const day = Math.min(date.getDate(), new Date(year, month + 1, 0).getDate());
+  return isoLocal(new Date(year, month, day));
+}
+
+/**
+ * Intervalo comparável:
+ * - mês/mês-até-hoje (início no dia 1): mesmos índices no mês anterior;
+ * - demais janelas: mesmo número de dias, imediatamente antes do início.
+ */
 export function previousComparableRange(range: DateRange): DateRange {
   const n = daysInclusive(range.start, range.end);
   if (n <= 0) return range;
+  const startDate = parseLocal(range.start);
+  const endDate = parseLocal(range.end);
+  const isCalendarMonthRange = !isNaN(startDate.getTime())
+    && !isNaN(endDate.getTime())
+    && startDate.getDate() === 1
+    && startDate.getFullYear() === endDate.getFullYear()
+    && startDate.getMonth() === endDate.getMonth();
+  if (isCalendarMonthRange) {
+    return { start: previousMonthSameDay(range.start), end: previousMonthSameDay(range.end) };
+  }
   const end = addDays(range.start, -1);
-  const start = addDays(end, -(n - 1));
-  return { start, end };
+  return { start: addDays(end, -(n - 1)), end };
 }
 
 // ── classificação declarativa de fixas / atípicos ───────────────────────────

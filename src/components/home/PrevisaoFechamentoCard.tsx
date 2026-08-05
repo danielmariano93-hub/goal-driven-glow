@@ -3,6 +3,7 @@ import { ArrowRight, ChevronDown, Info } from "lucide-react";
 import { useState } from "react";
 import { formatBRL } from "@/lib/engine/facts";
 import type { SpendingProjection } from "@/lib/engine/metrics";
+import { Button } from "@/components/ui/button";
 
 type Props = {
   projection: SpendingProjection | null;
@@ -13,6 +14,12 @@ const CONFIDENCE_NOTE: Record<SpendingProjection["confidence"], string | null> =
   low: "Projeção preliminar: menos de uma semana de dados neste mês.",
   medium: null,
   high: null,
+};
+const CONFIDENCE_LABEL: Record<SpendingProjection["confidence"], string> = {
+  insufficient: "Inicial",
+  low: "Baixa",
+  medium: "Média",
+  high: "Alta",
 };
 
 function Row({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
@@ -50,11 +57,7 @@ export function PrevisaoFechamentoCard({ projection }: Props) {
       </p>
       <div className="mt-2">
         <p className="text-[11px] font-medium text-muted-foreground">Saldo estimado no fim do mês</p>
-        <p
-          className={`mt-1 font-display text-[28px] font-extrabold leading-none tabular-nums ${positive ? "text-success" : "text-destructive"}`}
-        >
-          {formatBRL(projection.projectedEndBalance)}
-        </p>
+         <div className="mt-1 flex flex-wrap items-center gap-2"><p className={`font-display text-[28px] font-extrabold leading-none tabular-nums ${positive ? "text-success" : "text-destructive"}`}>{formatBRL(projection.projectedEndBalance)}</p><span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-muted-foreground">Confiança {CONFIDENCE_LABEL[projection.confidence].toLowerCase()}</span></div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           Disponível hoje + entradas confirmadas − compromissos − fatura do mês − gasto variável esperado.
         </p>
@@ -69,10 +72,10 @@ export function PrevisaoFechamentoCard({ projection }: Props) {
         </p>
       ) : null}
 
-      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="mt-3 inline-flex min-h-9 items-center gap-1 text-[11px] font-semibold text-muted-foreground">
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="mt-3 rounded-full px-2 text-[11px] text-muted-foreground">
         {open ? "Ocultar composição" : "Ver composição"}
         <ChevronDown size={12} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
-      </button>
+      </Button>
 
       {open ? (
         <div className="mt-1 space-y-1 rounded-xl bg-secondary p-3">

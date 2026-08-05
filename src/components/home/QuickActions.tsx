@@ -22,9 +22,9 @@ function Action({ to, label, icon }: { to: string; label: string; icon: React.Re
   return (
     <Link
       to={to}
-      className="flex min-h-[86px] flex-col items-center justify-start gap-2 rounded-lg pt-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      className="flex min-h-[86px] flex-col items-center justify-start gap-2 rounded-lg pt-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
-      <span className="grid h-11 w-11 place-items-center rounded-full bg-secondary text-primary [&>svg]:h-5 [&>svg]:w-5">
+      <span className="grid h-11 w-11 place-items-center rounded-md border border-border bg-card text-primary shadow-sm [&>svg]:h-5 [&>svg]:w-5">
         {icon}
       </span>
       <span

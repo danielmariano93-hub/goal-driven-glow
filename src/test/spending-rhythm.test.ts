@@ -29,8 +29,16 @@ const RANGE = { start: "2026-07-01", end: "2026-07-10" };
 describe("período anterior comparável", () => {
   it("tem exatamente o mesmo número de dias", () => {
     const prev = previousComparableRange(RANGE);
-    expect(prev).toEqual({ start: "2026-06-21", end: "2026-06-30" });
+    expect(prev).toEqual({ start: "2026-06-01", end: "2026-06-10" });
     expect(daysInclusive(prev.start, prev.end)).toBe(daysInclusive(RANGE.start, RANGE.end));
+  });
+  it("alinha mês até hoje aos mesmos dias do mês anterior", () => {
+    expect(previousComparableRange({ start: "2026-08-01", end: "2026-08-05" }))
+      .toEqual({ start: "2026-07-01", end: "2026-07-05" });
+  });
+  it("alinha fim de mês ao último dia válido do mês anterior", () => {
+    expect(previousComparableRange({ start: "2026-03-01", end: "2026-03-31" }))
+      .toEqual({ start: "2026-02-01", end: "2026-02-28" });
   });
   it("janela de 30 dias mantém 30 dias mesmo cruzando fevereiro", () => {
     const r = { start: "2026-03-02", end: "2026-03-31" };
@@ -108,11 +116,11 @@ describe("média total x ritmo típico", () => {
 describe("comparação de ritmo", () => {
   it("queda no ritmo típico vira tendência de baixa", () => {
     const txs: RhythmTx[] = [
-      tx({ id: "p1", occurred_at: "2026-06-25", amount: 400 }),
+      tx({ id: "p1", occurred_at: "2026-06-05", amount: 400 }),
       tx({ id: "c1", occurred_at: "2026-07-05", amount: 100 }),
     ];
     const c = computeRhythmComparison(txs, RANGE);
-    expect(c.previous.range).toEqual({ start: "2026-06-21", end: "2026-06-30" });
+    expect(c.previous.range).toEqual({ start: "2026-06-01", end: "2026-06-10" });
     expect(c.typicalTrend).toBe("down");
     expect(c.typicalDeltaPct).toBe(-75);
   });

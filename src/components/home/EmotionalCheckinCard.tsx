@@ -128,7 +128,7 @@ export function EmotionalCheckinCard() {
   return (
     <section
       aria-label="Check-in emocional"
-      className="rounded-[20px] border border-border/70 bg-card p-4"
+      className="rounded-[20px] border border-brand-coral/20 bg-brand-coral/5 p-4"
     >
       <h3 className="text-[15px] font-bold text-foreground">
         Como você está com o dinheiro hoje?
@@ -161,20 +161,17 @@ export function EmotionalCheckinCard() {
             {visibleMoods.map((m) => {
               const active = selectedKey === m.key;
               return (
-                <button
+                <Button
                   key={m.key}
                   type="button"
+                  variant={active ? "default" : "outline"}
+                  size="sm"
                   onClick={() => setSelectedKey(m.key)}
-                  className="shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition"
-                  style={{
-                    background: active ? "var(--home-brand-ink)" : "var(--home-surface-soft)",
-                    color: active ? "hsl(var(--primary-foreground))" : "var(--home-text-1)",
-                    border: "1px solid var(--home-hairline)",
-                  }}
+                  className="h-11 shrink-0 rounded-full px-3 text-[12px] font-semibold"
                   aria-pressed={active}
                 >
                   {m.label}
-                </button>
+                </Button>
               );
             })}
             {!showMore && !visibleMoods.some((m) => EXTRA_MOODS.some((e) => e.key === m.key)) && (
@@ -183,8 +180,7 @@ export function EmotionalCheckinCard() {
                 onClick={() => setShowMore(true)}
                   variant="outline"
                   size="sm"
-                  className="h-auto shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold"
-                style={{ background: "var(--home-surface-soft)", color: "var(--home-text-2)", border: "1px solid var(--home-hairline)" }}
+                   className="h-11 shrink-0 rounded-full px-3 text-[12px] font-semibold"
               >
                 Outro
                 </Button>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, ChevronRight } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import type { PeriodKind } from "@/lib/ui/periodStore";
 
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -30,35 +31,18 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
   const label = useMemo(() => `${fmt(rangeStart)} – ${fmt(rangeEnd)}`, [rangeStart, rangeEnd]);
 
   const pick = (kind: PeriodKind) => {
-    if (kind === "month") {
-      setPeriod("month");
-    } else if (kind === "30d") {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(end.getDate() - 6);
-      setCustomStart(iso(start));
-      setCustomEnd(iso(end));
-      setPeriod("custom");
-    } else if (kind === "90d") {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const end = new Date(now.getFullYear(), now.getMonth(), 0);
-      setCustomStart(iso(start));
-      setCustomEnd(iso(end));
-      setPeriod("custom");
-    } else {
-      setPeriod("custom");
-    }
+    setPeriod(kind);
     if (kind !== "custom") setOpen(false);
   };
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className="flex h-11 w-full items-center gap-3 rounded-[14px] border border-border/70 bg-card px-3.5 text-left"
+        className="flex h-10 w-full items-center justify-start gap-3 rounded-md bg-card px-3 text-left"
       >
         <span
           className="grid h-7 w-7 place-items-center rounded-full bg-secondary text-primary"
@@ -70,7 +54,7 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
           <span className="block truncate text-[13px] font-semibold text-foreground">{label}</span>
         </span>
         <ChevronRight size={14} className="text-muted-foreground" />
-      </button>
+      </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="bottom" className="rounded-t-3xl">
@@ -79,8 +63,8 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
           </SheetHeader>
           <div className="mt-3 space-y-2">
             <Opt label="Este mês" onClick={() => pick("month")} />
-            <Opt label="Últimos 7 dias" onClick={() => pick("30d")} />
-            <Opt label="Mês anterior" onClick={() => pick("90d")} />
+            <Opt label="Últimos 30 dias" onClick={() => pick("30d")} />
+            <Opt label="Últimos 90 dias" onClick={() => pick("90d")} />
             <Opt label="Período personalizado" onClick={() => pick("custom")} />
           </div>
           {period === "custom" && (
@@ -105,12 +89,12 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
                   className="mt-1 w-full rounded-[14px] border border-border bg-background px-3 py-2 text-sm"
                 />
               </label>
-              <button
+              <Button
                 onClick={() => setOpen(false)}
-                className="col-span-2 mt-1 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                className="col-span-2 mt-1 rounded-full"
               >
                 Aplicar
-              </button>
+              </Button>
             </div>
           )}
         </SheetContent>
@@ -121,13 +105,14 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
 
 function Opt({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-[14px] border border-border bg-card px-4 py-3 text-left text-sm font-medium text-foreground hover:border-primary/40"
+      className="flex h-11 w-full items-center justify-between rounded-md bg-card px-4 text-left text-sm font-medium"
     >
       {label}
       <ChevronRight size={14} className="text-muted-foreground" />
-    </button>
+    </Button>
   );
 }
