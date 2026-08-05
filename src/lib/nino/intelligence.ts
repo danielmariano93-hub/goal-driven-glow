@@ -255,6 +255,9 @@ export type NinoRefreshSummary = {
   updated: number;
   superseded: number;
   expired: number;
+  grouped: number;
+  suppressed: number;
+  factsProcessed: number;
   activeTotal: number;
 };
 
@@ -273,8 +276,12 @@ export function useNinoRefresh() {
         updated: parsed.counts?.updated ?? 0,
         superseded: parsed.counts?.superseded ?? 0,
         expired: parsed.counts?.expired ?? 0,
+        grouped: parsed.counts?.grouped ?? 0,
+        suppressed: parsed.counts?.suppressed ?? 0,
+        factsProcessed: parsed.facts_processed ?? parsed.items ?? 0,
         activeTotal: parsed.counts?.active_total ?? parsed.items ?? 0,
       };
+
       // Sucesso só depois do refetch concluído.
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["nino-intelligence"] }),
