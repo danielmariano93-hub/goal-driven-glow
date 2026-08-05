@@ -10944,6 +10944,15 @@ export type Database = {
         }
         Returns: number
       }
+      nino_evaluate_financial_situations: {
+        Args: {
+          _as_of?: string
+          _run_mode?: string
+          _source?: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       nino_expense_sum: {
         Args: { _from: string; _to: string; _user_id: string }
         Returns: number
