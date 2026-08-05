@@ -29,6 +29,6 @@ describe("Home runtime hotfix", () => {
   it("remove o alerta indevido de saldo de dívida", () => {
     const source = read("src/pages/Index.tsx");
     expect(source).not.toContain("Falta informar o saldo da dívida");
-    expect(source).toContain("apply_safe_category_suggestions");
+    expect(source).toContain("processCategoryQueue");
   });
 });
