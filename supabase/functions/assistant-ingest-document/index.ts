@@ -461,7 +461,6 @@ async function enrichItems(
   userId: string,
   items: ExtractionResult["items"],
   sourceContext: { statementBank?: string | null; guidance?: string | null } = {},
-  classificationModel: string = DEFAULT_MODEL,
 ) {
   // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
   const normalized = items.map((item) => {
@@ -481,14 +480,7 @@ async function enrichItems(
   const uniqueRawKeys = [...new Set(normalized.map((n) => n.rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean))].slice(0, 200);
 
   // 2) Uma única leva de queries.
-  const [{ data: categories }, { data: history }, { data: accounts }, { data: cards }, aliasResp] = await Promise.all([
-    sb.from("categories").select("id, name, type, user_id").or(`user_id.eq.${userId},user_id.is.null`),
-    uniqueDescriptions.length > 0
-      ? sb.from("transactions").select("description, raw_description, category_id, type")
-          .eq("user_id", userId).not("category_id", "is", null)
-          .in("description", uniqueDescriptions)
-          .order("occurred_at", { ascending: false }).limit(500)
-      : Promise.resolve({ data: [] as Array<{ description: string; raw_description: string | null; category_id: string; type: string }> }),
+  const [{ data: accounts }, { data: cards }, aliasResp] = await Promise.all([
     sb.from("accounts").select("id, name, institution").eq("user_id", userId).eq("active", true),
     sb.from("credit_cards").select("id, name").eq("user_id", userId).eq("active", true),
     uniqueRawKeys.length > 0
@@ -501,32 +493,9 @@ async function enrichItems(
     loadCategorizationContext(sb, userId, "expense"),
     loadCategorizationContext(sb, userId, "income"),
   ]);
-
-
-  // 3) Índice de histórico por chave normalizada — normaliza cada linha do histórico UMA vez.
-  const historyByKey = new Map<string, Map<string, number>>(); // key -> categoryId -> count
-  for (const row of (history ?? [])) {
-    const key = normalizeDescription(String(row.raw_description ?? row.description ?? "")).friendly.toLowerCase().trim();
-    if (!key || !row.category_id) continue;
-    const type = row.type;
-    const compositeKey = `${type}|${key}`;
-    let bucket = historyByKey.get(compositeKey);
-    if (!bucket) { bucket = new Map(); historyByKey.set(compositeKey, bucket); }
-    bucket.set(row.category_id, (bucket.get(row.category_id) ?? 0) + 1);
-  }
-
-  const catKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-
   const enriched = [];
   for (const n of normalized) {
     const { item, rawDesc, friendly, normalizedKey, ruleCategory, ruleMovementKind, bankRef } = n;
-    const findCatByName = (name: string) => {
-      const wanted = catKey(name);
-      return (categories ?? []).find((c) =>
-        (c.type === item.type || c.type === "both") &&
-        (catKey(c.name) === wanted || catKey(c.name).includes(wanted) || wanted.includes(catKey(c.name)))
-      )?.id ?? null;
-    };
 
     let categoryId: string | null = null;
     let categorySource: string | null = null;
@@ -615,63 +584,6 @@ async function enrichItems(
 
   }
 
-  // Último recurso em uma única chamada: categoriza apenas o que regras,
-  // aliases, histórico e hint não resolveram. A resposta só pode escolher uma
-  // categoria existente e precisa trazer confiança >= 0,70.
-  const unresolved = enriched
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => !item.category_id)
-    .slice(0, 80);
-  if (unresolved.length > 0 && LOVABLE_API_KEY) {
-    try {
-      const candidates = (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type }));
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
-        body: JSON.stringify({
-          model: classificationModel,
-          response_format: { type: "json_object" },
-          max_tokens: 1400,
-          messages: [
-            {
-              role: "system",
-              content: "Classifique lançamentos financeiros brasileiros. Use somente category_id fornecido. Responda JSON puro {\"items\":[{\"index\":0,\"category_id\":\"uuid\",\"confidence\":0.0}]}. Se não houver evidência suficiente, use category_id null. Nunca invente UUID.",
-            },
-            {
-              role: "user",
-              content: JSON.stringify({
-                categories: candidates,
-                items: unresolved.map(({ item, index }) => ({
-                  index,
-                  type: item.type,
-                  description: item.raw_description ?? item.description,
-                })),
-              }),
-            },
-          ],
-        }),
-      });
-      if (response.ok) {
-        const payload = await response.json();
-        const parsed = JSON.parse(payload?.choices?.[0]?.message?.content ?? "{}") as {
-          items?: Array<{ index?: number; category_id?: string | null; confidence?: number }>;
-        };
-        const validIds = new Set(candidates.map((candidate) => candidate.id));
-        for (const suggestion of parsed.items ?? []) {
-          const index = Number(suggestion.index);
-          const confidence = Number(suggestion.confidence ?? 0);
-          if (!Number.isInteger(index) || !validIds.has(String(suggestion.category_id)) || confidence < 0.7) continue;
-          const target = enriched[index];
-          if (!target || target.category_id) continue;
-          target.category_id = String(suggestion.category_id);
-          target.category_source = "llm";
-          target.category_confidence = Math.min(0.9, confidence);
-        }
-      }
-    } catch (error) {
-      console.warn("[assistant-ingest-document] category_batch_failed", String(error).slice(0, 160));
-    }
-  }
   return enriched;
 }
 
@@ -1201,7 +1113,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         const enriched = await enrichItems(sb, userId, freshItems, {
           statementBank: out.statement?.bank ?? statement?.bank ?? doc.statement_bank ?? null,
           guidance,
-        }, classificationModel);
+        });
         const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
           type: it.type,
           amount: Number(it.amount),
