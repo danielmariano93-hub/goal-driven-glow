@@ -52,8 +52,6 @@ export function PrevisaoFechamentoCard({ projection }: Props) {
         <p className="text-[11px] font-medium text-muted-foreground">Saldo estimado no fim do mês</p>
         <p
           className={`mt-1 font-display text-[28px] font-extrabold leading-none tabular-nums ${positive ? "text-success" : "text-destructive"}`}
-          style={{
-          }}
         >
           {formatBRL(projection.projectedEndBalance)}
         </p>

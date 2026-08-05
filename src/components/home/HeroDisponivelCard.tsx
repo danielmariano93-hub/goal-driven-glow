@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, WalletCards } from "lucide-react";
+import { Link } from "react-router-dom";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
 import { PatrimonioSheet } from "./PatrimonioSheet";
@@ -46,7 +47,7 @@ export function HeroDisponivelCard(p: Props) {
               Cadastre sua primeira conta para o Nino mostrar o dinheiro realmente disponível.
             </p>
             <Button asChild size="sm" className="mt-3 rounded-full">
-              <a href="/app/contas">Cadastrar conta <ArrowRight /></a>
+              <Link to="/app/contas">Cadastrar conta <ArrowRight /></Link>
             </Button>
           </div>
         ) : (

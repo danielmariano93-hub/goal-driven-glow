@@ -217,8 +217,12 @@ export function useNinoHomeItem() {
     queryKey: ["nino-home-item", user?.id],
     enabled: !!user,
     staleTime: 60_000,
+    retry: (count, error) => error instanceof NinoRpcError && error.kind === "network" && count < 2,
     queryFn: async () => {
       const raw = (await callRpc<Record<string, unknown>>("my_nino_home_item")) ?? {};
+      if (raw.ok === false) {
+        throw new NinoRpcError(String(raw.error ?? "A leitura principal do Nino não pôde ser carregada."), "rpc", "my_nino_home_item");
+      }
       const { items } = parseItems([raw.item].filter(Boolean));
       return {
         ok: raw.ok !== false,
