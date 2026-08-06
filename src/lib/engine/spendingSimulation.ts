@@ -3,10 +3,11 @@
 // Consome EXCLUSIVAMENTE o snapshot canônico (financial_snapshot_contract.v7).
 // Não relê banco, não recalcula saldo, não inventa fórmula: qualquer número
 // exibido aqui é idêntico ao da Home.
-import { round2, type CategoryRow } from "./facts";
+import { round2, todayISO, type CategoryRow } from "./facts";
+import { cycleFor, type CardCycleConfig } from "./cardExposure";
 import type { FinancialSnapshot } from "./metrics";
 
-export const SPENDING_SIMULATION_VERSION = "spending_simulation.v1";
+export const SPENDING_SIMULATION_VERSION = "spending_simulation.v2";
 
 export type SimulationVerdict = "safe" | "attention" | "risky" | "unaffordable";
 
@@ -19,6 +20,10 @@ export interface SpendingSimulationInput {
   method?: "cash" | "card";
   categoryId?: string | null;
   categories?: CategoryRow[];
+  /** data prevista da compra (padrão: hoje) */
+  plannedDate?: string | null;
+  /** cartão escolhido, quando `method === "card"` — define o ciclo e o vencimento */
+  card?: CardCycleConfig | null;
 }
 
 export interface SpendingSimulationResult {
@@ -40,6 +45,14 @@ export interface SpendingSimulationResult {
   freeAfterCommitmentsAfter: number;
   /** Dias de ritmo típico que a compra consome. */
   daysOfTypicalPace: number | null;
+  /** data prevista da compra (impacto na categoria acontece aqui) */
+  plannedDate: string;
+  /** data em que o dinheiro realmente sai da conta */
+  cashImpactDate: string;
+  /** true quando a saída de caixa cai dentro da competência projetada */
+  cashImpactWithinMonth: boolean;
+  /** competência da fatura afetada, quando a compra é no cartão */
+  cardCompetence: string | null;
   /** Impacto na meta de categoria vinculada, quando houver. */
   categoryGoalImpact: {
     categoryName: string;
@@ -61,11 +74,26 @@ export function simulateSpending(input: SpendingSimulationInput): SpendingSimula
   const installments = Math.max(1, Math.floor(Number(input.installments) || 1));
   const method: "cash" | "card" = input.method ?? "cash";
   const installmentAmount = round2(amount / installments);
+  const todayIso = todayISO();
+  const plannedDate = (input.plannedDate ?? todayIso).slice(0, 10);
+  const monthEnd = snap.projection.monthEnd;
+
+  // Caixa: débito/PIX/dinheiro sai na data prevista; cartão sai no vencimento da
+  // fatura do ciclo em que a compra cai (nunca na data da compra).
+  const cycle = method === "card" && input.card ? cycleFor(input.card, plannedDate) : null;
+  const cashImpactDate = method === "card" ? cycle?.due_date ?? plannedDate : plannedDate;
+  const cashImpactWithinMonth = cashImpactDate <= monthEnd;
+  const cardCompetence = cycle?.competence ?? null;
 
   // Impacto imediato no caixa: à vista debita agora; no cartão, só a 1ª parcela
   // pesa dentro do mês (via fatura) e o restante fica como compromisso futuro.
-  const immediate = method === "cash" ? amount : 0;
-  const monthImpact = method === "cash" ? amount : installmentAmount;
+  // Só reduz o "disponível hoje" o que sai HOJE de conta própria.
+  const immediate = method === "cash" && plannedDate <= todayIso ? amount : 0;
+  // Impacto na competência: à vista quando a data prevista cai no mês; no cartão,
+  // a parcela do ciclo, e somente se o vencimento cair dentro do mês projetado.
+  const monthImpact = method === "cash"
+    ? (plannedDate <= monthEnd ? amount : 0)
+    : (cashImpactWithinMonth ? installmentAmount : 0);
 
   const availableToday = snap.availableToday;
   const availableAfterNow = round2(availableToday - immediate);
@@ -124,8 +152,9 @@ export function simulateSpending(input: SpendingSimulationInput): SpendingSimula
     `Disponível hoje e projeção vêm do motor canônico (${snap.contractVersion}).`,
     `Compromissos com data considerados: ${snap.commitmentAgenda.items.length} nos próximos 30 dias.`,
     method === "card"
-      ? "No cartão, apenas a parcela do mês pesa na projeção; as demais viram compromisso futuro."
-      : "À vista, o valor sai imediatamente do saldo disponível.",
+      ? `No cartão, a compra entra na fatura${cardCompetence ? ` de ${cardCompetence}` : ""} e o dinheiro sai em ${cashImpactDate}.`
+      : `À vista, o valor sai do saldo em ${cashImpactDate}.`,
+    `Impacto na meta de categoria acontece na data da compra (${plannedDate}).`,
   ];
   if (snap.projection.estimatedFixedInflows > 0) {
     assumptions.push("A renda fixa futura estimada está incluída apenas na projeção, nunca no saldo real.");
@@ -144,6 +173,12 @@ export function simulateSpending(input: SpendingSimulationInput): SpendingSimula
   if (snap.commitmentAgenda.hasEstimates) {
     limitations.push("Alguns compromissos são previstos por recorrência e podem variar.");
   }
+  if (method === "card" && !input.card) {
+    limitations.push("Sem o cartão escolhido, usamos a data da compra como referência de vencimento.");
+  }
+  if (!cashImpactWithinMonth) {
+    limitations.push("A saída de caixa desta compra cai depois do fim do mês projetado.");
+  }
 
   return {
     formulaVersion: SPENDING_SIMULATION_VERSION,
@@ -160,6 +195,10 @@ export function simulateSpending(input: SpendingSimulationInput): SpendingSimula
     freeAfterCommitments,
     freeAfterCommitmentsAfter,
     daysOfTypicalPace,
+    plannedDate,
+    cashImpactDate,
+    cashImpactWithinMonth,
+    cardCompetence,
     categoryGoalImpact,
     goalsAtRisk,
     commitments,
