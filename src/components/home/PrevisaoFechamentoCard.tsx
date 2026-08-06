@@ -48,10 +48,11 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
             <CompositionRow label="Disponível hoje" value={projection.composition.availableToday} />
             {projection.composition.confirmedFutureInflows > 0 ? <CompositionRow label="Entradas confirmadas" value={projection.composition.confirmedFutureInflows} /> : null}
             {projection.composition.estimatedFixedInflows > 0 ? <CompositionRow label="Renda fixa estimada" value={projection.composition.estimatedFixedInflows} /> : null}
-            {projection.composition.knownCommitments > 0 ? <CompositionRow label="Compromissos com data" value={-projection.composition.knownCommitments} /> : null}
-            {projection.composition.cardDueThisMonth > 0 ? <CompositionRow label="Fatura do mês" value={-projection.composition.cardDueThisMonth} /> : null}
+            {projection.composition.knownCommitments > 0 ? <CompositionRow label={`Compromissos com data (${projection.composition.commitmentsCount})`} value={-projection.composition.knownCommitments} /> : null}
+            {projection.composition.cardDueThisMonth > 0 ? <CompositionRow label={projection.composition.cardDueIsEstimated ? "Fatura do mês (estimada)" : "Fatura do mês (oficial)"} value={-projection.composition.cardDueThisMonth} /> : null}
             {projection.composition.projectedVariableSpending > 0 ? <CompositionRow label="Gasto variável previsto" value={-projection.composition.projectedVariableSpending} /> : null}
           </dl>
+          <SourceBreakdown bySource={projection.composition.commitmentsBySource} />
            <div className="flex items-center justify-between gap-2 border-t border-border px-3.5 py-2.5">
               <p className="text-[11px] text-muted-foreground">{availability === "partial" ? "Dados incompletos" : confidenceLabel[projection.confidence]} · {projection.daysRemaining} dias</p>
              <Button type="button" variant="ghost" size="sm" className="min-h-10 shrink-0 px-1.5 text-[12px] text-primary" onClick={() => openAssessor("fab")}>Planejar com o Nino <ArrowRight /></Button>
@@ -70,5 +71,33 @@ function CompositionRow({ label, value }: { label: string; value: number }) {
         {value < 0 ? "−" : ""}{formatBRL(Math.abs(Math.round(value)))}
       </dd>
     </div>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  card_statement: "Faturas de cartão",
+  card_installment: "Parcelas de cartão",
+  recurring: "Recorrências",
+  planned: "Lançamentos planejados",
+  debt_installment: "Parcelas de dívida",
+  donation_goal: "Metas de doação",
+};
+
+/** Memória de cálculo dos compromissos: cada origem aparece com seu valor. */
+function SourceBreakdown({ bySource }: { bySource: Record<string, number> }) {
+  const rows = Object.entries(bySource).filter(([, value]) => value > 0);
+  if (rows.length === 0) return null;
+  return (
+    <details className="border-t border-border px-3.5 py-2">
+      <summary className="cursor-pointer list-none text-[11px] font-semibold text-primary">Ver memória de cálculo</summary>
+      <dl className="mt-2 grid gap-1 text-[11px]">
+        {rows.map(([source, value]) => (
+          <div key={source} className="flex items-center justify-between gap-2">
+            <dt className="text-muted-foreground">{SOURCE_LABEL[source] ?? source}</dt>
+            <dd className="font-semibold tabular-nums text-foreground">{formatBRL(Math.round(value))}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
