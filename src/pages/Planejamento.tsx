@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { CalendarBlank, Calculator, CheckCircle, Info, Warning, XCircle } from "@phosphor-icons/react";
-import { useCategories, useCreditCards } from "@/lib/db/finance";
+import { useCategories } from "@/lib/db/finance";
+import { useCreditCards } from "@/lib/db/creditCards";
 import { sortCategories } from "@/lib/categories/order";
 import { formatBRL } from "@/lib/engine/facts";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
