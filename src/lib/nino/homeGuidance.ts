@@ -50,8 +50,10 @@ export function buildHomeGuidancePresentation(
     severity: item.severity === "critical" ? "critical" : item.severity === "attention" ? "attention" : "informative",
     title,
     supportingText: supporting ? compact(supporting) : null,
-    action: diagnosis.hasTrustedAction ? diagnosis.action : null,
-    hasDetails: Boolean(diagnosis.evidenceSummary || candidates.length > 1 || projectionAvailability === "available"),
+    action: reading
+      ? (reading.trusted === false ? null : reading.action)
+      : diagnosis.hasTrustedAction ? diagnosis.action : null,
+    hasDetails: Boolean((isPrimary && diagnosis.evidenceSummary) || candidates.length > 1 || projectionAvailability === "available"),
   };
 }
 
