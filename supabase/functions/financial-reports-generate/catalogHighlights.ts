@@ -140,8 +140,10 @@ export async function buildCatalogHighlights(
     const agendaBase = {
       recurring: normalizedRules as never,
       txs: transactions,
-      statements: (statements.data ?? []) as never,
-      cards: (cards?.data ?? []) as never,
+      statements: statementRows as never,
+      installments: (installments.data ?? []) as never,
+      cards: cardRows as never,
+      debts: (debts.data ?? []) as never,
     };
     const commitments7d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 7 });
     const commitments30d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 30 });
