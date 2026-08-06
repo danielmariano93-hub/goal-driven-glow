@@ -221,7 +221,7 @@ export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
 export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v7";
 
 /**
- * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v6`).
+ * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v7`).
  *
  * Regras invioláveis:
  *  - "Ritmo atual" tem UMA definição: consumo realizado do mês ÷ dias corridos.
