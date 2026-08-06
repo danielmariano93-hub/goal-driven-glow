@@ -6051,10 +6051,6 @@ export type Database = {
           created_at: string
           donation_mode: string | null
           donation_percent: number | null
-          donation_income_scope: string
-          donation_income_category_ids: string[]
-          donation_due_day: number
-          donation_end_date: string | null
           id: string
           kind: string
           monthly_target: number | null
@@ -6071,10 +6067,6 @@ export type Database = {
           created_at?: string
           donation_mode?: string | null
           donation_percent?: number | null
-          donation_income_scope?: string
-          donation_income_category_ids?: string[]
-          donation_due_day?: number
-          donation_end_date?: string | null
           id?: string
           kind?: string
           monthly_target?: number | null
@@ -6091,10 +6083,6 @@ export type Database = {
           created_at?: string
           donation_mode?: string | null
           donation_percent?: number | null
-          donation_income_scope?: string
-          donation_income_category_ids?: string[]
-          donation_due_day?: number
-          donation_end_date?: string | null
           id?: string
           kind?: string
           monthly_target?: number | null
