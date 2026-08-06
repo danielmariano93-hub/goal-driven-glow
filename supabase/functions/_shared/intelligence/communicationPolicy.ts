@@ -151,6 +151,21 @@ export function decideCommunication(args: {
   if (candidate.channel_ready !== "both" && candidate.channel_ready !== target) {
     return { allowed: false, reason: "channel_not_ready", channel: target, priority: 0 };
   }
+  if (target === "whatsapp" && !WHATSAPP_ALLOWED_KINDS.has(candidate.kind)) {
+    return { allowed: false, reason: "kind_not_in_whatsapp_catalog", channel: target, priority: 0 };
+  }
+  if (ANTICIPATION_KINDS.has(candidate.kind)) {
+    if (preferences.anticipation_enabled === false) {
+      return { allowed: false, reason: "anticipation_opt_out", channel: target, priority: 0 };
+    }
+    if (target === "whatsapp" && preferences.anticipation_whatsapp === false) {
+      return { allowed: false, reason: "anticipation_whatsapp_opt_out", channel: target, priority: 0 };
+    }
+    const kinds = preferences.anticipation_kinds;
+    if (Array.isArray(kinds) && kinds.length > 0 && !kinds.includes(candidate.kind)) {
+      return { allowed: false, reason: "anticipation_kind_disabled", channel: target, priority: 0 };
+    }
+  }
   if (muted.has(candidate.kind)) {
     return { allowed: false, reason: "kind_opt_out", channel: target, priority: 0 };
   }
