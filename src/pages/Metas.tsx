@@ -71,11 +71,38 @@ export default function Metas() {
 
   useEffect(() => {
     const goalId = searchParams.get("goal");
-    if (!goalId || !goals?.some((goal) => goal.id === goalId)) return;
+    if (!goalId || isLoading || !goals) return;
+    // RLS garante que useGoals só devolve metas do próprio usuário.
+    const goal = goals.find((g) => g.id === goalId) ?? null;
+    if (!goal) {
+      toast.info("Esta meta não está mais disponível.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("goal");
+      next.delete("action");
+      setSearchParams(next, { replace: true });
+      return;
+    }
     setTab("individual");
     setExpanded(goalId);
+    if (searchParams.get("action") === "recalibrate" && !openGoal) {
+      setEditing(goal);
+      setOpenGoal(true);
+      return;
+    }
     requestAnimationFrame(() => document.getElementById(`goal-${goalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
-  }, [goals, searchParams]);
+    // openGoal fora das dependências de propósito: reabrir o modal ao fechar seria hostil.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goals, isLoading, searchParams, setSearchParams]);
+
+  const closeGoalModal = () => {
+    setOpenGoal(false);
+    if (searchParams.get("action")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("action");
+      setSearchParams(next, { replace: true });
+    }
+  };
+
 
 
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
