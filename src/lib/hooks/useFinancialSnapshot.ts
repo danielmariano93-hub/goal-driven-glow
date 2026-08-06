@@ -150,9 +150,9 @@ export function useFinancialSnapshot(period: DateRange): {
     queryKey: ["credit_cards", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase.from("credit_cards" as never).select("id,closing_day,due_day");
+      const { data, error } = await supabase.from("credit_cards" as never).select("id,name,closing_day,due_day");
       if (error) throw error;
-      return (data as unknown as Array<{ id: string; closing_day: number | null; due_day: number | null }> | null) ?? [];
+      return (data as unknown as Array<{ id: string; name: string | null; closing_day: number | null; due_day: number | null }> | null) ?? [];
     },
   });
   const { data: cards } = cardsQuery;
@@ -280,7 +280,7 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
       cardInstallments: (cardInstallments ?? []).map((i) => ({ ...i, amount: Number(i.amount ?? 0) })),
       cardIds: (cards ?? []).map((c) => c.id),
-      cards: (cards ?? []).map((c) => ({ id: c.id, closing_day: c.closing_day, due_day: c.due_day })),
+      cards: (cards ?? []).map((c) => ({ id: c.id, name: c.name, closing_day: c.closing_day, due_day: c.due_day })),
       investmentMovements: (investmentMovements ?? []).map((m) => ({
         type: String(m.type), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
       })),
