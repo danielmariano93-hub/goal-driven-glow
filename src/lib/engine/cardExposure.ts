@@ -176,6 +176,10 @@ export interface StatementFigure {
   /** total original da fatura, quando oficial */
   statedTotal: number;
   paidAmount: number;
+  /** compras elegíveis usadas na reconstrução (só em fatura estimada) */
+  purchasesAmount?: number | null;
+  /** parcelas contratadas da competência usadas na reconstrução */
+  installmentsAmount?: number | null;
 }
 
 export interface CardExposure {
