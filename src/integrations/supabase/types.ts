@@ -11337,6 +11337,10 @@ export type Database = {
       nino_consolidate_topics: { Args: { _user_id: string }; Returns: number }
       nino_curate_items: { Args: { _user_id: string }; Returns: Json }
       nino_diag_brl: { Args: { _value: number }; Returns: string }
+      nino_diag_feedback_suppressed: {
+        Args: { _user_id: string }
+        Returns: string[]
+      }
       nino_diag_pct: { Args: { _value: number }; Returns: string }
       nino_diag_put_situation: {
         Args: {
