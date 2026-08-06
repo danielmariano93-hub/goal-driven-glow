@@ -199,6 +199,7 @@ export interface FinancialSnapshotInput {
   categories?: CategoryRow[];
   /** Movimentos de investimento do período (habilita ponte patrimonial precisa). */
   investmentMovements?: Array<{ type: string; amount: number; occurred_at: string }>;
+  /** Renda aproximada declarada; usada somente em projeções, nunca no caixa real. */
   incomeSettings?: FinancialIncomeSettings | null;
   audit?: Partial<Pick<SnapshotAuditMetadata, "generatedAt" | "completeness" | "missingSources" | "sourceFreshness">>;
 }
@@ -259,7 +260,9 @@ export interface SpendingProjection {
   projectedTotalSpending: number;
   /** Entradas futuras confirmadas até o fim do mês. */
   confirmedFutureInflows: number;
+  /** Renda fixa futura estimada, separada das entradas confirmadas. */
   estimatedFixedInflows: number;
+  /** Agenda auditável das entradas estimadas. */
   estimatedIncomeEvents: FutureIncomeEvent[];
   /** Saldo disponível hoje. */
   currentAvailableBalance: number;
