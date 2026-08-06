@@ -27,14 +27,16 @@ function compact(value: string, max = 240) {
 export function buildHomeGuidancePresentation(
   diagnosis: HomeDiagnosisView,
   projectionAvailability: "available" | "partial" | "unavailable",
+  reading?: { situation: HomeDiagnosisView["primary"]; action: FinancialSituationAction | null; trusted?: boolean } | null,
 ): HomeGuidancePresentation | null {
-  const item = diagnosis.primary;
+  const item = reading ? reading.situation : diagnosis.primary;
   if (!item) return null;
+  const isPrimary = !reading || (diagnosis.primary && reading.situation?.id === diagnosis.primary.id);
   const title = (item.one_line_summary || item.headline).trim();
   const titleKey = normalized(title);
   const candidates = [
     item.cause_summary,
-    diagnosis.counterpoint ? `Também vale saber: ${diagnosis.counterpoint.one_line_summary || diagnosis.counterpoint.headline}` : null,
+    isPrimary && diagnosis.counterpoint ? `Também vale saber: ${diagnosis.counterpoint.one_line_summary || diagnosis.counterpoint.headline}` : null,
     item.consequence_summary,
     projectionAvailability === "available" ? item.forecast_summary : null,
   ].filter((value): value is string => Boolean(value?.trim()));
@@ -42,6 +44,7 @@ export function buildHomeGuidancePresentation(
     const key = normalized(value);
     return !METHODOLOGY.test(value) && key !== titleKey && !titleKey.includes(key) && !key.includes(titleKey);
   }) ?? null;
+
 
   return {
     severity: item.severity === "critical" ? "critical" : item.severity === "attention" ? "attention" : "informative",
