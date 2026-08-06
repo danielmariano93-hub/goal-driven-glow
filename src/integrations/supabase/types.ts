@@ -6049,6 +6049,10 @@ export type Database = {
       goals: {
         Row: {
           created_at: string
+          donation_due_day: number
+          donation_end_date: string | null
+          donation_income_category_ids: string[]
+          donation_income_scope: string
           donation_mode: string | null
           donation_percent: number | null
           id: string
@@ -6065,6 +6069,10 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          donation_due_day?: number
+          donation_end_date?: string | null
+          donation_income_category_ids?: string[]
+          donation_income_scope?: string
           donation_mode?: string | null
           donation_percent?: number | null
           id?: string
@@ -6081,6 +6089,10 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          donation_due_day?: number
+          donation_end_date?: string | null
+          donation_income_category_ids?: string[]
+          donation_income_scope?: string
           donation_mode?: string | null
           donation_percent?: number | null
           id?: string
