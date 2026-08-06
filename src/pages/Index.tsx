@@ -83,6 +83,8 @@ export default function Index() {
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
         confirmedFutureInflows={availability.projection === "available" ? snap?.projection.confirmedFutureInflows ?? 0 : 0}
+        estimatedFixedInflows={availability.projection === "available" ? snap?.projection.estimatedFixedInflows ?? 0 : 0}
+        estimatedIncomeEvents={availability.projection === "available" ? snap?.projection.estimatedIncomeEvents ?? [] : []}
         upcomingCommitments={availability.projection === "available" ? snap?.projection.upcomingConfirmedCommitments ?? 0 : 0}
         cardDueThisMonth={availability.cardExposure === "available" ? snap?.projection.cardDueThisMonth ?? 0 : 0}
         projectedEndBalance={availability.projection === "available" ? snap?.projection.projectedEndBalance ?? 0 : 0}

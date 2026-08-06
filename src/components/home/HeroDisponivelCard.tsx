@@ -8,6 +8,8 @@ import { AvailableBalanceDetails } from "./AvailableBalanceDetails";
 type Props = {
   available: number;
   confirmedFutureInflows: number;
+  estimatedFixedInflows: number;
+  estimatedIncomeEvents: Array<{ date: string; source: "configured" | "inferred" }>;
   upcomingCommitments: number;
   cardDueThisMonth: number;
   projectedEndBalance: number;
@@ -74,6 +76,8 @@ export function HeroDisponivelCard(p: Props) {
         onOpenChange={setOpenSheet}
         availableToday={p.available}
         confirmedFutureInflows={p.confirmedFutureInflows}
+        estimatedFixedInflows={p.estimatedFixedInflows}
+        estimatedIncomeEvents={p.estimatedIncomeEvents}
         upcomingCommitments={p.upcomingCommitments}
         cardDueThisMonth={p.cardDueThisMonth}
         projectedEndBalance={p.projectedEndBalance}

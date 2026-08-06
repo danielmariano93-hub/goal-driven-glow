@@ -53,6 +53,12 @@ import {
   type RhythmComparison,
   type RhythmTx,
 } from "./spendingRhythm";
+import {
+  computeFutureIncomeProjection,
+  FUTURE_INCOME_FORMULA_VERSION,
+  type FinancialIncomeSettings,
+  type FutureIncomeEvent,
+} from "./incomeProjection";
 
 
 export type CategoryGoalMode = "percent_reduction" | "fixed_limit";
@@ -143,7 +149,7 @@ export interface CategoryGoalEvaluation {
 }
 
 /** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
-export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v6";
+export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v7";
 
 export type SnapshotCompleteness = "complete" | "partial" | "unavailable";
 export type SnapshotPeriodStatus = "open" | "closed";
@@ -191,6 +197,8 @@ export interface FinancialSnapshotInput {
   categories?: CategoryRow[];
   /** Movimentos de investimento do período (habilita ponte patrimonial precisa). */
   investmentMovements?: Array<{ type: string; amount: number; occurred_at: string }>;
+  /** Renda aproximada declarada; usada somente em projeções, nunca no caixa real. */
+  incomeSettings?: FinancialIncomeSettings | null;
   audit?: Partial<Pick<SnapshotAuditMetadata, "generatedAt" | "completeness" | "missingSources" | "sourceFreshness">>;
 }
 
@@ -208,7 +216,7 @@ export interface SnapshotGoalProgress {
 /** Nível de confiança da projeção — função apenas dos dias já observados. */
 export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
 
-export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v6";
+export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v7";
 
 /**
  * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v6`).
@@ -250,6 +258,10 @@ export interface SpendingProjection {
   projectedTotalSpending: number;
   /** Entradas futuras confirmadas até o fim do mês. */
   confirmedFutureInflows: number;
+  /** Renda fixa futura estimada, separada das entradas confirmadas. */
+  estimatedFixedInflows: number;
+  /** Agenda auditável das entradas estimadas. */
+  estimatedIncomeEvents: FutureIncomeEvent[];
   /** Saldo disponível hoje. */
   currentAvailableBalance: number;
   /** Fatura com vencimento dentro do mês corrente. */
@@ -663,6 +675,13 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   });
 
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
+  const estimatedIncome = computeFutureIncomeProjection({
+    settings: input.incomeSettings,
+    txs: input.txs,
+    recurring: input.recurring,
+    today,
+    periodEnd: monthRange.end,
+  });
   const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
   // Somente a fatura da competência corrente (vencimento dentro do mês) pesa no
   // saldo projetado. A dívida total inclui competências futuras e exageraria o
@@ -671,10 +690,10 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     ? round2(Object.values(cardExposures).reduce((sum, e) => sum + Number(e.currentStatement.amount || 0), 0))
     : cardDebtToday;
   const projectedMonthEndAvailable = round2(
-    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
+    availableToday + confirmedFutureIncome + estimatedIncome.total - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
   );
   const freeAfterKnownCommitments = round2(
-    availableToday + confirmedFutureIncome - knownFutureCommitments - cardDueThisMonth,
+    availableToday + confirmedFutureIncome + estimatedIncome.total - knownFutureCommitments - cardDueThisMonth,
   );
   const projection: SpendingProjection = {
     formulaVersion: SPENDING_PROJECTION_VERSION,
@@ -691,6 +710,8 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     upcomingConfirmedCommitments: knownFutureCommitments,
     projectedTotalSpending: round2(mtdExpense + projectedVariableSpending + knownFutureCommitments),
     confirmedFutureInflows: confirmedFutureIncome,
+    estimatedFixedInflows: estimatedIncome.total,
+    estimatedIncomeEvents: estimatedIncome.events,
     currentAvailableBalance: availableToday,
     cardDueThisMonth,
     projectedEndBalance: projectedMonthEndAvailable,
@@ -758,6 +779,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     formulaVersions: {
       snapshot: FINANCE_CONTRACT_VERSION,
       projection: SPENDING_PROJECTION_VERSION,
+      futureIncome: FUTURE_INCOME_FORMULA_VERSION,
       rhythm: rhythm.current.formulaVersion,
     },
   };
@@ -767,7 +789,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     evidence: {
       availableToday: { source: "accounts+transactions+account_balance_snapshots", formula: "total_cash" },
       currentDailyPace: { source: "transactions", formula: "behavioral_consumption / observed_days", observedDays: daysElapsed },
-      projectedEndBalance: { source: "financial_snapshot", formula: "available + inflows - commitments - card_due - projected_variable_spending", observedDays: daysElapsed },
+      projectedEndBalance: { source: "financial_snapshot", formula: "available + confirmed_inflows + estimated_fixed_inflows - commitments - card_due - projected_variable_spending", observedDays: daysElapsed },
     },
     projection,
     periodPerformance,

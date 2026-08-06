@@ -2,7 +2,7 @@
 /**
  * Sincroniza o pacote canônico `finance-core` para as Edge Functions.
  *
- * FONTE: src/lib/engine/{facts,bridges,spendingRhythm,dailyAverage,cardExposure,metrics}.ts
+ * FONTE: src/lib/engine/{facts,bridges,spendingRhythm,dailyAverage,cardExposure,incomeProjection,metrics}.ts
  * ESPELHO: supabase/functions/_shared/finance-core/*
  *
  * Contrato: `finance_contract.v3` — App, Edge Functions, Nino e MCP consomem
@@ -24,6 +24,7 @@ export const FINANCE_CORE_MODULES = [
   "spendingRhythm",
   "dailyAverage",
   "cardExposure",
+  "incomeProjection",
   "metrics",
 ];
 
@@ -52,14 +53,14 @@ const formatPrivateBRL = (n: number): string =>
 
 export function toEdgeSource(source) {
   let out = source
-    .replace(/from "\.\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|metrics)"/g, 'from "./$1.ts"')
+    .replace(/from "\.\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|incomeProjection|metrics)"/g, 'from "./$1.ts"')
     .replace(/import \{ formatPrivateBRL \} from "\.\.\/privacy";\n/g, PRIVACY_SHIM);
   return HEADER + out;
 }
 
 export function toEdgeReportSource(source) {
   const out = source
-    .replace(/from "@\/lib\/engine\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|metrics)"/g, 'from "../finance-core/$1.ts"')
+    .replace(/from "@\/lib\/engine\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|incomeProjection|metrics)"/g, 'from "../finance-core/$1.ts"')
     .replace(/from "@\/lib\/copy\/(resultWording)"/g, 'from "../copy/$1.ts"')
     .replace(/from "\.\/(types|periods|engine|highlights|numericGuard|narrative)"/g, 'from "./$1.ts"');
   return HEADER + out;

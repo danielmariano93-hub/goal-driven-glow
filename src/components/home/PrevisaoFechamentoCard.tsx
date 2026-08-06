@@ -36,7 +36,7 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
             <div className="p-3.5">
                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">{positive ? <TrendUp /> : <TrendDown />} Dinheiro livre</span>
                <p className={`mt-1.5 font-display text-xl font-bold leading-6 tabular-nums ${positive ? "text-foreground" : "text-destructive"}`}>{formatBRL(Math.round(projection.projectedEndBalance))}</p>
-               <p className="mt-0.5 text-[11px] text-muted-foreground">estimado no fim do mês</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">estimado no fim do mês{projection.estimatedFixedInflows > 0 ? " · inclui renda esperada" : ""}</p>
             </div>
             <div className="border-l border-border p-3.5">
                <span className="text-[11px] font-semibold text-muted-foreground">Consumo estimado</span>
