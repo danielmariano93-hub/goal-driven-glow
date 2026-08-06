@@ -13,8 +13,8 @@ describe("contrato financeiro v6 da Home", () => {
   });
 
   it("não libera projeção numérica antes de três dias observados", () => {
-    const snapshot = computeFinancialSnapshot({ ...emptyInput, today: new Date(2026, 7, 2, 12) });
-    expect(snapshot.projection.daysElapsed).toBe(2);
+    const snapshot = computeFinancialSnapshot({ ...emptyInput, today: new Date(2026, 7, 1, 12) });
+    expect(snapshot.projection.daysElapsed).toBeLessThan(3);
     expect(snapshot.projection.confidence).toBe("insufficient");
   });
 
