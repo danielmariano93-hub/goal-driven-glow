@@ -21,10 +21,19 @@ function sqlRoutes(sql: string): string[] {
   const end = body.indexOf("$function$;");
   const scoped = body.slice(0, end > 0 ? end : undefined);
   const routes = new Set<string>();
-  for (const match of scoped.matchAll(/'route',\s*(?:coalesce\()?'(\/app\/[^']*)'/g)) routes.add(match[1]);
-  for (const match of scoped.matchAll(/,\s*'(\/app\/[a-z-]+)'\)/g)) routes.add(match[1]);
+  // Cada expressão de rota vai de 'route', até ,'explanation' — pode ser um
+  // literal simples ou um coalesce com concatenações.
+  for (const match of scoped.matchAll(/'route',(.*?),'explanation'/gs)) {
+    const expression = match[1];
+    for (const branch of expression.split(/,(?![^(]*\))/)) {
+      const literals = [...branch.matchAll(/'([^']*)'/g)].map((m) => m[1]).join("");
+      const route = literals.startsWith("/app") ? literals : null;
+      if (route) routes.add(route);
+    }
+  }
   return [...routes];
 }
+
 
 function appRoutes(): string[] {
   const app = readFileSync("src/App.tsx", "utf8");
