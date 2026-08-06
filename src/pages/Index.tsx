@@ -65,7 +65,7 @@ export default function Index() {
   const heroLabel = "Disponível hoje";
 
   return (
-    <div className="mx-auto w-full max-w-[720px] space-y-5 pb-20 [scroll-padding-bottom:9rem]" data-surface="home">
+    <div className="mx-auto w-full max-w-[720px] space-y-4 pb-16 [scroll-padding-bottom:8rem]" data-surface="home">
       <HomeHeader />
 
       <PeriodPicker
