@@ -1,4 +1,5 @@
 import { Trophy, Loader2, Zap } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +27,7 @@ type UserChallenge = {
 export default function Desafios() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["challenges", user?.id],
@@ -49,24 +51,34 @@ export default function Desafios() {
   const refresh = () => qc.invalidateQueries({ queryKey: ["challenges"] });
 
   const join = async (slug: string) => {
-    const { error } = await supabase.rpc("join_challenge", { p_slug: slug });
-    if (error) return toast.error("Não deu para aderir agora. Tente novamente.");
-    toast.success("Desafio iniciado!");
-    await refresh();
+    setBusy(slug);
+    try {
+      const { error } = await supabase.rpc("join_challenge", { p_slug: slug });
+      if (error) throw error;
+      toast.success("Desafio iniciado!");
+      await refresh();
+    } catch (error) {
+      console.error("[challenge:join]", { slug, error });
+      toast.error("Não deu para aderir agora.", { description: "A tentativa não foi registrada. Tente novamente." });
+    } finally { setBusy(null); }
   };
 
   const abandon = async (slug: string) => {
+    setBusy(slug);
     const { error } = await supabase.rpc("abandon_challenge", { p_slug: slug });
-    if (error) return toast.error("Não deu para abandonar agora.");
+    if (error) { setBusy(null); return toast.error("Não deu para abandonar agora."); }
     toast.success("Desafio encerrado.");
     await refresh();
+    setBusy(null);
   };
 
   const complete = async (slug: string) => {
+    setBusy(slug);
     const { error } = await supabase.rpc("complete_challenge", { p_slug: slug });
-    if (error) return toast.error("Não deu para concluir agora.");
+    if (error) { setBusy(null); return toast.error("Não deu para concluir agora."); }
     toast.success("Desafio concluído! XP creditado.");
     await refresh();
+    setBusy(null);
   };
 
   if (isLoading) return <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>;
@@ -132,8 +144,8 @@ export default function Desafios() {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(status === "not_started" || status === "abandoned") && (
-                    <button type="button" onClick={() => join(c.slug)} className="min-h-10 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground">
-                      {status === "abandoned" ? "Recomeçar" : "Aderir"}
+                    <button type="button" disabled={busy === c.slug} onClick={() => join(c.slug)} className="min-h-10 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-60">
+                      {busy === c.slug ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : status === "abandoned" ? "Recomeçar" : "Aderir"}
                     </button>
                   )}
                   {status === "joined" && (

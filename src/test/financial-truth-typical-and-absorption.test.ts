@@ -74,4 +74,15 @@ describe("E6 — parcelas absorvidas por fatura", () => {
     });
     expect(absorbed.card.futureInstallments).toBe(0);
   });
+
+  it("não soma novamente a parcela que já existe como transação no ledger", () => {
+    const exposure = computeCardExposure({
+      cardIds: ["card"], statements: [], currentYM: "2026-08",
+      txs: [{ id: "tx-installment", credit_card_id: "card", competence_date: "2026-08-01", amount: 120, type: "expense", status: "confirmed" }],
+      installments: [{ id: "inst", credit_card_id: "card", competence_month: "2026-08-01", amount: 120, status: "scheduled", legacy_transaction_id: "tx-installment" }],
+    });
+    expect(exposure.card.currentStatement.amount).toBe(120);
+    expect(exposure.card.currentStatement.purchasesAmount).toBe(120);
+    expect(exposure.card.currentStatement.installmentsAmount).toBe(0);
+  });
 });

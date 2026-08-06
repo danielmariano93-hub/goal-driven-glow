@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarBlank, TrendDown, TrendUp } from "@phosphor-icons/react";
+import { ArrowRight, CalendarBlank, Info, TrendDown, TrendUp } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { useAssessor } from "@/context/AssessorContext";
 import { formatBRL } from "@/lib/engine/facts";
@@ -52,6 +52,12 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
             {projection.composition.cardDueThisMonth > 0 ? <CompositionRow label={projection.composition.cardDueIsEstimated ? "Fatura do mês (estimada)" : "Fatura do mês (oficial)"} value={-projection.composition.cardDueThisMonth} /> : null}
             {projection.composition.projectedVariableSpending > 0 ? <CompositionRow label="Gasto variável previsto" value={-projection.composition.projectedVariableSpending} /> : null}
           </dl>
+          <details className="border-t border-border px-3.5 py-2.5">
+            <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-primary"><Info size={14} /> Como calculamos esta previsão</summary>
+            <p className="mt-1 text-[11px] leading-[17px] text-muted-foreground">
+              Saldo disponível + entradas confirmadas ou estimadas − contas com data − fatura do mês − ritmo variável típico até o fim do mês. Gastos atípicos não distorcem o ritmo, mas continuam no realizado.
+            </p>
+          </details>
           <SourceBreakdown bySource={projection.composition.commitmentsBySource} />
            <div className="flex items-center justify-between gap-2 border-t border-border px-3.5 py-2.5">
               <p className="text-[11px] text-muted-foreground">{availability === "partial" ? "Dados incompletos" : confidenceLabel[projection.confidence]} · {projection.daysRemaining} dias</p>

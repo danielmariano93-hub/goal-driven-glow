@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarBlank, Calculator, CheckCircle, Info, Warning, XCircle } from "@phosphor-icons/react";
-import { useCategories } from "@/lib/db/finance";
+import { useAccounts, useCategories } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { sortCategories } from "@/lib/categories/order";
-import { formatBRL } from "@/lib/engine/facts";
+import { formatBRL, todayISO } from "@/lib/engine/facts";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { simulateSpending, type SimulationVerdict } from "@/lib/engine/spendingSimulation";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const VERDICT_STYLE: Record<SimulationVerdict, { chip: string; icon: JSX.Element }> = {
   safe: { chip: "bg-success/10 text-success", icon: <CheckCircle size={18} weight="fill" /> },
@@ -25,31 +27,38 @@ export default function Planejamento() {
   const period = useMemo(() => resolvePeriodRange(), []);
   const snapshot = useFinancialSnapshot(period);
   const { data: categories } = useCategories();
+  const { data: accounts } = useAccounts();
   const { data: cards } = useCreditCards();
 
   const [amount, setAmount] = useState("");
   const [installments, setInstallments] = useState(1);
-  const [method, setMethod] = useState<"cash" | "card">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "debit" | "cash" | "card">("pix");
   const [categoryId, setCategoryId] = useState("");
-  const [plannedDate, setPlannedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [plannedDate, setPlannedDate] = useState(() => todayISO());
   const [cardId, setCardId] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [reviewCounted, setReviewCounted] = useState(false);
+
+  useEffect(() => setReviewCounted(false), [amount, installments, paymentMethod, categoryId, plannedDate, cardId, accountId]);
 
   const result = useMemo(() => {
     const amt = Number(amount.replace(/\./g, "").replace(",", ".")) || 0;
-    if (!snapshot.data || amt <= 0) return null;
+    const isCard = paymentMethod === "card";
+    if (!snapshot.data || amt <= 0 || !categoryId || (isCard ? !cardId : !accountId)) return null;
     return simulateSpending({
       snapshot: snapshot.data,
       amount: amt,
       installments,
-      method,
+      method: isCard ? "card" : "cash",
       categoryId: categoryId || null,
       categories: (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type as "income" | "expense" })),
       plannedDate,
-      card: method === "card"
+      card: isCard
         ? (cards ?? []).map((c) => ({ id: c.id, name: c.name, closing_day: c.closing_day, due_day: c.due_day })).find((c) => c.id === cardId) ?? null
         : null,
+      accountName: isCard ? null : (accounts ?? []).find((account) => account.id === accountId)?.name ?? null,
     });
-  }, [amount, installments, method, categoryId, snapshot.data, categories, plannedDate, cardId, cards]);
+  }, [amount, installments, paymentMethod, categoryId, snapshot.data, categories, plannedDate, cardId, cards, accountId, accounts]);
 
   const style = result ? VERDICT_STYLE[result.verdict] : null;
 
@@ -69,9 +78,9 @@ export default function Planejamento() {
             <input id="sim-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" className="input-base min-h-11" />
           </div>
           <div>
-            <label htmlFor="sim-cat" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Categoria (opcional)</label>
+            <label htmlFor="sim-cat" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Categoria</label>
             <select id="sim-cat" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-base min-h-11">
-              <option value="">Não especificar</option>
+              <option value="">Escolher categoria</option>
               {sortCategories((categories ?? []).filter((c) => c.type === "expense")).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -79,8 +88,10 @@ export default function Planejamento() {
           </div>
           <div>
             <label htmlFor="sim-method" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Forma de pagamento</label>
-            <select id="sim-method" value={method} onChange={(e) => setMethod(e.target.value as "cash" | "card")} className="input-base min-h-11">
-              <option value="cash">À vista (sai do saldo)</option>
+            <select id="sim-method" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "pix" | "debit" | "cash" | "card")} className="input-base min-h-11">
+              <option value="pix">PIX</option>
+              <option value="debit">Cartão de débito</option>
+              <option value="cash">Dinheiro</option>
               <option value="card">Cartão de crédito</option>
             </select>
           </div>
@@ -88,7 +99,7 @@ export default function Planejamento() {
             <label htmlFor="sim-date" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Data prevista</label>
             <input id="sim-date" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} className="input-base min-h-11" />
           </div>
-          {method === "card" ? (
+          {paymentMethod === "card" ? (
             <div>
               <label htmlFor="sim-card" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Cartão</label>
               <select id="sim-card" value={cardId} onChange={(e) => setCardId(e.target.value)} className="input-base min-h-11">
@@ -98,10 +109,18 @@ export default function Planejamento() {
                 ))}
               </select>
             </div>
-          ) : null}
+          ) : (
+            <div>
+              <label htmlFor="sim-account" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Conta de saída</label>
+              <select id="sim-account" value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input-base min-h-11">
+                <option value="">Escolher conta</option>
+                {(accounts ?? []).filter((account) => account.active).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label htmlFor="sim-inst" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Parcelas</label>
-            <select id="sim-inst" value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="input-base min-h-11" disabled={method === "cash"}>
+            <select id="sim-inst" value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="input-base min-h-11" disabled={paymentMethod !== "card"}>
               {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
                 <option key={n} value={n}>{n}x</option>
               ))}
@@ -120,7 +139,7 @@ export default function Planejamento() {
       ) : !result ? (
         <section className="rounded-[18px] border border-dashed border-border bg-card p-8 text-center">
           <Calculator size={26} className="mx-auto text-muted-foreground" weight="duotone" />
-          <p className="mt-2 text-[13px] text-muted-foreground">Informe um valor para ver o impacto real no seu mês.</p>
+          <p className="mt-2 text-[13px] text-muted-foreground">Informe valor, categoria, data e origem do pagamento para ver um impacto confiável.</p>
         </section>
       ) : (
         <>
@@ -150,6 +169,23 @@ export default function Planejamento() {
             </div>
           </section>
 
+          <button
+            type="button"
+            disabled={reviewCounted}
+            onClick={async () => {
+              const sourceId = crypto.randomUUID();
+              const { error } = await supabase.rpc("challenge_progress_add", {
+                p_slug: "antes-de-gastar", p_delta: 1, p_source_type: "pre_spend_review", p_source_id: sourceId,
+              });
+              if (error) return toast.error("A análise está pronta, mas não conseguimos atualizar o desafio.");
+              setReviewCounted(true);
+              toast.success("Análise registrada no seu desafio.");
+            }}
+            className="min-h-11 w-full rounded-full border border-primary/30 bg-primary/5 px-4 text-xs font-semibold text-primary disabled:opacity-60"
+          >
+            {reviewCounted ? "Análise registrada" : "Concluir esta análise"}
+          </button>
+
           {result.categoryGoalImpact ? (
             <section className="rounded-[18px] border border-border bg-card p-4">
               <p className="text-[11px] font-bold text-primary">Meta de {result.categoryGoalImpact.categoryName}</p>
@@ -161,6 +197,20 @@ export default function Planejamento() {
                   ? `Esta compra estoura a meta em ${formatBRL(Math.abs(result.categoryGoalImpact.remainingAfter))}.`
                   : `Depois desta compra ainda sobram ${formatBRL(result.categoryGoalImpact.remainingAfter)}.`}
               </p>
+            </section>
+          ) : null}
+
+          {result.installmentSchedule.length > 1 ? (
+            <section className="rounded-[18px] border border-border bg-card p-4">
+              <h2 className="font-display text-base font-bold text-foreground">Parcelas que entrarão nas próximas faturas</h2>
+              <ul className="mt-2 divide-y divide-border">
+                {result.installmentSchedule.map((item) => (
+                  <li key={item.installment} className="flex min-h-10 items-center justify-between py-2 text-[12px]">
+                    <span className="text-muted-foreground">{item.installment}/{result.installments} · {formatDate(item.cashImpactDate)}</span>
+                    <strong>{formatBRL(item.amount)}</strong>
+                  </li>
+                ))}
+              </ul>
             </section>
           ) : null}
 

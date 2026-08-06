@@ -77,6 +77,10 @@ export const goalSchema = z
     donation_mode: z.enum(["fixed", "income_percent"]).nullable().optional(),
     donation_percent: z.number().min(0.1).max(100).nullable().optional(),
     monthly_target: z.number().positive().nullable().optional(),
+    donation_income_scope: z.enum(["all", "selected_categories"]).default("all"),
+    donation_income_category_ids: z.array(z.string().uuid()).default([]),
+    donation_due_day: z.number().int().min(1).max(28).default(25),
+    donation_end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   })
   .refine((v) => v.kind !== "donation" || !!v.donation_mode, {
     path: ["donation_mode"],
@@ -89,6 +93,10 @@ export const goalSchema = z
   .refine(
     (v) => v.kind !== "donation" || v.donation_mode !== "fixed" || (v.monthly_target ?? 0) > 0,
     { path: ["monthly_target"], message: "Informe o valor mensal da doação" },
+  )
+  .refine(
+    (v) => v.kind !== "donation" || v.donation_mode !== "income_percent" || v.donation_income_scope !== "selected_categories" || v.donation_income_category_ids.length > 0,
+    { path: ["donation_income_category_ids"], message: "Escolha ao menos uma categoria de receita" },
   );
 export type GoalInput = z.infer<typeof goalSchema>;
 

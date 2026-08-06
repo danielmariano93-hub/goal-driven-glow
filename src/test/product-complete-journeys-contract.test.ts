@@ -14,7 +14,7 @@ describe("jornadas completas de produto", () => {
     expect(app).toContain('path="antecipacoes" element={<Navigate to="/app/nino?section=prepare-se" replace />}');
     expect(menu).toContain("useMoreMenuContext");
     expect(menu).not.toContain('label: "O que o Nino aprendeu"');
-    expect(nino).toContain("useNinoContext");
+    expect(nino).toContain("useNinoDiagnosisContext");
     expect(nino).toContain("Aprendizados");
     expect(nino).toContain("Prepare-se");
   });

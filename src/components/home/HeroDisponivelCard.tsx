@@ -28,8 +28,10 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className={`relative overflow-hidden rounded-[20px] bg-gradient-hero p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[140px]" : "min-h-[176px]"}`}
+        className={`relative overflow-hidden rounded-[24px] bg-gradient-hero p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[140px]" : "min-h-[176px]"}`}
       >
+        <span className="pointer-events-none absolute -right-12 -top-20 h-44 w-44 rounded-full bg-white/15 blur-3xl" aria-hidden="true" />
+        <span className="pointer-events-none absolute -bottom-24 left-8 h-40 w-52 rounded-full bg-fuchsia-400/20 blur-3xl" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
              <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">Disponível hoje</p>

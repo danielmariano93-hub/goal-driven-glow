@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { loadProfile } from "./UserProfile.ts";
 import { runAllDetectors, rank, type Insight, type DetectorCtx } from "./InsightsEngine.ts";
+import { emotionalReminderDue, EMOTIONAL_REMINDER_KIND } from "../../intelligence/emotionalReminder.ts";
 
 export type ProactiveSuggestion = {
   id?: string;
@@ -107,7 +108,7 @@ export async function scanUser(
   const persist = options.persist !== false;
   const profile = await loadProfile(sb, userId);
 
-  const [txResp, goalsResp, recResp, runsResp] = await Promise.all([
+  const [txResp, goalsResp, recResp, runsResp, emotionalResp, surfaceResp] = await Promise.all([
     sb.from("transactions")
       .select("id,amount,description,category_id,occurred_at,type,movement_kind")
       .eq("user_id", userId)
@@ -127,12 +128,19 @@ export async function scanUser(
       .eq("user_id", userId)
       .gte("started_at", new Date(Date.now() - 75 * 86400000).toISOString())
       .limit(1000),
+    sb.from("emotional_checkins")
+      .select("occurred_at").eq("user_id", userId)
+      .gte("occurred_at", new Date(Date.now() - 2 * 86400000).toISOString()),
+    sb.from("nino_surface_state")
+      .select("last_seen_at").eq("user_id", userId).eq("surface", "nino").maybeSingle(),
 
   ]);
   assertQuery("transactions", txResp.error);
   assertQuery("goals", goalsResp.error);
   assertQuery("recurring_occurrences", recResp.error);
   assertQuery("agent_runs", runsResp.error);
+  assertQuery("emotional_checkins", emotionalResp.error);
+  assertQuery("nino_surface_state", surfaceResp.error);
 
   const goalIds = ((goalsResp.data as any[] | null) ?? []).map((goal) => goal.id);
   const contributionByGoal = new Map<string, number>();
@@ -233,6 +241,27 @@ export async function scanUser(
       expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
     };
   });
+
+  const reminder = emotionalReminderDue({
+    now: new Date(),
+    timezone: (profile as { timezone?: string | null }).timezone ?? "America/Sao_Paulo",
+    lastSurfaceSeenAt: (surfaceResp.data as { last_seen_at?: string | null } | null)?.last_seen_at ?? null,
+    checkinDates: ((emotionalResp.data as Array<{ occurred_at: string }> | null) ?? []).map((row) => row.occurred_at),
+  });
+  if (reminder.due && !ctx.cooldowns?.has(`emotional-checkin:${reminder.localDate}`)) {
+    suggestions.unshift({
+      user_id: userId,
+      kind: EMOTIONAL_REMINDER_KIND,
+      severity: "info",
+      title: "Como você está hoje?",
+      body: "Um check-in de poucos segundos ajuda o Nino a entender o contexto das suas decisões, sem julgamento.",
+      action: { type: "emotional_checkin", route: "/app/emocoes" },
+      evidence: { local_date: reminder.localDate, reason: "used_nino_without_checkin" },
+      channel_ready: "app",
+      dedup_key: `emotional-checkin:${reminder.localDate}`,
+      expires_at: new Date(Date.now() + 6 * 3600000).toISOString(),
+    });
+  }
 
   if (!persist || suggestions.length === 0) return suggestions;
   const { data: persisted, error: persistError } = await sb.from("pending_proactive_suggestions")

@@ -101,7 +101,9 @@ export function EmotionalCheckinCard() {
         if (error) throw error;
         toast.success("Check-in atualizado.");
       } else {
+        const checkinId = crypto.randomUUID();
         const { error } = await supabase.from("emotional_checkins").insert({
+          id: checkinId,
           user_id: user.id,
           occurred_at: new Date().toISOString(),
           mood: selected.v,
@@ -111,6 +113,9 @@ export function EmotionalCheckinCard() {
           transaction_id: txId || null,
         });
         if (error) throw error;
+        await supabase.rpc("challenge_progress_add", {
+          p_slug: "checkin-emocional", p_delta: 1, p_source_type: "emotion_checkin", p_source_id: checkinId,
+        });
         toast.success("Registrado. Obrigado por compartilhar.");
       }
       setCollapsedAfterSave(true);

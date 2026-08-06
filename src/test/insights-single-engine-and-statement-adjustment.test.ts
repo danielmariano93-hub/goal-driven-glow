@@ -23,7 +23,7 @@ describe("motor único de dicas + ajuste restrito + crons observáveis", () => {
 
   it("o botão Útil registra retorno no item de inteligência", () => {
     const card = read("src/components/home/NinoGuidanceCard.tsx");
-    expect(card).toContain('feedback: value, surface: "home"');
+    expect(card).toContain('situationId: item.id, feedback: "acted", surface: "home"');
     expect(card).toContain("useNinoSituationFeedback");
   });
 

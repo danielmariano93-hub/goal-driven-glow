@@ -480,6 +480,10 @@ export function useSaveGoal() {
         donation_mode: input.kind === "donation" ? input.donation_mode ?? null : null,
         donation_percent: input.kind === "donation" ? input.donation_percent ?? null : null,
         monthly_target: input.monthly_target ?? null,
+        donation_income_scope: input.kind === "donation" ? input.donation_income_scope ?? "all" : "all",
+        donation_income_category_ids: input.kind === "donation" ? input.donation_income_category_ids ?? [] : [],
+        donation_due_day: input.kind === "donation" ? input.donation_due_day ?? 25 : 25,
+        donation_end_date: input.kind === "donation" ? input.donation_end_date ?? null : null,
       };
       if (input.id) {
         const { error } = await supabase
@@ -526,7 +530,9 @@ export function useAddContribution() {
   return useMutation({
     mutationFn: async (input: ContributionInput) => {
       if (!user) throw new Error("not authenticated");
+      const contributionId = crypto.randomUUID();
       const { error } = await supabase.from("goal_contributions").insert({
+        id: contributionId,
         user_id: user.id,
         goal_id: input.goal_id,
         amount: input.amount,
@@ -535,6 +541,9 @@ export function useAddContribution() {
         notes: input.notes || null,
       });
       if (error) throw error;
+      await supabase.rpc("challenge_progress_add", {
+        p_slug: "aportar-meta", p_delta: 1, p_source_type: "goal_contribution", p_source_id: contributionId,
+      });
     },
     onSuccess: () => invalidateFinancialQueries(qc),
   });

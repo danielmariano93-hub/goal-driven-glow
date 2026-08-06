@@ -686,13 +686,17 @@ function estimateFromTxs(txs, cardId, ym) {
   }
   return round2(Math.max(0, total));
 }
-function installmentsOfCompetence(installments, cardId, ym) {
+function installmentsOfCompetence(installments, txs, cardId, ym) {
+  const ledgerIds = new Set(
+    txs.filter((tx) => tx.credit_card_id === cardId && ymOf(tx.competence_date) === ym).map((tx) => tx.id).filter((id) => Boolean(id))
+  );
   let total = 0;
   for (const inst of installments) {
     if (inst.credit_card_id !== cardId) continue;
     if (inst.absorbed_by_statement_id) continue;
     if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
     if (ymOf(inst.competence_month) !== ym) continue;
+    if (inst.legacy_transaction_id && ledgerIds.has(inst.legacy_transaction_id)) continue;
     total += Number(inst.amount || 0);
   }
   return round2(Math.max(0, total));
@@ -728,7 +732,7 @@ function figureFromStatement(statement) {
 }
 function estimatedFigure(txs, installments, cardId, ym) {
   const purchases = estimateFromTxs(txs, cardId, ym);
-  const contracted = installmentsOfCompetence(installments, cardId, ym);
+  const contracted = installmentsOfCompetence(installments, txs, cardId, ym);
   const total = round2(purchases + contracted);
   return {
     ...emptyFigure(),

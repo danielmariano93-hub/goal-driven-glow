@@ -6,6 +6,7 @@ import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
 import { NinoRefreshButton } from "@/components/nino/NinoRefreshButton";
 import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock } from "@/components/nino/NinoStateBlocks";
 import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
+import { consolidateSituations } from "@/lib/nino/consolidate";
 
 const SECTIONS = [
   { id: "agora", label: "Agora" },
@@ -29,7 +30,7 @@ export default function Nino() {
 
   const quality = data?.data_quality;
   const insufficient = data?.overall_state === "insufficient_data";
-  const current = [data?.primary_situation, ...(data?.supporting_situations ?? [])].filter((item): item is FinancialSituation => Boolean(item));
+  const current = consolidateSituations([data?.primary_situation, ...(data?.supporting_situations ?? [])].filter((item): item is FinancialSituation => Boolean(item)));
 
   const counts: Record<SectionId, number> = {
     agora: current.length + (data?.operational_tasks.length ?? 0),
@@ -41,8 +42,8 @@ export default function Nino() {
 
   const listFor = (id: SectionId): FinancialSituation[] => {
     if (id === "mudancas") return current.filter((item) => item.status === "improving" || item.status === "worsening");
-    if (id === "aprendizados") return data?.patterns ?? [];
-    if (id === "prepare-se") return data?.anticipations ?? [];
+    if (id === "aprendizados") return consolidateSituations(data?.patterns ?? []);
+    if (id === "prepare-se") return consolidateSituations(data?.anticipations ?? []);
     return [];
   };
 

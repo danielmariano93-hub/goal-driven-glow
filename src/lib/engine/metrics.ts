@@ -705,15 +705,20 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   // ── Metas de doação viram compromisso do mês (valor fixo ou % da receita) ──
   const donationCommitments = (input.goals ?? [])
-    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active")
+    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active" && (!g.donation_end_date || g.donation_end_date >= todayIso))
     .map((g) => {
-      const monthIncome = monthlyTotalsForDonation.income;
+      const selectedIncomeCategories = new Set(g.donation_income_category_ids ?? []);
+      const scopedTxs = g.donation_income_scope === "selected_categories"
+        ? input.txs.filter((tx) => tx.type !== "income" || (tx.category_id != null && selectedIncomeCategories.has(tx.category_id)))
+        : input.txs;
+      const monthIncome = computeMonthlyTotals(scopedTxs, currentYM).income;
       const amount = String(g.donation_mode) === "income_percent"
         ? round2((monthIncome * Number(g.donation_percent ?? 0)) / 100)
         : round2(Number(g.monthly_target ?? 0));
-      const dueDay = 25;
+      const dueDay = Math.max(1, Math.min(28, Number(g.donation_due_day ?? 25)));
       const due = todayISO(new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay, daysInclusive(monthRange.start, monthRange.end))));
-      return { id: g.id, name: `Doação · ${g.name}`, amount, date: due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due };
+      const date = due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due;
+      return { id: g.id, name: `Doação · ${g.name}`, amount: g.donation_end_date && date > g.donation_end_date ? 0 : amount, date };
     })
     .filter((d) => d.amount > 0);
 
@@ -781,7 +786,9 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     paceWeight: round2(paceWeight),
     projectedVariableSpending,
     upcomingConfirmedCommitments: knownFutureCommitments,
-    projectedTotalSpending: round2(mtdExpense + projectedVariableSpending + knownFutureCommitments),
+    // Consumo de caixa completo: realizado + variável previsto + contas + fatura.
+    // A fatura fica separada na composição, mas não pode desaparecer do total.
+    projectedTotalSpending: round2(mtdExpense + projectedVariableSpending + knownFutureCommitments + cardDueThisMonth),
     confirmedFutureInflows: confirmedFutureIncome,
     estimatedFixedInflows: estimatedIncome.total,
     estimatedIncomeEvents: estimatedIncome.events,

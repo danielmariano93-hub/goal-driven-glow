@@ -99,6 +99,10 @@ export interface GoalRow {
   donation_mode?: string | null;
   donation_percent?: number | null;
   monthly_target?: number | null;
+  donation_income_scope?: string | null;
+  donation_income_category_ids?: string[] | null;
+  donation_due_day?: number | null;
+  donation_end_date?: string | null;
 }
 
 export interface GoalContributionRow {
@@ -769,4 +773,3 @@ export function currentMonthYM(now = new Date()): string {
 export function todayISO(now = new Date()): string {
   return todaySP(now);
 }
-

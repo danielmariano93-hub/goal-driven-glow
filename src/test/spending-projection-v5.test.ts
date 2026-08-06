@@ -48,13 +48,26 @@ describe("financial_snapshot_contract.v5 — ritmo e projeção", () => {
     expect(snap.projection.projectedTotalSpending).toBeGreaterThan(0);
   });
 
-  it("gasto total esperado = realizado + variável + compromissos", () => {
+  it("gasto total esperado = realizado + variável + compromissos + fatura", () => {
     const snap = snapshotOf([tx({ amount: 210, occurred_at: "2026-03-01", posted_at: "2026-03-01" })], today);
     const p = snap.projection;
     expect(p.projectedTotalSpending).toBeCloseTo(
-      p.realizedConsumption + p.projectedVariableSpending + p.upcomingConfirmedCommitments,
+      p.realizedConsumption + p.projectedVariableSpending + p.upcomingConfirmedCommitments + p.cardDueThisMonth,
       2,
     );
+  });
+
+  it("leva uma fatura oficial com vencimento no mês para a agenda e a projeção", () => {
+    const snap = computeFinancialSnapshot({
+      accounts: [{ id: "acc", name: "Conta", type: "checking", opening_balance: 1000, active: true }] as never,
+      txs: [], recurring: [], snapshots: [] as never, investments: [], debts: [], categoryGoals: [],
+      period: { start: "2026-03-01", end: "2026-03-31" }, today,
+      cardIds: ["card"], cards: [{ id: "card", name: "Nino", closing_day: 20, due_day: 30 }],
+      cardStatements: [{ id: "st", credit_card_id: "card", competence_month: "2026-03-01", due_date: "2026-03-30", stated_total: 400, paid_amount: 0, outstanding_amount: 400, status: "open" }],
+    });
+    expect(snap.commitmentAgenda.items).toEqual(expect.arrayContaining([expect.objectContaining({ source: "card_statement", amount: 400, date: "2026-03-30" })]));
+    expect(snap.projection.cardDueThisMonth).toBe(400);
+    expect(snap.projection.projectedTotalSpending).toBeGreaterThanOrEqual(400);
   });
 
   it("saldo projetado fecha a equação declarada na UI", () => {

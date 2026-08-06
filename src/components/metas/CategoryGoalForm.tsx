@@ -11,6 +11,7 @@ import {
   type CategorySpendingGoalRow,
 } from "@/lib/engine/metrics";
 import { formatBRL, round2, todayISO } from "@/lib/engine/facts";
+import { sortCategories } from "@/lib/categories/order";
 
 export type CategoryGoalFormValues = {
   id?: string;
@@ -59,7 +60,7 @@ function computePeriod(type: CategoryGoalPeriodType, startCustom: string, endCus
 }
 
 export function CategoryGoalForm({ initial, categories, txs, saving, onClose, onSubmit }: Props) {
-  const expenseCats = useMemo(() => categories.filter((c) => c.type === "expense"), [categories]);
+  const expenseCats = useMemo(() => sortCategories(categories.filter((c) => c.type === "expense")), [categories]);
   const [categoryId, setCategoryId] = useState(initial?.category_id ?? expenseCats[0]?.id ?? "");
   const [mode, setMode] = useState<CategoryGoalMode>(initial?.mode as CategoryGoalMode ?? "percent_reduction");
   const [baselineKind, setBaselineKind] = useState<CategoryGoalBaselineKind>(initial?.baseline_kind as CategoryGoalBaselineKind ?? "avg_3m");

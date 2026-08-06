@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import { Plus, Play, Pause, Trash2, Loader2, RotateCw } from "lucide-react";
+import { Plus, Play, Pause, Trash2, Loader2, RotateCw, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/split/math";
 import { nextOccurrences } from "@/lib/recurring/schedule";
 import { CategorySelect } from "@/components/CategorySelect";
+import { todayISO } from "@/lib/engine/facts";
 
 export default function Recorrencias() {
   const [rules, setRules] = useState<any[] | null>(null);
   const [occs, setOccs] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [cats, setCats] = useState<any[]>([]);
+  const [cardInstallments, setCardInstallments] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
@@ -21,13 +23,17 @@ export default function Recorrencias() {
   });
 
   const load = async () => {
-    const [{ data: r }, { data: o }, { data: a }, { data: c }] = await Promise.all([
+    const [{ data: r }, { data: o }, { data: a }, { data: c }, { data: installments }] = await Promise.all([
       supabase.from("recurring_rules" as any).select("*").order("created_at", { ascending: false }),
       supabase.from("recurring_occurrences" as any).select("*,recurring_rules(name,kind,amount)").eq("status", "planned").order("due_date").limit(30),
       supabase.from("accounts").select("id,name"),
       supabase.from("categories").select("id,name"),
+      supabase.from("credit_card_installments" as any)
+        .select("id,amount,due_date,competence_month,installment_number,status,credit_cards(name)")
+        .gte("due_date", todayISO()).in("status", ["scheduled", "billed", "historical_unconfirmed"])
+        .order("due_date").limit(60),
     ]);
-    setRules((r as any) ?? []); setOccs((o as any) ?? []); setAccounts(a ?? []); setCats(c ?? []);
+    setRules((r as any) ?? []); setOccs((o as any) ?? []); setAccounts(a ?? []); setCats(c ?? []); setCardInstallments((installments as any) ?? []);
   };
   useEffect(() => { load(); }, []);
 
@@ -168,6 +174,25 @@ export default function Recorrencias() {
                   <button disabled={busy} onClick={() => confirm(o.id)} className="text-[11px] rounded-full bg-success/15 text-success px-2 py-1">Confirmar</button>
                   <button disabled={busy} onClick={() => skip(o.id)} className="text-[11px] rounded-full border border-border px-2 py-1">Pular</button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><CreditCard size={15} /> Parcelas já conhecidas das próximas faturas</h2>
+        {cardInstallments.length === 0 ? (
+          <p className="surface-card p-4 text-xs text-muted-foreground">Nenhuma parcela futura identificada.</p>
+        ) : (
+          <div className="surface-card divide-y divide-border overflow-hidden">
+            {cardInstallments.map((installment: any) => (
+              <div key={installment.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{installment.credit_cards?.name ?? "Cartão"} · parcela {installment.installment_number}</p>
+                  <p className="text-[11px] text-muted-foreground">Vencimento {new Date(`${installment.due_date}T12:00:00`).toLocaleDateString("pt-BR")}</p>
+                </div>
+                <strong className="text-sm tabular-nums">{formatBRL(Number(installment.amount || 0))}</strong>
               </div>
             ))}
           </div>

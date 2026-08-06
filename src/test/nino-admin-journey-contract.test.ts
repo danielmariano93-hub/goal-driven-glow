@@ -41,7 +41,9 @@ describe("contratos de Nino, IA e comunicação", () => {
     const ingest = read("supabase/functions/assistant-ingest-document/index.ts");
     expect(prompt).toContain('.eq("task", "complex_reasoning")');
     expect(ingest).toContain('resolveConfiguredModel(sb, "vision")');
-    expect(ingest).toContain('resolveConfiguredModel(sb, "semantic_classification")');
+    // Categorização documental é determinística e auditável; a rota de visão
+    // extrai o documento e o classificador central resolve a categoria.
+    expect(ingest).toContain("classifyWithContext({");
   });
 
   it("responde a participante somente com o contexto do próprio rolê", () => {

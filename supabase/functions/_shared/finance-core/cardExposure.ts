@@ -145,8 +145,10 @@ export function previousCycleOf(card: CardCycleConfig | null | undefined, cycle:
 
 
 export interface CardStatementRow {
+  id?: string | null;
   credit_card_id: string;
   competence_month: string;
+  due_date?: string | null;
   stated_total?: number | null;
   paid_amount?: number | null;
   outstanding_amount?: number | null;
@@ -155,15 +157,19 @@ export interface CardStatementRow {
 }
 
 export interface CardInstallmentRow {
+  id?: string | null;
   credit_card_id: string;
   competence_month: string;
   amount: number;
   status?: string | null;
+  /** Transação legada que já representa esta parcela no ledger. */
+  legacy_transaction_id?: string | null;
   /** parcela já absorvida por uma fatura fechada/paga (E6) — nunca é compromisso futuro */
   absorbed_by_statement_id?: string | null;
 }
 
 export interface CardTxRow {
+  id?: string | null;
   credit_card_id?: string | null;
   competence_date?: string | null;
   occurred_at?: string | null;
@@ -238,13 +244,27 @@ function estimateFromTxs(txs: CardTxRow[], cardId: string, ym: string): number {
  * Sem esta soma, uma fatura estimada "esquece" parcelamentos já contratados —
  * era a causa raiz de previsões otimistas na Home e no simulador.
  */
-function installmentsOfCompetence(installments: CardInstallmentRow[], cardId: string, ym: string): number {
+function installmentsOfCompetence(
+  installments: CardInstallmentRow[],
+  txs: CardTxRow[],
+  cardId: string,
+  ym: string,
+): number {
+  const ledgerIds = new Set(
+    txs
+      .filter((tx) => tx.credit_card_id === cardId && ymOf(tx.competence_date) === ym)
+      .map((tx) => tx.id)
+      .filter((id): id is string => Boolean(id)),
+  );
   let total = 0;
   for (const inst of installments) {
     if (inst.credit_card_id !== cardId) continue;
     if (inst.absorbed_by_statement_id) continue;
     if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
     if (ymOf(inst.competence_month) !== ym) continue;
+    // A parcela importada/migrada já está dentro de `estimateFromTxs`.
+    // Somá-la novamente inflaria a fatura estimada.
+    if (inst.legacy_transaction_id && ledgerIds.has(inst.legacy_transaction_id)) continue;
     total += Number(inst.amount || 0);
   }
   return round2(Math.max(0, total));
@@ -295,7 +315,7 @@ function estimatedFigure(
   ym: string,
 ): StatementFigure {
   const purchases = estimateFromTxs(txs, cardId, ym);
-  const contracted = installmentsOfCompetence(installments, cardId, ym);
+  const contracted = installmentsOfCompetence(installments, txs, cardId, ym);
   const total = round2(purchases + contracted);
   return {
     ...emptyFigure(),

@@ -126,7 +126,7 @@ export function useFinancialSnapshot(period: DateRange): {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("credit_card_statements" as never)
-        .select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status");
+        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status");
       if (error) throw error;
       return (data as unknown as CardStatementRow[] | null) ?? [];
     },
@@ -139,7 +139,7 @@ export function useFinancialSnapshot(period: DateRange): {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("credit_card_installments" as never)
-        .select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id");
+        .select("id,credit_card_id,competence_month,amount,status,absorbed_by_statement_id,legacy_transaction_id");
       if (error) throw error;
       return (data as unknown as CardInstallmentRow[] | null) ?? [];
     },
@@ -266,6 +266,10 @@ export function useFinancialSnapshot(period: DateRange): {
         donation_mode: (g as { donation_mode?: "fixed" | "income_percent" | null }).donation_mode ?? null,
         donation_percent: (g as { donation_percent?: number | null }).donation_percent == null ? null : Number((g as { donation_percent?: number | null }).donation_percent),
         monthly_target: (g as { monthly_target?: number | null }).monthly_target == null ? null : Number((g as { monthly_target?: number | null }).monthly_target),
+        donation_income_scope: (g as { donation_income_scope?: string | null }).donation_income_scope ?? "all",
+        donation_income_category_ids: (g as { donation_income_category_ids?: string[] | null }).donation_income_category_ids ?? [],
+        donation_due_day: Number((g as { donation_due_day?: number | null }).donation_due_day ?? 25),
+        donation_end_date: (g as { donation_end_date?: string | null }).donation_end_date ?? null,
       })),
       goalContributions: (goalContributions ?? []).map((c) => ({
         goal_id: c.goal_id, amount: Number(c.amount), occurred_at: c.occurred_at,
