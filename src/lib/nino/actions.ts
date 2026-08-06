@@ -36,7 +36,7 @@ export function diagnosisRouteForSituation(
   }
   if (situation.situation_type === "goal_feasibility") {
     const goalId = stringValue(evaluation.goal_id);
-    return goalId ? `/app/metas?goal=${encodeURIComponent(goalId)}` : "/app/metas";
+    return goalId ? `/app/metas?goal=${encodeURIComponent(goalId)}&action=recalibrate` : "/app/metas";
   }
   if (situation.situation_type === "card_cycle_pressure" || ["bill", "installment"].includes(String(evaluation.future_kind ?? ""))) {
     const cardId = stringValue(evaluation.card_id);

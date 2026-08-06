@@ -100,6 +100,7 @@ export default function Index() {
 
       <NinoGuidanceCard
         diagnosis={homeDiagnosis}
+        context={diagnosis.data ?? null}
         projection={snap?.projection ?? null}
         loading={diagnosis.isLoading}
         error={diagnosis.error}

@@ -174,6 +174,7 @@ export function discoverPatterns(input: DiscoveryInput): BehavioralPattern[] {
   // 1. Dia da semana
   const weekdayConfig = input.configs.get("weekday_spending_risk");
   if (weekdayConfig) {
+    const weekdayCandidates: BehavioralPattern[] = [];
     for (let wd = 0; wd <= 6; wd++) {
       const group = usable.filter((d) => d.weekday === wd).map((d) => d.total_adjustable);
       const other = usable.filter((d) => d.weekday !== wd).map((d) => d.total_adjustable);
@@ -190,9 +191,28 @@ export function discoverPatterns(input: DiscoveryInput): BehavioralPattern[] {
         weekdayConfig,
         input.coverage,
       );
-      if (candidate) out.push(candidate);
+      if (candidate) weekdayCandidates.push(candidate);
+    }
+    // Separação obrigatória contra o segundo dia mais alto: dois dias próximos
+    // não autorizam afirmar um padrão forte de dia da semana.
+    const ranked = weekdayCandidates.slice().sort((a, b) => b.pattern_value - a.pattern_value);
+    const runnerUp = ranked[1]?.pattern_value ?? 0;
+    const minSeparationPct = weekdayConfig.min_uplift_pct / 2;
+    for (const candidate of weekdayCandidates) {
+      const reference = candidate === ranked[0] ? runnerUp : ranked[0]?.pattern_value ?? 0;
+      const separation = reference > 0 ? round2(((candidate.pattern_value - reference) / reference) * 100) : 100;
+      if (separation < minSeparationPct) {
+        const evidence = candidate.evidence as Record<string, unknown>;
+        const reasons = Array.isArray(evidence.block_reasons) ? evidence.block_reasons as unknown[] : [];
+        reasons.push({ criterion: "weekday_separation", observed: separation, required: minSeparationPct });
+        evidence.block_reasons = reasons;
+        evidence.runner_up_value = reference;
+        candidate.status = "candidate";
+      }
+      out.push(candidate);
     }
   }
+
 
   // 2. Fim de semana
   const weekendConfig = input.configs.get("weekend_spending_risk");
