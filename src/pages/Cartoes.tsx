@@ -729,9 +729,11 @@ function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
   );
 }
 
-function sourceTag(source: "official" | "estimated" | "none"): string | null {
+function sourceTag(source: ExposureSource): string | null {
   if (source === "official") return "Oficial";
+  if (source === "partial") return "Conferir";
   if (source === "estimated") return "Estimativa";
+  if (source === "unavailable") return "Sem dados";
   return null;
 }
 
