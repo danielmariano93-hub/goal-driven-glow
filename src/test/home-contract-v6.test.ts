@@ -6,9 +6,9 @@ const emptyInput = {
   period: { start: "2026-08-01", end: "2026-08-05" },
 };
 
-describe("contrato financeiro v6 da Home", () => {
+describe("contrato financeiro v7 da Home", () => {
   it("mantém snapshot e projeção na mesma versão", () => {
-    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v6");
+    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v7");
     expect(SPENDING_PROJECTION_VERSION).toBe(FINANCE_CONTRACT_VERSION);
   });
 
@@ -23,6 +23,7 @@ describe("contrato financeiro v6 da Home", () => {
     expect(snapshot.projection.freeAfterKnownCommitments).toBe(
       snapshot.projection.currentAvailableBalance
       + snapshot.projection.confirmedFutureInflows
+      + snapshot.projection.estimatedFixedInflows
       - snapshot.projection.upcomingConfirmedCommitments
       - snapshot.projection.cardDueThisMonth,
     );

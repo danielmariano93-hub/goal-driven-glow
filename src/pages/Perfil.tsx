@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { WhatsAppLinkSheet } from "@/components/whatsapp/WhatsAppLinkSheet";
 import { AIPreferencesCard } from "@/components/AIPreferencesCard";
 import { FastLogTokenCard } from "@/components/FastLogTokenCard";
+import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
 export default function Perfil() {
   const { user, profile, refreshProfile, requestPasswordReset } = useAuth();
@@ -71,6 +72,7 @@ export default function Perfil() {
     }
     await refreshProfile();
     qc.invalidateQueries({ queryKey: ["ufs"] });
+    await invalidateFinancialQueries(qc);
     toast.success("Perfil atualizado");
   }
 

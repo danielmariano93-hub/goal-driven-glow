@@ -742,8 +742,17 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
   const { data: rec } = await ctx.sb.from("recurring_entries")
     .select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", ctx.user_id).eq("active", true);
   const recurring = (rec ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
-  const result = computeForecast({ txs: txs as any, recurring, today, model: args?.model ?? "auto" });
-  return { ok: true, result };
+  const [result, snapshot] = await Promise.all([
+    Promise.resolve(computeForecast({ txs: txs as any, recurring, today, model: args?.model ?? "auto" })),
+    computeAgentSnapshot(ctx.sb, ctx.user_id),
+  ]);
+  return { ok: true, result: {
+    ...result,
+    projected_month_end_available: snapshot.projected_month_end_available,
+    confirmed_future_income: snapshot.confirmed_future_income,
+    estimated_fixed_income: snapshot.estimated_fixed_income,
+    estimated_income_events: snapshot.estimated_income_events,
+  } };
 }
 
 export async function explain_spending_change(ctx: ToolContext, args: {

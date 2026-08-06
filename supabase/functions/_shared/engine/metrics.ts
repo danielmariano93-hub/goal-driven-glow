@@ -1,4 +1,4 @@
-// Snapshot financeiro para o agente (WhatsApp + App) — financial_snapshot_contract.v6.
+// Snapshot financeiro para o agente (WhatsApp + App) — financial_snapshot_contract.v7.
 // ========================================================================
 // NÃO calcula nada por conta própria: busca os dados e delega ao núcleo
 // canônico `finance-core` (espelho de src/lib/engine/*). A saída mantém o
@@ -116,6 +116,8 @@ export interface AgentFinancialSnapshot {
   typical_daily_pace: number;
   projected_remaining_consumption: number;
   confirmed_future_income: number;
+  estimated_fixed_income: number;
+  estimated_income_events: Array<{ date: string; amount: number; label: string; source: string; confidence: string }>;
   known_future_commitments: number;
   projected_month_end_available: number;
   net_worth: number;
@@ -182,14 +184,14 @@ export async function computeAgentSnapshot(
   const [
     accountsRes, txsRes, recurringRes, catGoalsRes, catNamesRes,
     snapshotsRes, investmentsRes, debtsRes, cardsRes, statementsRes, installmentsRes,
-    investmentMovementsRes,
+    investmentMovementsRes, settingsRes, occurrencesRes,
   ] = await Promise.all([
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id).eq("active", true),
     sb.from("transactions")
       .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,competence_date")
       .eq("user_id", user_id),
     sb.from("recurring_rules")
-      .select("id,name,kind,amount,frequency,next_due_date,status")
+      .select("id,name,kind,amount,frequency,start_date,day_of_month,status")
       .eq("user_id", user_id).eq("status", "active"),
     sb.from("category_spending_goals").select("*").eq("user_id", user_id).eq("status", "active"),
     sb.from("categories").select("id,name").or(`user_id.eq.${user_id},user_id.is.null`),
@@ -204,19 +206,31 @@ export async function computeAgentSnapshot(
       .select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id")
       .eq("user_id", user_id),
     sb.from("investment_movements").select("kind,amount,occurred_at").eq("user_id", user_id),
+    sb.from("user_financial_settings").select("approximate_monthly_income,income_frequency,income_day").eq("user_id", user_id).maybeSingle(),
+    sb.from("recurring_occurrences").select("recurring_rule_id,due_date,status").eq("user_id", user_id).eq("status", "planned").gte("due_date", todayIso).lte("due_date", mr.end),
   ]);
 
   const accounts = (accountsRes.data ?? []) as AccountRow[];
   const txs = ((txsRes.data ?? []) as any[]).map((t) => ({ ...t, amount: Number(t.amount) })) as TransactionRow[];
-  const recurring: RecurringRow[] = ((recurringRes.data ?? []) as any[]).map((r) => ({
+  const nextDueByRule = new Map<string, string>();
+  for (const occurrence of ((occurrencesRes.data ?? []) as any[])) {
+    const id = String(occurrence.recurring_rule_id);
+    const due = String(occurrence.due_date).slice(0, 10);
+    if (!nextDueByRule.has(id) || due < String(nextDueByRule.get(id))) nextDueByRule.set(id, due);
+  }
+  const recurring: RecurringRow[] = ((recurringRes.data ?? []) as any[]).flatMap((r) => {
+    const nextDue = nextDueByRule.get(String(r.id));
+    if (!nextDue) return [];
+    return [{
     id: r.id,
     name: r.name,
     type: r.kind === "income" ? "income" : "expense",
     amount: Number(r.amount || 0),
     frequency: (["daily", "weekly", "monthly", "yearly"].includes(r.frequency) ? r.frequency : "monthly") as RecurringRow["frequency"],
-    next_due_date: r.next_due_date,
+    next_due_date: nextDue,
     active: true,
-  }));
+    }];
+  });
   const catNames: Record<string, string> = {};
   for (const c of ((catNamesRes.data ?? []) as any[])) catNames[c.id] = c.name;
 
@@ -237,6 +251,11 @@ export async function computeAgentSnapshot(
     investmentMovements: ((investmentMovementsRes.data ?? []) as any[]).map((m) => ({
       type: String(m.kind), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
     })),
+    incomeSettings: settingsRes.data ? {
+      approximate_monthly_income: Number((settingsRes.data as any).approximate_monthly_income || 0),
+      income_frequency: (settingsRes.data as any).income_frequency,
+      income_day: (settingsRes.data as any).income_day,
+    } : null,
   });
 
   // Entradas/saídas brutas do mês — mesma regra da Home (conta bruta + cartão consumido).
@@ -272,6 +291,8 @@ export async function computeAgentSnapshot(
     typical_daily_pace: snap.rhythm?.current?.typicalAverage ?? snap.monthToDateAverageConsumption,
     projected_remaining_consumption: snap.projectedRemainingConsumption,
     confirmed_future_income: snap.confirmedFutureIncome,
+    estimated_fixed_income: snap.projection.estimatedFixedInflows,
+    estimated_income_events: snap.projection.estimatedIncomeEvents,
     known_future_commitments: snap.knownFutureCommitments,
     projected_month_end_available: snap.projectedMonthEndAvailable,
     net_worth: snap.netWorth?.net ?? 0,
@@ -312,6 +333,6 @@ export async function computeAgentSnapshot(
       body: snap.balanceExplanation.body,
       steps: snap.balanceExplanation.steps,
     },
-    formula_version: "financial_snapshot_contract.v6",
+    formula_version: "financial_snapshot_contract.v7",
   };
 }
