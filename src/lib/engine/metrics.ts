@@ -774,31 +774,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       );
       return { id: g.id, name: g.name, target: Number(g.target_amount) || 0, ...p };
     });
-  // Metas de doação viram compromisso do mês (valor fixo ou % da receita real).
-  const donationCommitments = (input.goals ?? [])
-    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active")
-    .map((g) => {
-      const monthIncome = monthlyTotalsForDonation.income;
-      const amount = String(g.donation_mode) === "income_percent"
-        ? round2((monthIncome * Number(g.donation_percent ?? 0)) / 100)
-        : round2(Number(g.monthly_target ?? 0));
-      const dueDay = 25;
-      const due = todayISO(new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay, daysInclusive(monthRange.start, monthRange.end))));
-      return { id: g.id, name: `Doação · ${g.name}`, amount, date: due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due };
-    })
-    .filter((d) => d.amount > 0);
-
-  const commitmentAgenda = computeCommitmentAgenda({
-    donations: donationCommitments,
-    recurring: input.recurring,
-    txs: input.txs,
-    statements: (input.cardStatements ?? []) as never,
-    installments: (input.cardInstallments ?? []) as never,
-    cards: (input.cards ?? []) as never,
-    debts: input.debts as never,
-    horizonDays: 30,
-    today,
-  });
+  // A agenda canônica já foi calculada ANTES da projeção (ela é a entrada dela).
   const upcomingCommitments = commitmentAgenda;
 
   // BLOCOS B/C/D — pontes canônicas. Nenhum consumidor recalcula estes números.
