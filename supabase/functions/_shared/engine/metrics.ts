@@ -1,4 +1,4 @@
-// Snapshot financeiro para o agente (WhatsApp + App) — financial_snapshot_contract.v6.
+// Snapshot financeiro para o agente (WhatsApp + App) — financial_snapshot_contract.v7.
 // ========================================================================
 // NÃO calcula nada por conta própria: busca os dados e delega ao núcleo
 // canônico `finance-core` (espelho de src/lib/engine/*). A saída mantém o
