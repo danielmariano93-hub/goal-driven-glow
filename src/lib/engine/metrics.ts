@@ -286,6 +286,14 @@ export interface SpendingProjection {
     knownCommitments: number;
     cardDueThisMonth: number;
     projectedVariableSpending: number;
+    /** compromissos do mês por origem (fatura, parcela, recorrência, dívida, doação) */
+    commitmentsBySource: Record<string, number>;
+    /** quantidade de compromissos de saída considerados */
+    commitmentsCount: number;
+    /** true quando a fatura do mês é reconstrução, não documento oficial */
+    cardDueIsEstimated: boolean;
+    /** último dia coberto pela agenda que alimentou a projeção */
+    agendaHorizonEnd: string;
   };
   confidence: ProjectionConfidence;
 }
