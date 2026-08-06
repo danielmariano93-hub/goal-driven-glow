@@ -1,30 +1,19 @@
 import { useEffect, useState } from "react";
-import { Flame, Lightbulb, Loader2, Smile, Sparkles, Target, TrendingUp } from "lucide-react";
-import { toast } from "sonner";
+import { Flame, Lightbulb, Smile, Sparkles, Target, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { correlateByMoodCategory, MIN_SAMPLE, type CorrelationRow } from "@/lib/emotions/correlations";
 import { formatBRL } from "@/lib/split/math";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
 import { computeEmotionalSummary } from "@/lib/emotions/summary";
+import { EMOTION_CATALOG, emotionLabel } from "@/lib/emotions/catalog";
+import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 
-const MOODS = [
-  { v: 1, label: "Péssimo", emoji: "😞" },
-  { v: 2, label: "Ruim", emoji: "😕" },
-  { v: 3, label: "Neutro", emoji: "😐" },
-  { v: 4, label: "Bom", emoji: "🙂" },
-  { v: 5, label: "Ótimo", emoji: "😄" },
-];
-const TRIGGERS = ["Ansiedade", "Tédio", "Impulso", "Celebração", "Segurança", "Culpa", "Tranquilidade"];
+const MOODS = EMOTION_CATALOG.map((e) => ({ v: e.mood, label: e.label, emoji: e.emoji }));
 
 export default function Emocoes() {
   const { user } = useAuth();
-  const qc = useQueryClient();
-  const [mood, setMood] = useState<number | null>(null);
-  const [trigger, setTrigger] = useState("");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
 
   const { data: history } = useQuery({
     queryKey: ["emotional_checkins", user?.id],
@@ -40,29 +29,8 @@ export default function Emocoes() {
     },
   });
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!mood || !user) return;
-    setSaving(true);
-    const { error } = await supabase.from("emotional_checkins").insert({
-      user_id: user.id,
-      mood,
-      trigger_label: trigger || null,
-      notes: notes || null,
-    });
-    setSaving(false);
-    if (error) {
-      toast.error("Erro ao salvar");
-      return;
-    }
-    setMood(null);
-    setTrigger("");
-    setNotes("");
-    qc.invalidateQueries({ queryKey: ["emotional_checkins"] });
-    toast.success("Check-in registrado");
-  }
-
   const summary = computeEmotionalSummary(history ?? []);
+
   const moodLabel = summary.averageMood30Days == null
     ? "Sem base"
     : MOODS.reduce((best, item) => Math.abs(item.v - summary.averageMood30Days!) < Math.abs(best.v - summary.averageMood30Days!) ? item : best).label;
@@ -95,53 +63,7 @@ export default function Emocoes() {
         </div>
       </section>
 
-      <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
-        <p className="mb-2 text-sm font-medium">Como está seu humor financeiro?</p>
-        <div className="grid grid-cols-5 gap-2">
-          {MOODS.map((m) => (
-            <button
-              key={m.v}
-              type="button"
-              onClick={() => setMood(m.v)}
-              className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium transition-colors ${
-                mood === m.v ? "border-primary bg-primary/10 text-foreground" : "border-border bg-background text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <span className="text-2xl">{m.emoji}</span>
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium">Gatilho (opcional)</label>
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {TRIGGERS.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setTrigger(item)}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] ${trigger === item ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-            <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="Ex: ansiedade, tédio, celebração" className="input-base" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Notas (opcional)</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="input-base min-h-20" />
-          </div>
-        </div>
-
-        <div className="mt-4 flex justify-end">
-          <button type="submit" disabled={!mood || saving} className="btn-brand inline-flex items-center gap-2 disabled:opacity-50">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Registrar"}
-          </button>
-        </div>
-      </form>
+      <EmotionalCheckinCard />
 
       <section className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Próxima ação sugerida</h2>
@@ -166,8 +88,7 @@ export default function Emocoes() {
               <li key={h.id} className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
                 <div className="min-w-0">
                   <p className="text-sm">
-                    {MOODS.find((m) => m.v === Number(h.mood))?.emoji ?? "🙂"} {MOODS.find((m) => m.v === Number(h.mood))?.label ?? h.mood}
-                    {h.trigger_label ? ` · ${h.trigger_label}` : ""}
+                    {emotionLabel(h.emotion_key ?? h.trigger_label, Number(h.mood))}
                   </p>
                   {h.notes && <p className="mt-0.5 truncate text-xs text-muted-foreground">{h.notes}</p>}
                 </div>

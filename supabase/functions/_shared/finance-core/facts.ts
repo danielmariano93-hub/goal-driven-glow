@@ -94,6 +94,11 @@ export interface GoalRow {
   target_amount: number;
   target_date: string | null;
   status: string;
+  /** "savings" (padrão) ou "donation" — metas de doação viram compromisso mensal. */
+  kind?: string | null;
+  donation_mode?: string | null;
+  donation_percent?: number | null;
+  monthly_target?: number | null;
 }
 
 export interface GoalContributionRow {

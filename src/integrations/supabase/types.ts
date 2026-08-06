@@ -4277,6 +4277,7 @@ export type Database = {
       emotional_checkins: {
         Row: {
           created_at: string
+          emotion_key: string | null
           id: string
           mood: number
           notes: string | null
@@ -4287,6 +4288,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          emotion_key?: string | null
           id?: string
           mood: number
           notes?: string | null
@@ -4297,6 +4299,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          emotion_key?: string | null
           id?: string
           mood?: number
           notes?: string | null
@@ -6046,7 +6049,11 @@ export type Database = {
       goals: {
         Row: {
           created_at: string
+          donation_mode: string | null
+          donation_percent: number | null
           id: string
+          kind: string
+          monthly_target: number | null
           name: string
           notes: string | null
           priority: number
@@ -6058,7 +6065,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          donation_mode?: string | null
+          donation_percent?: number | null
           id?: string
+          kind?: string
+          monthly_target?: number | null
           name: string
           notes?: string | null
           priority?: number
@@ -6070,7 +6081,11 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          donation_mode?: string | null
+          donation_percent?: number | null
           id?: string
+          kind?: string
+          monthly_target?: number | null
           name?: string
           notes?: string | null
           priority?: number
@@ -9595,30 +9610,39 @@ export type Database = {
       }
       user_challenges: {
         Row: {
-          challenge_id: string
+          challenge_id: string | null
+          challenge_slug: string | null
+          current_progress: number
           finished_at: string | null
           id: string
           progress: number
           started_at: string
           status: Database["public"]["Enums"]["user_challenge_status"]
+          updated_at: string
           user_id: string
         }
         Insert: {
-          challenge_id: string
+          challenge_id?: string | null
+          challenge_slug?: string | null
+          current_progress?: number
           finished_at?: string | null
           id?: string
           progress?: number
           started_at?: string
           status?: Database["public"]["Enums"]["user_challenge_status"]
+          updated_at?: string
           user_id: string
         }
         Update: {
-          challenge_id?: string
+          challenge_id?: string | null
+          challenge_slug?: string | null
+          current_progress?: number
           finished_at?: string | null
           id?: string
           progress?: number
           started_at?: string
           status?: Database["public"]["Enums"]["user_challenge_status"]
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -9628,6 +9652,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "challenges"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_challenges_challenge_slug_fkey"
+            columns: ["challenge_slug"]
+            isOneToOne: false
+            referencedRelation: "challenges_catalog"
+            referencedColumns: ["slug"]
           },
           {
             foreignKeyName: "user_challenges_user_id_fkey"
@@ -10428,6 +10459,27 @@ export type Database = {
         Args: { p_description: string; p_name: string; p_value: string }
         Returns: string
       }
+      abandon_challenge: {
+        Args: { p_slug: string }
+        Returns: {
+          challenge_id: string | null
+          challenge_slug: string | null
+          current_progress: number
+          finished_at: string | null
+          id: string
+          progress: number
+          started_at: string
+          status: Database["public"]["Enums"]["user_challenge_status"]
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "user_challenges"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       activity_events: { Args: never; Returns: string[] }
       add_credit_card_statement_item: {
         Args: {
@@ -10963,6 +11015,27 @@ export type Database = {
         }
       }
       commit_movement: { Args: { payload: Json }; Returns: Json }
+      complete_challenge: {
+        Args: { p_slug: string }
+        Returns: {
+          challenge_id: string | null
+          challenge_slug: string | null
+          current_progress: number
+          finished_at: string | null
+          id: string
+          progress: number
+          started_at: string
+          status: Database["public"]["Enums"]["user_challenge_status"]
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "user_challenges"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       complete_onboarding: {
         Args: {
           p_display_name: string
@@ -11106,7 +11179,27 @@ export type Database = {
         Args: { _expense_id: string; _user_id: string }
         Returns: boolean
       }
-      join_challenge: { Args: { p_slug: string }; Returns: string }
+      join_challenge: {
+        Args: { p_slug: string }
+        Returns: {
+          challenge_id: string | null
+          challenge_slug: string | null
+          current_progress: number
+          finished_at: string | null
+          id: string
+          progress: number
+          started_at: string
+          status: Database["public"]["Enums"]["user_challenge_status"]
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "user_challenges"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       learn_transaction_category: {
         Args: { p_category_id: string; p_transaction_id: string }
         Returns: undefined

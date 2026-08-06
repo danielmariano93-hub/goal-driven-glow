@@ -65,13 +65,31 @@ export const transferSchema = z
   });
 export type TransferInput = z.infer<typeof transferSchema>;
 
-export const goalSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  target_amount: z.number().positive(),
-  target_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  priority: z.number().int().min(1).max(5).default(3),
-  notes: z.string().trim().max(500).optional().or(z.literal("")),
-});
+export const goalSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    target_amount: z.number().positive(),
+    target_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    priority: z.number().int().min(1).max(5).default(3),
+    notes: z.string().trim().max(500).optional().or(z.literal("")),
+    /** "savings" = guardar para si; "donation" = doação recorrente. */
+    kind: z.enum(["savings", "donation"]).default("savings"),
+    donation_mode: z.enum(["fixed", "income_percent"]).nullable().optional(),
+    donation_percent: z.number().min(0.1).max(100).nullable().optional(),
+    monthly_target: z.number().positive().nullable().optional(),
+  })
+  .refine((v) => v.kind !== "donation" || !!v.donation_mode, {
+    path: ["donation_mode"],
+    message: "Escolha se a doação é valor fixo ou percentual da receita",
+  })
+  .refine(
+    (v) => v.kind !== "donation" || v.donation_mode !== "income_percent" || (v.donation_percent ?? 0) > 0,
+    { path: ["donation_percent"], message: "Informe o percentual da receita" },
+  )
+  .refine(
+    (v) => v.kind !== "donation" || v.donation_mode !== "fixed" || (v.monthly_target ?? 0) > 0,
+    { path: ["monthly_target"], message: "Informe o valor mensal da doação" },
+  );
 export type GoalInput = z.infer<typeof goalSchema>;
 
 export const contributionSchema = z.object({

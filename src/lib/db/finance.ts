@@ -476,6 +476,10 @@ export function useSaveGoal() {
         target_date: input.target_date || null,
         priority: input.priority,
         notes: input.notes || null,
+        kind: input.kind ?? "savings",
+        donation_mode: input.kind === "donation" ? input.donation_mode ?? null : null,
+        donation_percent: input.kind === "donation" ? input.donation_percent ?? null : null,
+        monthly_target: input.monthly_target ?? null,
       };
       if (input.id) {
         const { error } = await supabase

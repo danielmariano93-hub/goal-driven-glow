@@ -44,12 +44,31 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
                <p className="mt-0.5 text-[11px] text-muted-foreground">realizado + previsto</p>
             </div>
           </div>
-           <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+          <dl className="grid gap-1 px-3.5 py-3 text-[11px]">
+            <CompositionRow label="Disponível hoje" value={projection.composition.availableToday} />
+            {projection.composition.confirmedFutureInflows > 0 ? <CompositionRow label="Entradas confirmadas" value={projection.composition.confirmedFutureInflows} /> : null}
+            {projection.composition.estimatedFixedInflows > 0 ? <CompositionRow label="Renda fixa estimada" value={projection.composition.estimatedFixedInflows} /> : null}
+            {projection.composition.knownCommitments > 0 ? <CompositionRow label="Compromissos com data" value={-projection.composition.knownCommitments} /> : null}
+            {projection.composition.cardDueThisMonth > 0 ? <CompositionRow label="Fatura do mês" value={-projection.composition.cardDueThisMonth} /> : null}
+            {projection.composition.projectedVariableSpending > 0 ? <CompositionRow label="Gasto variável previsto" value={-projection.composition.projectedVariableSpending} /> : null}
+          </dl>
+           <div className="flex items-center justify-between gap-2 border-t border-border px-3.5 py-2.5">
               <p className="text-[11px] text-muted-foreground">{availability === "partial" ? "Dados incompletos" : confidenceLabel[projection.confidence]} · {projection.daysRemaining} dias</p>
              <Button type="button" variant="ghost" size="sm" className="min-h-10 shrink-0 px-1.5 text-[12px] text-primary" onClick={() => openAssessor("fab")}>Planejar com o Nino <ArrowRight /></Button>
           </div>
+
         </>
       )}
     </section>
+  );
+}
+function CompositionRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={`font-semibold tabular-nums ${value < 0 ? "text-destructive" : "text-foreground"}`}>
+        {value < 0 ? "−" : ""}{formatBRL(Math.abs(Math.round(value)))}
+      </dd>
+    </div>
   );
 }

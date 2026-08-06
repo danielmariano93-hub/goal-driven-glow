@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   computeActiveDebtsTotal,
-  computeUpcomingCommitments,
+  computeCommitmentAgenda,
   type TransactionRow,
 } from "../_shared/finance-core/facts.ts";
 import {
@@ -136,8 +136,15 @@ export async function buildCatalogHighlights(
       next_due_date: String(rule.start_date ?? todayISO),
       active: rule.status === "active",
     }));
-    const commitments7d = computeUpcomingCommitments(normalizedRules as never, transactions, 7);
-    const commitments30d = computeUpcomingCommitments(normalizedRules as never, transactions, 30);
+    // Agenda canônica (commitment_agenda.v1) — mesma fonte da Home.
+    const agendaBase = {
+      recurring: normalizedRules as never,
+      txs: transactions,
+      statements: (statements.data ?? []) as never,
+      cards: (cards?.data ?? []) as never,
+    };
+    const commitments7d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 7 });
+    const commitments30d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 30 });
 
     const availableToday = Number(
       ((accounts.data ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
