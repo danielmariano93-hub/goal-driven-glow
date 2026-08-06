@@ -43,7 +43,7 @@ function GoalTypeRow({ label, value }: { label: string; value: number | null }) 
 
 
 export default function Metas() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: goals, isLoading } = useGoals();
   const { data: contribs } = useContributions();
   const { data: investments } = useInvestments();
