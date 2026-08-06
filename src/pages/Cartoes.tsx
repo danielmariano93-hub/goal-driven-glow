@@ -5,7 +5,7 @@ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCard
 import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
-import { computeCardExposure, emptyExposure, type CardExposure } from "@/lib/engine/cardExposure";
+import { computeCardExposure, emptyExposure, type CardExposure, type ExposureSource } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
