@@ -26,11 +26,21 @@ export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
 /** Ciclo real por fechamento/vencimento (Onda 2). */
 export const CARD_CYCLE_VERSION = "card_cycle.v2";
 
-export type ExposureSource = "official" | "estimated" | "none";
+/**
+ * Confiança do número exibido:
+ *  - `official`    fatura registrada (documento) manda em qualquer superfície;
+ *  - `estimated`   reconstruído por transações do ciclo + parcelas da competência;
+ *  - `partial`     fatura oficial existe mas está inconsistente (needs_review / diferença);
+ *  - `unavailable` não há nenhuma fonte para a competência (nunca exibir como zero real);
+ *  - `none`        compatibilidade com consumidores anteriores (equivale a `unavailable`).
+ */
+export type ExposureSource = "official" | "estimated" | "partial" | "unavailable" | "none";
 
 // ── Ciclo do cartão ───────────────────────────────────────────────────────────
 export interface CardCycleConfig {
   id?: string;
+  /** nome exibido nos compromissos da agenda canônica */
+  name?: string | null;
   closing_day?: number | null;
   due_day?: number | null;
 }
@@ -170,6 +180,10 @@ export interface StatementFigure {
   /** total original da fatura, quando oficial */
   statedTotal: number;
   paidAmount: number;
+  /** compras elegíveis usadas na reconstrução (só em fatura estimada) */
+  purchasesAmount?: number | null;
+  /** parcelas contratadas da competência usadas na reconstrução */
+  installmentsAmount?: number | null;
 }
 
 export interface CardExposure {
@@ -219,6 +233,23 @@ function estimateFromTxs(txs: CardTxRow[], cardId: string, ym: string): number {
   return round2(Math.max(0, total));
 }
 
+/**
+ * Parcelas conhecidas de uma competência que NÃO estão absorvidas por fatura.
+ * Sem esta soma, uma fatura estimada "esquece" parcelamentos já contratados —
+ * era a causa raiz de previsões otimistas na Home e no simulador.
+ */
+function installmentsOfCompetence(installments: CardInstallmentRow[], cardId: string, ym: string): number {
+  let total = 0;
+  for (const inst of installments) {
+    if (inst.credit_card_id !== cardId) continue;
+    if (inst.absorbed_by_statement_id) continue;
+    if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
+    if (ymOf(inst.competence_month) !== ym) continue;
+    total += Number(inst.amount || 0);
+  }
+  return round2(Math.max(0, total));
+}
+
 function estimateFromCycle(txs: CardTxRow[], cardId: string, cycle: CardCycle): number {
   let total = 0;
   for (const t of txs) {
@@ -240,12 +271,38 @@ function figureFromStatement(statement: CardStatementRow): StatementFigure {
   const outstanding = statement.outstanding_amount == null
     ? round2(Math.max(0, stated - paid))
     : round2(Number(statement.outstanding_amount));
+  const inconsistent = status === "needs_review" || round2(Number(statement.reconciliation_difference ?? 0)) !== 0;
   return {
     amount: SETTLED_STATUSES.has(status ?? "") ? 0 : outstanding,
-    source: "official",
+    source: inconsistent ? "partial" : "official",
     status,
     statedTotal: stated,
     paidAmount: paid,
+    purchasesAmount: null,
+    installmentsAmount: null,
+  };
+}
+
+/**
+ * Fatura reconstruída sem documento oficial: compras elegíveis da competência
+ * MAIS parcelas contratadas da mesma competência. Sem nenhuma das duas fontes o
+ * número é `unavailable` — zero nunca substitui ausência de dados.
+ */
+function estimatedFigure(
+  txs: CardTxRow[],
+  installments: CardInstallmentRow[],
+  cardId: string,
+  ym: string,
+): StatementFigure {
+  const purchases = estimateFromTxs(txs, cardId, ym);
+  const contracted = installmentsOfCompetence(installments, cardId, ym);
+  const total = round2(purchases + contracted);
+  return {
+    ...emptyFigure(),
+    amount: total,
+    source: total > 0 ? "estimated" : "unavailable",
+    purchasesAmount: purchases,
+    installmentsAmount: contracted,
   };
 }
 
@@ -284,12 +341,12 @@ export function computeCardExposure(input: {
     const currentRow = byYM.get(currentYM);
     const current = currentRow
       ? figureFromStatement(currentRow)
-      : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, currentYM), source: "estimated" as ExposureSource };
+      : estimatedFigure(txs, installments, cardId, currentYM);
 
     const nextRow = byYM.get(nextYM);
     const next = nextRow
       ? figureFromStatement(nextRow)
-      : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, nextYM), source: "estimated" as ExposureSource };
+      : estimatedFigure(txs, installments, cardId, nextYM);
 
     // Última competência já fechada/paga: nada até ela pode contar como futuro.
     let lastClosedYM = "";

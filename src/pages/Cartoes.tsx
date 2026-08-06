@@ -5,7 +5,7 @@ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCard
 import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
-import { computeCardExposure, emptyExposure, type CardExposure } from "@/lib/engine/cardExposure";
+import { computeCardExposure, emptyExposure, type CardExposure, type ExposureSource } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -729,9 +729,11 @@ function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
   );
 }
 
-function sourceTag(source: "official" | "estimated" | "none"): string | null {
+function sourceTag(source: ExposureSource): string | null {
   if (source === "official") return "Oficial";
+  if (source === "partial") return "Conferir";
   if (source === "estimated") return "Estimativa";
+  if (source === "unavailable") return "Sem dados";
   return null;
 }
 

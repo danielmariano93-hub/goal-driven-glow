@@ -4,6 +4,7 @@ import { Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAllCategories, useSaveCategory, resolveVisibleCategories, type CategoryRow } from "@/lib/db/finance";
 import { useAuth } from "@/context/AuthContext";
+import { sortCategories } from "@/lib/categories/order";
 
 /**
  * Filtra categorias para o seletor: aplica override pessoal (pessoal ativa de
@@ -18,8 +19,9 @@ export function filterCategoryOptions(
   userId?: string | null
 ) {
   const visible = resolveVisibleCategories(all, userId ?? null);
-  const active = visible.filter(
-    (c) => c.archived_at == null && (c.type === type || (c.type as string) === "both")
+  // Ordenação canônica (pt-BR, sem acentos) — nunca ordenar localmente.
+  const active = sortCategories(
+    visible.filter((c) => c.archived_at == null && (c.type === type || (c.type as string) === "both")),
   );
   const selectedArchived = selectedId && !active.some((c) => c.id === selectedId)
     ? all.find((c) => c.id === selectedId) ?? null

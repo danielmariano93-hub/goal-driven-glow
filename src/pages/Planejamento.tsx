@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { CalendarBlank, Calculator, CheckCircle, Info, Warning, XCircle } from "@phosphor-icons/react";
-import { useCategories } from "@/lib/db/finance";
+import { useCategories, useCreditCards } from "@/lib/db/finance";
+import { sortCategories } from "@/lib/categories/order";
 import { formatBRL } from "@/lib/engine/facts";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -23,11 +24,14 @@ export default function Planejamento() {
   const period = useMemo(() => resolvePeriodRange(), []);
   const snapshot = useFinancialSnapshot(period);
   const { data: categories } = useCategories();
+  const { data: cards } = useCreditCards();
 
   const [amount, setAmount] = useState("");
   const [installments, setInstallments] = useState(1);
   const [method, setMethod] = useState<"cash" | "card">("cash");
   const [categoryId, setCategoryId] = useState("");
+  const [plannedDate, setPlannedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cardId, setCardId] = useState("");
 
   const result = useMemo(() => {
     const amt = Number(amount.replace(/\./g, "").replace(",", ".")) || 0;
@@ -39,8 +43,12 @@ export default function Planejamento() {
       method,
       categoryId: categoryId || null,
       categories: (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type as "income" | "expense" })),
+      plannedDate,
+      card: method === "card"
+        ? (cards ?? []).map((c) => ({ id: c.id, name: c.name, closing_day: c.closing_day, due_day: c.due_day })).find((c) => c.id === cardId) ?? null
+        : null,
     });
-  }, [amount, installments, method, categoryId, snapshot.data, categories]);
+  }, [amount, installments, method, categoryId, snapshot.data, categories, plannedDate, cardId, cards]);
 
   const style = result ? VERDICT_STYLE[result.verdict] : null;
 
@@ -63,7 +71,7 @@ export default function Planejamento() {
             <label htmlFor="sim-cat" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Categoria (opcional)</label>
             <select id="sim-cat" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-base min-h-11">
               <option value="">Não especificar</option>
-              {(categories ?? []).filter((c) => c.type === "expense").map((c) => (
+              {sortCategories((categories ?? []).filter((c) => c.type === "expense")).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -75,6 +83,21 @@ export default function Planejamento() {
               <option value="card">Cartão de crédito</option>
             </select>
           </div>
+          <div>
+            <label htmlFor="sim-date" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Data prevista</label>
+            <input id="sim-date" type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} className="input-base min-h-11" />
+          </div>
+          {method === "card" ? (
+            <div>
+              <label htmlFor="sim-card" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Cartão</label>
+              <select id="sim-card" value={cardId} onChange={(e) => setCardId(e.target.value)} className="input-base min-h-11">
+                <option value="">Escolher cartão</option>
+                {(cards ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div>
             <label htmlFor="sim-inst" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Parcelas</label>
             <select id="sim-inst" value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="input-base min-h-11" disabled={method === "cash"}>
@@ -110,6 +133,10 @@ export default function Planejamento() {
                     ? `${result.installments}x de ${formatBRL(result.installmentAmount)} no cartão`
                     : "À vista, direto do saldo"}
                   {result.daysOfTypicalPace != null ? ` · equivale a ${result.daysOfTypicalPace.toFixed(1)} dias do seu ritmo típico` : ""}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Compra em {formatDate(result.plannedDate)} · dinheiro sai em {formatDate(result.cashImpactDate)}
+                  {result.cardCompetence ? ` (fatura ${result.cardCompetence})` : ""}
                 </p>
               </div>
             </div>

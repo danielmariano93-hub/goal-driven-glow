@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Trash2, Loader2, Pencil, Tag } from "lucide-react";
 import { toast } from "sonner";
+import { sortCategories } from "@/lib/categories/order";
 import { useCategories, useSaveCategory, useDeleteCategory, resolveVisibleCategories, type CategoryRow } from "@/lib/db/finance";
 import { categorySchema } from "@/lib/validation/finance";
 import { useAuth } from "@/context/AuthContext";
@@ -19,8 +20,9 @@ export default function Categorias() {
   const [editing, setEditing] = useState<EditingState>(null);
 
   const visible = resolveVisibleCategories(cats ?? [], user?.id ?? null);
-  const globals = visible.filter((c) => c.user_id === null);
-  const mine = visible.filter((c) => c.user_id === user?.id);
+  // Ordenação canônica compartilhada (pt-BR, acentos equivalentes).
+  const globals = sortCategories(visible.filter((c) => c.user_id === null));
+  const mine = sortCategories(visible.filter((c) => c.user_id === user?.id));
 
   return (
     <div>

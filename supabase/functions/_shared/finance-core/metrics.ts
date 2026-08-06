@@ -288,6 +288,14 @@ export interface SpendingProjection {
     knownCommitments: number;
     cardDueThisMonth: number;
     projectedVariableSpending: number;
+    /** compromissos do mês por origem (fatura, parcela, recorrência, dívida, doação) */
+    commitmentsBySource: Record<string, number>;
+    /** quantidade de compromissos de saída considerados */
+    commitmentsCount: number;
+    /** true quando a fatura do mês é reconstrução, não documento oficial */
+    cardDueIsEstimated: boolean;
+    /** último dia coberto pela agenda que alimentou a projeção */
+    agendaHorizonEnd: string;
   };
   confidence: ProjectionConfidence;
 }
@@ -697,6 +705,51 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     cardDebtOverride: hasCardSource ? cardDebtToday : null,
   });
 
+  // ── Metas de doação viram compromisso do mês (valor fixo ou % da receita) ──
+  const donationCommitments = (input.goals ?? [])
+    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active")
+    .map((g) => {
+      const monthIncome = monthlyTotalsForDonation.income;
+      const amount = String(g.donation_mode) === "income_percent"
+        ? round2((monthIncome * Number(g.donation_percent ?? 0)) / 100)
+        : round2(Number(g.monthly_target ?? 0));
+      const dueDay = 25;
+      const due = todayISO(new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay, daysInclusive(monthRange.start, monthRange.end))));
+      return { id: g.id, name: `Doação · ${g.name}`, amount, date: due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due };
+    })
+    .filter((d) => d.amount > 0);
+
+  // ── AGENDA CANÔNICA: entrada obrigatória da projeção de fechamento ──────────
+  // O horizonte cobre no mínimo 30 dias e sempre alcança o fim da competência,
+  // para que nenhum vencimento do mês fique fora do saldo projetado.
+  const agendaHorizonDays = Math.max(30, daysInclusive(todayIso, monthRange.end));
+  const commitmentAgenda = computeCommitmentAgenda({
+    donations: donationCommitments,
+    recurring: input.recurring,
+    txs: input.txs,
+    statements: (input.cardStatements ?? []) as never,
+    installments: (input.cardInstallments ?? []) as never,
+    cards: (input.cards ?? []) as never,
+    debts: input.debts as never,
+    horizonDays: agendaHorizonDays,
+    today,
+  });
+
+  // Recorte da agenda que pertence à competência corrente.
+  const agendaThisMonth = commitmentAgenda.items.filter((i) => i.date <= monthRange.end);
+  const CARD_SOURCES = new Set(["card_statement", "card_installment"]);
+  const agendaCardDue = round2(
+    agendaThisMonth.filter((i) => i.type === "expense" && CARD_SOURCES.has(i.source)).reduce((s, i) => s + i.amount, 0),
+  );
+  const agendaOtherCommitments = round2(
+    agendaThisMonth.filter((i) => i.type === "expense" && !CARD_SOURCES.has(i.source)).reduce((s, i) => s + i.amount, 0),
+  );
+  const agendaCommitmentsBySource = agendaThisMonth.reduce((acc, item) => {
+    if (item.type !== "expense") return acc;
+    acc[item.source] = round2((acc[item.source] ?? 0) + item.amount);
+    return acc;
+  }, {} as Record<string, number>);
+
   const confirmedFutureIncome = round2(availUntilEnd.plannedIncome + availUntilEnd.recurringIn);
   const estimatedIncome = computeFutureIncomeProjection({
     settings: input.incomeSettings,
@@ -705,13 +758,12 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     today,
     periodEnd: monthRange.end,
   });
-  const knownFutureCommitments = round2(availUntilEnd.plannedExpense + availUntilEnd.recurringOut);
-  // Somente a fatura da competência corrente (vencimento dentro do mês) pesa no
-  // saldo projetado. A dívida total inclui competências futuras e exageraria o
-  // número negativo.
-  const cardDueThisMonth = hasCardSource
-    ? round2(Object.values(cardExposures).reduce((sum, e) => sum + Number(e.currentStatement.amount || 0), 0))
-    : cardDebtToday;
+  // Compromissos conhecidos vêm da AGENDA (deduplicada), não mais de somas
+  // paralelas de planejados + recorrências — origem das divergências anteriores.
+  const knownFutureCommitments = agendaOtherCommitments;
+  // Cartão do mês: fatura oficial tem precedência; sem fatura, parcelas e compras
+  // do ciclo entram como estimativa — nunca zero silencioso.
+  const cardDueThisMonth = hasCardSource ? agendaCardDue : cardDebtToday;
   const projectedMonthEndAvailable = round2(
     availableToday + confirmedFutureIncome + estimatedIncome.total - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
   );
@@ -746,6 +798,10 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       knownCommitments: knownFutureCommitments,
       cardDueThisMonth,
       projectedVariableSpending,
+      commitmentsBySource: agendaCommitmentsBySource,
+      commitmentsCount: agendaThisMonth.filter((i) => i.type === "expense").length,
+      cardDueIsEstimated: agendaThisMonth.some((i) => CARD_SOURCES.has(i.source) && i.estimated),
+      agendaHorizonEnd: commitmentAgenda.horizonEnd,
     },
     confidence: projectionConfidenceOf(daysElapsed),
   };
@@ -776,31 +832,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       );
       return { id: g.id, name: g.name, target: Number(g.target_amount) || 0, ...p };
     });
-  // Metas de doação viram compromisso do mês (valor fixo ou % da receita real).
-  const donationCommitments = (input.goals ?? [])
-    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active")
-    .map((g) => {
-      const monthIncome = monthlyTotalsForDonation.income;
-      const amount = String(g.donation_mode) === "income_percent"
-        ? round2((monthIncome * Number(g.donation_percent ?? 0)) / 100)
-        : round2(Number(g.monthly_target ?? 0));
-      const dueDay = 25;
-      const due = todayISO(new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay, daysInclusive(monthRange.start, monthRange.end))));
-      return { id: g.id, name: `Doação · ${g.name}`, amount, date: due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due };
-    })
-    .filter((d) => d.amount > 0);
-
-  const commitmentAgenda = computeCommitmentAgenda({
-    donations: donationCommitments,
-    recurring: input.recurring,
-    txs: input.txs,
-    statements: (input.cardStatements ?? []) as never,
-    installments: (input.cardInstallments ?? []) as never,
-    cards: (input.cards ?? []) as never,
-    debts: input.debts as never,
-    horizonDays: 30,
-    today,
-  });
+  // A agenda canônica já foi calculada ANTES da projeção (ela é a entrada dela).
   const upcomingCommitments = commitmentAgenda;
 
   // BLOCOS B/C/D — pontes canônicas. Nenhum consumidor recalcula estes números.

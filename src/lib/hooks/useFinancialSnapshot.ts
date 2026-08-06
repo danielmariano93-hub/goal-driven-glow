@@ -150,9 +150,9 @@ export function useFinancialSnapshot(period: DateRange): {
     queryKey: ["credit_cards", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase.from("credit_cards" as never).select("id,closing_day,due_day");
+      const { data, error } = await supabase.from("credit_cards" as never).select("id,name,closing_day,due_day");
       if (error) throw error;
-      return (data as unknown as Array<{ id: string; closing_day: number | null; due_day: number | null }> | null) ?? [];
+      return (data as unknown as Array<{ id: string; name: string | null; closing_day: number | null; due_day: number | null }> | null) ?? [];
     },
   });
   const { data: cards } = cardsQuery;
@@ -234,7 +234,15 @@ export function useFinancialSnapshot(period: DateRange): {
       recurring: recRows,
       snapshots: numericSnapshots,
       investments: (investments ?? []).map((i) => ({ id: i.id, name: i.name, invested_amount: Number(i.invested_amount), current_value: Number(i.current_value), goal_id: i.goal_id })),
-      debts: (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status })),
+      debts: (debts ?? []).map((d) => ({
+        id: d.id, name: d.name,
+        outstanding_balance: Number(d.outstanding_balance),
+        original_amount: Number(d.original_amount),
+        status: d.status,
+        // Campos exigidos pela agenda canônica (parcela e dia de vencimento).
+        installment_amount: (d as { installment_amount?: number | null }).installment_amount == null ? null : Number((d as { installment_amount?: number | null }).installment_amount),
+        due_day: (d as { due_day?: number | null }).due_day == null ? null : Number((d as { due_day?: number | null }).due_day),
+      })),
       categoryGoals: (categoryGoals ?? []).map((g) => ({
         id: g.id, user_id: g.user_id, category_id: g.category_id,
         mode: g.mode as "percent_reduction" | "fixed_limit",
@@ -272,7 +280,7 @@ export function useFinancialSnapshot(period: DateRange): {
       })),
       cardInstallments: (cardInstallments ?? []).map((i) => ({ ...i, amount: Number(i.amount ?? 0) })),
       cardIds: (cards ?? []).map((c) => c.id),
-      cards: (cards ?? []).map((c) => ({ id: c.id, closing_day: c.closing_day, due_day: c.due_day })),
+      cards: (cards ?? []).map((c) => ({ id: c.id, name: c.name, closing_day: c.closing_day, due_day: c.due_day })),
       investmentMovements: (investmentMovements ?? []).map((m) => ({
         type: String(m.type), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
       })),
