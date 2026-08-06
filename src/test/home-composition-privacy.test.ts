@@ -6,14 +6,16 @@ import { formatBRL } from "@/lib/engine/facts";
 const read = (path: string) => readFileSync(`${process.cwd()}/${path}`, "utf8");
 
 describe("composição narrativa da Home", () => {
-  it("mantém as sete seções na ordem de decisão", () => {
+  it("mantém as seções na ordem agora, ação, orientação, comportamento e futuro", () => {
     const source = read("src/pages/Index.tsx");
     const markers = [
       "<HomeHeader",
       "<HeroDisponivelCard",
-      "<RitmoUnificadoCard",
-      "<NinoGuidanceCard",
       "<QuickActions",
+      "<NinoGuidanceCard",
+      "<RitmoUnificadoCard",
+      "<PrevisaoFechamentoCard",
+      "<ProximosCompromissosCard",
       "<EmotionalCheckinCard",
     ];
     const positions = markers.map((marker) => source.indexOf(marker));
@@ -48,9 +50,14 @@ describe("composição narrativa da Home", () => {
       "src/components/home/QuickActions.tsx",
       "src/components/home/EmotionalCheckinCard.tsx",
     ].map(read).join("\n");
+    const css = read("src/index.css");
+    const head = read("index.html");
     expect(theme).toContain('"DM Sans"');
-    expect(theme).not.toContain('"Inter"');
-    expect(theme).not.toContain('"Manrope"');
+    expect(head).toContain("family=Inter");
+    expect(head).toContain("family=Manrope");
+    expect(css).toContain("[data-surface=\"home\"]");
+    expect(css).toContain("font-family: 'Inter'");
+    expect(css).toContain("font-family: 'Manrope'");
     expect(files).toContain("@phosphor-icons/react");
     expect(files).not.toContain('from "lucide-react"');
   });
