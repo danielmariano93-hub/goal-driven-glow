@@ -686,6 +686,17 @@ function estimateFromTxs(txs, cardId, ym) {
   }
   return round2(Math.max(0, total));
 }
+function installmentsOfCompetence(installments, cardId, ym) {
+  let total = 0;
+  for (const inst of installments) {
+    if (inst.credit_card_id !== cardId) continue;
+    if (inst.absorbed_by_statement_id) continue;
+    if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
+    if (ymOf(inst.competence_month) !== ym) continue;
+    total += Number(inst.amount || 0);
+  }
+  return round2(Math.max(0, total));
+}
 function estimateFromCycle(txs, cardId, cycle) {
   let total = 0;
   for (const t of txs) {
@@ -704,12 +715,27 @@ function figureFromStatement(statement) {
   const stated = round2(Number(statement.stated_total ?? 0));
   const paid = round2(Number(statement.paid_amount ?? 0));
   const outstanding = statement.outstanding_amount == null ? round2(Math.max(0, stated - paid)) : round2(Number(statement.outstanding_amount));
+  const inconsistent = status === "needs_review" || round2(Number(statement.reconciliation_difference ?? 0)) !== 0;
   return {
     amount: SETTLED_STATUSES.has(status ?? "") ? 0 : outstanding,
-    source: "official",
+    source: inconsistent ? "partial" : "official",
     status,
     statedTotal: stated,
-    paidAmount: paid
+    paidAmount: paid,
+    purchasesAmount: null,
+    installmentsAmount: null
+  };
+}
+function estimatedFigure(txs, installments, cardId, ym) {
+  const purchases = estimateFromTxs(txs, cardId, ym);
+  const contracted = installmentsOfCompetence(installments, cardId, ym);
+  const total = round2(purchases + contracted);
+  return {
+    ...emptyFigure(),
+    amount: total,
+    source: total > 0 ? "estimated" : "unavailable",
+    purchasesAmount: purchases,
+    installmentsAmount: contracted
   };
 }
 function computeCardExposure(input) {
@@ -730,9 +756,9 @@ function computeCardExposure(input) {
       if (ym) byYM.set(ym, s);
     }
     const currentRow = byYM.get(currentYM);
-    const current = currentRow ? figureFromStatement(currentRow) : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, currentYM), source: "estimated" };
+    const current = currentRow ? figureFromStatement(currentRow) : estimatedFigure(txs, installments, cardId, currentYM);
     const nextRow = byYM.get(nextYM);
-    const next = nextRow ? figureFromStatement(nextRow) : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, nextYM), source: "estimated" };
+    const next = nextRow ? figureFromStatement(nextRow) : estimatedFigure(txs, installments, cardId, nextYM);
     let lastClosedYM = "";
     for (const [ym, s] of byYM) {
       if (CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;

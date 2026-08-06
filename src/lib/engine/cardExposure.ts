@@ -263,12 +263,38 @@ function figureFromStatement(statement: CardStatementRow): StatementFigure {
   const outstanding = statement.outstanding_amount == null
     ? round2(Math.max(0, stated - paid))
     : round2(Number(statement.outstanding_amount));
+  const inconsistent = status === "needs_review" || round2(Number(statement.reconciliation_difference ?? 0)) !== 0;
   return {
     amount: SETTLED_STATUSES.has(status ?? "") ? 0 : outstanding,
-    source: "official",
+    source: inconsistent ? "partial" : "official",
     status,
     statedTotal: stated,
     paidAmount: paid,
+    purchasesAmount: null,
+    installmentsAmount: null,
+  };
+}
+
+/**
+ * Fatura reconstruída sem documento oficial: compras elegíveis da competência
+ * MAIS parcelas contratadas da mesma competência. Sem nenhuma das duas fontes o
+ * número é `unavailable` — zero nunca substitui ausência de dados.
+ */
+function estimatedFigure(
+  txs: CardTxRow[],
+  installments: CardInstallmentRow[],
+  cardId: string,
+  ym: string,
+): StatementFigure {
+  const purchases = estimateFromTxs(txs, cardId, ym);
+  const contracted = installmentsOfCompetence(installments, cardId, ym);
+  const total = round2(purchases + contracted);
+  return {
+    ...emptyFigure(),
+    amount: total,
+    source: total > 0 ? "estimated" : "unavailable",
+    purchasesAmount: purchases,
+    installmentsAmount: contracted,
   };
 }
 
@@ -307,12 +333,12 @@ export function computeCardExposure(input: {
     const currentRow = byYM.get(currentYM);
     const current = currentRow
       ? figureFromStatement(currentRow)
-      : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, currentYM), source: "estimated" as ExposureSource };
+      : estimatedFigure(txs, installments, cardId, currentYM);
 
     const nextRow = byYM.get(nextYM);
     const next = nextRow
       ? figureFromStatement(nextRow)
-      : { ...emptyFigure(), amount: estimateFromTxs(txs, cardId, nextYM), source: "estimated" as ExposureSource };
+      : estimatedFigure(txs, installments, cardId, nextYM);
 
     // Última competência já fechada/paga: nada até ela pode contar como futuro.
     let lastClosedYM = "";
