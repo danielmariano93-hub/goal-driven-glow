@@ -26,7 +26,7 @@ export function AppLayout() {
         <div className="min-h-screen flex overflow-x-hidden" style={{ background: "var(--home-bg)" }}>
           <DesktopSidebar />
           <main className="flex-1 min-w-0 overflow-x-hidden">
-            <div className="mx-auto w-full max-w-[720px] px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:px-6 md:pt-4 md:pb-10">
+            <div className="mx-auto w-full max-w-[720px] px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5rem)] md:px-6 md:pt-4 md:pb-10">
               {/* Cada rota é responsável pelo próprio cabeçalho.
                   Reatividade do olho: remonta a rota quando a preferência muda,
                   garantindo formatBRL/formatPrivateBRL atualizados. */}

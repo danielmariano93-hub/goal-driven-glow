@@ -26,12 +26,12 @@ export function HeroDisponivelCard(p: Props) {
     <>
       <section
         aria-label="Disponível hoje"
-        className={`relative overflow-hidden rounded-[28px] bg-gradient-hero p-6 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[156px]" : "min-h-[216px]"}`}
+        className={`relative overflow-hidden rounded-[20px] bg-gradient-hero p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[140px]" : "min-h-[176px]"}`}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
              <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">Disponível hoje</p>
-               {p.loading ? <div className="mt-3 h-10 w-48 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-3 text-lg font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-3 break-words font-display text-[32px] font-bold leading-[38px] tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
+               {p.loading ? <div className="mt-2 h-8 w-44 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-base font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-2 break-words font-display text-[28px] font-bold leading-8 tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
                <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">Posição atual · análise de {p.periodLabel}</p>
           </div>
           <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
@@ -57,10 +57,10 @@ export function HeroDisponivelCard(p: Props) {
             </Button>
           </div>
         ) : (
-          <div className="mt-5 flex items-end justify-between gap-3 border-t border-primary-foreground/20 pt-4">
+           <div className="mt-4 flex items-end justify-between gap-3 border-t border-primary-foreground/20 pt-3">
              <div className="min-w-0">
                <p className="text-xs leading-4 text-primary-foreground/80">Livre após compromissos conhecidos</p>
-               <p className="mt-1 font-display text-lg font-bold leading-6 tabular-nums text-primary-foreground">{p.freeAfterKnownCommitments == null ? "Ainda calculando" : formatBRL(p.freeAfterKnownCommitments)}</p>
+                <p className="mt-0.5 font-display text-base font-bold leading-5 tabular-nums text-primary-foreground">{p.freeAfterKnownCommitments == null ? "Ainda calculando" : formatBRL(p.freeAfterKnownCommitments)}</p>
              </div>
             <Button type="button" variant="ghost" size="sm" onClick={() => setOpenSheet(true)} className="min-h-11 shrink-0 rounded-full px-3 text-xs text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
               Ver composição <ArrowRight />

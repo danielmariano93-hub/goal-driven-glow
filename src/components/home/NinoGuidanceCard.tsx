@@ -26,16 +26,16 @@ export function NinoGuidanceCard({ diagnosis, projection, loading, error, retryi
   const Icon = critical || attention ? Warning : CheckCircle;
   const accent = critical ? "bg-destructive" : attention ? "bg-warning" : "bg-primary";
 
-  if (loading) return <section aria-label="Orientação do Nino" aria-busy="true" className="min-h-[116px] animate-pulse rounded-[20px] border border-border bg-card p-5"><div className="h-3 w-24 rounded bg-secondary" /><div className="mt-4 h-5 w-3/4 rounded bg-secondary" /></section>;
-  if (error) return <section aria-label="Orientação do Nino" className="rounded-[20px] border border-border bg-card p-5"><NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} /></section>;
-  if (!item || !presentation) return <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[20px] border border-border bg-card p-5 pl-6"><span className="absolute inset-y-0 left-0 w-[3px] bg-warning" aria-hidden="true" /><p className="text-xs font-semibold text-primary">Orientação do Nino</p><h2 className="mt-2 font-display text-lg font-bold leading-6 text-foreground">Ainda estou formando uma leitura segura</h2><p className="mt-1 text-sm leading-[21px] text-muted-foreground">Com mais movimentações, consigo explicar o que mudou sem tirar conclusões apressadas.</p></section>;
+  if (loading) return <section aria-label="Orientação do Nino" aria-busy="true" className="min-h-[96px] animate-pulse rounded-[18px] border border-border bg-card p-4"><div className="h-3 w-24 rounded bg-secondary" /><div className="mt-3 h-4 w-3/4 rounded bg-secondary" /></section>;
+  if (error) return <section aria-label="Orientação do Nino" className="rounded-[18px] border border-border bg-card p-4"><NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} /></section>;
+  if (!item || !presentation) return <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-4 pl-5"><span className="absolute inset-y-0 left-0 w-[3px] bg-warning" aria-hidden="true" /><p className="text-[11px] font-semibold text-primary">Orientação do Nino</p><h2 className="mt-1.5 font-display text-base font-bold leading-5 text-foreground">Ainda estou formando uma leitura segura</h2><p className="mt-1 text-[13px] leading-[19px] text-muted-foreground">Com mais movimentações, consigo explicar o que mudou sem tirar conclusões apressadas.</p></section>;
   return (
-    <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[20px] border border-border bg-card p-5 pl-6 animate-fade-in">
+    <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-4 pl-5 animate-fade-in">
       <span className={`absolute inset-y-0 left-0 w-[3px] ${accent}`} aria-hidden="true" />
-      <div className="flex items-center gap-2"><Icon className={critical ? "text-destructive" : attention ? "text-warning" : "text-primary"} weight="duotone" /><p className="text-xs font-semibold text-foreground">Orientação do Nino</p><span className="sr-only">{critical ? "Crítico" : attention ? "Atenção" : "Informativo"}</span></div>
-      <h2 className="mt-2 font-display text-lg font-bold leading-6 text-foreground">{presentation.title}</h2>
-      {presentation.supportingText ? <p className="mt-1 line-clamp-2 text-sm leading-[21px] text-muted-foreground">{presentation.supportingText}</p> : null}
-      {action ? <Button asChild variant="ghost" className="mt-2 min-h-11 px-0 text-primary"><Link to={action.route} onClick={() => feedback.mutate({ situationId: item.id, feedback: "acted", surface: "home" })}>{action.title}<ArrowRight weight="bold" /></Link></Button> : null}
+      <div className="flex items-center gap-2"><Icon size={16} className={critical ? "text-destructive" : attention ? "text-warning" : "text-primary"} weight="duotone" /><p className="text-[11px] font-semibold text-foreground">Orientação do Nino</p><span className="sr-only">{critical ? "Crítico" : attention ? "Atenção" : "Informativo"}</span></div>
+      <h2 className="mt-1.5 font-display text-base font-bold leading-5 text-foreground">{presentation.title}</h2>
+      {presentation.supportingText ? <p className="mt-1 line-clamp-2 text-[13px] leading-[19px] text-muted-foreground">{presentation.supportingText}</p> : null}
+      {action ? <Button asChild variant="ghost" size="sm" className="mt-1 min-h-10 px-0 text-[13px] text-primary"><Link to={action.route} onClick={() => feedback.mutate({ situationId: item.id, feedback: "acted", surface: "home" })}>{action.title}<ArrowRight weight="bold" /></Link></Button> : null}
       {retrying ? <span className="sr-only"><SpinnerGap className="animate-spin" />Atualizando leitura</span> : null}
     </section>
   );
