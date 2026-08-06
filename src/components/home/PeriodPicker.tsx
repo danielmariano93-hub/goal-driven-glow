@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { formatPeriodLabel, type PeriodKind } from "@/lib/ui/periodStore";
 function iso(d: Date) {
@@ -36,7 +36,7 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
         variant="ghost"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        className="flex min-h-11 max-w-full items-center justify-start gap-2 rounded-lg px-1 text-left text-muted-foreground"
+        className="flex min-h-11 max-w-full items-center justify-start gap-2 rounded-full border border-border bg-card px-4 text-left text-muted-foreground shadow-sm"
       >
         <span className="min-w-0 whitespace-normal text-[13px] font-semibold leading-snug text-foreground">{label}</span>
         <CaretDown size={14} weight="bold" className="shrink-0 text-muted-foreground" />
@@ -46,16 +46,18 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
         <SheetContent side="bottom" className="rounded-t-3xl">
           <SheetHeader>
             <SheetTitle>Escolher período</SheetTitle>
+            <SheetDescription>O período altera gastos, comparações e análises. “Disponível hoje” continua mostrando sua posição atual.</SheetDescription>
           </SheetHeader>
           <div className="mt-3 space-y-2">
             <Opt label="Este mês" onClick={() => pick("month")} />
+            <Opt label="Mês passado" onClick={() => pick("previousMonth")} />
+            <Opt label="Últimos 7 dias" onClick={() => pick("7d")} />
             <Opt label="Últimos 30 dias" onClick={() => pick("30d")} />
-            <Opt label="Últimos 90 dias" onClick={() => pick("90d")} />
             <Opt label="Período personalizado" onClick={() => pick("custom")} />
           </div>
           {period === "custom" && (
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-muted-foreground">
+              <label className="text-xs text-muted-foreground">
                 De
                 <input
                   type="date"
@@ -65,7 +67,7 @@ export function PeriodPicker({ period, customStart, customEnd, setPeriod, setCus
                   className="mt-1 w-full rounded-[14px] border border-border bg-background px-3 py-2 text-sm"
                 />
               </label>
-              <label className="text-[11px] text-muted-foreground">
+              <label className="text-xs text-muted-foreground">
                 Até
                 <input
                   type="date"

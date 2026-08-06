@@ -10,7 +10,7 @@ export function RhythmMethodSheet({ open, onOpenChange }: { open: boolean; onOpe
         </SheetHeader>
         <dl className="mt-5 space-y-5 text-sm">
           <div><dt className="font-bold text-foreground">Ritmo atual</dt><dd className="mt-1 leading-relaxed text-muted-foreground">Gasto líquido realizado dividido por todos os dias corridos do período, inclusive dias sem gasto.</dd></div>
-          <div><dt className="font-bold text-foreground">Ritmo típico</dt><dd className="mt-1 leading-relaxed text-muted-foreground">Referência dos últimos 90 dias, sem despesas estruturais, recorrentes e valores atípicos quando há amostra suficiente.</dd></div>
+           <div><dt className="font-bold text-foreground">Ritmo típico</dt><dd className="mt-1 leading-relaxed text-muted-foreground">Sua média diária de gastos rotineiros nos 90 dias completos anteriores. Com menos de 30 dias válidos, não mostramos essa referência.</dd></div>
           <div><dt className="font-bold text-foreground">Período anterior</dt><dd className="mt-1 leading-relaxed text-muted-foreground">Usa os mesmos dias do mês anterior ou uma janela imediatamente anterior com a mesma duração.</dd></div>
         </dl>
       </SheetContent>

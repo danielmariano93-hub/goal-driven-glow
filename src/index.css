@@ -14,56 +14,55 @@
 
 @layer base {
   :root {
-    --background: 240 18% 97%;
-    --foreground: 240 10% 10%;
+    --background: 250 38% 97%;
+    --foreground: 237 24% 8%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 10%;
+    --card-foreground: 237 24% 8%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 10%;
+    --popover-foreground: 237 24% 8%;
 
-    --primary: 252 88% 58%;
+    --primary: 258 100% 59%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 252 100% 97%;
-    --secondary-foreground: 240 10% 10%;
+    --secondary: 256 100% 97%;
+    --secondary-foreground: 237 24% 8%;
 
     --muted: 240 18% 96%;
-    --muted-foreground: 240 5% 43%;
+    --muted-foreground: 235 8% 46%;
 
     --accent: 252 100% 97%;
-    --accent-foreground: 252 88% 58%;
+    --accent-foreground: 258 100% 59%;
 
-    --destructive: 0 64% 56%;
+    --destructive: 348 53% 55%;
     --destructive-foreground: 0 0% 100%;
 
     --success: 160 73% 31%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 35 100% 36%;
-    --warning-foreground: 240 10% 10%;
+    --warning: 34 100% 55%;
+    --warning-foreground: 237 24% 8%;
 
-    --risk: 5 100% 69%;
+    --risk: 348 53% 55%;
     --risk-foreground: 0 0% 100%;
 
     --brand-violet: 252 100% 65%;
     --brand-coral: 5 100% 69%;
     --brand-amber: 246 100% 61%;
 
-    --border: 240 15% 92%;
-    --input: 240 15% 92%;
-    --ring: 252 88% 58%;
+    --border: 250 21% 92%;
+    --input: 250 21% 92%;
+    --ring: 258 100% 59%;
 
     --radius: 1rem;
 
     --gradient-brand: linear-gradient(135deg, #6D4AFF 0%, #4338FF 54%, #FF6B5F 100%);
     --gradient-brand-soft: linear-gradient(135deg, hsl(252 100% 65% / 0.12) 0%, hsl(5 100% 69% / 0.10) 100%);
     --gradient-brand-dark: linear-gradient(135deg, hsl(258 54% 18%) 0%, hsl(252 52% 24%) 100%);
-    --gradient-hero:
-      linear-gradient(135deg, hsl(237 24% 8%) 0%, hsl(250 50% 16%) 34%, hsl(252 88% 58%) 76%, hsl(5 100% 69%) 122%);
+    --gradient-hero: linear-gradient(135deg, #17102E 0%, #3C1B78 54%, #6B2CFF 100%);
     --gradient-fab: linear-gradient(145deg, #5B2BE0, #7A3FF2 62%, #C957A5);
-    --shadow-hero: 0 14px 32px hsl(258 54% 18% / 0.18);
+    --shadow-hero: 0 8px 24px rgba(16, 17, 26, 0.06);
 
     --shadow-sm: 0 1px 2px 0 hsl(252 26% 10% / 0.04);
     --shadow-card: 0 1px 3px 0 hsl(252 26% 10% / 0.04), 0 1px 2px -1px hsl(252 26% 10% / 0.04);
@@ -201,7 +200,7 @@
   [data-surface="home"] {
     --home-insight-surface: var(--gradient-brand-soft);
     --home-action-surface: var(--gradient-brand-dark);
-    font-family: 'Manrope', 'Inter', 'DM Sans', -apple-system, sans-serif;
+    font-family: 'Inter', 'DM Sans', -apple-system, sans-serif;
   }
 
   [data-surface="home"] h1,
@@ -209,6 +208,14 @@
   [data-surface="home"] h3,
   [data-surface="home"] .font-display {
     font-family: 'Manrope', 'Inter', 'DM Sans', -apple-system, sans-serif;
+  }
+
+  [data-surface="home"] .font-interface {
+    font-family: 'Inter', 'DM Sans', -apple-system, sans-serif;
+  }
+
+  [data-surface="home"] .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
   }
 
   .font-numeric {

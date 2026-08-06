@@ -133,7 +133,7 @@ export function EmotionalCheckinCard() {
   return (
     <section
       aria-label="Check-in emocional"
-       className="rounded-2xl border border-border bg-card p-4 animate-fade-in"
+       className="rounded-[20px] border border-border bg-card p-5 animate-fade-in"
     >
       <h3 className="text-[15px] font-bold text-foreground">
         Como você está com o dinheiro hoje?
@@ -193,7 +193,7 @@ export function EmotionalCheckinCard() {
             <div className="mt-3 space-y-2">
               {(recentTxs?.length ?? 0) > 0 && (
                 <div>
-                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                   <label className="flex items-center gap-1 text-xs text-muted-foreground">
                     <LinkSimple size={11} weight="bold" /> Relacionar a um gasto <span className="opacity-70">(opcional)</span>
                   </label>
                   <select

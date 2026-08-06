@@ -1,16 +1,19 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, List, Target, MoreHorizontal } from "lucide-react";
+import { House, ListBullets, Target, DotsThree, ChatCircle } from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
+import { useAssessor } from "@/context/AssessorContext";
 
 const tabs = [
-  { path: "/app", label: "Início", icon: LayoutDashboard },
-  { path: "/app/lancamentos", label: "Movimentos", icon: List },
+  { path: "/app", label: "Início", icon: House },
+  { path: "/app/lancamentos", label: "Movimentos", icon: ListBullets },
   { path: "/app/metas", label: "Metas", icon: Target },
-  { path: "/app/mais", label: "Mais", icon: MoreHorizontal },
+  { path: "/app/mais", label: "Mais", icon: DotsThree },
 ];
 
 export function BottomTabBar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { openAssessor } = useAssessor();
 
   const isActive = (path: string) => {
     if (path === "/app/mais") {
@@ -37,31 +40,31 @@ export function BottomTabBar() {
   };
 
   return (
-    <nav
-      className="fixed bottom-0 left-0 right-0 z-40 backdrop-blur-xl md:hidden"
-      style={{
-        background: "rgba(255,255,255,0.92)",
-        borderTop: "1px solid var(--home-hairline)",
-      }}
-    >
-      <div className="flex items-center justify-around h-[56px] max-w-lg mx-auto px-2">
-        {tabs.map((tab) => {
+    <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 backdrop-blur-xl md:hidden">
+      <div className="mx-auto grid h-[64px] max-w-lg grid-cols-5 items-center px-2">
+        {tabs.slice(0, 2).map((tab) => {
           const active = isActive(tab.path);
           const Icon = tab.icon;
-          const color = active ? "var(--home-brand-violet)" : "#827C8B";
           return (
-            <button
+             <Button
               key={tab.path}
               onClick={() => navigate(tab.path)}
-              className="flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors"
+               variant="ghost"
+               className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`}
               aria-current={active ? "page" : undefined}
             >
-              <Icon size={20} strokeWidth={active ? 2.2 : 1.6} style={{ color }} />
-              <span className="text-[10px] font-medium leading-tight" style={{ color }}>
+               <Icon size={20} weight={active ? "fill" : "regular"} />
+               <span className="text-xs font-medium leading-4">
                 {tab.label}
               </span>
-            </button>
+             </Button>
           );
+        })}
+        <Button type="button" variant="ghost" onClick={() => openAssessor("fab")} className="relative h-16 flex-col gap-0.5 rounded-xl px-1 text-primary" aria-label="Falar com o Nino"><span className="-mt-4 grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-brand"><ChatCircle size={22} weight="duotone" /></span><span className="text-xs font-semibold leading-4">Nino</span></Button>
+        {tabs.slice(2).map((tab) => {
+          const active = isActive(tab.path);
+          const Icon = tab.icon;
+          return <Button key={tab.path} onClick={() => navigate(tab.path)} variant="ghost" className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`} aria-current={active ? "page" : undefined}><Icon size={20} weight={active ? "fill" : "regular"} /><span className="text-xs font-medium leading-4">{tab.label}</span></Button>;
         })}
       </div>
       <div className="h-[env(safe-area-inset-bottom)]" />

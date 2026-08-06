@@ -1,7 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
-import { AssessorFab } from '@/components/assessor/AssessorFab';
 import { AssessorPanel } from '@/components/assessor/AssessorPanel';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
 import { usePrivacyMode } from '@/context/PrivacyModeContext';
@@ -27,7 +26,7 @@ export function AppLayout() {
         <div className="min-h-screen flex overflow-x-hidden" style={{ background: "var(--home-bg)" }}>
           <DesktopSidebar />
           <main className="flex-1 min-w-0 overflow-x-hidden">
-            <div className="mx-auto w-full max-w-lg md:max-w-2xl px-4 md:px-8 pt-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pt-4 md:pb-10">
+            <div className="mx-auto w-full max-w-[720px] px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:px-6 md:pt-4 md:pb-10">
               {/* Cada rota é responsável pelo próprio cabeçalho.
                   Reatividade do olho: remonta a rota quando a preferência muda,
                   garantindo formatBRL/formatPrivateBRL atualizados. */}
@@ -37,7 +36,6 @@ export function AppLayout() {
             </div>
           </main>
           <BottomTabBar />
-          <AssessorFab />
           <GlobalAssessorPanel />
         </div>
       </AssessorProvider>
