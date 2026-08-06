@@ -225,6 +225,23 @@ function estimateFromTxs(txs: CardTxRow[], cardId: string, ym: string): number {
   return round2(Math.max(0, total));
 }
 
+/**
+ * Parcelas conhecidas de uma competência que NÃO estão absorvidas por fatura.
+ * Sem esta soma, uma fatura estimada "esquece" parcelamentos já contratados —
+ * era a causa raiz de previsões otimistas na Home e no simulador.
+ */
+function installmentsOfCompetence(installments: CardInstallmentRow[], cardId: string, ym: string): number {
+  let total = 0;
+  for (const inst of installments) {
+    if (inst.credit_card_id !== cardId) continue;
+    if (inst.absorbed_by_statement_id) continue;
+    if (DEAD_INSTALLMENTS.has((inst.status ?? "").toString())) continue;
+    if (ymOf(inst.competence_month) !== ym) continue;
+    total += Number(inst.amount || 0);
+  }
+  return round2(Math.max(0, total));
+}
+
 function estimateFromCycle(txs: CardTxRow[], cardId: string, cycle: CardCycle): number {
   let total = 0;
   for (const t of txs) {
