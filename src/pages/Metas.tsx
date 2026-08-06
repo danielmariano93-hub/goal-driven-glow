@@ -357,14 +357,14 @@ export default function Metas() {
           initial={editing}
           categories={categories ?? []}
           saving={save.isPending}
-          onClose={() => setOpenGoal(false)}
+          onClose={closeGoalModal}
           onSubmit={(v) =>
             save.mutate(
               { ...v, id: editing?.id, status: editing?.status ?? "active" },
               {
                 onSuccess: () => {
                   toast.success("Salva");
-                  setOpenGoal(false);
+                  closeGoalModal();
                 },
                 onError: (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
               }
