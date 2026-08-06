@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   computeActiveDebtsTotal,
-  computeUpcomingCommitments,
+  computeCommitmentAgenda,
   type TransactionRow,
 } from "../_shared/finance-core/facts.ts";
 import {
@@ -95,7 +95,7 @@ export async function buildCatalogHighlights(
       sb.from("credit_card_installments")
         .select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id")
         .eq("user_id", userId),
-      sb.from("debts").select("outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
+      sb.from("debts").select("id,name,outstanding_balance,status,installment_amount,due_day").eq("user_id", userId).eq("status", "active"),
       sb.from("recurring_rules")
         .select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,name")
         .eq("user_id", userId).eq("status", "active"),
@@ -136,8 +136,17 @@ export async function buildCatalogHighlights(
       next_due_date: String(rule.start_date ?? todayISO),
       active: rule.status === "active",
     }));
-    const commitments7d = computeUpcomingCommitments(normalizedRules as never, transactions, 7);
-    const commitments30d = computeUpcomingCommitments(normalizedRules as never, transactions, 30);
+    // Agenda canônica (commitment_agenda.v1) — mesma fonte da Home.
+    const agendaBase = {
+      recurring: normalizedRules as never,
+      txs: transactions,
+      statements: statementRows as never,
+      installments: (installments.data ?? []) as never,
+      cards: cardRows as never,
+      debts: (debts.data ?? []) as never,
+    };
+    const commitments7d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 7 });
+    const commitments30d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 30 });
 
     const availableToday = Number(
       ((accounts.data ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)

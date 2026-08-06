@@ -123,7 +123,7 @@ export default function Index() {
       />
 
       <ProximosCompromissosCard
-        commitments={snap?.upcomingCommitments.items ?? []}
+        commitments={snap?.commitmentAgenda.items ?? []}
         availability={availability.projection}
         loading={loading}
       />

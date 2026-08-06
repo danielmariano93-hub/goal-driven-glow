@@ -254,6 +254,10 @@ export function useFinancialSnapshot(period: DateRange): {
       goals: (goals ?? []).map((g) => ({
         id: g.id, name: g.name, target_amount: Number(g.target_amount),
         target_date: g.target_date, status: g.status,
+        kind: (g as { kind?: string | null }).kind ?? "savings",
+        donation_mode: (g as { donation_mode?: "fixed" | "income_percent" | null }).donation_mode ?? null,
+        donation_percent: (g as { donation_percent?: number | null }).donation_percent == null ? null : Number((g as { donation_percent?: number | null }).donation_percent),
+        monthly_target: (g as { monthly_target?: number | null }).monthly_target == null ? null : Number((g as { monthly_target?: number | null }).monthly_target),
       })),
       goalContributions: (goalContributions ?? []).map((c) => ({
         goal_id: c.goal_id, amount: Number(c.amount), occurred_at: c.occurred_at,

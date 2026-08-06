@@ -47,6 +47,11 @@ import {
 } from "./cardExposure";
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
 import {
+  computeCommitmentAgenda,
+  COMMITMENT_AGENDA_VERSION,
+  type CommitmentAgenda,
+} from "./commitmentAgenda";
+import {
   clampRangeToToday,
   computeRhythm,
   computeRhythmComparison,
@@ -270,6 +275,18 @@ export interface SpendingProjection {
   projectedEndBalance: number;
   /** Livre após entradas e compromissos confirmados; não inclui gasto variável. */
   freeAfterKnownCommitments: number;
+  /**
+   * Composição auditável do saldo projetado. A soma algébrica das parcelas
+   * abaixo é exatamente `projectedEndBalance` — nenhuma UI recalcula.
+   */
+  composition: {
+    availableToday: number;
+    confirmedFutureInflows: number;
+    estimatedFixedInflows: number;
+    knownCommitments: number;
+    cardDueThisMonth: number;
+    projectedVariableSpending: number;
+  };
   confidence: ProjectionConfidence;
 }
 
@@ -332,8 +349,10 @@ export interface FinancialSnapshot {
   investedPrincipal: number;
   /** Progresso canônico das metas individuais. */
   goalProgress: SnapshotGoalProgress[];
-  /** Compromissos conhecidos nos próximos 30 dias. */
-  upcomingCommitments: ReturnType<typeof computeUpcomingCommitments>;
+  /** Compromissos conhecidos nos próximos 30 dias (agenda canônica). */
+  upcomingCommitments: CommitmentAgenda;
+  /** Agenda canônica completa (faturas, parcelas, recorrências, planejados, dívidas). */
+  commitmentAgenda: CommitmentAgenda;
   /** BLOCO B — resultado da rotina financeira do período. */
   periodPerformance: PeriodPerformance;
   /** BLOCO C — formação do saldo em conta (equação fechada). */
@@ -605,6 +624,8 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const today = input.today ?? new Date();
   const todayIso = todayISO(today);
 
+  const currentYM = todayIso.slice(0, 7);
+  const monthlyTotalsForDonation = computeMonthlyTotals(input.txs, currentYM);
   const availableToday = computeTotalCash(input.accounts, input.txs, input.snapshots);
   const netWorthRaw = computeNetWorth(input.accounts, input.txs, input.investments, input.debts, input.snapshots);
   const cardExposures = computeCardExposure({
@@ -716,6 +737,14 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     cardDueThisMonth,
     projectedEndBalance: projectedMonthEndAvailable,
     freeAfterKnownCommitments,
+    composition: {
+      availableToday,
+      confirmedFutureInflows: confirmedFutureIncome,
+      estimatedFixedInflows: estimatedIncome.total,
+      knownCommitments: knownFutureCommitments,
+      cardDueThisMonth,
+      projectedVariableSpending,
+    },
     confidence: projectionConfidenceOf(daysElapsed),
   };
 
@@ -727,8 +756,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const topCategoryGoal = pickTopGoal(activeCategoryGoals);
 
-  const currentYM = todayIso.slice(0, 7);
-  const monthlyTotalsRaw = computeMonthlyTotals(input.txs, currentYM);
+  const monthlyTotalsRaw = monthlyTotalsForDonation;
   const categories: CategoryRow[] = input.categories
     ?? Object.entries(categoryNameById).map(([id, name]) => ({ id, name, type: "expense" as const }));
   const categoryBreakdown = computeCategoryBreakdown(input.txs, categories, currentYM, "expense");
@@ -746,7 +774,32 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       );
       return { id: g.id, name: g.name, target: Number(g.target_amount) || 0, ...p };
     });
-  const upcomingCommitments = computeUpcomingCommitments(input.recurring, input.txs, 30);
+  // Metas de doação viram compromisso do mês (valor fixo ou % da receita real).
+  const donationCommitments = (input.goals ?? [])
+    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active")
+    .map((g) => {
+      const monthIncome = monthlyTotalsForDonation.income;
+      const amount = String(g.donation_mode) === "income_percent"
+        ? round2((monthIncome * Number(g.donation_percent ?? 0)) / 100)
+        : round2(Number(g.monthly_target ?? 0));
+      const dueDay = 25;
+      const due = todayISO(new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay, daysInclusive(monthRange.start, monthRange.end))));
+      return { id: g.id, name: `Doação · ${g.name}`, amount, date: due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due };
+    })
+    .filter((d) => d.amount > 0);
+
+  const commitmentAgenda = computeCommitmentAgenda({
+    donations: donationCommitments,
+    recurring: input.recurring,
+    txs: input.txs,
+    statements: (input.cardStatements ?? []) as never,
+    installments: (input.cardInstallments ?? []) as never,
+    cards: (input.cards ?? []) as never,
+    debts: input.debts as never,
+    horizonDays: 30,
+    today,
+  });
+  const upcomingCommitments = commitmentAgenda;
 
   // BLOCOS B/C/D — pontes canônicas. Nenhum consumidor recalcula estes números.
   const bridgePeriod = { start: effectivePeriod.start, end: effectivePeriod.end };
@@ -781,6 +834,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       projection: SPENDING_PROJECTION_VERSION,
       futureIncome: FUTURE_INCOME_FORMULA_VERSION,
       rhythm: rhythm.current.formulaVersion,
+      commitmentAgenda: COMMITMENT_AGENDA_VERSION,
     },
   };
 
@@ -805,6 +859,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     investedPrincipal,
     goalProgress,
     upcomingCommitments,
+    commitmentAgenda,
     today: todayIso,
     period: input.period,
     availableToday,

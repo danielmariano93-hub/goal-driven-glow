@@ -1,131 +1,197 @@
 import { useMemo, useState } from "react";
-import { Calculator, Info } from "lucide-react";
-import { useAccounts, useAllTransactions, useDebts, useGoals, useContributions } from "@/lib/db/finance";
-import { computeBeforeSpending, formatBRL } from "@/lib/engine/facts";
+import { CalendarBlank, Calculator, CheckCircle, Info, Warning, XCircle } from "@phosphor-icons/react";
+import { useCategories } from "@/lib/db/finance";
+import { formatBRL } from "@/lib/engine/facts";
+import { resolvePeriodRange } from "@/lib/ui/periodStore";
+import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
+import { simulateSpending, type SimulationVerdict } from "@/lib/engine/spendingSimulation";
+
+const VERDICT_STYLE: Record<SimulationVerdict, { chip: string; icon: JSX.Element }> = {
+  safe: { chip: "bg-success/10 text-success", icon: <CheckCircle size={18} weight="fill" /> },
+  attention: { chip: "bg-warning/15 text-warning-foreground", icon: <Warning size={18} weight="fill" /> },
+  risky: { chip: "bg-brand-coral/15 text-brand-coral", icon: <Warning size={18} weight="fill" /> },
+  unaffordable: { chip: "bg-destructive/10 text-destructive", icon: <XCircle size={18} weight="fill" /> },
+};
+
+function formatDate(value: string) {
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return value;
+  return new Date(y, m - 1, d).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
 
 export default function Planejamento() {
-  const { data: accounts } = useAccounts();
-  const { data: txs } = useAllTransactions();
-  const { data: debts } = useDebts();
-  const { data: goals } = useGoals();
-  const { data: contribs } = useContributions();
+  const period = useMemo(() => resolvePeriodRange(), []);
+  const snapshot = useFinancialSnapshot(period);
+  const { data: categories } = useCategories();
 
   const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState<string>("");
+  const [installments, setInstallments] = useState(1);
+  const [method, setMethod] = useState<"cash" | "card">("cash");
+  const [categoryId, setCategoryId] = useState("");
 
   const result = useMemo(() => {
-    const amt = Number(amount.replace(",", ".")) || 0;
-    if (!amt || amt <= 0) return null;
-    return computeBeforeSpending({
+    const amt = Number(amount.replace(/\./g, "").replace(",", ".")) || 0;
+    if (!snapshot.data || amt <= 0) return null;
+    return simulateSpending({
+      snapshot: snapshot.data,
       amount: amt,
-      accountId: accountId || null,
-      accounts: (accounts ?? []).map((a) => ({ id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active })),
-      txs: (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never,
-      recurring: [],
-      debts: (debts ?? []).map((d) => ({
-        id: d.id,
-        name: d.name,
-        outstanding_balance: Number(d.outstanding_balance),
-        original_amount: Number(d.original_amount),
-        installment_amount: d.installment_amount != null ? Number(d.installment_amount) : null,
-        status: d.status,
-      })),
-      goals: (goals ?? []).map((g) => ({ id: g.id, name: g.name, target_amount: Number(g.target_amount), target_date: g.target_date, status: g.status })),
-      contributions: (contribs ?? []).map((c) => ({ goal_id: c.goal_id, amount: Number(c.amount), occurred_at: c.occurred_at })),
+      installments,
+      method,
+      categoryId: categoryId || null,
+      categories: (categories ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type as "income" | "expense" })),
     });
-  }, [amount, accountId, accounts, txs, debts, goals, contribs]);
+  }, [amount, installments, method, categoryId, snapshot.data, categories]);
+
+  const style = result ? VERDICT_STYLE[result.verdict] : null;
 
   return (
-    <div>
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Antes de comprar</h1>
-        <p className="text-sm text-muted-foreground">Veja como essa compra pode mexer com o seu mês.</p>
+    <div className="mx-auto w-full max-w-[720px] space-y-4 pb-20">
+      <header>
+        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Antes de gastar</h1>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          O mesmo motor da Home: nada aqui é recalculado por fora.
+        </p>
       </header>
 
-      <div className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
-        <div className="grid gap-3 md:grid-cols-2">
+      <section className="rounded-[18px] border border-border bg-card p-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs font-medium">Valor da compra (R$)</label>
-            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" className="input-base" />
+            <label htmlFor="sim-amount" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Valor da compra (R$)</label>
+            <input id="sim-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" className="input-base min-h-11" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Conta usada (opcional)</label>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input-base">
+            <label htmlFor="sim-cat" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Categoria (opcional)</label>
+            <select id="sim-cat" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-base min-h-11">
               <option value="">Não especificar</option>
-              {accounts?.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
+              {(categories ?? []).filter((c) => c.type === "expense").map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="sim-method" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Forma de pagamento</label>
+            <select id="sim-method" value={method} onChange={(e) => setMethod(e.target.value as "cash" | "card")} className="input-base min-h-11">
+              <option value="cash">À vista (sai do saldo)</option>
+              <option value="card">Cartão de crédito</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="sim-inst" className="mb-1 block text-[11px] font-semibold text-muted-foreground">Parcelas</label>
+            <select id="sim-inst" value={installments} onChange={(e) => setInstallments(Number(e.target.value))} className="input-base min-h-11" disabled={method === "cash"}>
+              {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>{n}x</option>
               ))}
             </select>
           </div>
         </div>
+      </section>
 
-        {result ? (
-          <div className="mt-6 space-y-4">
-            <div className="rounded-xl border border-border bg-background p-4">
-              <p className="text-xs text-muted-foreground">Saldo total após a compra e compromissos previstos</p>
-              <p className={`mt-1 text-2xl font-semibold tabular-nums ${result.availableAfter < 0 ? "text-destructive" : "text-foreground"}`}>{formatBRL(result.availableAfter)}</p>
-            </div>
-
-            <dl className="grid grid-cols-2 gap-2 text-xs">
-              <Row label="Saldo total atual" value={formatBRL(result.totalCash)} />
-              {result.accountBalance !== null && <Row label="Saldo da conta escolhida" value={formatBRL(result.accountBalance)} />}
-              <Row label="Compromissos previstos" value={formatBRL(result.upcomingExpense)} />
-              <Row label="Receitas previstas" value={formatBRL(result.upcomingIncome)} />
-            </dl>
-
-            {result.goalsAtRisk.length > 0 && (
-              <div className="rounded-xl border border-brand-coral/40 bg-brand-coral/10 p-3 text-xs">
-                <p className="font-medium">Metas potencialmente afetadas</p>
-                <ul className="mt-1 list-disc pl-4 text-muted-foreground">
-                  {result.goalsAtRisk.map((g) => (
-                    <li key={g.id}>
-                      {g.name} — restam {formatBRL(g.remaining)}
-                    </li>
-                  ))}
-                </ul>
+      {snapshot.loading ? (
+        <div className="h-40 animate-pulse rounded-[18px] bg-muted" />
+      ) : snapshot.criticalError ? (
+        <section className="rounded-[18px] border border-border bg-card p-4">
+          <p className="text-sm text-muted-foreground">Não conseguimos carregar sua situação financeira agora.</p>
+          <button type="button" onClick={() => void snapshot.refetchCritical()} className="mt-2 min-h-10 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground">Tentar de novo</button>
+        </section>
+      ) : !result ? (
+        <section className="rounded-[18px] border border-dashed border-border bg-card p-8 text-center">
+          <Calculator size={26} className="mx-auto text-muted-foreground" weight="duotone" />
+          <p className="mt-2 text-[13px] text-muted-foreground">Informe um valor para ver o impacto real no seu mês.</p>
+        </section>
+      ) : (
+        <>
+          <section className="overflow-hidden rounded-[18px] border border-border bg-card">
+            <div className="flex items-start justify-between gap-3 p-4">
+              <div>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${style?.chip}`}>{style?.icon} {result.headline}</span>
+                <p className="mt-2 font-display text-2xl font-bold tabular-nums text-foreground">{formatBRL(result.amount)}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {result.method === "card"
+                    ? `${result.installments}x de ${formatBRL(result.installmentAmount)} no cartão`
+                    : "À vista, direto do saldo"}
+                  {result.daysOfTypicalPace != null ? ` · equivale a ${result.daysOfTypicalPace.toFixed(1)} dias do seu ritmo típico` : ""}
+                </p>
               </div>
-            )}
+            </div>
+            <div className="grid grid-cols-2 border-t border-border">
+              <Metric label="Disponível hoje" before={result.availableToday} after={result.availableAfterNow} />
+              <Metric label="Fechamento do mês" before={result.projectedEndBalance} after={result.projectedEndBalanceAfter} bordered />
+            </div>
+            <div className="border-t border-border p-3.5">
+              <Metric label="Livre depois do que já tem data" before={result.freeAfterCommitments} after={result.freeAfterCommitmentsAfter} inline />
+            </div>
+          </section>
 
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">Premissas:</p>
-              <ul className="list-disc pl-4">
-                {result.assumptions.map((a, i) => (
-                  <li key={i}>{a}</li>
+          {result.categoryGoalImpact ? (
+            <section className="rounded-[18px] border border-border bg-card p-4">
+              <p className="text-[11px] font-bold text-primary">Meta de {result.categoryGoalImpact.categoryName}</p>
+              <p className="mt-1 text-[13px] text-foreground">
+                Limite de {formatBRL(result.categoryGoalImpact.limit)} · já usou {formatBRL(result.categoryGoalImpact.spent)}.
+              </p>
+              <p className={`mt-1 text-[13px] font-semibold ${result.categoryGoalImpact.exceeds ? "text-destructive" : "text-foreground"}`}>
+                {result.categoryGoalImpact.exceeds
+                  ? `Esta compra estoura a meta em ${formatBRL(Math.abs(result.categoryGoalImpact.remainingAfter))}.`
+                  : `Depois desta compra ainda sobram ${formatBRL(result.categoryGoalImpact.remainingAfter)}.`}
+              </p>
+            </section>
+          ) : null}
+
+          {result.commitments.length > 0 ? (
+            <section className="rounded-[18px] border border-border bg-card p-4">
+              <div className="flex items-center gap-2">
+                <CalendarBlank size={18} className="text-muted-foreground" weight="duotone" />
+                <h2 className="font-display text-base font-bold text-foreground">O que já tem data</h2>
+              </div>
+              <ul className="mt-2 divide-y divide-border">
+                {result.commitments.map((item) => (
+                  <li key={`${item.name}-${item.date}`} className="flex min-h-11 items-center justify-between gap-3 py-2">
+                    <span className="min-w-0 truncate text-[13px] text-foreground">
+                      {item.name}
+                      <span className="ml-1.5 text-[11px] text-muted-foreground">{formatDate(item.date)}{item.estimated ? " · previsto" : ""}</span>
+                    </span>
+                    <strong className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">{formatBRL(item.amount)}</strong>
+                  </li>
                 ))}
               </ul>
-            </div>
+            </section>
+          ) : null}
 
-            {result.missingData.length > 0 && (
-              <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs">
-                <p className="mb-1 flex items-center gap-1.5 font-medium">
-                  <Info size={12} /> Dados que podem melhorar o cálculo
-                </p>
-                <ul className="list-disc pl-4 text-muted-foreground">
-                  {result.missingData.map((m, i) => (
-                    <li key={i}>{m}</li>
-                  ))}
+          {result.goalsAtRisk.length > 0 ? (
+            <section className="rounded-[18px] border border-brand-coral/40 bg-brand-coral/10 p-4">
+              <p className="text-[13px] font-semibold text-foreground">Metas que podem sofrer</p>
+              <ul className="mt-1 list-disc pl-4 text-[12px] text-muted-foreground">
+                {result.goalsAtRisk.map((g) => <li key={g.id}>{g.name} — faltam {formatBRL(g.remaining)}</li>)}
+              </ul>
+            </section>
+          ) : null}
+
+          <section className="rounded-[18px] border border-border bg-card p-4 text-[12px] text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold text-foreground"><Info size={14} weight="duotone" /> Como calculamos</p>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+              {result.assumptions.map((a) => <li key={a}>{a}</li>)}
+            </ul>
+            {result.limitations.length > 0 ? (
+              <>
+                <p className="mt-3 text-[11px] font-bold text-foreground">Limitações</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  {result.limitations.map((l) => <li key={l}>{l}</li>)}
                 </ul>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="mt-6 rounded-xl border border-dashed border-border bg-background p-6 text-center">
-            <Calculator className="mx-auto h-6 w-6 text-muted-foreground" />
-            <p className="mt-2 text-xs text-muted-foreground">Informe um valor para calcular o impacto.</p>
-          </div>
-        )}
-      </div>
+              </>
+            ) : null}
+          </section>
+        </>
+      )}
     </div>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Metric({ label, before, after, bordered, inline }: { label: string; before: number; after: number; bordered?: boolean; inline?: boolean }) {
+  const negative = after < 0;
   return (
-    <div className="rounded-lg bg-secondary/60 px-3 py-2">
-      <p className="text-muted-foreground">{label}</p>
-      <p className="mt-0.5 font-medium tabular-nums text-foreground">{value}</p>
+    <div className={`${bordered ? "border-l border-border " : ""}${inline ? "" : "p-3.5"}`}>
+      <p className="text-[11px] font-semibold text-muted-foreground">{label}</p>
+      <p className={`mt-1 font-display text-lg font-bold tabular-nums ${negative ? "text-destructive" : "text-foreground"}`}>{formatBRL(after)}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">antes: {formatBRL(before)}</p>
     </div>
   );
 }

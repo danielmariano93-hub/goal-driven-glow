@@ -7,17 +7,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
+import { EXTRA_EMOTIONS, PRIMARY_EMOTIONS, resolveEmotion } from "@/lib/emotions/catalog";
 
-const PRIMARY_MOODS = [
-  { key: "tranquilo", v: 5, label: "Tranquilo" },
-  { key: "ansioso", v: 3, label: "Atento" },
-  { key: "preocupado", v: 1, label: "Preocupado" },
-] as const;
-const EXTRA_MOODS = [
-  { key: "confiante", v: 4, label: "Confiante" },
-  { key: "impulsivo", v: 2, label: "Impulsivo" },
-  { key: "frustrado", v: 1, label: "Frustrado" },
-] as const;
+// Catálogo emocional canônico (emotion_catalog.v1) — nenhuma lista local.
+const PRIMARY_MOODS = PRIMARY_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label }));
+const EXTRA_MOODS = EXTRA_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label }));
 const ALL_MOODS = [...PRIMARY_MOODS, ...EXTRA_MOODS];
 
 function saoPauloDate(value = new Date()) {
@@ -52,7 +46,7 @@ export function EmotionalCheckinCard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("emotional_checkins")
-        .select("id, mood, notes, trigger_label, transaction_id, occurred_at")
+        .select("id, mood, notes, trigger_label, emotion_key, transaction_id, occurred_at")
         .order("occurred_at", { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -78,7 +72,7 @@ export function EmotionalCheckinCard() {
 
   useEffect(() => {
     if (today) {
-      setSelectedKey(today.trigger_label ?? null);
+      setSelectedKey(resolveEmotion(today.emotion_key ?? today.trigger_label)?.key ?? null);
       setNote(today.notes ?? "");
       setTxId((today.transaction_id as string | null) ?? "");
       setCollapsedAfterSave(true);
@@ -98,6 +92,7 @@ export function EmotionalCheckinCard() {
           .from("emotional_checkins")
           .update({
             mood: selected.v,
+            emotion_key: selected.key,
             trigger_label: selected.key,
             notes: note || null,
             transaction_id: txId || null,
@@ -110,6 +105,7 @@ export function EmotionalCheckinCard() {
           user_id: user.id,
           occurred_at: new Date().toISOString(),
           mood: selected.v,
+          emotion_key: selected.key,
           trigger_label: selected.key,
           notes: note || null,
           transaction_id: txId || null,
@@ -120,6 +116,7 @@ export function EmotionalCheckinCard() {
       setCollapsedAfterSave(true);
       qc.invalidateQueries({ queryKey: ["emotional-today"] });
       qc.invalidateQueries({ queryKey: ["pulse"] });
+      qc.invalidateQueries({ queryKey: ["emotional_checkins"] });
     } catch (e) {
       const msg = (e as { code?: string }).code === "23505"
         ? "Você já tem um check-in de hoje — atualize o que já existe."

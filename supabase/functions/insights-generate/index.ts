@@ -20,7 +20,7 @@ import { computeAccountStatementTotals, computeMonthlyTotals, type TransactionRo
 import {
   computeActiveDebtsTotal,
   computeCardExposure,
-  computeUpcomingCommitments,
+  computeCommitmentAgenda,
   currentMonthYM,
   todaySP,
   totalCardDebtOf,
@@ -270,7 +270,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     supa.from("credit_cards").select("id,closing_day,due_day").eq("user_id", uid).eq("active", true),
     supa.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", uid),
     supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
-    supa.from("debts").select("outstanding_balance,status").eq("user_id", uid).eq("status", "active"),
+    supa.from("debts").select("id,name,outstanding_balance,status,installment_amount,due_day").eq("user_id", uid).eq("status", "active"),
     supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,category_id,account_id,name").eq("user_id", uid).eq("status", "active"),
     supa.from("accounts").select("current_balance,active").eq("user_id", uid),
   ]);
@@ -366,16 +366,18 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     next_due_date: String(rule.start_date ?? todayIsoSP),
     active: rule.status === "active",
   }));
-  const commitments7d = computeUpcomingCommitments(
-    normalizedRecurringRules as never,
-    allTx,
-    7,
-  );
-  const commitments30d = computeUpcomingCommitments(
-    normalizedRecurringRules as never,
-    allTx,
-    30,
-  );
+  // Agenda canônica (commitment_agenda.v1) — faturas, parcelas, recorrências,
+  // planejados e dívidas, com deduplicação. Mesma fonte da Home.
+  const agendaBase = {
+    recurring: normalizedRecurringRules as never,
+    txs: allTx,
+    statements: (statementRows ?? []) as never,
+    installments: (installmentRows ?? []) as never,
+    cards: (cardRows ?? []) as never,
+    debts: (debtRows ?? []) as never,
+  };
+  const commitments7d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 7 });
+  const commitments30d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 30 });
 
   // ---- sinais adicionais do catálogo (todos derivados de evidência real) ----
   const prevYM = (() => {

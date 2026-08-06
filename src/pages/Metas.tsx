@@ -438,16 +438,34 @@ function GoalModal({
   const [date, setDate] = useState(initial?.target_date ?? "");
   const [priority, setPriority] = useState(initial?.priority ?? 3);
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [kind, setKind] = useState<"savings" | "donation">(((initial as { kind?: string } | null)?.kind as "savings" | "donation") ?? "savings");
+  const [donationMode, setDonationMode] = useState<"fixed" | "income_percent">(
+    ((initial as { donation_mode?: string } | null)?.donation_mode as "fixed" | "income_percent") ?? "fixed",
+  );
+  const [donationPercent, setDonationPercent] = useState(
+    (initial as { donation_percent?: number | null } | null)?.donation_percent != null
+      ? String((initial as { donation_percent?: number | null }).donation_percent) : "",
+  );
+  const [monthlyTarget, setMonthlyTarget] = useState(
+    (initial as { monthly_target?: number | null } | null)?.monthly_target != null
+      ? String((initial as { monthly_target?: number | null }).monthly_target) : "",
+  );
   const [error, setError] = useState<string | null>(null);
+
+  const toNumber = (v: string) => Number(v.replace(/\./g, "").replace(",", ".")) || 0;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = goalSchema.safeParse({
       name,
-      target_amount: Number(target.replace(",", ".")),
+      target_amount: toNumber(target),
       target_date: date || null,
       priority,
       notes,
+      kind,
+      donation_mode: kind === "donation" ? donationMode : null,
+      donation_percent: kind === "donation" && donationMode === "income_percent" ? toNumber(donationPercent) : null,
+      monthly_target: kind === "donation" && donationMode === "fixed" ? toNumber(monthlyTarget) : null,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
@@ -461,6 +479,43 @@ function GoalModal({
       <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
         <h2 className="font-display text-lg font-bold">{initial ? "Editar meta" : "Nova meta"}</h2>
         <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Tipo de meta</label>
+            <div className="flex gap-2">
+              {([["savings", "Guardar"], ["donation", "Doação"]] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setKind(value)}
+                  aria-pressed={kind === value}
+                  className={`min-h-10 flex-1 rounded-full border px-3 text-xs font-semibold ${kind === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {kind === "donation" ? (
+            <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+              <label className="block text-xs font-medium">Como você quer doar?</label>
+              <select value={donationMode} onChange={(e) => setDonationMode(e.target.value as "fixed" | "income_percent")} className="input-base">
+                <option value="fixed">Valor fixo por mês</option>
+                <option value="income_percent">Percentual da receita do mês</option>
+              </select>
+              {donationMode === "fixed" ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Valor mensal (R$)</label>
+                  <input inputMode="decimal" value={monthlyTarget} onChange={(e) => setMonthlyTarget(e.target.value)} className="input-base" placeholder="0,00" />
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Percentual da receita (%)</label>
+                  <input inputMode="decimal" value={donationPercent} onChange={(e) => setDonationPercent(e.target.value)} className="input-base" placeholder="5" />
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">A doação entra como compromisso do mês nas projeções do Nino.</p>
+            </div>
+          ) : null}
           <div>
             <label className="mb-1 block text-xs font-medium">Nome</label>
             <input value={name} onChange={(e) => setName(e.target.value)} className="input-base" />

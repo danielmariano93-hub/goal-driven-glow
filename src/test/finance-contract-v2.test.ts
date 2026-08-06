@@ -8,9 +8,9 @@ import {
   computeInvestmentsTotal,
 } from "@/lib/engine/facts";
 
-describe("finance_contract.v4", () => {
-  it("expõe a versão v4 do contrato", () => {
-    expect(FINANCE_CONTRACT_VERSION).toBe("finance_contract.v4");
+describe("finance_contract", () => {
+  it("expõe a versão vigente do contrato", () => {
+    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v7");
   });
 
   it("progresso de meta soma contribuições e investimentos vinculados", () => {
