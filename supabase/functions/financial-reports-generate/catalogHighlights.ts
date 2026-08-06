@@ -95,7 +95,7 @@ export async function buildCatalogHighlights(
       sb.from("credit_card_installments")
         .select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id")
         .eq("user_id", userId),
-      sb.from("debts").select("outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
+      sb.from("debts").select("id,name,outstanding_balance,status,installment_amount,due_day").eq("user_id", userId).eq("status", "active"),
       sb.from("recurring_rules")
         .select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,name")
         .eq("user_id", userId).eq("status", "active"),
