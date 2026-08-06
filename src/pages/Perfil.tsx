@@ -71,6 +71,7 @@ export default function Perfil() {
     }
     await refreshProfile();
     qc.invalidateQueries({ queryKey: ["ufs"] });
+    await invalidateFinancialQueries(qc);
     toast.success("Perfil atualizado");
   }
 

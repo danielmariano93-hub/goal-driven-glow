@@ -19,8 +19,9 @@ import { todayISO, type RecurringRow } from "@/lib/engine/facts";
 import type { DateRange } from "@/lib/engine/dailyAverage";
 import { nextOccurrences, type RecurringRule } from "@/lib/recurring/schedule";
 import { qk } from "@/lib/db/queryKeys";
+import type { FinancialIncomeSettings } from "@/lib/engine/incomeProjection";
 
-export type SnapshotSource = "accounts" | "accountSnapshots" | "transactions" | "recurringRules" | "creditCards" | "cardStatements" | "cardInstallments" | "categories" | "investments" | "investmentMovements" | "debts" | "categoryGoals" | "goals" | "goalContributions";
+export type SnapshotSource = "accounts" | "accountSnapshots" | "transactions" | "recurringRules" | "financialSettings" | "creditCards" | "cardStatements" | "cardInstallments" | "categories" | "investments" | "investmentMovements" | "debts" | "categoryGoals" | "goals" | "goalContributions";
 export type SnapshotErrorKind = "permission" | "schema" | "network" | "timeout" | "unknown";
 export type SnapshotSourceError = { source: SnapshotSource; critical: boolean; kind: SnapshotErrorKind };
 export type SnapshotAvailability = {
@@ -104,6 +105,21 @@ export function useFinancialSnapshot(period: DateRange): {
   });
   const { data: recurring } = recurringQuery;
 
+  const financialSettingsQuery = useQuery({
+    queryKey: [...qk.financialSettings, user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("user_financial_settings")
+        .select("approximate_monthly_income,income_frequency,income_day")
+        .eq("user_id", user?.id ?? "")
+        .maybeSingle();
+      if (error) throw error;
+      return data as FinancialIncomeSettings | null;
+    },
+  });
+  const { data: financialSettings } = financialSettingsQuery;
+
   const cardStatementsQuery = useQuery({
     queryKey: ["credit_card_statements", user?.id],
     enabled: !!user,
@@ -168,6 +184,7 @@ export function useFinancialSnapshot(period: DateRange): {
     { source: "goals" as const, critical: false, query: goalsQuery },
     { source: "goalContributions" as const, critical: false, query: contributionsQuery },
     { source: "recurringRules" as const, critical: false, query: recurringQuery },
+    { source: "financialSettings" as const, critical: false, query: financialSettingsQuery },
     { source: "cardStatements" as const, critical: false, query: cardStatementsQuery },
     { source: "cardInstallments" as const, critical: false, query: cardInstallmentsQuery },
     { source: "creditCards" as const, critical: false, query: cardsQuery },
@@ -185,7 +202,7 @@ export function useFinancialSnapshot(period: DateRange): {
     balance: criticalError ? "unavailable" : "available",
     rhythm: criticalError ? "unavailable" : "available",
     rhythmComparison: criticalError ? "unavailable" : "available",
-    projection: criticalError ? "unavailable" : failed("recurringRules") || failed("creditCards") || failed("cardStatements") || failed("cardInstallments") ? "partial" : "available",
+    projection: criticalError ? "unavailable" : failed("recurringRules") || failed("financialSettings") || failed("creditCards") || failed("cardStatements") || failed("cardInstallments") ? "partial" : "available",
     cardExposure: failed("creditCards") || failed("cardStatements") || failed("cardInstallments") ? "unavailable" : "available",
     netWorth: criticalError ? "unavailable" : failed("investments") || failed("investmentMovements") || failed("debts") ? "partial" : "available",
     goals: failed("goals") || failed("goalContributions") || failed("categoryGoals") ? "unavailable" : "available",
@@ -255,6 +272,10 @@ export function useFinancialSnapshot(period: DateRange): {
       investmentMovements: (investmentMovements ?? []).map((m) => ({
         type: String(m.type), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
       })),
+      incomeSettings: financialSettings ? {
+        ...financialSettings,
+        approximate_monthly_income: financialSettings.approximate_monthly_income == null ? null : Number(financialSettings.approximate_monthly_income),
+      } : null,
       audit: {
         completeness,
         missingSources,
@@ -265,7 +286,7 @@ export function useFinancialSnapshot(period: DateRange): {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, criticalError, completeness, missingSources.join("|")]);
+  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, financialSettings, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, criticalError, completeness, missingSources.join("|")]);
 
   const refetchSources = async (selected: typeof sources) => {
     await Promise.all(selected.map((item) => item.query.refetch()));
