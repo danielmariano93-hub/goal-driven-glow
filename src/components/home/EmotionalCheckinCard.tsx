@@ -133,12 +133,12 @@ export function EmotionalCheckinCard() {
   return (
     <section
       aria-label="Check-in emocional"
-       className="rounded-[20px] border border-border bg-card p-5 animate-fade-in"
+       className="rounded-[18px] border border-border bg-card p-4 animate-fade-in"
     >
-      <h3 className="text-[15px] font-bold text-foreground">
+      <h3 className="text-sm font-bold text-foreground">
         Como você está com o dinheiro hoje?
       </h3>
-      <p className="mt-0.5 text-[12px] text-muted-foreground">
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
         Um toque ajuda o Nino a entender seu momento.
       </p>
 
@@ -159,7 +159,7 @@ export function EmotionalCheckinCard() {
         </div>
       ) : (
         <>
-          <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
+          <div className="mt-2.5 flex gap-1.5 overflow-x-auto no-scrollbar">
             {visibleMoods.map((m) => {
               const active = selectedKey === m.key;
               return (
@@ -169,7 +169,7 @@ export function EmotionalCheckinCard() {
                   variant={active ? "default" : "outline"}
                   size="sm"
                   onClick={() => setSelectedKey(m.key)}
-                  className="h-11 shrink-0 rounded-full px-3 text-[12px] font-semibold"
+                  className="h-10 shrink-0 rounded-full px-3 text-[11px] font-semibold"
                   aria-pressed={active}
                 >
                   {m.label}
@@ -182,7 +182,7 @@ export function EmotionalCheckinCard() {
                 onClick={() => setShowMore(true)}
                   variant="outline"
                   size="sm"
-                   className="h-11 shrink-0 rounded-full px-3 text-[12px] font-semibold"
+                    className="h-10 shrink-0 rounded-full px-3 text-[11px] font-semibold"
               >
                 Outro
                 </Button>
