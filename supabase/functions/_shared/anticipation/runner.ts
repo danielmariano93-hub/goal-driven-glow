@@ -25,6 +25,7 @@ import { buildOpportunity, stillValid } from "./opportunities.ts";
 import { orchestrateAttention } from "./orchestrator.ts";
 import { decideStale } from "./staleness.ts";
 import { detectCashPressure, type Commitment, type ExpectedIncome } from "./cashPressure.ts";
+import { computeFutureIncomeProjection, type RecurringRow, type TransactionRow } from "../finance-core/index.ts";
 
 /**
  * Coleta os compromissos REAIS já registrados até a próxima entrada prevista e
@@ -38,7 +39,7 @@ async function detectCashPressureForUser(
   const todayIso = opts.now.toISOString().slice(0, 10);
   const horizonIso = new Date(opts.now.getTime() + 45 * 86_400_000).toISOString().slice(0, 10);
 
-  const [snapshot, statements, occurrences, planned, rules] = await Promise.all([
+  const [snapshot, statements, occurrences, planned, rules, incomeTxs, settings] = await Promise.all([
     sb.from("financial_current_snapshots").select("available_balance,as_of_date").eq("user_id", userId).maybeSingle(),
     sb.from("credit_card_statements")
       .select("id,due_date,status,reconciled_total,stated_total,credit_card_id")
@@ -54,6 +55,14 @@ async function detectCashPressureForUser(
     sb.from("recurring_rules")
       .select("id,name,amount,kind,day_of_month,status")
       .eq("user_id", userId).eq("status", "active"),
+    sb.from("transactions")
+      .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id")
+      .eq("user_id", userId).eq("type", "income")
+      .gte("occurred_at", new Date(opts.now.getTime() - 150 * 86_400_000).toISOString().slice(0, 10))
+      .lte("occurred_at", horizonIso).limit(500),
+    sb.from("user_financial_settings")
+      .select("approximate_monthly_income,income_frequency,income_day")
+      .eq("user_id", userId).maybeSingle(),
   ]);
 
   const available = Number((snapshot.data as any)?.available_balance ?? NaN);
@@ -98,22 +107,28 @@ async function detectCashPressureForUser(
     });
   }
 
-  // Próxima entrada prevista: regra de receita ativa com dia do mês definido.
+  // Próxima entrada explícita: ocorrência recorrente de receita já materializada.
   let nextIncome: ExpectedIncome | null = null;
-  for (const r of ((rules.data as any[] | null) ?? [])) {
-    if (String(r.kind) !== "income") continue;
-    const day = Number(r.day_of_month ?? 0);
-    const amount = Math.abs(Number(r.amount ?? 0));
-    if (day < 1 || day > 31 || amount <= 0) continue;
-    const base = new Date(opts.now);
-    let candidate = `${base.toISOString().slice(0, 7)}-${String(day).padStart(2, "0")}`;
-    if (candidate <= todayIso) {
-      const next = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 1));
-      candidate = `${next.toISOString().slice(0, 7)}-${String(day).padStart(2, "0")}`;
-    }
-    if (!nextIncome || candidate < nextIncome.date) {
-      nextIncome = { date: candidate, amount, label: String(r.name ?? "próxima entrada") };
-    }
+  const recurringIncome: RecurringRow[] = [];
+  for (const o of ((occurrences.data as any[] | null) ?? [])) {
+    const rule = ruleById.get(String(o.recurring_rule_id));
+    if (!rule || String(rule.kind) !== "income") continue;
+    const amount = Math.abs(Number(rule.amount ?? 0));
+    const date = String(o.due_date).slice(0, 10);
+    recurringIncome.push({ id: String(rule.id), name: String(rule.name ?? "Entrada recorrente"), type: "income", amount, frequency: "monthly", next_due_date: date, active: true });
+    if (amount > 0 && (!nextIncome || date < nextIncome.date)) nextIncome = { date, amount, label: String(rule.name ?? "próxima entrada") };
+  }
+  const incomeRows = ((incomeTxs.data as any[] | null) ?? []).map((row) => ({ ...row, amount: Number(row.amount || 0) })) as TransactionRow[];
+  const estimate = computeFutureIncomeProjection({
+    settings: settings.data as any,
+    txs: incomeRows,
+    recurring: recurringIncome,
+    today: opts.now,
+    periodEnd: horizonIso,
+  });
+  const estimatedNext = estimate.events[0];
+  if (estimatedNext && (!nextIncome || estimatedNext.date < nextIncome.date)) {
+    nextIncome = { date: estimatedNext.date, amount: estimatedNext.amount, label: estimatedNext.source === "configured" ? "renda esperada" : "renda estimada pelo histórico" };
   }
 
   return detectCashPressure({
