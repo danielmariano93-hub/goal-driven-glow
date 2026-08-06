@@ -7,9 +7,9 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   computeActiveDebtsTotal,
-  computeCommitmentAgenda,
   type TransactionRow,
 } from "../_shared/finance-core/facts.ts";
+import { computeCommitmentAgenda } from "../_shared/finance-core/commitmentAgenda.ts";
 import {
   computeCardExposure,
   totalCardDebtOf,
