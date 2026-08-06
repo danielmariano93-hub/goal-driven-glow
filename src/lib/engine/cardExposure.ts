@@ -37,6 +37,8 @@ export type ExposureSource = "official" | "estimated" | "partial" | "unavailable
 // ── Ciclo do cartão ───────────────────────────────────────────────────────────
 export interface CardCycleConfig {
   id?: string;
+  /** nome exibido nos compromissos da agenda canônica */
+  name?: string | null;
   closing_day?: number | null;
   due_day?: number | null;
 }
