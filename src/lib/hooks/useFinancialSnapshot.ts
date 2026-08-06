@@ -234,7 +234,15 @@ export function useFinancialSnapshot(period: DateRange): {
       recurring: recRows,
       snapshots: numericSnapshots,
       investments: (investments ?? []).map((i) => ({ id: i.id, name: i.name, invested_amount: Number(i.invested_amount), current_value: Number(i.current_value), goal_id: i.goal_id })),
-      debts: (debts ?? []).map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance), original_amount: Number(d.original_amount), status: d.status })),
+      debts: (debts ?? []).map((d) => ({
+        id: d.id, name: d.name,
+        outstanding_balance: Number(d.outstanding_balance),
+        original_amount: Number(d.original_amount),
+        status: d.status,
+        // Campos exigidos pela agenda canônica (parcela e dia de vencimento).
+        installment_amount: (d as { installment_amount?: number | null }).installment_amount == null ? null : Number((d as { installment_amount?: number | null }).installment_amount),
+        due_day: (d as { due_day?: number | null }).due_day == null ? null : Number((d as { due_day?: number | null }).due_day),
+      })),
       categoryGoals: (categoryGoals ?? []).map((g) => ({
         id: g.id, user_id: g.user_id, category_id: g.category_id,
         mode: g.mode as "percent_reduction" | "fixed_limit",
