@@ -24,7 +24,15 @@ export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
 /** Ciclo real por fechamento/vencimento (Onda 2). */
 export const CARD_CYCLE_VERSION = "card_cycle.v2";
 
-export type ExposureSource = "official" | "estimated" | "none";
+/**
+ * Confiança do número exibido:
+ *  - `official`    fatura registrada (documento) manda em qualquer superfície;
+ *  - `estimated`   reconstruído por transações do ciclo + parcelas da competência;
+ *  - `partial`     fatura oficial existe mas está inconsistente (needs_review / diferença);
+ *  - `unavailable` não há nenhuma fonte para a competência (nunca exibir como zero real);
+ *  - `none`        compatibilidade com consumidores anteriores (equivale a `unavailable`).
+ */
+export type ExposureSource = "official" | "estimated" | "partial" | "unavailable" | "none";
 
 // ── Ciclo do cartão ───────────────────────────────────────────────────────────
 export interface CardCycleConfig {
