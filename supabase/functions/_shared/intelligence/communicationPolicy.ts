@@ -12,7 +12,38 @@ export type CommunicationPreferences = {
   muted_proactive_kinds?: string[];
   timezone?: string | null;
   quiet_behavior?: "defer" | "silent" | "immediate" | null;
+  anticipation_enabled?: boolean;
+  anticipation_whatsapp?: boolean;
+  anticipation_kinds?: string[] | null;
 };
+
+/** Catálogo autorizado de comunicações por WhatsApp. Nada fora desta lista é enfileirado. */
+export const WHATSAPP_ALLOWED_KINDS = new Set([
+  "card_cycle_acceleration",
+  "expected_recurring_payment",
+  "month_phase_spending_risk",
+  "small_spend_acceleration",
+  "upcoming_cash_pressure",
+  "weekday_spending_risk",
+  "weekend_spending_risk",
+  "emotional_checkin_due",
+  "duplicate_expense",
+  "spending_spike",
+  "goal_at_risk",
+  "forgotten_bill",
+]);
+
+/** Tipos originados do motor de antecipação (exigem consentimento específico). */
+export const ANTICIPATION_KINDS = new Set([
+  "card_cycle_acceleration",
+  "expected_recurring_payment",
+  "month_phase_spending_risk",
+  "small_spend_acceleration",
+  "upcoming_cash_pressure",
+  "weekday_spending_risk",
+  "weekend_spending_risk",
+]);
+
 
 
 export type DeliveryHistory = {
