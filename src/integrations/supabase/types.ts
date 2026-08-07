@@ -9350,6 +9350,10 @@ export type Database = {
           amount: number
           bank_description: string | null
           bank_reference: string | null
+          behavior_date_confidence: number | null
+          behavior_date_source: string | null
+          behavior_occurred_at: string | null
+          behavioral_day: string | null
           category_classified_at: string | null
           category_confidence: number | null
           category_decision_id: string | null
@@ -9405,6 +9409,10 @@ export type Database = {
           amount: number
           bank_description?: string | null
           bank_reference?: string | null
+          behavior_date_confidence?: number | null
+          behavior_date_source?: string | null
+          behavior_occurred_at?: string | null
+          behavioral_day?: string | null
           category_classified_at?: string | null
           category_confidence?: number | null
           category_decision_id?: string | null
@@ -9460,6 +9468,10 @@ export type Database = {
           amount?: number
           bank_description?: string | null
           bank_reference?: string | null
+          behavior_date_confidence?: number | null
+          behavior_date_source?: string | null
+          behavior_occurred_at?: string | null
+          behavioral_day?: string | null
           category_classified_at?: string | null
           category_confidence?: number | null
           category_decision_id?: string | null
@@ -10789,6 +10801,10 @@ export type Database = {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
         Returns: Json
       }
+      agent_execute_shared_expense_confirmation: {
+        Args: { p_confirmation_id: string; p_source_message_id?: string }
+        Returns: Json
+      }
       agent_prompt_create_draft: {
         Args: { p_from_id?: string }
         Returns: string
@@ -11607,9 +11623,22 @@ export type Database = {
         Args: { p_document_id: string; p_reason_codes?: string[] }
         Returns: Json
       }
+      reprocess_transaction_behavior_dates: {
+        Args: { _batch_size?: number }
+        Returns: Json
+      }
       require_recent_reauth: {
         Args: { _max_age_seconds?: number }
         Returns: boolean
+      }
+      resolve_transaction_behavior_date: {
+        Args: { _row: Database["public"]["Tables"]["transactions"]["Row"] }
+        Returns: {
+          behavior_at: string
+          behavior_day: string
+          confidence: number
+          source: string
+        }[]
       }
       reverse_credit_card_statement_payment: {
         Args: { p_payment_id: string }
