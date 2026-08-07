@@ -4339,10 +4339,6 @@ export type Database = {
           amount: number
           bank_description: string | null
           bank_reference: string | null
-          behavior_date_confidence: number | null
-          behavior_date_source: string | null
-          behavior_occurred_at: string | null
-          behavioral_day: string | null
           card_hint: string | null
           category_confidence: number | null
           category_hint: string | null
@@ -4392,10 +4388,6 @@ export type Database = {
           amount: number
           bank_description?: string | null
           bank_reference?: string | null
-          behavior_date_confidence?: number | null
-          behavior_date_source?: string | null
-          behavior_occurred_at?: string | null
-          behavioral_day?: string | null
           card_hint?: string | null
           category_confidence?: number | null
           category_hint?: string | null
@@ -4445,10 +4437,6 @@ export type Database = {
           amount?: number
           bank_description?: string | null
           bank_reference?: string | null
-          behavior_date_confidence?: number | null
-          behavior_date_source?: string | null
-          behavior_occurred_at?: string | null
-          behavioral_day?: string | null
           card_hint?: string | null
           category_confidence?: number | null
           category_hint?: string | null
