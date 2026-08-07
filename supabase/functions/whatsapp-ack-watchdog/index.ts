@@ -6,6 +6,7 @@ import { httpContext, recordIncident } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { fetchWahaAck } from "../_shared/messaging/wahaAck.ts";
 import { getProvider, getWahaAccess, loadWahaConfig, validateWahaCredentials } from "../_shared/messaging/waha.ts";
+import { classifyRepairOutcome, decideSelfHeal } from "../_shared/messaging/webhookSelfHeal.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -122,14 +123,44 @@ Deno.serve(async (req) => {
   try {
     let validation = await validateWahaCredentials(expectedWebhookUrl);
     webhookHealthy = validation.session.status === "WORKING" && validation.webhook.code === "ok";
-    if (provider.configured && validation.auth.ok && validation.session.exists && validation.webhook.code !== "ok") {
+
+    // Autorreparo seguro: nunca em estado transitório, com cooldown e uma
+    // única mutação por janela. `webhook_repaired` só após revalidação real.
+    const { data: lastRepair } = await supabase
+      .from("provider_health_events")
+      .select("occurred_at")
+      .eq("provider", "waha")
+      .like("error_masked", "repair_attempt%")
+      .order("occurred_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const decision = decideSelfHeal({
+      configured: provider.configured,
+      authOk: validation.auth.ok,
+      sessionExists: validation.session.exists,
+      sessionStatus: validation.session.status,
+      webhookCode: validation.webhook.code,
+      lastRepairAt: (lastRepair as { occurred_at?: string } | null)?.occurred_at ?? null,
+    });
+
+    if (decision.shouldRepair) {
+      await supabase.from("provider_health_events").insert({
+        provider: "waha", ok: false, error_masked: "repair_attempt:webhook_sync",
+      }).then(() => {}, () => {});
       const repaired = await provider.syncWebhook(expectedWebhookUrl);
-      webhookRepair = repaired.ok ? "webhook_repaired" : "webhook_repair_failed";
-      if (repaired.ok) {
-        validation = await validateWahaCredentials(expectedWebhookUrl);
-        webhookHealthy = validation.session.status === "WORKING" && validation.webhook.code === "ok";
-      }
+      validation = await validateWahaCredentials(expectedWebhookUrl);
+      const outcome = classifyRepairOutcome({
+        mutationOk: repaired.ok,
+        revalidatedWebhookCode: validation.webhook.code,
+        revalidatedSessionStatus: validation.session.status,
+      });
+      webhookRepair = outcome.outcome;
+      webhookHealthy = outcome.healthy;
+    } else if (validation.webhook.code !== "ok") {
+      webhookRepair = `repair_skipped:${decision.reason}`;
     }
+
     await supabase.from("provider_health_events").insert({
       provider: "waha", ok: webhookHealthy,
       error_masked: webhookHealthy ? "WORKING:webhook_ok" : `${validation.session.status ?? "UNKNOWN"}:${validation.webhook.code}`.slice(0, 120),
@@ -138,6 +169,7 @@ Deno.serve(async (req) => {
     webhookRepair = "validation_failed";
     webhookHealthy = false;
   }
+
   const waha = getWahaAccess();
 
   let stalledCount = 0;

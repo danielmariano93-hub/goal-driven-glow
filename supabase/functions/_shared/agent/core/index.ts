@@ -16,7 +16,6 @@ export {
 } from "./PolicyEngine.ts";
 export {
   plan as planAction, type PlannerResult,
-  buildDeterministicPlan, dedupePlan, type Plan, type Step,
 } from "./ActionPlanner.ts";
 export {
   runToolLoop, runTool, withTimeout, dedupKey,
