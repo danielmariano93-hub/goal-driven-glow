@@ -6,6 +6,7 @@ import { httpContext, recordIncident } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { fetchWahaAck } from "../_shared/messaging/wahaAck.ts";
 import { getProvider, getWahaAccess, loadWahaConfig, validateWahaCredentials } from "../_shared/messaging/waha.ts";
+import { classifyRepairOutcome, decideSelfHeal } from "../_shared/messaging/webhookSelfHeal.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
