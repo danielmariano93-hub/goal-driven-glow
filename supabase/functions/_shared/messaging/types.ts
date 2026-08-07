@@ -25,8 +25,8 @@ export interface MessagingProvider {
   sendImage?(to: string, mediaUrl: string, caption?: string): Promise<{ provider_message_id: string }>;
   getHealth(): Promise<{ ok: boolean; latency_ms: number; error?: string }>;
   getSessionStatus(): Promise<{ status: string; error?: string }>;
-  startSession?(): Promise<void>;
-  stopSession?(): Promise<void>;
+  startSession?(): Promise<void | { ok: boolean; error?: string }>;
+  stopSession?(): Promise<void | { ok: boolean; error?: string }>;
   verifyWebhookSecret(headers: Headers): boolean;
   mapInboundEvent(payload: unknown): NormalizedInbound | null;
 }

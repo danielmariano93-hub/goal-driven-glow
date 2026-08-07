@@ -220,7 +220,7 @@ export async function validateWahaCredentials(expectedWebhookUrl: string): Promi
     configured: false, matches_url: false, has_secret_header: false, events_ok: false,
     code: "webhook_missing",
   };
-  if (sessionCode === "unreachable" || sessionCode === "unauthorized" || sessionCode === "not_configured") {
+  if (sessionCode === "unreachable" || sessionCode === "unauthorized") {
     webhook.code = sessionCode as WahaValidationReport["webhook"]["code"];
   } else if (sessionCode === "session_missing") {
     webhook.code = "webhook_missing";
