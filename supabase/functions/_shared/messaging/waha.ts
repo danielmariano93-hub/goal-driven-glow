@@ -228,21 +228,18 @@ export async function validateWahaCredentials(expectedWebhookUrl: string): Promi
     webhook.code = "status_error";
   } else if (sessionBody?.config?.webhooks?.length) {
     const hooks = sessionBody.config.webhooks;
-    const match = hooks.find((h) => (h?.url ?? "") === expectedWebhookUrl);
-    const anyConfigured = hooks.length > 0;
-    const matches = Boolean(match);
-    const events = match?.events ?? [];
-    const eventsOk = REQUIRED_EVENTS.every((e) => events.includes(e));
-    const hasSecret = Boolean(
-      match?.customHeaders?.some((h) => (h?.name ?? "").toLowerCase() === "x-webhook-secret" && Boolean(h?.value)),
-    );
+    const identities = hooks.map((h) => ({ hook: h, id: compareWebhookIdentity(h, expectedWebhookUrl, WAHA_WEBHOOK_SECRET) }));
+    const onRoute = identities.filter((x) => x.id.routeValid);
+    const best = onRoute.find((x) => x.id.authValid && x.id.eventsValid) ?? onRoute[0] ?? null;
+    const id = best?.id ?? { routeValid: false, authValid: false, eventsValid: false };
     webhook = {
-      configured: anyConfigured,
-      matches_url: matches,
-      has_secret_header: hasSecret,
-      events_ok: eventsOk,
-      code: matches && eventsOk && hasSecret ? "ok" : anyConfigured ? "webhook_mismatch" : "webhook_missing",
+      configured: hooks.length > 0,
+      matches_url: id.routeValid,
+      has_secret_header: id.authValid,
+      events_ok: id.eventsValid,
+      code: id.routeValid && id.authValid && id.eventsValid ? "ok" : "webhook_mismatch",
     };
+
   }
 
   return {
