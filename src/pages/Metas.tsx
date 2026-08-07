@@ -134,7 +134,7 @@ export default function Metas() {
     investments: (investments ?? []).map((item) => ({ goal_id: item.goal_id, current_value: Number(item.current_value) })),
     categoryGoals: catGoalEvals.filter((goal) => goal.goal.status === "active"),
     month: todayISO().slice(0, 7),
-    monthlyIncomeByCategory: numericTxs.reduce((map: Record<string, number>, tx: { category_id?: string | null; occurred_at: string },) => {
+    monthlyIncomeByCategory: (numericTxs as unknown as Array<{ category_id?: string | null; occurred_at: string }>).reduce((map: Record<string, number>, tx) => {
       if (tx.occurred_at.slice(0, 7) !== todayISO().slice(0, 7)) return map;
       const value = behavioralMetricAmount(tx as never, "income");
       if (value <= 0) return map;
