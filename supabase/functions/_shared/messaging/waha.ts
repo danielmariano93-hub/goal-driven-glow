@@ -1,6 +1,11 @@
 import type { MessagingProvider, NormalizedInbound } from "./types.ts";
 import { normalizeBrPhone } from "./types.ts";
 import { classifyInbound, type ClassifiedInbound } from "./wahaInbound.ts";
+import {
+  compareWebhookIdentity,
+  REQUIRED_WEBHOOK_EVENTS,
+  type WebhookIdentity,
+} from "./webhookIdentity.ts";
 
 export { classifyInbound } from "./wahaInbound.ts";
 export type { ClassifiedInbound } from "./wahaInbound.ts";
@@ -92,7 +97,6 @@ export type WahaValidationReport = {
   };
 };
 
-const REQUIRED_EVENTS = REQUIRED_WEBHOOK_EVENTS;
 export { compareWebhookIdentity, type WebhookIdentity };
 
 
