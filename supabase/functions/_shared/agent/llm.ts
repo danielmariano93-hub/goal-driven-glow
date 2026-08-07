@@ -35,6 +35,10 @@ export type LLMOptions = {
   temperature?: number;
   timeoutMs?: number;
   systemPrompt: string;
+  /** Capability-scoped registry. Never expose unrelated financial tools. */
+  allowedTools?: readonly string[];
+  /** Force the first factual lookup when a capability has one canonical tool. */
+  requiredTool?: string | null;
 };
 
 export type LLMTurn = {
@@ -88,7 +92,7 @@ export async function runAgentTurn(
 ): Promise<LLMTurn> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25_000);
-  const tools = openAIToolDefinitions();
+  const tools = openAIToolDefinitions(opts.allowedTools);
 
   const history = (opts.history ?? []).slice(-20).map((m) => ({
     role: m.role, content: String(m.content ?? "").slice(0, 2000),
@@ -111,7 +115,9 @@ export async function runAgentTurn(
         model: opts.model,
         messages,
         tools,
-        tool_choice: "auto",
+        tool_choice: step === 0 && opts.requiredTool
+          ? { type: "function", function: { name: opts.requiredTool } }
+          : "auto",
         temperature: opts.temperature ?? 0.2,
       };
       // GPT-5.6 family requires reasoning_effort=none when using function tools

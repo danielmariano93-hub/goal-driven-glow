@@ -39,6 +39,8 @@ export type ValidationContext = {
   artifactExpected?: boolean;
   /** True quando o turno realmente produziu um artefato (linha em agent_artifacts). */
   artifactReady?: boolean;
+  /** Canonical tool that must have succeeded before a factual answer. */
+  requiredTool?: string | null;
 };
 
 const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
@@ -72,7 +74,7 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
   }
   // Detect malformed JSON leaks (assistant returning raw JSON blob)
-  if (/^\s*[\[{]/.test(trimmed) && trimmed.length > 40) {
+  if (/^\s*[[{]/.test(trimmed) && trimmed.length > 40) {
     try { JSON.parse(trimmed); reasons.push("json_leak"); }
     catch { reasons.push("malformed_json_leak"); }
     return { action: "regenerate", body: trimmed.slice(0, MAX_REPLY_LEN), reasons };
@@ -104,6 +106,22 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
   if (ctx.hasDraft === false && DRAFT_LANGUAGE_RX.test(trimmed)) {
     reasons.push("draft_language_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
+  }
+  if (ctx.requiredTool) {
+    const requiredSucceeded = (ctx.toolCalls ?? []).some((call) =>
+      call.tool_name === ctx.requiredTool && call.ok
+    );
+    if (!requiredSucceeded) {
+      reasons.push(`required_tool_missing:${ctx.requiredTool}`);
+      const honestFailure = /\b(n[aã]o consegui|indispon[ií]vel|tente novamente|nenhum dado foi alterado)\b/i.test(trimmed);
+      return {
+        action: "accept",
+        body: honestFailure
+          ? trimmed.slice(0, MAX_REPLY_LEN)
+          : "Não consegui consultar a fonte financeira necessária para responder com segurança. Nenhum dado foi alterado; tente novamente em instantes.",
+        reasons,
+      };
+    }
   }
   // Alegação de entrega de gráfico sem artefato pronto neste turno.
   // Não abandona a resposta (o texto pode conter conteúdo útil): reescreve

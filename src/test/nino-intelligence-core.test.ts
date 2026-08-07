@@ -59,10 +59,11 @@ describe("Nino Intelligence Core", () => {
     }).reason).toBe("weekly_frequency_cap");
   });
 
-  it("mantém o modelo configurado como padrão quando não há override", () => {
+  it("usa fallback independente quando não há override", () => {
     const route = selectModelRoute("financial_analysis", "google/gemini-2.5-flash", 8);
     expect(route.primary).toBe("google/gemini-2.5-flash");
-    expect(route.fallback).toBe("google/gemini-2.5-flash");
+    expect(route.fallback).toBe("openai/gpt-5-mini");
+    expect(route.fallback).not.toBe(route.primary);
   });
 
   it("renderiza PNG sem canvas nativo", async () => {

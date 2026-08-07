@@ -18,6 +18,8 @@ export type ToolRuntimeOptions = {
   systemPrompt: string;
   timeoutMs: number;
   history: HistoryTurn[];
+  allowedTools?: readonly string[];
+  requiredTool?: string | null;
 };
 
 export async function runToolLoop(

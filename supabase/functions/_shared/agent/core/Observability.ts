@@ -15,7 +15,7 @@ export type TurnMetrics = {
   tokens_out: number;
   tool_call_count: number;
   fallback_used: boolean;
-  path: "llm" | "deterministic_fallback" | "policy" | null;
+  path: "llm" | "deterministic_tool" | "deterministic_fallback" | "policy" | null;
   validations: number;
   errors: string[];
   estimated_cost_usd?: number | null;
@@ -24,6 +24,9 @@ export type TurnMetrics = {
   artifact_status: "none" | "generated" | "delivered" | "failed";
   model: string | null;
   intent: string | null;
+  capability: string | null;
+  tool_scope: string[];
+  model_attempts: Array<{ model: string; ok: boolean; error?: string | null }>;
 };
 
 export function createMetrics(channel: string): TurnMetrics {
@@ -43,6 +46,9 @@ export function createMetrics(channel: string): TurnMetrics {
     artifact_status: "none",
     model: null,
     intent: null,
+    capability: null,
+    tool_scope: [],
+    model_attempts: [],
   };
 }
 
@@ -87,5 +93,8 @@ export function summarize(m: TurnMetrics): Record<string, unknown> {
     validations: m.validations,
     errors: m.errors,
     estimated_cost_usd: m.estimated_cost_usd,
+    capability: m.capability,
+    tool_scope: m.tool_scope,
+    model_attempts: m.model_attempts,
   };
 }

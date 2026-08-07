@@ -12,7 +12,7 @@
 //     logic lives in one place instead of leaking into adapters.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { findLatestPendingOrExpired, findPending, type PendingRow } from "./PendingConfirmations.ts";
+import { confirmationExecutor, findLatestPendingOrExpired, findPending, type PendingRow } from "./PendingConfirmations.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import type { ParsedIntent } from "../parser.ts";
 
@@ -40,7 +40,7 @@ export async function evaluate(
       return { kind: "reply", replyKind: "info",
         body: "Não encontrei nada pendente para confirmar. Me conte a operação primeiro (ex.: “gastei 42,90 no almoço hoje”)." };
     }
-    const { data: exec } = await sb.rpc("agent_execute_confirmation", {
+    const { data: exec } = await sb.rpc(confirmationExecutor(pending.kind), {
       p_confirmation_id: pending.id, p_source_message_id: args.inbound_message_id,
     });
     const okExec = exec as { ok: boolean; result?: any; error?: string; idempotent?: boolean } | null;

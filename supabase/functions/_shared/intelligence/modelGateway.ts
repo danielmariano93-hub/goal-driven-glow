@@ -22,7 +22,12 @@ export function selectModelRoute(task: ModelTask, configuredModel: string, confi
   const fast = env("AI_MODEL_FAST") ?? configuredModel;
   const reasoning = env("AI_MODEL_REASONING") ?? configuredModel;
   const vision = env("AI_MODEL_VISION") ?? reasoning;
-  const fallback = env("AI_MODEL_FALLBACK") ?? configuredModel;
+  // A fallback to the same model/provider is not resilience. Keep an
+  // independent default while still allowing Operations to override it.
+  const independentFallback = configuredModel.startsWith("google/")
+    ? "openai/gpt-5-mini"
+    : "google/gemini-2.5-flash";
+  const fallback = env("AI_MODEL_FALLBACK") ?? independentFallback;
 
   if (task === "vision") {
     return { task, primary: vision, fallback, max_latency_ms: 30_000, max_steps: Math.max(6, configuredMaxSteps), reason: "multimodal_input" };
@@ -55,10 +60,16 @@ export async function loadModelRoute(
     const envPrimary = task === "vision" ? env("AI_MODEL_VISION")
       : task === "fast_operation" || task === "semantic_classification" ? env("AI_MODEL_FAST")
       : env("AI_MODEL_REASONING");
+    const primary = envPrimary ?? String(data.primary_model || fallback.primary);
+    const configuredFallback = env("AI_MODEL_FALLBACK")
+      ?? (data.fallback_model ? String(data.fallback_model) : fallback.fallback);
+    const independentFallback = configuredFallback && configuredFallback !== primary
+      ? configuredFallback
+      : fallback.fallback !== primary ? fallback.fallback : null;
     return {
       ...fallback,
-      primary: envPrimary ?? String(data.primary_model || fallback.primary),
-      fallback: env("AI_MODEL_FALLBACK") ?? (data.fallback_model ? String(data.fallback_model) : fallback.fallback),
+      primary,
+      fallback: independentFallback,
       max_latency_ms: Number(data.max_latency_ms || fallback.max_latency_ms),
       max_steps: Number(data.max_steps || fallback.max_steps),
       reason: `database_route:${task}`,

@@ -1,6 +1,6 @@
 // AppAdapter — routes in-app assessor turns through the shared AgentCore
-// while preserving app-only deterministic fast-paths (analytics + card
-// expense) and the confirm/cancel action buttons.
+// while preserving only UI-specific confirm/cancel action buttons. Free-text
+// reasoning and tool routing are intentionally identical across channels.
 //
 // The HTTP wrapper (agent-chat/index.ts) only handles auth, rate limit,
 // conversation lookup and the JSON contract; every decision the agent
@@ -11,19 +11,13 @@ import { handleTurn, type HandleTurnResult } from "../AgentCore.ts";
 import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
 import { buildReceipt } from "../ReceiptBuilder.ts";
-import { loadHistory } from "../ConversationHistory.ts";
+import { confirmationExecutor } from "../PendingConfirmations.ts";
 import { findBulkPending, executeBulkPending } from "../BulkEntry.ts";
 
-import { analyze_spending, create_transaction_draft, generate_chart_artifact, resolveCreditCardFull } from "../../tools.ts";
-import { extractSpans } from "../../extract.ts";
+import { generate_chart_artifact } from "../../tools.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const HISTORY_TURNS = 20;
-
-const CARD_KEYWORDS = /\b(cart[aã]o|itau|ita[uú]|nubank|bradesco|santander|inter|c6|xp|will|mercadopago|picpay|caixa)\b/i;
-const SINGLE_CARD_HINT = /\b(único|unico|so\s+tenho|so\s+um|apenas\s+um|o\s+único|é\s+o\s+único)\b/i;
 
 export type AppTurnResult = {
   reply: string;
@@ -98,7 +92,7 @@ export async function handleAppAction(args: {
     reply = "Combinado, cancelei este pedido.";
   } else {
 
-    const { data: exec, error: execErr } = await sb.rpc("agent_execute_confirmation", {
+    const { data: exec, error: execErr } = await sb.rpc(confirmationExecutor(pending.kind), {
       p_confirmation_id: pending.id, p_source_message_id: null,
     });
     const okExec = exec as { ok: boolean; result?: any; error?: string; idempotent?: boolean } | null;
@@ -168,36 +162,9 @@ export async function handleAppMessage(args: {
     return { reply, pending: null, executed: decision.kind === "reply" ? decision.result ?? null : null };
   }
 
-  const history = await loadHistory(sb, args.conversation_id, { limit: HISTORY_TURNS, excludeMessageId: inbound_message_id });
-
-  // Fast-path 1: analytics (só quando o usuário NÃO pediu gráfico específico
-  // — nesses casos deixamos o LLM chamar generate_chart_artifact).
-  if (isAnalyticsRequest(args.text) && !wantsChart(args.text)) {
-    const argsA = analyticsArgs(args.text);
-    const result = await analyze_spending({ sb, user_id: args.user_id, conversation_id: args.conversation_id }, argsA);
-    if (result.ok) {
-      const reply = buildAnalyticsReply((result as any).result);
-      await sb.from("conversation_messages").insert({
-        conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: reply,
-      } as any);
-      await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
-      const pendingOut = await findPendingApp(sb, args.conversation_id, args.user_id, null);
-      return { reply, pending: pendingOut, executed: null, report: (result as any).result };
-    }
-  }
-
-  // Fast-path 2: card expense
-  const fast = await tryFastPathCardExpense(sb, args, history);
-  if (fast) {
-    await sb.from("conversation_messages").insert({
-      conversation_id: args.conversation_id, user_id: args.user_id, direction: "outbound", body_masked: fast.reply,
-    } as any);
-    await sb.from("conversations").update({ last_message_at: new Date().toISOString() } as any).eq("id", args.conversation_id);
-    const pendingOut = await findPendingApp(sb, args.conversation_id, args.user_id, null);
-    return { reply: fast.reply, pending: pendingOut, executed: null };
-  }
-
-  // Default: shared Core (LLM + tools, deterministic fallback, telemetry)
+  // Every free-text turn goes through the same capability router and Core as
+  // WhatsApp. Channel-specific analytics/card shortcuts caused divergent
+  // answers and bypassed the unified telemetry/grounding contract.
   const turn = await handleTurn({
     user_id: args.user_id,
     conversation_id: args.conversation_id,
@@ -271,80 +238,4 @@ function pickDeterministicChartKind(text: string): "average_daily_trend" | "time
     return "average_daily_trend";
   }
   return "timeseries";
-}
-
-// Estrito: apenas pedidos TEXTUAIS de resumo. "gráfico" e "evolução" saíram —
-// esses casos precisam gerar artefato, não texto plano.
-function isAnalyticsRequest(text: string): boolean {
-  return /\b(me\s+analis[ae]|an[aá]lise\s+geral|resumo\s+(?:do\s+m[eê]s|geral|dos?\s+gastos?)|onde\s+(?:mais\s+)?gast[aeo])\b/i.test(text || "");
-}
-
-function analyticsArgs(text: string): { days: number; payment_method?: "account" | "credit_card" } {
-  let days = 30;
-  const explicit = text.match(/(?:[uú]ltim[oa]s?\s+)?(\d{1,3})\s+dias?/i);
-  if (explicit) days = Math.max(1, Math.min(366, Number(explicit[1])));
-  else if (/\bhoje\b/i.test(text)) days = 1;
-  else if (/\bsemana\b/i.test(text)) days = 7;
-  else if (/\b(ano|12 meses)\b/i.test(text)) days = 366;
-  else if (/\b(3 meses|trimestre)\b/i.test(text)) days = 90;
-  const payment_method = /\bcart[aã]o|fatura|cr[eé]dito\b/i.test(text) ? "credit_card" as const
-    : /\bconta|d[eé]bito|pix\b/i.test(text) ? "account" as const : undefined;
-  return { days, ...(payment_method ? { payment_method } : {}) };
-}
-
-function buildAnalyticsReply(report: any): string {
-  if (!report || report.transactions_count === 0) return "Não encontrei lançamentos nesse período. Você pode ampliar o período ou registrar os primeiros gastos.";
-  const top = report.top_category
-    ? `${report.top_category.name} (${BRL.format(Number(report.top_category.value))})`
-    : "nenhuma categoria ainda";
-  const sample = report.data_limit === "small_sample" ? " É uma leitura inicial com poucos lançamentos." : "";
-  const categoryTip = Number(report.uncategorized || 0) > 0
-    ? ` Há ${BRL.format(Number(report.uncategorized))} sem categoria — vale categorizar para melhorar a leitura.`
-    : "";
-  return `No período, você gastou ${BRL.format(Number(report.totals.expense))}. Onde mais pesou foi ${top}.${sample}${categoryTip}`;
-}
-
-async function tryFastPathCardExpense(
-  sb: SupabaseClient,
-  ctx: { user_id: string; conversation_id: string; text: string },
-  history: Array<{ role: "user" | "assistant"; content: string }>,
-): Promise<null | { reply: string }> {
-  const currentText = ctx.text;
-  const nowSpans = extractSpans(currentText);
-  const nowHasCard = nowSpans.payment_method === "credit_card" || CARD_KEYWORDS.test(currentText);
-
-  let amount: number | null = nowSpans.amount;
-  let cardHint: string | null = nowSpans.card_hint;
-  let description: string | undefined = nowSpans.description || undefined;
-  let installments_total: number | undefined = nowSpans.installments_total ?? undefined;
-
-  if (amount === null && (nowHasCard || SINGLE_CARD_HINT.test(currentText))) {
-    const lastUser = [...history].reverse().find(h => h.role === "user")?.content ?? "";
-    const prev = extractSpans(lastUser);
-    if (prev.amount !== null) {
-      amount = prev.amount;
-      cardHint = SINGLE_CARD_HINT.test(currentText) ? "" : (nowSpans.card_hint ?? prev.card_hint);
-      description = prev.description || description;
-      installments_total = prev.installments_total ?? installments_total;
-    }
-  }
-
-  if (amount === null) return null;
-  if (!nowHasCard && !SINGLE_CARD_HINT.test(currentText) && cardHint === null) return null;
-
-  const resolved = await resolveCreditCardFull({ sb, user_id: ctx.user_id, conversation_id: ctx.conversation_id }, cardHint ?? undefined);
-  if (resolved.kind === "none" && resolved.available.length === 0) {
-    return { reply: "Você ainda não tem cartão cadastrado. Cadastre um em /app/cartoes e eu registro o gasto em seguida." };
-  }
-  if (resolved.kind === "multiple") {
-    const names = resolved.choices.map(c => `• ${c.name}`).join("\n");
-    return { reply: `Você tem mais de um cartão. Qual deles?\n${names}` };
-  }
-
-  const argsT: any = { type: "expense" as const, amount, credit_card: cardHint || (resolved as any).name, description };
-  if (installments_total && installments_total > 1) argsT.installments_total = installments_total;
-  const result = await create_transaction_draft({ sb, user_id: ctx.user_id, conversation_id: ctx.conversation_id }, argsT);
-  if (!result.ok) return { reply: "Não consegui preparar esse lançamento. Pode confirmar valor e cartão?" };
-  const summary = (result as any).result.summary as string;
-  return { reply: `${summary}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.` };
 }

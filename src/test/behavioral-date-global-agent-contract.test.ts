@@ -30,7 +30,8 @@ describe("contrato global de data comportamental e capacidades do Nino", () => {
     for (const name of ["get_weekday_spending_pattern", "run_before_spending", "get_goals_overview", "create_split_expense_draft"]) {
       expect(tools).toContain(`name: "${name}"`);
     }
-    expect(tools).toContain("agent_execute_shared_expense_confirmation");
+    const pending = source("supabase/functions/_shared/agent/core/PendingConfirmations.ts");
+    expect(pending).toContain("agent_execute_shared_expense_confirmation");
     expect(tools).toContain("category_goal_impact");
   });
 });

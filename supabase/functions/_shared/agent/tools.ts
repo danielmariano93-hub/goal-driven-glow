@@ -16,6 +16,8 @@ import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
+import { confirmationExecutor } from "./core/PendingConfirmations.ts";
+import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -76,15 +78,21 @@ export async function list_categories(ctx: ToolContext, args: { type?: "income"|
 }
 
 export async function get_financial_summary(ctx: ToolContext): Promise<ToolResult> {
-  const today = new Date();
-  const y = today.getFullYear(); const m = String(today.getMonth() + 1).padStart(2, "0");
-  const monthStart = `${y}-${m}-01`;
-  const { data } = await ctx.sb.from("transactions")
-    .select("type,amount").eq("user_id", ctx.user_id).gte("occurred_at", monthStart);
-  const rows = (data ?? []) as { type: string; amount: number | string }[];
-  const income = rows.filter(r => r.type === "income").reduce((s, r) => s + Number(r.amount), 0);
-  const expense = rows.filter(r => r.type === "expense").reduce((s, r) => s + Number(r.amount), 0);
-  return { ok: true, result: { month: `${y}-${m}`, income, expense, net: income - expense } };
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    return { ok: true, result: {
+      month: snap.month_start.slice(0, 7),
+      income: snap.current_month_income,
+      expense: snap.current_month_expense,
+      net: snap.period_performance?.operational_result
+        ?? snap.current_month_income - snap.current_month_expense,
+      available_today: snap.available_today,
+      projected_month_end_available: snap.projected_month_end_available,
+      formula_version: snap.formula_version,
+    } };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }
 
 export async function list_recent_transactions(ctx: ToolContext, args: { limit?: number }): Promise<ToolResult> {
@@ -158,6 +166,52 @@ export async function analyze_spending(ctx: ToolContext, args: {
       formula_version: "analyze_spending.consumption.v3",
     },
   };
+}
+
+/** Literal spend lookup for one behavioral date. Unlike analyze_spending,
+ * this includes transactions posted in the following business days and then
+ * resolves them back to the purchase/automation date when confidence permits. */
+export async function get_spending_for_date(ctx: ToolContext, args: { date: string }): Promise<ToolResult> {
+  const date = String(args?.date ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: "invalid_date" };
+  const postedThrough = new Date(`${date}T12:00:00Z`);
+  postedThrough.setUTCDate(postedThrough.getUTCDate() + 3);
+  const to = postedThrough.toISOString().slice(0, 10);
+  const [{ data, error }, { data: categories }] = await Promise.all([
+    ctx.sb.from("transactions")
+      .select("id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+      .eq("user_id", ctx.user_id).gte("occurred_at", date).lte("occurred_at", to),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+  ]);
+  if (error) return { ok: false, error: error.message };
+  const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
+  let total = 0;
+  let transactions = 0;
+  let excludedLowConfidence = 0;
+  const byCategory = new Map<string, number>();
+  for (const raw of (data ?? []) as any[]) {
+    const resolved = resolveBehavioralDate(raw);
+    if (resolved.day !== date) continue;
+    if (!resolved.eligibleForBehavior) {
+      excludedLowConfidence++;
+      continue;
+    }
+    const amount = behavioralMetricAmount({ ...raw, amount: Number(raw.amount) } as any, "expense");
+    if (amount <= 0) continue;
+    const category = String(raw.category_id ? (names.get(raw.category_id) ?? "Sem categoria") : "Sem categoria");
+    total += amount;
+    transactions++;
+    byCategory.set(category, (byCategory.get(category) ?? 0) + amount);
+  }
+  return { ok: true, result: {
+    date,
+    total: Math.round(total * 100) / 100,
+    transactions_count: transactions,
+    categories: [...byCategory.entries()].map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+      .sort((a, b) => b.value - a.value),
+    excluded_low_confidence: excludedLowConfidence,
+    formula_version: "spending.behavioral-date.literal.v1",
+  } };
 }
 
 export async function run_before_spending(ctx: ToolContext, args: {
@@ -498,9 +552,7 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
     await ctx.sb.from("pending_confirmations").update({ status: "expired" }).eq("id", (pending as any).id).eq("status", "pending");
     return { ok: false, error: "expired" };
   }
-  const executor = (pending as any).kind === "shared_expense"
-    ? "agent_execute_shared_expense_confirmation"
-    : "agent_execute_confirmation";
+  const executor = confirmationExecutor((pending as any).kind);
   const { data: exec } = await ctx.sb.rpc(executor, {
     p_confirmation_id: (pending as any).id,
     p_source_message_id: null,
@@ -781,17 +833,20 @@ export async function get_weekday_spending_pattern(ctx: ToolContext, args: {
 export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> {
   try {
     const month = todaySaoPaulo().slice(0, 7);
-    const [snap, goalsRes, contribsRes, investmentsRes, sharedRes, incomeRes] = await Promise.all([
+    const [snap, goalsRes, contribsRes, investmentsRes, ownedSharedRes, memberRes, incomeRes] = await Promise.all([
       computeAgentSnapshot(ctx.sb, ctx.user_id),
       ctx.sb.from("goals").select("id,name,kind,status,target_amount,target_date,donation_mode,donation_percent,monthly_target,donation_income_scope,donation_income_category_ids").eq("user_id", ctx.user_id),
       ctx.sb.from("goal_contributions").select("goal_id,amount,occurred_at").eq("user_id", ctx.user_id),
       ctx.sb.from("investments").select("goal_id,current_value").eq("user_id", ctx.user_id),
       ctx.sb.from("shared_goals").select("id,title,target_amount,status,deadline").eq("created_by", ctx.user_id),
+      ctx.sb.from("shared_goal_members").select("goal_id").eq("user_id", ctx.user_id).eq("invite_status", "accepted"),
       ctx.sb.from("transactions").select("amount,category_id,type,status,movement_kind,occurred_at").eq("user_id", ctx.user_id).eq("type", "income").eq("status", "confirmed").gte("occurred_at", `${month}-01`),
     ]);
     const contributions = (contribsRes.data ?? []) as any[];
     const investments = (investmentsRes.data ?? []) as any[];
-    const incomes = (incomeRes.data ?? []) as any[];
+    const incomes = ((incomeRes.data ?? []) as any[])
+      .filter((income) => isRealMonthlyMovement(income as TransactionRow))
+      .map((income) => ({ ...income, amount: behavioralMetricAmount(income as TransactionRow, "income") }));
     const items = ((goalsRes.data ?? []) as any[]).map((goal) => {
       const contributed = contributions.filter((c) => c.goal_id === goal.id).reduce((sum, c) => sum + Number(c.amount || 0), 0);
       const invested = investments.filter((i) => i.goal_id === goal.id).reduce((sum, i) => sum + Number(i.current_value || 0), 0);
@@ -818,6 +873,14 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
       attainment_pct: goal.actual_spend <= goal.target_amount ? 100 : Math.max(0, Math.round(goal.target_amount / Math.max(1, goal.actual_spend) * 10000) / 100),
       remaining: goal.remaining_amount,
     }));
+    const memberGoalIds = [...new Set(((memberRes.data ?? []) as any[]).map((m) => m.goal_id).filter(Boolean))];
+    const memberSharedRes = memberGoalIds.length
+      ? await ctx.sb.from("shared_goals").select("id,title,target_amount,status,deadline").in("id", memberGoalIds)
+      : { data: [] as any[] };
+    const sharedById = new Map<string, any>();
+    for (const goal of [...((ownedSharedRes.data ?? []) as any[]), ...((memberSharedRes.data ?? []) as any[])]) {
+      sharedById.set(goal.id, goal);
+    }
     return {
       ok: true,
       result: {
@@ -825,7 +888,7 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
         month,
         items,
         category_goals: categoryItems,
-        shared_goals: sharedRes.data ?? [],
+        shared_goals: [...sharedById.values()],
         overall_attainment_pct: [...items, ...categoryItems].length
           ? Math.round([...items, ...categoryItems].reduce((sum, item) => sum + Number(item.attainment_pct || 0), 0) / [...items, ...categoryItems].length * 100) / 100
           : 0,
@@ -1137,27 +1200,44 @@ const periodSchema = {
 
 // ---------- Shared Goals (Metas Conjuntas) ----------
 
+async function visibleSharedGoals(ctx: ToolContext): Promise<any[]> {
+  const [{ data: owned, error: ownedError }, { data: memberships, error: memberError }] = await Promise.all([
+    ctx.sb.from("shared_goals")
+      .select("id,title,target_amount,deadline,created_by,status,created_at")
+      .eq("created_by", ctx.user_id),
+    ctx.sb.from("shared_goal_members").select("goal_id")
+      .eq("user_id", ctx.user_id).eq("invite_status", "accepted"),
+  ]);
+  if (ownedError) throw new Error(ownedError.message);
+  if (memberError) throw new Error(memberError.message);
+  const memberIds = [...new Set(((memberships ?? []) as any[]).map((m) => m.goal_id).filter(Boolean))];
+  const { data: memberGoals, error: memberGoalsError } = memberIds.length
+    ? await ctx.sb.from("shared_goals")
+      .select("id,title,target_amount,deadline,created_by,status,created_at").in("id", memberIds)
+    : { data: [] as any[], error: null };
+  if (memberGoalsError) throw new Error(memberGoalsError.message);
+  const unique = new Map<string, any>();
+  for (const goal of [...((owned ?? []) as any[]), ...((memberGoals ?? []) as any[])]) unique.set(goal.id, goal);
+  return [...unique.values()].sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+}
+
 async function resolveSharedGoal(ctx: ToolContext, hint: string): Promise<{ id: string; title: string; target_amount: number; deadline: string | null } | null> {
   const h = String(hint ?? "").trim();
   if (!h) return null;
-  if (/^[0-9a-f-]{36}$/i.test(h)) {
-    const { data } = await ctx.sb.from("shared_goals").select("id,title,target_amount,deadline").eq("id", h).maybeSingle();
-    return data ? { id: data.id, title: data.title, target_amount: Number(data.target_amount), deadline: data.deadline } : null;
-  }
-  const { data } = await ctx.sb.from("shared_goals").select("id,title,target_amount,deadline");
+  const data = await visibleSharedGoals(ctx);
   const low = h.toLowerCase();
-  const m = (data ?? []).find((g: any) => String(g.title ?? "").toLowerCase().includes(low));
+  const m = /^[0-9a-f-]{36}$/i.test(h)
+    ? data.find((g: any) => g.id === h)
+    : data.find((g: any) => String(g.title ?? "").toLowerCase().includes(low));
   return m ? { id: m.id, title: m.title, target_amount: Number(m.target_amount), deadline: m.deadline } : null;
 }
 
 export async function list_shared_goals(ctx: ToolContext): Promise<ToolResult> {
-  const { data, error } = await ctx.sb
-    .from("shared_goals")
-    .select("id,title,target_amount,deadline,created_by,status")
-    .order("created_at", { ascending: false })
-    .limit(20);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, result: { goals: data ?? [] } };
+  try {
+    return { ok: true, result: { goals: (await visibleSharedGoals(ctx)).slice(0, 20) } };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
 }
 
 export async function get_shared_goal_progress(ctx: ToolContext, args: { goal?: string; goal_id?: string }): Promise<ToolResult> {
@@ -1294,6 +1374,16 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: analyze_spending,
+  },
+  {
+    name: "get_spending_for_date",
+    description: "Retorna o gasto real de uma data comportamental específica. Considera a data da compra/automação e evita atribuir à segunda-feira lançamentos apenas postados pelo banco.",
+    parameters: {
+      type: "object",
+      properties: { date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } },
+      required: ["date"], additionalProperties: false,
+    },
+    execute: get_spending_for_date,
   },
   {
     name: "run_before_spending",
@@ -1707,8 +1797,17 @@ export function toolByName(name: string): ToolSpec | null {
   return AGENT_TOOLS.find(t => t.name === name) ?? null;
 }
 
-export function openAIToolDefinitions() {
-  return AGENT_TOOLS.map(t => ({
+/**
+ * Exposes only the tools selected by the capability router for this turn.
+ *
+ * Sending the full registry to every model call made tool selection
+ * probabilistic and allowed unrelated tools with similar descriptions to
+ * compete. An omitted/empty allow-list intentionally means "all" to preserve
+ * backwards compatibility for admin simulators and older callers.
+ */
+export function openAIToolDefinitions(allowedNames?: readonly string[]) {
+  const allowed = allowedNames?.length ? new Set(allowedNames) : null;
+  return AGENT_TOOLS.filter(t => !allowed || allowed.has(t.name)).map(t => ({
     type: "function",
     function: { name: t.name, description: t.description, parameters: t.parameters },
   }));

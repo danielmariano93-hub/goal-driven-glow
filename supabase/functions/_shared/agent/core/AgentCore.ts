@@ -32,6 +32,8 @@ import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.t
 import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
 import { asEvidence } from "../../intelligence/evidence.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
+import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
+import { capabilityPrompt, classifyCapability } from "./CapabilityRouter.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -45,7 +47,7 @@ export type HandleTurnInput = {
 export type HandleTurnResult = {
   reply: string;
   reply_kind: "receipt" | "draft" | "question" | "info" | "cancelled" | "expired";
-  path: "llm" | "deterministic_fallback";
+  path: "llm" | "deterministic_tool" | "deterministic_fallback";
   draft_id?: string;
   run_id?: string;
   result?: unknown;
@@ -147,6 +149,9 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   // Precisa vir antes do IntentRouter: a confirmação de um lote é executada
   // em TypeScript (a RPC agent_execute_confirmation só conhece kinds simples).
   const routed = await timeStage(metrics, "intent", async () => routeIntent(input.text));
+  const capability = classifyCapability(input.text, routed.intent, interpretSemanticQuery(input.text));
+  metrics.capability = capability.name;
+  metrics.tool_scope = [...capability.allowed_tools];
 
   if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
     const bulkPending = await guard(
@@ -278,6 +283,9 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
       user_id: input.user_id, conversation_id: input.conversation_id,
       prompt_version_id: prompt?.id ?? null, model: prompt?.model ?? "unknown",
       status: "running", started_at: new Date().toISOString(),
+      capability: capability.name,
+      tool_scope: capability.allowed_tools,
+      model_attempts: [],
     }).select("id").maybeSingle();
     run_id = (run as any)?.id as string | undefined;
   }, (m) => metrics.errors.push("runs_insert:" + m), null);
@@ -287,6 +295,26 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+  systemPrompt = `${capabilityPrompt(capability)}\n\n${systemPrompt}`;
+
+  // Load only the factual slices required by this capability. This turns the
+  // previously decorative FinancialContext360 facade into actual grounding
+  // while keeping prompts bounded and identical across App and WhatsApp.
+  if (capability.execution === "llm_scoped" && Object.values(capability.context).some(Boolean)) {
+    const financialContext = await guard(
+      () => tctx.snapshot(capability.context),
+      (m) => metrics.errors.push("context360:" + m),
+      null,
+    );
+    if (financialContext && Object.keys(financialContext).length) {
+      const serialized = JSON.stringify(financialContext).slice(0, 14_000);
+      systemPrompt =
+        `[CONTEXTO FINANCEIRO CANÔNICO — ${capability.name}]\n${serialized}\n` +
+        `Os valores acima vieram das mesmas ferramentas canônicas usadas pela Home. ` +
+        `Não recalcule nem substitua esses números. Para listas, períodos ou operações não presentes, use uma ferramenta permitida.\n\n` +
+        systemPrompt;
+    }
+  }
 
   const corrections = await guard(() => tctx.memory("correction", 8),
     (m) => metrics.errors.push("corrections:" + m), []);
@@ -407,7 +435,7 @@ ${JSON.stringify(hints)}
   const planner = await timeStage(metrics, "plan", () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: input.text, hasPrompt: !!prompt,
-    history,
+    history, capability,
   }, {
     model: prompt?.model ?? "google/gemini-2.5-flash",
     maxSteps: prompt?.max_steps ?? 6,
@@ -417,14 +445,14 @@ ${JSON.stringify(hints)}
     history,
   }));
 
-  let path: "llm" | "deterministic_fallback" = planner.path;
+  let path: "llm" | "deterministic_tool" | "deterministic_fallback" = planner.path;
   let reply = "";
   let draft_id: string | undefined;
   let kind: HandleTurnResult["reply_kind"] = "info";
   let errorSanitized: string | null = planner.errorSanitized ?? null;
   const toolCallLog: any[] = [];
 
-  if (planner.path === "llm" && planner.turn) {
+  if (planner.turn) {
     const turn = planner.turn;
     reply = turn.reply;
     metrics.tokens_in = turn.tokensIn;
@@ -501,7 +529,10 @@ ${JSON.stringify(hints)}
   }
 
   metrics.path = path;
-  metrics.estimated_cost_usd = estimateCost(prompt?.model ?? "unknown", metrics.tokens_in, metrics.tokens_out);
+  metrics.model_attempts = planner.modelAttempts;
+  const effectiveModel = [...planner.modelAttempts].reverse().find((attempt) => attempt.ok)?.model
+    ?? prompt?.model ?? "unknown";
+  metrics.estimated_cost_usd = estimateCost(effectiveModel, metrics.tokens_in, metrics.tokens_out);
 
   // ---- ResponseValidator -------------------------------------------------
   const successfulMutation = toolCallLog.some(c => c.ok && (
@@ -514,6 +545,7 @@ ${JSON.stringify(hints)}
     toolCallErrors: toolCallLog.filter(c => !c.ok).length,
     userText: input.text,
     toolCalls: toolCallLog,
+    requiredTool: capability.required_tool,
     artifactExpected: chartRequested,
     artifactReady: !!metrics.artifact_id,
   }));
@@ -556,6 +588,9 @@ ${JSON.stringify(hints)}
         formula_versions: metrics.formula_versions,
         latency_ms: latency,
         error_sanitized: errorSanitized, error_masked: errorSanitized,
+        capability: capability.name,
+        tool_scope: capability.allowed_tools,
+        model_attempts: planner.modelAttempts,
       }).eq("id", run_id);
       if (toolCallLog.length > 0) {
         await sb.from("agent_tool_calls").insert(toolCallLog.map(c => ({
@@ -582,7 +617,7 @@ ${JSON.stringify(hints)}
 
   // ---- Decision log (best-effort) ---------------------------------------
   metrics.intent = routed.intent.kind;
-  metrics.model = prompt?.model ?? null;
+  metrics.model = effectiveModel === "unknown" ? null : effectiveModel;
   await logDecision(sb, buildRecord({
     run_id: run_id ?? null,
     user_id: input.user_id, conversation_id: input.conversation_id,
@@ -612,6 +647,9 @@ ${JSON.stringify(hints)}
       artifact_id: metrics.artifact_id,
       artifact_status: metrics.artifact_status,
       error: errorSanitized,
+      capability: capability.name,
+      tool_scope: capability.allowed_tools,
+      model_attempts: planner.modelAttempts,
     });
   } catch (e) {
     console.error("[agent-core] turn_event insert failed", String((e as Error).message).slice(0, 200));

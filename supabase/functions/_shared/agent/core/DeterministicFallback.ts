@@ -12,6 +12,7 @@ import {
   run_before_spending, get_financial_summary, list_recent_transactions,
   type ToolContext,
 } from "../tools.ts";
+import { formatBeforeSpending } from "./DeterministicAnswers.ts";
 
 const NUM_BR = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -63,14 +64,7 @@ export async function deterministicFallback(
     if (intent.topic === "before_spending" && intent.amount) {
       const r = await run_before_spending(ctx, { amount: intent.amount });
       if (r.ok) {
-        const o = r.result as any;
-        const parts = [
-          `Se você gastar ${NUM_BR.format(intent.amount)} hoje, o saldo estimado fica em ${NUM_BR.format(o.availableAfter)}.`,
-          `Base do cálculo: saldo total ${NUM_BR.format(o.totalCash)}, compromissos previstos ${NUM_BR.format(o.upcomingExpense)}, entradas previstas ${NUM_BR.format(o.upcomingIncome)} em ~30 dias.`,
-        ];
-        if (o.assumptions?.length) parts.push("Premissas: " + o.assumptions.join(" "));
-        if (o.missingData?.length) parts.push("Dados faltantes: " + o.missingData.join(" "));
-        return { reply: parts.join("\n"), kind: "info" };
+        return { reply: formatBeforeSpending(r.result), kind: "info" };
       }
     }
   }
@@ -106,5 +100,8 @@ export async function deterministicFallback(
     if (r.ok) return { reply: `${(r.result as any).summary}\nResponda *CONFIRMAR* ou *CANCELAR*.`, draft_id: (r.result as any).draft_id, kind: "draft" };
   }
 
-  return { reply: "Ainda estou aprendendo. Você pode me contar assim: “gastei 42,90 no almoço hoje no Nubank”, “recebi 3000 salário”, “transferir 100 de Nubank para Itaú”.", kind: "info" };
+  return {
+    reply: "Não consegui identificar com segurança o que você quer fazer. Posso consultar seu saldo e metas, analisar padrões de gastos, simular uma compra, registrar um lançamento ou conduzir a divisão de um rolê. Reformule em uma frase direta e eu continuo sem alterar nada até entender.",
+    kind: "info",
+  };
 }

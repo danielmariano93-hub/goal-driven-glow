@@ -76,6 +76,9 @@ export function buildRecord(args: {
       tool_call_count: args.metrics.tool_call_count,
       path: args.metrics.path,
       estimated_cost_usd: args.metrics.estimated_cost_usd,
+      capability: args.metrics.capability,
+      tool_scope: args.metrics.tool_scope,
+      model_attempts: args.metrics.model_attempts,
     },
   };
 }

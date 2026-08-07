@@ -14,6 +14,14 @@ export type PendingRow = {
   conversation_id: string;
 };
 
+/** Canonical executor selection used by text confirmation, app buttons and
+ * tool-driven confirmation. Shared expenses have a dedicated atomic RPC. */
+export function confirmationExecutor(kind: string): string {
+  return kind === "shared_expense"
+    ? "agent_execute_shared_expense_confirmation"
+    : "agent_execute_confirmation";
+}
+
 export async function findPending(
   sb: SupabaseClient,
   conversation_id: string,
