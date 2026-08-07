@@ -28,7 +28,7 @@ import {
   usePendingSharedGoalInvites,
 } from "@/lib/db/sharedGoals";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
-import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
+import { behavioralMetricAmount, computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
@@ -134,7 +134,15 @@ export default function Metas() {
     investments: (investments ?? []).map((item) => ({ goal_id: item.goal_id, current_value: Number(item.current_value) })),
     categoryGoals: catGoalEvals.filter((goal) => goal.goal.status === "active"),
     month: todayISO().slice(0, 7),
-  }), [goals, contribs, investments, catGoalEvals]);
+    monthlyIncomeByCategory: numericTxs.reduce((map: Record<string, number>, tx: { category_id?: string | null; occurred_at: string },) => {
+      if (tx.occurred_at.slice(0, 7) !== todayISO().slice(0, 7)) return map;
+      const value = behavioralMetricAmount(tx as never, "income");
+      if (value <= 0) return map;
+      const key = tx.category_id ?? "uncategorized";
+      map[key] = (map[key] ?? 0) + value;
+      return map;
+    }, {}),
+  }), [goals, contribs, investments, catGoalEvals, numericTxs]);
 
   return (
     <div>
@@ -194,14 +202,14 @@ export default function Metas() {
         </button>
       </div>
 
-      <div className="mb-4 flex items-center justify-end">
+      {tab !== "all" ? <div className="mb-4 flex items-center justify-end">
         <button
           onClick={() => setOpenCatList((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
         >
           <Sliders size={12} /> Controlar gasto por categoria
         </button>
-      </div>
+      </div> : null}
 
       {(tab === "all" || openCatList) && (
         <div className="mb-4 rounded-2xl border border-border bg-card p-4">
@@ -564,10 +572,10 @@ function GoalModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
-        <h2 className="font-display text-lg font-bold">{initial ? "Editar meta" : "Nova meta"}</h2>
-        <div className="mt-4 space-y-3">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-3 sm:p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-card sm:max-h-[90dvh]">
+        <h2 className="shrink-0 px-5 pb-2 pt-5 font-display text-lg font-bold sm:px-6 sm:pt-6">{initial ? "Editar meta" : "Nova meta"}</h2>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 pb-4 sm:px-6">
           <div>
             <label className="mb-1 block text-xs font-medium">Tipo de meta</label>
             <div className="flex gap-2">
@@ -648,14 +656,16 @@ function GoalModal({
             <textarea value={notes ?? ""} onChange={(e) => setNotes(e.target.value)} className="input-base min-h-20" />
           </div>
         </div>
-        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="shrink-0 border-t border-border bg-card px-5 py-3 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-6">
+        {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">
             Cancelar
           </button>
           <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
           </button>
+        </div>
         </div>
       </form>
     </div>

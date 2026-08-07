@@ -10,6 +10,8 @@
 type SupabaseClient = any;
 import { behavioralMetricAmount, computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { cycleFor } from "../finance-core/cardExposure.ts";
+import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
@@ -158,17 +160,83 @@ export async function analyze_spending(ctx: ToolContext, args: {
   };
 }
 
-export async function run_before_spending(ctx: ToolContext, args: { amount: number; account_hint?: string }): Promise<ToolResult> {
+export async function run_before_spending(ctx: ToolContext, args: {
+  amount: number;
+  account_hint?: string;
+  category?: string;
+  planned_date?: string;
+  method?: "cash" | "card";
+  card?: string;
+  installments?: number;
+}): Promise<ToolResult> {
   const amount = Number(args?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
-  const facts = await fetchFactsForBeforeSpending(ctx.sb, ctx.user_id);
+  const [facts, snapshotResult] = await Promise.all([
+    fetchFactsForBeforeSpending(ctx.sb, ctx.user_id),
+    computeAgentSnapshot(ctx.sb, ctx.user_id),
+  ]);
   let accountId: string | null = null;
   if (args?.account_hint) {
     const h = args.account_hint.toLowerCase();
     accountId = facts.accounts.find(a => (a.name as string).toLowerCase().includes(h))?.id ?? null;
   }
-  const out = computeBeforeSpending({ amount, accountId, ...facts });
-  return { ok: true, result: out };
+  const method = args?.method ?? (args?.card ? "card" : "cash");
+  const installments = Math.max(1, Math.min(48, Math.floor(Number(args?.installments ?? 1))));
+  const installmentAmount = Math.round(amount / installments * 100) / 100;
+  const plannedDate = /^\d{4}-\d{2}-\d{2}$/.test(args?.planned_date ?? "") ? args.planned_date! : snapshotResult.today;
+  const categoryId = await resolveCategoryId(ctx, args?.category, "expense");
+  if (args?.category && !categoryId) return { ok: false, error: "category_not_found" };
+  const card = method === "card" ? await resolveCreditCardFull(ctx, args?.card) : null;
+  if (method === "card" && card?.kind !== "single") {
+    return { ok: false, error: "card_not_found", result: card };
+  }
+  const { data: cardConfig } = card?.kind === "single"
+    ? await ctx.sb.from("credit_cards").select("id,name,closing_day,due_day").eq("id", card.id).eq("user_id", ctx.user_id).maybeSingle()
+    : { data: null };
+  const cycle = method === "card" ? cycleFor(cardConfig as any, plannedDate) : null;
+  const cashImpactDate = method === "card" ? cycle?.due_date ?? plannedDate : plannedDate;
+  const legacy = computeBeforeSpending({ amount, accountId, ...facts });
+  const immediateImpact = method === "cash" && plannedDate <= snapshotResult.today ? amount : 0;
+  const monthImpact = cashImpactDate <= snapshotResult.month_end
+    ? (method === "card" ? installmentAmount : amount)
+    : 0;
+  const categoryGoal = categoryId
+    ? snapshotResult.active_category_goals.find((goal) => goal.category_id === categoryId) ?? null
+    : null;
+  const categoryGoalImpact = categoryGoal ? {
+    category_id: categoryGoal.category_id,
+    category_name: categoryGoal.category_name ?? "Categoria",
+    limit: categoryGoal.target_amount,
+    spent_before: categoryGoal.actual_spend,
+    spent_after: Math.round((categoryGoal.actual_spend + amount) * 100) / 100,
+    remaining_before: categoryGoal.remaining_amount,
+    remaining_after: Math.round((categoryGoal.target_amount - categoryGoal.actual_spend - amount) * 100) / 100,
+    exceeds: categoryGoal.actual_spend + amount > categoryGoal.target_amount,
+  } : null;
+  return {
+    ok: true,
+    result: {
+      formula_version: "agent_spending_simulation.snapshot.v3",
+      amount, method, installments, installment_amount: installmentAmount,
+      planned_date: plannedDate,
+      cash_impact_date: cashImpactDate,
+      card_competence: cycle?.competence ?? null,
+      available_today: snapshotResult.available_today,
+      available_after_now: Math.round((snapshotResult.available_today - immediateImpact) * 100) / 100,
+      projected_month_end_before: snapshotResult.projected_month_end_available,
+      projected_month_end_after: Math.round((snapshotResult.projected_month_end_available - monthImpact) * 100) / 100,
+      known_future_commitments: snapshotResult.known_future_commitments,
+      category_goal_impact: categoryGoalImpact,
+      goals_at_risk: legacy.goalsAtRisk,
+      account_balance: legacy.accountBalance,
+      card: card?.kind === "single" ? { id: card.id, name: card.name } : null,
+      assumptions: [
+        ...legacy.assumptions,
+        method === "card" ? "A compra afeta a meta da categoria na data da compra e o caixa pela parcela da fatura." : "A compra à vista reduz o caixa na data planejada.",
+      ],
+      limitations: legacy.missingData,
+    },
+  };
 }
 
 async function upsertDraft(ctx: ToolContext, kind: string, payload: any, summary: string): Promise<string | null> {
@@ -430,7 +498,10 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
     await ctx.sb.from("pending_confirmations").update({ status: "expired" }).eq("id", (pending as any).id).eq("status", "pending");
     return { ok: false, error: "expired" };
   }
-  const { data: exec } = await ctx.sb.rpc("agent_execute_confirmation", {
+  const executor = (pending as any).kind === "shared_expense"
+    ? "agent_execute_shared_expense_confirmation"
+    : "agent_execute_confirmation";
+  const { data: exec } = await ctx.sb.rpc(executor, {
     p_confirmation_id: (pending as any).id,
     p_source_message_id: null,
   });
@@ -675,6 +746,139 @@ export async function list_category_spending_goals(ctx: ToolContext): Promise<To
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+export async function get_weekday_spending_pattern(ctx: ToolContext, args: {
+  interpretation?: "typical_behavior" | "total_concentration" | "frequency" | "average_ticket";
+  weeks?: number;
+}): Promise<ToolResult> {
+  try {
+    const interpretation = args?.interpretation ?? "typical_behavior";
+    const result = await executeWeekdayPattern({
+      sb: ctx.sb,
+      user_id: ctx.user_id,
+      query: {
+        domain: "behavior",
+        intent: "weekday_pattern",
+        interpretation,
+        metric_key: interpretation === "typical_behavior" ? "weekday_typical_spend"
+          : interpretation === "frequency" ? "weekday_purchase_frequency"
+          : interpretation === "average_ticket" ? "weekday_average_ticket"
+          : "weekday_total_concentration",
+        output: "text",
+        outlier_policy: interpretation === "typical_behavior" ? "exclude_for_typical" : "keep",
+        period: { kind: "rolling_weeks", value: Math.max(4, Math.min(52, Number(args?.weeks ?? 12))) },
+        correction: false,
+        original_text: ctx.user_text ?? "",
+      },
+    });
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const month = todaySaoPaulo().slice(0, 7);
+    const [snap, goalsRes, contribsRes, investmentsRes, sharedRes, incomeRes] = await Promise.all([
+      computeAgentSnapshot(ctx.sb, ctx.user_id),
+      ctx.sb.from("goals").select("id,name,kind,status,target_amount,target_date,donation_mode,donation_percent,monthly_target,donation_income_scope,donation_income_category_ids").eq("user_id", ctx.user_id),
+      ctx.sb.from("goal_contributions").select("goal_id,amount,occurred_at").eq("user_id", ctx.user_id),
+      ctx.sb.from("investments").select("goal_id,current_value").eq("user_id", ctx.user_id),
+      ctx.sb.from("shared_goals").select("id,title,target_amount,status,deadline").eq("created_by", ctx.user_id),
+      ctx.sb.from("transactions").select("amount,category_id,type,status,movement_kind,occurred_at").eq("user_id", ctx.user_id).eq("type", "income").eq("status", "confirmed").gte("occurred_at", `${month}-01`),
+    ]);
+    const contributions = (contribsRes.data ?? []) as any[];
+    const investments = (investmentsRes.data ?? []) as any[];
+    const incomes = (incomeRes.data ?? []) as any[];
+    const items = ((goalsRes.data ?? []) as any[]).map((goal) => {
+      const contributed = contributions.filter((c) => c.goal_id === goal.id).reduce((sum, c) => sum + Number(c.amount || 0), 0);
+      const invested = investments.filter((i) => i.goal_id === goal.id).reduce((sum, i) => sum + Number(i.current_value || 0), 0);
+      const monthContributed = contributions.filter((c) => c.goal_id === goal.id && String(c.occurred_at).slice(0, 7) === month).reduce((sum, c) => sum + Number(c.amount || 0), 0);
+      const scopedIncome = goal.donation_income_scope === "selected_categories"
+        ? incomes.filter((i) => (goal.donation_income_category_ids ?? []).includes(i.category_id)).reduce((s, i) => s + Number(i.amount || 0), 0)
+        : incomes.reduce((s, i) => s + Number(i.amount || 0), 0);
+      const target = goal.kind === "donation"
+        ? (goal.donation_mode === "income_percent" ? scopedIncome * Number(goal.donation_percent || 0) / 100 : Number(goal.monthly_target || goal.target_amount || 0))
+        : Number(goal.target_amount || 0);
+      const achieved = goal.kind === "donation" ? monthContributed : contributed + invested;
+      return {
+        id: goal.id, name: goal.name, type: goal.kind ?? "savings", status: goal.status,
+        target: Math.round(target * 100) / 100,
+        achieved: Math.round(achieved * 100) / 100,
+        attainment_pct: target > 0 ? Math.min(100, Math.round(achieved / target * 10000) / 100) : 0,
+        remaining: Math.max(0, Math.round((target - achieved) * 100) / 100),
+        target_date: goal.target_date,
+      };
+    });
+    const categoryItems = snap.active_category_goals.map((goal) => ({
+      id: goal.goal_id, name: goal.category_name ?? "Categoria", type: "category", status: goal.status,
+      target: goal.target_amount, achieved: goal.actual_spend,
+      attainment_pct: goal.actual_spend <= goal.target_amount ? 100 : Math.max(0, Math.round(goal.target_amount / Math.max(1, goal.actual_spend) * 10000) / 100),
+      remaining: goal.remaining_amount,
+    }));
+    return {
+      ok: true,
+      result: {
+        formula_version: "goals_overview.v2",
+        month,
+        items,
+        category_goals: categoryItems,
+        shared_goals: sharedRes.data ?? [],
+        overall_attainment_pct: [...items, ...categoryItems].length
+          ? Math.round([...items, ...categoryItems].reduce((sum, item) => sum + Number(item.attainment_pct || 0), 0) / [...items, ...categoryItems].length * 100) / 100
+          : 0,
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+export async function create_split_expense_draft(ctx: ToolContext, args: {
+  title: string; total: number; occurred_at?: string; due_date?: string;
+  split_mode?: "equal" | "custom"; include_owner?: boolean;
+  participants: Array<{ name: string; phone_e164?: string; amount_due?: number }>;
+  account?: string; card?: string; category?: string; owner_amount?: number;
+  reminder_enabled?: boolean; pix_key?: string;
+}): Promise<ToolResult> {
+  const title = String(args?.title ?? "").trim();
+  const total = Number(args?.total);
+  const participants = Array.isArray(args?.participants) ? args.participants.filter((p) => String(p?.name ?? "").trim()) : [];
+  if (!title) return { ok: false, error: "invalid_title" };
+  if (!Number.isFinite(total) || total <= 0) return { ok: false, error: "invalid_amount" };
+  if (!participants.length) return { ok: false, error: "participants_required" };
+  if (!args.account && !args.card) return { ok: false, error: "payment_source_required" };
+  if (args.account && args.card) return { ok: false, error: "choose_single_payment_source" };
+  const account = args.account ? await resolveAccountId(ctx, args.account) : null;
+  if (args.account && !account) return { ok: false, error: "account_not_found" };
+  const card = args.card ? await resolveCreditCardFull(ctx, args.card) : null;
+  if (args.card && card?.kind !== "single") return { ok: false, error: "card_not_found", result: card };
+  const categoryId = await resolveCategoryId(ctx, args.category, "expense");
+  if (args.category && !categoryId) return { ok: false, error: "category_not_found" };
+  const occurredAt = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
+  const splitMode = args.split_mode ?? "equal";
+  if (splitMode === "custom") {
+    const parts = participants.reduce((sum, p) => sum + Number(p.amount_due || 0), 0) + (args.include_owner === false ? 0 : Number(args.owner_amount || 0));
+    if (Math.abs(parts - total) > 0.009) return { ok: false, error: "custom_split_total_mismatch", details: { expected: total, received: parts } };
+  }
+  const payload = {
+    title, total, occurred_at: occurredAt,
+    due_date: /^\d{4}-\d{2}-\d{2}$/.test(args.due_date ?? "") ? args.due_date : null,
+    split_mode: splitMode, include_owner: args.include_owner !== false,
+    participants: participants.map((p) => ({ name: String(p.name).trim(), phone_e164: p.phone_e164 ?? null, amount_due: p.amount_due ?? null })),
+    owner_amount: args.owner_amount ?? null,
+    source_account_id: account?.id ?? null,
+    source_credit_card_id: card?.kind === "single" ? card.id : null,
+    reimbursement_account_id: account?.id ?? null,
+    category_id: categoryId,
+    reminder_enabled: Boolean(args.reminder_enabled), pix_key: args.pix_key ?? null,
+  };
+  const summary = `Rolê “${title}” de ${BRL.format(total)} para dividir com ${participants.length} pessoa${participants.length > 1 ? "s" : ""}, em ${occurredAt}.`;
+  const id = await upsertDraft(ctx, "shared_expense", payload, summary);
+  if (!id) return { ok: false, error: "draft_failed" };
+  return { ok: true, result: { draft_id: id, summary, participants: participants.length } };
 }
 
 
@@ -1093,13 +1297,58 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "run_before_spending",
-    description: "Simula o impacto de um gasto usando saldos, recorrências, dívidas e metas do usuário.",
+    description: "Simula um gasto futuro usando o mesmo snapshot financeiro da Home. Considere data, categoria, meio de pagamento, cartão e parcelas; devolve impacto no caixa, fechamento do mês e meta da categoria.",
     parameters: {
       type: "object",
-      properties: { amount: num, account_hint: optionalStr },
+      properties: {
+        amount: num, account_hint: optionalStr, category: optionalStr,
+        planned_date: optionalStr,
+        method: { type: "string", enum: ["cash", "card"] },
+        card: optionalStr,
+        installments: { type: "integer", minimum: 1, maximum: 48 },
+      },
       required: ["amount"], additionalProperties: false,
     },
     execute: run_before_spending,
+  },
+  {
+    name: "get_goals_overview",
+    description: "Retorna uma visão consolidada e calculada das metas financeiras, de categoria, de doação e conjuntas do usuário, com alvo, realizado, restante e percentual de atingimento.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_goals_overview,
+  },
+  {
+    name: "get_weekday_spending_pattern",
+    description: "Responde qual dia da semana concentra o comportamento de gasto do usuário. Usa data comportamental com confiança, separa picos e não confunde postagem bancária de segunda-feira com o dia real da compra.",
+    parameters: {
+      type: "object",
+      properties: {
+        interpretation: { type: "string", enum: ["typical_behavior", "total_concentration", "frequency", "average_ticket"] },
+        weeks: { type: "integer", minimum: 4, maximum: 52 },
+      },
+      additionalProperties: false,
+    },
+    execute: get_weekday_spending_pattern,
+  },
+  {
+    name: "create_split_expense_draft",
+    description: "Cria um RASCUNHO de divisão de rolê. Conduza a conversa pedindo somente os campos faltantes: título, valor, data, pessoas, fonte do pagamento e divisão igual/personalizada. Nunca confirme sem CONFIRMAR do usuário.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: requiredStr, total: num, occurred_at: optionalStr, due_date: optionalStr,
+        split_mode: { type: "string", enum: ["equal", "custom"] },
+        include_owner: { type: "boolean" },
+        participants: {
+          type: "array", minItems: 1,
+          items: { type: "object", properties: { name: requiredStr, phone_e164: optionalStr, amount_due: num }, required: ["name"], additionalProperties: false },
+        },
+        account: optionalStr, card: optionalStr, category: optionalStr,
+        owner_amount: num, reminder_enabled: { type: "boolean" }, pix_key: optionalStr,
+      },
+      required: ["title", "total", "participants"], additionalProperties: false,
+    },
+    execute: create_split_expense_draft,
   },
   {
     name: "list_credit_cards",

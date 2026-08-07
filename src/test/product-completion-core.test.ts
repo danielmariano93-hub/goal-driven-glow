@@ -8,7 +8,7 @@ import {
   detectFinancialProcrastination,
   runBehaviorDetectors,
 } from "../../supabase/functions/_shared/agent/core/BehaviorDetectors";
-import { buildAdvisorReview } from "../../supabase/functions/_shared/agent/core/AdvisorReviewService";
+import { reviewWindow } from "../../supabase/functions/_shared/agent/core/AdvisorReviewServiceV2";
 import { shouldPersistBehaviorMemory } from "../../supabase/functions/_shared/agent/core/BehaviorService";
 import { decideCommunication } from "../../supabase/functions/_shared/intelligence/communicationPolicy";
 
@@ -160,31 +160,10 @@ describe("product completion core", () => {
     expect(decision.reason).toBe("kind_opt_out");
   });
 
-  it("constrói revisão do assessor sem inventar perfil de risco", () => {
-    const profile = {
-      user_id: "u1",
-      estimated_income: 5000,
-      savings_capacity: 1000,
-      net_worth: 10000,
-      risk_level: null,
-      behavior_tags: ["poupador"],
-      spending_pattern: { Alimentação: 1000 },
-      seasonality: {},
-      monthly_evolution: [
-        { month: "2026-05", income: 5000, expense: 4000, net: 1000 },
-        { month: "2026-06", income: 5000, expense: 3900, net: 1100 },
-        { month: "2026-07", income: 5000, expense: 4000, net: 1000 },
-      ],
-      top_categories: [{ category: "Alimentação", total: 1000, share: 0.25 }],
-      indicators: {
-        savings_rate: 0.2,
-        months_observed: 3,
-      },
-      computed_at: now.toISOString(),
-    };
-    const review = buildAdvisorReview(profile, null, "weekly", now);
-    expect(review.actions.length).toBeGreaterThan(0);
-    expect(review.summary.indicators).not.toHaveProperty("risk_level");
+  it("usa uma janela própria na revisão semanal do assessor", () => {
+    const window = reviewWindow("weekly", now);
+    expect(window.start).not.toBe(window.previousStart);
+    expect(window.end).not.toBe(window.previousEnd);
   });
 
   it("só transforma hipótese comportamental em memória após confirmação", () => {

@@ -67,12 +67,11 @@ export {
 } from "./BehaviorDetectors.ts";
 export { refreshBehaviorHypotheses, type BehaviorRefreshResult } from "./BehaviorService.ts";
 export {
-  buildAdvisorReview,
   generateAdvisorReviews,
   type AdvisorAction,
   type AdvisorReviewPayload,
-} from "./AdvisorReviewService.ts";
-export { scanUser, type ProactiveSuggestion } from "./ProactiveEngine.ts";
+} from "./AdvisorReviewServiceV2.ts";
+export { scanUser, type ProactiveSuggestion } from "./ProactiveEngineV2.ts";
 export {
   loadPreferences, savePreferences, applyPreferencesToPrompt, inferPreferencesFromMemory,
   DEFAULT_PREFS, type Preferences,

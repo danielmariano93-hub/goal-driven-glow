@@ -1,7 +1,11 @@
 import { round2 } from "@/lib/engine/facts";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
 
-type GoalLike = { id: string; kind?: string | null; target_amount: number; monthly_target?: number | null; donation_mode?: string | null };
+type GoalLike = {
+  id: string; kind?: string | null; target_amount: number; monthly_target?: number | null;
+  donation_mode?: string | null; donation_percent?: number | null;
+  donation_income_scope?: string | null; donation_income_category_ids?: string[] | null;
+};
 type ContributionLike = { goal_id: string; amount: number; occurred_at: string };
 type InvestmentLike = { goal_id?: string | null; current_value: number };
 
@@ -28,6 +32,7 @@ export function computeGoalOverview(input: {
   investments: InvestmentLike[];
   categoryGoals: CategoryGoalEvaluation[];
   month: string;
+  monthlyIncomeByCategory?: Record<string, number>;
 }): GoalOverview {
   const contributionByGoal = new Map<string, number>();
   const contributionThisMonthByGoal = new Map<string, number>();
@@ -53,7 +58,13 @@ export function computeGoalOverview(input: {
     : null;
   const donation = donationGoals.length
     ? mean(donationGoals.map((goal) => {
-      const monthlyTarget = goal.donation_mode === "fixed" ? Number(goal.monthly_target || 0) : Number(goal.target_amount || 0);
+      const incomes = input.monthlyIncomeByCategory ?? {};
+      const incomeBase = goal.donation_income_scope === "selected_categories"
+        ? (goal.donation_income_category_ids ?? []).reduce((sum, id) => sum + Number(incomes[id] || 0), 0)
+        : Object.values(incomes).reduce((sum, value) => sum + Number(value || 0), 0);
+      const monthlyTarget = goal.donation_mode === "income_percent"
+        ? incomeBase * Number(goal.donation_percent || 0) / 100
+        : Number(goal.monthly_target || goal.target_amount || 0);
       return clampPct((contributionThisMonthByGoal.get(goal.id) ?? 0) / Math.max(1, monthlyTarget) * 100);
     }))
     : null;

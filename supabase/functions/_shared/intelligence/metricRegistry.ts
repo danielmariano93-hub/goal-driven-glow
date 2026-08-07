@@ -10,7 +10,7 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
     minimum_sample: 3,
     include_zero_days: true,
     outlier_policy: "exclude_for_typical",
-    formula_version: "weekday.robust.v2",
+    formula_version: "weekday.behavioral-date.v3",
   },
   weekday_total_concentration: {
     key: "weekday_total_concentration",

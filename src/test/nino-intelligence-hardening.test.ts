@@ -51,8 +51,18 @@ describe("Nino Intelligence Core hardening", () => {
     const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
     expect(result.winner?.label).toBe("Sexta-feira");
     expect(result.outliers.some((row) => row.amount === 4000)).toBe(true);
-    expect(result.formula_version).toBe("weekday.robust.v2");
-    expect(metricDefinition("weekday_typical_spend")?.formula_version).toBe("weekday.robust.v2");
+    expect(result.formula_version).toBe("weekday.behavioral-date.v3");
+    expect(metricDefinition("weekday_typical_spend")?.formula_version).toBe("weekday.behavioral-date.v3");
+  });
+
+  it("não atribui postagem bancária de baixa confiança à segunda-feira", () => {
+    const rows = [
+      { ...tx("m1", "2026-06-08", 200), behavioral_day: "2026-06-08", behavior_date_source: "bank_posting_date", behavior_date_confidence: 0.35 },
+      { ...tx("f1", "2026-06-05", 90), behavioral_day: "2026-06-05", behavior_date_source: "automation_timestamp", behavior_date_confidence: 1 },
+    ];
+    const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
+    expect(result.excluded_low_confidence).toBe(1);
+    expect(result.weekdays.find((day) => day.label === "Segunda-feira")?.total).toBe(0);
   });
 
   it("roteia gráficos de categoria e de padrão semanal sem depender da LLM", () => {

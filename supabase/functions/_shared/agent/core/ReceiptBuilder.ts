@@ -18,6 +18,7 @@ export function buildReceipt(kind: ReceiptKind, result: any): string {
   if (kind === "goal_contribution") return `Aporte registrado: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
   if (kind === "shared_goal_create") return `Meta conjunta criada: ${result?.title ?? ""}. ✅`;
   if (kind === "shared_goal_contribution") return `Contribuição registrada em meta conjunta: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
+  if (kind === "shared_expense") return `Rolê criado: ${result?.title ?? ""}, total de ${NUM_BR.format(Number(result?.total ?? 0))}. ✅`;
   if (kind === "debt") return `Dívida registrada: ${result?.name}. ✅`;
   return "Pronto, registrei. ✅";
 

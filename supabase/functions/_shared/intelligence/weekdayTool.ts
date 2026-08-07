@@ -16,7 +16,7 @@ export async function executeWeekdayPattern(args: {
   d.setUTCDate(d.getUTCDate() - args.query.period.value * 7 + 1);
   const from = d.toISOString().slice(0, 10);
   const { data, error } = await args.sb.from("transactions")
-    .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+    .select("id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
     .eq("user_id", args.user_id)
     .gte("occurred_at", from)
     .lte("occurred_at", to)

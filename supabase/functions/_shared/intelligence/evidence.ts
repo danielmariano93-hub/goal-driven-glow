@@ -58,5 +58,8 @@ export function composeWeekdayPatternReply(result: WeekdayPatternResult, query: 
       : ` Já ${total.label} lidera no valor total (${total.share_pct}%), uma métrica diferente do comportamento habitual.`;
   }
   if (result.limitations.length) answer += ` ${result.limitations[0]}`;
+  if (result.excluded_low_confidence > 0) {
+    answer += ` Desconsiderei ${result.excluded_low_confidence} lançamento${result.excluded_low_confidence > 1 ? "s" : ""} cuja data parece ser apenas a postagem bancária, para não atribuir ao dia errado.`;
+  }
   return answer;
 }

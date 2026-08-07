@@ -23,10 +23,7 @@ describe("P0 — contratos operacionais do admin", () => {
   });
 
   it("consulta o nome canônico das recorrências nos dois motores", () => {
-    for (const path of [
-      "supabase/functions/_shared/agent/core/ProactiveEngine.ts",
-      "supabase/functions/_shared/agent/core/ProactiveEngineV2.ts",
-    ]) {
+    for (const path of ["supabase/functions/_shared/agent/core/ProactiveEngineV2.ts"]) {
       const content = source(path);
       expect(content).toContain("recurring_rules(name");
       expect(content).not.toContain("recurring_rules(description");

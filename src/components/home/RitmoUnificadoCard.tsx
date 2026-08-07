@@ -39,7 +39,7 @@ function Comparison({ trend, deltaPct, deltaAmount }: { trend: Trend; deltaPct: 
   if (Math.abs(deltaPct) < 1) return <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Minus /> Ritmo estável</span>;
   const higher = trend === "up";
   const Icon = higher ? ArrowUpRight : ArrowDownRight;
-  return <span className={`inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${higher ? "text-destructive" : "text-success"}`}><Icon weight="bold" /> {formatBRL(Math.abs(deltaAmount))} {higher ? "acima" : "abaixo"}</span>;
+  return <span className={`inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${higher ? "text-destructive" : "text-success"}`}><Icon weight="bold" /> {formatBRL(Math.abs(deltaAmount))} {higher ? "acima" : "abaixo"} do período anterior</span>;
 }
 
 function ChartDetail({ active, payload, mode }: { active?: boolean; payload?: Array<{ payload: ChartRow }>; mode?: SeriesMode }) {
@@ -52,7 +52,7 @@ function ChartDetail({ active, payload, mode }: { active?: boolean; payload?: Ar
       <p className="mt-1 text-muted-foreground">Gasto real: <strong className="text-foreground">{formatBRL(row.grossAmount)}</strong></p>
       <p className="text-muted-foreground">Ritmo típico: <strong className="text-foreground">{formatBRL(row.typicalAmount)}</strong></p>
       {row.previousDate && row.previousAmount != null ? <p className="mt-1 text-muted-foreground">Período anterior · {shortDay(row.previousDate)}: <strong className="text-foreground">{formatBRL(row.previousAmount)}</strong></p> : null}
-      {difference != null ? <p className="text-muted-foreground">Diferença: <strong className="text-foreground">{difference > 0 ? "+" : ""}{formatBRL(difference)}</strong></p> : null}
+      {difference != null ? <p className="text-muted-foreground">Diferença em {mode === "all" ? "todos os gastos" : "ritmo típico"}: <strong className="text-foreground">{difference > 0 ? "+" : ""}{formatBRL(difference)}</strong></p> : null}
       {row.exclusionLabel ? <p className="mt-1 text-muted-foreground">Fora do ritmo típico: {row.exclusionLabel}</p> : null}
       {row.refundAmount > 0 ? <p className="mt-1 text-muted-foreground">Reembolsos: {formatBRL(row.refundAmount)}</p> : null}
       <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">Série exibida: {mode === "all" ? "todos os gastos" : "ritmo típico"}</p>
@@ -117,7 +117,7 @@ export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error
           <h2 className="mt-0.5 font-display text-base font-bold leading-5 text-foreground">Seu ritmo de gastos</h2>
           {loading ? <div className="mt-2 h-7 w-32 animate-pulse rounded bg-secondary" /> : <p className="mt-2 font-display text-2xl font-bold leading-7 tabular-nums text-foreground">{headlineAverage != null ? formatBRL(headlineAverage) : "—"}<span className="font-interface text-[11px] font-semibold text-muted-foreground">/dia</span></p>}
           <div className="mt-1"><Comparison trend={trend} deltaPct={deltaPct} deltaAmount={averageDelta} /></div>
-          {typicalPace > 0 ? <p className="mt-1.5 text-[11px] text-muted-foreground">Padrão habitual: <strong className="text-foreground">{formatBRL(typicalPace)}/dia</strong></p> : <p className="mt-1.5 text-[11px] text-muted-foreground">Ainda estamos aprendendo seu padrão habitual.</p>}
+          {typicalPace > 0 ? <p className="mt-1.5 text-[11px] text-muted-foreground">Referência histórica: <strong className="text-foreground">{formatBRL(typicalPace)}/dia</strong> <span className="block">(janela maior; não é a base da comparação acima)</span></p> : <p className="mt-1.5 text-[11px] text-muted-foreground">Ainda estamos aprendendo sua referência histórica.</p>}
           {atypicalDays.length > 0 ? <p className="mt-1.5 text-[11px] text-muted-foreground">{atypicalDays.length} dia{atypicalDays.length > 1 ? "s" : ""} atípico{atypicalDays.length > 1 ? "s" : ""} fora do ritmo típico.</p> : null}
           {partial ? <p className="mt-1.5 text-[11px] text-muted-foreground">Comparação parcial enquanto atualizamos algumas fontes.</p> : null}
         </div>

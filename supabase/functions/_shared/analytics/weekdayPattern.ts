@@ -1,7 +1,13 @@
 import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
 import type { ConfidenceLevel } from "../intelligence/contracts.ts";
+import { resolveBehavioralDate } from "./behavioralDate.ts";
 
-export type WeekdayTransaction = TransactionRow & { occurred_at: string };
+export type WeekdayTransaction = TransactionRow & {
+  occurred_at: string;
+  behavioral_day?: string | null;
+  behavior_date_source?: string | null;
+  behavior_date_confidence?: number | string | null;
+};
 
 export type WeekdayMetricRow = {
   weekday: number;
@@ -32,6 +38,7 @@ export type WeekdayPatternResult = {
   ticket_winner: WeekdayMetricRow | null;
   weekdays: WeekdayMetricRow[];
   outliers: Array<{ date: string; weekday: number; label: string; amount: number }>;
+  excluded_low_confidence: number;
   exclusions: string[];
   limitations: string[];
 };
@@ -81,8 +88,11 @@ export function computeWeekdayPattern(args: {
 }): WeekdayPatternResult {
   const requestedWeeks = Math.max(4, Math.min(52, Number(args.weeks ?? 12)));
   const requestedFrom = addDays(args.to, -(requestedWeeks * 7) + 1);
-  const valid = args.transactions
-    .map(t => ({ ...t, occurred_at: String(t.occurred_at).slice(0, 10), amount: Number(t.amount || 0) }))
+  const resolved = args.transactions.map(t => ({ t, date: resolveBehavioralDate(t) }));
+  const excludedLowConfidence = resolved.filter(({ date }) => !date.eligibleForBehavior).length;
+  const valid = resolved
+    .filter(({ date }) => date.eligibleForBehavior)
+    .map(({ t, date }) => ({ ...t, occurred_at: date.day, amount: Number(t.amount || 0) }))
     .filter(t => t.occurred_at >= requestedFrom && t.occurred_at <= args.to)
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 
@@ -176,7 +186,7 @@ export function computeWeekdayPattern(args: {
 
   return {
     metric_key: "weekday_typical_spend",
-    formula_version: "weekday.robust.v2",
+    formula_version: "weekday.behavioral-date.v3",
     period: { from, to: args.to, weeks_observed: round2(weeksObserved) },
     sample_size: activeDays,
     confidence,
@@ -186,12 +196,14 @@ export function computeWeekdayPattern(args: {
     ticket_winner: ticketRank[0] ?? null,
     weekdays,
     outliers,
+    excluded_low_confidence: excludedLowConfidence,
     exclusions: [
       "transferências internas",
       "aplicações, resgates e rendimentos",
       "pagamento de fatura",
       "movimentos planejados ou cancelados",
       "picos altos separados da métrica de comportamento típico",
+      "lançamentos cuja única data disponível é a data bancária de postagem",
     ],
     limitations,
   };
