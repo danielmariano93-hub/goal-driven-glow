@@ -81,10 +81,11 @@ export async function runTool(
       const duration_ms = Date.now() - started;
       if (r.ok) return { tool_name, args, ok: true, result: r.result, error: null, duration_ms, retries: attempt };
       // Tool returned {ok:false}: transient errors get one retry, others bubble up.
-      lastErr = new Error(String(r.error ?? "tool_error"));
+      const rError = (r as { error?: string }).error;
+      lastErr = new Error(String(rError ?? "tool_error"));
       if (!isRetryable(lastErr) || attempt === maxRetries) {
         return { tool_name, args, ok: false, result: null,
-                 error: String(r.error ?? "tool_error").slice(0, 200), duration_ms, retries: attempt };
+                 error: String(rError ?? "tool_error").slice(0, 200), duration_ms, retries: attempt };
       }
     } catch (e) {
       lastErr = e;
