@@ -4,7 +4,7 @@ import {
   classifyRepairOutcome,
   decideSelfHeal,
 } from "../../supabase/functions/_shared/messaging/webhookSelfHeal";
-import { compareWebhookIdentity } from "../../supabase/functions/_shared/messaging/waha";
+import { compareWebhookIdentity } from "../../supabase/functions/_shared/messaging/webhookIdentity";
 
 const CORE_DIR = "supabase/functions/_shared/agent/core/";
 const EVENTS = ["message", "message.any", "message.ack", "session.status"];
