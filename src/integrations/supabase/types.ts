@@ -10205,6 +10205,94 @@ export type Database = {
           },
         ]
       }
+      whatsapp_pipeline_events: {
+        Row: {
+          agent_run_id: string | null
+          error_code: string | null
+          id: string
+          inbound_message_id: string | null
+          metadata: Json
+          occurred_at: string
+          ok: boolean
+          outbound_message_id: string | null
+          provider_message_hash: string | null
+          session: string | null
+          stage: string
+          user_id: string | null
+        }
+        Insert: {
+          agent_run_id?: string | null
+          error_code?: string | null
+          id?: string
+          inbound_message_id?: string | null
+          metadata?: Json
+          occurred_at?: string
+          ok?: boolean
+          outbound_message_id?: string | null
+          provider_message_hash?: string | null
+          session?: string | null
+          stage: string
+          user_id?: string | null
+        }
+        Update: {
+          agent_run_id?: string | null
+          error_code?: string | null
+          id?: string
+          inbound_message_id?: string | null
+          metadata?: Json
+          occurred_at?: string
+          ok?: boolean
+          outbound_message_id?: string | null
+          provider_message_hash?: string | null
+          session?: string | null
+          stage?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_pipeline_events_agent_run_id_fkey"
+            columns: ["agent_run_id"]
+            isOneToOne: false
+            referencedRelation: "agent_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_pipeline_events_inbound_message_id_fkey"
+            columns: ["inbound_message_id"]
+            isOneToOne: false
+            referencedRelation: "inbound_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_pipeline_events_outbound_message_id_fkey"
+            columns: ["outbound_message_id"]
+            isOneToOne: false
+            referencedRelation: "outbound_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_pipeline_events_outbound_message_id_fkey"
+            columns: ["outbound_message_id"]
+            isOneToOne: false
+            referencedRelation: "v_outbound_sla_breach"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_pipeline_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_pipeline_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       xp_events: {
         Row: {
           id: string
@@ -11373,6 +11461,7 @@ export type Database = {
         Args: { _feedback: string; _insight_id: string }
         Returns: undefined
       }
+      my_whatsapp_channel_health_v1: { Args: never; Returns: Json }
       nino_assemble_diagnosis: {
         Args: { _as_of?: string; _run_mode?: string; _user_id: string }
         Returns: string
