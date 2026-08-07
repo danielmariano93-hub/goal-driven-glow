@@ -43,6 +43,8 @@ export interface TransactionRow {
   settles_card_id?: string | null;
   /** Kind of movement — usado para excluir transferências internas e movimentações de investimento dos totais mensais. */
   movement_kind?: string | null;
+  /** Ativo explicitamente escolhido para aplicações/resgates. */
+  investment_id?: string | null;
 }
 
 /**
@@ -121,6 +123,7 @@ export interface DebtRow {
   outstanding_balance: number;
   original_amount: number;
   installment_amount?: number | null;
+  due_day?: number | null;
   status: string;
 }
 
@@ -625,7 +628,7 @@ export interface AvailableUntilInput {
   snapshots?: AccountBalanceSnapshotRow[];
   endDate: string; // inclusive YYYY-MM-DD
   today?: Date;
-  /** Dívida oficial de cartão (card_exposure.v1). Quando informada, tem
+  /** Dívida oficial de cartão (card_exposure.v2). Quando informada, tem
    *  precedência absoluta sobre a estimativa por transações. */
   cardDebtOverride?: number | null;
 }
@@ -673,74 +676,6 @@ export function computeAvailableUntil(input: AvailableUntilInput): AvailableUnti
     recurringOut: round2(recurringOut),
     cardsOwed: round2(cardsOwed),
     available,
-  };
-}
-
-export interface BeforeSpendingInput {
-  amount: number;
-  accountId?: string | null;
-  accounts: AccountRow[];
-  txs: TransactionRow[];
-  recurring: RecurringRow[];
-  debts: DebtRow[];
-  goals: GoalRow[];
-  contributions: GoalContributionRow[];
-  horizonDays?: number;
-}
-
-export interface BeforeSpendingOutput {
-  totalCash: number;
-  accountBalance: number | null;
-  upcomingExpense: number;
-  upcomingIncome: number;
-  availableAfter: number;
-  goalsAtRisk: { id: string; name: string; remaining: number }[];
-  assumptions: string[];
-  missingData: string[];
-}
-
-export function computeBeforeSpending(input: BeforeSpendingInput): BeforeSpendingOutput {
-  const { amount, accountId, accounts, txs, recurring, debts, goals, contributions } = input;
-  const horizonDays = input.horizonDays ?? 30;
-  const balances = computeAccountBalances(accounts, txs);
-  const totalCash = round2(Object.values(balances).reduce((a, b) => a + b, 0));
-  const accountBalance = accountId ? balances[accountId] ?? 0 : null;
-  const upcoming = computeUpcomingCommitments(recurring, txs, horizonDays);
-  const activeDebts = sumBy(
-    debts.filter((d) => d.status === "active"),
-    (d) => Number(d.outstanding_balance)
-  );
-  const availableAfter = round2(totalCash - amount - upcoming.totalExpense + upcoming.totalIncome);
-
-  const goalsAtRisk: { id: string; name: string; remaining: number }[] = [];
-  for (const g of goals.filter((x) => x.status === "active")) {
-    const { remaining } = computeGoalProgress(g, contributions);
-    if (remaining > 0 && availableAfter < remaining * 0.1) {
-      goalsAtRisk.push({ id: g.id, name: g.name, remaining });
-    }
-  }
-
-  const assumptions: string[] = [
-    `Saldo total considera todas as contas ativas (${accounts.filter((a) => a.active).length}).`,
-    `Compromissos considerados no horizonte de ${horizonDays} dias.`,
-    "Transferências entre contas não afetam o saldo total.",
-  ];
-  const missingData: string[] = [];
-  if (accounts.length === 0) missingData.push("Nenhuma conta cadastrada — o cálculo usa saldo zero.");
-  if (recurring.length === 0) missingData.push("Nenhuma recorrência cadastrada — compromissos futuros podem estar subestimados.");
-  if (activeDebts > 0 && debts.every((d) => !d.installment_amount)) {
-    missingData.push("Dívidas ativas sem parcela informada — impacto mensal não estimado.");
-  }
-
-  return {
-    totalCash,
-    accountBalance,
-    upcomingExpense: upcoming.totalExpense,
-    upcomingIncome: upcoming.totalIncome,
-    availableAfter,
-    goalsAtRisk,
-    assumptions,
-    missingData,
   };
 }
 

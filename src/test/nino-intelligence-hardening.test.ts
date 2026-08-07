@@ -30,15 +30,16 @@ describe("Nino Intelligence Core hardening", () => {
     expect(query?.correction).toBe(true);
   });
 
-  it("não transforma histórico esparso em padrão confiável", () => {
+  it("rotula histórico esparso como sinal preliminar, nunca como padrão confiável", () => {
     const rows = [
       tx("f1", "2026-05-08", 120),
       tx("f2", "2026-06-12", 150),
       tx("w1", "2026-05-06", 80),
     ];
     const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
-    expect(result.winner).toBeNull();
+    expect(result.winner?.label).toBe("Sexta-feira");
     expect(result.confidence).toBe("insufficient");
+    expect(result.provisional).toBe(true);
   });
 
   it("separa um pico alto usando apenas os dias ativos", () => {
@@ -51,8 +52,8 @@ describe("Nino Intelligence Core hardening", () => {
     const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
     expect(result.winner?.label).toBe("Sexta-feira");
     expect(result.outliers.some((row) => row.amount === 4000)).toBe(true);
-    expect(result.formula_version).toBe("weekday.behavioral-date.v3");
-    expect(metricDefinition("weekday_typical_spend")?.formula_version).toBe("weekday.behavioral-date.v3");
+    expect(result.formula_version).toBe("weekday.behavioral-date.v4");
+    expect(metricDefinition("weekday_typical_spend")?.formula_version).toBe("weekday.behavioral-date.v4");
   });
 
   it("não atribui postagem bancária de baixa confiança à segunda-feira", () => {

@@ -366,7 +366,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     next_due_date: String(rule.start_date ?? todayIsoSP),
     active: rule.status === "active",
   }));
-  // Agenda canônica (commitment_agenda.v1) — faturas, parcelas, recorrências,
+  // Agenda canônica (commitment_agenda.v2) — faturas, parcelas, recorrências,
   // planejados e dívidas, com deduplicação. Mesma fonte da Home.
   const agendaBase = {
     recurring: normalizedRecurringRules as never,

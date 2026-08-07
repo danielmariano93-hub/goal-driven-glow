@@ -136,10 +136,10 @@ export const MOVEMENT_SEMANTICS: Record<string, MovementSemantics> = {
     explanation: "Saiu do investimento e entrou na conta. Seu patrimônio não muda.",
   },
   investment_yield: {
-    cashImpact: 0, performanceImpact: 0, investmentImpact: 1, debtImpact: 0, netWorthImpact: 1,
+    cashImpact: 1, performanceImpact: 0, investmentImpact: 0, debtImpact: 0, netWorthImpact: 1,
     bridgeLine: "investment_yield_cash",
-    label: "Rendimento",
-    explanation: "Ganho do investimento. Aumenta seu patrimônio sem ser receita da rotina.",
+    label: "Rendimento creditado",
+    explanation: "Rendimento pago na conta. Aumenta caixa e patrimônio, sem virar receita da rotina nem alterar o principal do ativo.",
   },
   loan_proceeds: {
     cashImpact: 1, performanceImpact: 0, investmentImpact: 0, debtImpact: 1, netWorthImpact: 0,
@@ -520,6 +520,8 @@ export interface NetWorthBridgeInput extends CashBridgeInput {
   debts: DebtRow[];
   /** Movimentos de investimento do período (aplicação/resgate/rendimento). */
   investmentMovements?: Array<{ type: string; amount: number; occurred_at: string }>;
+  /** Dívida canônica de cartão calculada por cardExposure.v2. */
+  cardDebtOverride?: number | null;
 }
 
 export interface NetWorthBridge {
@@ -556,7 +558,9 @@ export function computeNetWorthBridge(input: NetWorthBridgeInput): NetWorthBridg
   const closingInvestments = round2(
     input.investments.reduce((a, i) => a + Number(i.current_value || 0), 0),
   );
-  const cardsOwed = computeCreditCardOutstanding(input.txs);
+  const cardsOwed = input.cardDebtOverride == null
+    ? computeCreditCardOutstanding(input.txs)
+    : round2(Number(input.cardDebtOverride));
   const otherDebts = round2(
     input.debts.filter((d) => d.status === "active").reduce((a, d) => a + Number(d.outstanding_balance || 0), 0),
   );
@@ -587,6 +591,7 @@ export function computeNetWorthBridge(input: NetWorthBridgeInput): NetWorthBridg
   const explained = round2(
     perf.operationalResult
     + investmentReturn
+    + cash.investmentYieldCash
     - cash.debtInterestAndFees
     + cash.externalTransfersIn
     - cash.externalTransfersOut

@@ -328,10 +328,11 @@ export function useSaveTransaction() {
   return useMutation({
     mutationFn: async (input: TransactionInput & { id?: string }) => {
       if (!user) throw new Error("not authenticated");
-      const inferred = input.category_id ? null : await classifyTransaction({
+      const classifiable = ["transaction", "refund", "fee", "interest"].includes(input.movement_kind);
+      const inferred = input.category_id || !classifiable ? null : await classifyTransaction({
         type: input.type,
         description: input.description || null,
-        movement_kind: "transaction",
+        movement_kind: input.movement_kind,
       }).catch((error) => {
         console.warn("[category-engine] classification fallback", error);
         return null;
@@ -361,17 +362,23 @@ export function useSaveTransaction() {
         user_id: user.id,
         account_id: input.payment_method === "credit_card" ? null : input.account_id,
         credit_card_id: input.payment_method === "credit_card" ? input.credit_card_id : null,
+        investment_id: input.investment_id || null,
         payment_method: input.payment_method,
-        category_id: input.category_id || inferredCategory || null,
-        category_source: input.category_id ? "user" : (inferredCategory ? inferred?.category_source : null),
-        category_confidence: input.category_id ? 1 : (inferredCategory ? inferred?.category_confidence : null),
-        category_reason: input.category_id ? "escolha explícita" : (inferredCategory ? inferred?.category_reason : null),
-        category_engine_version: inferred?.engine_version ?? null,
-        category_classified_at: inferred ? new Date().toISOString() : null,
+        category_id: classifiable ? input.category_id || inferredCategory || null : null,
+        category_source: classifiable ? (input.category_id ? "user" : (inferredCategory ? inferred?.category_source : null)) : null,
+        category_confidence: classifiable ? (input.category_id ? 1 : (inferredCategory ? inferred?.category_confidence : null)) : null,
+        category_reason: classifiable ? (input.category_id ? "escolha explícita" : (inferredCategory ? inferred?.category_reason : null)) : null,
+        category_engine_version: classifiable ? inferred?.engine_version ?? null : null,
+        category_classified_at: classifiable && inferred ? new Date().toISOString() : null,
         type: input.type,
+        movement_kind: input.movement_kind,
         status: input.status,
         amount: input.amount,
         occurred_at: input.occurred_at,
+        // Lançamento manual já representa a data em que o dinheiro efetivamente
+        // entrou/saiu. Isso evita que o motor de caixa trate a data como inferida.
+        posted_at: input.payment_method === "account" ? input.occurred_at : null,
+        posted_at_source: input.payment_method === "account" ? "manual" : null,
         purchase_date: input.payment_method === "credit_card" ? (input.purchase_date ?? input.occurred_at) : null,
         installments_total: input.payment_method === "credit_card" ? input.installments_total : null,
         installment_number: input.payment_method === "credit_card" ? input.installment_number : null,
@@ -380,7 +387,7 @@ export function useSaveTransaction() {
         ...(competence_date ? { competence_date } : {}),
       };
       const SELECT_COLS =
-        "id, purchase_date, competence_date, movement_kind, credit_card_id, account_id, status, type, amount, occurred_at, payment_method, category_id, description, notes, installments_total, installment_number";
+        "id, purchase_date, competence_date, movement_kind, investment_id, credit_card_id, account_id, status, type, amount, occurred_at, posted_at, posted_at_source, payment_method, category_id, description, notes, installments_total, installment_number";
       let saved: Record<string, unknown> | null = null;
       if (input.id) {
         const { data, error } = await supabase

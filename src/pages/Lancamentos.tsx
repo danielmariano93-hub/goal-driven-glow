@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import {
   useAccounts,
   useCategories,
+  useInvestments,
   useTransactions,
   useSaveTransaction,
   useDeleteTransaction,
@@ -17,7 +18,7 @@ import {
 import { useCreditCards } from "@/lib/db/creditCards";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { transactionSchema, transferSchema } from "@/lib/validation/finance";
+import { transactionSchema, transferSchema, type TransactionMovementKind } from "@/lib/validation/finance";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import {
   DropdownMenu,
@@ -83,6 +84,7 @@ export default function Lancamentos() {
   const qc = useQueryClient();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
+  const { data: investments } = useInvestments();
   const [filters, setFilters] = useState<PersistedFilters>(() => {
     // Deep links de metas, dicas e situações do Nino prevalecem sobre os filtros
     // persistidos para levar o usuário exatamente à pendência citada.
@@ -691,6 +693,7 @@ export default function Lancamentos() {
           accounts={accounts ?? []}
           cards={(cards ?? []).filter((card) => card.active)}
           categories={categories ?? []}
+          investments={(investments ?? []).map((item) => ({ id: item.id, name: item.name, current_value: Number(item.current_value) }))}
           saving={save.isPending}
           onClose={() => setOpenTx(false)}
           onSubmit={(v) =>
@@ -849,17 +852,22 @@ export default function Lancamentos() {
 // ============================================================
 
 function TxModal({
-  initial, accounts, cards, categories, saving, onClose, onSubmit,
+  initial, accounts, cards, categories, investments, saving, onClose, onSubmit,
 }: {
   initial: TransactionRow | null;
   accounts: { id: string; name: string }[];
   cards: { id: string; name: string }[];
   categories: { id: string; name: string; type: "income" | "expense" }[];
+  investments: { id: string; name: string; current_value: number }[];
   saving: boolean;
   onClose: () => void;
   onSubmit: (v: ReturnType<typeof transactionSchema.parse>) => void;
 }) {
   const [type, setType] = useState<"income" | "expense">((initial?.type as "income" | "expense") ?? "expense");
+  const [movementKind, setMovementKind] = useState<TransactionMovementKind>(
+    (initial?.movement_kind as TransactionMovementKind) ?? "transaction",
+  );
+  const [investmentId, setInvestmentId] = useState(initial?.investment_id ?? "");
   const [accountId, setAccountId] = useState(initial?.account_id ?? accounts[0]?.id ?? "");
   const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card">(
     initial?.payment_method === "credit_card" ? "credit_card" : "account"
@@ -875,21 +883,41 @@ function TxModal({
   const [error, setError] = useState<string | null>(null);
 
   void categories; // filtrado dentro do CategorySelect
+  const allowsCard = type === "expense" && movementKind === "transaction";
+  const isInvestmentMovement = movementKind === "investment_application" || movementKind === "investment_redemption";
+  const classifiable = ["transaction", "refund", "fee", "interest"].includes(movementKind);
+  const movementOptions: Array<{ value: TransactionMovementKind; label: string }> = type === "income"
+    ? [
+        { value: "transaction", label: "Receita da rotina" },
+        { value: "investment_redemption", label: "Resgate de investimento" },
+        { value: "investment_yield", label: "Rendimento creditado na conta" },
+        { value: "refund", label: "Estorno ou reembolso" },
+        { value: "external_transfer_in", label: "Transferência recebida (não é renda)" },
+      ]
+    : [
+        { value: "transaction", label: "Gasto da rotina" },
+        { value: "investment_application", label: "Aplicação em investimento" },
+        { value: "external_transfer_out", label: "Transferência enviada (não é gasto)" },
+        { value: "fee", label: "Tarifa" },
+        { value: "interest", label: "Juros" },
+      ];
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = transactionSchema.safeParse({
-      payment_method: type === "income" ? "account" : paymentMethod,
-      account_id: type === "income" || paymentMethod === "account" ? accountId : null,
-      credit_card_id: type === "expense" && paymentMethod === "credit_card" ? creditCardId : null,
+      payment_method: allowsCard ? paymentMethod : "account",
+      account_id: !allowsCard || paymentMethod === "account" ? accountId : null,
+      credit_card_id: allowsCard && paymentMethod === "credit_card" ? creditCardId : null,
       category_id: categoryId || null,
+      movement_kind: movementKind,
+      investment_id: isInvestmentMovement ? investmentId || null : null,
       type,
       status,
       amount: Number(amount.replace(",", ".")),
       occurred_at: occurredAt,
-      purchase_date: type === "expense" && paymentMethod === "credit_card" ? occurredAt : null,
-      installments_total: type === "expense" && paymentMethod === "credit_card" ? installmentsTotal : 1,
-      installment_number: type === "expense" && paymentMethod === "credit_card" ? installmentNumber : 1,
+      purchase_date: allowsCard && paymentMethod === "credit_card" ? occurredAt : null,
+      installments_total: allowsCard && paymentMethod === "credit_card" ? installmentsTotal : 1,
+      installment_number: allowsCard && paymentMethod === "credit_card" ? installmentNumber : 1,
       description,
     });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Dados inválidos"); return; }
@@ -902,8 +930,23 @@ function TxModal({
         <h2 className="font-display text-lg font-bold">{initial ? "Editar lançamento" : "Novo lançamento"}</h2>
         <div className="mt-4 space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setType("expense")} className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "expense" ? "border-destructive bg-destructive/10 text-destructive" : "border-border bg-background text-muted-foreground"}`}>Despesa</button>
-            <button type="button" onClick={() => setType("income")} className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "income" ? "border-success bg-success/10 text-success" : "border-border bg-background text-muted-foreground"}`}>Receita</button>
+            <button type="button" onClick={() => { setType("expense"); setMovementKind("transaction"); setCategoryId(""); }} className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "expense" ? "border-destructive bg-destructive/10 text-destructive" : "border-border bg-background text-muted-foreground"}`}>Saída</button>
+            <button type="button" onClick={() => { setType("income"); setMovementKind("transaction"); setPaymentMethod("account"); setCategoryId(""); }} className={`rounded-xl border px-3 py-2 text-sm font-medium ${type === "income" ? "border-success bg-success/10 text-success" : "border-border bg-background text-muted-foreground"}`}>Entrada</button>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">O que este movimento representa?</label>
+            <select
+              value={movementKind}
+              onChange={(event) => {
+                const next = event.target.value as TransactionMovementKind;
+                setMovementKind(next);
+                if (next !== "transaction") setPaymentMethod("account");
+              }}
+              className="input-base"
+            >
+              {movementOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            {movementKind !== "transaction" ? <p className="mt-1 text-[11px] leading-snug text-muted-foreground">Essa natureza concilia caixa e patrimônio sem distorcer receita ou gasto da rotina.</p> : null}
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium">
@@ -916,13 +959,23 @@ function TxModal({
               </p>
             )}
           </div>
-          {type === "expense" && cards.length > 0 ? (
+          {allowsCard && cards.length > 0 ? (
             <div>
               <label className="mb-1 block text-xs font-medium">De onde saiu?</label>
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setPaymentMethod("account")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "account" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Conta</button>
                 <button type="button" onClick={() => setPaymentMethod("credit_card")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "credit_card" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Cartão de crédito</button>
               </div>
+            </div>
+          ) : null}
+          {isInvestmentMovement ? (
+            <div>
+              <label className="mb-1 block text-xs font-medium">Investimento relacionado</label>
+              <select value={investmentId} onChange={(event) => setInvestmentId(event.target.value)} className="input-base">
+                <option value="">Selecione o ativo</option>
+                {investments.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatBRL(item.current_value)}</option>)}
+              </select>
+              {investments.length === 0 ? <p className="mt-1 text-[11px] text-destructive">Cadastre primeiro o investimento na aba Patrimônio.</p> : null}
             </div>
           ) : null}
           {(type === "income" || paymentMethod === "account") ? (
@@ -941,7 +994,7 @@ function TxModal({
               </select>
             </div>
           )}
-          {type === "expense" && paymentMethod === "credit_card" && (
+          {allowsCard && paymentMethod === "credit_card" && (
             <div className="rounded-xl border border-border bg-secondary/30 p-3">
               <p className="text-xs font-medium">Parcelamento</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">Informe 1/1 para compra à vista. O valor acima é sempre o valor da parcela.</p>
@@ -980,10 +1033,10 @@ function TxModal({
               )}
             </div>
           )}
-          <div>
+          {classifiable ? <div>
             <label className="mb-1 block text-xs font-medium">Categoria</label>
             <CategorySelect value={categoryId || null} onChange={(id) => setCategoryId(id ?? "")} type={type} />
-          </div>
+          </div> : null}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="mb-1 block text-xs font-medium">Data</label>

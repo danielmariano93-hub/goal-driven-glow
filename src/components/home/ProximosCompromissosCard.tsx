@@ -41,7 +41,7 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
       {loading ? <div className="mt-4 h-24 animate-pulse rounded-2xl bg-muted" /> : availability === "unavailable" ? (
         <div className="mt-4">
           <p className="text-sm text-muted-foreground">Ainda não conseguimos verificar seus compromissos.</p>
-          <Button asChild variant="ghost" className="mt-2 min-h-11 px-0 text-primary"><Link to="/app/recorrencias">Revisar informações <ArrowRight /></Link></Button>
+          <Button asChild variant="ghost" className="mt-2 min-h-11 px-0 text-primary"><Link to="/app/compromissos">Revisar informações <ArrowRight /></Link></Button>
         </div>
       ) : visible.length === 0 ? (
         <p className="mt-2.5 text-[13px] leading-[19px] text-muted-foreground">Não identificamos compromissos com data nos próximos 30 dias.</p>
@@ -68,7 +68,7 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
       )}
 
       {availability === "partial" ? <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><CreditCard size={16} /> Alguns dados ainda estão sendo atualizados.</p> : null}
-      <Button asChild variant="ghost" size="sm" className="mt-1 min-h-10 w-full justify-between px-0 text-[13px] text-primary"><Link to="/app/recorrencias">Ver todos os compromissos <ArrowRight /></Link></Button>
+      <Button asChild variant="ghost" size="sm" className="mt-1 min-h-10 w-full justify-between px-0 text-[13px] text-primary"><Link to="/app/compromissos">Ver todos os compromissos <ArrowRight /></Link></Button>
     </section>
   );
 }

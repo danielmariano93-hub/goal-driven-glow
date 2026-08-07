@@ -3,7 +3,7 @@
 /**
  * FONTE CANÔNICA — Exposição financeira de cartão de crédito.
  * =========================================================
- * Versão da fórmula: `card_exposure.v1`.
+ * Versão da fórmula: `card_exposure.v2`.
  *
  * Cinco números distintos, nunca intercambiáveis:
  *  1. `cardSpendInPeriod`            — compras no período (data econômica). Histórico, NÃO é dívida.
@@ -22,7 +22,7 @@
  */
 import { round2 } from "./facts.ts";
 
-export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
+export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v2";
 /** Ciclo real por fechamento/vencimento (Onda 2). */
 export const CARD_CYCLE_VERSION = "card_cycle.v2";
 
@@ -215,6 +215,21 @@ const DEAD_INSTALLMENTS = new Set(["paid", "refunded", "cancelled", "reversed", 
 
 const emptyFigure = (): StatementFigure => ({ amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 });
 
+/**
+ * Uma linha vazia/draft criada como placeholder não pode esconder parcelas já
+ * contratadas. Só tratamos a fatura como documento financeiro autoritativo
+ * quando ela está liquidada/fechada ou contém algum valor efetivamente
+ * informado. Isso preserva a precedência do documento sem transformar
+ * "ausência de informação" em zero.
+ */
+export function isAuthoritativeCardStatement(statement: CardStatementRow): boolean {
+  const status = String(statement.status ?? "").toLowerCase();
+  if (SETTLED_STATUSES.has(status) || CLOSED_STATUSES.has(status)) return true;
+  return Math.abs(Number(statement.stated_total ?? 0)) > 0.005
+    || Math.abs(Number(statement.outstanding_amount ?? 0)) > 0.005
+    || Math.abs(Number(statement.paid_amount ?? 0)) > 0.005;
+}
+
 export function nextCompetence(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   if (!y || !m) return ym;
@@ -358,12 +373,18 @@ export function computeCardExposure(input: {
       if (ym) byYM.set(ym, s);
     }
 
-    const currentRow = byYM.get(currentYM);
+    const currentCandidate = byYM.get(currentYM);
+    const currentRow = currentCandidate && isAuthoritativeCardStatement(currentCandidate)
+      ? currentCandidate
+      : undefined;
     const current = currentRow
       ? figureFromStatement(currentRow)
       : estimatedFigure(txs, installments, cardId, currentYM);
 
-    const nextRow = byYM.get(nextYM);
+    const nextCandidate = byYM.get(nextYM);
+    const nextRow = nextCandidate && isAuthoritativeCardStatement(nextCandidate)
+      ? nextCandidate
+      : undefined;
     const next = nextRow
       ? figureFromStatement(nextRow)
       : estimatedFigure(txs, installments, cardId, nextYM);
@@ -371,7 +392,7 @@ export function computeCardExposure(input: {
     // Última competência já fechada/paga: nada até ela pode contar como futuro.
     let lastClosedYM = "";
     for (const [ym, s] of byYM) {
-      if (CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
+      if (isAuthoritativeCardStatement(s) && CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
     }
 
     let futureInstallments = 0;
@@ -384,20 +405,22 @@ export function computeCardExposure(input: {
       if (lastClosedYM && ym <= lastClosedYM) continue; // já absorvida por fatura fechada/paga
       if (ym <= currentYM) continue; // faz parte da fatura atual, não é "futuro"
       const covering = byYM.get(ym);
-      if (covering && SETTLED_STATUSES.has((covering.status ?? "").toString())) continue;
+      if (covering && isAuthoritativeCardStatement(covering) && SETTLED_STATUSES.has((covering.status ?? "").toString())) continue;
       futureInstallments += Number(inst.amount || 0);
     }
 
     const openStatementsDebt = cardStatements.reduce((sum, s) => {
+      if (!isAuthoritativeCardStatement(s)) return sum;
       const status = (s.status ?? "").toString();
       if (SETTLED_STATUSES.has(status)) return sum;
       const fig = figureFromStatement(s);
       return sum + fig.amount;
     }, 0);
 
-    const totalCardDebt = currentRow || cardStatements.length > 0
-      ? round2(openStatementsDebt)
-      : round2(current.amount);
+    // Faturas oficiais abertas de outras competências continuam sendo dívida.
+    // Se a competência atual só possui placeholder, soma-se a reconstrução
+    // conhecida em vez de devolver zero silencioso.
+    const totalCardDebt = round2(openStatementsDebt + (currentRow ? 0 : current.amount));
 
     // Fatura em formação: ciclo em curso, por DATA DA COMPRA (nunca dívida).
     const cfg = cycleConfig.get(cardId);

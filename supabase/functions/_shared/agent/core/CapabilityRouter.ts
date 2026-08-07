@@ -70,35 +70,59 @@ function normalize(text: string): string {
 function extractAmount(text: string): number | null {
   const money = text.match(/r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i)?.[1];
   if (money) return parseBrAmount(money);
-  const afterVerb = normalize(text).match(/(?:gastar|comprar|compra|simular|simulacao|custa|valor(?: de)?)\s+(?:de\s+)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/)?.[1];
+  const afterVerb = normalize(text).match(/(?:gastar|comprar|compra|gasto|simular|simulacao|custa|valor(?: de)?)\s+(?:de\s+)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/)?.[1];
   return afterVerb ? parseBrAmount(afterVerb) : null;
+}
+
+function validISODate(value: string): string | undefined {
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    ? value
+    : undefined;
 }
 
 function extractPlannedDate(text: string): string | undefined {
   const t = normalize(text);
   const today = todaySaoPaulo();
+  if (/\bdepois de amanha\b/.test(t)) return shiftSaoPaulo(today, 2);
   if (/\bamanha\b/.test(t)) return shiftSaoPaulo(today, 1);
   if (/\bhoje\b/.test(t)) return today;
+  const inDays = Number(t.match(/\b(?:daqui a|em)\s+(\d{1,3})\s+dias?\b/)?.[1] ?? 0);
+  if (inDays > 0 && inDays <= 365) return shiftSaoPaulo(today, inDays);
   const iso = t.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1];
-  if (iso) return iso;
+  if (iso) return validISODate(iso);
   const br = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\b/);
-  if (!br) return undefined;
-  const year = br[3] ?? today.slice(0, 4);
-  return `${year}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
+  if (br) {
+    const year = br[3] ?? today.slice(0, 4);
+    return validISODate(`${year}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`);
+  }
+  const dayOnly = Number(t.match(/\b(?:no\s+)?dia\s+(\d{1,2})\b/)?.[1] ?? 0);
+  if (!dayOnly) return undefined;
+  const [currentYear, currentMonth, currentDay] = today.split("-").map(Number);
+  const base = new Date(Date.UTC(currentYear, currentMonth - 1 + (dayOnly < currentDay ? 1 : 0), 1));
+  return validISODate(`${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}-${String(dayOnly).padStart(2, "0")}`);
 }
 
 function beforeSpendingArgs(text: string): Record<string, unknown> | undefined {
   const amount = extractAmount(text);
   if (!amount) return undefined;
   const t = normalize(text);
-  const category = t.match(/\bcategoria\s+([a-z0-9 _-]{2,40}?)(?=\s+(?:no|na|em|dia|hoje|amanha|pelo|com|parcel|$)|$)/)?.[1]?.trim();
+  const explicitCategory = t.match(/\bcategoria\s+([a-z0-9 _-]{2,40}?)(?=\s+(?:no|na|dia|hoje|amanha|pelo|com|cartao|credito|parcel|$)|$)/)?.[1]?.trim();
+  const naturalCategory = t.match(/\b(?:em|para)\s+([a-z][a-z _-]{1,30}?)(?=\s+(?:hoje|amanha|dia|no|na|pelo|com|cartao|credito|parcel|pix|dinheiro|$)|$)/)?.[1]?.trim();
+  const category = explicitCategory ?? (naturalCategory && !["um", "uma", "conta", "cartao", "credito", "hoje", "amanha", "depois de amanha"].includes(naturalCategory) ? naturalCategory : undefined);
   const cardMatch = t.match(/\b(?:cartao|credito)\s+(?:do|da|de)?\s*([a-z0-9 _-]{2,30}?)(?=\s+(?:em|dia|hoje|amanha|parcel|$)|$)/)?.[1]?.trim();
   const installments = Number(t.match(/\b(\d{1,2})\s*x\b/)?.[1] ?? 1);
   return {
     amount,
     ...(category ? { category } : {}),
     ...(extractPlannedDate(text) ? { planned_date: extractPlannedDate(text) } : {}),
-    ...(/\b(cartao|credito|parcelad)/.test(t) ? { method: "card" } : { method: "cash" }),
+    ...(/\b(cartao|credito|parcelad)/.test(t)
+      ? { method: "card" }
+      : /\b(pix|dinheiro|debito|conta|a vista)\b/.test(t)
+        ? { method: "cash" }
+        : {}),
     ...(cardMatch ? { card: cardMatch } : {}),
     ...(installments > 1 ? { installments } : {}),
   };
@@ -165,21 +189,27 @@ export function classifyCapability(
     };
   }
 
-  if (/\b(minhas metas|quais metas|metas cadastradas|resumo das metas|overview das metas|como estao? as metas)\b/.test(t)) {
+  if (/\b(?:quais|liste|mostre|mostrar|mostra|resuma|resumir|como (?:estao|vao))\b.{0,40}\bmetas?\b|\bmetas?\b.{0,35}\b(?:cadastradas|minhas|progresso|atingimento|andamento)\b/.test(t)) {
     return {
       name: "goals_overview", execution: "deterministic", allowed_tools: ["get_goals_overview"],
       required_tool: "get_goals_overview", context: {}, reason: "canonical_goals_overview",
     };
   }
 
-  if (/\b(posso gastar|antes de gastar|antes de comprar|se eu gastar|simul(?:ar|e|acao).*(?:gasto|compra)|impacto.*(?:compra|gasto))\b/.test(t)) {
+  if (/\b(posso gastar|antes de gastar|antes de comprar|se eu .{0,18}(?:gastar|comprar|fizer? (?:um )?gasto)|caso eu .{0,18}(?:gaste|compre)|simul(?:ar|e|acao).*(?:gasto|compra)|impacto.*(?:compra|gasto))\b/.test(t)) {
     const args = beforeSpendingArgs(text);
+    const clarification = !args
+      ? "Qual valor você quer simular e em qual data pretende gastar?"
+      : !args.planned_date
+        ? "Em qual data você pretende fazer esse gasto? Pode dizer hoje, amanhã, dia 15 ou uma data completa."
+        : undefined;
     return {
-      name: "before_spending", execution: args ? "deterministic" : "llm_scoped",
+      name: "before_spending", execution: "deterministic",
       allowed_tools: ["run_before_spending", "list_categories", "list_credit_cards", "list_accounts"],
-      required_tool: args ? "run_before_spending" : null,
+      required_tool: clarification ? null : "run_before_spending",
       context: { metrics: true, categoryGoals: true, accounts: true, cards: true },
-      tool_args: args, reason: args ? "canonical_spending_simulation" : "simulation_missing_amount",
+      tool_args: args, clarification,
+      reason: !args ? "simulation_missing_amount" : clarification ? "simulation_missing_date" : "canonical_spending_simulation",
     };
   }
 
@@ -244,6 +274,29 @@ export function classifyCapability(
     name: "general", execution: "llm_scoped", allowed_tools: GROUPS.general,
     required_tool: null, context: { summary: true, metrics: true }, reason: "bounded_general_assistant",
   };
+}
+
+/**
+ * Retoma apenas uma simulação determinística que ficou aguardando um slot.
+ * Não concatena conversa geral: a mensagem atual precisa parecer uma resposta
+ * de data/meio de pagamento, e o turno imediatamente anterior precisa ter sido
+ * uma simulação incompleta. Assim "amanhã" completa o cálculo sem entregar o
+ * controle do contexto à LLM nem ressuscitar assuntos antigos.
+ */
+export function resumeDeterministicCapability(
+  text: string,
+  parsed: ParsedIntent,
+  previousUserText?: string | null,
+): CapabilityDecision | null {
+  if (!previousUserText) return null;
+  const slot = normalize(text);
+  const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot);
+  if (!looksLikeSlot) return null;
+  const previous = classifyCapability(previousUserText, parsed, null);
+  if (previous.name !== "before_spending" || !previous.clarification) return null;
+  const resumed = classifyCapability(`${previousUserText} ${text}`, parsed, null);
+  if (resumed.name !== "before_spending" || resumed.clarification || !resumed.required_tool) return null;
+  return { ...resumed, reason: "canonical_spending_simulation_resumed" };
 }
 
 export function capabilityPrompt(decision: CapabilityDecision): string {

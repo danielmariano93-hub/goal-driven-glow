@@ -18,11 +18,35 @@ export const categorySchema = z.object({
 });
 export type CategoryInput = z.infer<typeof categorySchema>;
 
+/**
+ * Natureza econômica canônica do lançamento. O tipo (receita/despesa) diz a
+ * direção do dinheiro; `movement_kind` diz se aquilo é resultado da rotina ou
+ * apenas uma movimentação patrimonial. Essa distinção impede que um resgate de
+ * investimento seja tratado como renda e que uma aplicação seja tratada como
+ * consumo.
+ */
+export const transactionMovementKindEnum = z.enum([
+  "transaction",
+  "refund",
+  "investment_application",
+  "investment_redemption",
+  "investment_yield",
+  "external_transfer_in",
+  "external_transfer_out",
+  "loan_proceeds",
+  "debt_payment",
+  "fee",
+  "interest",
+]);
+export type TransactionMovementKind = z.infer<typeof transactionMovementKindEnum>;
+
 export const transactionSchema = z.object({
   payment_method: z.enum(["account", "credit_card"]).default("account"),
   account_id: z.string().uuid().nullable().optional(),
   credit_card_id: z.string().uuid().nullable().optional(),
   category_id: z.string().uuid().nullable().optional(),
+  movement_kind: transactionMovementKindEnum.default("transaction"),
+  investment_id: z.string().uuid().nullable().optional(),
   type: z.enum(["income", "expense"]),
   status: z.enum(["confirmed", "planned"]).default("confirmed"),
   amount: z.number({ invalid_type_error: "Valor inválido" }).positive("Valor deve ser maior que zero"),
@@ -33,6 +57,20 @@ export const transactionSchema = z.object({
   description: z.string().trim().max(120).optional().or(z.literal("")),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
 }).superRefine((value, ctx) => {
+  const investmentMovement = value.movement_kind === "investment_application"
+    || value.movement_kind === "investment_redemption";
+  if (value.movement_kind !== "transaction" && value.payment_method === "credit_card") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["payment_method"], message: "Movimentações patrimoniais devem usar uma conta" });
+  }
+  if (investmentMovement && !value.investment_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["investment_id"], message: "Escolha o investimento relacionado" });
+  }
+  if (value.movement_kind === "investment_redemption" && value.type !== "income") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["movement_kind"], message: "Resgate deve ser registrado como entrada" });
+  }
+  if (value.movement_kind === "investment_application" && value.type !== "expense") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["movement_kind"], message: "Aplicação deve ser registrada como saída" });
+  }
   if (value.type === "income" && !value.account_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["account_id"], message: "Escolha a conta que recebeu o valor" });
   }

@@ -1,6 +1,6 @@
 # Fontes financeiras do Meu Nino — classificação canônica (E8 / D10)
 
-Última revisão: 2026-08-02 (`finance_contract.v2`).
+Última revisão: 2026-08-07 (`financial_snapshot_contract.v8`).
 
 Toda leitura ou escrita financeira nova deve usar exclusivamente tabelas
 **ativas**. Tabelas legadas, experimentais ou substituídas não podem ser
@@ -21,7 +21,7 @@ consultadas por novas telas, Edge Functions, RPCs ou tools do Nino.
 
 | Tabela | Estado | Papel |
 | --- | --- | --- |
-| `transactions` | ativa | Lançamento canônico (competência em `competence_date`, caixa em `occurred_at`). |
+| `transactions` | ativa | Lançamento canônico: competência em `competence_date`, caixa em `posted_at`/`occurred_at`, comportamento em `behavioral_day` e ativo patrimonial em `investment_id`. |
 | `accounts` | ativa | Contas de caixa/banco. |
 | `categories` | ativa | Categorias do usuário + globais. |
 | `recurring_rules`, `recurring_occurrences` | ativa | Compromissos recorrentes e suas ocorrências. |
@@ -35,7 +35,7 @@ consultadas por novas telas, Edge Functions, RPCs ou tools do Nino.
 | Tabela | Estado | Papel |
 | --- | --- | --- |
 | `credit_cards` | ativa | Cadastro do cartão. |
-| `credit_card_statements` | ativa | **Fonte oficial** da obrigação por competência (`card_exposure.v1` dá precedência a ela). |
+| `credit_card_statements` | ativa | **Fonte oficial** da obrigação por competência (`card_exposure.v2` dá precedência a ela). |
 | `credit_card_statement_items` | ativa | Linhas oficiais da fatura (compras, créditos, pagamentos, encargos). |
 | `credit_card_purchases` | ativa | Compra original, base do parcelamento. |
 | `credit_card_installments` | ativa | Parcelas futuras; `absorbed_by_statement_id`/`absorbed_at` marcam o que já foi faturado (E6). |
@@ -64,7 +64,7 @@ não é consumo; fatura `paid`/`settled` tem obrigação zero em todas as telas.
 | `debts`, `debt_payments` | ativa | Dívidas e amortizações (neutras em resultado). |
 | `goals`, `goal_contributions` | ativa | Metas individuais. |
 | `shared_goals`, `shared_goal_members`, `shared_goal_invites`, `shared_goal_contributions` | ativa | Metas conjuntas. |
-| `investments`, `investment_movements` | ativa | Carteira e movimentações. |
+| `investments`, `investment_movements` | ativa | Carteira e movimentações conciliadas; aplicação/resgate exige vínculo explícito pelo `transactions.investment_id`. |
 | `category_spending_goals`, `category_spending_goal_cycles` | ativa | Metas por categoria e seus ciclos. |
 | `user_financial_settings` | ativa | Renda, ciclo e preferências financeiras. |
 | `company_accounts`, `company_transactions`, `company_categories`, `company_budgets`, `company_vendors` | planejada | Módulo PJ ainda não exposto no produto. |
@@ -94,10 +94,11 @@ não é consumo; fatura `paid`/`settled` tem obrigação zero em todas as telas.
 | Módulo | Papel |
 | --- | --- |
 | `src/lib/engine/spendingRhythm.ts` (`spending_rhythm.v3`) | Ritmo bruto, estornos, líquido e típico. |
-| `src/lib/engine/cardExposure.ts` (`card_exposure.v1`) | Dívida de cartão, faturas atual/próxima e parcelas futuras. |
+| `src/lib/engine/cardExposure.ts` (`card_exposure.v2`) | Dívida de cartão, faturas atual/próxima e parcelas futuras. |
 | `src/lib/ledger/canonical.ts` | Invariantes contábeis da ingestão. |
 | `supabase/functions/_shared/finance-core/` | Espelho gerado por `scripts/sync-finance-core.mjs` (rodado em `prebuild`/`pretest`); paridade garantida por teste. |
-| `src/lib/engine/metrics.ts` (`finance_contract.v2`) | Snapshot único: totais do mês, breakdown por categoria, metas, investimentos, dívidas, compromissos e exposição de cartão. |
+| `src/lib/engine/metrics.ts` (`financial_snapshot_contract.v8`) | Snapshot único e identificável por `reconciliationId`: totais do mês, categorias, metas, investimentos, dívidas, compromissos e exposição de cartão. |
+| `src/lib/engine/commitmentAgenda.ts` (`commitment_agenda.v2`) | Agenda deduplicada de faturas, parcelas, recorrências, dívidas, doações e planejados. |
 | `src/lib/db/invalidation.ts` | Ponto único de invalidação de cache após qualquer escrita financeira. |
 | `supabase/functions/_shared/insights/detectors.ts` (`insights_catalog.v1`) | Catálogo determinístico de dicas; a IA só reescreve o texto. |
 | `src/lib/mcp/shared.ts` (`edge_error.v1`) | Envelope de sucesso/erro das tools MCP, alinhado às Edge Functions. |
@@ -108,7 +109,7 @@ não é consumo; fatura `paid`/`settled` tem obrigação zero em todas as telas.
 `Home`, `Relatórios`, `Cartões`, `Investimentos`, `Dívidas`, `Metas`,
 `pulse-compute`, `insights-generate`, tools MCP (`monthly_summary`,
 `financial_position`) e o Nino leem **exclusivamente** o `finance-core`.
-Dívida de cartão sempre vem de `card_exposure.v1`; quando há exposição oficial,
+Dívida de cartão sempre vem de `card_exposure.v2`; quando há exposição oficial,
 `computeAvailableUntil` recebe `cardDebtOverride` e nunca reconstrói o valor por
 transações. Auditoria de resíduo por fatura: `public.audit_card_reconciliation`.
 

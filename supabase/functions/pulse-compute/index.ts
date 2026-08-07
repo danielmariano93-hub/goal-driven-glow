@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
     // Caixa: fonte única do core (respeita snapshots conciliados e exclusões).
     const totalCash = computeTotalCash(accounts, txs, balanceSnapshots ?? []);
 
-    // Dívida de cartão: exposição oficial (card_exposure.v1) — nunca soma de transações.
+    // Dívida de cartão: exposição oficial (card_exposure.v2) — nunca soma de transações.
     const todayIsoSP = todaySP(today);
     const exposures = computeCardExposure({
       cardIds: cards.map((c) => c.id),

@@ -78,7 +78,7 @@ describe("E8 — classificação das fontes financeiras", () => {
     ]) {
       expect(doc, table).toContain(`\`${table}\``);
     }
-    expect(doc).toContain("card_exposure.v1");
+    expect(doc).toContain("card_exposure.v2");
     expect(doc).toContain("spending_rhythm.v3");
     expect(doc).toContain("edge_error.v1");
   });

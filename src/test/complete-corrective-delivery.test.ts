@@ -59,7 +59,7 @@ describe("entrega corretiva única", () => {
         projection: { monthEnd: "2026-08-31", projectedEndBalance: 800, freeAfterKnownCommitments: 700, typicalDailyPace: 50, estimatedFixedInflows: 0, confidence: "high" },
         activeCategoryGoals: [{ goal: { category_id: "leisure", start_date: "2026-08-01", end_date: "2026-08-31" }, targetAmount: 500, actualSpend: 100, categoryName: "Lazer" }],
         goalProgress: [], commitmentAgenda: { items: [], hasEstimates: false },
-        audit: { completeness: "complete" }, cardDebtIsEstimated: false, contractVersion: "financial_snapshot_contract.v7",
+        audit: { completeness: "complete" }, cardDebtIsEstimated: false, contractVersion: "financial_snapshot_contract.v8",
       } as never,
     });
     expect(result.installmentSchedule).toHaveLength(3);

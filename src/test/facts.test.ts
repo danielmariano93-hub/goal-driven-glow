@@ -4,7 +4,6 @@ import {
   computeMonthlyIncomeExpense,
   computeGoalProgress,
   computeNetWorth,
-  computeBeforeSpending,
   computeCategoryBreakdown,
   round2,
   type AccountRow,
@@ -133,41 +132,5 @@ describe("computeCategoryBreakdown", () => {
     expect(b[0].name).toBe("B");
     expect(b[0].share).toBeCloseTo(0.7);
     expect(b.reduce((a, x) => a + x.amount, 0)).toBe(100);
-  });
-});
-
-describe("computeBeforeSpending", () => {
-  it("returns availableAfter and assumptions without judging", () => {
-    const accounts = [acc("a", 300)];
-    const txs: TransactionRow[] = [];
-    const r = computeBeforeSpending({
-      amount: 100,
-      accountId: "a",
-      accounts,
-      txs,
-      recurring: [],
-      debts: [],
-      goals: [],
-      contributions: [],
-    });
-    expect(r.availableAfter).toBe(200);
-    expect(r.accountBalance).toBe(300);
-    expect(r.assumptions.length).toBeGreaterThan(0);
-  });
-
-  it("flags goals at risk", () => {
-    const accounts = [acc("a", 100)];
-    const goals: GoalRow[] = [{ id: "g", name: "Emergência", target_amount: 5000, target_date: null, status: "active" }];
-    const r = computeBeforeSpending({
-      amount: 50,
-      accountId: "a",
-      accounts,
-      txs: [],
-      recurring: [],
-      debts: [],
-      goals,
-      contributions: [],
-    });
-    expect(r.goalsAtRisk.length).toBe(1);
   });
 });

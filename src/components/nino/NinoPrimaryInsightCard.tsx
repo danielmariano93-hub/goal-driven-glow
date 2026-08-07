@@ -42,7 +42,7 @@ export function NinoPrimaryInsightCard({ item, surface }: { item: NinoItem; surf
   return (
     <article
       ref={ref as React.RefObject<HTMLElement>}
-      className="rounded-[22px] p-5"
+      className="rounded-[18px] p-3.5"
       style={{ border: "1px solid var(--home-hairline)", background: "var(--home-surface)" }}
     >
       <span
@@ -53,7 +53,7 @@ export function NinoPrimaryInsightCard({ item, surface }: { item: NinoItem; surf
         {KIND_LABEL[item.kind] ?? "Leitura"} · o que mais importa agora
       </span>
 
-      <h2 className="mt-2.5 font-display text-[19px] font-bold leading-tight" style={{ color: "var(--home-text-1)" }}>
+      <h2 className="mt-2 font-display text-[16px] font-bold leading-tight" style={{ color: "var(--home-text-1)" }}>
         {item.title}
       </h2>
       {impact && (
@@ -67,17 +67,17 @@ export function NinoPrimaryInsightCard({ item, surface }: { item: NinoItem; surf
         </p>
       )}
       {item.explanation && (
-        <p className="mt-2 text-[13px] leading-snug" style={{ color: "var(--home-text-2)" }}>
+        <p className="mt-1.5 line-clamp-3 text-[12px] leading-[17px]" style={{ color: "var(--home-text-2)" }}>
           {item.explanation}
         </p>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {item.primary_action && (
           <Link
             to={safeRoute(item.primary_action)}
             onClick={() => item.id && act.mutate({ itemId: item.id, surface })}
-            className="inline-flex min-h-[46px] flex-1 items-center justify-center rounded-full px-5 text-[13px] font-semibold text-white transition active:scale-[0.98]"
+            className="inline-flex min-h-9 flex-1 items-center justify-center rounded-full px-4 text-[12px] font-semibold text-white transition active:scale-[0.98]"
             style={{ background: "var(--home-brand-ink)" }}
           >
             {actionLabel(item.primary_action, "Resolver agora", item.kind)}
@@ -85,7 +85,7 @@ export function NinoPrimaryInsightCard({ item, surface }: { item: NinoItem; surf
         )}
       </div>
 
-      <div className="mt-3 flex items-center gap-4">
+      <div className="mt-2 flex items-center gap-3 border-t border-border pt-1.5">
         {item.id && (
           <>
             <button

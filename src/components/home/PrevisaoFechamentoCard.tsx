@@ -18,7 +18,7 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
 
   return (
     <section aria-labelledby="projection-title" className="overflow-hidden rounded-[18px] border border-border bg-card shadow-sm">
-      <div className="flex items-start justify-between gap-4 p-4 pb-3">
+      <div className="flex items-start justify-between gap-4 px-3.5 pb-2.5 pt-3.5">
         <div>
           <p className="text-[11px] font-bold text-primary">O que vem pela frente</p>
           <h2 id="projection-title" className="mt-0.5 text-base font-bold text-foreground">Previsão de fechamento</h2>
@@ -44,21 +44,21 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
                <p className="mt-0.5 text-[11px] text-muted-foreground">realizado + previsto</p>
             </div>
           </div>
-          <dl className="grid gap-1 px-3.5 py-3 text-[11px]">
-            <CompositionRow label="Disponível hoje" value={projection.composition.availableToday} />
-            {projection.composition.confirmedFutureInflows > 0 ? <CompositionRow label="Entradas confirmadas" value={projection.composition.confirmedFutureInflows} /> : null}
-            {projection.composition.estimatedFixedInflows > 0 ? <CompositionRow label="Renda fixa estimada" value={projection.composition.estimatedFixedInflows} /> : null}
-            {projection.composition.knownCommitments > 0 ? <CompositionRow label={`Compromissos com data (${projection.composition.commitmentsCount})`} value={-projection.composition.knownCommitments} /> : null}
-            {projection.composition.cardDueThisMonth > 0 ? <CompositionRow label={projection.composition.cardDueIsEstimated ? "Fatura do mês (estimada)" : "Fatura do mês (oficial)"} value={-projection.composition.cardDueThisMonth} /> : null}
-            {projection.composition.projectedVariableSpending > 0 ? <CompositionRow label="Gasto variável previsto" value={-projection.composition.projectedVariableSpending} /> : null}
-          </dl>
-          <details className="border-t border-border px-3.5 py-2.5">
-            <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-primary"><Info size={14} /> Como calculamos esta previsão</summary>
+          <details className="border-t border-border px-3.5 py-2">
+            <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-1.5 text-[11px] font-semibold text-primary"><span className="inline-flex items-center gap-1.5"><Info size={14} /> Ver cálculo e premissas</span><span className="text-[10px] font-medium text-muted-foreground">abrir</span></summary>
             <p className="mt-1 text-[11px] leading-[17px] text-muted-foreground">
               Saldo disponível + entradas confirmadas ou estimadas − contas com data − fatura do mês − ritmo variável típico até o fim do mês. Gastos atípicos não distorcem o ritmo, mas continuam no realizado.
             </p>
+            <dl className="mt-2 grid gap-1 rounded-xl bg-muted/40 p-2.5 text-[11px]">
+              <CompositionRow label="Disponível hoje" value={projection.composition.availableToday} />
+              {projection.composition.confirmedFutureInflows > 0 ? <CompositionRow label="Entradas confirmadas" value={projection.composition.confirmedFutureInflows} /> : null}
+              {projection.composition.estimatedFixedInflows > 0 ? <CompositionRow label="Renda fixa estimada" value={projection.composition.estimatedFixedInflows} /> : null}
+              {projection.composition.knownCommitments > 0 ? <CompositionRow label={`Compromissos com data (${projection.composition.commitmentsCount})`} value={-projection.composition.knownCommitments} /> : null}
+              {projection.composition.cardDueThisMonth > 0 ? <CompositionRow label={projection.composition.cardDueIsEstimated ? "Cartão do mês (estimado)" : "Fatura do mês (oficial)"} value={-projection.composition.cardDueThisMonth} /> : null}
+              {projection.composition.projectedVariableSpending > 0 ? <CompositionRow label="Gasto variável previsto" value={-projection.composition.projectedVariableSpending} /> : null}
+            </dl>
+            <SourceBreakdown bySource={projection.composition.commitmentsBySource} />
           </details>
-          <SourceBreakdown bySource={projection.composition.commitmentsBySource} />
            <div className="flex items-center justify-between gap-2 border-t border-border px-3.5 py-2.5">
               <p className="text-[11px] text-muted-foreground">{availability === "partial" ? "Dados incompletos" : confidenceLabel[projection.confidence]} · {projection.daysRemaining} dias</p>
              <Button type="button" variant="ghost" size="sm" className="min-h-10 shrink-0 px-1.5 text-[12px] text-primary" onClick={() => openAssessor("fab")}>Planejar com o Nino <ArrowRight /></Button>
@@ -94,9 +94,9 @@ function SourceBreakdown({ bySource }: { bySource: Record<string, number> }) {
   const rows = Object.entries(bySource).filter(([, value]) => value > 0);
   if (rows.length === 0) return null;
   return (
-    <details className="border-t border-border px-3.5 py-2">
-      <summary className="cursor-pointer list-none text-[11px] font-semibold text-primary">Ver memória de cálculo</summary>
-      <dl className="mt-2 grid gap-1 text-[11px]">
+    <div className="mt-2 border-t border-border pt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Origem dos compromissos</p>
+      <dl className="mt-1.5 grid gap-1 text-[11px]">
         {rows.map(([source, value]) => (
           <div key={source} className="flex items-center justify-between gap-2">
             <dt className="text-muted-foreground">{SOURCE_LABEL[source] ?? source}</dt>
@@ -104,6 +104,6 @@ function SourceBreakdown({ bySource }: { bySource: Record<string, number> }) {
           </div>
         ))}
       </dl>
-    </details>
+    </div>
   );
 }

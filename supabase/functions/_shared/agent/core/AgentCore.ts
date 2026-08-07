@@ -33,7 +33,7 @@ import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
 import { asEvidence } from "../../intelligence/evidence.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
-import { capabilityPrompt, classifyCapability } from "./CapabilityRouter.ts";
+import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -89,11 +89,12 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   if (fastLog.triggered) {
     let run_id_fl: string | undefined;
     await guard(async () => {
-      const { data: run } = await sb.from("agent_runs").insert({
+      const { data: run, error } = await sb.from("agent_runs").insert({
         user_id: input.user_id, conversation_id: input.conversation_id,
         prompt_version_id: null, model: "fast_log", status: "running",
         started_at: new Date().toISOString(),
       }).select("id").maybeSingle();
+      if (error) throw error;
       run_id_fl = (run as any)?.id as string | undefined;
     }, (m) => metrics.errors.push("runs_insert:" + m), null);
     const started = Date.now();
@@ -117,19 +118,21 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
     if (run_id_fl) {
       // Sempre encerra o run (try/finally garante que status='running' não fica órfão).
       await guard(async () => {
-        await sb.from("agent_runs").update({
+        const { error: runError } = await sb.from("agent_runs").update({
           status: fastLogError ? "error" : "done",
           ended_at: new Date().toISOString(),
           path: "fast_log", steps: outcome.tool_calls?.length ?? 0,
           latency_ms: Date.now() - started,
           error_sanitized: fastLogError, error_masked: fastLogError,
         }).eq("id", run_id_fl);
+        if (runError) throw runError;
         if ((outcome.tool_calls?.length ?? 0) > 0) {
-          await sb.from("agent_tool_calls").insert(outcome.tool_calls!.map(c => ({
+          const { error: callsError } = await sb.from("agent_tool_calls").insert(outcome.tool_calls!.map(c => ({
             run_id: run_id_fl, step_index: c.step_index, tool_name: c.tool_name,
             args: c.args ?? {}, result: c.result ?? null,
             ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
           })));
+          if (callsError) throw callsError;
         }
       }, (m) => metrics.errors.push("persist_fast:" + m), null);
     }
@@ -149,7 +152,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
   // Precisa vir antes do IntentRouter: a confirmação de um lote é executada
   // em TypeScript (a RPC agent_execute_confirmation só conhece kinds simples).
   const routed = await timeStage(metrics, "intent", async () => routeIntent(input.text));
-  const capability = classifyCapability(input.text, routed.intent, interpretSemanticQuery(input.text));
+  let capability = classifyCapability(input.text, routed.intent, interpretSemanticQuery(input.text));
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
@@ -279,7 +282,7 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
 
   let run_id: string | undefined;
   await guard(async () => {
-    const { data: run } = await sb.from("agent_runs").insert({
+    const { data: run, error } = await sb.from("agent_runs").insert({
       user_id: input.user_id, conversation_id: input.conversation_id,
       prompt_version_id: prompt?.id ?? null, model: prompt?.model ?? "unknown",
       status: "running", started_at: new Date().toISOString(),
@@ -287,10 +290,17 @@ export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResu
       tool_scope: capability.allowed_tools,
       model_attempts: [],
     }).select("id").maybeSingle();
+    if (error) throw error;
     run_id = (run as any)?.id as string | undefined;
   }, (m) => metrics.errors.push("runs_insert:" + m), null);
 
   const history = await tctx.history(12, input.channel === "app" ? input.inbound_message_id : null);
+  const previousUserText = [...history].reverse().find((entry) =>
+    entry.role === "user" && String(entry.content ?? "").trim() !== String(input.text ?? "").trim()
+  )?.content;
+  capability = resumeDeterministicCapability(input.text, routed.intent, previousUserText) ?? capability;
+  metrics.capability = capability.name;
+  metrics.tool_scope = [...capability.allowed_tools];
 
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
@@ -579,11 +589,13 @@ ${JSON.stringify(hints)}
   const latency = Date.now() - startedAt;
   if (run_id) {
     await guard(async () => {
-      await sb.from("agent_runs").update({
+      const { error: runError } = await sb.from("agent_runs").update({
         status: errorSanitized ? "error" : "done",
         ended_at: new Date().toISOString(),
         path, steps: toolCallLog.length,
-        tokens_in: metrics.tokens_in || null, tokens_out: metrics.tokens_out || null,
+        // As colunas são NOT NULL. Turnos determinísticos usam zero; enviar
+        // null mantinha o run eternamente em "running" e escondia a falha.
+        tokens_in: metrics.tokens_in ?? 0, tokens_out: metrics.tokens_out ?? 0,
         tools_used: toolCallLog.map((c: any) => c.tool_name),
         formula_versions: metrics.formula_versions,
         latency_ms: latency,
@@ -592,12 +604,14 @@ ${JSON.stringify(hints)}
         tool_scope: capability.allowed_tools,
         model_attempts: planner.modelAttempts,
       }).eq("id", run_id);
+      if (runError) throw runError;
       if (toolCallLog.length > 0) {
-        await sb.from("agent_tool_calls").insert(toolCallLog.map(c => ({
+        const { error: callsError } = await sb.from("agent_tool_calls").insert(toolCallLog.map(c => ({
           run_id, step_index: c.step_index, tool_name: c.tool_name,
           args: c.args ?? {}, result: c.result ?? null,
           ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
         })));
+        if (callsError) throw callsError;
       }
     }, (m) => metrics.errors.push("persist:" + m), null);
   }

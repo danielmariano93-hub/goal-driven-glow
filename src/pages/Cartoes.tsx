@@ -5,12 +5,13 @@ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCard
 import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
-import { computeCardExposure, emptyExposure, type CardExposure, type ExposureSource } from "@/lib/engine/cardExposure";
+import { computeCardExposure, emptyExposure, isAuthoritativeCardStatement, type CardExposure, type ExposureSource } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { useAuth } from "@/context/AuthContext";
 
 type StatementRow = {
   id: string; credit_card_id: string; competence_month: string; due_date: string;
@@ -29,7 +30,21 @@ type StatementPaymentRow = {
   account?: { name: string } | null;
 };
 
+type TimelineInstallmentRow = {
+  id: string;
+  credit_card_id: string;
+  amount: number;
+  competence_month: string;
+  due_date: string | null;
+  installment_number: number | null;
+  status: string;
+  absorbed_by_statement_id: string | null;
+  legacy_transaction_id: string | null;
+  credit_card_purchases?: { merchant: string | null; installments_total: number | null } | null;
+};
+
 export default function Cartoes() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const { data: cards, isLoading } = useCreditCards();
   const { data: txs } = useAllTransactions();
@@ -50,7 +65,8 @@ export default function Cartoes() {
     requestAnimationFrame(() => document.getElementById(`card-${cardId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }, [cards, searchParams]);
   const { data: statements = [] } = useQuery({
-    queryKey: ["credit_card_statements"],
+    queryKey: ["credit_card_statements", user?.id],
+    enabled: !!user,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("credit_card_statements")
@@ -61,11 +77,12 @@ export default function Cartoes() {
     },
   });
   const { data: installments = [] } = useQuery({
-    queryKey: ["credit_card_installments"],
+    queryKey: ["credit_card_installments", user?.id],
+    enabled: !!user,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("credit_card_installments")
-        .select("credit_card_id,amount,competence_month,status,absorbed_by_statement_id");
+        .select("id,credit_card_id,amount,competence_month,due_date,installment_number,status,absorbed_by_statement_id,legacy_transaction_id,credit_card_purchases(merchant,installments_total)");
       if (error) throw error;
       return data ?? [];
     },
@@ -200,6 +217,15 @@ export default function Cartoes() {
         </ul>
       )}
 
+      {(installments.length > 0 || statements.length > 0) && cards && cards.length > 0 ? (
+        <CardCommitmentTimeline
+          cards={cards}
+          statements={statements as StatementRow[]}
+          installments={installments as TimelineInstallmentRow[]}
+          currentYM={ym}
+        />
+      ) : null}
+
       {statements.length > 0 && (
         <section className="mt-8">
           <div className="mb-3 flex items-end justify-between gap-3">
@@ -304,6 +330,98 @@ export default function Cartoes() {
         />
       )}
     </div>
+  );
+}
+
+function CardCommitmentTimeline({ cards, statements, installments, currentYM }: {
+  cards: CreditCardRow[];
+  statements: StatementRow[];
+  installments: TimelineInstallmentRow[];
+  currentYM: string;
+}) {
+  const dead = new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
+  const cardName = new Map(cards.map((card) => [card.id, card.name]));
+  const official = new Map<string, StatementRow>();
+  for (const statement of statements) {
+    if (isAuthoritativeCardStatement(statement as never)) {
+      official.set(`${statement.credit_card_id}:${String(statement.competence_month).slice(0, 7)}`, statement);
+    }
+  }
+  const months = new Map<string, { amount: number; installments: number; cards: Set<string>; endings: string[]; official: boolean }>();
+  const getMonth = (month: string) => {
+    const current = months.get(month) ?? { amount: 0, installments: 0, cards: new Set<string>(), endings: [], official: false };
+    months.set(month, current);
+    return current;
+  };
+
+  for (const statement of official.values()) {
+    const month = String(statement.competence_month).slice(0, 7);
+    if (month < currentYM || ["paid", "settled", "closed_paid"].includes(String(statement.status).toLowerCase())) continue;
+    const value = statement.outstanding_amount != null
+      ? Number(statement.outstanding_amount)
+      : Math.max(0, Number(statement.stated_total || 0) - Number(statement.paid_amount || 0));
+    if (value <= 0) continue;
+    const bucket = getMonth(month);
+    bucket.amount += value;
+    bucket.cards.add(statement.credit_card_id);
+    bucket.official = true;
+  }
+
+  for (const installment of installments) {
+    const month = String(installment.competence_month).slice(0, 7);
+    if (month < currentYM || dead.has(String(installment.status).toLowerCase()) || installment.absorbed_by_statement_id) continue;
+    if (official.has(`${installment.credit_card_id}:${month}`)) continue;
+    const bucket = getMonth(month);
+    bucket.amount += Number(installment.amount || 0);
+    bucket.installments += 1;
+    bucket.cards.add(installment.credit_card_id);
+    const purchase = installment.credit_card_purchases;
+    if (purchase?.installments_total && installment.installment_number === purchase.installments_total) {
+      bucket.endings.push(purchase.merchant || cardName.get(installment.credit_card_id) || "Parcelamento");
+    }
+  }
+
+  const rows = [...months.entries()]
+    .map(([month, value]) => ({ month, ...value, amount: Math.round(value.amount * 100) / 100 }))
+    .filter((row) => row.amount > 0)
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .slice(0, 12);
+  if (!rows.length) return null;
+  const max = Math.max(...rows.map((row) => row.amount), 1);
+  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+  const label = (month: string) => {
+    const [year, value] = month.split("-").map(Number);
+    return new Date(year, value - 1, 1).toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }).replace(" de ", "/");
+  };
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-[22px] border border-border bg-card shadow-sm">
+      <header className="bg-gradient-to-br from-primary/10 via-card to-card p-4">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-primary">Radar de parcelas</p>
+        <div className="mt-1 flex items-end justify-between gap-3">
+          <div><h2 className="font-display text-lg font-bold">O que já está comprometido</h2><p className="mt-0.5 text-[11px] text-muted-foreground">Faturas oficiais substituem estimativas do mesmo mês.</p></div>
+          <div className="text-right"><p className="font-display text-lg font-bold tabular-nums">{formatBRL(total)}</p><p className="text-[9px] text-muted-foreground">próximos {rows.length} meses</p></div>
+        </div>
+      </header>
+      <ol className="divide-y divide-border px-4">
+        {rows.map((row, index) => (
+          <li key={row.month} className="py-3">
+            <div className="flex items-center gap-3">
+              <span className="grid h-9 w-12 shrink-0 place-items-center rounded-xl bg-primary/10 text-[11px] font-bold capitalize text-primary">{label(row.month)}</span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2 text-[12px]"><strong>{formatBRL(row.amount)}</strong><span className="text-[10px] text-muted-foreground">{row.official ? "inclui fatura oficial" : `${row.installments} parcela${row.installments === 1 ? "" : "s"}`}</span></span>
+                <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-secondary"><span className="block h-full rounded-full bg-gradient-to-r from-primary to-violet-400" style={{ width: `${Math.max(6, row.amount / max * 100)}%` }} /></span>
+                <span className="mt-1 flex flex-wrap gap-1 text-[9px] text-muted-foreground">
+                  {[...row.cards].map((id) => <span key={id}>{cardName.get(id) ?? "Cartão"}</span>)}
+                  {row.endings.length > 0 ? <span className="rounded-full bg-success/10 px-1.5 text-success">{row.endings.length} parcelamento{row.endings.length > 1 ? "s" : ""} termina{row.endings.length > 1 ? "m" : ""}</span> : null}
+                  {index === rows.length - 1 ? <span className="rounded-full bg-primary/10 px-1.5 text-primary">fim do horizonte conhecido</span> : null}
+                </span>
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

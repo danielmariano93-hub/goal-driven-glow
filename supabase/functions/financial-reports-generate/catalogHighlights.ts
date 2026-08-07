@@ -136,7 +136,7 @@ export async function buildCatalogHighlights(
       next_due_date: String(rule.start_date ?? todayISO),
       active: rule.status === "active",
     }));
-    // Agenda canônica (commitment_agenda.v1) — mesma fonte da Home.
+    // Agenda canônica (commitment_agenda.v2) — mesma fonte da Home.
     const agendaBase = {
       recurring: normalizedRules as never,
       txs: transactions,

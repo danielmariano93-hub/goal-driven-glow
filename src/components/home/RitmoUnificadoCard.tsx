@@ -49,8 +49,8 @@ function ChartDetail({ active, payload, mode }: { active?: boolean; payload?: Ar
   return (
     <div className="rounded-lg border border-border bg-popover p-3 text-xs shadow-md">
       <p className="font-semibold text-foreground">Dia {row.day} · {shortDay(row.currentDate)}</p>
-      <p className="mt-1 text-muted-foreground">Gasto real: <strong className="text-foreground">{formatBRL(row.grossAmount)}</strong></p>
-      <p className="text-muted-foreground">Ritmo típico: <strong className="text-foreground">{formatBRL(row.typicalAmount)}</strong></p>
+      <p className="mt-1 text-muted-foreground">{mode === "all" ? "Todos os gastos do dia" : "Ritmo típico do dia"}: <strong className="text-foreground">{formatBRL(row.currentAmount)}</strong></p>
+      {mode === "typical" ? <p className="text-muted-foreground">Gasto total registrado: <strong className="text-foreground">{formatBRL(row.grossAmount)}</strong></p> : null}
       {row.previousDate && row.previousAmount != null ? <p className="mt-1 text-muted-foreground">Período anterior · {shortDay(row.previousDate)}: <strong className="text-foreground">{formatBRL(row.previousAmount)}</strong></p> : null}
       {difference != null ? <p className="text-muted-foreground">Diferença em {mode === "all" ? "todos os gastos" : "ritmo típico"}: <strong className="text-foreground">{difference > 0 ? "+" : ""}{formatBRL(difference)}</strong></p> : null}
       {row.exclusionLabel ? <p className="mt-1 text-muted-foreground">Fora do ritmo típico: {row.exclusionLabel}</p> : null}
@@ -111,27 +111,36 @@ export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error
 
   return (
     <section aria-label="Ritmo de gastos" className="overflow-hidden rounded-[18px] border border-border bg-card shadow-sm animate-fade-in">
-      <div className="flex items-start justify-between gap-3 px-4 pt-4">
+      <div className="flex items-start justify-between gap-3 px-3.5 pt-3.5">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-primary">Seu comportamento</p>
-          <h2 className="mt-0.5 font-display text-base font-bold leading-5 text-foreground">Seu ritmo de gastos</h2>
-          {loading ? <div className="mt-2 h-7 w-32 animate-pulse rounded bg-secondary" /> : <p className="mt-2 font-display text-2xl font-bold leading-7 tabular-nums text-foreground">{headlineAverage != null ? formatBRL(headlineAverage) : "—"}<span className="font-interface text-[11px] font-semibold text-muted-foreground">/dia</span></p>}
-          <div className="mt-1"><Comparison trend={trend} deltaPct={deltaPct} deltaAmount={averageDelta} /></div>
-          {typicalPace > 0 ? <p className="mt-1.5 text-[11px] text-muted-foreground">Referência histórica: <strong className="text-foreground">{formatBRL(typicalPace)}/dia</strong> <span className="block">(janela maior; não é a base da comparação acima)</span></p> : <p className="mt-1.5 text-[11px] text-muted-foreground">Ainda estamos aprendendo sua referência histórica.</p>}
-          {atypicalDays.length > 0 ? <p className="mt-1.5 text-[11px] text-muted-foreground">{atypicalDays.length} dia{atypicalDays.length > 1 ? "s" : ""} atípico{atypicalDays.length > 1 ? "s" : ""} fora do ritmo típico.</p> : null}
+          <h2 className="mt-0.5 font-display text-[15px] font-bold leading-5 text-foreground">Seu ritmo de gastos</h2>
+          <div className="mt-2 grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-2">
+            <div>
+              <p className="text-[10px] font-medium text-muted-foreground">{mode === "all" ? "Média com todos os gastos" : "Ritmo típico no período"}</p>
+              {loading ? <div className="mt-1 h-6 w-28 animate-pulse rounded bg-secondary" /> : <p className="mt-0.5 font-display text-xl font-bold leading-6 tabular-nums text-foreground">{headlineAverage != null ? formatBRL(headlineAverage) : "—"}<span className="font-interface text-[10px] font-semibold text-muted-foreground">/dia</span></p>}
+            </div>
+            <div className="border-l border-border pl-2.5">
+              <p className="text-[10px] font-medium text-muted-foreground">Referência histórica</p>
+              <p className="mt-0.5 text-[13px] font-bold tabular-nums text-foreground">{typicalPace > 0 ? `${formatBRL(typicalPace)}/dia` : "Aprendendo"}</p>
+              <p className="text-[9px] leading-3 text-muted-foreground">janela de longo prazo</p>
+            </div>
+          </div>
+          <div className="mt-1.5"><Comparison trend={trend} deltaPct={deltaPct} deltaAmount={averageDelta} /></div>
+          {atypicalDays.length > 0 ? <p className="mt-1 text-[10px] text-muted-foreground">{atypicalDays.length} dia{atypicalDays.length > 1 ? "s" : ""} atípico{atypicalDays.length > 1 ? "s" : ""} separado{atypicalDays.length > 1 ? "s" : ""} do ritmo típico.</p> : null}
           {partial ? <p className="mt-1.5 text-[11px] text-muted-foreground">Comparação parcial enquanto atualizamos algumas fontes.</p> : null}
         </div>
         <Button type="button" variant="ghost" size="icon" onClick={() => setMethodOpen(true)} aria-label="Como calculamos o ritmo" className="h-10 w-10 shrink-0 rounded-full text-muted-foreground"><Info size={17} /></Button>
       </div>
 
-      <div className="mt-2 flex gap-1 px-4" role="group" aria-label="Série exibida">
+      <div className="mt-2 flex gap-1 px-3.5" role="group" aria-label="Série exibida">
         {([{ id: "typical", label: "Ritmo típico" }, { id: "all", label: "Todos os gastos" }] as const).map((option) => (
           <button
             key={option.id}
             type="button"
             aria-pressed={mode === option.id}
             onClick={() => setMode(option.id)}
-            className={`min-h-8 rounded-full px-3 text-[11px] font-semibold transition-colors ${mode === option.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"}`}
+            className={`min-h-7 rounded-full px-3 text-[10px] font-semibold transition-colors ${mode === option.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"}`}
           >
             {option.label}
           </button>
@@ -139,11 +148,11 @@ export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error
       </div>
 
       <p className="sr-only">{summary}</p>
-      <div className={hasData || loading ? "mt-2 min-h-[132px] border-t border-border px-1 pt-1" : "mt-2"}>
-        {loading ? <div className="mx-4 h-[124px] animate-pulse rounded-xl bg-secondary" /> : !hasData ? (
+      <div className={hasData || loading ? "mt-1.5 min-h-[112px] border-t border-border px-1 pt-1" : "mt-2"}>
+        {loading ? <div className="mx-4 h-[104px] animate-pulse rounded-xl bg-secondary" /> : !hasData ? (
           <div className="grid min-h-[96px] place-items-center px-5 pb-3 text-center"><div><p className="text-[13px] text-muted-foreground">Ainda não há gastos neste período.</p><Button asChild variant="ghost" className="mt-1 min-h-10 text-primary"><Link to="/app/lancamentos">Anotar movimentação</Link></Button></div></div>
         ) : (
-          <ResponsiveContainer width="100%" height={128}>
+          <ResponsiveContainer width="100%" height={108}>
             <ComposedChart data={data} margin={{ top: 8, right: 10, left: -22, bottom: 0 }}>
               <defs><linearGradient id="rhythmFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.06} /><stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} /></linearGradient></defs>
               <CartesianGrid stroke="hsl(var(--border))" vertical={false} horizontalValues={[0]} />
@@ -160,8 +169,8 @@ export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error
           </ResponsiveContainer>
         )}
       </div>
-      {hasData ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-1 text-[11px] text-muted-foreground"><span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-primary" />Este período</span><span className="inline-flex items-center gap-1.5"><i className="h-0 w-4 border-t border-dashed border-muted-foreground" />Período anterior</span>{atypicalDays.length > 0 ? <span className="inline-flex items-center gap-1.5"><i className="h-1.5 w-1.5 rounded-full bg-destructive" />Dia atípico</span> : null}</div> : null}
-      {hasData ? <div className="px-4 pb-2"><Button asChild variant="ghost" size="sm" className="min-h-10 w-full justify-start px-0 text-[13px] text-primary"><Link to="/app/lancamentos">Ver rotina e categorias</Link></Button></div> : null}
+      {hasData ? <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 text-[10px] text-muted-foreground"><span className="inline-flex items-center gap-1.5"><i className="h-0.5 w-4 bg-primary" />Este período</span><span className="inline-flex items-center gap-1.5"><i className="h-0 w-4 border-t border-dashed border-muted-foreground" />Anterior</span>{atypicalDays.length > 0 ? <span className="inline-flex items-center gap-1.5"><i className="h-1.5 w-1.5 rounded-full bg-destructive" />Atípico</span> : null}</div> : null}
+      {hasData ? <div className="px-3.5 pb-1.5"><Button asChild variant="ghost" size="sm" className="min-h-8 w-full justify-start px-0 text-[12px] text-primary"><Link to="/app/lancamentos">Ver rotina e categorias</Link></Button></div> : null}
       <RhythmMethodSheet open={methodOpen} onOpenChange={setMethodOpen} />
     </section>
   );

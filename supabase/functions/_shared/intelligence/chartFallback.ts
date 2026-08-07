@@ -101,7 +101,7 @@ export async function ensureRequestedArtifact(args: {
         summary_text: "Comparação robusta que separa frequência, valor típico e picos atípicos.",
         fallback_text: "Não consegui exibir a imagem, mas a resposta em texto usa a mesma análise robusta.",
         series,
-        formula_version: String(result.formula_version ?? "weekday.behavioral-date.v3"),
+        formula_version: String(result.formula_version ?? "weekday.behavioral-date.v4"),
         confidence: String(result.confidence ?? "insufficient"),
         row_count: Number(result.sample_size ?? 0),
       });

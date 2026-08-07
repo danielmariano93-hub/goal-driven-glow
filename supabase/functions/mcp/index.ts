@@ -293,14 +293,14 @@ var MOVEMENT_SEMANTICS = {
     explanation: "Saiu do investimento e entrou na conta. Seu patrim\xF4nio n\xE3o muda."
   },
   investment_yield: {
-    cashImpact: 0,
+    cashImpact: 1,
     performanceImpact: 0,
-    investmentImpact: 1,
+    investmentImpact: 0,
     debtImpact: 0,
     netWorthImpact: 1,
     bridgeLine: "investment_yield_cash",
-    label: "Rendimento",
-    explanation: "Ganho do investimento. Aumenta seu patrim\xF4nio sem ser receita da rotina."
+    label: "Rendimento creditado",
+    explanation: "Rendimento pago na conta. Aumenta caixa e patrim\xF4nio, sem virar receita da rotina nem alterar o principal do ativo."
   },
   loan_proceeds: {
     cashImpact: 1,
@@ -603,7 +603,7 @@ function explainBalanceChange(bridge, performance) {
 }
 
 // src/lib/engine/cardExposure.ts
-var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v1";
+var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v2";
 var CARD_CYCLE_VERSION = "card_cycle.v2";
 var pad = (n) => String(n).padStart(2, "0");
 var lastDayOf = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
@@ -665,6 +665,11 @@ var SETTLED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed_paid"
 var CLOSED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed", "closed_paid", "approved"]);
 var DEAD_INSTALLMENTS = /* @__PURE__ */ new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
 var emptyFigure = () => ({ amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 });
+function isAuthoritativeCardStatement(statement) {
+  const status = String(statement.status ?? "").toLowerCase();
+  if (SETTLED_STATUSES.has(status) || CLOSED_STATUSES.has(status)) return true;
+  return Math.abs(Number(statement.stated_total ?? 0)) > 5e-3 || Math.abs(Number(statement.outstanding_amount ?? 0)) > 5e-3 || Math.abs(Number(statement.paid_amount ?? 0)) > 5e-3;
+}
 function nextCompetence(ym) {
   const [y, m] = ym.split("-").map(Number);
   if (!y || !m) return ym;
@@ -759,13 +764,15 @@ function computeCardExposure(input) {
       const ym = ymOf(s.competence_month);
       if (ym) byYM.set(ym, s);
     }
-    const currentRow = byYM.get(currentYM);
+    const currentCandidate = byYM.get(currentYM);
+    const currentRow = currentCandidate && isAuthoritativeCardStatement(currentCandidate) ? currentCandidate : void 0;
     const current = currentRow ? figureFromStatement(currentRow) : estimatedFigure(txs, installments, cardId, currentYM);
-    const nextRow = byYM.get(nextYM);
+    const nextCandidate = byYM.get(nextYM);
+    const nextRow = nextCandidate && isAuthoritativeCardStatement(nextCandidate) ? nextCandidate : void 0;
     const next = nextRow ? figureFromStatement(nextRow) : estimatedFigure(txs, installments, cardId, nextYM);
     let lastClosedYM = "";
     for (const [ym, s] of byYM) {
-      if (CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
+      if (isAuthoritativeCardStatement(s) && CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
     }
     let futureInstallments = 0;
     for (const inst of installments) {
@@ -777,16 +784,17 @@ function computeCardExposure(input) {
       if (lastClosedYM && ym <= lastClosedYM) continue;
       if (ym <= currentYM) continue;
       const covering = byYM.get(ym);
-      if (covering && SETTLED_STATUSES.has((covering.status ?? "").toString())) continue;
+      if (covering && isAuthoritativeCardStatement(covering) && SETTLED_STATUSES.has((covering.status ?? "").toString())) continue;
       futureInstallments += Number(inst.amount || 0);
     }
     const openStatementsDebt = cardStatements.reduce((sum, s) => {
+      if (!isAuthoritativeCardStatement(s)) return sum;
       const status = (s.status ?? "").toString();
       if (SETTLED_STATUSES.has(status)) return sum;
       const fig = figureFromStatement(s);
       return sum + fig.amount;
     }, 0);
-    const totalCardDebt = currentRow || cardStatements.length > 0 ? round2(openStatementsDebt) : round2(current.amount);
+    const totalCardDebt = round2(openStatementsDebt + (currentRow ? 0 : current.amount));
     const cfg = cycleConfig.get(cardId);
     const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today) : null;
     const forming = openCycle ? { ...emptyFigure(), amount: estimateFromCycle(txs, cardId, openCycle), source: "estimated" } : emptyFigure();
@@ -815,7 +823,7 @@ function totalFutureInstallmentsOf(exposures) {
 }
 
 // src/lib/engine/metrics.ts
-var FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v7";
+var FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v8";
 
 // src/lib/mcp/shared.ts
 var ERROR_CONTRACT_VERSION = "edge_error.v1";
@@ -1120,30 +1128,57 @@ var create_transaction_default = defineTool4({
 
 // src/lib/mcp/tools/financial-position.ts
 import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.26.1";
+var CARD_TX_PAGE_SIZE = 1e3;
 var financial_position_default = defineTool5({
   name: "financial_position",
   title: "Posi\xE7\xE3o financeira",
-  description: "Mostra a posi\xE7\xE3o atual do usu\xE1rio autenticado: cart\xF5es de cr\xE9dito ativos com fatura atual e d\xEDvida real, d\xEDvidas em aberto e metas em andamento.",
+  description: "Mostra a posi\xE7\xE3o financeira reconciliada do usu\xE1rio autenticado: cart\xF5es com obriga\xE7\xE3o atual (inclusive cart\xF5es inativos), parcelas futuras, d\xEDvidas fora do cart\xE3o e metas em andamento.",
   inputSchema: {},
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   handler: async (_input, ctx) => {
     if (!requireUser(ctx)) return errorResult("N\xE3o autenticado.");
     const supabase = supabaseForUser(ctx);
-    const [cardsRes, debtsRes, goalsRes, statementsRes, installmentsRes, txsRes] = await Promise.all([
-      supabase.from("credit_cards").select("id, name, brand, last_four, total_limit, due_day").eq("active", true),
+    const [cardsRes, debtsRes, goalsRes, statementsRes, installmentsRes] = await Promise.all([
+      supabase.from("credit_cards").select("id, name, brand, last_four, total_limit, closing_day, due_day, active"),
       supabase.from("debts").select("id, name, creditor, outstanding_balance, installment_amount, status"),
       supabase.from("goals").select("id, name, target_amount, target_date, status"),
       supabase.from("credit_card_statements").select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status"),
-      supabase.from("credit_card_installments").select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id"),
-      supabase.from("transactions").select("credit_card_id,competence_date,occurred_at,amount,type,status,settles_card_id").not("credit_card_id", "is", null)
+      supabase.from("credit_card_installments").select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id")
     ]);
-    if (cardsRes.error) return errorResult(cardsRes.error.message);
+    const sourceResults = [
+      ["cart\xF5es", cardsRes],
+      ["d\xEDvidas", debtsRes],
+      ["metas", goalsRes],
+      ["faturas", statementsRes],
+      ["parcelas", installmentsRes]
+    ];
+    for (const [source, result] of sourceResults) {
+      if (result.error) {
+        return errorResult(`N\xE3o foi poss\xEDvel reconciliar ${source} agora. Tente novamente.`, "upstream_unavailable");
+      }
+    }
+    const txs = [];
+    for (let from = 0; ; from += CARD_TX_PAGE_SIZE) {
+      const page = await supabase.from("transactions").select("credit_card_id,competence_date,occurred_at,amount,type,status,settles_card_id").not("credit_card_id", "is", null).order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(from, from + CARD_TX_PAGE_SIZE - 1);
+      if (page.error) {
+        return errorResult("N\xE3o foi poss\xEDvel reconciliar os lan\xE7amentos de cart\xE3o agora. Tente novamente.", "upstream_unavailable");
+      }
+      const rows = page.data ?? [];
+      txs.push(...rows);
+      if (rows.length < CARD_TX_PAGE_SIZE) break;
+    }
     const exposures = computeCardExposure({
       cardIds: (cardsRes.data ?? []).map((c) => c.id),
+      cards: (cardsRes.data ?? []).map((c) => ({
+        id: c.id,
+        closing_day: c.closing_day,
+        due_day: c.due_day
+      })),
       statements: statementsRes.data ?? [],
       installments: installmentsRes.data ?? [],
-      txs: txsRes.data ?? [],
-      currentYM: currentMonthYM()
+      txs,
+      currentYM: currentMonthYM(),
+      todayISO: todaySP()
     });
     const cardDebtToday = totalCardDebtOf(exposures);
     const cardFutureInstallments = totalFutureInstallmentsOf(exposures);
@@ -1154,6 +1189,7 @@ var financial_position_default = defineTool5({
         name: c.name,
         brand: c.brand,
         last_four: c.last_four,
+        active: c.active,
         limit: Number(c.total_limit ?? 0),
         due_day: c.due_day,
         current_statement: e?.currentStatement.amount ?? 0,
@@ -1166,9 +1202,9 @@ var financial_position_default = defineTool5({
     const debts = (debtsRes.data ?? []).filter((d) => d.status !== "settled");
     const goals = (goalsRes.data ?? []).filter((g) => g.status === "active");
     const lines = [
-      cards.length ? "Cart\xF5es ativos:" : "Nenhum cart\xE3o ativo.",
+      cards.length ? "Cart\xF5es com posi\xE7\xE3o financeira:" : "Nenhuma obriga\xE7\xE3o de cart\xE3o encontrada.",
       ...cards.map(
-        (c) => `- ${c.name} ${c.last_four ? `\u2022\u2022${c.last_four}` : ""} \xB7 limite ${brl(c.limit)} \xB7 fatura atual ${brl(c.current_statement)}${c.current_statement_source === "estimated" ? " (estimada)" : " (oficial)"} \xB7 d\xEDvida hoje ${brl(c.debt_today)}`
+        (c) => `- ${c.name} ${c.last_four ? `\u2022\u2022${c.last_four}` : ""} \xB7 limite ${brl(c.limit)} \xB7 fatura atual ${brl(c.current_statement)}${c.current_statement_source === "estimated" ? " (estimada)" : " (oficial)"} \xB7 d\xEDvida hoje ${brl(c.debt_today)}${c.active ? "" : " \xB7 cart\xE3o inativo, obriga\xE7\xE3o preservada"}`
       ),
       cards.length ? `D\xEDvida do cart\xE3o hoje: ${brl(cardDebtToday)} \xB7 compromisso futuro de parcelas (n\xE3o \xE9 d\xEDvida): ${brl(cardFutureInstallments)}` : "",
       "",
@@ -1182,7 +1218,7 @@ var financial_position_default = defineTool5({
       cards,
       card_debt_today: cardDebtToday,
       card_future_installments: cardFutureInstallments,
-      formula_version: "finance_contract.v1",
+      formula_version: "financial_position.v2",
       debts: debts.map((d) => ({ id: d.id, name: d.name, outstanding_balance: Number(d.outstanding_balance ?? 0) })),
       goals: goals.map((g) => ({ id: g.id, name: g.name, target_amount: Number(g.target_amount ?? 0), target_date: g.target_date }))
     });

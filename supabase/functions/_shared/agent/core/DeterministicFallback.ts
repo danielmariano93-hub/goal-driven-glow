@@ -9,10 +9,9 @@ import { extractSpans } from "../extract.ts";
 import {
   create_transaction_draft, create_transfer_draft,
   add_goal_contribution_draft,
-  run_before_spending, get_financial_summary, list_recent_transactions,
+  get_financial_summary, list_recent_transactions,
   type ToolContext,
 } from "../tools.ts";
-import { formatBeforeSpending } from "./DeterministicAnswers.ts";
 
 const NUM_BR = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -62,10 +61,10 @@ export async function deterministicFallback(
       return { reply: "Seus últimos lançamentos:\n" + lines.join("\n"), kind: "info" };
     }
     if (intent.topic === "before_spending" && intent.amount) {
-      const r = await run_before_spending(ctx, { amount: intent.amount });
-      if (r.ok) {
-        return { reply: formatBeforeSpending(r.result), kind: "info" };
-      }
+      // O parser legado não extrai data/categoria/meio de pagamento. Nunca
+      // execute uma simulação parcial com defaults silenciosos; o roteador de
+      // capacidades determinístico conclui o cálculo quando os slots existem.
+      return { reply: "Em qual data você pretende fazer esse gasto? Se quiser, informe também categoria e meio de pagamento.", kind: "question" };
     }
   }
 

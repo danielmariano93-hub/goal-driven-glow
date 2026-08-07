@@ -32,6 +32,8 @@ export type WeekdayPatternResult = {
   period: { from: string; to: string; weeks_observed: number };
   sample_size: number;
   confidence: ConfidenceLevel;
+  /** Sinal útil com 2–3 ocorrências; nunca é apresentado como conclusão. */
+  provisional: boolean;
   winner: (WeekdayMetricRow & { margin_pct: number }) | null;
   total_concentration_winner: (WeekdayMetricRow & { share_pct: number }) | null;
   frequency_winner: WeekdayMetricRow | null;
@@ -151,8 +153,10 @@ export function computeWeekdayPattern(args: {
     };
   });
 
-  const comparable = weekdays.filter(w => w.occurrences >= 4);
-  const typicalEligible = comparable.filter(w => w.active_days >= 3 && w.typical_amount > 0);
+  // Duas ocorrências ativas permitem um sinal preliminar. Quatro ou mais são
+  // exigidas antes de tratar a leitura como padrão estabelecido.
+  const comparable = weekdays.filter(w => w.occurrences >= 2);
+  const typicalEligible = comparable.filter(w => w.active_days >= 2 && w.typical_amount > 0);
   const typicalRank = [...typicalEligible].sort((a, b) => b.typical_amount - a.typical_amount);
   const totalRank = [...comparable].filter(w => w.total > 0).sort((a, b) => b.total - a.total);
   const freqRank = [...comparable].filter(w => w.transactions > 0).sort((a, b) => b.transactions_per_occurrence - a.transactions_per_occurrence);
@@ -166,13 +170,14 @@ export function computeWeekdayPattern(args: {
   const weeksObserved = Math.max(0, allDates.length / 7);
 
   let confidence: ConfidenceLevel = "insufficient";
-  if (top && weeksObserved >= 4 && activeDays >= 10 && top.active_days >= 3) {
+  if (top && weeksObserved >= 2 && activeDays >= 4 && top.active_days >= 2) {
     confidence = weeksObserved >= 12 && activeDays >= 24 && top.active_days >= 6 && margin >= 0.2
       ? "high"
       : weeksObserved >= 8 && activeDays >= 14 && top.active_days >= 4 && margin >= 0.1
         ? "medium"
         : "low";
   }
+  const provisional = Boolean(top) && (weeksObserved < 4 || activeDays < 10 || (top?.active_days ?? 0) < 3);
 
   const totalAll = weekdays.reduce((s, w) => s + w.total, 0);
   const totalWinner = totalRank[0]
@@ -180,16 +185,17 @@ export function computeWeekdayPattern(args: {
     : null;
   const limitations: string[] = [];
   if (weeksObserved < 8) limitations.push("O histórico ainda é curto; esse padrão pode mudar com novas semanas.");
-  if (!top) limitations.push("Nenhum dia teve pelo menos três ocorrências ativas comparáveis.");
+  if (!top) limitations.push("Nenhum dia teve pelo menos duas ocorrências ativas comparáveis.");
   else if (top.active_days < 4) limitations.push("O dia líder ainda tem poucas ocorrências com gasto registrado.");
   if (margin < 0.1 && top && second) limitations.push("Os dois dias líderes estão muito próximos; não há um vencedor claro.");
 
   return {
     metric_key: "weekday_typical_spend",
-    formula_version: "weekday.behavioral-date.v3",
+    formula_version: "weekday.behavioral-date.v4",
     period: { from, to: args.to, weeks_observed: round2(weeksObserved) },
     sample_size: activeDays,
     confidence,
+    provisional,
     winner: top ? { ...top, margin_pct: round2(margin * 100) } : null,
     total_concentration_winner: totalWinner,
     frequency_winner: freqRank[0] ?? null,

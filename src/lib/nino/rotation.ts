@@ -37,7 +37,8 @@ function semanticKey(situation: FinancialSituation) {
  * Fila determinística de leituras do Nino para rotação na Home.
  * Ordem: principal → apoio/contraponto → antecipações → padrões confirmados → operacionais.
  * Deduplica por identidade canônica e evita mensagens equivalentes em sequência.
- * Situações críticas nunca são removidas em nome da variedade.
+ * O diagnóstico continua preservando situações críticas, mas a fila da Home
+ * respeita o feedback diário: uma leitura já respondida não fica presa na tela.
  */
 export function buildNinoReadingQueue(
   context: NinoDiagnosisContext,
@@ -71,8 +72,7 @@ export function buildNinoReadingQueue(
   for (const bucket of buckets) {
     for (const situation of bucket.items) {
       if (!isEligible(situation, now)) continue;
-      const critical = situation.severity === "critical";
-      if (!critical && suppressed.has(situation.id)) continue;
+      if (suppressed.has(situation.id)) continue;
       const key = identity(situation);
       if (seen.has(key)) continue;
       const semantic = semanticKey(situation);

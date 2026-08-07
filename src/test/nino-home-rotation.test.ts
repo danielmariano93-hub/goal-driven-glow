@@ -79,12 +79,12 @@ describe("rotação de leituras do Nino", () => {
     expect(queue.map((r) => r.situation.id)).toEqual(["s"]);
   });
 
-  it("leitura crítica não é escondida pelo feedback anterior", () => {
+  it("feedback diário avança até quando a leitura respondida era crítica", () => {
     const queue = buildNinoReadingQueue(
       context({ primary_situation: situation({ id: "crit", severity: "critical" }) }),
       { suppressedIds: ["crit"] },
     );
-    expect(queue.map((r) => r.situation.id)).toEqual(["crit"]);
+    expect(queue.map((r) => r.situation.id)).toEqual([]);
   });
 
   it("deduplica por identidade canônica e evita mensagens equivalentes em sequência", () => {

@@ -1,4 +1,4 @@
-// AGENDA CANÔNICA DE COMPROMISSOS — commitment_agenda.v1
+// AGENDA CANÔNICA DE COMPROMISSOS — commitment_agenda.v2
 // ======================================================
 // Fonte ÚNICA de "o que já tem data" no Meu Nino. Consolida, com deduplicação
 // rigorosa e sem dupla contagem:
@@ -13,8 +13,9 @@
 //  - Pagamento de fatura planejado (settles_card_id) nunca soma com a fatura.
 //  - Nada aqui faz I/O: cálculo determinístico e testável.
 import { round2, todayISO, nextRecurringOccurrences, type RecurringRow, type TransactionRow } from "./facts";
+import { isAuthoritativeCardStatement } from "./cardExposure";
 
-export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v1";
+export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v2";
 
 export type CommitmentSource =
   | "card_statement"
@@ -98,14 +99,16 @@ function addDaysISO(iso: string, days: number): string {
 export function dueDateForCompetence(competenceMonth: string, dueDay?: number | null): string | null {
   const [y, m] = competenceMonth.split("-").map(Number);
   if (!y || !m) return null;
-  const day = Math.max(1, Math.min(28, Number(dueDay) || 10));
+  const lastDay = new Date(y, m, 0).getDate();
+  const day = Math.max(1, Math.min(lastDay, Number(dueDay) || 10));
   return todayISO(new Date(y, m - 1, day));
 }
 
 /** Vencimento da parcela de dívida no mês de referência. */
 function debtDueDate(refISO: string, dueDay?: number | null): string {
   const ref = new Date(`${refISO}T00:00:00`);
-  const day = Math.max(1, Math.min(28, Number(dueDay) || 10));
+  const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+  const day = Math.max(1, Math.min(lastDay, Number(dueDay) || 10));
   return todayISO(new Date(ref.getFullYear(), ref.getMonth(), day));
 }
 
@@ -143,6 +146,8 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   for (const st of input.statements ?? []) {
     const competence = String(st.competence_month || "").slice(0, 7);
     if (!competence) continue;
+    // Placeholder vazio não absorve/suprime parcelas conhecidas.
+    if (!isAuthoritativeCardStatement(st)) continue;
     officialCompetences.add(`${st.credit_card_id}:${competence}`);
     if (SETTLED.has(String(st.status ?? "").toLowerCase())) continue;
     const due = st.due_date ? String(st.due_date).slice(0, 10) : dueDateForCompetence(competence, cardById.get(st.credit_card_id)?.due_day);

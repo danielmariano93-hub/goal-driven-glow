@@ -8,7 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
 type SupabaseClient = any;
-import { behavioralMetricAmount, computeBeforeSpending, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import { behavioralMetricAmount, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { cycleFor } from "../finance-core/cardExposure.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
@@ -18,8 +18,20 @@ import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
 import { confirmationExecutor } from "./core/PendingConfirmations.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
+import { makeProvenance } from "../analytics/provenance.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const AGENT_QUERY_PAGE_SIZE = 1_000;
+const AGENT_QUERY_MAX_ROWS = 100_000;
+
+type TransactionQueryOptions = {
+  select: string;
+  from?: string;
+  to?: string;
+  toExclusive?: string;
+  status?: string;
+  paymentMethod?: "account" | "credit_card";
+};
 
 export type ToolContext = {
   sb: SupabaseClient;
@@ -35,23 +47,35 @@ export type ToolResult =
   | { ok: true; result: any }
   | { ok: false; error: string; details?: unknown; result?: any; violations?: unknown };
 
-async function fetchFactsForBeforeSpending(sb: SupabaseClient, user_id: string) {
-  const [accounts, txs, recurring, debts, goals, contribs] = await Promise.all([
-    sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id),
-    sb.from("transactions").select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id").eq("user_id", user_id),
-    sb.from("recurring_entries").select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", user_id),
-    sb.from("debts").select("id,name,outstanding_balance,original_amount,installment_amount,status").eq("user_id", user_id),
-    sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", user_id),
-    sb.from("goal_contributions").select("goal_id,amount,occurred_at").eq("user_id", user_id),
-  ]);
-  return {
-    accounts: accounts.data ?? [],
-    txs: (txs.data ?? []).map((t: any) => ({ ...t, amount: Number(t.amount) })),
-    recurring: (recurring.data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) })),
-    debts: (debts.data ?? []).map((d: any) => ({ ...d, outstanding_balance: Number(d.outstanding_balance || 0), original_amount: Number(d.original_amount || 0), installment_amount: d.installment_amount == null ? null : Number(d.installment_amount) })),
-    goals: (goals.data ?? []).map((g: any) => ({ ...g, target_amount: Number(g.target_amount) })),
-    contributions: (contribs.data ?? []).map((c: any) => ({ ...c, amount: Number(c.amount) })),
-  };
+/**
+ * Supabase projects commonly cap REST results at 1,000 rows. Financial tools
+ * must never turn that truncation into a confident answer, so every analytical
+ * transaction read goes through this bounded, deterministic paginator.
+ */
+async function fetchTransactions(
+  ctx: ToolContext,
+  options: TransactionQueryOptions,
+): Promise<any[]> {
+  const rows: any[] = [];
+  for (let offset = 0; offset < AGENT_QUERY_MAX_ROWS; offset += AGENT_QUERY_PAGE_SIZE) {
+    let query = ctx.sb.from("transactions")
+      .select(options.select)
+      .eq("user_id", ctx.user_id)
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + AGENT_QUERY_PAGE_SIZE - 1);
+    if (options.from) query = query.gte("occurred_at", options.from);
+    if (options.to) query = query.lte("occurred_at", options.to);
+    if (options.toExclusive) query = query.lt("occurred_at", options.toExclusive);
+    if (options.status) query = query.eq("status", options.status);
+    if (options.paymentMethod) query = query.eq("payment_method", options.paymentMethod);
+    const { data, error } = await query;
+    if (error) throw new Error(`transactions_query_failed:${error.message}`);
+    const page = (data ?? []) as any[];
+    rows.push(...page);
+    if (page.length < AGENT_QUERY_PAGE_SIZE) return rows;
+  }
+  throw new Error(`transactions_query_exceeded_${AGENT_QUERY_MAX_ROWS}_rows`);
 }
 
 // ---------- Executors ----------
@@ -66,14 +90,15 @@ export async function list_accounts(ctx: ToolContext): Promise<ToolResult> {
 
 export async function list_categories(ctx: ToolContext, args: { type?: "income"|"expense" }): Promise<ToolResult> {
   const type = args?.type;
-  const q = ctx.sb.from("categories").select("id,name,type,user_id");
-  const { data: personal } = type
+  const q = ctx.sb.from("categories").select("id,name,type,user_id").is("archived_at", null);
+  const { data: personal, error: personalError } = type
     ? await q.eq("user_id", ctx.user_id).in("type", [type, "both"] as any)
     : await q.eq("user_id", ctx.user_id);
-  const gq = ctx.sb.from("categories").select("id,name,type,user_id").is("user_id", null);
-  const { data: global } = type
+  const gq = ctx.sb.from("categories").select("id,name,type,user_id").is("archived_at", null).is("user_id", null);
+  const { data: global, error: globalError } = type
     ? await gq.in("type", [type, "both"] as any)
     : await gq;
+  if (personalError || globalError) return { ok: false, error: personalError?.message ?? globalError?.message ?? "categories_query_failed" };
   return { ok: true, result: [...(personal ?? []), ...(global ?? [])] };
 }
 
@@ -97,9 +122,10 @@ export async function get_financial_summary(ctx: ToolContext): Promise<ToolResul
 
 export async function list_recent_transactions(ctx: ToolContext, args: { limit?: number }): Promise<ToolResult> {
   const limit = Math.min(20, Math.max(1, args?.limit ?? 5));
-  const { data } = await ctx.sb.from("transactions")
+  const { data, error } = await ctx.sb.from("transactions")
     .select("id,type,amount,occurred_at,description,account_id,category_id")
     .eq("user_id", ctx.user_id).order("occurred_at", { ascending: false }).limit(limit);
+  if (error) return { ok: false, error: `transactions_query_failed:${error.message}` };
   return { ok: true, result: data ?? [] };
 }
 
@@ -113,16 +139,17 @@ export async function analyze_spending(ctx: ToolContext, args: {
   start.setUTCDate(start.getUTCDate() - days + 1);
   const from = iso.test(args?.from ?? "") ? args.from! : start.toISOString().slice(0, 10);
 
-  let query = ctx.sb.from("transactions")
-    .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
-    .eq("user_id", ctx.user_id).gte("occurred_at", from).lte("occurred_at", to)
-    .order("occurred_at", { ascending: true });
-  if (args?.payment_method) query = query.eq("payment_method", args.payment_method);
-  const [{ data, error }, { data: categories }] = await Promise.all([
-    query,
-    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+  const [data, categoriesResult] = await Promise.all([
+    fetchTransactions(ctx, {
+      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      from,
+      to,
+      paymentMethod: args?.payment_method,
+    }),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
   ]);
-  if (error) return { ok: false, error: error.message };
+  if (categoriesResult.error) return { ok: false, error: `categories_query_failed:${categoriesResult.error.message}` };
+  const categories = categoriesResult.data;
 
   const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
   const rows = (data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
@@ -177,13 +204,16 @@ export async function get_spending_for_date(ctx: ToolContext, args: { date: stri
   const postedThrough = new Date(`${date}T12:00:00Z`);
   postedThrough.setUTCDate(postedThrough.getUTCDate() + 3);
   const to = postedThrough.toISOString().slice(0, 10);
-  const [{ data, error }, { data: categories }] = await Promise.all([
-    ctx.sb.from("transactions")
-      .select("id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
-      .eq("user_id", ctx.user_id).gte("occurred_at", date).lte("occurred_at", to),
-    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+  const [data, categoriesResult] = await Promise.all([
+    fetchTransactions(ctx, {
+      select: "id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      from: date,
+      to,
+    }),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
   ]);
-  if (error) return { ok: false, error: error.message };
+  if (categoriesResult.error) return { ok: false, error: `categories_query_failed:${categoriesResult.error.message}` };
+  const categories = categoriesResult.data;
   const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
   let total = 0;
   let transactions = 0;
@@ -225,70 +255,127 @@ export async function run_before_spending(ctx: ToolContext, args: {
 }): Promise<ToolResult> {
   const amount = Number(args?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
-  const [facts, snapshotResult] = await Promise.all([
-    fetchFactsForBeforeSpending(ctx.sb, ctx.user_id),
-    computeAgentSnapshot(ctx.sb, ctx.user_id),
-  ]);
-  let accountId: string | null = null;
-  if (args?.account_hint) {
-    const h = args.account_hint.toLowerCase();
-    accountId = facts.accounts.find(a => (a.name as string).toLowerCase().includes(h))?.id ?? null;
+  const plannedDateInput = String(args?.planned_date ?? "");
+  const plannedDateValue = new Date(`${plannedDateInput}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(plannedDateInput)
+    || Number.isNaN(plannedDateValue.getTime())
+    || plannedDateValue.toISOString().slice(0, 10) !== plannedDateInput) {
+    return { ok: false, error: "missing_planned_date" };
   }
-  const method = args?.method ?? (args?.card ? "card" : "cash");
+  const snapshotResult = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+  if (plannedDateInput < snapshotResult.today) return { ok: false, error: "planned_date_in_past" };
+  let account: { id: string; name: string } | null = null;
+  if (args?.account_hint) {
+    account = await resolveAccountId(ctx, args.account_hint);
+    if (!account) return { ok: false, error: "account_not_found" };
+  }
   const installments = Math.max(1, Math.min(48, Math.floor(Number(args?.installments ?? 1))));
   const installmentAmount = Math.round(amount / installments * 100) / 100;
-  const plannedDate = /^\d{4}-\d{2}-\d{2}$/.test(args?.planned_date ?? "") ? args.planned_date! : snapshotResult.today;
+  const plannedDate = plannedDateInput;
   const categoryId = await resolveCategoryId(ctx, args?.category, "expense");
   if (args?.category && !categoryId) return { ok: false, error: "category_not_found" };
-  const card = method === "card" ? await resolveCreditCardFull(ctx, args?.card) : null;
-  if (method === "card" && card?.kind !== "single") {
-    return { ok: false, error: "card_not_found", result: card };
-  }
-  const { data: cardConfig } = card?.kind === "single"
-    ? await ctx.sb.from("credit_cards").select("id,name,closing_day,due_day").eq("id", card.id).eq("user_id", ctx.user_id).maybeSingle()
-    : { data: null };
-  const cycle = method === "card" ? cycleFor(cardConfig as any, plannedDate) : null;
-  const cashImpactDate = method === "card" ? cycle?.due_date ?? plannedDate : plannedDate;
-  const legacy = computeBeforeSpending({ amount, accountId, ...facts });
-  const immediateImpact = method === "cash" && plannedDate <= snapshotResult.today ? amount : 0;
-  const monthImpact = cashImpactDate <= snapshotResult.month_end
-    ? (method === "card" ? installmentAmount : amount)
-    : 0;
-  const categoryGoal = categoryId
-    ? snapshotResult.active_category_goals.find((goal) => goal.category_id === categoryId) ?? null
-    : null;
+  const categoryGoals = categoryId
+    ? snapshotResult.active_category_goals.filter((goal) => goal.category_id === categoryId)
+    : [];
+  const exactCategoryGoal = categoryGoals.find((goal) =>
+    plannedDate >= goal.period_start && plannedDate <= goal.period_end
+  ) ?? null;
+  const recurringCategoryGoal = categoryGoals.find((goal) => goal.period_type === "monthly_recurring") ?? null;
+  const categoryGoal = exactCategoryGoal ?? recurringCategoryGoal;
+  const sameGoalPeriod = Boolean(categoryGoal
+    && plannedDate >= categoryGoal.period_start && plannedDate <= categoryGoal.period_end);
+  const spentBefore = sameGoalPeriod ? Number(categoryGoal?.actual_spend ?? 0) : 0;
+  const plannedMonthStart = `${plannedDate.slice(0, 7)}-01`;
+  const [plannedYear, plannedMonth] = plannedDate.split("-").map(Number);
+  const plannedMonthEnd = `${plannedDate.slice(0, 7)}-${String(new Date(Date.UTC(plannedYear, plannedMonth, 0)).getUTCDate()).padStart(2, "0")}`;
   const categoryGoalImpact = categoryGoal ? {
     category_id: categoryGoal.category_id,
     category_name: categoryGoal.category_name ?? "Categoria",
     limit: categoryGoal.target_amount,
-    spent_before: categoryGoal.actual_spend,
-    spent_after: Math.round((categoryGoal.actual_spend + amount) * 100) / 100,
-    remaining_before: categoryGoal.remaining_amount,
-    remaining_after: Math.round((categoryGoal.target_amount - categoryGoal.actual_spend - amount) * 100) / 100,
-    exceeds: categoryGoal.actual_spend + amount > categoryGoal.target_amount,
+    period_start: sameGoalPeriod ? categoryGoal.period_start : plannedMonthStart,
+    period_end: sameGoalPeriod ? categoryGoal.period_end : plannedMonthEnd,
+    spent_before: spentBefore,
+    spent_after: Math.round((spentBefore + amount) * 100) / 100,
+    remaining_before: Math.round((categoryGoal.target_amount - spentBefore) * 100) / 100,
+    remaining_after: Math.round((categoryGoal.target_amount - spentBefore - amount) * 100) / 100,
+    exceeds: spentBefore + amount > categoryGoal.target_amount,
   } : null;
-  return {
-    ok: true,
-    result: {
-      formula_version: "agent_spending_simulation.snapshot.v3",
-      amount, method, installments, installment_amount: installmentAmount,
-      planned_date: plannedDate,
-      cash_impact_date: cashImpactDate,
-      card_competence: cycle?.competence ?? null,
+
+  const cardResolution = (args?.method === "card" || !args?.method)
+    ? await resolveCreditCardFull(ctx, args?.card)
+    : null;
+  if (args?.method === "card" && cardResolution?.kind !== "single") {
+    return {
+      ok: false,
+      error: cardResolution?.kind === "multiple" ? "card_ambiguous" : "card_not_found",
+      result: cardResolution,
+    };
+  }
+  const cardConfigRes = cardResolution?.kind === "single"
+    ? await ctx.sb.from("credit_cards").select("id,name,closing_day,due_day").eq("id", cardResolution.id).eq("user_id", ctx.user_id).maybeSingle()
+    : { data: null, error: null };
+  if (cardConfigRes.error) throw new Error(`card_config_query_failed:${cardConfigRes.error.message}`);
+  if (cardResolution?.kind === "single" && !cardConfigRes.data) return { ok: false, error: "card_not_found" };
+  const cardConfig = cardConfigRes.data;
+
+  const scenario = (method: "cash" | "card") => {
+    const cycle = method === "card" && cardConfig ? cycleFor(cardConfig as any, plannedDate) : null;
+    const cashImpactDate = method === "card" ? cycle?.due_date ?? null : plannedDate;
+    const immediateImpact = method === "cash" && plannedDate <= snapshotResult.today ? amount : 0;
+    const monthImpact = cashImpactDate && cashImpactDate <= snapshotResult.month_end
+      ? (method === "card" ? installmentAmount : amount)
+      : 0;
+    return {
+      method,
       available_today: snapshotResult.available_today,
       available_after_now: Math.round((snapshotResult.available_today - immediateImpact) * 100) / 100,
       projected_month_end_before: snapshotResult.projected_month_end_available,
       projected_month_end_after: Math.round((snapshotResult.projected_month_end_available - monthImpact) * 100) / 100,
+      cash_impact_date: cashImpactDate,
+      card_competence: cycle?.competence ?? null,
+      card: method === "card" && cardResolution?.kind === "single"
+        ? { id: cardResolution.id, name: cardResolution.name }
+        : null,
+      complete: method === "cash" || cardResolution?.kind === "single",
+    };
+  };
+  const scenarios = args?.method
+    ? [scenario(args.method)]
+    : [scenario("cash"), ...(cardResolution?.kind === "single" ? [scenario("card")] : [])];
+  const primary = scenarios[0];
+  return {
+    ok: true,
+    result: {
+      formula_version: "agent_spending_simulation.snapshot.v4",
+      reconciliation_id: snapshotResult.reconciliation_id,
+      amount, method: args?.method ?? null, installments, installment_amount: installmentAmount,
+      planned_date: plannedDate,
+      cash_impact_date: primary.cash_impact_date,
+      card_competence: primary.card_competence,
+      available_today: primary.available_today,
+      available_after_now: primary.available_after_now,
+      projected_month_end_before: primary.projected_month_end_before,
+      projected_month_end_after: primary.projected_month_end_after,
       known_future_commitments: snapshotResult.known_future_commitments,
+      scenarios,
       category_goal_impact: categoryGoalImpact,
-      goals_at_risk: legacy.goalsAtRisk,
-      account_balance: legacy.accountBalance,
-      card: card?.kind === "single" ? { id: card.id, name: card.name } : null,
+      category_requested: Boolean(args?.category),
+      category_resolved: categoryId ? { id: categoryId, name: categoryGoal?.category_name ?? args?.category ?? "Categoria" } : null,
+      category_goal_found: Boolean(categoryGoalImpact),
+      goals_at_risk: categoryGoalImpact?.exceeds ? [categoryGoalImpact] : [],
+      account: account,
+      card: primary.card,
+      requires_card_selection: !args?.method && cardResolution?.kind === "multiple"
+        ? cardResolution.choices
+        : [],
       assumptions: [
-        ...legacy.assumptions,
-        method === "card" ? "A compra afeta a meta da categoria na data da compra e o caixa pela parcela da fatura." : "A compra à vista reduz o caixa na data planejada.",
+        "A compra afeta a categoria integralmente na data planejada.",
+        args?.method === "card" ? "No cartão, o caixa muda no vencimento da parcela." : args?.method === "cash" ? "À vista, o caixa muda na data planejada." : "Como o meio de pagamento não foi informado, o cálculo apresenta cenários sem escolher por você.",
       ],
-      limitations: legacy.missingData,
+      limitations: [
+        ...(!args?.category ? ["Categoria não informada; nenhuma meta de categoria foi presumida."] : []),
+        ...(!args?.method && cardResolution?.kind === "multiple" ? ["Há mais de um cartão ativo; informe o cartão para calcular o vencimento do cenário a crédito."] : []),
+      ],
     },
   };
 }
@@ -302,14 +389,15 @@ async function upsertDraft(ctx: ToolContext, kind: string, payload: any, summary
     p_summary: summary,
     p_ttl_minutes: 15,
   });
-  if (error) return null;
+  if (error) throw new Error(`draft_persistence_failed:${error.message}`);
   return data as string;
 }
 
 async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
   if (hintOrId === undefined || hintOrId === null) return null;
-  const { data } = await ctx.sb.from("accounts").select("id,name,type")
+  const { data, error } = await ctx.sb.from("accounts").select("id,name,type")
     .eq("user_id", ctx.user_id).eq("active", true);
+  if (error) throw new Error(`accounts_query_failed:${error.message}`);
   const list: Candidate[] = (data ?? []).map((a: any) => ({
     id: a.id, name: a.name, aliases: [a.type].filter(Boolean),
   }));
@@ -321,16 +409,18 @@ async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ 
 async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined, type: "income"|"expense"): Promise<string | null> {
   if (!hintOrId) return null;
   if (/^[0-9a-f-]{36}$/i.test(hintOrId)) {
-    const { data } = await ctx.sb.from("categories").select("id,user_id")
-      .eq("id", hintOrId).maybeSingle();
+    const { data, error } = await ctx.sb.from("categories").select("id,user_id")
+      .eq("id", hintOrId).is("archived_at", null).maybeSingle();
+    if (error) throw new Error(`categories_query_failed:${error.message}`);
     if (!data) return null;
     if (data.user_id && data.user_id !== ctx.user_id) return null;
     return data.id as string;
   }
-  const { data: personal } = await ctx.sb.from("categories").select("id,name,type")
-    .eq("user_id", ctx.user_id).in("type", [type, "both"] as any);
-  const { data: global } = await ctx.sb.from("categories").select("id,name,type")
-    .is("user_id", null).in("type", [type, "both"] as any);
+  const { data: personal, error: personalError } = await ctx.sb.from("categories").select("id,name,type")
+    .eq("user_id", ctx.user_id).is("archived_at", null).in("type", [type, "both"] as any);
+  const { data: global, error: globalError } = await ctx.sb.from("categories").select("id,name,type")
+    .is("user_id", null).is("archived_at", null).in("type", [type, "both"] as any);
+  if (personalError || globalError) throw new Error(`categories_query_failed:${personalError?.message ?? globalError?.message}`);
   const all = [...(personal ?? []), ...(global ?? [])];
   const list: Candidate[] = all.map((c: any) => ({ id: c.id, name: c.name }));
   const r = resolveEntity(hintOrId, list);
@@ -343,8 +433,9 @@ async function resolveCreditCardFull(ctx: ToolContext, hintOrId?: string): Promi
   | { kind: "multiple"; choices: Array<{ id: string; name: string }> }
   | { kind: "none"; available: Array<{ id: string; name: string }> }
 > {
-  const { data } = await ctx.sb.from("credit_cards").select("id,name,brand,last_four")
+  const { data, error } = await ctx.sb.from("credit_cards").select("id,name,brand,last_four")
     .eq("user_id", ctx.user_id).eq("active", true);
+  if (error) throw new Error(`cards_query_failed:${error.message}`);
   const list: Candidate[] = (data ?? []).map((c: any) => ({
     id: c.id, name: c.name,
     aliases: [c.brand, c.last_four ? String(c.last_four) : null].filter(Boolean) as string[],
@@ -492,10 +583,12 @@ export async function add_goal_contribution_draft(ctx: ToolContext, args: {
   // Resolve goal
   let goalId: string | null = null; let goalName = "";
   if (/^[0-9a-f-]{36}$/i.test(hint)) {
-    const { data } = await ctx.sb.from("goals").select("id,name").eq("id", hint).eq("user_id", ctx.user_id).maybeSingle();
+    const { data, error } = await ctx.sb.from("goals").select("id,name").eq("id", hint).eq("user_id", ctx.user_id).maybeSingle();
+    if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     if (data) { goalId = data.id as string; goalName = data.name as string; }
   } else {
-    const { data } = await ctx.sb.from("goals").select("id,name").eq("user_id", ctx.user_id).eq("status", "active");
+    const { data, error } = await ctx.sb.from("goals").select("id,name").eq("user_id", ctx.user_id).eq("status", "active");
+    if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     const h = hint.toLowerCase();
     const m = (data ?? []).find(g => (g.name as string).toLowerCase().includes(h));
     if (m) { goalId = m.id as string; goalName = m.name as string; }
@@ -532,10 +625,12 @@ export async function create_debt_draft(ctx: ToolContext, args: {
 }
 
 export async function cancel_pending_action(ctx: ToolContext): Promise<ToolResult> {
-  const { data } = await ctx.sb.from("pending_confirmations")
+  const { data, error } = await ctx.sb.from("pending_confirmations")
     .select("id").eq("conversation_id", ctx.conversation_id).eq("status", "pending").maybeSingle();
+  if (error) return { ok: false, error: `pending_confirmation_query_failed:${error.message}` };
   if (!data) return { ok: true, result: { cancelled: false, reason: "nothing_pending" } };
-  await ctx.sb.from("pending_confirmations").update({ status: "cancelled" }).eq("id", data.id);
+  const { error: cancelError } = await ctx.sb.from("pending_confirmations").update({ status: "cancelled" }).eq("id", data.id);
+  if (cancelError) return { ok: false, error: `pending_confirmation_cancel_failed:${cancelError.message}` };
   return { ok: true, result: { cancelled: true } };
 }
 
@@ -546,17 +641,20 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
     .eq("user_id", ctx.user_id)
     .eq("status", "pending");
   if (args?.id) q = q.eq("id", args.id);
-  const { data: pending } = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const { data: pending, error: pendingError } = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (pendingError) return { ok: false, error: `pending_confirmation_query_failed:${pendingError.message}` };
   if (!pending) return { ok: false, error: "no_pending_confirmation" };
   if (new Date((pending as any).expires_at).getTime() <= Date.now()) {
-    await ctx.sb.from("pending_confirmations").update({ status: "expired" }).eq("id", (pending as any).id).eq("status", "pending");
+    const { error: expireError } = await ctx.sb.from("pending_confirmations").update({ status: "expired" }).eq("id", (pending as any).id).eq("status", "pending");
+    if (expireError) return { ok: false, error: `pending_confirmation_expire_failed:${expireError.message}` };
     return { ok: false, error: "expired" };
   }
   const executor = confirmationExecutor((pending as any).kind);
-  const { data: exec } = await ctx.sb.rpc(executor, {
+  const { data: exec, error: execError } = await ctx.sb.rpc(executor, {
     p_confirmation_id: (pending as any).id,
     p_source_message_id: null,
   });
+  if (execError) return { ok: false, error: `confirmation_rpc_failed:${execError.message}` };
   const result = exec as { ok?: boolean; result?: any; error?: string; idempotent?: boolean } | null;
   if (!result?.ok) return { ok: false, error: result?.error ?? "confirmation_failed" };
   return {
@@ -581,19 +679,16 @@ export async function search_transactions(ctx: ToolContext, args: {
   const days = Math.max(1, Math.min(180, Number(args?.days ?? 60)));
   const limit = Math.max(1, Math.min(20, Number(args?.limit ?? 10)));
   const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
+  const term = (args?.query ?? "").trim();
   let q = ctx.sb.from("transactions")
     .select("id,type,amount,occurred_at,description,category_id,account_id,credit_card_id,payment_method,installment_number,installments_total,purchase_group_id,version")
     .eq("user_id", ctx.user_id).gte("occurred_at", since)
-    .order("occurred_at", { ascending: false }).limit(limit * 2);
+    .order("occurred_at", { ascending: false }).limit(limit);
   if (args?.type) q = q.eq("type", args.type);
+  if (term) q = q.ilike("description", `%${term.replace(/[%_]/g, "\\$&")}%`);
   const { data, error } = await q;
   if (error) return { ok: false, error: error.message };
-  const term = (args?.query ?? "").trim().toLowerCase();
-  let rows = (data ?? []) as any[];
-  if (term) {
-    rows = rows.filter(r => String(r.description ?? "").toLowerCase().includes(term));
-  }
-  return { ok: true, result: rows.slice(0, limit) };
+  return { ok: true, result: data ?? [] };
 }
 
 export async function get_transaction(ctx: ToolContext, args: { transaction_id: string }): Promise<ToolResult> {
@@ -757,23 +852,30 @@ export async function get_daily_insights(ctx: ToolContext, args: { limit?: numbe
 }
 
 export async function get_spending_highlights(ctx: ToolContext): Promise<ToolResult> {
-  const now0 = new Date();
-  const ym = now0.toISOString().slice(0, 7);
-  const prevYm = new Date(now0.getFullYear(), now0.getMonth() - 1, 1).toISOString().slice(0, 7);
+  const today = todaySaoPaulo();
+  const now0 = new Date(`${today}T12:00:00-03:00`);
+  const ym = today.slice(0, 7);
+  const prevYm = shiftMonth(today, -1).slice(0, 7);
   const [txsCur, txsPrev, cats, goals, contribs] = await Promise.all([
-    ctx.sb.from("transactions")
-      .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
-      .eq("user_id", ctx.user_id).eq("status", "confirmed")
-      .gte("occurred_at", `${ym}-01`),
-    ctx.sb.from("transactions")
-      .select("id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind")
-      .eq("user_id", ctx.user_id).eq("status", "confirmed")
-      .gte("occurred_at", `${prevYm}-01`).lt("occurred_at", `${ym}-01`),
-    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+    fetchTransactions(ctx, {
+      select: "id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      from: `${ym}-01`,
+      status: "confirmed",
+    }),
+    fetchTransactions(ctx, {
+      select: "id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      from: `${prevYm}-01`,
+      toExclusive: `${ym}-01`,
+      status: "confirmed",
+    }),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
     ctx.sb.from("goals").select("name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("status", "active"),
     ctx.sb.from("goal_contributions").select("goal_id,amount").eq("user_id", ctx.user_id),
   ]);
-  const all = [...((txsCur.data ?? []) as any[]), ...((txsPrev.data ?? []) as any[])] as unknown as TransactionRow[];
+  for (const [source, response] of [["categories", cats], ["goals", goals], ["goal_contributions", contribs]] as const) {
+    if (response.error) return { ok: false, error: `${source}_query_failed:${response.error.message}` };
+  }
+  const all = [...txsCur, ...txsPrev] as unknown as TransactionRow[];
   const catNames = new Map<string, string>();
   for (const c of (cats.data ?? []) as any[]) catNames.set(c.id, c.name);
   const signals = computeBehavioralSignals(
@@ -842,6 +944,13 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
       ctx.sb.from("shared_goal_members").select("goal_id").eq("user_id", ctx.user_id).eq("invite_status", "accepted"),
       ctx.sb.from("transactions").select("amount,category_id,type,status,movement_kind,occurred_at").eq("user_id", ctx.user_id).eq("type", "income").eq("status", "confirmed").gte("occurred_at", `${month}-01`),
     ]);
+    const sources: Array<[string, { error?: { message?: string } | null }]> = [
+      ["goals", goalsRes], ["goal_contributions", contribsRes], ["investments", investmentsRes],
+      ["shared_goals_owned", ownedSharedRes], ["shared_goal_members", memberRes], ["goal_income", incomeRes],
+    ];
+    for (const [source, response] of sources) {
+      if (response.error) throw new Error(`goals_source_${source}:${response.error.message ?? "query_failed"}`);
+    }
     const contributions = (contribsRes.data ?? []) as any[];
     const investments = (investmentsRes.data ?? []) as any[];
     const incomes = ((incomeRes.data ?? []) as any[])
@@ -876,7 +985,8 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
     const memberGoalIds = [...new Set(((memberRes.data ?? []) as any[]).map((m) => m.goal_id).filter(Boolean))];
     const memberSharedRes = memberGoalIds.length
       ? await ctx.sb.from("shared_goals").select("id,title,target_amount,status,deadline").in("id", memberGoalIds)
-      : { data: [] as any[] };
+      : { data: [] as any[], error: null };
+    if (memberSharedRes.error) throw new Error(`goals_source_shared_goals_member:${memberSharedRes.error.message}`);
     const sharedById = new Map<string, any>();
     for (const goal of [...((ownedSharedRes.data ?? []) as any[]), ...((memberSharedRes.data ?? []) as any[])]) {
       sharedById.set(goal.id, goal);
@@ -952,7 +1062,6 @@ export async function create_split_expense_draft(ctx: ToolContext, args: {
 
 import { computeCompare, type CompareInput } from "../analytics/compare.ts";
 import { computeAttribution } from "../analytics/attribute.ts";
-import { computeForecast } from "../analytics/forecast.ts";
 import { projectGoal, simulatePace } from "../analytics/goals.ts";
 import { computeDailySpend } from "../analytics/timeseries.ts";
 import { computeCumulativeDailyAverage } from "../analytics/dailyAverage.ts";
@@ -967,12 +1076,16 @@ import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templ
 import { parseTemplateArgs } from "./templates/templateSchemas.ts";
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
-  const [{ data: txs }, { data: cats }] = await Promise.all([
-    ctx.sb.from("transactions")
-      .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
-      .eq("user_id", ctx.user_id).gte("occurred_at", from).lte("occurred_at", to),
-    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+  const [txs, categoriesResult] = await Promise.all([
+    fetchTransactions(ctx, {
+      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      from,
+      to,
+    }),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
   ]);
+  if (categoriesResult.error) throw new Error(`categories_query_failed:${categoriesResult.error.message}`);
+  const cats = categoriesResult.data;
   const names = new Map<string, string>((cats ?? []).map((c: any) => [c.id, c.name]));
   const rows = (txs ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
   return { txs: rows, names };
@@ -998,27 +1111,50 @@ export async function compare_periods(ctx: ToolContext, args: {
 }
 
 export async function forecast_month_close(ctx: ToolContext, args: { model?: "auto" | "baseline" | "observed" | "seasonal" }): Promise<ToolResult> {
-  const today = todaySP();
-  const cur = monthRange(today);
-  // pega 12 meses de histórico + mês atual (para sazonal + backtest)
-  const from = shiftMonth(cur.from, -12);
-  const to = cur.to;
-  const { txs } = await loadTxAndCategories(ctx, from, to);
-  const gate = reconciliationGate(txs as any);
-  if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
-  const { data: rec } = await ctx.sb.from("recurring_entries")
-    .select("id,name,type,amount,frequency,next_due_date,active").eq("user_id", ctx.user_id).eq("active", true);
-  const recurring = (rec ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
-  const [result, snapshot] = await Promise.all([
-    Promise.resolve(computeForecast({ txs: txs as any, recurring, today, model: args?.model ?? "auto" })),
-    computeAgentSnapshot(ctx.sb, ctx.user_id),
-  ]);
+  // O fechamento não mantém um segundo estimador legado. Home, WhatsApp e App
+  // consomem exatamente o mesmo snapshot financeiro reconciliado.
+  const snapshot = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+  const committedFuture = snapshot.known_future_commitments + snapshot.card_due_this_month;
+  const point = Math.round((snapshot.current_month_expense
+    + snapshot.projected_remaining_consumption
+    + committedFuture) * 100) / 100;
+  const daysInMonth = snapshot.days_elapsed + snapshot.days_remaining;
+  const rowCount = snapshot.source_transaction_count;
+  const bridgeConfidence = snapshot.cash_bridge.confidence;
+  const confidence = bridgeConfidence === "high" || bridgeConfidence === "medium" || bridgeConfidence === "low"
+    ? bridgeConfidence
+    : "insufficient_data";
   return { ok: true, result: {
-    ...result,
+    month: snapshot.month_start.slice(0, 7),
+    point,
+    low: null,
+    high: null,
+    model_used: "financial_snapshot_contract.v8",
+    drivers: {
+      mtd_expense: snapshot.current_month_expense,
+      day_of_month: snapshot.days_elapsed,
+      days_in_month: daysInMonth,
+      recurring_future: committedFuture,
+      seasonal_adjust: 0,
+    },
+    backtest_summary: null,
+    provenance: makeProvenance({
+      from: snapshot.month_start,
+      to: snapshot.month_end,
+      row_count: rowCount,
+      formula_version: snapshot.formula_version,
+      confidence,
+      maturity: { days_observed: snapshot.days_elapsed, days_in_month: daysInMonth },
+      notes: [
+        "Mesmo contrato reconciliado usado pela Home e pelo assessor.",
+        "Inclui consumo projetado, compromissos conhecidos e fatura a vencer no mês.",
+      ],
+    }),
     projected_month_end_available: snapshot.projected_month_end_available,
     confirmed_future_income: snapshot.confirmed_future_income,
     estimated_fixed_income: snapshot.estimated_fixed_income,
     estimated_income_events: snapshot.estimated_income_events,
+    reconciliation_id: snapshot.reconciliation_id,
   } };
 }
 
@@ -1034,17 +1170,21 @@ export async function explain_spending_change(ctx: ToolContext, args: {
 export async function project_goal_completion(ctx: ToolContext, args: { goal_id?: string; goal?: string }): Promise<ToolResult> {
   let goalRow: any = null;
   if (args?.goal_id && /^[0-9a-f-]{36}$/i.test(args.goal_id)) {
-    const { data } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("id", args.goal_id).maybeSingle();
+    const { data, error } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("id", args.goal_id).maybeSingle();
+    if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     goalRow = data;
   } else if (args?.goal) {
-    const { data } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).ilike("name", `%${args.goal}%`).limit(1);
+    const { data, error } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).ilike("name", `%${args.goal}%`).limit(1);
+    if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     goalRow = data && data[0];
   } else {
-    const { data } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("status", "active").order("created_at").limit(1);
+    const { data, error } = await ctx.sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", ctx.user_id).eq("status", "active").order("created_at").limit(1);
+    if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     goalRow = data && data[0];
   }
   if (!goalRow) return { ok: false, error: "goal_not_found" };
-  const { data: contribs } = await ctx.sb.from("goal_contributions").select("amount,occurred_at").eq("user_id", ctx.user_id).eq("goal_id", goalRow.id);
+  const { data: contribs, error: contributionsError } = await ctx.sb.from("goal_contributions").select("amount,occurred_at").eq("user_id", ctx.user_id).eq("goal_id", goalRow.id);
+  if (contributionsError) return { ok: false, error: `goal_contributions_query_failed:${contributionsError.message}` };
   const projection = projectGoal({
     goal: { id: goalRow.id, name: goalRow.name, target_amount: Number(goalRow.target_amount || 0), target_date: goalRow.target_date, status: goalRow.status },
     contributions: (contribs ?? []).map((c: any) => ({ amount: Number(c.amount), occurred_at: c.occurred_at })),
@@ -1055,7 +1195,8 @@ export async function project_goal_completion(ctx: ToolContext, args: { goal_id?
 export async function simulate_goal_pace(ctx: ToolContext, args: { goal_id?: string; goal?: string; monthly_contribution: number }): Promise<ToolResult> {
   const proj = await project_goal_completion(ctx, args);
   if (!proj.ok) return proj;
-  const { data: contribs } = await ctx.sb.from("goal_contributions").select("amount,occurred_at").eq("user_id", ctx.user_id).eq("goal_id", proj.result.goal_id);
+  const { data: contribs, error: contributionsError } = await ctx.sb.from("goal_contributions").select("amount,occurred_at").eq("user_id", ctx.user_id).eq("goal_id", proj.result.goal_id);
+  if (contributionsError) return { ok: false, error: `goal_contributions_query_failed:${contributionsError.message}` };
   const scenario = simulatePace({
     goal: { id: proj.result.goal_id, name: proj.result.name, target_amount: proj.result.target, target_date: null },
     contributions: (contribs ?? []).map((c: any) => ({ amount: Number(c.amount), occurred_at: c.occurred_at })),
@@ -1142,13 +1283,14 @@ export async function generate_chart_artifact(ctx: ToolContext, args: {
   }
 
   // Persistência do artefato para reuso/entrega em outros canais
-  const { data: saved } = await ctx.sb.from("agent_artifacts").insert({
+  const { data: saved, error: saveError } = await ctx.sb.from("agent_artifacts").insert({
     user_id: ctx.user_id,
     conversation_id: ctx.conversation_id,
     kind: artifact.kind,
     payload: artifact as any,
     formula_version: artifact.provenance.formula_version,
   }).select("id").maybeSingle();
+  if (saveError) return { ok: false, error: `artifact_persistence_failed:${saveError.message}` };
 
   return { ok: true, result: { artifact, artifact_id: saved?.id ?? null } };
 }
@@ -1167,11 +1309,12 @@ export async function generate_report_from_template(ctx: ToolContext, args: {
     return { ok: false, error: p.error, details: p.details };
   }
   // Confirma que o template está ativo no banco (fonte de verdade).
-  const { data: tpl } = await ctx.sb
+  const { data: tpl, error: templateError } = await ctx.sb
     .from("financial_report_templates")
     .select("template_key, active")
     .eq("template_key", parsed.value.template_key)
     .maybeSingle();
+  if (templateError) return { ok: false, error: `report_template_query_failed:${templateError.message}` };
   if (!tpl || !tpl.active) return { ok: false, error: "template_inactive" };
 
   const { kind, args: mappedArgs } = templateToArtifactArgs(parsed.value);
@@ -1241,12 +1384,18 @@ export async function list_shared_goals(ctx: ToolContext): Promise<ToolResult> {
 }
 
 export async function get_shared_goal_progress(ctx: ToolContext, args: { goal?: string; goal_id?: string }): Promise<ToolResult> {
-  const g = await resolveSharedGoal(ctx, args.goal_id ?? args.goal ?? "");
+  let g;
+  try {
+    g = await resolveSharedGoal(ctx, args.goal_id ?? args.goal ?? "");
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
   if (!g) return { ok: false, error: "goal_not_found" };
-  const { data: contribs } = await ctx.sb
+  const { data: contribs, error: contributionsError } = await ctx.sb
     .from("shared_goal_contributions")
     .select("user_id, amount, occurred_at")
     .eq("goal_id", g.id);
+  if (contributionsError) return { ok: false, error: `shared_goal_contributions_query_failed:${contributionsError.message}` };
   const total = (contribs ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
   const ranking = new Map<string, number>();
   for (const r of contribs ?? []) {
@@ -1268,12 +1417,18 @@ export async function get_shared_goal_progress(ctx: ToolContext, args: { goal?: 
 }
 
 export async function simulate_shared_goal_pace(ctx: ToolContext, args: { goal?: string; goal_id?: string; monthly_contribution: number }): Promise<ToolResult> {
-  const g = await resolveSharedGoal(ctx, args.goal_id ?? args.goal ?? "");
+  let g;
+  try {
+    g = await resolveSharedGoal(ctx, args.goal_id ?? args.goal ?? "");
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
   if (!g) return { ok: false, error: "goal_not_found" };
   const monthly = Number(args.monthly_contribution);
   if (!Number.isFinite(monthly) || monthly <= 0) return { ok: false, error: "invalid_amount" };
-  const { data: contribs } = await ctx.sb
+  const { data: contribs, error: contributionsError } = await ctx.sb
     .from("shared_goal_contributions").select("amount").eq("goal_id", g.id);
+  if (contributionsError) return { ok: false, error: `shared_goal_contributions_query_failed:${contributionsError.message}` };
   const total = (contribs ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
   const remaining = Math.max(0, Number(g.target_amount) - total);
   const months = remaining > 0 ? Math.ceil(remaining / monthly) : 0;
@@ -1397,7 +1552,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
         card: optionalStr,
         installments: { type: "integer", minimum: 1, maximum: 48 },
       },
-      required: ["amount"], additionalProperties: false,
+      required: ["amount", "planned_date"], additionalProperties: false,
     },
     execute: run_before_spending,
   },

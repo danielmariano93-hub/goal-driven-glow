@@ -232,18 +232,6 @@ export default function Relatorios({ focus }: { focus?: "categorias" }) {
     URL.revokeObjectURL(url);
   };
 
-  if (filtered.length === 0) {
-    return (
-      <div className="space-y-5 pt-2">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Relatórios</h1>
-        <div className="surface-card p-8 text-center">
-          <p className="text-sm font-medium">Ainda não há dados no período</p>
-          <p className="text-xs text-muted-foreground mt-1">Registre lançamentos para ver seus relatórios factuais.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5 pt-2 print:pt-0">
       <div className="flex items-center justify-between">
@@ -256,6 +244,12 @@ export default function Relatorios({ focus }: { focus?: "categorias" }) {
           <button onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs"><Printer size={12} /> Imprimir</button>
         </div>
       </div>
+
+      {filtered.length === 0 ? (
+        <div className="surface-card px-4 py-3 text-xs text-muted-foreground">
+          Não há lançamentos de rotina neste intervalo. Sua posição atual e os compromissos conhecidos continuam disponíveis abaixo.
+        </div>
+      ) : null}
 
       <div className="surface-card grid min-w-0 grid-cols-1 gap-2 p-3 min-[380px]:grid-cols-2 print:hidden">
         <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -279,8 +273,11 @@ export default function Relatorios({ focus }: { focus?: "categorias" }) {
                 cash: financialSnapshot.netWorth.cash,
                 invested: financialSnapshot.investmentsTotal,
                 resources: financialSnapshot.netWorth.assets,
+                cardDueThisMonth: financialSnapshot.projection.composition.cardDueThisMonth,
+                cardDueEstimated: financialSnapshot.projection.composition.cardDueIsEstimated,
                 cardsOwed: financialSnapshot.cardDebtToday,
                 otherDebts: financialSnapshot.activeDebtTotal,
+                activeDebts: financialSnapshot.activeDebts,
                 netWorth: financialSnapshot.netWorth.net,
                 futureInstallments: financialSnapshot.cardFutureInstallments,
                 committedNetWorth: financialSnapshot.committedNetWorth,

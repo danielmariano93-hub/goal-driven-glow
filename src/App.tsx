@@ -42,6 +42,7 @@ const DivisaoDoRole = lazy(() => import("./pages/DivisaoDoRole"));
 const DivisaoDoRoleNova = lazy(() => import("./pages/DivisaoDoRoleNova"));
 const DivisaoDoRoleDetalhe = lazy(() => import("./pages/DivisaoDoRoleDetalhe"));
 const Recorrencias = lazy(() => import("./pages/Recorrencias"));
+const Compromissos = lazy(() => import("./pages/Compromissos"));
 const Desafios = lazy(() => import("./pages/Desafios"));
 const Notificacoes = lazy(() => import("./pages/Notificacoes"));
 const CobrancasRecebidas = lazy(() => import("./pages/CobrancasRecebidas"));
@@ -131,6 +132,7 @@ const App = () => (
                 <Route path="divisao-do-role/:id" element={<DivisaoDoRoleDetalhe />} />
                 <Route path="divisao-do-role/:id/editar" element={<DivisaoDoRoleNova />} />
                 <Route path="recorrencias" element={<Recorrencias />} />
+                <Route path="compromissos" element={<Compromissos />} />
                 <Route path="desafios" element={<Desafios />} />
                 <Route path="notificacoes" element={<Notificacoes />} />
                 <Route path="cobrancas" element={<CobrancasRecebidas />} />

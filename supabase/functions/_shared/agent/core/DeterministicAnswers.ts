@@ -23,9 +23,15 @@ export function formatFinancialSnapshot(s: any): string {
     `Hoje você tem ${money(s.available_today)} disponível.`,
     `Neste mês: entradas ${money(s.current_month_income)} e gastos de consumo ${money(s.current_month_expense)}.`,
     `Seu ritmo está em ${money(s.daily_pace)}/dia; o típico é ${money(s.typical_daily_pace)}/dia — ${pace}.`,
-    `Considerando ${money(s.known_future_commitments)} de compromissos conhecidos, a projeção para o fim do mês é ${money(s.projected_month_end_available)}.`,
   ];
-  if (s.cards_owed_estimated) lines.push("O valor de cartão contém estimativa porque nem todas as faturas oficiais estão disponíveis.");
+  if (Number(s.card_due_this_month ?? 0) > 0) {
+    lines.push(`Cartão a vencer na competência: ${money(s.card_due_this_month)}${s.card_due_estimated ? " (estimado pelas parcelas e compras conhecidas)" : " (fatura oficial)"}.`);
+  }
+  const otherDebt = Array.isArray(s.active_debts)
+    ? s.active_debts.reduce((sum: number, debt: any) => sum + Number(debt.outstanding_balance ?? 0), 0)
+    : 0;
+  if (otherDebt > 0) lines.push(`Dívidas ativas fora do cartão: ${money(otherDebt)}.`);
+  lines.push(`Considerando ${money(s.known_future_commitments)} de outros compromissos conhecidos, a projeção para o fim do mês é ${money(s.projected_month_end_available)}.`);
   return lines.join("\n");
 }
 
@@ -52,12 +58,22 @@ export function formatGoalsOverview(result: any): string {
 export function formatBeforeSpending(result: any): string {
   const amount = Number(result.amount ?? 0);
   const date = String(result.planned_date ?? "hoje");
-  const lines = [
-    `Simulação de ${money(amount)} em ${date}:`,
-    `• disponível imediatamente: ${money(result.available_today)} → ${money(result.available_after_now)}`,
-    `• projeção para o fim do mês: ${money(result.projected_month_end_before)} → ${money(result.projected_month_end_after)}`,
-    `• compromissos futuros já conhecidos: ${money(result.known_future_commitments)}`,
-  ];
+  const lines = [`Simulação de ${money(amount)} em ${date}:`];
+  const scenarios = Array.isArray(result.scenarios) ? result.scenarios : [];
+  if (scenarios.length > 1) {
+    for (const scenario of scenarios) {
+      const label = scenario.method === "card" ? `no cartão${scenario.card?.name ? ` ${scenario.card.name}` : ""}` : "à vista/conta";
+      lines.push(
+        `• ${label}: disponível agora ${money(scenario.available_after_now)}; fechamento do mês ${money(scenario.projected_month_end_after)}${scenario.cash_impact_date ? `; saída em ${scenario.cash_impact_date}` : ""}.`,
+      );
+    }
+  } else {
+    lines.push(
+      `• disponível imediatamente: ${money(result.available_today)} → ${money(result.available_after_now)}`,
+      `• projeção para o fim do mês: ${money(result.projected_month_end_before)} → ${money(result.projected_month_end_after)}`,
+    );
+  }
+  lines.push(`• compromissos futuros já conhecidos: ${money(result.known_future_commitments)}`);
   const category = result.category_goal_impact;
   if (category) {
     lines.push(
@@ -66,8 +82,13 @@ export function formatBeforeSpending(result: any): string {
         ? `Essa compra ultrapassaria a meta em ${money(Math.abs(Number(category.remaining_after ?? 0)))}.`
         : `Depois da compra, restariam ${money(category.remaining_after)} nessa meta.`,
     );
+  } else if (result.category_requested) {
+    lines.push("A categoria foi identificada, mas ela não tem uma meta ativa; por isso não há limite de categoria para comparar.");
   } else {
-    lines.push("Não encontrei uma meta ativa para a categoria informada; por isso o impacto por categoria não entrou no cálculo.");
+    lines.push("Você não informou a categoria; não presumi uma e não calculei impacto em meta de categoria.");
+  }
+  if (Array.isArray(result.requires_card_selection) && result.requires_card_selection.length) {
+    lines.push(`Para comparar também no crédito, diga qual cartão: ${result.requires_card_selection.map((card: any) => card.name).join(", ")}.`);
   }
   if (Array.isArray(result.limitations) && result.limitations.length) {
     lines.push(`Limitação do cálculo: ${result.limitations.join(" ")}`);
@@ -104,6 +125,11 @@ function failureReply(capability: CapabilityDecision, error: string | null): str
   // the user. The response says what failed and whether data was changed.
   const suffix = error ? " O motivo técnico foi registrado para diagnóstico." : "";
   if (capability.name === "before_spending") {
+    if (error === "missing_planned_date") return "Preciso da data do gasto para calcular o caixa e a competência corretamente. Nenhum dado foi alterado.";
+    if (error === "planned_date_in_past") return "Essa data já passou. Diga uma data de hoje em diante para eu simular sem misturar previsão com histórico; nenhum dado foi alterado.";
+    if (error === "category_not_found") return "Não reconheci essa categoria entre as suas categorias cadastradas. Diga o nome como aparece no app; nenhum dado foi alterado.";
+    if (error === "card_ambiguous" || error === "card_not_found") return "Preciso saber qual cartão usar para calcular o ciclo e o vencimento corretos. Nenhum dado foi alterado.";
+    if (error === "account_not_found") return "Não reconheci a conta informada. Diga o nome como aparece no app; nenhum dado foi alterado.";
     return `Não consegui consultar o motor financeiro para concluir a simulação. Nenhum dado foi alterado.${suffix}`;
   }
   if (capability.name === "goals_overview") {

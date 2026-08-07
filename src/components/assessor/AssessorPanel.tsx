@@ -23,8 +23,22 @@ type Pending = {
 type DocDraft = IngestResult;
 
 type Msg =
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string; pending?: Pending | null; doc?: DocDraft | null; report?: SpendingReport | null; artifact?: ChartArtifact | null };
+  | { role: "user"; content: string; createdAt?: string }
+  | { role: "assistant"; content: string; createdAt?: string; pending?: Pending | null; doc?: DocDraft | null; report?: SpendingReport | null; artifact?: ChartArtifact | null };
+
+function messageTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  const sameDay = date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
+    === today.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  return date.toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    ...(sameDay ? {} : { day: "2-digit", month: "2-digit", year: "2-digit" }),
+    hour: "2-digit", minute: "2-digit",
+  });
+}
 
 const SUGGESTIONS = [
   "Como está meu mês?",
@@ -109,8 +123,8 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           const ids: string[] = Array.isArray(message.artifact_ids) ? message.artifact_ids : [];
           const artifact = ids.map((id) => artifactMap.get(id)).find(Boolean) ?? null;
           return message.direction === "inbound"
-            ? { role: "user" as const, content: message.body_masked }
-            : { role: "assistant" as const, content: message.body_masked, artifact };
+            ? { role: "user" as const, content: message.body_masked, createdAt: message.created_at }
+            : { role: "assistant" as const, content: message.body_masked, createdAt: message.created_at, artifact };
         });
       }
 
@@ -202,7 +216,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     }
     setMessages((current) => {
       const withoutSameDocument = current.filter((message) => message.role !== "assistant" || message.doc?.document_id !== info.document_id);
-      return [...withoutSameDocument, { role: "assistant", content, doc: info }];
+      return [...withoutSameDocument, { role: "assistant", content, doc: info, createdAt: new Date().toISOString() }];
     });
   }
 
@@ -234,7 +248,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     const userContent = currentAttachment
       ? `${clean || "Analise estes lançamentos."}\n📎 ${currentAttachment.name}`
       : clean;
-    setMessages((m) => [...m, { role: "user", content: userContent }]);
+    setMessages((m) => [...m, { role: "user", content: userContent, createdAt: new Date().toISOString() }]);
     setInput("");
     setSending(true);
     try {
@@ -258,7 +272,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         // continuar conversando ou fechar o painel.
       } else {
         const res = await callAgent({ text: clean });
-        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", pending: res?.pending ?? null, report: res?.report ?? null, artifact: res?.artifact ?? null }]);
+        setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", createdAt: new Date().toISOString(), pending: res?.pending ?? null, report: res?.report ?? null, artifact: res?.artifact ?? null }]);
         if (res?.executed) refetchAll();
       }
     } catch (e) {
@@ -266,7 +280,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       toast.error("Erro no assessor", { description: msg });
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: "Tive uma dificuldade agora. Tente novamente em instantes." },
+        { role: "assistant", content: "Tive uma dificuldade agora. Tente novamente em instantes.", createdAt: new Date().toISOString() },
       ]);
     } finally {
       setSending(false);
@@ -280,7 +294,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       const res = await callAgent({ action, pending_id: pending.id });
       // Clear pending on the originating message
       setMessages((m) => m.map((msg, i) => (i === idx && msg.role === "assistant" ? { ...msg, pending: null } : msg)));
-      setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…" }]);
+      setMessages((m) => [...m, { role: "assistant", content: res?.reply ?? "…", createdAt: new Date().toISOString() }]);
       if (res?.executed) refetchAll();
     } catch (e) {
       toast.error("Não consegui concluir", { description: (e as Error).message });
@@ -352,7 +366,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex flex-col items-start gap-2"}>
+            <div key={i} className={m.role === "user" ? "flex flex-col items-end gap-1" : "flex flex-col items-start gap-1"}>
               <div
                 className={
                   m.role === "user"
@@ -365,6 +379,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                 )}
                 {m.content}
               </div>
+              {m.createdAt ? <time dateTime={m.createdAt} className="px-1 text-[9px] tabular-nums text-muted-foreground">{messageTime(m.createdAt)}</time> : null}
               {m.role === "assistant" && m.pending && (
                 <ConfirmationCard pending={m.pending} onConfirm={() => decide(m.pending!, "confirm", i)} onCancel={() => decide(m.pending!, "cancel", i)} disabled={sending} />
               )}

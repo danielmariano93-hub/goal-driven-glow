@@ -43,8 +43,13 @@ export interface PositionSummary {
   cash: number;
   invested: number;
   resources: number;
+  /** Valor de cartão que vence na competência atual (oficial ou reconstruído). */
+  cardDueThisMonth: number;
+  cardDueEstimated?: boolean;
+  /** Toda a dívida de cartão ainda aberta, inclusive competências anteriores. */
   cardsOwed: number;
   otherDebts: number;
+  activeDebts?: Array<{ id: string; name: string; outstandingBalance: number; installmentAmount: number | null; dueDay: number | null }>;
   netWorth: number;
   futureInstallments: number;
   /** Patrimônio já descontando as parcelas de meses futuros. */
@@ -79,9 +84,37 @@ export function PositionBlock({ position }: { position: PositionSummary }) {
       </dl>
 
       <dl className="mt-2 grid grid-cols-2 gap-2">
-        <Cell label="Fatura em aberto" value={position.cardsOwed} tone="negative" />
-        <Cell label="Outras dívidas" value={position.otherDebts} tone="negative" />
+        <Cell
+          label="Cartão a vencer no mês"
+          value={position.cardDueThisMonth}
+          tone="negative"
+          hint={position.cardDueEstimated ? "Estimado com parcelas conhecidas" : "Fatura oficial"}
+        />
+        <Cell label="Dívidas fora do cartão" value={position.otherDebts} tone="negative" hint="Contratos ativos cadastrados" />
       </dl>
+
+      {position.cardsOwed - position.cardDueThisMonth > 0.01 ? (
+        <p className="mt-2 rounded-xl bg-destructive/5 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+          Além do valor desta competência, existem <strong className="font-semibold text-foreground">{formatBRL(position.cardsOwed - position.cardDueThisMonth)}</strong> em faturas abertas de outros períodos.
+        </p>
+      ) : null}
+
+      {(position.activeDebts?.length ?? 0) > 0 ? (
+        <details className="mt-2 rounded-xl border border-border px-3 py-2">
+          <summary className="cursor-pointer list-none text-[11px] font-semibold text-primary">Entender as dívidas cadastradas</summary>
+          <ul className="mt-2 space-y-1.5 text-[11px]">
+            {position.activeDebts!.map((debt) => (
+              <li key={debt.id} className="flex items-start justify-between gap-3">
+                <span className="min-w-0 text-muted-foreground">
+                  <strong className="block truncate font-medium text-foreground">{debt.name}</strong>
+                  {debt.installmentAmount != null ? `Parcela ${formatBRL(debt.installmentAmount)}${debt.dueDay ? ` · dia ${debt.dueDay}` : ""}` : "Sem parcela informada"}
+                </span>
+                <strong className="shrink-0 tabular-nums">{formatBRL(debt.outstandingBalance)}</strong>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {position.futureInstallments > 0 ? (
         <p className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
@@ -262,7 +295,7 @@ export function CashBridgeBlock({
             <p className="text-[11px] leading-relaxed text-muted-foreground">{explanation.body}</p>
             <div className="mt-2 flex items-center justify-between gap-2">
               <ConfidenceChip confidence={bridge.confidence} />
-              <span className="text-[10px] text-muted-foreground">{bridge.formulaVersion}</span>
+              <span className="text-[10px] text-muted-foreground">Cálculo conciliado do período</span>
             </div>
           </div>
         </div>

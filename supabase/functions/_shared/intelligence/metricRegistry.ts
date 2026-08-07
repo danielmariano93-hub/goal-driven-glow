@@ -7,10 +7,10 @@ export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
     description: "Combina a frequência observada com a mediana robusta dos dias em que houve gasto.",
     formula: "taxa de dias ativos × mediana(gasto dos dias ativos sem picos altos)",
     default_window_days: 84,
-    minimum_sample: 3,
+    minimum_sample: 2,
     include_zero_days: true,
     outlier_policy: "exclude_for_typical",
-    formula_version: "weekday.behavioral-date.v3",
+    formula_version: "weekday.behavioral-date.v4",
   },
   weekday_total_concentration: {
     key: "weekday_total_concentration",

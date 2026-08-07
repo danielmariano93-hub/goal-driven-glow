@@ -23,7 +23,10 @@ type Props = {
 
 /** Leituras já respondidas hoje não voltam a aparecer (cooldown local espelha o backend). */
 function storageKey() {
-  return `nino-answered-${new Date().toISOString().slice(0, 10)}`;
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  return `nino-answered-${day}`;
 }
 
 function readAnswered(): string[] {
@@ -61,7 +64,10 @@ export function NinoGuidanceCard({ diagnosis, context, projection, loading, erro
   }, [index, queue.length]);
 
   const reading = queue[index] ?? null;
-  const fallbackItem = diagnosis?.primary ?? null;
+  // O fallback só existe quando o endpoint de contexto não respondeu. Quando
+  // há contexto e o usuário já avaliou a principal, recolocá-la aqui anulava
+  // a rotação e deixava o card permanentemente preso na mesma mensagem.
+  const fallbackItem = context ? null : diagnosis?.primary ?? null;
   const item = reading?.situation ?? fallbackItem;
 
   const derivedAction = useMemo<FinancialSituationAction | null>(() => {
@@ -97,6 +103,7 @@ export function NinoGuidanceCard({ diagnosis, context, projection, loading, erro
       persistAnswered(next);
       return next;
     });
+    setNoMoreReadings(false);
     setIndex(0);
   }, []);
 
@@ -130,29 +137,29 @@ export function NinoGuidanceCard({ diagnosis, context, projection, loading, erro
   const accent = critical ? "bg-destructive" : attention ? "bg-warning" : "bg-primary";
   const hasNext = index + 1 < queue.length;
 
-  if (loading) return <section aria-label="Orientação do Nino" aria-busy="true" className="min-h-[96px] animate-pulse rounded-[18px] border border-border bg-card p-4"><div className="h-3 w-24 rounded bg-secondary" /><div className="mt-3 h-4 w-3/4 rounded bg-secondary" /></section>;
+  if (loading) return <section aria-label="Orientação do Nino" aria-busy="true" className="min-h-[82px] animate-pulse rounded-[18px] border border-border bg-card p-3.5"><div className="h-3 w-24 rounded bg-secondary" /><div className="mt-2 h-4 w-3/4 rounded bg-secondary" /></section>;
   if (error) return <section aria-label="Orientação do Nino" className="rounded-[18px] border border-border bg-card p-4"><NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} /></section>;
-  if (!item || !presentation) return <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-4 pl-5"><span className="absolute inset-y-0 left-0 w-[3px] bg-warning" aria-hidden="true" /><p className="text-[11px] font-semibold text-primary">Orientação do Nino</p><h2 className="mt-1.5 font-display text-base font-bold leading-5 text-foreground">Ainda estou formando uma leitura segura</h2><p className="mt-1 text-[13px] leading-[19px] text-muted-foreground">Com mais movimentações, consigo explicar o que mudou sem tirar conclusões apressadas.</p></section>;
+  if (!item || !presentation) return <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-3.5 pl-5"><span className="absolute inset-y-0 left-0 w-[3px] bg-warning" aria-hidden="true" /><p className="text-[10px] font-semibold text-primary">Orientação do Nino</p><h2 className="mt-1 font-display text-[15px] font-bold leading-5 text-foreground">{context && answered.length > 0 ? "Você já viu as leituras de hoje" : "Ainda estou formando uma leitura segura"}</h2><p className="mt-0.5 text-[12px] leading-[17px] text-muted-foreground">{context && answered.length > 0 ? "Novas leituras aparecem quando seus dados mudarem ou no próximo ciclo." : "Com mais movimentações, consigo explicar o que mudou sem tirar conclusões apressadas."}</p></section>;
   return (
-    <section aria-label="Orientação do Nino" aria-live="polite" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-4 pl-5 animate-fade-in">
+    <section aria-label="Orientação do Nino" aria-live="polite" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-3.5 pl-5 animate-fade-in">
       <span className={`absolute inset-y-0 left-0 w-[3px] ${accent}`} aria-hidden="true" />
       <div className="flex items-center gap-2"><Icon size={16} className={critical ? "text-destructive" : attention ? "text-warning" : "text-primary"} weight="duotone" /><p className="text-[11px] font-semibold text-foreground">Orientação do Nino</p><span className="sr-only">{critical ? "Crítico" : attention ? "Atenção" : "Informativo"}</span></div>
-      <h2 className="mt-1.5 font-display text-base font-bold leading-5 text-foreground">{presentation.title}</h2>
-      {presentation.supportingText ? <p className="mt-1 line-clamp-2 text-[13px] leading-[19px] text-muted-foreground">{presentation.supportingText}</p> : null}
-      {action ? <Button asChild variant="ghost" size="sm" className="mt-1 min-h-10 px-0 text-[13px] text-primary"><Link to={action.route} onClick={() => feedback.mutate({ situationId: item.id, feedback: "acted", surface: "home" })}>{action.title}<ArrowRight weight="bold" /></Link></Button> : null}
-      <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border pt-2">
-        <Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-[12px] text-muted-foreground" disabled={savingFeedback !== null} onClick={() => void sendFeedback("useful")} aria-label="Marcar esta leitura como útil">
+      <h2 className="mt-1 font-display text-[15px] font-bold leading-5 text-foreground">{presentation.title}</h2>
+      {presentation.supportingText ? <p className="mt-0.5 line-clamp-2 text-[12px] leading-[17px] text-muted-foreground">{presentation.supportingText}</p> : null}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1 border-t border-border pt-1.5">
+        {action ? <Button asChild variant="ghost" size="sm" className="mr-auto h-8 px-0 text-[12px] text-primary"><Link to={action.route} onClick={() => feedback.mutate({ situationId: item.id, feedback: "acted", surface: "home" })}>{action.title}<ArrowRight weight="bold" /></Link></Button> : <span className="mr-auto" />}
+        <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-[11px] text-muted-foreground" disabled={savingFeedback !== null} onClick={() => void sendFeedback("useful")} aria-label="Marcar esta leitura como útil">
           {savingFeedback === "useful" ? <SpinnerGap className="animate-spin" /> : <ThumbsUp weight="duotone" />} Útil
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-[12px] text-muted-foreground" disabled={savingFeedback !== null} onClick={() => void sendFeedback("not_useful")} aria-label="Marcar esta leitura como não útil">
+        <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-[11px] text-muted-foreground" disabled={savingFeedback !== null} onClick={() => void sendFeedback("not_useful")} aria-label="Marcar esta leitura como não útil">
           {savingFeedback === "not_useful" ? <SpinnerGap className="animate-spin" /> : <ThumbsDown weight="duotone" />} Não ajudou
         </Button>
         {hasNext ? (
-          <Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-[12px] text-muted-foreground" onClick={showNext} aria-label="Ver outra leitura do Nino">
+          <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-[11px] text-muted-foreground" onClick={showNext} aria-label="Ver outra leitura do Nino">
             <ArrowsClockwise weight="duotone" /> Ver outra leitura
           </Button>
         ) : null}
-        {noMoreReadings && !hasNext ? <span className="px-1 text-[12px] text-muted-foreground">Por agora, esta é a leitura mais relevante.</span> : null}
+        {noMoreReadings && !hasNext ? <span className="px-1 text-[10px] text-muted-foreground">Sem outras leituras agora.</span> : null}
       </div>
       {retrying ? <span className="sr-only"><SpinnerGap className="animate-spin" />Atualizando leitura</span> : null}
     </section>

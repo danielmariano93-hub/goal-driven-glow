@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { interpret } from "../../supabase/functions/_shared/agent/parser";
-import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
+import { classifyCapability, resumeDeterministicCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
 import {
   formatBeforeSpending,
   formatFinancialSnapshot,
@@ -24,6 +24,16 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
       name: "before_spending", execution: "deterministic", required_tool: "run_before_spending",
       tool_args: expect.objectContaining({ amount: 100, category: "lazer" }),
     });
+    expect(capability("Se eu fizer um gasto de 100 reais em lazer no dia 15")).toMatchObject({
+      name: "before_spending", execution: "deterministic", required_tool: "run_before_spending",
+      tool_args: expect.objectContaining({
+        amount: 100, category: "lazer", planned_date: expect.stringMatching(/^\d{4}-\d{2}-15$/),
+      }),
+    });
+    expect(capability("Se eu fizer um gasto de 100 reais em lazer")).toMatchObject({
+      name: "before_spending", execution: "deterministic", required_tool: null,
+      clarification: expect.stringContaining("qual data"),
+    });
   });
 
   it("não deixa uma pergunta literal de sexta cair no resumo do mês", () => {
@@ -38,6 +48,21 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     });
   });
 
+  it("retoma com segurança a data que faltou na simulação anterior", () => {
+    const current = "amanhã no cartão Nubank";
+    const resumed = resumeDeterministicCapability(
+      current,
+      interpret(current),
+      "Se eu fizer um gasto de 100 reais em lazer",
+    );
+    expect(resumed).toMatchObject({
+      name: "before_spending", required_tool: "run_before_spending",
+      reason: "canonical_spending_simulation_resumed",
+      tool_args: expect.objectContaining({ amount: 100, category: "lazer", method: "card", card: "nubank" }),
+    });
+    expect(resumeDeterministicCapability("obrigado", interpret("obrigado"), "Se eu gastar 100 em lazer")).toBeNull();
+  });
+
   it("limita o conjunto de ferramentas por domínio", () => {
     const split = capability("Quero registrar e dividir um rolê");
     expect(split.name).toBe("split_expense");
@@ -49,7 +74,7 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     expect(openAIToolDefinitions()).toHaveLength(42);
   });
 
-  it("formata simulação usando somente o contrato snapshot.v3", () => {
+  it("formata simulação usando somente o contrato snapshot.v4", () => {
     const reply = formatBeforeSpending({
       amount: 100, planned_date: "2026-08-08", available_today: 550,
       available_after_now: 450, projected_month_end_before: 300,
@@ -72,7 +97,7 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
       projected_month_end_available: 200, cards_owed_estimated: false,
     });
     expect(reply).toContain("R$ 10,00/dia acima");
-    expect(reply).toContain("R$ 250,00 de compromissos");
+    expect(reply).toContain("R$ 250,00 de outros compromissos");
   });
 
   it("inclui metas pessoais, de categoria e conjuntas no mesmo overview", () => {

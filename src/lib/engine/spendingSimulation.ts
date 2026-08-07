@@ -1,6 +1,6 @@
 // SIMULADOR "ANTES DE GASTAR" — spending_simulation.v1
 // ====================================================
-// Consome EXCLUSIVAMENTE o snapshot canônico (financial_snapshot_contract.v7).
+// Consome EXCLUSIVAMENTE o snapshot canônico (financial_snapshot_contract.v8).
 // Não relê banco, não recalcula saldo, não inventa fórmula: qualquer número
 // exibido aqui é idêntico ao da Home.
 import { round2, todayISO, type CategoryRow } from "./facts";

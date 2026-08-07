@@ -24,8 +24,8 @@ export function NinoSituationCard({ situation, action, surface, compact = false 
     <NinoCardShell compact={compact} tone={tone} badge={<><Icon className="h-3 w-3" />{LABEL[situation.situation_type] ?? (situation.narrative_role === "counterpoint" ? "Contraponto" : "Leitura")}</>} title={situation.one_line_summary || situation.headline}
       metric={situation.impact_amount != null ? `Impacto estimado: ${brl(Math.abs(situation.impact_amount))}` : consolidatedCount > 1 ? `${consolidatedCount} leituras relacionadas reunidas` : undefined}
       details={!compact && details.length ? <div className="space-y-1">{details.map((text) => <p key={text}>{text}</p>)}<p>Confiança: {Math.round(situation.confidence * 100)}%</p></div> : undefined}
-      actions={!compact && label ? <Button asChild className="rounded-full"><Link to={diagnosisRouteForSituation(situation, action)} onClick={() => void send("acted")}>{label}</Link></Button> : undefined}
-      feedback={!compact ? <><Button type="button" variant="ghost" size="sm" onClick={() => void send("useful")}><ThumbsUp /> Útil</Button><Button type="button" variant="ghost" size="sm" onClick={() => void send("not_useful")}><ThumbsDown /> Não ajudou</Button></> : undefined}
+      actions={!compact && label ? <Button asChild size="sm" className="h-8 rounded-full px-3 text-[11px]"><Link to={diagnosisRouteForSituation(situation, action)} onClick={() => void send("acted")}>{label}</Link></Button> : undefined}
+      feedback={!compact ? <><Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-[10px]" onClick={() => void send("useful")}><ThumbsUp className="h-3 w-3" /> Útil</Button><Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-[10px]" onClick={() => void send("not_useful")}><ThumbsDown className="h-3 w-3" /> Não ajudou</Button></> : undefined}
     >
       {situation.cause_summary || situation.consequence_summary || "Leitura baseada nos seus dados financeiros mais recentes."}
     </NinoCardShell>

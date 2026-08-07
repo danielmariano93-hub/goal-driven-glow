@@ -14,7 +14,7 @@ export interface InsightPayload {
 }
 
 export interface DeterministicSignals {
-  /** Dívida oficial de cartão hoje (card_exposure.v1). */
+  /** Dívida oficial de cartão hoje (card_exposure.v2). */
   cardDebtToday: number;
   /** Parcelas de competências futuras. */
   cardFutureInstallments: number;

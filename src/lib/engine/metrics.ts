@@ -154,7 +154,7 @@ export interface CategoryGoalEvaluation {
 }
 
 /** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
-export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v7";
+export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v8";
 
 export type SnapshotCompleteness = "complete" | "partial" | "unavailable";
 export type SnapshotPeriodStatus = "open" | "closed";
@@ -169,6 +169,8 @@ export interface SnapshotAuditMetadata {
   sourceFreshness: SnapshotSourceFreshness;
   confidence: ProjectionConfidence;
   formulaVersions: Record<string, string>;
+  /** Identificador estável da fotografia usada por UI e agentes. */
+  reconciliationId: string;
 }
 
 export interface SnapshotMetricEvidence {
@@ -221,10 +223,10 @@ export interface SnapshotGoalProgress {
 /** Nível de confiança da projeção — função apenas dos dias já observados. */
 export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
 
-export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v7";
+export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v8";
 
 /**
- * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v7`).
+ * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v8`).
  *
  * Regras invioláveis:
  *  - "Ritmo atual" tem UMA definição: consumo realizado do mês ÷ dias corridos.
@@ -352,6 +354,13 @@ export interface FinancialSnapshot {
   categoryBreakdown: ReturnType<typeof computeCategoryBreakdown>;
   /** Saldo devedor das dívidas ativas (fora do cartão). */
   activeDebtTotal: number;
+  activeDebts: Array<{
+    id: string;
+    name: string;
+    outstandingBalance: number;
+    installmentAmount: number | null;
+    dueDay: number | null;
+  }>;
   /** Valor atual da carteira e principal aportado. */
   investmentsTotal: number;
   investedPrincipal: number;
@@ -628,6 +637,32 @@ export function computeCategoryBaseline(
   return round2(counted > 0 ? total / counted : 0);
 }
 
+/**
+ * Identifica a fotografia financeira sem depender da ordem em que o PostgREST
+ * devolveu as linhas. Não é um hash de segurança: serve para provar, em logs e
+ * respostas, que App e agentes calcularam sobre o mesmo conjunto de fatos.
+ */
+function financialFingerprint(input: FinancialSnapshotInput): string {
+  const facts = [
+    ...input.accounts.map((row) => `a:${row.id}:${row.opening_balance}:${row.active}`),
+    ...input.txs.map((row) => `t:${row.id}:${row.status}:${row.type}:${row.amount}:${row.occurred_at}:${row.posted_at ?? ""}:${row.movement_kind ?? ""}:${row.account_id ?? ""}:${row.credit_card_id ?? ""}:${row.investment_id ?? ""}`),
+    ...input.snapshots.map((row) => `s:${row.account_id}:${row.balance_date}:${row.balance}:${row.status ?? ""}`),
+    ...input.investments.map((row) => `i:${row.id}:${row.invested_amount}:${row.current_value}:${row.goal_id ?? ""}`),
+    ...input.debts.map((row) => `d:${row.id}:${row.status}:${row.outstanding_balance}:${row.installment_amount ?? ""}:${row.due_day ?? ""}`),
+    ...(input.cardStatements ?? []).map((row) => `cs:${row.id ?? ""}:${row.credit_card_id}:${row.competence_month}:${row.status ?? ""}:${row.stated_total ?? ""}:${row.paid_amount ?? ""}:${row.outstanding_amount ?? ""}`),
+    ...(input.cardInstallments ?? []).map((row) => `ci:${row.id ?? ""}:${row.credit_card_id}:${row.competence_month}:${row.status ?? ""}:${row.amount}:${row.absorbed_by_statement_id ?? ""}`),
+    ...(input.goals ?? []).map((row) => `g:${row.id}:${row.status}:${row.target_amount}`),
+    ...input.categoryGoals.map((row) => `cg:${row.id}:${row.status}:${row.computed_limit}`),
+  ].sort();
+  let hash = 2_166_136_261;
+  const serialized = facts.join("|");
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function computeFinancialSnapshot(input: FinancialSnapshotInput): FinancialSnapshot {
   const today = input.today ?? new Date();
   const todayIso = todayISO(today);
@@ -649,7 +684,9 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const hasCardSource = Object.keys(cardExposures).length > 0;
   const cardDebtToday = hasCardSource ? totalCardDebtOf(cardExposures) : round2(netWorthRaw.cardsOwed);
   const cardFutureInstallments = totalFutureInstallmentsOf(cardExposures);
-  const cardDebtIsEstimated = Object.values(cardExposures).some((e) => e.currentStatement.source !== "official");
+  const cardDebtIsEstimated = Object.values(cardExposures).some((exposure) =>
+    exposure.currentStatement.amount > 0 && exposure.currentStatement.source !== "official"
+  );
   // Patrimônio usa a MESMA dívida de cartão exibida na página Cartões.
   const owed = round2(netWorthRaw.accountOverdraft + cardDebtToday + netWorthRaw.otherDebts);
   const netWorth = {
@@ -766,7 +803,17 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   const knownFutureCommitments = agendaOtherCommitments;
   // Cartão do mês: fatura oficial tem precedência; sem fatura, parcelas e compras
   // do ciclo entram como estimativa — nunca zero silencioso.
-  const cardDueThisMonth = hasCardSource ? agendaCardDue : cardDebtToday;
+  const exposureCardDue = round2(
+    Object.values(cardExposures).reduce((sum, exposure) => sum + exposure.currentStatement.amount, 0),
+  );
+  // A agenda contém apenas datas a partir de hoje. Uma fatura da competência
+  // ainda aberta não pode desaparecer no dia seguinte ao vencimento; por isso
+  // a exposição da competência corrente é a base, e a agenda cobre legados
+  // cuja competência esteja inconsistente mas cujo vencimento ainda seja do mês.
+  const cardDueThisMonth = hasCardSource ? round2(Math.max(exposureCardDue, agendaCardDue)) : cardDebtToday;
+  const cardDueIsEstimated = Object.values(cardExposures).some((exposure) =>
+    exposure.currentStatement.amount > 0 && exposure.currentStatement.source !== "official"
+  ) || agendaThisMonth.some((item) => CARD_SOURCES.has(item.source) && item.estimated);
   const projectedMonthEndAvailable = round2(
     availableToday + confirmedFutureIncome + estimatedIncome.total - knownFutureCommitments - cardDueThisMonth - projectedVariableSpending,
   );
@@ -805,7 +852,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       projectedVariableSpending,
       commitmentsBySource: agendaCommitmentsBySource,
       commitmentsCount: agendaThisMonth.filter((i) => i.type === "expense").length,
-      cardDueIsEstimated: agendaThisMonth.some((i) => CARD_SOURCES.has(i.source) && i.estimated),
+      cardDueIsEstimated,
       agendaHorizonEnd: commitmentAgenda.horizonEnd,
     },
     confidence: projectionConfidenceOf(daysElapsed),
@@ -857,6 +904,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     investments: input.investments,
     debts: input.debts,
     investmentMovements: input.investmentMovements,
+    cardDebtOverride: cardDebtToday,
   });
   const balanceExplanation = explainBalanceChange(cashBridge, periodPerformance);
   const periodStatus: SnapshotPeriodStatus = input.period.end < todayIso ? "closed" : "open";
@@ -875,7 +923,18 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
       rhythm: rhythm.current.formulaVersion,
       commitmentAgenda: COMMITMENT_AGENDA_VERSION,
     },
+    reconciliationId: `fs-v8:${todayIso}:${financialFingerprint(input)}`,
   };
+
+  const activeDebts = input.debts
+    .filter((debt) => debt.status === "active" && Number(debt.outstanding_balance || 0) > 0)
+    .map((debt) => ({
+      id: debt.id,
+      name: debt.name,
+      outstandingBalance: round2(Number(debt.outstanding_balance || 0)),
+      installmentAmount: debt.installment_amount == null ? null : round2(Number(debt.installment_amount)),
+      dueDay: debt.due_day == null ? null : Number(debt.due_day),
+    }));
 
   return {
     audit,
@@ -894,6 +953,7 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     monthlyTotals: { month: currentYM, ...monthlyTotalsRaw },
     categoryBreakdown,
     activeDebtTotal,
+    activeDebts,
     investmentsTotal,
     investedPrincipal,
     goalProgress,
