@@ -777,6 +777,7 @@ export type Database = {
       }
       agent_runs: {
         Row: {
+          capability: string | null
           conversation_id: string | null
           cost_cents: number
           ended_at: string | null
@@ -788,6 +789,7 @@ export type Database = {
           intent_served: string | null
           latency_ms: number | null
           model: string | null
+          model_attempts: Json
           path: string | null
           prompt_version_id: string | null
           started_at: string
@@ -795,10 +797,12 @@ export type Database = {
           steps: number
           tokens_in: number
           tokens_out: number
+          tool_scope: string[]
           tools_used: string[] | null
           user_id: string
         }
         Insert: {
+          capability?: string | null
           conversation_id?: string | null
           cost_cents?: number
           ended_at?: string | null
@@ -810,6 +814,7 @@ export type Database = {
           intent_served?: string | null
           latency_ms?: number | null
           model?: string | null
+          model_attempts?: Json
           path?: string | null
           prompt_version_id?: string | null
           started_at?: string
@@ -817,10 +822,12 @@ export type Database = {
           steps?: number
           tokens_in?: number
           tokens_out?: number
+          tool_scope?: string[]
           tools_used?: string[] | null
           user_id: string
         }
         Update: {
+          capability?: string | null
           conversation_id?: string | null
           cost_cents?: number
           ended_at?: string | null
@@ -832,6 +839,7 @@ export type Database = {
           intent_served?: string | null
           latency_ms?: number | null
           model?: string | null
+          model_attempts?: Json
           path?: string | null
           prompt_version_id?: string | null
           started_at?: string
@@ -839,6 +847,7 @@ export type Database = {
           steps?: number
           tokens_in?: number
           tokens_out?: number
+          tool_scope?: string[]
           tools_used?: string[] | null
           user_id?: string
         }
@@ -1109,6 +1118,7 @@ export type Database = {
         Row: {
           artifact_id: string | null
           artifact_status: string
+          capability: string | null
           channel: string
           conversation_id: string | null
           created_at: string
@@ -1119,16 +1129,19 @@ export type Database = {
           id: string
           intent: string | null
           model: string | null
+          model_attempts: Json
           run_id: string | null
           stages_ms: Json
           tokens_in: number
           tokens_out: number
+          tool_scope: string[]
           tools_used: Json
           user_id: string
         }
         Insert: {
           artifact_id?: string | null
           artifact_status?: string
+          capability?: string | null
           channel: string
           conversation_id?: string | null
           created_at?: string
@@ -1139,16 +1152,19 @@ export type Database = {
           id?: string
           intent?: string | null
           model?: string | null
+          model_attempts?: Json
           run_id?: string | null
           stages_ms?: Json
           tokens_in?: number
           tokens_out?: number
+          tool_scope?: string[]
           tools_used?: Json
           user_id: string
         }
         Update: {
           artifact_id?: string | null
           artifact_status?: string
+          capability?: string | null
           channel?: string
           conversation_id?: string | null
           created_at?: string
@@ -1159,10 +1175,12 @@ export type Database = {
           id?: string
           intent?: string | null
           model?: string | null
+          model_attempts?: Json
           run_id?: string | null
           stages_ms?: Json
           tokens_in?: number
           tokens_out?: number
+          tool_scope?: string[]
           tools_used?: Json
           user_id?: string
         }
