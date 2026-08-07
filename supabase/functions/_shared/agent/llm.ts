@@ -169,7 +169,7 @@ export async function runAgentTurn(
           result: toolResult.ok ? toolResult.result : null,
           ok: toolResult.ok,
           duration_ms,
-          error: toolResult.ok ? null : toolResult.error,
+          error: toolResult.ok ? null : (toolResult as { error?: string }).error,
         });
         messages.push({
           role: "tool",

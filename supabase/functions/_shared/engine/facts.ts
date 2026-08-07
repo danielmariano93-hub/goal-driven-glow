@@ -5,9 +5,3 @@
 // `src/lib/engine/facts.ts` gerado por `scripts/sync-finance-core.mjs`.
 // Nunca reintroduzir fórmulas aqui: divergência entre App e Edge é bug P0.
 export * from "../finance-core/facts.ts";
-
-import type { BeforeSpendingInput, BeforeSpendingOutput } from "../finance-core/facts.ts";
-
-/** Aliases legados usados pelas tools do agente. */
-export type BeforeSpendingArgs = BeforeSpendingInput;
-export type BeforeSpendingResult = BeforeSpendingOutput;
