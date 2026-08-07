@@ -6474,7 +6474,6 @@ export type Database = {
           kind: string
           notes: string | null
           occurred_at: string
-          principal_amount: number | null
           transaction_id: string
           updated_at: string
           user_id: string
@@ -6488,7 +6487,6 @@ export type Database = {
           kind: string
           notes?: string | null
           occurred_at: string
-          principal_amount?: number | null
           transaction_id: string
           updated_at?: string
           user_id: string
@@ -6502,7 +6500,6 @@ export type Database = {
           kind?: string
           notes?: string | null
           occurred_at?: string
-          principal_amount?: number | null
           transaction_id?: string
           updated_at?: string
           user_id?: string
@@ -9396,7 +9393,6 @@ export type Database = {
           import_source_id: string | null
           installment_number: number | null
           installments_total: number | null
-          investment_id: string | null
           local_occurred_at: string | null
           movement_kind: string
           normalized_description: string | null
@@ -9456,7 +9452,6 @@ export type Database = {
           import_source_id?: string | null
           installment_number?: number | null
           installments_total?: number | null
-          investment_id?: string | null
           local_occurred_at?: string | null
           movement_kind?: string
           normalized_description?: string | null
@@ -9516,7 +9511,6 @@ export type Database = {
           import_source_id?: string | null
           installment_number?: number | null
           installments_total?: number | null
-          investment_id?: string | null
           local_occurred_at?: string | null
           movement_kind?: string
           normalized_description?: string | null
@@ -9573,13 +9567,6 @@ export type Database = {
             columns: ["credit_card_id"]
             isOneToOne: false
             referencedRelation: "credit_cards"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transactions_investment_id_fkey"
-            columns: ["investment_id"]
-            isOneToOne: false
-            referencedRelation: "investments"
             referencedColumns: ["id"]
           },
           {
