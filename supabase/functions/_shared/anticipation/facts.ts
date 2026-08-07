@@ -18,6 +18,7 @@ import {
   type OccurredAtPrecision,
   type TransactionFact,
 } from "./contracts.ts";
+import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 
 export type AnticipationTxRow = TransactionRow & {
   occurred_at_time?: string | null;
@@ -25,6 +26,9 @@ export type AnticipationTxRow = TransactionRow & {
   occurred_at_precision?: string | null;
   category_source?: string | null;
   category_confidence?: number | null;
+  behavioral_day?: string | null;
+  behavior_date_source?: string | null;
+  behavior_date_confidence?: number | string | null;
 };
 
 const SMALL_SPEND_CEILING = 50;
@@ -110,7 +114,8 @@ export function buildTransactionFacts(input: FactBuildInput): TransactionFact[] 
   const out: TransactionFact[] = [];
 
   for (const row of input.txs) {
-    const localDate = String(row.occurred_at).slice(0, 10);
+    const behaviorDate = resolveBehavioralDate(row);
+    const localDate = behaviorDate.day;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) continue;
 
     const movementKind = String(row.movement_kind ?? "transaction");
@@ -126,7 +131,7 @@ export function buildTransactionFacts(input: FactBuildInput): TransactionFact[] 
     const isAdjustableCategory = hits(categoryName ?? "", ADJUSTABLE_HINTS);
 
     let behavioralClass: BehavioralClass = "excluded";
-    if (!excludedKind && !isTransfer && !isCardPayment && !isDebtPrincipal && !isPlanned) {
+    if (behaviorDate.eligibleForBehavior && !excludedKind && !isTransfer && !isCardPayment && !isDebtPrincipal && !isPlanned) {
       if (row.type === "income") behavioralClass = "income";
       else if (row.type === "expense") {
         behavioralClass = isFixed ? "consumption_fixed" : "consumption_adjustable";
@@ -168,7 +173,7 @@ export function buildTransactionFacts(input: FactBuildInput): TransactionFact[] 
       is_transfer: isTransfer,
       is_card_payment: isCardPayment,
       is_debt_principal: isDebtPrincipal,
-      data_confidence: row.category_id ? 1 : 0.6,
+      data_confidence: Math.min(behaviorDate.confidence, row.category_id ? 1 : 0.6),
       source_snapshot_id: input.sourceSnapshotId ?? null,
     });
   }

@@ -1,16 +1,17 @@
 import type { MetricDefinition } from "./contracts.ts";
+import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
 
 export const METRIC_REGISTRY: Record<string, MetricDefinition> = {
   weekday_typical_spend: {
     key: "weekday_typical_spend",
     label: "Gasto típico por dia da semana",
-    description: "Combina a frequência observada com a mediana robusta dos dias em que houve gasto.",
-    formula: "taxa de dias ativos × mediana(gasto dos dias ativos sem picos altos)",
+    description: "Compara gasto ajustável por ocorrência usando frequência, mediana robusta, consistência, cobertura e separação contra o segundo colocado; amostra insuficiente gera abstenção.",
+    formula: "taxa de dias ativos × mediana(gasto ajustável dos dias ativos limpos), com gates de amostra, consistência e separação",
     default_window_days: 84,
-    minimum_sample: 2,
+    minimum_sample: 4,
     include_zero_days: true,
     outlier_policy: "exclude_for_typical",
-    formula_version: "weekday.behavioral-date.v4",
+    formula_version: WEEKDAY_TRUTH_FORMULA_VERSION,
   },
   weekday_total_concentration: {
     key: "weekday_total_concentration",

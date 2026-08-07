@@ -67,7 +67,12 @@ describe("Nino Intelligence Core hardening", () => {
     });
 
     expect(result.outliers.some((item) => item.amount === 4000)).toBe(true);
-    expect(result.winner?.label).toBe("Sexta-feira");
+
+    // V9: com apenas quatro sextas ativas existe candidato,
+    // mas ainda não evidência suficiente para uma conclusão pública.
+    expect(result.winner).toBeNull();
+    expect(result.decision).toBe("candidate");
+    expect(result.candidate?.label).toBe("Sexta-feira");
   });
 
   it("mantém a migration de status administrativo separando cadastro de atividade", () => {

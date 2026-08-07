@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
 import { inferChartRequest } from "./chartIntent.ts";
+import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
 
 type ToolCallLike = {
   step_index: number;
@@ -101,7 +102,7 @@ export async function ensureRequestedArtifact(args: {
         summary_text: "Comparação robusta que separa frequência, valor típico e picos atípicos.",
         fallback_text: "Não consegui exibir a imagem, mas a resposta em texto usa a mesma análise robusta.",
         series,
-        formula_version: String(result.formula_version ?? "weekday.behavioral-date.v4"),
+        formula_version: String(result.formula_version ?? WEEKDAY_TRUTH_FORMULA_VERSION),
         confidence: String(result.confidence ?? "insufficient"),
         row_count: Number(result.sample_size ?? 0),
       });

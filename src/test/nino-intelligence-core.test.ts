@@ -23,8 +23,16 @@ describe("Nino Intelligence Core", () => {
       tx("f3", "2026-06-19", 190), tx("f4", "2026-06-26", 210),
     ];
     const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
-    expect(result.winner?.label).toBe("Sexta-feira");
+    // V9: quatro ocorrências limpas ainda são apenas um sinal candidato.
+    // Não existe vencedor público até os gates de evidência serem satisfeitos.
+    expect(result.winner).toBeNull();
+    expect(result.decision).toBe("candidate");
+    expect(result.candidate?.label).toBe("Sexta-feira");
+
+    // Concentração histórica continua sendo uma métrica distinta.
     expect(result.total_concentration_winner?.label).toBe("Quarta-feira");
+
+    // O pico excepcional continua identificado e não contamina o padrão típico.
     expect(result.outliers.some(o => o.amount === 4000)).toBe(true);
   });
 

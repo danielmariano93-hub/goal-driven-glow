@@ -92,11 +92,11 @@ export async function list_categories(ctx: ToolContext, args: { type?: "income"|
   const type = args?.type;
   const q = ctx.sb.from("categories").select("id,name,type,user_id").is("archived_at", null);
   const { data: personal, error: personalError } = type
-    ? await q.eq("user_id", ctx.user_id).in("type", [type, "both"] as any)
+    ? await q.eq("user_id", ctx.user_id).eq("type", type)
     : await q.eq("user_id", ctx.user_id);
   const gq = ctx.sb.from("categories").select("id,name,type,user_id").is("archived_at", null).is("user_id", null);
   const { data: global, error: globalError } = type
-    ? await gq.in("type", [type, "both"] as any)
+    ? await gq.eq("type", type)
     : await gq;
   if (personalError || globalError) return { ok: false, error: personalError?.message ?? globalError?.message ?? "categories_query_failed" };
   return { ok: true, result: [...(personal ?? []), ...(global ?? [])] };
@@ -409,17 +409,18 @@ async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ 
 async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined, type: "income"|"expense"): Promise<string | null> {
   if (!hintOrId) return null;
   if (/^[0-9a-f-]{36}$/i.test(hintOrId)) {
-    const { data, error } = await ctx.sb.from("categories").select("id,user_id")
+    const { data, error } = await ctx.sb.from("categories").select("id,user_id,type")
       .eq("id", hintOrId).is("archived_at", null).maybeSingle();
     if (error) throw new Error(`categories_query_failed:${error.message}`);
     if (!data) return null;
     if (data.user_id && data.user_id !== ctx.user_id) return null;
+    if (String((data as any).type) !== type) return null;
     return data.id as string;
   }
   const { data: personal, error: personalError } = await ctx.sb.from("categories").select("id,name,type")
-    .eq("user_id", ctx.user_id).is("archived_at", null).in("type", [type, "both"] as any);
+    .eq("user_id", ctx.user_id).is("archived_at", null).eq("type", type);
   const { data: global, error: globalError } = await ctx.sb.from("categories").select("id,name,type")
-    .is("user_id", null).is("archived_at", null).in("type", [type, "both"] as any);
+    .is("user_id", null).is("archived_at", null).eq("type", type);
   if (personalError || globalError) throw new Error(`categories_query_failed:${personalError?.message ?? globalError?.message}`);
   const all = [...(personal ?? []), ...(global ?? [])];
   const list: Candidate[] = all.map((c: any) => ({ id: c.id, name: c.name }));

@@ -11,6 +11,7 @@ import {
   type DetectorKey,
   type MonthPhase,
 } from "./contracts.ts";
+import { computeWeekdayPatternFromDailyFacts } from "../analytics/weekdayPattern.ts";
 
 export function median(values: number[]): number {
   const sorted = values.slice().sort((a, b) => a - b);
@@ -171,49 +172,99 @@ export function discoverPatterns(input: DiscoveryInput): BehavioralPattern[] {
   const usable = input.days.filter((d) => !d.is_exceptional_day);
   if (usable.length === 0) return out;
 
-  // 1. Dia da semana
+  // 1. Dia da semana — usa exatamente a mesma verdade comportamental do Assessor.
   const weekdayConfig = input.configs.get("weekday_spending_risk");
-  if (weekdayConfig) {
-    const weekdayCandidates: BehavioralPattern[] = [];
-    for (let wd = 0; wd <= 6; wd++) {
-      const group = usable.filter((d) => d.weekday === wd).map((d) => d.total_adjustable);
-      const other = usable.filter((d) => d.weekday !== wd).map((d) => d.total_adjustable);
-      const candidate = finalize(
-        baseCandidate(
-          input.userId,
-          "weekday_spending_risk",
-          `weekday:${wd}`,
-          `Gasto ajustável maior na ${WEEKDAY_LABELS[wd]}`,
-          usable,
-        ),
-        group,
-        other,
-        weekdayConfig,
-        input.coverage,
-      );
-      if (candidate) weekdayCandidates.push(candidate);
-    }
-    // Separação obrigatória contra o segundo dia mais alto: dois dias próximos
-    // não autorizam afirmar um padrão forte de dia da semana.
-    const ranked = weekdayCandidates.slice().sort((a, b) => b.pattern_value - a.pattern_value);
-    const runnerUp = ranked[1]?.pattern_value ?? 0;
-    const minSeparationPct = weekdayConfig.min_uplift_pct / 2;
-    for (const candidate of weekdayCandidates) {
-      const reference = candidate === ranked[0] ? runnerUp : ranked[0]?.pattern_value ?? 0;
-      const separation = reference > 0 ? round2(((candidate.pattern_value - reference) / reference) * 100) : 100;
-      if (separation < minSeparationPct) {
-        const evidence = candidate.evidence as Record<string, unknown>;
-        const reasons = Array.isArray(evidence.block_reasons) ? evidence.block_reasons as unknown[] : [];
-        reasons.push({ criterion: "weekday_separation", observed: separation, required: minSeparationPct });
-        evidence.block_reasons = reasons;
-        evidence.runner_up_value = reference;
-        candidate.status = "candidate";
+  if (weekdayConfig && usable.length > 0) {
+    const from = usable[0].local_date;
+    const to = usable[usable.length - 1].local_date;
+    const cfgMinSample = Number.isFinite(Number(weekdayConfig.min_sample)) ? Number(weekdayConfig.min_sample) : 4;
+    const cfgWindowDays = Number.isFinite(Number(weekdayConfig.min_window_days)) ? Number(weekdayConfig.min_window_days) : 56;
+    const cfgCoverage = Number.isFinite(Number(weekdayConfig.min_coverage)) ? Number(weekdayConfig.min_coverage) : 0.65;
+    const cfgUplift = Number.isFinite(Number(weekdayConfig.min_uplift_pct)) ? Number(weekdayConfig.min_uplift_pct) : 20;
+    const cfgAbsDelta = Number.isFinite(Number(weekdayConfig.min_absolute_delta)) ? Number(weekdayConfig.min_absolute_delta) : 20;
+    const truth = computeWeekdayPatternFromDailyFacts({
+      days: usable,
+      from,
+      to,
+      coverage: input.coverage,
+      policy: {
+        min_weeks: Math.max(8, Math.ceil(cfgWindowDays / 7)),
+        min_active_days_candidate: Math.max(4, Math.min(6, cfgMinSample)),
+        min_active_days_established: Math.max(6, cfgMinSample),
+        min_total_active_days: Math.max(14, cfgMinSample * 2),
+        min_data_coverage: cfgCoverage,
+        min_separation_pct: Math.max(0.15, cfgUplift / 200),
+        min_separation_amount: Math.max(20, cfgAbsDelta / 2),
+        min_consistency: 0.5,
+      },
+    });
+
+    const comparable = truth.weekdays.filter((row) => row.typical_amount > 0);
+    const typicalValues = comparable.map((row) => row.typical_amount);
+    for (const row of comparable) {
+      if (row.clean_active_days < Math.max(4, Math.min(6, cfgMinSample))) continue;
+      const otherValues = comparable
+        .filter((other) => other.weekday !== row.weekday)
+        .map((other) => other.typical_amount)
+        .filter((value) => value > 0);
+      const baseline = median(otherValues);
+      const delta = round2(row.typical_amount - baseline);
+      const uplift = baseline > 0 ? round2((delta / baseline) * 100) : 100;
+      const isEstablishedWinner = truth.decision === "established" && truth.winner?.weekday === row.weekday;
+      const separationBlocked = truth.decision === "ambiguous" && truth.candidate?.weekday === row.weekday;
+      const blockReasons = Object.entries(truth.gates)
+        .filter(([, ok]) => !ok)
+        .map(([criterion]) => ({ criterion, observed: false, required: true }));
+      if (separationBlocked) {
+        blockReasons.push({ criterion: "weekday_separation", observed: false, required: true });
       }
-      out.push(candidate);
+
+      out.push({
+        user_id: input.userId,
+        detector: "weekday_spending_risk",
+        pattern_key: `weekday:${row.weekday}`,
+        label: `Gasto ajustável maior na ${WEEKDAY_LABELS[row.weekday]}`,
+        status: isEstablishedWinner ? "validated" : "candidate",
+        sample_size: row.clean_active_days,
+        window_start: from,
+        window_end: to,
+        baseline_value: round2(baseline),
+        pattern_value: row.typical_amount,
+        uplift_pct: uplift,
+        absolute_delta: delta,
+        hit_rate: row.active_rate,
+        consistency: row.consistency,
+        confidence: isEstablishedWinner
+          ? (truth.confidence === "high" ? 0.9 : 0.75)
+          : truth.decision === "ambiguous" ? 0.45 : 0.4,
+        data_coverage: input.coverage,
+        evidence: {
+          truth_formula_version: truth.formula_version,
+          truth_decision: truth.decision,
+          truth_candidate_weekday: truth.candidate?.weekday ?? null,
+          truth_winner_weekday: truth.winner?.weekday ?? null,
+          truth_runner_up_weekday: truth.runner_up?.weekday ?? null,
+          truth_gates: truth.gates,
+          limitations: truth.limitations,
+          block_reasons: blockReasons,
+          metric: row,
+          excluded_outliers: row.outlier_count,
+          comparable_typical_values: typicalValues,
+        },
+        exclusions: [
+          "transferências internas",
+          "pagamento de fatura",
+          "aplicações e resgates",
+          "principal de dívida",
+          "lançamentos planejados",
+          "datas comportamentais de baixa confiança",
+          "dias extraordinários",
+        ],
+        formula_version: ANTICIPATION_FORMULA_VERSION,
+        detector_version: "v2",
+      });
     }
   }
-
-
   // 2. Fim de semana
   const weekendConfig = input.configs.get("weekend_spending_risk");
   if (weekendConfig) {

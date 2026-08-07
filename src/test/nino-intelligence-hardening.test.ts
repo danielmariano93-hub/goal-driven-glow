@@ -30,19 +30,20 @@ describe("Nino Intelligence Core hardening", () => {
     expect(query?.correction).toBe(true);
   });
 
-  it("rotula histórico esparso como sinal preliminar, nunca como padrão confiável", () => {
+  it("ABSTÉM com histórico esparso: duas ocorrências não viram padrão", () => {
     const rows = [
       tx("f1", "2026-05-08", 120),
       tx("f2", "2026-06-12", 150),
       tx("w1", "2026-05-06", 80),
     ];
     const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
-    expect(result.winner?.label).toBe("Sexta-feira");
+    expect(result.winner).toBeNull();
+    expect(result.candidate).toBeNull();
     expect(result.confidence).toBe("insufficient");
     expect(result.provisional).toBe(true);
   });
 
-  it("separa um pico alto usando apenas os dias ativos", () => {
+  it("separa pico alto, mas não promove amostra curta a padrão estabelecido", () => {
     const rows = [
       tx("w1", "2026-06-03", 4000), tx("w2", "2026-06-10", 40),
       tx("w3", "2026-06-17", 45), tx("w4", "2026-06-24", 50),
@@ -50,10 +51,11 @@ describe("Nino Intelligence Core hardening", () => {
       tx("f3", "2026-06-19", 190), tx("f4", "2026-06-26", 210),
     ];
     const result = computeWeekdayPattern({ transactions: rows, to: "2026-06-30", weeks: 8 });
-    expect(result.winner?.label).toBe("Sexta-feira");
+    expect(result.winner).toBeNull();
+    expect(result.candidate?.label).toBe("Sexta-feira");
     expect(result.outliers.some((row) => row.amount === 4000)).toBe(true);
-    expect(result.formula_version).toBe("weekday.behavioral-date.v4");
-    expect(metricDefinition("weekday_typical_spend")?.formula_version).toBe("weekday.behavioral-date.v4");
+    expect(result.formula_version).toBe("weekday.behavioral-truth.v5");
+    expect(metricDefinition("weekday_typical_spend")?.formula_version).toBe("weekday.behavioral-truth.v5");
   });
 
   it("não atribui postagem bancária de baixa confiança à segunda-feira", () => {

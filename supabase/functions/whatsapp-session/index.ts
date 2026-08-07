@@ -83,29 +83,56 @@ async function buildPublicStatus() {
 
 // Lightweight, authoritative probe for the admin cockpit. It reads the WAHA
 // session once and never exposes credentials, webhook configuration or phone.
-async function buildOperationalStatus() {
+async function buildOperationalStatus(sb?: ReturnType<typeof createClient>) {
   const provider = getProvider();
   if (!provider.configured || !isWahaConfigured()) {
     return {
-      status: "not_configured",
-      last_seen_at: null,
-      latency_ms: null,
-      error_code: null,
+      status: "not_configured", last_seen_at: null, latency_ms: null, error_code: null,
+      webhook_ok: false,
+      data_plane: { state: "unverified", contract: "whatsapp_channel_health.v1", last_inbound_at: null, last_outbound_at: null, last_failure_at: null },
     };
   }
 
   const startedAt = performance.now();
-  const session = await provider.getSessionStatus();
+  const [session, validation] = await Promise.all([
+    provider.getSessionStatus(),
+    validateWahaCredentials(webhookUrl()).catch(() => null),
+  ]);
   const latencyMs = Math.round(performance.now() - startedAt);
-  const status = mapStatus(session?.status, null);
+  const mapped = mapStatus(session?.status, null);
+  const webhookOk = validation?.webhook.code === "ok";
+  const status = mapped === "connected" && !webhookOk ? "needs_attention" : mapped;
+
+  let dataPlane = {
+    state: "unverified", contract: "whatsapp_channel_health.v1",
+    last_inbound_at: null as string | null, last_outbound_at: null as string | null, last_failure_at: null as string | null,
+  };
+  if (sb) {
+    const [inboundResp, outboundResp, failureResp] = await Promise.all([
+      sb.from("inbound_messages").select("received_at").order("received_at", { ascending: false }).limit(1).maybeSingle(),
+      sb.from("outbound_messages").select("created_at,status,sent_at,delivered_at,read_at").eq("channel", "whatsapp").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      sb.from("whatsapp_pipeline_events").select("occurred_at").or("ok.eq.false,stage.eq.failed").order("occurred_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    const lastInbound = (inboundResp.data as any)?.received_at as string | undefined;
+    const lastOutbound = ((outboundResp.data as any)?.sent_at ?? (outboundResp.data as any)?.created_at) as string | undefined;
+    const lastFailure = (failureResp.data as any)?.occurred_at as string | undefined;
+    let state = "unverified";
+    if (lastInbound && Date.now() - Date.parse(lastInbound) > 5 * 60_000 && (!lastOutbound || Date.parse(lastOutbound) < Date.parse(lastInbound))) {
+      state = "degraded";
+    } else if (lastInbound && lastOutbound && Date.parse(lastOutbound) >= Date.parse(lastInbound) && Date.now() - Date.parse(lastInbound) < 7 * 86_400_000) {
+      state = "verified";
+    } else if (lastFailure && (!lastOutbound || Date.parse(lastFailure) > Date.parse(lastOutbound)) && Date.now() - Date.parse(lastFailure) < 15 * 60_000) {
+      state = "degraded";
+    }
+    dataPlane = {
+      state, contract: "whatsapp_channel_health.v1",
+      last_inbound_at: lastInbound ?? null, last_outbound_at: lastOutbound ?? null, last_failure_at: lastFailure ?? null,
+    };
+  }
 
   return {
-    status,
-    last_seen_at: new Date().toISOString(),
-    latency_ms: latencyMs,
-    error_code: ["connected", "connecting", "awaiting_qr"].includes(status)
-      ? null
-      : "session_not_working",
+    status, last_seen_at: new Date().toISOString(), latency_ms: latencyMs, webhook_ok: webhookOk, data_plane: dataPlane,
+    error_code: mapped !== "connected" ? "session_not_working" : !webhookOk ? "webhook_not_verified" : null,
   };
 }
 
@@ -225,7 +252,7 @@ Deno.serve(async (req) => {
       }
 
       case "status": return h.ok({ ...(await buildPublicStatus()) }, 200, extraHeaders);
-      case "operational_status": return h.ok({ ...(await buildOperationalStatus()) }, 200, extraHeaders);
+      case "operational_status": return h.ok({ ...(await buildOperationalStatus(svc)) }, 200, extraHeaders);
       case "create": {
         if (!canPair(gate.role)) return h.fail("forbidden", 403, { headers: extraHeaders });
         const r = await provider.createOrUpdateSession(webhookUrl());

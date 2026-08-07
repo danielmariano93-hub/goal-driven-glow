@@ -1,8 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { computeWeekdayPattern } from "../analytics/weekdayPattern.ts";
+import { aggregateDailyFacts, buildTransactionFacts, type AnticipationTxRow } from "../anticipation/facts.ts";
+import { assessDataQuality } from "../anticipation/qualityGates.ts";
+import { computeWeekdayPatternFromDailyFacts } from "../analytics/weekdayPattern.ts";
 import { asEvidence, composeWeekdayPatternReply } from "./evidence.ts";
 import type { SemanticQuery } from "./contracts.ts";
+
+const TX_FIELDS = "id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,posted_at,competence_date,occurred_at_time,occurred_at_timezone,occurred_at_precision,category_source,category_confidence";
 
 export async function executeWeekdayPattern(args: {
   sb: SupabaseClient;
@@ -19,16 +23,25 @@ export async function executeWeekdayPattern(args: {
   queryStart.setUTCDate(queryStart.getUTCDate() - 3);
   const queryEnd = new Date(`${to}T12:00:00Z`);
   queryEnd.setUTCDate(queryEnd.getUTCDate() + 3);
-  // Janela de postagem ampliada: uma compra de sexta pode aparecer no banco
-  // na segunda. O motor abaixo volta para `behavioral_day` e recorta o
-  // período real, sem atribuir o gasto ao dia útil de postagem. Paginação é
-  // obrigatória para não formar um padrão sobre uma amostra truncada.
+
+  const [categoriesResp] = await Promise.all([
+    args.sb.from("categories")
+      .select("id,name")
+      .or(`user_id.eq.${args.user_id},user_id.is.null`)
+      .is("archived_at", null),
+  ]);
+  if (categoriesResp.error) throw new Error(`weekday_source_categories:${categoriesResp.error.message}`);
+  const categories = ((categoriesResp.data as any[] | null) ?? [])
+    .map((c) => ({ id: String(c.id), name: String(c.name) }));
+
+  // A mesma origem do motor de antecipação: lançamentos canônicos -> fatos por
+  // lançamento -> fatos diários -> verdade semanal. Nada de fórmula paralela.
   const data: any[] = [];
   const pageSize = 1_000;
   for (let page = 0; page < 100; page += 1) {
     const start = page * pageSize;
     const { data: chunk, error } = await args.sb.from("transactions")
-      .select("id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind")
+      .select(TX_FIELDS)
       .eq("user_id", args.user_id)
       .gte("occurred_at", queryStart.toISOString().slice(0, 10))
       .lte("occurred_at", queryEnd.toISOString().slice(0, 10))
@@ -40,8 +53,30 @@ export async function executeWeekdayPattern(args: {
     if ((chunk ?? []).length < pageSize) break;
     if (page === 99) throw new Error("weekday_source_transactions:limit_exceeded");
   }
-  const result = computeWeekdayPattern({ transactions: data as any, to, weeks: args.query.period.value });
+
+  const facts = buildTransactionFacts({
+    userId: args.user_id,
+    txs: data.map((row) => ({ ...row, amount: Number(row.amount ?? 0) })) as AnticipationTxRow[],
+    categories,
+  });
+  const days = aggregateDailyFacts(facts).filter((day) => day.local_date >= from && day.local_date <= to);
+  const quality = assessDataQuality(days, {
+    minCoverage: 0.65,
+    minWindowDays: Math.min(56, args.query.period.value * 7),
+    minDaysWithData: 1,
+  });
+
+  const result = computeWeekdayPatternFromDailyFacts({
+    days,
+    from,
+    to,
+    coverage: quality.coverage,
+  });
   result.metric_key = args.query.metric_key;
+  if (!quality.ok) {
+    result.limitations.push(...quality.reasons.map((reason) => `Qualidade dos dados: ${reason}.`));
+  }
+
   return {
     result,
     evidence: asEvidence(result),

@@ -5,7 +5,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext, recordIncident } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { fetchWahaAck } from "../_shared/messaging/wahaAck.ts";
-import { getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
+import { getProvider, getWahaAccess, loadWahaConfig, validateWahaCredentials } from "../_shared/messaging/waha.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -115,6 +115,29 @@ Deno.serve(async (req) => {
     .limit(50);
 
   await loadWahaConfig(supabase).catch(() => {});
+  const provider = getProvider();
+  const expectedWebhookUrl = `${SUPABASE_URL}/functions/v1/whatsapp-webhook`;
+  let webhookRepair = "not_needed";
+  let webhookHealthy = false;
+  try {
+    let validation = await validateWahaCredentials(expectedWebhookUrl);
+    webhookHealthy = validation.session.status === "WORKING" && validation.webhook.code === "ok";
+    if (provider.configured && validation.auth.ok && validation.session.exists && validation.webhook.code !== "ok") {
+      const repaired = await provider.syncWebhook(expectedWebhookUrl);
+      webhookRepair = repaired.ok ? "webhook_repaired" : "webhook_repair_failed";
+      if (repaired.ok) {
+        validation = await validateWahaCredentials(expectedWebhookUrl);
+        webhookHealthy = validation.session.status === "WORKING" && validation.webhook.code === "ok";
+      }
+    }
+    await supabase.from("provider_health_events").insert({
+      provider: "waha", ok: webhookHealthy,
+      error_masked: webhookHealthy ? "WORKING:webhook_ok" : `${validation.session.status ?? "UNKNOWN"}:${validation.webhook.code}`.slice(0, 120),
+    }).then(() => {}, () => {});
+  } catch (e) {
+    webhookRepair = "validation_failed";
+    webhookHealthy = false;
+  }
   const waha = getWahaAccess();
 
   let stalledCount = 0;
@@ -195,13 +218,15 @@ Deno.serve(async (req) => {
     ack_stalled: stalledCount,
     ack_reconciled: reconciled,
     owner_alerts: ownerAlerts,
+    webhook_repair: webhookRepair,
+    webhook_healthy: webhookHealthy,
   }));
 
   await writeJobHeartbeat({
     jobKey: "whatsapp-ack-watchdog",
-    ok: deadLettered === 0,
+    ok: deadLettered === 0 && webhookRepair !== "webhook_repair_failed" && webhookRepair !== "validation_failed",
     processed: recoveredCount + (stuck ?? []).length + stalledCount + reconciled,
-    failed: deadLettered,
+    failed: deadLettered + (webhookRepair === "webhook_repair_failed" || webhookRepair === "validation_failed" ? 1 : 0),
     sb: supabase,
   });
   return h.ok({
@@ -210,6 +235,8 @@ Deno.serve(async (req) => {
     ack_stalled: stalledCount,
     ack_reconciled: reconciled,
     owner_alerts: ownerAlerts,
+    webhook_repair: webhookRepair,
+    webhook_healthy: webhookHealthy,
     results,
   });
 

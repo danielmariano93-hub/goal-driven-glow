@@ -142,7 +142,7 @@ async function detectCashPressureForUser(
   });
 }
 
-const TX_FIELDS = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,posted_at,competence_date,occurred_at_time,occurred_at_timezone,occurred_at_precision,category_source,category_confidence";
+const TX_FIELDS = "id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,posted_at,competence_date,occurred_at_time,occurred_at_timezone,occurred_at_precision,category_source,category_confidence";
 const WINDOW_DAYS = 210;
 
 function isoDaysAgo(days: number): string {

@@ -29,6 +29,7 @@ import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/o
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
 import { getWahaAccess } from "../_shared/messaging/waha.ts";
+import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -214,6 +215,12 @@ Deno.serve(async (req) => {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const rootMeta = (payload ?? {}) as Record<string, any>;
+  await recordWhatsappPipelineEvent(sb, {
+    stage: "webhook_received",
+    session: typeof rootMeta.session === "string" ? rootMeta.session : null,
+    metadata: { event: String(rootMeta.event ?? rootMeta.type ?? "unknown").slice(0, 80) },
+  });
 
   // ACKs are delivery telemetry, not inbound user messages. Process them
   // before the inbound classifier (which intentionally drops message.ack).
@@ -228,6 +235,18 @@ Deno.serve(async (req) => {
       console.warn("[webhook] apply_outbound_ack_failed", ackErr.message?.slice(0, 200));
     }
     const matched = Array.isArray(applied) && applied.length > 0;
+    const { data: ackOutbound } = await sb.from("outbound_messages")
+      .select("id,user_id,inbound_message_id")
+      .eq("provider_message_id", ack.providerMessageId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    await recordWhatsappPipelineEvent(sb, {
+      stage: "ack_received",
+      user_id: (ackOutbound as any)?.user_id ?? null,
+      inbound_message_id: (ackOutbound as any)?.inbound_message_id ?? null,
+      outbound_message_id: (ackOutbound as any)?.id ?? null,
+      provider_message_id: ack.providerMessageId,
+      metadata: { ack: ack.status, matched },
+    });
     return json({ ok: true, ack: ack.status, matched });
   }
 
@@ -241,6 +260,10 @@ Deno.serve(async (req) => {
         provider: "waha",
         ok: sessionStatus.ok,
         error_masked: sessionStatus.status.slice(0, 120),
+      });
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "provider_session", ok: sessionStatus.ok,
+        session: getSessionName(), error_code: sessionStatus.ok ? null : sessionStatus.status,
       });
     } catch (_) { /* diagnóstico — nunca bloqueia */ }
   }
@@ -262,6 +285,11 @@ Deno.serve(async (req) => {
   }
 
   if (!classified.ok) {
+    await recordWhatsappPipelineEvent(sb, {
+      stage: "webhook_dropped", ok: false, session: classified.session,
+      error_code: classified.reason,
+      metadata: { event: classified.event ?? "unknown" },
+    });
     await logDrop(sb, {
       reason: classified.reason,
       event: classified.event,
@@ -311,6 +339,10 @@ Deno.serve(async (req) => {
   }
   if (insErr) return json({ ok: true, dedup: true });
   const inbound_message_id = inb!.id as string;
+  await recordWhatsappPipelineEvent(sb, {
+    stage: "inbound_persisted", inbound_message_id,
+    provider_message_id: evt.provider_message_id, session: getSessionName(),
+  });
 
   const code = extractLinkCode(evt.body);
   if (code) {
@@ -548,14 +580,40 @@ Deno.serve(async (req) => {
   // agent in the background, and ALWAYS enqueue a reply — success or crash.
   const orchestrate = async () => {
     try {
-      await runOrchestrator({
-      user_id: link.user_id, conversation_id: conversationId,
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "agent_started", user_id: link.user_id as string,
+        inbound_message_id, provider_message_id: evt.provider_message_id, session: getSessionName(),
+      });
+      const orchestrated = await runOrchestrator({
+        user_id: link.user_id, conversation_id: conversationId,
         inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
       });
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "agent_completed", user_id: link.user_id as string,
+        inbound_message_id, agent_run_id: orchestrated.run_id ?? null,
+        provider_message_id: evt.provider_message_id, session: getSessionName(),
+        metadata: { path: String(orchestrated.path ?? "unknown").slice(0, 80) },
+      });
+      const { data: queuedOutbound } = await sb.from("outbound_messages")
+        .select("id,user_id")
+        .eq("inbound_message_id", inbound_message_id)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if ((queuedOutbound as any)?.id) {
+        await recordWhatsappPipelineEvent(sb, {
+          stage: "outbound_queued", user_id: (queuedOutbound as any).user_id ?? link.user_id,
+          inbound_message_id, outbound_message_id: (queuedOutbound as any).id,
+          agent_run_id: orchestrated.run_id ?? null,
+        });
+      }
       await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
     } catch (e) {
       const sanitized = String((e as Error).message ?? "orchestrator_error").slice(0, 200);
       console.error("[webhook] orchestrator failed", sanitized);
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "failed", ok: false, user_id: link.user_id as string,
+        inbound_message_id, provider_message_id: evt.provider_message_id,
+        session: getSessionName(), error_code: sanitized,
+      });
       const idem = `orch-err:${inbound_message_id}`;
       await sb.from("outbound_messages").insert({
         user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",

@@ -7,6 +7,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { getProvider, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -58,7 +59,7 @@ Deno.serve(async (req) => {
     try {
       // Verifica se a linha carrega artefato para envio como imagem
       const { data: extra } = await sb.from("outbound_messages")
-        .select("artifact_id,media_url,media_mime").eq("id", m.id).maybeSingle();
+        .select("artifact_id,media_url,media_mime,user_id,inbound_message_id").eq("id", m.id).maybeSingle();
       let providerId: string | null = null;
       let mediaUrl: string | null = extra?.media_url ?? null;
       // Texto de fallback vindo do artefato (números do motor, nunca recalculado)
@@ -138,6 +139,12 @@ Deno.serve(async (req) => {
         p_id: m.id, p_provider_message_id: providerId ?? null,
       });
       if (markErr) throw new Error(markErr.message);
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "provider_sent",
+        user_id: (extra as any)?.user_id ?? null,
+        inbound_message_id: (extra as any)?.inbound_message_id ?? null,
+        outbound_message_id: m.id, provider_message_id: providerId,
+      });
       if (extra?.artifact_id) {
         await sb.from("outbound_messages").update({
           media_status: mediaStatus,
@@ -172,6 +179,11 @@ Deno.serve(async (req) => {
         claimed_at: null,
         lease_expires_at: null,
       }).eq("id", m.id);
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "failed", ok: false, outbound_message_id: m.id,
+        error_code: String((e as Error).message).slice(0, 120),
+        metadata: { component: "whatsapp-send", dead },
+      });
       results.push({ id: m.id, ok: false, error: String((e as Error).message) });
     }
   }
