@@ -28,7 +28,7 @@ import { classifyBatch, fetchExistingCandidates } from "../_shared/import/dedupe
 
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { classifyWithContext, loadCategorizationContext } from "../_shared/categorization/engine.ts";
-import { storageMerchantKey } from "../_shared/categorization/normalize.ts";
+import { merchantCanonical, storageMerchantKey } from "../_shared/categorization/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
