@@ -11330,6 +11330,7 @@ export type Database = {
         Args: { _days?: number }
         Returns: Json
       }
+      bank_posting_sources: { Args: never; Returns: string[] }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
       card_competence_for: {
@@ -11346,6 +11347,15 @@ export type Database = {
           period_end: string
           period_start: string
         }[]
+      }
+      cash_date_of: {
+        Args: {
+          p_competence: string
+          p_occurred: string
+          p_posted: string
+          p_posted_source: string
+        }
+        Returns: string
       }
       category_alias_key: { Args: { p_text: string }; Returns: string }
       category_merchant_key: { Args: { p_text: string }; Returns: string }
@@ -12369,6 +12379,15 @@ export type Database = {
       }
       split_upsert_original_transaction: {
         Args: { p_expense_id: string }
+        Returns: string
+      }
+      statement_line_fingerprint: {
+        Args: {
+          p_amount: number
+          p_doc_sha: string
+          p_document_id: string
+          p_ordinal: number
+        }
         Returns: string
       }
       sweep_orphan_agent_runs: { Args: never; Returns: number }
