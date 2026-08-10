@@ -26,7 +26,7 @@ export function deriveStatementBalanceSemantics(input: {
   item_dates: Array<string | null | undefined>;
 }): StatementBalanceSemantics {
   const reasons: string[] = [];
-  const closing = Number.isFinite(Number(input.closing_balance))
+  const closing = input.closing_balance != null && Number.isFinite(Number(input.closing_balance))
     ? Number(input.closing_balance)
     : null;
   if (closing == null) {
