@@ -1369,6 +1369,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
       dates: (persistedDates ?? []).map((r: { occurred_at: string | null }) => r.occurred_at),
     });
     const bankDoc = allowsBankBalance(documentKind);
+    // `bank_cash_truth.v1`: separar "saldo do dia" (autoridade na data) de
+    // "saldo atual do cabeçalho" (autoridade no fim do período). Sem isso a
+    // conciliação corta movimentos que compõem o próprio saldo.
+    const balanceSemantics = bankDoc
+      ? deriveStatementBalanceSemantics({
+          closing_balance: statement?.closing_balance ?? null,
+          balance_date: statement?.balance_date ?? null,
+          period_start: period.start,
+          period_end: period.end,
+          item_dates: (persistedDates ?? []).map((r: { occurred_at: string | null }) => r.occurred_at),
+        })
+      : null;
 
     await finish({
       status: finalStatus,
@@ -1381,6 +1393,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
       statement_opening_balance: bankDoc ? (statement?.opening_balance ?? null) : null,
       statement_closing_balance: bankDoc ? (statement?.closing_balance ?? null) : null,
       statement_balance_date: bankDoc ? (statement?.balance_date ?? null) : null,
+      balance_source: balanceSemantics?.balance_source ?? null,
+      balance_as_of: balanceSemantics?.balance_as_of ?? null,
+      balance_as_of_confidence: balanceSemantics?.balance_as_of_confidence ?? null,
+
       period_start: period.start,
       period_end: period.end,
       statement_period_start: period.start,
