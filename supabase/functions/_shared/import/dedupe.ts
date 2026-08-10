@@ -32,6 +32,7 @@ export type ExistingTx = {
   dedupe_fingerprint?: string | null;
   movement_kind?: string | null;
   import_source_id?: string | null;
+  status?: string | null;
 };
 
 export type DupeVerdict = {
@@ -49,8 +50,18 @@ function daysApart(a: string, b: string): number {
   return Math.abs(Math.round((da - db) / 86_400_000));
 }
 
-function merchantOf(value?: string | null): string {
-  return merchantCanonical(value ?? "");
+/**
+ * Identidade econômica do comerciante.
+ * `resolver` (opcional) aplica aliases aprendidos: "Souk4u" e "Market4you"
+ * são a MESMA loja e precisam colidir no dedupe, senão a mesma compra entra duas vezes.
+ */
+export type MerchantResolver = (canonical: string) => string;
+
+function merchantOf(value?: string | null, resolve?: MerchantResolver): string {
+  const canonical = merchantCanonical(value ?? "");
+  if (!canonical) return "";
+  const resolved = resolve ? String(resolve(canonical) ?? "").trim() : "";
+  return resolved || canonical;
 }
 
 function sameCents(a: number, b: number): boolean {
@@ -81,14 +92,17 @@ export type DedupeInputItem = {
 export function classifyBatch(
   items: DedupeInputItem[],
   existing: ExistingTx[],
-  opts: { windowDays?: number } = {},
+  opts: { windowDays?: number; merchantResolver?: MerchantResolver } = {},
 ): DupeVerdict[] {
   const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const resolve = opts.merchantResolver;
   const consumed = new Set<string>();
 
   const fpIndex = new Map<string, ExistingTx>();
   const refIndex = new Map<string, ExistingTx>();
   const lineIndex = new Map<string, ExistingTx>();
+  // Lançamento supersedido é histórico corrigido: não pode absorver item novo.
+  existing = existing.filter((tx) => (tx.status ?? "confirmed") !== "superseded");
   for (const tx of existing) {
     if (tx.source_document_id && tx.source_line_index !== null && tx.source_line_index !== undefined) {
       lineIndex.set(`${tx.source_document_id}#${tx.source_line_index}`, tx);
@@ -101,7 +115,9 @@ export function classifyBatch(
   const verdicts: DupeVerdict[] = [];
   for (const item of items) {
     const dates = [item.occurred_at, item.posted_at, item.purchase_date].filter((d): d is string => !!d);
-    const itemMerchant = item.merchant ? merchantOf(item.merchant) : merchantOf(item.raw_description ?? item.description);
+    const itemMerchant = item.merchant
+      ? merchantOf(item.merchant, resolve)
+      : merchantOf(item.raw_description ?? item.description, resolve);
 
     // 0. identidade da linha de origem (documento + índice) — idempotência exata
     const lineKey = item.source_document_id && item.source_line_index !== null && item.source_line_index !== undefined
@@ -157,7 +173,7 @@ export function classifyBatch(
 
     const withMerchant = candidates.map((tx) => ({
       tx,
-      merchant: merchantOf(tx.raw_description ?? tx.description),
+      merchant: merchantOf(tx.raw_description ?? tx.description, resolve),
       gap: Math.min(...dates.map((d) => daysApart(tx.occurred_at, d))),
     }));
 
@@ -247,7 +263,7 @@ export async function fetchExistingCandidates(
 
   const { data } = await sb
     .from("transactions")
-    .select("id, type, amount, occurred_at, posted_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id, source_document_id, source_line_index")
+    .select("id, type, amount, occurred_at, posted_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id, source_document_id, source_line_index, status")
     .eq("user_id", user_id)
     .gte("occurred_at", from)
     .lte("occurred_at", to)
