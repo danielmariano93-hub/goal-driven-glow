@@ -692,10 +692,31 @@ export function ReviewSheet({
                           </span>
                         </div>
                         {isDup && (
-                          <p className="text-[11px] text-warning">
-                            ⚠ Possível duplicata de lançamento existente.
-                          </p>
+                          <div className="space-y-1">
+                            <p className="text-[11px] text-warning">
+                              ⚠ Possível duplicata de lançamento existente.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => resolveDuplicate(it.id, "keep_as_legitimate")}
+                                disabled={resolvingDup === it.id}
+                                className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] hover:bg-muted disabled:opacity-50"
+                              >
+                                É cobrança real, manter
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => resolveDuplicate(it.id, it.duplicate_of ? "link_to_existing" : "supersede", it.duplicate_of ?? null)}
+                                disabled={resolvingDup === it.id}
+                                className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:bg-warning/20 disabled:opacity-50"
+                              >
+                                É a mesma, não registrar
+                              </button>
+                            </div>
+                          </div>
                         )}
+
                         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                           <div>
                             <label className="text-[10px] text-muted-foreground">Valor</label>
