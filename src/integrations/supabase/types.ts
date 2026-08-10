@@ -3969,6 +3969,11 @@ export type Database = {
           period_start: string | null
           provider_message_id: string | null
           raw_text: string | null
+          reconciled_at: string | null
+          reconciliation_contract: string | null
+          reconciliation_delta: number | null
+          reconciliation_ledger_balance: number | null
+          reconciliation_status: string | null
           sha256: string
           size_bytes: number
           source: string
@@ -4026,6 +4031,11 @@ export type Database = {
           period_start?: string | null
           provider_message_id?: string | null
           raw_text?: string | null
+          reconciled_at?: string | null
+          reconciliation_contract?: string | null
+          reconciliation_delta?: number | null
+          reconciliation_ledger_balance?: number | null
+          reconciliation_status?: string | null
           sha256: string
           size_bytes: number
           source: string
@@ -4083,6 +4093,11 @@ export type Database = {
           period_start?: string | null
           provider_message_id?: string | null
           raw_text?: string | null
+          reconciled_at?: string | null
+          reconciliation_contract?: string | null
+          reconciliation_delta?: number | null
+          reconciliation_ledger_balance?: number | null
+          reconciliation_status?: string | null
           sha256?: string
           size_bytes?: number
           source?: string
@@ -6638,6 +6653,66 @@ export type Database = {
           processed?: number
           stages?: Json
           updated_at?: string
+        }
+        Relationships: []
+      }
+      ledger_corrections: {
+        Row: {
+          account_id: string | null
+          actor_id: string | null
+          amount_after: number | null
+          amount_before: number | null
+          cash_impact: number
+          contract_version: string
+          correction_kind: string
+          created_at: string
+          document_id: string | null
+          evidence: Json
+          id: string
+          reason: string
+          related_transaction_id: string | null
+          snapshot_before: Json | null
+          transaction_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          actor_id?: string | null
+          amount_after?: number | null
+          amount_before?: number | null
+          cash_impact?: number
+          contract_version?: string
+          correction_kind: string
+          created_at?: string
+          document_id?: string | null
+          evidence?: Json
+          id?: string
+          reason: string
+          related_transaction_id?: string | null
+          snapshot_before?: Json | null
+          transaction_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          actor_id?: string | null
+          amount_after?: number | null
+          amount_before?: number | null
+          cash_impact?: number
+          contract_version?: string
+          correction_kind?: string
+          created_at?: string
+          document_id?: string | null
+          evidence?: Json
+          id?: string
+          reason?: string
+          related_transaction_id?: string | null
+          snapshot_before?: Json | null
+          transaction_id?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -9497,12 +9572,18 @@ export type Database = {
           purchase_date: string | null
           purchase_group_id: string | null
           raw_description: string | null
+          refund_link_confidence: number | null
+          refund_link_method: string | null
+          refund_of_transaction_id: string | null
           settles_card_id: string | null
           shared_expense_id: string | null
           source_document_id: string | null
           source_line_index: number | null
           split_transaction_role: string | null
           status: Database["public"]["Enums"]["transaction_status"]
+          supersede_reason: string | null
+          superseded_at: string | null
+          superseded_by: string | null
           transfer_group_id: string | null
           type: Database["public"]["Enums"]["transaction_type"]
           updated_at: string
@@ -9557,12 +9638,18 @@ export type Database = {
           purchase_date?: string | null
           purchase_group_id?: string | null
           raw_description?: string | null
+          refund_link_confidence?: number | null
+          refund_link_method?: string | null
+          refund_of_transaction_id?: string | null
           settles_card_id?: string | null
           shared_expense_id?: string | null
           source_document_id?: string | null
           source_line_index?: number | null
           split_transaction_role?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
+          supersede_reason?: string | null
+          superseded_at?: string | null
+          superseded_by?: string | null
           transfer_group_id?: string | null
           type: Database["public"]["Enums"]["transaction_type"]
           updated_at?: string
@@ -9617,12 +9704,18 @@ export type Database = {
           purchase_date?: string | null
           purchase_group_id?: string | null
           raw_description?: string | null
+          refund_link_confidence?: number | null
+          refund_link_method?: string | null
+          refund_of_transaction_id?: string | null
           settles_card_id?: string | null
           shared_expense_id?: string | null
           source_document_id?: string | null
           source_line_index?: number | null
           split_transaction_role?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
+          supersede_reason?: string | null
+          superseded_at?: string | null
+          superseded_by?: string | null
           transfer_group_id?: string | null
           type?: Database["public"]["Enums"]["transaction_type"]
           updated_at?: string
@@ -9667,6 +9760,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "transactions_refund_of_transaction_id_fkey"
+            columns: ["refund_of_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "transactions_settles_card_id_fkey"
             columns: ["settles_card_id"]
             isOneToOne: false
@@ -9678,6 +9778,13 @@ export type Database = {
             columns: ["shared_expense_id"]
             isOneToOne: false
             referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
           {
@@ -11125,6 +11232,17 @@ export type Database = {
         Args: { _amount: number }
         Returns: Database["public"]["Enums"]["value_bucket"]
       }
+      apply_ledger_correction: {
+        Args: {
+          p_evidence?: Json
+          p_kind: string
+          p_payload?: Json
+          p_reason?: string
+          p_related_transaction_id?: string
+          p_transaction_id?: string
+        }
+        Returns: Json
+      }
       apply_outbound_ack: {
         Args: { p_ack: string; p_provider_message_id: string }
         Returns: {
@@ -11509,6 +11627,7 @@ export type Database = {
         Args: { p_category_id: string; p_transaction_id: string }
         Returns: undefined
       }
+      link_document_refunds: { Args: { p_document_id: string }; Returns: Json }
       link_split_participant: {
         Args: { p_participant_id: string; p_source?: string }
         Returns: Json
@@ -11833,6 +11952,10 @@ export type Database = {
           p_source?: string
         }
         Returns: string
+      }
+      reconcile_account_statement: {
+        Args: { p_account_id?: string; p_document_id: string }
+        Returns: Json
       }
       reconcile_agent_memory_categories: { Args: never; Returns: number }
       reconcile_card_competence: {
@@ -12303,7 +12426,7 @@ export type Database = {
       run_status: "running" | "done" | "error" | "cancelled"
       split_mode: "equal" | "custom"
       split_status: "draft" | "active" | "settled" | "cancelled"
-      transaction_status: "confirmed" | "planned"
+      transaction_status: "confirmed" | "planned" | "superseded"
       transaction_type: "income" | "expense" | "transfer"
       transfer_direction: "debit" | "credit"
       txn_origin: "manual" | "agent" | "import" | "recurring" | "split"
@@ -12535,7 +12658,7 @@ export const Constants = {
       run_status: ["running", "done", "error", "cancelled"],
       split_mode: ["equal", "custom"],
       split_status: ["draft", "active", "settled", "cancelled"],
-      transaction_status: ["confirmed", "planned"],
+      transaction_status: ["confirmed", "planned", "superseded"],
       transaction_type: ["income", "expense", "transfer"],
       transfer_direction: ["debit", "credit"],
       txn_origin: ["manual", "agent", "import", "recurring", "split"],
