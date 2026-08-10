@@ -422,7 +422,34 @@ type DupeHit = { transaction_id: string; strength: "strong" | "ambiguous"; reaso
  * - Ambiguous: valor/tipo compatíveis dentro da janela, ou mesma data com
  *   descrição diferente (revisão manual necessária).
  */
+/**
+ * Resolver de identidade econômica do comerciante a partir dos aliases aprendidos.
+ * Nomes diferentes com o mesmo comerciante canônico ("Souk4u" x "Market4you")
+ * passam a colidir no dedupe — sem isso a mesma compra entra duas vezes.
+ */
+async function buildMerchantResolver(
+  sb: ReturnType<typeof createClient>,
+  user_id: string,
+): Promise<(canonical: string) => string> {
+  const map = new Map<string, string>();
+  try {
+    const { data } = await sb.from("merchant_aliases")
+      .select("alias_key,normalized_pattern,canonical_name,friendly_name")
+      .eq("user_id", user_id).limit(2000);
+    for (const r of (data ?? []) as Array<Record<string, string | null>>) {
+      const identity = merchantCanonical(r.canonical_name ?? r.friendly_name ?? "");
+      if (!identity) continue;
+      for (const raw of [r.alias_key, r.normalized_pattern]) {
+        const key = merchantCanonical(raw ?? "");
+        if (key) map.set(key, identity);
+      }
+    }
+  } catch { /* alias é otimização: falha não pode derrubar a ingestão */ }
+  return (canonical: string) => map.get(canonical) ?? canonical;
+}
+
 async function classifyDuplicates(
+
   sb: ReturnType<typeof createClient>,
   user_id: string,
   items: Array<{ type: string; amount: number; occurred_at: string; normalized_description: string | null; bank_reference: string | null; fingerprint: string }>,
