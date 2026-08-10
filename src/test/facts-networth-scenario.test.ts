@@ -72,7 +72,7 @@ describe("conciliação por snapshot bancário", () => {
       tx({ id: "new", account_id: "a", type: "expense", amount: 20, occurred_at: "2026-07-17", payment_method: "account" }),
     ];
     const result = computeAccountBalances(accounts, txs, [
-      { account_id: "a", balance_date: "2026-07-16", balance: 273.19 },
+      { account_id: "a", balance_date: "2026-07-16", balance: 273.19, anchor_kind: "bank_confirmed" },
     ]);
     expect(result.a).toBe(253.19);
   });

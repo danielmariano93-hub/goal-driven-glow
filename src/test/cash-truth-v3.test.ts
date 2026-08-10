@@ -30,16 +30,16 @@ const tx = (over: Partial<TransactionRow>): TransactionRow => ({
 
 describe("finance_contract.v3 — verdade de caixa bancária", () => {
   it("cashDateOf prioriza data bancária, depois competência, depois econômica", () => {
-    expect(cashDateOf({ posted_at: "2026-08-03", competence_date: "2026-08-25", occurred_at: "2026-08-01" })).toBe("2026-08-03");
+    expect(cashDateOf({ posted_at: "2026-08-03", posted_at_source: "statement", competence_date: "2026-08-25", occurred_at: "2026-08-01" })).toBe("2026-08-03");
     expect(cashDateOf({ posted_at: null, competence_date: "2026-08-25", occurred_at: "2026-08-01" })).toBe("2026-08-25");
     expect(cashDateOf({ posted_at: null, competence_date: null, occurred_at: "2026-08-01" })).toBe("2026-08-01");
   });
 
   it("ignora snapshots pending_review e superseded; usa só o confirmado <= asOf", () => {
     const snaps: AccountBalanceSnapshotRow[] = [
-      { id: "s1", account_id: "acc-1", balance_date: "2026-07-20", balance: 39.97, status: "confirmed" } as AccountBalanceSnapshotRow,
-      { id: "s2", account_id: "acc-1", balance_date: "2026-07-20", balance: 49.91, status: "pending_review" } as AccountBalanceSnapshotRow,
-      { id: "s3", account_id: "acc-1", balance_date: "2026-07-21", balance: 999, status: "superseded" } as AccountBalanceSnapshotRow,
+      { id: "s1", account_id: "acc-1", balance_date: "2026-07-20", balance: 39.97, status: "confirmed", anchor_kind: "bank_confirmed" } as AccountBalanceSnapshotRow,
+      { id: "s2", account_id: "acc-1", balance_date: "2026-07-20", balance: 49.91, status: "pending_review", anchor_kind: "bank_confirmed" } as AccountBalanceSnapshotRow,
+      { id: "s3", account_id: "acc-1", balance_date: "2026-07-21", balance: 999, status: "superseded", anchor_kind: "bank_confirmed" } as AccountBalanceSnapshotRow,
     ];
     const bal = computeAccountBalances(acc, [], snaps, { asOf: "2026-07-31" });
     expect(bal["acc-1"]).toBe(39.97);
@@ -47,7 +47,7 @@ describe("finance_contract.v3 — verdade de caixa bancária", () => {
 
   it("movimento processado depois do corte conta pela data bancária, não pela econômica", () => {
     const snaps: AccountBalanceSnapshotRow[] = [
-      { id: "s1", account_id: "acc-1", balance_date: "2026-08-02", balance: 589.39, status: "confirmed" } as AccountBalanceSnapshotRow,
+      { id: "s1", account_id: "acc-1", balance_date: "2026-08-02", balance: 589.39, status: "confirmed", anchor_kind: "bank_confirmed" } as AccountBalanceSnapshotRow,
     ];
     const rows = [
       // consumo de 01/08 processado no banco em 03/08
@@ -61,9 +61,9 @@ describe("finance_contract.v3 — verdade de caixa bancária", () => {
 
   it("transferências externas afetam caixa e ficam fora do resultado comportamental", () => {
     const rows = [
-      tx({ id: "a", type: "income", amount: 600, movement_kind: "external_transfer_in", occurred_at: "2026-07-11", posted_at: "2026-07-13" }),
-      tx({ id: "b", type: "income", amount: 600, movement_kind: "external_transfer_in", occurred_at: "2026-07-11", posted_at: "2026-07-13" }),
-      tx({ id: "c", type: "expense", amount: 1200, movement_kind: "external_transfer_out", occurred_at: "2026-07-11", posted_at: "2026-07-13" }),
+      tx({ id: "a", type: "income", amount: 600, movement_kind: "external_transfer_in", occurred_at: "2026-07-11", posted_at: "2026-07-13", posted_at_source: "statement" }),
+      tx({ id: "b", type: "income", amount: 600, movement_kind: "external_transfer_in", occurred_at: "2026-07-11", posted_at: "2026-07-13", posted_at_source: "statement" }),
+      tx({ id: "c", type: "expense", amount: 1200, movement_kind: "external_transfer_out", occurred_at: "2026-07-11", posted_at: "2026-07-13", posted_at_source: "statement" }),
     ];
     expect(computeTotalCash(acc, rows, [])).toBe(0);
     expect(rows.every(isExternalTransfer)).toBe(true);
