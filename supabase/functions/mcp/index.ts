@@ -59,8 +59,19 @@ function supabaseForUser(ctx) {
 }
 
 // src/lib/engine/facts.ts
+function isHardBankAnchor(s) {
+  if (s.status && s.status !== "confirmed") return false;
+  if (s.anchor_kind) return s.anchor_kind === "bank_confirmed";
+  return Boolean(s.source_document_id);
+}
+var BANK_POSTING_SOURCES = /* @__PURE__ */ new Set(["statement", "bank", "ofx", "reconciliation"]);
+function hasBankPosting(t) {
+  if (!t.posted_at) return false;
+  return BANK_POSTING_SOURCES.has(String(t.posted_at_source ?? "inferred"));
+}
 function cashDateOf(t) {
-  return t.posted_at || t.competence_date || t.occurred_at;
+  if (hasBankPosting(t)) return String(t.posted_at);
+  return t.competence_date || t.occurred_at;
 }
 function txOrigin(t) {
   if (t.credit_card_id) return "credit_card";
@@ -74,7 +85,7 @@ function computeAccountBalances(accounts, txs, snapshots = [], opts) {
   const cutoff = {};
   const asOf = opts?.asOf ?? null;
   for (const a of accounts) map[a.id] = Number(a.opening_balance || 0);
-  const anchors = snapshots.filter((x) => !x.status || x.status === "confirmed").filter((x) => !asOf || x.balance_date <= asOf).sort((a, b) => a.balance_date.localeCompare(b.balance_date));
+  const anchors = snapshots.filter((x) => isHardBankAnchor(x)).filter((x) => !asOf || x.balance_date <= asOf).sort((a, b) => a.balance_date.localeCompare(b.balance_date));
   for (const s of anchors) {
     map[s.account_id] = Number(s.balance);
     cutoff[s.account_id] = s.balance_date;
@@ -953,7 +964,7 @@ var monthly_summary_default = defineTool2({
       supabase.from("transactions").select(TX_COLUMNS),
       supabase.from("categories").select("id, name, type"),
       supabase.from("accounts").select("id,name,type,opening_balance,active"),
-      supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status")
+      supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta")
     ]);
     if (txRes.error) return errorResult(txRes.error.message, "internal");
     const txs = (txRes.data ?? []).map((t) => ({

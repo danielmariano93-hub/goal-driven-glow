@@ -1098,14 +1098,20 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }
 
       const remaining = MAX_ITEMS_PER_DOCUMENT - counters.total_items;
+      // Extrato bancário: DUAS linhas idênticas (mesma data/valor/descrição) são
+      // duas cobranças reais. Colapsar por assinatura local apaga cobrança real
+      // (foi o bug do Autopass 5,40). Idempotência aqui é documento+ordinal.
+      const collapseIdenticalLines = documentKind !== "statement";
       const freshItems = extraction.items
         .filter((item) => {
+          if (!collapseIdenticalLines) return true;
           const sig = itemSignature(item);
           if (seenSignatures.has(sig)) return false;
           seenSignatures.add(sig);
           return true;
         })
         .slice(0, Math.min(BATCH_ITEMS_LIMIT, remaining));
+
 
       if (freshItems.length > 0) {
         const enriched = await enrichItems(sb, userId, freshItems, {
@@ -1185,6 +1191,11 @@ async function processDocument(documentId: string, userId: string, guidance: str
             normalized_description: it.normalized_description,
             bank_reference: it.bank_reference,
             dedupe_fingerprint: fingerprintWithOrdinal,
+            // Identidade da linha do extrato: documento + ordinal. Gêmeos legítimos
+            // convivem; reupload é idempotente pelo mesmo par.
+            source_line_index: globalIdx,
+            line_fingerprint: `${documentId}:${globalIdx}:${Number(it.amount).toFixed(2)}`,
+
             payment_method: it.account_id ? "account" : it.credit_card_id ? "credit_card" : it.payment_method,
             account_hint: it.account_hint,
             card_hint: it.card_hint,

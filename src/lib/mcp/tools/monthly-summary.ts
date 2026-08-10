@@ -36,7 +36,7 @@ export default defineTool({
       supabase.from("transactions").select(TX_COLUMNS),
       supabase.from("categories").select("id, name, type"),
       supabase.from("accounts").select("id,name,type,opening_balance,active"),
-      supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status"),
+      supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta"),
     ]);
 
     if (txRes.error) return errorResult(txRes.error.message, "internal");

@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
       sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
       sb.from("investments").select("goal_id,current_value").eq("user_id", userId),
-      sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status").eq("user_id", userId),
+      sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
       sb.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", userId),
       sb.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", userId),
     ]);

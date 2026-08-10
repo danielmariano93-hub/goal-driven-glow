@@ -17,11 +17,15 @@ export type Database = {
       account_balance_snapshots: {
         Row: {
           account_id: string
+          anchor_kind: string | null
+          as_of: string | null
           balance: number
           balance_date: string
           created_at: string
           id: string
+          provenance: Json
           reconciliation: Json
+          reconciliation_delta: number | null
           source: string
           source_document_id: string | null
           status: string
@@ -30,11 +34,15 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          anchor_kind?: string | null
+          as_of?: string | null
           balance: number
           balance_date: string
           created_at?: string
           id?: string
+          provenance?: Json
           reconciliation?: Json
+          reconciliation_delta?: number | null
           source?: string
           source_document_id?: string | null
           status?: string
@@ -43,11 +51,15 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          anchor_kind?: string | null
+          as_of?: string | null
           balance?: number
           balance_date?: string
           created_at?: string
           id?: string
+          provenance?: Json
           reconciliation?: Json
+          reconciliation_delta?: number | null
           source?: string
           source_document_id?: string | null
           status?: string
@@ -3936,6 +3948,9 @@ export type Database = {
       document_imports: {
         Row: {
           attempt_count: number
+          balance_as_of: string | null
+          balance_as_of_confidence: number | null
+          balance_source: string | null
           conversation_id: string | null
           cost_usd_micros: number | null
           counters: Json
@@ -3998,6 +4013,9 @@ export type Database = {
         }
         Insert: {
           attempt_count?: number
+          balance_as_of?: string | null
+          balance_as_of_confidence?: number | null
+          balance_source?: string | null
           conversation_id?: string | null
           cost_usd_micros?: number | null
           counters?: Json
@@ -4060,6 +4078,9 @@ export type Database = {
         }
         Update: {
           attempt_count?: number
+          balance_as_of?: string | null
+          balance_as_of_confidence?: number | null
+          balance_source?: string | null
           conversation_id?: string | null
           cost_usd_micros?: number | null
           counters?: Json
@@ -4370,6 +4391,7 @@ export type Database = {
           account_hint: string | null
           account_id: string | null
           amount: number
+          attached_transaction_id: string | null
           bank_description: string | null
           bank_reference: string | null
           card_hint: string | null
@@ -4386,6 +4408,9 @@ export type Database = {
           document_id: string
           duplicate_of: string | null
           duplicate_reason: string | null
+          duplicate_resolution: string | null
+          duplicate_resolved_at: string | null
+          duplicate_resolved_by: string | null
           external_id: string | null
           friendly_description: string | null
           historical_installments_paid_assumption: boolean | null
@@ -4395,6 +4420,7 @@ export type Database = {
           installment_number: number | null
           installments_total: number | null
           is_future_installment: boolean
+          line_fingerprint: string | null
           movement_kind: string
           normalized_description: string | null
           occurred_at: string
@@ -4419,6 +4445,7 @@ export type Database = {
           account_hint?: string | null
           account_id?: string | null
           amount: number
+          attached_transaction_id?: string | null
           bank_description?: string | null
           bank_reference?: string | null
           card_hint?: string | null
@@ -4435,6 +4462,9 @@ export type Database = {
           document_id: string
           duplicate_of?: string | null
           duplicate_reason?: string | null
+          duplicate_resolution?: string | null
+          duplicate_resolved_at?: string | null
+          duplicate_resolved_by?: string | null
           external_id?: string | null
           friendly_description?: string | null
           historical_installments_paid_assumption?: boolean | null
@@ -4444,6 +4474,7 @@ export type Database = {
           installment_number?: number | null
           installments_total?: number | null
           is_future_installment?: boolean
+          line_fingerprint?: string | null
           movement_kind?: string
           normalized_description?: string | null
           occurred_at: string
@@ -4468,6 +4499,7 @@ export type Database = {
           account_hint?: string | null
           account_id?: string | null
           amount?: number
+          attached_transaction_id?: string | null
           bank_description?: string | null
           bank_reference?: string | null
           card_hint?: string | null
@@ -4484,6 +4516,9 @@ export type Database = {
           document_id?: string
           duplicate_of?: string | null
           duplicate_reason?: string | null
+          duplicate_resolution?: string | null
+          duplicate_resolved_at?: string | null
+          duplicate_resolved_by?: string | null
           external_id?: string | null
           friendly_description?: string | null
           historical_installments_paid_assumption?: boolean | null
@@ -4493,6 +4528,7 @@ export type Database = {
           installment_number?: number | null
           installments_total?: number | null
           is_future_installment?: boolean
+          line_fingerprint?: string | null
           movement_kind?: string
           normalized_description?: string | null
           occurred_at?: string
@@ -4519,6 +4555,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_items_attached_transaction_id_fkey"
+            columns: ["attached_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
           {
@@ -11259,6 +11302,17 @@ export type Database = {
         Args: { p_statement_id: string }
         Returns: Json
       }
+      attach_bank_posting: {
+        Args: {
+          p_document_id: string
+          p_item_id?: string
+          p_line_index?: number
+          p_posted_at?: string
+          p_reason?: string
+          p_transaction_id: string
+        }
+        Returns: Json
+      }
       audit_card_reconciliation: {
         Args: { _user_id?: string }
         Returns: {
@@ -11628,6 +11682,16 @@ export type Database = {
         Returns: undefined
       }
       link_document_refunds: { Args: { p_document_id: string }; Returns: Json }
+      link_refund_transaction: {
+        Args: {
+          p_confidence?: number
+          p_method?: string
+          p_original_id: string
+          p_reason?: string
+          p_refund_id: string
+        }
+        Returns: Json
+      }
       link_split_participant: {
         Args: { p_participant_id: string; p_source?: string }
         Returns: Json
@@ -11940,6 +12004,14 @@ export type Database = {
         Args: { p_statement_id: string }
         Returns: Json
       }
+      reclassify_as_card_payment: {
+        Args: {
+          p_card_id?: string
+          p_reason?: string
+          p_transaction_id: string
+        }
+        Returns: Json
+      }
       reconcile_account_from_statement: {
         Args: {
           p_account_id: string
@@ -12033,6 +12105,15 @@ export type Database = {
         Args: { _max_age_seconds?: number }
         Returns: boolean
       }
+      resolve_duplicate_item: {
+        Args: {
+          p_item_id: string
+          p_linked_transaction_id?: string
+          p_reason?: string
+          p_resolution: string
+        }
+        Returns: Json
+      }
       resolve_transaction_behavior_date: {
         Args: { _row: Database["public"]["Tables"]["transactions"]["Row"] }
         Returns: {
@@ -12057,6 +12138,16 @@ export type Database = {
         Returns: number
       }
       set_active_prompt_version: { Args: { p_id: string }; Returns: undefined }
+      set_bank_anchor_snapshot: {
+        Args: {
+          p_account_id: string
+          p_balance: number
+          p_balance_date: string
+          p_document_id: string
+          p_provenance?: Json
+        }
+        Returns: Json
+      }
       settle_credit_card_statement: {
         Args: {
           p_account_id: string

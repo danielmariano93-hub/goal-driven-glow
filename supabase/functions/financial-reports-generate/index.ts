@@ -62,7 +62,7 @@ async function loadContext(sb: Sb, userId: string) {
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
 
     sb.from("accounts").select("id,name,type,opening_balance,is_active").eq("user_id", userId),
-    sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status").eq("user_id", userId),
+    sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
     sb.from("goals").select("id,name,target_amount,status,due_date").eq("user_id", userId),
     sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
   ]);

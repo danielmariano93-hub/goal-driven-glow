@@ -22,7 +22,24 @@ export interface AccountBalanceSnapshotRow {
   balance_date: string;
   balance: number;
   status?: string;
+  /** `bank_cash_truth.v1`: só `bank_confirmed` pode ancorar o caixa. */
+  anchor_kind?: string | null;
+  source_document_id?: string | null;
+  reconciliation_delta?: number | null;
 }
+
+/**
+ * Âncora dura (`bank_cash_truth.v1`): snapshot conferido contra extrato oficial,
+ * com proveniência documental e delta zero. Posição inferida nunca ancora —
+ * ela embute autorizações que o banco ainda vai postar (dupla contagem).
+ */
+export function isHardBankAnchor(s: AccountBalanceSnapshotRow): boolean {
+  if (s.status && s.status !== "confirmed") return false;
+  if (s.anchor_kind) return s.anchor_kind === "bank_confirmed";
+  // Compatibilidade: snapshot legado só ancora se tiver proveniência documental.
+  return Boolean(s.source_document_id);
+}
+
 
 export type PaymentMethod = "account" | "credit_card" | "cash" | "pix" | "other";
 
@@ -53,16 +70,30 @@ export interface TransactionRow {
   refund_of_transaction_id?: string | null;
 }
 
+/** Origens de `posted_at` com autoridade de data bancária real. */
+const BANK_POSTING_SOURCES = new Set(["statement", "bank", "ofx", "reconciliation"]);
+
+/** `posted_at` só vale como data de banco quando a origem é bancária. */
+export function hasBankPosting(
+  t: Pick<TransactionRow, "posted_at" | "posted_at_source">,
+): boolean {
+  if (!t.posted_at) return false;
+  return BANK_POSTING_SOURCES.has(String(t.posted_at_source ?? "inferred"));
+}
+
 /**
- * Data canônica de CAIXA (`finance_contract.v3`).
- * Precedência: data bancária real → competência → data econômica.
+ * Data canônica de CAIXA (`bank_cash_truth.v1`).
+ * Precedência: postagem bancária COM autoridade → competência → data econômica.
+ * `posted_at_source='inferred'` é palpite do app: não define data de banco.
  * Nunca usar para métricas comportamentais (essas seguem `occurred_at`).
  */
 export function cashDateOf(
-  t: Pick<TransactionRow, "posted_at" | "competence_date" | "occurred_at">,
+  t: Pick<TransactionRow, "posted_at" | "posted_at_source" | "competence_date" | "occurred_at">,
 ): string {
-  return t.posted_at || t.competence_date || t.occurred_at;
+  if (hasBankPosting(t)) return String(t.posted_at);
+  return t.competence_date || t.occurred_at;
 }
+
 
 
 export interface CreditCardRow {
@@ -150,9 +181,9 @@ export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 10
 const sumBy = <T>(arr: T[], get: (x: T) => number) => round2(arr.reduce((a, b) => a + (get(b) || 0), 0));
 
 /**
- * Saldo por conta (`finance_contract.v3`).
- * Âncora = snapshot CONFIRMADO mais recente com balance_date <= asOf.
- * Snapshots `pending_review`/`superseded`/`canceled` são ignorados.
+ * Saldo por conta (`bank_cash_truth.v1`).
+ * Âncora = snapshot CONFIRMADO E conferido contra extrato (`bank_confirmed`).
+ * Snapshots inferidos/`pending_review`/`superseded` nunca ancoram.
  * O corte e a aplicação usam a data de CAIXA (`cashDateOf`), não a econômica.
  */
 export function computeAccountBalances(
@@ -166,9 +197,10 @@ export function computeAccountBalances(
   const asOf = opts?.asOf ?? null;
   for (const a of accounts) map[a.id] = Number(a.opening_balance || 0);
   const anchors = snapshots
-    .filter((x) => !x.status || x.status === "confirmed")
+    .filter((x) => isHardBankAnchor(x))
     .filter((x) => !asOf || x.balance_date <= asOf)
     .sort((a, b) => a.balance_date.localeCompare(b.balance_date));
+
   for (const s of anchors) {
     map[s.account_id] = Number(s.balance);
     cutoff[s.account_id] = s.balance_date;
