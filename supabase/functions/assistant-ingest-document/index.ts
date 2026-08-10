@@ -441,7 +441,9 @@ async function classifyDuplicates(
   }));
 
   const existing = await fetchExistingCandidates(sb as any, user_id, input);
-  const verdicts = classifyBatch(input, existing);
+  const merchantResolver = await buildMerchantResolver(sb, user_id);
+  const verdicts = classifyBatch(input, existing, { merchantResolver });
+
 
   verdicts.forEach((verdict, i) => {
     if (verdict.status === "new" || !verdict.duplicate_of) return;
