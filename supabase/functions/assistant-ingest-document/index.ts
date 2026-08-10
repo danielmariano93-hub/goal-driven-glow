@@ -1222,10 +1222,17 @@ async function processDocument(documentId: string, userId: string, guidance: str
             normalized_description: it.normalized_description,
             bank_reference: it.bank_reference,
             dedupe_fingerprint: fingerprintWithOrdinal,
-            // Identidade da linha do extrato: documento + ordinal. Gêmeos legítimos
-            // convivem; reupload é idempotente pelo mesmo par.
+            // Identidade da linha do extrato: conteúdo do arquivo + ordinal.
+            // Gêmeos legítimos convivem (ordinais diferentes) e o reupload do MESMO
+            // arquivo reencontra a mesma identidade mesmo com outro document_id.
             source_line_index: globalIdx,
-            line_fingerprint: `${documentId}:${globalIdx}:${Number(it.amount).toFixed(2)}`,
+            line_fingerprint: statementLineFingerprint({
+              documentSha256: sha,
+              documentId,
+              ordinal: globalIdx,
+              amount: Number(it.amount),
+            }),
+
 
             payment_method: it.account_id ? "account" : it.credit_card_id ? "credit_card" : it.payment_method,
             account_hint: it.account_hint,
