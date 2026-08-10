@@ -157,6 +157,38 @@ export function ReviewSheet({
   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [pendingWrites, setPendingWrites] = useState(0);
+  const [resolvingDup, setResolvingDup] = useState<string | null>(null);
+
+  // Duplicidade nunca é decidida em silêncio: o usuário diz se é cobrança real
+  // ou repetição, e a decisão fica auditada em `document_import_audit`.
+  const resolveDuplicate = async (
+    itemId: string,
+    resolution: "keep_as_legitimate" | "link_to_existing" | "supersede",
+    linkedTransactionId: string | null = null,
+  ) => {
+    setResolvingDup(itemId);
+    try {
+      const { error } = await supabase.rpc("resolve_duplicate_item" as never, {
+        p_item_id: itemId,
+        p_resolution: resolution,
+        p_linked_transaction_id: linkedTransactionId,
+      } as never);
+      if (error) throw error;
+      setItems((xs) => xs.map((x) => x.id === itemId
+        ? { ...x, status: resolution === "keep_as_legitimate" ? "needs_review" : "ignored" }
+        : x));
+      if (resolution !== "keep_as_legitimate") {
+        setSelected((s) => { const n = new Set(s); n.delete(itemId); return n; });
+      }
+      toast.success(resolution === "keep_as_legitimate" ? "Marcado como cobrança real." : "Duplicidade descartada.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não consegui registrar a decisão.");
+    } finally {
+      setResolvingDup(null);
+    }
+  };
+
+
 
   useEffect(() => {
     let cancelled = false;
