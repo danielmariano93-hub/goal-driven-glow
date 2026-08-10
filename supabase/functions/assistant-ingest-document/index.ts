@@ -21,12 +21,14 @@ import { auditInvoiceCoverage, coverageMessage, parseInvoiceText, type InvoiceCo
 import { chunkItems, invoiceToExtraction } from "../_shared/documents/invoiceExtraction.ts";
 import { resolveDocumentDate } from "../_shared/documents/dates.ts";
 import { allowsBankBalance, applyLedgerInvariants, derivePeriod, isCardDocument } from "../_shared/ledger/canonical.ts";
+import { deriveStatementBalanceSemantics } from "../_shared/ledger/statementBalance.ts";
+
 import { applyCreditSignGuard } from "../_shared/ledger/creditSemantics.ts";
 import { classifyBatch, fetchExistingCandidates } from "../_shared/import/dedupe.ts";
 
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { classifyWithContext, loadCategorizationContext } from "../_shared/categorization/engine.ts";
-import { storageMerchantKey } from "../_shared/categorization/normalize.ts";
+import { merchantCanonical, storageMerchantKey } from "../_shared/categorization/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -420,7 +422,34 @@ type DupeHit = { transaction_id: string; strength: "strong" | "ambiguous"; reaso
  * - Ambiguous: valor/tipo compatíveis dentro da janela, ou mesma data com
  *   descrição diferente (revisão manual necessária).
  */
+/**
+ * Resolver de identidade econômica do comerciante a partir dos aliases aprendidos.
+ * Nomes diferentes com o mesmo comerciante canônico ("Souk4u" x "Market4you")
+ * passam a colidir no dedupe — sem isso a mesma compra entra duas vezes.
+ */
+async function buildMerchantResolver(
+  sb: ReturnType<typeof createClient>,
+  user_id: string,
+): Promise<(canonical: string) => string> {
+  const map = new Map<string, string>();
+  try {
+    const { data } = await sb.from("merchant_aliases")
+      .select("alias_key,normalized_pattern,canonical_name,friendly_name")
+      .eq("user_id", user_id).limit(2000);
+    for (const r of (data ?? []) as Array<Record<string, string | null>>) {
+      const identity = merchantCanonical(r.canonical_name ?? r.friendly_name ?? "");
+      if (!identity) continue;
+      for (const raw of [r.alias_key, r.normalized_pattern]) {
+        const key = merchantCanonical(raw ?? "");
+        if (key) map.set(key, identity);
+      }
+    }
+  } catch { /* alias é otimização: falha não pode derrubar a ingestão */ }
+  return (canonical: string) => map.get(canonical) ?? canonical;
+}
+
 async function classifyDuplicates(
+
   sb: ReturnType<typeof createClient>,
   user_id: string,
   items: Array<{ type: string; amount: number; occurred_at: string; normalized_description: string | null; bank_reference: string | null; fingerprint: string }>,
@@ -439,7 +468,9 @@ async function classifyDuplicates(
   }));
 
   const existing = await fetchExistingCandidates(sb as any, user_id, input);
-  const verdicts = classifyBatch(input, existing);
+  const merchantResolver = await buildMerchantResolver(sb, user_id);
+  const verdicts = classifyBatch(input, existing, { merchantResolver });
+
 
   verdicts.forEach((verdict, i) => {
     if (verdict.status === "new" || !verdict.duplicate_of) return;
@@ -1098,14 +1129,20 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }
 
       const remaining = MAX_ITEMS_PER_DOCUMENT - counters.total_items;
+      // Extrato bancário: DUAS linhas idênticas (mesma data/valor/descrição) são
+      // duas cobranças reais. Colapsar por assinatura local apaga cobrança real
+      // (foi o bug do Autopass 5,40). Idempotência aqui é documento+ordinal.
+      const collapseIdenticalLines = documentKind !== "statement";
       const freshItems = extraction.items
         .filter((item) => {
+          if (!collapseIdenticalLines) return true;
           const sig = itemSignature(item);
           if (seenSignatures.has(sig)) return false;
           seenSignatures.add(sig);
           return true;
         })
         .slice(0, Math.min(BATCH_ITEMS_LIMIT, remaining));
+
 
       if (freshItems.length > 0) {
         const enriched = await enrichItems(sb, userId, freshItems, {
@@ -1185,6 +1222,11 @@ async function processDocument(documentId: string, userId: string, guidance: str
             normalized_description: it.normalized_description,
             bank_reference: it.bank_reference,
             dedupe_fingerprint: fingerprintWithOrdinal,
+            // Identidade da linha do extrato: documento + ordinal. Gêmeos legítimos
+            // convivem; reupload é idempotente pelo mesmo par.
+            source_line_index: globalIdx,
+            line_fingerprint: `${documentId}:${globalIdx}:${Number(it.amount).toFixed(2)}`,
+
             payment_method: it.account_id ? "account" : it.credit_card_id ? "credit_card" : it.payment_method,
             account_hint: it.account_hint,
             card_hint: it.card_hint,
@@ -1358,6 +1400,18 @@ async function processDocument(documentId: string, userId: string, guidance: str
       dates: (persistedDates ?? []).map((r: { occurred_at: string | null }) => r.occurred_at),
     });
     const bankDoc = allowsBankBalance(documentKind);
+    // `bank_cash_truth.v1`: separar "saldo do dia" (autoridade na data) de
+    // "saldo atual do cabeçalho" (autoridade no fim do período). Sem isso a
+    // conciliação corta movimentos que compõem o próprio saldo.
+    const balanceSemantics = bankDoc
+      ? deriveStatementBalanceSemantics({
+          closing_balance: statement?.closing_balance ?? null,
+          balance_date: statement?.balance_date ?? null,
+          period_start: period.start,
+          period_end: period.end,
+          item_dates: (persistedDates ?? []).map((r: { occurred_at: string | null }) => r.occurred_at),
+        })
+      : null;
 
     await finish({
       status: finalStatus,
@@ -1370,6 +1424,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
       statement_opening_balance: bankDoc ? (statement?.opening_balance ?? null) : null,
       statement_closing_balance: bankDoc ? (statement?.closing_balance ?? null) : null,
       statement_balance_date: bankDoc ? (statement?.balance_date ?? null) : null,
+      balance_source: balanceSemantics?.balance_source ?? null,
+      balance_as_of: balanceSemantics?.balance_as_of ?? null,
+      balance_as_of_confidence: balanceSemantics?.balance_as_of_confidence ?? null,
+
       period_start: period.start,
       period_end: period.end,
       statement_period_start: period.start,

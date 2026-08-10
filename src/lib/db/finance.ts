@@ -72,7 +72,7 @@ export function useAccountBalanceSnapshots() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("account_balance_snapshots" as never)
-        .select("account_id,balance_date,balance,status")
+        .select("account_id,balance_date,balance,status,anchor_kind,source_document_id,reconciliation_delta")
         .eq("status", "confirmed")
         .order("balance_date", { ascending: true });
       if (error) throw error;

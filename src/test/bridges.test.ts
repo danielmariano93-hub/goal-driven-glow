@@ -155,7 +155,7 @@ describe("computeCashBridge — a equação fecha", () => {
 
   it("usa a data bancária (posted_at) para o windowing de caixa", () => {
     const straddling = [
-      tx({ id: "7", account_id: "a", type: "expense", amount: 200, occurred_at: "2026-07-31", posted_at: "2026-08-01" }),
+      tx({ id: "7", account_id: "a", type: "expense", amount: 200, occurred_at: "2026-07-31", posted_at: "2026-08-01", posted_at_source: "statement" }),
     ];
     const b = computeCashBridge({ accounts: [acc("a", 1000)], txs: straddling, period: PERIOD });
     expect(b.operationalAccountExpense).toBe(200);
@@ -167,7 +167,7 @@ describe("computeCashBridge — a equação fecha", () => {
     const b = computeCashBridge({
       accounts,
       txs,
-      snapshots: [{ account_id: "a", balance_date: "2026-08-15", balance: 900, status: "confirmed" }],
+      snapshots: [{ account_id: "a", balance_date: "2026-08-15", balance: 900, status: "confirmed", anchor_kind: "bank_confirmed" }],
       period: PERIOD,
     });
     expect(b.evidence.snapshotAnchorsInPeriod).toBe(1);
