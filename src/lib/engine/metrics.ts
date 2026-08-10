@@ -2,6 +2,9 @@
 // e adiciona metas de categoria. Consumido por `useFinancialSnapshot` e por
 // componentes da Home. Não faz I/O — só cálculo determinístico.
 import {
+  behavioralMetricAmount,
+  buildRefundAttribution,
+  effectiveCategoryId,
   computeAvailableUntil,
   computeBehavioralExpense,
   computeNetWorth,
@@ -515,18 +518,27 @@ export function evaluateCategoryGoal(
       ? 0
       : Math.max(0, totalDays - elapsedDays);
 
-  // Soma real de despesas comportamentais da categoria no período
+  // Soma real de despesas comportamentais da categoria no período, já líquida
+  // dos estornos vinculados à despesa original (finance_contract.v9).
   let actualSpend = 0;
   let includedTransactionCount = 0;
+  const goalAttribution = buildRefundAttribution(txs);
   for (const t of txs) {
-    if (t.category_id !== goal.category_id) continue;
+    if (effectiveCategoryId(t, goalAttribution) !== goal.category_id) continue;
+    if (t.occurred_at < period.start || t.occurred_at > period.end) continue;
+    const refundCredit = behavioralMetricAmount(t, "expense");
+    if (String(t.movement_kind ?? "") === "refund") {
+      if (refundCredit === 0) continue;
+      actualSpend += refundCredit; // negativo: abate a categoria original
+      continue;
+    }
     if (t.type !== "expense") continue;
     if (!isRealMonthlyMovement(t)) continue;
-    if (t.occurred_at < period.start || t.occurred_at > period.end) continue;
     actualSpend += Number(t.amount || 0);
     includedTransactionCount += 1;
   }
   actualSpend = round2(Math.max(0, actualSpend));
+
 
   const limit = round2(Number(goal.computed_limit || 0));
   const baselineAmount = round2(Number(goal.baseline_value ?? 0));

@@ -116,7 +116,23 @@ Deno.serve(async (req) => {
     const document_id = String(body.document_id ?? "");
     const item_ids = Array.isArray(body.item_ids) ? (body.item_ids as string[]) : [];
     if (!document_id || item_ids.length === 0) return fail("missing_fields", { status: 400, functionName: FN });
-    const idempotencyKey = String(body.idempotency_key ?? `invoice:${document_id}:${[...item_ids].sort().join(",")}`);
+
+    // Extrato bancário e fatura têm contratos diferentes. Extrato precisa de
+    // conta resolvida ANTES de gravar: sem isso o item vira despesa órfã e o
+    // saldo bancário nunca fecha (causa raiz da divergência de caixa).
+    const { data: docRow } = await sb.from("document_imports")
+      .select("id, document_kind, source_account_id, statement_closing_balance, statement_balance_date")
+      .eq("id", document_id).eq("user_id", user.id).maybeSingle();
+    if (!docRow) return fail("not_found", { status: 404, functionName: FN });
+    const isStatement = String(docRow.document_kind ?? "") === "statement";
+    if (isStatement && !docRow.source_account_id) {
+      return fail("needs_account_selection", {
+        status: 409, functionName: FN, details: { document_id },
+        message: "Antes de salvar, escolha a conta bancária deste extrato. Nada foi gravado.",
+      });
+    }
+
+    const idempotencyKey = String(body.idempotency_key ?? `${isStatement ? "statement" : "invoice"}:${document_id}:${[...item_ids].sort().join(",")}`);
     const { data, error } = await userClient.rpc("confirm_invoice_import_atomic", {
       p_document_id: document_id,
       p_item_ids: item_ids,
@@ -134,8 +150,43 @@ Deno.serve(async (req) => {
         : "Nada foi gravado. Suas edições continuam salvas e você pode tentar novamente.";
       return fail("atomic_confirmation_failed", { status: 422, functionName: FN, details: { reason: error.message, result: diagnostic }, message: userMessage });
     }
-    return json({ ok: true, result: data });
+
+    // Guarda anti-perda-silenciosa: item confirmado sem transação no ledger é
+    // bug contábil. Detectamos aqui e devolvemos para revisão em vez de mentir.
+    const { data: orphans } = await sb.from("extracted_items")
+      .select("id, description, amount, occurred_at")
+      .eq("document_id", document_id).eq("user_id", user.id)
+      .eq("status", "confirmed").is("transaction_id", null);
+    if (orphans && orphans.length > 0) {
+      await sb.from("extracted_items").update({ status: "needs_review" })
+        .in("id", orphans.map((o) => String(o.id)));
+    }
+
+    // Estorno vira crédito da categoria original (refund_link.v1). Sem vínculo,
+    // Transporte segue inflado e o abatimento cai numa categoria genérica.
+    const { data: refundLink } = await userClient.rpc("link_document_refunds", {
+      p_document_id: document_id,
+    });
+
+    let reconciliation: unknown = null;
+    if (isStatement) {
+      const { data: rec, error: recErr } = await userClient.rpc("reconcile_account_statement", {
+        p_document_id: document_id,
+        p_account_id: docRow.source_account_id,
+      });
+      reconciliation = recErr ? { ok: false, error: recErr.message } : rec;
+    }
+
+    return json({
+      ok: true,
+      result: data,
+      reconciliation,
+      refund_link: refundLink ?? null,
+      recovered_orphans: orphans?.length ?? 0,
+    });
+
   }
+
 
   if (action === "update-document") {
     const document_id = String(body.document_id ?? "");

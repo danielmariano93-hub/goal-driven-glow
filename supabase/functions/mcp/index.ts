@@ -170,13 +170,30 @@ function computeBehavioralExpense(txs, range) {
   }
   return round2(expense);
 }
+function buildRefundAttribution(txs) {
+  const categoryById = /* @__PURE__ */ new Map();
+  for (const t of txs) categoryById.set(t.id, t.category_id ?? null);
+  const attribution = /* @__PURE__ */ new Map();
+  for (const t of txs) {
+    const original = t.refund_of_transaction_id;
+    if (!original) continue;
+    if (!categoryById.has(original)) continue;
+    attribution.set(t.id, categoryById.get(original) ?? null);
+  }
+  return attribution;
+}
+function effectiveCategoryId(t, attribution) {
+  if (attribution?.has(t.id)) return attribution.get(t.id) ?? null;
+  return t.category_id ?? null;
+}
 function computeCategoryBreakdown(txs, categories, ym, type = "expense") {
   const byCat = {};
+  const attribution = buildRefundAttribution(txs);
   for (const t of txs) {
     if (!isInMonth(t.occurred_at, ym)) continue;
     const signed = behavioralMetricAmount(t, type);
     if (signed === 0) continue;
-    const key = t.category_id ?? "__none__";
+    const key = effectiveCategoryId(t, attribution) ?? "__none__";
     byCat[key] = (byCat[key] || 0) + signed;
   }
   const catName = (id) => id === "__none__" ? "Sem categoria" : categories.find((c) => c.id === id)?.name ?? "Categoria removida";

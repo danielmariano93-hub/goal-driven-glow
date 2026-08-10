@@ -877,7 +877,10 @@ function TxModal({
   const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
   const [occurredAt, setOccurredAt] = useState(initial?.occurred_at ?? todayISO());
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [status, setStatus] = useState<"confirmed" | "planned">(initial?.status ?? "confirmed");
+  // "superseded" existe no banco (correção auditável), mas nunca é editável aqui.
+  const [status, setStatus] = useState<"confirmed" | "planned">(
+    initial?.status === "planned" ? "planned" : "confirmed",
+  );
   const [installmentsTotal, setInstallmentsTotal] = useState(Number(initial?.installments_total ?? 1));
   const [installmentNumber, setInstallmentNumber] = useState(Number(initial?.installment_number ?? 1));
   const [error, setError] = useState<string | null>(null);

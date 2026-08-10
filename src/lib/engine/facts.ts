@@ -45,6 +45,8 @@ export interface TransactionRow {
   movement_kind?: string | null;
   /** Ativo explicitamente escolhido para aplicações/resgates. */
   investment_id?: string | null;
+  /** Estorno: despesa original que este crédito devolve (total ou parcial). */
+  refund_of_transaction_id?: string | null;
 }
 
 /**
@@ -458,6 +460,38 @@ export function computeAccountStatementTotals(
  * (`behavioralMetricAmount`): estorno abate, transferência/investimento/fatura
  * ficam fora. Nunca somar `amount` cru aqui.
  */
+/**
+ * Atribuição canônica de categoria para estornos (`finance_contract.v9`).
+ *
+ * Um estorno pertence economicamente à categoria da despesa que ele devolve.
+ * Sem isso, "Estorno Uber" abate uma categoria genérica e Transporte segue
+ * inflado — o total do mês fecha, mas a leitura por categoria mente.
+ */
+export function buildRefundAttribution(
+  txs: Pick<TransactionRow, "id" | "category_id" | "refund_of_transaction_id" | "movement_kind">[],
+): Map<string, string | null> {
+  const categoryById = new Map<string, string | null>();
+  for (const t of txs) categoryById.set(t.id, t.category_id ?? null);
+
+  const attribution = new Map<string, string | null>();
+  for (const t of txs) {
+    const original = t.refund_of_transaction_id;
+    if (!original) continue;
+    if (!categoryById.has(original)) continue;
+    attribution.set(t.id, categoryById.get(original) ?? null);
+  }
+  return attribution;
+}
+
+/** Categoria efetiva de uma linha: a do estorno cede lugar à da despesa original. */
+export function effectiveCategoryId(
+  t: Pick<TransactionRow, "id" | "category_id">,
+  attribution?: Map<string, string | null>,
+): string | null {
+  if (attribution?.has(t.id)) return attribution.get(t.id) ?? null;
+  return t.category_id ?? null;
+}
+
 export function computeCategoryBreakdown(
   txs: TransactionRow[],
   categories: CategoryRow[],
@@ -465,13 +499,15 @@ export function computeCategoryBreakdown(
   type: "income" | "expense" = "expense"
 ) {
   const byCat: Record<string, number> = {};
+  const attribution = buildRefundAttribution(txs);
   for (const t of txs) {
     if (!isInMonth(t.occurred_at, ym)) continue;
     const signed = behavioralMetricAmount(t, type);
     if (signed === 0) continue;
-    const key = t.category_id ?? "__none__";
+    const key = effectiveCategoryId(t, attribution) ?? "__none__";
     byCat[key] = (byCat[key] || 0) + signed;
   }
+
   const catName = (id: string) =>
     id === "__none__" ? "Sem categoria" : categories.find((c) => c.id === id)?.name ?? "Categoria removida";
   const total = round2(Object.values(byCat).reduce((a, b) => a + b, 0));
