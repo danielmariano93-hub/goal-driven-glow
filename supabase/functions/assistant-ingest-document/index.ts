@@ -1296,7 +1296,45 @@ async function processDocument(documentId: string, userId: string, guidance: str
           });
         }
 
+        // Reupload do MESMO arquivo (`bank_cash_truth.v1`): a identidade estável da
+        // linha (sha do arquivo + ordinal + valor) reencontra o item já materializado
+        // em outro document_id. Nesse caso o item novo entra JÁ resolvido, apontando
+        // para a transação existente — reimportar não cria nenhuma movimentação.
+        if (validRows.length > 0) {
+          const fps = validRows
+            .map((r) => String((r as Record<string, unknown>).line_fingerprint ?? ""))
+            .filter((fp) => fp.length > 0);
+          if (fps.length > 0) {
+            const { data: priorItems } = await sb
+              .from("extracted_items")
+              .select("line_fingerprint, transaction_id")
+              .eq("user_id", userId)
+              .neq("document_id", documentId)
+              .not("transaction_id", "is", null)
+              .in("line_fingerprint", fps);
+            const priorByFp = new Map<string, string>();
+            for (const p of (priorItems ?? []) as Array<Record<string, unknown>>) {
+              const fp = String(p.line_fingerprint ?? "");
+              const txId = p.transaction_id ? String(p.transaction_id) : "";
+              if (fp && txId && !priorByFp.has(fp)) priorByFp.set(fp, txId);
+            }
+            for (const r of validRows) {
+              const row = r as Record<string, unknown>;
+              const txId = priorByFp.get(String(row.line_fingerprint ?? ""));
+              if (!txId) continue;
+              row.status = "ignored";
+              row.transaction_id = txId;
+              row.attached_transaction_id = txId;
+              row.duplicate_of = txId;
+              row.duplicate_resolution = "link_to_existing";
+              row.duplicate_reason = "strong:reupload_same_file_line";
+              row.duplicate_resolved_at = new Date().toISOString();
+            }
+          }
+        }
+
         let persisted = 0;
+
         let insertErrorTag: string | null = null;
         if (validRows.length > 0) {
           const { error: itemsErr } = await sb.from("extracted_items").insert(validRows);
