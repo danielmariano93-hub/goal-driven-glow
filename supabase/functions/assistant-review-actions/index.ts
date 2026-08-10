@@ -14,6 +14,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
+import { storageMerchantKey } from "../_shared/categorization/normalize.ts";
 
 const FN = "assistant-review-actions";
 
@@ -42,7 +43,7 @@ async function getUser(req: Request) {
 }
 
 function aliasKey(raw: string): string {
-  return raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+  return storageMerchantKey(raw);
 }
 
 Deno.serve(async (req) => {

@@ -1,0 +1,46 @@
+import { storageMerchantKey } from "./normalize.ts";
+
+export type CuratedMerchant = {
+  canonical_name: string;
+  semantic_category: string;
+  patterns: RegExp[];
+};
+
+// High-precision, cross-user knowledge only. Ambiguous merchants stay out.
+export const CURATED_MERCHANTS: CuratedMerchant[] = [
+  { canonical_name: "Autopass", semantic_category: "Transporte", patterns: [/\bautopass\b/i, /\bautop\b/i] },
+  { canonical_name: "Uber Eats", semantic_category: "Alimentação", patterns: [/\buber[\s*._-]*eats\b/i] },
+  { canonical_name: "Uber", semantic_category: "Transporte", patterns: [/\buber(?![\s*._-]*eats)\b/i] },
+  { canonical_name: "99", semantic_category: "Transporte", patterns: [/\b99\s*(?:app|pop|taxi)\b/i] },
+  { canonical_name: "iFood", semantic_category: "Alimentação", patterns: [/\bifood\b/i, /\bi[- ]?food\b/i, /\bpay\s*ifd\b/i] },
+  { canonical_name: "Rappi", semantic_category: "Alimentação", patterns: [/\brappi\b/i] },
+  { canonical_name: "Drogasil", semantic_category: "Saúde", patterns: [/\bdrogasil\b/i] },
+  { canonical_name: "Droga Raia", semantic_category: "Saúde", patterns: [/\bdroga\s*raia\b/i, /\braia\b/i] },
+  { canonical_name: "Carrefour", semantic_category: "Mercado", patterns: [/\bcarrefour\b/i] },
+  { canonical_name: "Assaí", semantic_category: "Mercado", patterns: [/\bassa[ií]\b/i] },
+  { canonical_name: "Pão de Açúcar", semantic_category: "Mercado", patterns: [/\bp[aã]o\s*de\s*a[cç][uú]car\b/i] },
+  { canonical_name: "Market4You", semantic_category: "Mercado", patterns: [/\bmarket\s*4\s*you\b/i, /\bmarket4you\b/i, /\bpay\s*souk4\b/i, /\bsouk4u\b/i] },
+  { canonical_name: "Netflix", semantic_category: "Assinaturas", patterns: [/\bnetflix\b/i, /\bnetfl\b/i] },
+  { canonical_name: "Spotify", semantic_category: "Assinaturas", patterns: [/\bspotify\b/i] },
+  { canonical_name: "Amazon Prime", semantic_category: "Assinaturas", patterns: [/\bamazon\s*prime\b/i] },
+  { canonical_name: "Petz", semantic_category: "Pets", patterns: [/\bpetz\b/i] },
+  { canonical_name: "Cobasi", semantic_category: "Pets", patterns: [/\bcobasi\b/i] },
+  { canonical_name: "Enel", semantic_category: "Moradia", patterns: [/\benel\b/i] },
+  { canonical_name: "Sympla", semantic_category: "Lazer", patterns: [/\bsympla\b/i] },
+  { canonical_name: "Shotgun", semantic_category: "Lazer", patterns: [/\bshotgun\b/i] },
+  { canonical_name: "TotalPass", semantic_category: "Saúde", patterns: [/\btotal\s*pass\b/i] },
+];
+
+export function matchCuratedMerchant(raw: string | null | undefined): CuratedMerchant | null {
+  const text = String(raw ?? "");
+  if (!text.trim()) return null;
+  return CURATED_MERCHANTS.find((m) => m.patterns.some((p) => p.test(text))) ?? null;
+}
+
+export function curatedStorageKeys(): Array<{ merchant_key: string; canonical_name: string; semantic_category: string }> {
+  return CURATED_MERCHANTS.map((m) => ({
+    merchant_key: storageMerchantKey(m.canonical_name),
+    canonical_name: m.canonical_name,
+    semantic_category: m.semantic_category,
+  }));
+}

@@ -471,6 +471,22 @@ function normalizeDesc(s?: string | null): string {
   return String(s ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 }
 
+function normalizeExplicitCategoryText(s?: string | null): string {
+  return normalizeDesc(s).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isExplicitCategoryMention(userText?: string | null, category?: string | null): boolean {
+  const text = normalizeExplicitCategoryText(userText);
+  const cat = normalizeExplicitCategoryText(category);
+  if (!text || !cat) return false;
+  const cues = [
+    `categoria ${cat}`, `categoria de ${cat}`, `categoriza em ${cat}`, `categorize em ${cat}`,
+    `classifica como ${cat}`, `classifique como ${cat}`, `coloca em ${cat}`, `coloque em ${cat}`,
+    `lanca em ${cat}`, `registre em ${cat}`, `registra em ${cat}`,
+  ];
+  return cues.some((cue) => text.includes(cue));
+}
+
 export async function create_transaction_draft(ctx: ToolContext, args: {
   type: "income"|"expense"; amount: number; account?: string;
   credit_card?: string; installments_total?: number;
@@ -485,7 +501,10 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
     return { ok: false, error: "needs_description", hint: "A descrição não pode ser apenas o meio de pagamento (crédito, débito, pix, cartão…). Pergunte ao usuário 'em quê foi essa compra?' antes de criar o rascunho." } as any;
   }
   const occurred_at = resolveOccurredAt({ text: ctx.user_text, modelValue: args.occurred_at ?? null }).iso;
-  const cat = await resolveCategoryId(ctx, args.category, args.type);
+  // Category Truth V2: only a category literally requested by the user may enter the draft as user truth.
+  // Any model-inferred category stays null and is resolved by the central queue after confirmation.
+  const explicitCategoryHint = isExplicitCategoryMention(ctx.user_text, args.category) ? args.category : undefined;
+  const cat = await resolveCategoryId(ctx, explicitCategoryHint, args.type);
 
   if (args.credit_card && args.type === "expense") {
     const card = await resolveCreditCardId(ctx, args.credit_card);
@@ -495,6 +514,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
       type: args.type, amount, occurred_at,
       description: args.description ?? null,
       category_id: cat,
+      category_explicit: Boolean(cat && explicitCategoryHint),
       payment_method: "credit_card",
       credit_card_id: card.id,
       installments_total: n,
@@ -508,7 +528,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
 
   const acc = await resolveAccountId(ctx, args.account);
   if (!acc) return { ok: false, error: "account_not_found" };
-  const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, occurred_at, description: args.description ?? null, payment_method: "account" };
+  const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, category_explicit: Boolean(cat && explicitCategoryHint), occurred_at, description: args.description ?? null, payment_method: "account" };
   const summary = `${args.type === "income" ? "Receita" : "Despesa"} de ${BRL.format(amount)} em ${acc.name}${args.description ? ` — ${args.description}` : ""} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transaction", payload, summary);
   if (!id) return { ok: false, error: "draft_failed" };

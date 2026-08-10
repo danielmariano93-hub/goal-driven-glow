@@ -45,3 +45,6 @@ verify_jwt = false
 
 [functions.nino-intelligence-tick]
 verify_jwt = false
+
+[functions.category-engine]
+verify_jwt = false

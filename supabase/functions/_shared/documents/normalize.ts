@@ -1,3 +1,4 @@
+import { storageMerchantKey } from "../categorization/normalize.ts";
 // Normalização amigável de descrições bancárias e fingerprint de dedupe.
 // Uso: raw = texto original do banco; friendly = descrição apresentada ao usuário.
 // Também emite `movement_kind` quando a assinatura da descrição é inequívoca
@@ -75,7 +76,7 @@ const NOISE_PATTERNS: RegExp[] = [
 
 /** Chave canônica para busca em merchant_aliases (mesma normalização do RPC). */
 export function aliasKeyFrom(raw: string): string {
-  return raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+  return storageMerchantKey(raw);
 }
 
 

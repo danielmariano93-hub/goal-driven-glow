@@ -1,5 +1,4 @@
 // Lookup helper for the single pending confirmation per (conversation,user).
-// Extracted from orchestrator.ts (subetapa 12.2). Behavior unchanged.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -15,11 +14,13 @@ export type PendingRow = {
 };
 
 /** Canonical executor selection used by text confirmation, app buttons and
- * tool-driven confirmation. Shared expenses have a dedicated atomic RPC. */
+ * tool-driven confirmation. Category Truth V2 routes transaction drafts to a
+ * dedicated RPC that preserves explicit-category provenance instead of relying
+ * on the legacy origin=manual heuristic. */
 export function confirmationExecutor(kind: string): string {
-  return kind === "shared_expense"
-    ? "agent_execute_shared_expense_confirmation"
-    : "agent_execute_confirmation";
+  if (kind === "shared_expense") return "agent_execute_shared_expense_confirmation";
+  if (kind === "transaction") return "agent_execute_transaction_confirmation_v2";
+  return "agent_execute_confirmation";
 }
 
 export async function findPending(

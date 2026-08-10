@@ -1,140 +1,59 @@
-import {
-  decideCategoryDeterministic,
-  loadEffectiveThresholds,
-  shouldAutoApply,
-  type AliasRow,
-  type CategoryCandidate,
-  type CategoryDecision,
-  type HistoryRow,
-} from "./pipeline.ts";
-import { normalizedPattern } from "./normalize.ts";
+import { decideCategoryDeterministic, loadEffectiveThresholds, shouldAutoApply, type AliasRow, type CategoryCandidate, type CategoryDecision, type GlobalKnowledgeRow, type HistoryRow, type PersonalPreferenceRow, type ThresholdOverrides } from "./pipeline.ts";
+import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
 
-export const CATEGORY_ENGINE_VERSION = "categorization_contract.v1";
-
+export const CATEGORY_ENGINE_VERSION = "categorization_truth.v2";
 export type ClassificationAction = "auto_apply" | "suggest_review" | "leave_unresolved" | "exclude";
-export type ClassificationInput = {
-  transaction_id?: string | null;
-  type: "income" | "expense" | "transfer";
-  description?: string | null;
-  explicit_category?: string | null;
-  movement_kind?: string | null;
-  transfer_group_id?: string | null;
-  settles_card_id?: string | null;
+export type ClassificationInput = { transaction_id?:string|null; type:"income"|"expense"|"transfer"; description?:string|null; explicit_category?:string|null; movement_kind?:string|null; transfer_group_id?:string|null; settles_card_id?:string|null; shared_expense_id?:string|null };
+export type ClassificationResult = CategoryDecision & { action:ClassificationAction; reason_code:string; engine_version:string; alternatives:Array<{category_id:string;confidence:number}> };
+export type CategorizationContext = {
+  candidates: CategoryCandidate[]; aliases: AliasRow[]; history: HistoryRow[];
+  preferences?: PersonalPreferenceRow[]; globalKnowledge?: GlobalKnowledgeRow[];
+  thresholds: ThresholdOverrides;
 };
 
-export type ClassificationResult = CategoryDecision & {
-  action: ClassificationAction;
-  reason_code: string;
-  engine_version: string;
-  alternatives: Array<{ category_id: string; confidence: number }>;
-};
-
-export function isCategorizationEligible(input: ClassificationInput): boolean {
-  return (input.type === "income" || input.type === "expense")
-    && (input.movement_kind ?? "transaction") === "transaction"
-    && !input.transfer_group_id
-    && !input.settles_card_id;
+export function isCategorizationEligible(input:ClassificationInput):boolean{return (input.type==="income"||input.type==="expense")&&(input.movement_kind??"transaction")==="transaction"&&!input.transfer_group_id&&!input.settles_card_id&&!input.shared_expense_id;}
+function resultFromDecision(decision:CategoryDecision|null,auto:boolean):ClassificationResult{
+  if(!decision?.category_id)return{category_id:null,category_source:"none",category_confidence:0,category_reason:"evidência insuficiente",action:"leave_unresolved",reason_code:"insufficient_evidence",engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
+  return{...decision,action:auto?"auto_apply":"suggest_review",reason_code:`${decision.category_source}_match`,engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
 }
-
-function resultFromDecision(decision: CategoryDecision | null, auto: boolean): ClassificationResult {
-  if (!decision?.category_id) {
-    return {
-      category_id: null,
-      category_source: "none",
-      category_confidence: 0,
-      category_reason: "evidência insuficiente",
-      action: "leave_unresolved",
-      reason_code: "insufficient_evidence",
-      engine_version: CATEGORY_ENGINE_VERSION,
-      alternatives: [],
-    };
-  }
-  return {
-    ...decision,
-    action: auto ? "auto_apply" : "suggest_review",
-    reason_code: `${decision.category_source}_match`,
-    engine_version: CATEGORY_ENGINE_VERSION,
-    alternatives: [],
-  };
-}
-
 // deno-lint-ignore no-explicit-any
-export async function loadCategorizationContext(sb: any, userId: string, type: "income" | "expense") {
-  const [{ data: categories }, { data: aliases }, { data: history }, thresholds] = await Promise.all([
-    sb.from("categories").select("id,name,type,user_id").is("archived_at", null)
-      .or(`user_id.eq.${userId},user_id.is.null`),
-    sb.from("merchant_aliases").select("alias_key,category_id,confidence").eq("user_id", userId),
-    sb.from("transactions").select("description,raw_description,friendly_description,category_id")
-      .eq("user_id", userId).eq("type", type).not("category_id", "is", null).limit(3000),
+export async function loadCategorizationContext(sb:any,userId:string,type:"income"|"expense",merchantKeys:string[]=[]){
+  const keys=[...new Set(merchantKeys.map(normalizedPattern).filter(Boolean))].slice(0,200);
+  let prefsQuery=sb.from("user_merchant_preferences").select("merchant_key,category_id,evidence_count").eq("user_id",userId).eq("transaction_type",type);
+  let globalQuery=sb.from("merchant_global_knowledge").select("merchant_key,canonical_name,semantic_category_slug,confidence,source,status,patterns").eq("transaction_type",type).eq("source","consensus").eq("status","verified");
+  if(keys.length){prefsQuery=prefsQuery.in("merchant_key",keys);globalQuery=globalQuery.in("merchant_key",keys);}
+  const [catsRes,aliasesRes,prefsRes,globalRes,thresholds]=await Promise.all([
+    sb.from("categories").select("id,name,slug,type,user_id").is("archived_at",null).eq("type",type).or(`user_id.eq.${userId},user_id.is.null`),
+    sb.from("merchant_aliases").select("alias_key,normalized_pattern,category_id,confidence,confirmed_by_user_at,learned_from").eq("user_id",userId),
+    prefsQuery,
+    globalQuery,
     loadEffectiveThresholds(sb),
   ]);
-  const candidates: CategoryCandidate[] = (categories ?? [])
-    .filter((row: { type: string }) => row.type === type || row.type === "both")
-    .map((row: { id: string; name: string }) => ({ id: row.id, name: row.name }));
-  const aliasRows: AliasRow[] = (aliases ?? []).map((row: { alias_key: string; category_id: string | null; confidence: number }) => ({
-    pattern: row.alias_key,
-    category_id: row.category_id,
-    confidence: Number(row.confidence ?? 0.9),
-  }));
-  const counts = new Map<string, HistoryRow>();
-  for (const row of history ?? []) {
-    const pattern = normalizedPattern(row.friendly_description ?? row.raw_description ?? row.description ?? "");
-    if (!pattern || !row.category_id) continue;
-    const key = `${pattern}|${row.category_id}`;
-    const current = counts.get(key);
-    counts.set(key, { pattern, category_id: row.category_id, count: (current?.count ?? 0) + 1 });
-  }
-  return { candidates, aliases: aliasRows, history: [...counts.values()], thresholds };
+  for(const r of [catsRes,aliasesRes,prefsRes,globalRes]) if(r?.error) throw new Error(`categorization_context_failed:${r.error.message}`);
+  const candidates:CategoryCandidate[]=(catsRes.data??[]).map((r:any)=>({id:r.id,name:r.name,slug:r.slug,user_id:r.user_id})).sort((a:any,b:any)=>Number(b.user_id===userId)-Number(a.user_id===userId));
+  const candidateIds=new Set(candidates.map(c=>c.id));
+  const aliases:AliasRow[]=(aliasesRes.data??[]).filter((r:any)=>r.category_id&&candidateIds.has(r.category_id)&&(r.confirmed_by_user_at||r.learned_from==="manual"||r.learned_from==="confirmation")).map((r:any)=>({pattern:normalizedPattern(r.normalized_pattern??r.alias_key),category_id:r.category_id,confidence:Number(r.confidence??0.98)}));
+  // V2 never scans raw transaction history on the hot path. Personal truth is
+  // materialized in user_merchant_preferences by explicit corrections/backfill.
+  // This removes legacy/import/model poisoning and makes classification cost
+  // independent of the user's lifetime transaction count.
+  const history:HistoryRow[]=[];
+  const preferences:PersonalPreferenceRow[]=(prefsRes.data??[]).filter((r:any)=>candidateIds.has(r.category_id)).map((r:any)=>({merchant_key:normalizedPattern(r.merchant_key),category_id:r.category_id,evidence_count:Number(r.evidence_count??1)}));
+  const globalKnowledge:GlobalKnowledgeRow[]=(globalRes.data??[]).map((r:any)=>({...r,merchant_key:normalizedPattern(r.merchant_key),confidence:Number(r.confidence??0.95),patterns:Array.isArray(r.patterns)?r.patterns.map(normalizedPattern):[]}));
+  return{candidates,aliases,history,preferences,globalKnowledge,thresholds};
 }
-
 // deno-lint-ignore no-explicit-any
-export async function classifyDeterministic(sb: any, userId: string, input: ClassificationInput): Promise<ClassificationResult> {
-  if (!isCategorizationEligible(input)) {
-    return {
-      category_id: null, category_source: "none", category_confidence: 0,
-      category_reason: "movimento contábil excluído da categorização de consumo",
-      action: "exclude", reason_code: "non_consumption_movement",
-      engine_version: CATEGORY_ENGINE_VERSION, alternatives: [],
-    };
-  }
-  const type = input.type as "income" | "expense";
-  const context = await loadCategorizationContext(sb, userId, type);
-  return classifyWithContext(input, context);
+export async function classifyDeterministic(sb:any,userId:string,input:ClassificationInput):Promise<ClassificationResult>{
+  if(!isCategorizationEligible(input))return{category_id:null,category_source:"none",category_confidence:0,category_reason:"movimento contábil excluído da categorização de consumo",action:"exclude",reason_code:"non_consumption_movement",engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
+  const context=await loadCategorizationContext(sb,userId,input.type as "income"|"expense",[storageMerchantKey(input.description)]); return classifyWithContext(input,context);
 }
-
-export function classifyWithContext(
-  input: ClassificationInput,
-  context: Awaited<ReturnType<typeof loadCategorizationContext>>,
-): ClassificationResult {
-  if (!isCategorizationEligible(input)) {
-    return {
-      category_id: null, category_source: "none", category_confidence: 0,
-      category_reason: "movimento contábil excluído da categorização de consumo",
-      action: "exclude", reason_code: "non_consumption_movement",
-      engine_version: CATEGORY_ENGINE_VERSION, alternatives: [],
-    };
-  }
-  const decision = decideCategoryDeterministic({
-    explicit: input.explicit_category,
-    description: input.description ?? "",
-    candidates: context.candidates,
-    aliases: context.aliases,
-    history: context.history,
-  });
-  return resultFromDecision(decision, shouldAutoApply(decision, context.thresholds));
+export function classifyWithContext(input:ClassificationInput,context:CategorizationContext):ClassificationResult{
+  if(!isCategorizationEligible(input))return{category_id:null,category_source:"none",category_confidence:0,category_reason:"movimento contábil excluído da categorização de consumo",action:"exclude",reason_code:"non_consumption_movement",engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
+  const decision=decideCategoryDeterministic({explicit:input.explicit_category,description:input.description??"",candidates:context.candidates,aliases:context.aliases,history:context.history,preferences:context.preferences??[],globalKnowledge:context.globalKnowledge??[]});
+  return resultFromDecision(decision,shouldAutoApply(decision,context.thresholds));
 }
-
-export function resultFromLlm(input: { category_id: string | null; confidence: number }, validIds: Set<string>): ClassificationResult | null {
-  const confidence = Math.max(0, Math.min(0.9, Number(input.confidence ?? 0)));
-  if (!input.category_id || !validIds.has(input.category_id) || confidence < 0.6) return null;
-  return {
-    category_id: input.category_id,
-    category_source: "llm",
-    category_confidence: confidence,
-    category_reason: "inferência semântica restrita às categorias disponíveis",
-    action: confidence >= 0.85 ? "auto_apply" : "suggest_review",
-    reason_code: "llm_match",
-    engine_version: CATEGORY_ENGINE_VERSION,
-    alternatives: [],
-  };
+/** LLM is semantic fallback only. It never auto-applies by itself in V2. */
+export function resultFromLlm(input:{category_id:string|null;confidence:number},validIds:Set<string>):ClassificationResult|null{
+  const confidence=Math.max(0,Math.min(0.9,Number(input.confidence??0))); if(!input.category_id||!validIds.has(input.category_id)||confidence<0.6)return null;
+  return{category_id:input.category_id,category_source:"llm",category_confidence:confidence,category_reason:"inferência semântica restrita às categorias do mesmo tipo",action:"suggest_review",reason_code:"llm_match",engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
 }

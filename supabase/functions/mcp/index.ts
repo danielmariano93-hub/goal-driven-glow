@@ -1072,14 +1072,14 @@ import { z as z3 } from "npm:zod@^3.25.76";
 var create_transaction_default = defineTool4({
   name: "create_transaction",
   title: "Registrar lan\xE7amento",
-  description: "Registra uma despesa ou receita confirmada na conta do usu\xE1rio autenticado. Informe conta e categoria por nome ou identificador; quando o usu\xE1rio tem apenas uma conta, ela \xE9 usada automaticamente.",
+  description: "Registra uma despesa ou receita confirmada na conta do usu\xE1rio autenticado. Informe conta por nome ou identificador. S\xF3 envie category quando o usu\xE1rio tiver indicado explicitamente uma categoria; esse valor ser\xE1 tratado como hint e revalidado pelo Category Truth V2.",
   inputSchema: {
     amount: z3.number().describe("Valor positivo do lan\xE7amento."),
     description: z3.string().describe("Descri\xE7\xE3o do lan\xE7amento."),
     type: z3.enum(["expense", "income"]).describe("Tipo do lan\xE7amento."),
     occurred_at: z3.string().optional().describe("Data em YYYY-MM-DD. Padr\xE3o: hoje."),
     account: z3.string().optional().describe("Nome ou identificador da conta."),
-    category: z3.string().optional().describe("Nome ou identificador da categoria.")
+    category: z3.string().optional().describe("Categoria explicitamente informada pelo usu\xE1rio; ser\xE1 revalidada pelo motor central.")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   handler: async ({ amount, description, type, occurred_at, account, category }, ctx) => {
@@ -1096,31 +1096,35 @@ var create_transaction_default = defineTool4({
     const needle = (account ?? "").trim().toLowerCase();
     const chosen = needle ? accounts.find((a) => a.id === account) ?? accounts.find((a) => String(a.name).toLowerCase() === needle) ?? accounts.find((a) => String(a.name).toLowerCase().includes(needle)) : accounts.length === 1 ? accounts[0] : void 0;
     if (!chosen) {
-      return errorResult(
-        `N\xE3o identifiquei a conta. Op\xE7\xF5es: ${accounts.map((a) => a.name).join(", ")}.`
-      );
+      return errorResult(`N\xE3o identifiquei a conta. Op\xE7\xF5es: ${accounts.map((a) => a.name).join(", ")}.`);
     }
     let categoryId = null;
     if (category) {
-      const { data: cats } = await supabase.from("categories").select("id, name, type").is("archived_at", null);
+      const { data: cats, error: catErr } = await supabase.from("categories").select("id, name, type").is("archived_at", null).eq("type", type);
+      if (catErr) return errorResult(catErr.message);
       const cn = category.trim().toLowerCase();
       const match = (cats ?? []).find((c) => c.id === category) ?? (cats ?? []).find((c) => String(c.name).toLowerCase() === cn) ?? (cats ?? []).find((c) => String(c.name).toLowerCase().includes(cn));
-      categoryId = match?.id ?? null;
+      if (!match) return errorResult(`A categoria \u201C${category}\u201D n\xE3o \xE9 v\xE1lida para ${type === "expense" ? "despesa" : "receita"}.`);
+      categoryId = match.id;
     }
     const { data, error } = await supabase.from("transactions").insert({
       user_id: userId,
       account_id: chosen.id,
       category_id: categoryId,
+      category_source: categoryId ? "document_hint" : null,
+      category_confidence: categoryId ? 0.6 : null,
+      category_reason: categoryId ? "categoria recebida pelo MCP; aguardando valida\xE7\xE3o do motor central" : null,
+      category_review_status: categoryId ? "needs_review" : void 0,
       type,
       status: "confirmed",
       amount,
       occurred_at: date,
       description: description.trim(),
       origin: "agent"
-    }).select("id, occurred_at, amount, type, description").single();
+    }).select("id, occurred_at, amount, type, description, category_id, category_review_status").single();
     if (error) return errorResult(error.message);
     return ok(
-      `Lan\xE7amento registrado: ${type === "income" ? "receita" : "despesa"} de ${brl(amount)} em ${date} \xB7 ${description} (conta ${chosen.name}).`,
+      `Lan\xE7amento registrado: ${type === "income" ? "receita" : "despesa"} de ${brl(amount)} em ${date} \xB7 ${description} (conta ${chosen.name}).${categoryId ? " A categoria ser\xE1 validada pelo Nino." : ""}`,
       { transaction: data }
     );
   }

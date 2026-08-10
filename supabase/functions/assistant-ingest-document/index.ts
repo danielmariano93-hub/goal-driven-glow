@@ -26,6 +26,7 @@ import { classifyBatch, fetchExistingCandidates } from "../_shared/import/dedupe
 
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { classifyWithContext, loadCategorizationContext } from "../_shared/categorization/engine.ts";
+import { storageMerchantKey } from "../_shared/categorization/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -475,7 +476,7 @@ async function enrichItems(
       bankRef: extractBankReference(rawDesc),
     };
   });
-  const uniqueRawKeys = [...new Set(normalized.map((n) => n.rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean))].slice(0, 200);
+  const uniqueRawKeys = [...new Set(normalized.map((n) => storageMerchantKey(n.rawDesc)).filter(Boolean))].slice(0, 200);
 
   // 2) Uma única leva de queries.
   const [{ data: accounts }, { data: cards }, aliasResp] = await Promise.all([
@@ -500,22 +501,24 @@ async function enrichItems(
     let categoryConfidence: number | null = null;
 
     // Aliases do usuário têm precedência máxima (aprendizado explícito).
-    const aliasKey = rawDesc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+    const aliasKey = storageMerchantKey(rawDesc);
     const aliasHit = aliasByKey.get(aliasKey);
     let aliasFriendly: string | null = null;
     if (aliasHit) {
       if (aliasHit.friendly_name) aliasFriendly = aliasHit.friendly_name;
-      if (aliasHit.category_id) { categoryId = aliasHit.category_id; categorySource = "alias"; categoryConfidence = 0.98; }
+      // Category Truth V2: friendly name may be reused here, but category trust is decided only by the central engine.
+      // Unconfirmed legacy/import aliases must never bypass central trust filtering.
     }
 
     if (!categoryId) {
       const central = classifyWithContext({
         type: item.type,
         description: friendly || rawDesc,
-        explicit_category: ruleCategory ?? item.category_hint ?? null,
+        // Machine hints are evidence, never an explicit user choice.
+        explicit_category: null,
         movement_kind: item.movement_kind ?? ruleMovementKind ?? "transaction",
       }, item.type === "income" ? incomeCategoryContext : expenseCategoryContext);
-      if (central.category_id && central.action !== "leave_unresolved") {
+      if (central.category_id && central.action === "auto_apply") {
         categoryId = central.category_id;
         categorySource = central.category_source;
         categoryConfidence = central.category_confidence;
