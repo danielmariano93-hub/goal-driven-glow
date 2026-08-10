@@ -6714,6 +6714,90 @@ export type Database = {
           },
         ]
       }
+      merchant_global_knowledge: {
+        Row: {
+          agreement: number | null
+          canonical_name: string
+          confidence: number
+          merchant_key: string
+          patterns: string[]
+          semantic_category_slug: string
+          source: string
+          status: string
+          transaction_type: string
+          unique_users: number
+          updated_at: string
+        }
+        Insert: {
+          agreement?: number | null
+          canonical_name: string
+          confidence: number
+          merchant_key: string
+          patterns?: string[]
+          semantic_category_slug: string
+          source: string
+          status: string
+          transaction_type: string
+          unique_users?: number
+          updated_at?: string
+        }
+        Update: {
+          agreement?: number | null
+          canonical_name?: string
+          confidence?: number
+          merchant_key?: string
+          patterns?: string[]
+          semantic_category_slug?: string
+          source?: string
+          status?: string
+          transaction_type?: string
+          unique_users?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      merchant_global_votes: {
+        Row: {
+          evidence_count: number
+          merchant_key: string
+          semantic_category_slug: string
+          transaction_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          evidence_count?: number
+          merchant_key: string
+          semantic_category_slug: string
+          transaction_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          evidence_count?: number
+          merchant_key?: string
+          semantic_category_slug?: string
+          transaction_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_global_votes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "merchant_global_votes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       message_delivery_events: {
         Row: {
           id: string
@@ -9962,6 +10046,61 @@ export type Database = {
         }
         Relationships: []
       }
+      user_merchant_preferences: {
+        Row: {
+          category_id: string
+          category_slug: string
+          confirmed_at: string
+          evidence_count: number
+          merchant_key: string
+          transaction_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category_id: string
+          category_slug: string
+          confirmed_at?: string
+          evidence_count?: number
+          merchant_key: string
+          transaction_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category_id?: string
+          category_slug?: string
+          confirmed_at?: string
+          evidence_count?: number
+          merchant_key?: string
+          transaction_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_merchant_preferences_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_merchant_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_merchant_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       user_profiles_snapshot: {
         Row: {
           behavior_tags: string[]
@@ -10924,6 +11063,10 @@ export type Database = {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
         Returns: Json
       }
+      agent_execute_transaction_confirmation_v2: {
+        Args: { p_confirmation_id: string; p_source_message_id?: string }
+        Returns: Json
+      }
       agent_prompt_create_draft: {
         Args: { p_from_id?: string }
         Returns: string
@@ -11033,6 +11176,7 @@ export type Database = {
         }[]
       }
       category_alias_key: { Args: { p_text: string }; Returns: string }
+      category_merchant_key: { Args: { p_text: string }; Returns: string }
       challenge_progress_add: {
         Args: {
           p_delta: number
@@ -11041,6 +11185,20 @@ export type Database = {
           p_source_type: string
         }
         Returns: undefined
+      }
+      claim_category_classification_batch: {
+        Args: { p_limit?: number; p_user_id?: string }
+        Returns: {
+          description: string
+          movement_kind: string
+          queue_id: string
+          settles_card_id: string
+          shared_expense_id: string
+          transaction_id: string
+          transfer_group_id: string
+          type: string
+          user_id: string
+        }[]
       }
       claim_outbound_batch: {
         Args: { p_limit?: number }
@@ -11731,6 +11889,7 @@ export type Database = {
         Args: { p_from: string; p_to: string; p_user_id: string }
         Returns: number
       }
+      refresh_merchant_global_consensus: { Args: never; Returns: number }
       refresh_product_aggregates_full: {
         Args: { _days?: number }
         Returns: undefined

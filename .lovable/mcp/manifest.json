@@ -100,7 +100,7 @@
       {
         "name": "create_transaction",
         "title": "Registrar lançamento",
-        "description": "Registra uma despesa ou receita confirmada na conta do usuário autenticado. Informe conta e categoria por nome ou identificador; quando o usuário tem apenas uma conta, ela é usada automaticamente.",
+        "description": "Registra uma despesa ou receita confirmada na conta do usuário autenticado. Informe conta por nome ou identificador. Só envie category quando o usuário tiver indicado explicitamente uma categoria; esse valor será tratado como hint e revalidado pelo Category Truth V2.",
         "annotations": {
           "readOnlyHint": false,
           "destructiveHint": false,
@@ -135,7 +135,7 @@
             },
             "category": {
               "type": "string",
-              "description": "Nome ou identificador da categoria."
+              "description": "Categoria explicitamente informada pelo usuário; será revalidada pelo motor central."
             }
           },
           "required": [
