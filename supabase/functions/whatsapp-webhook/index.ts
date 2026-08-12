@@ -28,7 +28,7 @@ import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
-import { getWahaAccess } from "../_shared/messaging/waha.ts";
+import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -579,6 +579,25 @@ Deno.serve(async (req) => {
   // may be killed mid-flight and the user gets silence). We ACK now, run the
   // agent in the background, and ALWAYS enqueue a reply — success or crash.
   const orchestrate = async () => {
+    // Percepção de latência: "digitando..." imediato, renovado enquanto o turno
+    // roda, e um aviso curto se a consulta passar de alguns segundos. Ambos são
+    // best-effort e nunca afetam a resposta.
+    let settled = false;
+    sendTypingPresence(evt.from_phone, "start").catch(() => {});
+    const typingTimer = setInterval(() => {
+      if (settled) return;
+      sendTypingPresence(evt.from_phone, "start").catch(() => {});
+    }, 8_000);
+    const noticeTimer = setTimeout(() => {
+      if (settled) return;
+      sendEphemeralText(evt.from_phone, "Só um instante — estou consultando seus dados 👀").catch(() => {});
+    }, 4_000);
+    const stopHints = () => {
+      settled = true;
+      clearInterval(typingTimer);
+      clearTimeout(noticeTimer);
+      sendTypingPresence(evt.from_phone, "stop").catch(() => {});
+    };
     try {
       await recordWhatsappPipelineEvent(sb, {
         stage: "agent_started", user_id: link.user_id as string,
@@ -588,6 +607,7 @@ Deno.serve(async (req) => {
         user_id: link.user_id, conversation_id: conversationId,
         inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
       });
+      stopHints();
       await recordWhatsappPipelineEvent(sb, {
         stage: "agent_completed", user_id: link.user_id as string,
         inbound_message_id, agent_run_id: orchestrated.run_id ?? null,
@@ -627,6 +647,7 @@ Deno.serve(async (req) => {
         .update({ processed_at: new Date().toISOString(), ignored_reason: "orchestrator_error" })
         .eq("id", inbound_message_id).then(() => {}, () => {});
     } finally {
+      stopHints();
       triggerDispatcher();
     }
   };

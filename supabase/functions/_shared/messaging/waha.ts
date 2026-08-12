@@ -269,6 +269,39 @@ function buildSessionConfig(webhookUrl: string) {
   };
 }
 
+/** Best-effort "digitando..." presence. Never throws: presence is cosmetic and
+ *  must never block or fail an agent turn. */
+export async function sendTypingPresence(to: string, state: "start" | "stop"): Promise<void> {
+  try {
+    if (!WAHA_API_URL || !WAHA_API_KEY) return;
+    const e164 = normalizeBrPhone(to);
+    if (!e164) return;
+    const chatId = e164.replace(/^\+/, "") + "@c.us";
+    await safeFetch(`${WAHA_API_URL}/api/${state === "start" ? "startTyping" : "stopTyping"}`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ session: WAHA_SESSION, chatId }),
+    });
+  } catch { /* presence is best-effort */ }
+}
+
+/** Direct text send used for instant acknowledgements. Bypasses the outbound
+ *  queue on purpose (the queue is for auditable agent replies) and never throws. */
+export async function sendEphemeralText(to: string, body: string): Promise<boolean> {
+  try {
+    if (!WAHA_API_URL || !WAHA_API_KEY) return false;
+    const e164 = normalizeBrPhone(to);
+    if (!e164) return false;
+    const chatId = e164.replace(/^\+/, "") + "@c.us";
+    const res = await safeFetch(`${WAHA_API_URL}/api/sendText`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ session: WAHA_SESSION, chatId, text: body }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 export const wahaProvider: MessagingProvider & WahaExtras = {
   name: "waha",
   get configured() {
