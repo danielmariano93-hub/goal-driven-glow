@@ -9600,6 +9600,7 @@ export type Database = {
           installments_total: number | null
           investment_id: string | null
           local_occurred_at: string | null
+          merchant_name: string | null
           movement_kind: string
           normalized_description: string | null
           notes: string | null
@@ -9666,6 +9667,7 @@ export type Database = {
           installments_total?: number | null
           investment_id?: string | null
           local_occurred_at?: string | null
+          merchant_name?: string | null
           movement_kind?: string
           normalized_description?: string | null
           notes?: string | null
@@ -9732,6 +9734,7 @@ export type Database = {
           installments_total?: number | null
           investment_id?: string | null
           local_occurred_at?: string | null
+          merchant_name?: string | null
           movement_kind?: string
           normalized_description?: string | null
           notes?: string | null
@@ -11585,6 +11588,10 @@ export type Database = {
         Returns: Json
       }
       delete_financial_report: { Args: { p_report_id: string }; Returns: Json }
+      derive_merchant_name: {
+        Args: { p_description: string; p_friendly: string; p_raw: string }
+        Returns: string
+      }
       discard_credit_card_statement: {
         Args: { p_statement_id: string }
         Returns: Json
