@@ -171,15 +171,12 @@ export function computeCostStructure(
   }
 
 
-  // Estrutural = categorias estruturais observadas + compromissos declarados que
-  // não estejam já dentro delas (assinaturas e dívidas entram uma única vez).
+  // Estrutural = apenas o gasto observado em categorias estruturais. Assinaturas,
+  // recorrências e dívidas já geraram lançamentos no período, então entram na lista
+  // como composição do custo — nunca somadas de novo (evita dupla contagem).
   const structuralFromCategories = round2([...structuralByCategory.values()].reduce((s, v) => s + v, 0) / months);
-  const structuralExtras = round2(
-    buckets
-      .filter((b) => b.source === "assinatura" || b.source === "divida")
-      .reduce((s, b) => s + b.monthly_amount, 0),
-  );
-  const structuralMonthly = round2(structuralFromCategories + structuralExtras);
+  const structuralMonthly = structuralFromCategories;
+
 
   const flexibleMonthly = round2([...flexibleByCategory.values()].reduce((s, v) => s + v, 0) / months);
   const undefinedMonthly = round2([...undefinedByCategory.values()].reduce((s, v) => s + v, 0) / months);
