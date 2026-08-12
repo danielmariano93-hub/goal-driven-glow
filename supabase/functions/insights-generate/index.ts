@@ -28,6 +28,7 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
 } from "../_shared/finance-core/index.ts";
+import { computeAgentSnapshot } from "../_shared/engine/metrics.ts";
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
@@ -431,11 +432,17 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
 
   const dayOfMonth = Number(todayIsoSP.slice(8, 10));
   const daysInMonth = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).getDate();
+  // Ritmo e projeção do mês: motor canônico (spending_rhythm + projeção do
+  // snapshot). Nada de regra linear paralela aqui.
+  const canonicalRhythmSnapshot = await computeAgentSnapshot(supa, uid);
   const rhythm = behavioral.expense > 0 && dayOfMonth >= 3
     ? {
-      dailyTypical: Number((behavioral.expense / dayOfMonth).toFixed(2)),
-      daysLeft: Math.max(0, daysInMonth - dayOfMonth),
-      projectedExpense: Number(((behavioral.expense / dayOfMonth) * daysInMonth).toFixed(2)),
+      dailyTypical: Number(canonicalRhythmSnapshot.typical_daily_pace.toFixed(2)),
+      daysLeft: canonicalRhythmSnapshot.days_remaining,
+      projectedExpense: Number((
+        canonicalRhythmSnapshot.current_month_expense
+        + canonicalRhythmSnapshot.projected_remaining_consumption
+      ).toFixed(2)),
     }
     : null;
 
@@ -448,16 +455,12 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     }
     : null;
 
-  // Caixa disponível hoje e projeção 30d: alimentam cashflow_forecast.
-  const availableToday = Number(
-    ((accountRows ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
-      .filter((a) => a?.active !== false)
-      .reduce((acc, a) => acc + Number(a.current_balance ?? 0), 0)
-      .toFixed(2),
-  );
-  const projectedBalance = Number(
-    (availableToday - Number(commitments30d.totalExpense ?? 0) - totalCardDebtOf(exposures)).toFixed(2),
-  );
+  // finance_truth.v1: caixa disponível e projeção vêm do MESMO snapshot canônico
+  // da Home/Assessor (âncora bancária + ponte de caixa). Nunca somar
+  // `accounts.current_balance`, que ignora a verdade de caixa reconciliada.
+  const canonicalSnapshot = await computeAgentSnapshot(supa, uid);
+  const availableToday = Number(canonicalSnapshot.available_today.toFixed(2));
+  const projectedBalance = Number(canonicalSnapshot.projected_month_end_available.toFixed(2));
 
   const evidenceExtra = {
     accounting_scope: ACCOUNTING_SCOPE,
