@@ -198,7 +198,7 @@ export async function executeDeterministicCapability(
             formatFinancialSnapshot(degraded.result),
             `Não consegui rodar o cálculo completo de ${capability.name} agora, então respondi com a base reconciliada acima. Nenhum dado foi alterado e o motivo técnico ficou registrado.`,
           ].join("\n"),
-          steps: 2, tokensIn: 0, tokensOut: 0, toolCalls: calls, finish: "tool_error_degraded",
+          steps: 2, tokensIn: 0, tokensOut: 0, toolCalls: calls, finish: "tool_error",
         };
       }
     }

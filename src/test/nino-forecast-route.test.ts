@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { routeCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
+import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
 import { formatForecastMonthClose } from "../../supabase/functions/_shared/agent/core/DeterministicAnswers";
 
 describe("Nino — previsão de fechamento", () => {
@@ -9,7 +9,7 @@ describe("Nino — previsão de fechamento", () => {
       "quanto vou gastar neste mês?",
       "como fecho o mês?",
     ]) {
-      const decision = routeCapability(q);
+      const decision = classifyCapability(q);
       expect(decision.required_tool).toBe("forecast_month_close");
       expect(decision.execution).toBe("deterministic");
     }
