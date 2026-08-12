@@ -180,9 +180,31 @@ export async function executeDeterministicCapability(
     duration_ms: execution.duration_ms, error: execution.error,
   };
   if (!execution.ok) {
+    // Degradação honesta: em vez de "problema técnico", o Nino entrega o que
+    // o snapshot canônico consegue provar e diz explicitamente o que faltou.
+    const calls = [call];
+    if (capability.required_tool !== "get_financial_snapshot") {
+      const degraded = await runTool({
+        sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text,
+      }, "get_financial_snapshot", {}, { timeoutMs: 12_000, maxRetries: 0 });
+      calls.push({
+        step_index: 2, tool_name: degraded.tool_name, args: degraded.args,
+        result: degraded.ok ? degraded.result : null, ok: degraded.ok,
+        duration_ms: degraded.duration_ms, error: degraded.error,
+      });
+      if (degraded.ok) {
+        return {
+          reply: [
+            formatFinancialSnapshot(degraded.result),
+            `Não consegui rodar o cálculo completo de ${capability.name} agora, então respondi com a base reconciliada acima. Nenhum dado foi alterado e o motivo técnico ficou registrado.`,
+          ].join("\n"),
+          steps: 2, tokensIn: 0, tokensOut: 0, toolCalls: calls, finish: "tool_error_degraded",
+        };
+      }
+    }
     return {
-      reply: failureReply(capability, execution.error), steps: 1, tokensIn: 0, tokensOut: 0,
-      toolCalls: [call], finish: "tool_error",
+      reply: failureReply(capability, execution.error), steps: calls.length, tokensIn: 0, tokensOut: 0,
+      toolCalls: calls, finish: "tool_error",
     };
   }
   let reply: string;
@@ -191,6 +213,8 @@ export async function executeDeterministicCapability(
   else if (capability.name === "before_spending") reply = formatBeforeSpending(execution.result);
   else if (capability.name === "recent_transactions") reply = formatRecentTransactions(execution.result as any[]);
   else if (capability.name === "weekday_literal") reply = formatSpendingForDate(execution.result);
+  else if (capability.name === "forecast_month_close") reply = formatForecastMonthClose(execution.result);
   else return null;
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }
+
