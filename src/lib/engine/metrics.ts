@@ -48,6 +48,7 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
 } from "./cardExposure";
+import { computeCanonicalCategoryTotal } from "./canonicalFacts";
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
 import {
   computeCommitmentAgenda,
