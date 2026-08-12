@@ -1,4 +1,11 @@
-import { round2, behavioralMetricAmount, type TransactionRow } from "@/lib/engine/facts";
+import {
+  round2,
+  behavioralMetricAmount,
+  buildRefundAttribution,
+  effectiveCategoryId,
+  type TransactionRow,
+} from "@/lib/engine/facts";
+import { canonicalLedgerRows } from "@/lib/engine/canonicalFacts";
 
 export interface ReportTxn {
   id?: string;
@@ -9,6 +16,8 @@ export interface ReportTxn {
   occurred_at: string; // YYYY-MM-DD
   category_id?: string | null;
   category_name?: string | null;
+  /** Proveniência de estorno — sem ela a leitura por categoria mente. */
+  refund_of_transaction_id?: string | null;
   transfer_group_id?: string | null;
   payment_method?: string | null;
   credit_card_id?: string | null;
@@ -19,6 +28,7 @@ export interface ReportTxn {
   description?: string | null;
   friendly_description?: string | null;
 }
+
 
 export interface CategoryBucket {
   category: string;
