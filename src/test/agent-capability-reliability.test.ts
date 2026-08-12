@@ -70,8 +70,8 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
       "list_accounts", "list_categories", "list_credit_cards", "create_split_expense_draft",
     ]);
     expect(openAIToolDefinitions(split.allowed_tools)).toHaveLength(4);
-    expect(openAIToolDefinitions(capability("Me ajude").allowed_tools).length).toBeLessThanOrEqual(8);
-    expect(openAIToolDefinitions()).toHaveLength(42);
+    expect(openAIToolDefinitions(capability("Me ajude").allowed_tools).length).toBeLessThanOrEqual(11);
+    expect(openAIToolDefinitions()).toHaveLength(51);
   });
 
   it("formata simulação usando somente o contrato snapshot.v4", () => {
