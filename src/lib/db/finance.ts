@@ -676,6 +676,30 @@ export function useSaveDebt() {
   });
 }
 
+/** Todos os pagamentos de dívida do usuário — insumo do motor canônico
+ * `debt_status.v1` (situação, atraso e próximo vencimento). */
+export function useAllDebtPayments() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["debt_payments", user?.id, "all"],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("debt_payments")
+        .select("debt_id,paid_at,amount,amount_applied,installments_covered")
+        .order("paid_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        debt_id: string;
+        paid_at: string;
+        amount: number;
+        amount_applied: number | null;
+        installments_covered: number | null;
+      }>;
+    },
+  });
+}
+
 export function useDebtPayments(debtId?: string | null) {
   const { user } = useAuth();
   return useQuery({

@@ -8,7 +8,14 @@
 // deno-lint-ignore-file no-explicit-any
 // Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
 type SupabaseClient = any;
-import { behavioralMetricAmount, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import {
+  behavioralMetricAmount,
+  buildRefundAttribution,
+  effectiveCategoryId,
+  isRealMonthlyMovement,
+  type TransactionRow,
+} from "../engine/facts.ts";
+
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { cycleFor } from "../finance-core/cardExposure.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
@@ -141,7 +148,7 @@ export async function analyze_spending(ctx: ToolContext, args: {
 
   const [data, categoriesResult] = await Promise.all([
     fetchTransactions(ctx, {
-      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from,
       to,
       paymentMethod: args?.payment_method,
@@ -156,6 +163,8 @@ export async function analyze_spending(ctx: ToolContext, args: {
   // Aplica a MESMA definição de consumo real da Home: exclui aplicações,
   // aportes, transferências, pagamento de fatura, cancelados. Corrige o bug em
   // que "Aplicações R$ 5.000" aparecia como maior gasto do mês.
+  // finance_truth.v1: estorno abate a categoria economica original da compra.
+  const refundAttribution = buildRefundAttribution(rows as any);
   const byCategory = new Map<string, number>();
   const byDay = new Map<string, number>();
   let totalExpense = 0;
@@ -166,7 +175,8 @@ export async function analyze_spending(ctx: ToolContext, args: {
     const incomeAmount = behavioralMetricAmount(row as any, "income");
     totalIncome += incomeAmount;
     if (expenseAmount === 0) continue;
-    const category = String(row.category_id ? (names.get(row.category_id) ?? "Sem categoria") : "Sem categoria");
+    const effectiveCategory = effectiveCategoryId(row as any, refundAttribution);
+    const category = String(effectiveCategory ? (names.get(effectiveCategory) ?? "Sem categoria") : "Sem categoria");
     byCategory.set(category, (byCategory.get(category) ?? 0) + expenseAmount);
     byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + expenseAmount);
     totalExpense += expenseAmount;
@@ -206,7 +216,7 @@ export async function get_spending_for_date(ctx: ToolContext, args: { date: stri
   const to = postedThrough.toISOString().slice(0, 10);
   const [data, categoriesResult] = await Promise.all([
     fetchTransactions(ctx, {
-      select: "id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      select: "id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from: date,
       to,
     }),
@@ -219,6 +229,7 @@ export async function get_spending_for_date(ctx: ToolContext, args: { date: stri
   let transactions = 0;
   let excludedLowConfidence = 0;
   const byCategory = new Map<string, number>();
+  const dateRefundAttribution = buildRefundAttribution((data ?? []) as any);
   for (const raw of (data ?? []) as any[]) {
     const resolved = resolveBehavioralDate(raw);
     if (resolved.day !== date) continue;
@@ -228,7 +239,8 @@ export async function get_spending_for_date(ctx: ToolContext, args: { date: stri
     }
     const amount = behavioralMetricAmount({ ...raw, amount: Number(raw.amount) } as any, "expense");
     if (amount <= 0) continue;
-    const category = String(raw.category_id ? (names.get(raw.category_id) ?? "Sem categoria") : "Sem categoria");
+    const rawEffectiveCategory = effectiveCategoryId(raw as any, dateRefundAttribution);
+    const category = String(rawEffectiveCategory ? (names.get(rawEffectiveCategory) ?? "Sem categoria") : "Sem categoria");
     total += amount;
     transactions++;
     byCategory.set(category, (byCategory.get(category) ?? 0) + amount);
@@ -879,12 +891,12 @@ export async function get_spending_highlights(ctx: ToolContext): Promise<ToolRes
   const prevYm = shiftMonth(today, -1).slice(0, 7);
   const [txsCur, txsPrev, cats, goals, contribs] = await Promise.all([
     fetchTransactions(ctx, {
-      select: "id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      select: "id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from: `${ym}-01`,
       status: "confirmed",
     }),
     fetchTransactions(ctx, {
-      select: "id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      select: "id,type,amount,category_id,occurred_at,status,transfer_group_id,description,account_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from: `${prevYm}-01`,
       toExclusive: `${ym}-01`,
       status: "confirmed",
@@ -1111,7 +1123,7 @@ export {
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [txs, categoriesResult] = await Promise.all([
     fetchTransactions(ctx, {
-      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from,
       to,
     }),
@@ -1152,7 +1164,7 @@ async function loadForecastHistory(ctx: ToolContext) {
   const monthEnd = monthRange(today).to;
   const [txs, recurringResult] = await Promise.all([
     fetchTransactions(ctx, {
-      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from,
       to: monthEnd,
     }),

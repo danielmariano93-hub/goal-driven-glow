@@ -46,7 +46,7 @@ type Sb = SupabaseClient;
 async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promise<TransactionRow[]> {
   const { data, error } = await sb
     .from("transactions")
-    .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
+    .select("id,account_id,type,status,amount,occurred_at,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
     .eq("user_id", userId)
     .gte("occurred_at", fromDate)
     .order("occurred_at", { ascending: true })

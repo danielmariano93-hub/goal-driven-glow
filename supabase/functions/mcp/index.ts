@@ -947,7 +947,7 @@ var list_transactions_default = defineTool({
 // src/lib/mcp/tools/monthly-summary.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.26.1";
 import { z as z2 } from "npm:zod@^3.25.76";
-var TX_COLUMNS = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,settles_card_id,movement_kind";
+var TX_COLUMNS = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,settles_card_id,movement_kind";
 var monthly_summary_default = defineTool2({
   name: "monthly_summary",
   title: "Resumo do m\xEAs",
@@ -971,6 +971,7 @@ var monthly_summary_default = defineTool2({
       id: String(t.id),
       account_id: String(t.account_id ?? ""),
       category_id: t.category_id ?? null,
+      refund_of_transaction_id: t.refund_of_transaction_id ?? null,
       type: t.type,
       status: t.status,
       amount: Number(t.amount ?? 0),

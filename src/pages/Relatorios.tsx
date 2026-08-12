@@ -154,7 +154,7 @@ export default function Relatorios({ focus }: { focus?: "categorias" }) {
     (async () => {
       const { data } = await supabase
         .from("transactions")
-        .select("id,account_id,type,status,amount,occurred_at,category_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
+        .select("id,account_id,type,status,amount,occurred_at,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
         .order("occurred_at", { ascending: false });
       type RawTxn = Record<string, unknown> & { categories?: { name?: string | null } | null };
       setTxns(((data ?? []) as unknown as RawTxn[]).map((t) => ({
@@ -183,7 +183,7 @@ export default function Relatorios({ focus }: { focus?: "categorias" }) {
     ritmoTipico: point.typicalRunningAverage,
     label: new Date(`${point.date}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
   }));
-  const byCat = byCategory(filtered);
+  const byCat = byCategory(filtered, txns);
   const maxCat = Math.max(1, ...byCat.map(c => c.total));
   const diagnosisItems = isCurrentDiagnosisRange
     ? [diagnosis?.primary_situation, ...(diagnosis?.supporting_situations ?? [])]

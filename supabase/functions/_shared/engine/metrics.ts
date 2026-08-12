@@ -182,7 +182,7 @@ function daysInclusive(a: string, b: string): number {
   return Math.max(1, Math.round((e - s) / 86_400_000) + 1);
 }
 
-const AGENT_TRANSACTION_SELECT = "id,account_id,category_id,type,status,amount,occurred_at,posted_at,posted_at_source,purchase_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,investment_id,competence_date";
+const AGENT_TRANSACTION_SELECT = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,origin,installments_total,occurred_at,posted_at,posted_at_source,purchase_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,investment_id,competence_date";
 
 /** PostgREST limita respostas por padrão; saldo e projeção não podem usar
  * silenciosamente apenas as primeiras 1.000 transações. */
@@ -254,7 +254,7 @@ export async function computeAgentSnapshot(
       .eq("user_id", user_id).eq("status", "active"),
     sb.from("category_spending_goals").select("*").eq("user_id", user_id).eq("status", "active"),
     sb.from("categories").select("id,name,type").or(`user_id.eq.${user_id},user_id.is.null`).is("archived_at", null),
-    sb.from("account_balance_snapshots").select("account_id,balance_date,balance,status").eq("user_id", user_id),
+    sb.from("account_balance_snapshots").select("account_id,balance_date,balance,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", user_id),
     sb.from("investments").select("*").eq("user_id", user_id),
     sb.from("debts").select("*").eq("user_id", user_id),
     // Cartão inativo ainda pode ter fatura/parcelas em aberto. A flag `active`

@@ -7,11 +7,13 @@ import {
   useSaveDebt,
   useDeleteDebt,
   useRecordDebtPayment,
+  useAllDebtPayments,
   type DebtRow,
 } from "@/lib/db/finance";
 import { debtSchema } from "@/lib/validation/finance";
 import { computeActiveDebtsTotal, formatBRL } from "@/lib/engine/facts";
 import { resolveDebtPlan } from "@/lib/finance/accounting";
+import { computeDebtStatus, type DebtScheduleRow, type DebtStatusItem } from "@/lib/engine/debtStatus";
 
 export default function Dividas() {
   const { data: items, isLoading } = useDebts();
@@ -19,12 +21,30 @@ export default function Dividas() {
   const del = useDeleteDebt();
   const payment = useRecordDebtPayment();
   const { data: accounts = [] } = useAccounts();
+  const { data: debtPayments = [] } = useAllDebtPayments();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DebtRow | null>(null);
   const [paying, setPaying] = useState<DebtRow | null>(null);
 
   // Fonte única (finance_contract.v2): total de dívidas ativas pelo core.
   const totalOutstanding = computeActiveDebtsTotal(items ?? []);
+
+  // debt_status.v1 — situação/atraso/próximo vencimento vêm do MESMO motor
+  // consumido pelo Nino, pelos alertas proativos e pelo WhatsApp.
+  const todayIso = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const debtStatus = computeDebtStatus({
+    debts: (items ?? []) as unknown as DebtScheduleRow[],
+    payments: debtPayments.map((p) => ({
+      debt_id: p.debt_id,
+      paid_at: String(p.paid_at ?? "").slice(0, 10),
+      amount: Number(p.amount ?? 0),
+      installments_covered: p.installments_covered ?? null,
+    })),
+    today: todayIso,
+  });
+  const statusByDebt = new Map<string, DebtStatusItem>(
+    debtStatus.breakdown.map((item) => [item.debt_id, item]),
+  );
 
   return (
     <div>
@@ -65,6 +85,7 @@ export default function Dividas() {
               const outstanding = Number(d.outstanding_balance);
               const paid = Math.max(0, original - outstanding);
               const progress = original > 0 ? Math.min(100, (paid / original) * 100) : 0;
+              const status = statusByDebt.get(d.id);
               return (
               <li key={d.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
                 <div className="flex items-start justify-between gap-3">
@@ -73,6 +94,32 @@ export default function Dividas() {
                     {d.name}
                     {d.status !== "active" && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-wide">{d.status === "settled" ? "Quitada" : "Inadimplente"}</span>}
                   </p>
+                  {status && status.situation !== "indefinido" && (
+                    <p className="mt-1">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        status.situation === "em_atraso"
+                          ? "bg-destructive/10 text-destructive"
+                          : status.situation === "vence_em_breve"
+                            ? "bg-warning/10 text-warning"
+                            : status.situation === "quitada"
+                              ? "bg-success/10 text-success"
+                              : "bg-secondary text-muted-foreground"
+                      }`}>
+                        {status.situation === "em_atraso"
+                          ? `Em atraso · ${status.days_overdue} dia(s)`
+                          : status.situation === "vence_em_breve"
+                            ? `Vence em ${status.days_to_due} dia(s)`
+                            : status.situation === "quitada"
+                              ? "Quitada"
+                              : "Em dia"}
+                      </span>
+                      {status.next_due_date && status.situation !== "quitada" && (
+                        <span className="ml-2 text-[11px] text-muted-foreground">
+                          Próximo vencimento {new Date(`${status.next_due_date}T12:00:00Z`).toLocaleDateString("pt-BR")}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     {d.creditor ? `${d.creditor} · ` : ""}Total contratado {formatBRL(original)}
                     {d.installment_amount ? ` · parcela ${formatBRL(Number(d.installment_amount))}` : ""}
@@ -84,14 +131,14 @@ export default function Dividas() {
                     {" · "}Falta <span className="font-semibold">{formatBRL(outstanding)}</span>
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-1.5">
                   {d.status === "active" && (
                     <button
                       onClick={() => setPaying(d)}
-                      className="rounded-full border border-border p-2 text-primary hover:bg-primary/5"
+                      className="grid h-11 w-11 place-items-center rounded-full border border-border text-primary transition-colors hover:bg-primary/5 active:bg-primary/10"
                       aria-label="Registrar pagamento"
                     >
-                      <Coins size={14} />
+                      <Coins size={16} />
                     </button>
                   )}
                   <button
@@ -99,17 +146,19 @@ export default function Dividas() {
                       setEditing(d);
                       setOpen(true);
                     }}
-                    className="rounded-full border border-border p-2 text-muted-foreground hover:text-foreground"
+                    className="grid h-11 w-11 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:text-foreground active:bg-secondary"
+                    aria-label="Editar dívida"
                   >
-                    <Pencil size={14} />
+                    <Pencil size={16} />
                   </button>
                   <button
                     onClick={() => {
                       if (confirm("Excluir esta dívida?")) del.mutate(d.id, { onSuccess: () => toast.success("Excluída") });
                     }}
-                    className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
+                    className="grid h-11 w-11 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:text-destructive active:bg-destructive/10"
+                    aria-label="Excluir dívida"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
                 </div>

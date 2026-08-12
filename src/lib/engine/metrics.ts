@@ -48,6 +48,7 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
 } from "./cardExposure";
+import { computeCanonicalCategoryTotal } from "./canonicalFacts";
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
 import {
   computeCommitmentAgenda,
@@ -635,14 +636,10 @@ export function computeCategoryBaseline(
     const ref = new Date(today.getFullYear(), today.getMonth() - i, 1);
     const start = todayISO(new Date(ref.getFullYear(), ref.getMonth(), 1));
     const end = todayISO(new Date(ref.getFullYear(), ref.getMonth() + 1, 0));
-    let monthTotal = 0;
-    for (const t of txs) {
-      if (t.category_id !== categoryId) continue;
-      if (t.type !== "expense") continue;
-      if (!isRealMonthlyMovement(t)) continue;
-      if (t.occurred_at < start || t.occurred_at > end) continue;
-      monthTotal += Number(t.amount || 0);
-    }
+    // finance_truth.v1: baseline usa a MESMA verdade do ranking — categoria
+    // econômica efetiva e estorno abatendo a despesa original.
+    const fact = computeCanonicalCategoryTotal(txs, categoryId, { start, end }, "expense");
+    const monthTotal = Math.max(0, fact.net);
     total += monthTotal;
     counted += 1;
   }

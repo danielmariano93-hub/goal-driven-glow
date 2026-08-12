@@ -28,6 +28,7 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
 } from "../_shared/finance-core/index.ts";
+import { computeAgentSnapshot } from "../_shared/engine/metrics.ts";
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
@@ -235,7 +236,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     { data: installmentRows },
     { data: debtRows },
     { data: recurringRules },
-    { data: accountRows },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", uid).eq("status", "active"),
@@ -272,7 +272,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
     supa.from("debts").select("id,name,outstanding_balance,status,installment_amount,due_day").eq("user_id", uid).eq("status", "active"),
     supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,category_id,account_id,name").eq("user_id", uid).eq("status", "active"),
-    supa.from("accounts").select("current_balance,active").eq("user_id", uid),
   ]);
 
   const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -431,11 +430,18 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
 
   const dayOfMonth = Number(todayIsoSP.slice(8, 10));
   const daysInMonth = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).getDate();
+  // Ritmo, projeção e caixa do mês: MESMO snapshot canônico da Home/Assessor
+  // (finance_truth.v1). Nada de regra linear ou soma de current_balance aqui.
+  const canonicalSnapshot = await computeAgentSnapshot(supa, uid);
+  const canonicalRhythmSnapshot = canonicalSnapshot;
   const rhythm = behavioral.expense > 0 && dayOfMonth >= 3
     ? {
-      dailyTypical: Number((behavioral.expense / dayOfMonth).toFixed(2)),
-      daysLeft: Math.max(0, daysInMonth - dayOfMonth),
-      projectedExpense: Number(((behavioral.expense / dayOfMonth) * daysInMonth).toFixed(2)),
+      dailyTypical: Number(canonicalRhythmSnapshot.typical_daily_pace.toFixed(2)),
+      daysLeft: canonicalRhythmSnapshot.days_remaining,
+      projectedExpense: Number((
+        canonicalRhythmSnapshot.current_month_expense
+        + canonicalRhythmSnapshot.projected_remaining_consumption
+      ).toFixed(2)),
     }
     : null;
 
@@ -448,16 +454,8 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     }
     : null;
 
-  // Caixa disponível hoje e projeção 30d: alimentam cashflow_forecast.
-  const availableToday = Number(
-    ((accountRows ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
-      .filter((a) => a?.active !== false)
-      .reduce((acc, a) => acc + Number(a.current_balance ?? 0), 0)
-      .toFixed(2),
-  );
-  const projectedBalance = Number(
-    (availableToday - Number(commitments30d.totalExpense ?? 0) - totalCardDebtOf(exposures)).toFixed(2),
-  );
+  const availableToday = Number(canonicalSnapshot.available_today.toFixed(2));
+  const projectedBalance = Number(canonicalSnapshot.projected_month_end_available.toFixed(2));
 
   const evidenceExtra = {
     accounting_scope: ACCOUNTING_SCOPE,
