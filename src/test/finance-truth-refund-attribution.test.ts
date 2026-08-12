@@ -12,6 +12,7 @@ const purchase = {
   amount: 674.75,
   occurred_at: "2026-08-03",
   category_id: "cat-transporte",
+  category_name: "Transporte",
   movement_kind: "transaction",
 } as unknown as ReportTxn;
 
@@ -22,6 +23,7 @@ const refund = {
   amount: 213.93,
   occurred_at: "2026-08-08",
   category_id: "cat-outros",
+  category_name: "Outros",
   movement_kind: "refund",
   refund_of_transaction_id: "tx-purchase",
 } as unknown as ReportTxn;
@@ -34,9 +36,9 @@ describe("finance_truth.v1 — atribuição de estorno", () => {
 
   it("byCategory retorna o valor líquido da categoria original", () => {
     const rows = byCategory([purchase, refund], [purchase, refund]);
-    const transporte = rows.find((r) => r.category === "cat-transporte");
+    const transporte = rows.find((r) => r.category === "Transporte");
     expect(transporte?.total).toBeCloseTo(460.82, 2);
-    expect(rows.find((r) => r.category === "cat-outros")).toBeUndefined();
+    expect(rows.find((r) => r.category === "Outros")).toBeUndefined();
   });
 });
 
