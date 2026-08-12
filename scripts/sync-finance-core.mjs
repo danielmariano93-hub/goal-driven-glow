@@ -35,6 +35,7 @@ export const FINANCE_CORE_MODULES = [
   "cardExposure",
   "incomeProjection",
   "commitmentAgenda",
+  "debtStatus",
   "metrics",
 ];
 

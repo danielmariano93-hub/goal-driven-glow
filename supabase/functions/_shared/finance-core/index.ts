@@ -17,6 +17,7 @@ export * from "./dailyAverage.ts";
 export * from "./cardExposure.ts";
 export * from "./incomeProjection.ts";
 export * from "./commitmentAgenda.ts";
+export * from "./debtStatus.ts";
 export * from "./metrics.ts";
 export type { DateRange, Trend } from "./spendingRhythm.ts";
 export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";

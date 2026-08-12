@@ -18,6 +18,8 @@ export type CapabilityName =
   | "transaction_management"
   | "visualization"
   | "financial_analysis"
+  | "money_leaks"
+  | "debt_status"
   | "insights"
   | "shared_goals"
   | "general";
@@ -51,7 +53,15 @@ const GROUPS = {
   analysis: [
     "analyze_spending", "compare_periods", "forecast_month_close", "explain_spending_change",
     "get_spending_highlights", "get_financial_snapshot", "get_weekday_spending_pattern",
+    "explain_behavior_change", "analyze_merchants", "merchant_profile",
+    "analyze_financial_evolution", "detect_spending_anomalies",
   ],
+  // Motores determinísticos que respondem "para onde meu dinheiro vai".
+  leaks: [
+    "analyze_merchants", "merchant_profile", "discover_recurring", "analyze_cost_structure",
+    "find_savings_opportunities", "detect_spending_anomalies", "explain_behavior_change",
+  ],
+  debts: ["get_debt_status", "list_recent_transactions", "get_financial_snapshot"],
   sharedGoals: [
     "list_shared_goals", "get_shared_goal_progress", "simulate_shared_goal_pace",
     "create_shared_goal_draft", "add_shared_goal_contribution_draft", "explain_shared_goal_ranking",
@@ -59,6 +69,7 @@ const GROUPS = {
   general: [
     "get_financial_snapshot", "list_recent_transactions", "search_transactions", "get_goals_overview",
     "get_daily_insights", "run_before_spending", "get_weekday_spending_pattern", "analyze_spending",
+    "get_debt_status", "analyze_merchants", "find_savings_opportunities",
   ],
 } as const;
 
@@ -231,6 +242,20 @@ export function classifyCapability(
     return {
       name: "transaction_management", execution: "llm_scoped", allowed_tools: GROUPS.transactionManagement,
       required_tool: "search_transactions", context: { accounts: true, cards: true }, reason: "transaction_crud",
+    };
+  }
+
+  if (/\b(divida|dividas|parcela|parcelas|emprestimo|financiamento|consignado|atrasad|em atraso|vencid|vencimento)\b/.test(t)) {
+    return {
+      name: "debt_status", execution: "deterministic", allowed_tools: GROUPS.debts,
+      required_tool: "get_debt_status", context: {}, reason: "canonical_debt_status",
+    };
+  }
+
+  if (/\b(escapando|escapa|vazando|vazamento|sangrando|assinatura|assinaturas|recorrente|recorrencias|economizar|economia|cortar gasto|fixo|fixos|variavel|variaveis|custo de vida|anomalia|fora do normal|fora do padrao|estabelecimento|onde gasto|com quem gasto)\b/.test(t)) {
+    return {
+      name: "money_leaks", execution: "llm_scoped", allowed_tools: GROUPS.leaks,
+      required_tool: null, context: { metrics: true }, reason: "deterministic_engines_money_leaks",
     };
   }
 
