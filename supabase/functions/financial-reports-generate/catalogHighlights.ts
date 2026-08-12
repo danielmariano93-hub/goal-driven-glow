@@ -6,9 +6,12 @@
 // destaque (família, prioridade, tipo e CTA).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  computeAccountBalances,
   computeActiveDebtsTotal,
   type TransactionRow,
 } from "../_shared/finance-core/facts.ts";
+import { BANK_ANCHOR_SELECT } from "../_shared/finance-core/canonicalFacts.ts";
+
 import { computeCommitmentAgenda } from "../_shared/finance-core/commitmentAgenda.ts";
 import {
   computeCardExposure,
