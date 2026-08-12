@@ -617,7 +617,7 @@ export async function generateAdvisorReviews(
         period_end: review.period_end,
         formula_version: review.formula_version,
       },
-      channel_ready: "app",
+      channel_ready: "both",
       dedup_key: `advisor_review:${review.period_kind}:${review.period_start}`,
       // Mesmo assunto do relatório inteligente do período (comms_contract.v2).
       logical_dedup_key: periodReviewKey(review.period_kind, userId, review.period_start),

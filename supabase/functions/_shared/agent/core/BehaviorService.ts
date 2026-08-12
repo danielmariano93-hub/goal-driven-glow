@@ -187,7 +187,7 @@ export async function refreshBehaviorHypotheses(
         body: candidate.explanation,
         action: { route: "/app/nino-contexto" },
         evidence: candidate.evidence,
-        channel_ready: "app",
+        channel_ready: "both",
         dedup_key: candidate.dedup_key,
         expires_at: candidate.expires_at,
         status: "pending",
