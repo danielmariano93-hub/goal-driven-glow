@@ -9,7 +9,7 @@ describe("Nino — previsão de fechamento", () => {
       "quanto vou gastar neste mês?",
       "como fecho o mês?",
     ]) {
-      const decision = classifyCapability(q);
+      const decision = classifyCapability(q, {} as any, null);
       expect(decision.required_tool).toBe("forecast_month_close");
       expect(decision.execution).toBe("deterministic");
     }
