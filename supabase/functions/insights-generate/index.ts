@@ -236,7 +236,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     { data: installmentRows },
     { data: debtRows },
     { data: recurringRules },
-    { data: accountRows },
   ] = await Promise.all([
     supa.from("transactions").select("id", { count: "exact", head: true }).eq("user_id", uid),
     supa.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", uid).eq("status", "active"),
@@ -273,7 +272,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     supa.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", uid),
     supa.from("debts").select("id,name,outstanding_balance,status,installment_amount,due_day").eq("user_id", uid).eq("status", "active"),
     supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,category_id,account_id,name").eq("user_id", uid).eq("status", "active"),
-    supa.from("accounts").select("current_balance,active").eq("user_id", uid),
   ]);
 
   const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -432,9 +430,10 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
 
   const dayOfMonth = Number(todayIsoSP.slice(8, 10));
   const daysInMonth = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).getDate();
-  // Ritmo e projeção do mês: motor canônico (spending_rhythm + projeção do
-  // snapshot). Nada de regra linear paralela aqui.
-  const canonicalRhythmSnapshot = await computeAgentSnapshot(supa, uid);
+  // Ritmo, projeção e caixa do mês: MESMO snapshot canônico da Home/Assessor
+  // (finance_truth.v1). Nada de regra linear ou soma de current_balance aqui.
+  const canonicalSnapshot = await computeAgentSnapshot(supa, uid);
+  const canonicalRhythmSnapshot = canonicalSnapshot;
   const rhythm = behavioral.expense > 0 && dayOfMonth >= 3
     ? {
       dailyTypical: Number(canonicalRhythmSnapshot.typical_daily_pace.toFixed(2)),
@@ -455,10 +454,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     }
     : null;
 
-  // finance_truth.v1: caixa disponível e projeção vêm do MESMO snapshot canônico
-  // da Home/Assessor (âncora bancária + ponte de caixa). Nunca somar
-  // `accounts.current_balance`, que ignora a verdade de caixa reconciliada.
-  const canonicalSnapshot = await computeAgentSnapshot(supa, uid);
   const availableToday = Number(canonicalSnapshot.available_today.toFixed(2));
   const projectedBalance = Number(canonicalSnapshot.projected_month_end_available.toFixed(2));
 
