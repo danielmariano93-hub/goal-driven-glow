@@ -37,7 +37,7 @@ export interface SavingsOpportunity {
 
 export interface SavingsFacts {
   total_monthly_saving: number;
-  opportunities_count: number
+  opportunities_count: number;
   /** Fatia da sobra mensal que as oportunidades representam. */
   share_of_headroom: number | null;
   biggest_leak: string | null;
