@@ -1095,6 +1095,18 @@ import {
 import { reconciliationGate } from "../engine/reconciliation.ts";
 import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templates/reportTemplates.ts";
 import { parseTemplateArgs } from "./templates/templateSchemas.ts";
+import { computeForecast } from "../analytics/forecast.ts";
+import {
+  analyze_merchants, merchant_profile, explain_behavior_change, discover_recurring,
+  analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
+  analyze_financial_evolution, get_debt_status,
+} from "./engineTools.ts";
+
+export {
+  analyze_merchants, merchant_profile, explain_behavior_change, discover_recurring,
+  analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
+  analyze_financial_evolution, get_debt_status,
+};
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [txs, categoriesResult] = await Promise.all([
@@ -1131,6 +1143,29 @@ export async function compare_periods(ctx: ToolContext, args: {
   return { ok: true, result };
 }
 
+/** Histórico de 400 dias + recorrências, base da banda/backtest do forecast. */
+async function loadForecastHistory(ctx: ToolContext) {
+  const today = todaySP();
+  const start = new Date(`${today}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - 400);
+  const from = start.toISOString().slice(0, 10);
+  const monthEnd = monthRange(today).to;
+  const [txs, recurringResult] = await Promise.all([
+    fetchTransactions(ctx, {
+      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind",
+      from,
+      to: monthEnd,
+    }),
+    ctx.sb.from("recurring_entries")
+      .select("id,name,type,amount,frequency,next_due_date,active")
+      .eq("user_id", ctx.user_id),
+  ]);
+  return {
+    txs: (txs ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) })),
+    recurring: (recurringResult.data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) })),
+  };
+}
+
 export async function forecast_month_close(ctx: ToolContext, args: { model?: "auto" | "baseline" | "observed" | "seasonal" }): Promise<ToolResult> {
   // O fechamento não mantém um segundo estimador legado. Home, WhatsApp e App
   // consomem exatamente o mesmo snapshot financeiro reconciliado.
@@ -1145,20 +1180,52 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
   const confidence = bridgeConfidence === "high" || bridgeConfidence === "medium" || bridgeConfidence === "low"
     ? bridgeConfidence
     : "insufficient_data";
+  // Banda de incerteza, backtest e sazonalidade vêm do estimador estatístico
+  // (`analytics/forecast`), que roda sobre o histórico real. O PONTO CENTRAL
+  // continua sendo o do snapshot canônico — Home, App e WhatsApp idênticos.
+  let statistical: ReturnType<typeof computeForecast> | null = null;
+  const statisticalNotes: string[] = [];
+  try {
+    const history = await loadForecastHistory(ctx);
+    statistical = computeForecast({
+      txs: history.txs as any,
+      recurring: history.recurring as any,
+      today: todaySP(),
+      model: args?.model ?? "auto",
+    });
+  } catch (_e) {
+    statisticalNotes.push("Não foi possível calcular a banda estatística nesta consulta.");
+  }
+  // Desloca a banda do estimador para o ponto canônico, preservando a largura.
+  const spread = statistical && statistical.low != null && statistical.high != null
+    ? { low: statistical.point - statistical.low, high: statistical.high - statistical.point }
+    : null;
+  const low = spread ? Math.round(Math.max(0, point - spread.low) * 100) / 100 : null;
+  const high = spread ? Math.round((point + spread.high) * 100) / 100 : null;
+  const backtest = statistical?.backtest_summary ?? null;
+  const seasonalAdjust = statistical?.drivers.seasonal_adjust ?? 0;
+  if (statistical && spread === null) {
+    statisticalNotes.push("Sem histórico diário suficiente (mínimo 30 dias com movimento) para faixa de incerteza.");
+  }
+  if (statistical && !backtest) {
+    statisticalNotes.push("Sem meses fechados suficientes (mínimo 2) para backtest da previsão.");
+  }
   return { ok: true, result: {
     month: snapshot.month_start.slice(0, 7),
     point,
-    low: null,
-    high: null,
-    model_used: "financial_snapshot_contract.v8",
+    low,
+    high,
+    model_used: statistical
+      ? `financial_snapshot_contract.v8+${statistical.model_used}`
+      : "financial_snapshot_contract.v8",
     drivers: {
       mtd_expense: snapshot.current_month_expense,
       day_of_month: snapshot.days_elapsed,
       days_in_month: daysInMonth,
       recurring_future: committedFuture,
-      seasonal_adjust: 0,
+      seasonal_adjust: seasonalAdjust,
     },
-    backtest_summary: null,
+    backtest_summary: backtest,
     provenance: makeProvenance({
       from: snapshot.month_start,
       to: snapshot.month_end,
@@ -1169,6 +1236,7 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
       notes: [
         "Mesmo contrato reconciliado usado pela Home e pelo assessor.",
         "Inclui consumo projetado, compromissos conhecidos e fatura a vencer no mês.",
+        ...statisticalNotes,
       ],
     }),
     projected_month_end_available: snapshot.projected_month_end_available,
@@ -1965,6 +2033,92 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Explica o ranking de contribuintes de uma meta conjunta destacando os três primeiros.",
     parameters: { type: "object", properties: { goal: optionalStr, goal_id: optionalStr }, additionalProperties: false },
     execute: explain_shared_goal_ranking,
+  },
+  {
+    name: "analyze_merchants",
+    description: "Ranking de ESTABELECIMENTOS (onde/em quem o dinheiro sai), líquido de estornos, com variação vs período anterior e o driver (frequência x ticket x novo). Use para 'onde meu dinheiro está escapando', 'com quem gasto mais', 'quem consome meu dinheiro'.",
+    parameters: {
+      type: "object",
+      properties: { days: { type: "integer", minimum: 7, maximum: 730 }, category_id: optionalStr, limit: { type: "integer" } },
+      additionalProperties: false,
+    },
+    execute: analyze_merchants,
+  },
+  {
+    name: "merchant_profile",
+    description: "Perfil de UM estabelecimento: total líquido, número de compras, ticket médio, maior compra, dia da semana típico e variação vs período anterior. Use para 'quanto gastei com iFood/Uber/mercado X'.",
+    parameters: {
+      type: "object",
+      properties: { query: requiredStr, days: { type: "integer", minimum: 7, maximum: 730 } },
+      required: ["query"], additionalProperties: false,
+    },
+    execute: merchant_profile,
+  },
+  {
+    name: "explain_behavior_change",
+    description: "Explica a MUDANÇA DE COMPORTAMENTO: decompõe a variação do gasto em efeito frequência, efeito ticket, estabelecimentos novos e abandonados (a soma fecha exatamente o delta), com categorias responsáveis e mix por dia da semana. Use para 'por que gastei mais', 'o que mudou no meu comportamento'.",
+    parameters: {
+      type: "object",
+      properties: { days: { type: "integer", minimum: 7, maximum: 365 } },
+      additionalProperties: false,
+    },
+    execute: explain_behavior_change,
+  },
+  {
+    name: "discover_recurring",
+    description: "Descobre ASSINATURAS e cobranças recorrentes pelos lançamentos (cadência estável), com valor mensal equivalente, próxima cobrança esperada, saltos de preço e cobranças que pararam. Use para 'quais assinaturas eu tenho', 'o que fica debitando todo mês'.",
+    parameters: {
+      type: "object",
+      properties: { days: { type: "integer", minimum: 60, maximum: 730 } },
+      additionalProperties: false,
+    },
+    execute: discover_recurring,
+  },
+  {
+    name: "analyze_cost_structure",
+    description: "Divide o gasto entre CUSTO ESTRUTURAL (fixo, sai antes de qualquer decisão) e CONSUMO FLEXÍVEL, com custo mínimo mensal, sobra média (headroom) e fatia da renda comprometida. Use para 'quanto custa minha vida', 'quanto é fixo x variável', 'do que eu não consigo escapar'.",
+    parameters: {
+      type: "object",
+      properties: { months: { type: "integer", minimum: 1, maximum: 12 } },
+      additionalProperties: false,
+    },
+    execute: analyze_cost_structure,
+  },
+  {
+    name: "detect_spending_anomalies",
+    description: "Detecta o que está FORA DO PADRÃO PESSOAL (banda mediana ± 1,5 MAD) por estabelecimento, categoria e ticket, além de recordes históricos. Use para 'algo fora do normal', 'gastei demais essa semana?', 'anomalias'.",
+    parameters: {
+      type: "object",
+      properties: { days: { type: "integer", minimum: 7, maximum: 90 }, history_days: { type: "integer", minimum: 30, maximum: 365 } },
+      additionalProperties: false,
+    },
+    execute: detect_spending_anomalies,
+  },
+  {
+    name: "find_savings_opportunities",
+    description: "Oportunidades REAIS de economia (vazamentos, excesso sobre o próprio hábito, assinaturas paradas, pequenos valores repetidos), com valor mensal recuperável e sem cortar custo estrutural. Use para 'onde consigo economizar', 'como sobrar mais dinheiro'.",
+    parameters: {
+      type: "object",
+      properties: { days: { type: "integer", minimum: 30, maximum: 365 } },
+      additionalProperties: false,
+    },
+    execute: find_savings_opportunities,
+  },
+  {
+    name: "analyze_financial_evolution",
+    description: "Evolução financeira longitudinal (30/90/180 dias): renda, gasto, resultado, taxa de poupança, tendência, volatilidade e melhor/pior mês. Use para 'estou melhorando?', 'como evoluí', 'minha vida financeira está mais estável?'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: analyze_financial_evolution,
+  },
+  {
+    name: "get_debt_status",
+    description: "Situação das DÍVIDAS: parcelas vencidas sem pagamento registrado (atraso, com dias e valor), próxima parcela a vencer e dívidas sem agenda cadastrada. Use para 'estou atrasado em alguma dívida', 'qual parcela vence agora', 'minhas dívidas'.",
+    parameters: {
+      type: "object",
+      properties: { due_soon_days: { type: "integer", minimum: 1, maximum: 15 } },
+      additionalProperties: false,
+    },
+    execute: get_debt_status,
   },
 ];
 
