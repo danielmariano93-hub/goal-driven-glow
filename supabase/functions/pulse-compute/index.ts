@@ -69,9 +69,9 @@ Deno.serve(async (req) => {
       sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
       sb.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", userId),
       sb.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", userId),
-      sb.from("debt_payments").select("debt_id,paid_at,amount,installments_covered,principal_amount").eq("user_id", userId).gte("paid_at", iso(cutoff90)),
+      sb.from("debt_payments").select("debt_id,paid_at,amount,amount_applied,installments_covered").eq("user_id", userId).gte("paid_at", iso(cutoff90)),
       sb.from("pending_confirmations").select("id,status,created_at").eq("user_id", userId).eq("status", "pending"),
-      sb.from("category_spending_goals").select("id,monthly_limit,active").eq("user_id", userId).eq("active", true),
+      sb.from("category_spending_goals").select("id,computed_limit,fixed_limit,active").eq("user_id", userId).eq("active", true),
     ]);
 
     const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR,snapR,stmtR,instR,debtPayR,pendingR,catGoalsR]
@@ -90,10 +90,10 @@ Deno.serve(async (req) => {
       paid_at: String(p.paid_at ?? "").slice(0, 10),
       amount: Number(p.amount ?? 0),
       installments_covered: p.installments_covered == null ? null : Number(p.installments_covered),
-      principal_amount: p.principal_amount == null ? null : Number(p.principal_amount),
+      amount_applied: p.amount_applied == null ? null : Number(p.amount_applied),
     }));
     const pendingRows = (pendingR.data ?? []) as Array<{ id: string; created_at: string }>;
-    const categoryGoals = (catGoalsR.data ?? []) as Array<{ monthly_limit: number | string }>;
+    const categoryGoals = (catGoalsR.data ?? []) as Array<{ computed_limit: number | string; fixed_limit: number | string | null }>;
     const contribs = (contribR.data ?? []) as Array<{ goal_id: string; amount: number | string }>;
     const emos = (emoR.data ?? []) as Array<{ occurred_at: string; transaction_id: string | null }>;
     const recurring = (recR.data ?? []) as Array<{ id: string; status: string; amount: number | string }>;
@@ -142,9 +142,9 @@ Deno.serve(async (req) => {
     });
     const principalPaid30d = debtPayments
       .filter((p) => p.paid_at >= iso(cutoff30))
-      .reduce((acc, p) => acc + Math.abs(Number(p.principal_amount ?? p.amount ?? 0)), 0);
+      .reduce((acc, p) => acc + Math.abs(Number(p.amount_applied ?? p.amount ?? 0)), 0);
     const plannedMonth = Number(
-      categoryGoals.reduce((acc, g) => acc + Math.abs(Number(g.monthly_limit ?? 0)), 0).toFixed(2),
+      categoryGoals.reduce((acc, g) => acc + Math.abs(Number(g.fixed_limit ?? g.computed_limit ?? 0)), 0).toFixed(2),
     );
 
     const emoDays14 = new Set(emos.filter((e) => e.occurred_at.slice(0, 10) >= iso(cutoff14)).map((e) => e.occurred_at.slice(0, 10))).size;
