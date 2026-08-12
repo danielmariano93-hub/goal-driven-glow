@@ -8,7 +8,14 @@
 // deno-lint-ignore-file no-explicit-any
 // Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
 type SupabaseClient = any;
-import { behavioralMetricAmount, isRealMonthlyMovement, type TransactionRow } from "../engine/facts.ts";
+import {
+  behavioralMetricAmount,
+  buildRefundAttribution,
+  effectiveCategoryId,
+  isRealMonthlyMovement,
+  type TransactionRow,
+} from "../engine/facts.ts";
+
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { cycleFor } from "../finance-core/cardExposure.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
