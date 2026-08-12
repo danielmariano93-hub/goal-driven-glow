@@ -18,6 +18,7 @@ export type CapabilityName =
   | "transaction_management"
   | "visualization"
   | "financial_analysis"
+  | "forecast_month_close"
   | "money_leaks"
   | "debt_status"
   | "insights"
