@@ -50,7 +50,7 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
 } from "./cardExposure.ts";
-import { computeCanonicalCategoryTotal } from "./canonicalFacts";
+import { computeCanonicalCategoryTotal } from "./canonicalFacts.ts";
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage.ts";
 import {
   computeCommitmentAgenda,

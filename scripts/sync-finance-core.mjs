@@ -20,6 +20,7 @@ import { resolve } from "node:path";
 
 export const FINANCE_CORE_MODULES = [
   "facts",
+  "canonicalFacts",
   "engineEnvelope",
   "merchant",
   "merchantIntelligence",
