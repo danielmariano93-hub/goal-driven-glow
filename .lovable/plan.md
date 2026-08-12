@@ -92,4 +92,14 @@ Persistência leve para memória/feedback (confirmar/ignorar assinatura), sem du
 - Sem mudança destrutiva de schema; novas tabelas apenas para assinaturas detectadas e feedback do usuário sobre oportunidades (com RLS por `auth.uid()` e GRANTs).
 - Testes unitários por motor com casos de estorno, `superseded`, amostra insuficiente e decomposição que precisa fechar no total.
 - Espelhamento obrigatório via `scripts/sync-finance-core.mjs` (App e Edge nunca divergem).
-- Entrega em blocos: Fase 0 + 1 primeiro (destrava merchants e verdade de estorno), depois 2/3, depois 4–6, por fim 7–9.
+- Entrega única: todas as fases (0 a 10) num só release, na ordem acima, com typecheck, suite de testes e deploy das Edge Functions ao final.
+
+## Fase 10 — Nino consultivo e natural na conversa
+
+Motor rico não basta: a fala precisa mudar junto.
+
+- **Prompt reescrito** (`_shared/agent/prompt.ts`): tom consultivo em pt-BR, direto e humano, sem jargão de métrica nem despejo de tabela. Estrutura padrão: leitura do que está acontecendo → o porquê (driver com merchant/dia) → uma ação concreta → no máximo uma pergunta de acompanhamento.
+- **Proibição de cálculo**: todo número vem do envelope do motor; sem motor disponível ou com amostra insuficiente, o Nino diz o que falta em vez de estimar.
+- **Antecipar e acompanhar**: quando anomalias, assinaturas ou oportunidades trazem algo relevante, o Nino puxa o assunto por conta própria (uma coisa por vez, respeitando as políticas de frequência já existentes) e, na interação seguinte, verifica o efeito da ação sugerida via `financial_evolution`.
+- **Memória**: preferências e recusas do usuário ("não quero cortar academia") passam a filtrar as oportunidades sugeridas.
+- **Paridade App/WhatsApp**: mesma voz, mesmo envelope, mesma ação — só a formatação muda (WhatsApp mais curto, sem markdown pesado).
