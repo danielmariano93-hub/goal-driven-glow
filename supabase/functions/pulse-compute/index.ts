@@ -9,6 +9,7 @@ import { fail } from "../_shared/http.ts";
 
 const FN = "pulse-compute";
 import { computePulse, type PulseInput } from "../_shared/pulse/rules.ts";
+import { computeDebtStatus, type DebtScheduleRow } from "../_shared/finance-core/debtStatus.ts";
 // Verdade financeira única (finance_contract.v2): nunca reimplementar fórmulas aqui.
 import {
   computeActiveDebtsTotal,
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
     const cutoff90 = new Date(today); cutoff90.setDate(cutoff90.getDate() - 90);
 
     // Buscar dados em paralelo.
-    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR, snapR, stmtR, instR] = await Promise.all([
+    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR, snapR, stmtR, instR, debtPayR, pendingR, catGoalsR] = await Promise.all([
       sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
@@ -83,6 +84,16 @@ Deno.serve(async (req) => {
     const cards = (cardsR.data ?? []) as Array<{ id: string; total_limit: number | string; closing_day?: number | null; due_day?: number | null }>;
     const goals = (goalsR.data ?? []) as Array<{ id: string; target_amount: number | string }>;
     const debts = (debtsR.data ?? []) as Array<{ outstanding_balance: number | string; status?: string }>;
+    const debtSchedule = (debtsR.data ?? []) as unknown as DebtScheduleRow[];
+    const debtPayments = ((debtPayR.data ?? []) as Array<Record<string, unknown>>).map((p) => ({
+      debt_id: String(p.debt_id),
+      paid_at: String(p.paid_at ?? "").slice(0, 10),
+      amount: Number(p.amount ?? 0),
+      installments_covered: p.installments_covered == null ? null : Number(p.installments_covered),
+      principal_amount: p.principal_amount == null ? null : Number(p.principal_amount),
+    }));
+    const pendingRows = (pendingR.data ?? []) as Array<{ id: string; created_at: string }>;
+    const categoryGoals = (catGoalsR.data ?? []) as Array<{ monthly_limit: number | string }>;
     const contribs = (contribR.data ?? []) as Array<{ goal_id: string; amount: number | string }>;
     const emos = (emoR.data ?? []) as Array<{ occurred_at: string; transaction_id: string | null }>;
     const recurring = (recR.data ?? []) as Array<{ id: string; status: string; amount: number | string }>;
@@ -123,6 +134,18 @@ Deno.serve(async (req) => {
     );
 
     const outstandingToday = computeActiveDebtsTotal(debts);
+    const cutoff3 = new Date(today); cutoff3.setDate(cutoff3.getDate() - 3);
+    const debtStatus = computeDebtStatus({
+      debts: debtSchedule,
+      payments: debtPayments,
+      today: todayIsoSP,
+    });
+    const principalPaid30d = debtPayments
+      .filter((p) => p.paid_at >= iso(cutoff30))
+      .reduce((acc, p) => acc + Math.abs(Number(p.principal_amount ?? p.amount ?? 0)), 0);
+    const plannedMonth = Number(
+      categoryGoals.reduce((acc, g) => acc + Math.abs(Number(g.monthly_limit ?? 0)), 0).toFixed(2),
+    );
 
     const emoDays14 = new Set(emos.filter((e) => e.occurred_at.slice(0, 10) >= iso(cutoff14)).map((e) => e.occurred_at.slice(0, 10))).size;
     const emoTxIds = new Set(emos.filter((e) => e.transaction_id).map((e) => e.transaction_id as string));
@@ -147,20 +170,28 @@ Deno.serve(async (req) => {
       txDaysLast14: distinctDays14,
       txLast30: last30.length,
       txLast30WithCategory: last30.filter((t) => !!t.category_id).length,
-      pendingOpen: 0,
-      pendingStale: 0,
-      plannedMonth: 0,
+      // Pendências reais do assessor: abertas e paradas há mais de 3 dias.
+      pendingOpen: pendingRows.length,
+      pendingStale: pendingRows.filter((p) => String(p.created_at ?? "").slice(0, 10) < iso(cutoff3)).length,
+      // Planejamento real: soma dos limites mensais das metas por categoria ativas.
+      plannedMonth: plannedMonth,
       actualMonth: monthlyExpense30,
-      hasPlan: false,
+      hasPlan: plannedMonth > 0,
       cardOutstanding,
       cardTotalLimit,
-      paymentsOnTime90d: 0,
-      paymentsTotal90d: 0,
+      // Contas em dia: pagamentos de dívidas dos últimos 90 dias vs. atrasos
+      // apurados pelo motor canônico de dívidas (debt_status.v1).
+      paymentsOnTime90d: debtPayments.length > 0
+        ? Math.max(0, debtPayments.length - debtStatus.facts.overdue_count)
+        : 0,
+      paymentsTotal90d: debtPayments.length,
       totalCash,
       avgMonthlyExpense: monthlyExpense30,
       goalsProgressPct: goalsPct,
       outstandingToday,
-      outstanding30dAgo: outstandingToday,
+      // Dívida de 30 dias atrás reconstruída pelo principal amortizado no período
+      // (nunca igualar ao saldo de hoje, o que zerava o fator injustamente).
+      outstanding30dAgo: Number((outstandingToday + principalPaid30d).toFixed(2)),
       recurringActive: recurring.length,
       recurringWithDefinedAmount: recurring.filter((r) => Number(r.amount || 0) > 0).length,
       emotionalDaysLast14: emoDays14,
