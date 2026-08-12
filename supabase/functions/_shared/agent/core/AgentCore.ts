@@ -55,7 +55,14 @@ export type HandleTurnResult = {
   envelope?: ReturnType<typeof buildChannelEnvelope>;
 };
 
+/** Entrada pública: roda o turno e passa a resposta pelo humanizador, que é a
+ *  única camada autorizada a tocar no texto final (remove nomes internos). */
 export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
+  const result = await runTurn(input);
+  return { ...result, reply: humanizeReply(result.reply) };
+}
+
+async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const sb = service();
   const metrics = createMetrics(input.channel);
   const t0 = Date.now();
