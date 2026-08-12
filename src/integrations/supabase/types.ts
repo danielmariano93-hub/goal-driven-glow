@@ -11368,6 +11368,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      challenge_sync_activity: { Args: { _user_id: string }; Returns: number }
       claim_category_classification_batch: {
         Args: { p_limit?: number; p_user_id?: string }
         Returns: {
@@ -11825,6 +11826,15 @@ export type Database = {
       nino_curate_items: { Args: { _user_id: string }; Returns: Json }
       nino_diag_brl: { Args: { _value: number }; Returns: string }
       nino_diag_detect_debt_alerts: {
+        Args: {
+          _as_of?: string
+          _run_id?: string
+          _run_mode?: string
+          _user_id: string
+        }
+        Returns: number
+      }
+      nino_diag_detect_emotional_gap: {
         Args: {
           _as_of?: string
           _run_id?: string
