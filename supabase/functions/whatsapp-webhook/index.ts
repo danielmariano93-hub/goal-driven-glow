@@ -28,7 +28,7 @@ import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
-import { getWahaAccess } from "../_shared/messaging/waha.ts";
+import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 // deno-lint-ignore no-explicit-any
