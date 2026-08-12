@@ -368,7 +368,12 @@ export function buildDebtSchedule(
   const outstanding = round2(Number(debt.outstanding_balance ?? 0));
   const contracted = round2(Number(debt.original_amount ?? 0));
   const paidAmount = round2(Math.max(0, contracted - outstanding));
-  const percent = contracted > 0 ? Math.min(100, (paidAmount / contracted) * 100) : 0;
+  // Sem valor contratado conhecido, o progresso honesto é a razão de parcelas cobertas.
+  const percent = contracted > 0
+    ? Math.min(100, (paidAmount / contracted) * 100)
+    : total && total > 0
+      ? Math.min(100, (covered / total) * 100)
+      : 0;
   const anchor = installment && installment > 0 ? anchorFor(debt, covered, day) : null;
 
   const rows: DebtInstallmentRow[] = [];
