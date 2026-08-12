@@ -1,7 +1,12 @@
 // compare_periods — delta de gasto/receita entre dois períodos, com quebra
 // por grupo. Só considera movimentos "reais" (isRealMonthlyMovement) para
 // evitar contar transferências/aplicações como gasto.
-import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
+import {
+  behavioralMetricAmount,
+  buildRefundAttribution,
+  effectiveCategoryId,
+  type TransactionRow,
+} from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { comparablePeriods, daysBetween } from "./periods.ts";
 
@@ -27,7 +32,14 @@ export type CompareResult = {
 
 export const FORMULA_VERSION = "compare.v1";
 
-function sumInPeriod(txs: TransactionRow[], metric: "expense" | "income", from: string, to: string, names: Map<string, string>) {
+function sumInPeriod(
+  txs: TransactionRow[],
+  metric: "expense" | "income",
+  from: string,
+  to: string,
+  names: Map<string, string>,
+  attribution: Map<string, string | null>,
+) {
   let total = 0;
   const byCat = new Map<string, number>();
   let rows = 0;
@@ -40,15 +52,20 @@ function sumInPeriod(txs: TransactionRow[], metric: "expense" | "income", from: 
     total += amt;
     rows += 1;
     daySet.add(d);
-    const cat = t.category_id ? (names.get(t.category_id) ?? "Sem categoria") : "Sem categoria";
+    // finance_truth.v1: nunca agrupar por category_id cru — o estorno pertence
+    // economicamente à categoria da despesa que ele devolve.
+    const effectiveId = effectiveCategoryId(t, attribution);
+    const cat = effectiveId ? (names.get(effectiveId) ?? "Sem categoria") : "Sem categoria";
     byCat.set(cat, (byCat.get(cat) ?? 0) + amt);
   }
   return { total, byCat, rows, days: daySet.size };
 }
 
 export function computeCompare(input: CompareInput): CompareResult {
-  const A = sumInPeriod(input.txs, input.metric, input.period_a.from, input.period_a.to, input.categoryNames);
-  const B = sumInPeriod(input.txs, input.metric, input.period_b.from, input.period_b.to, input.categoryNames);
+  const ledger = input.txs.filter((t) => String(t.status ?? "confirmed") !== "superseded");
+  const attribution = buildRefundAttribution(ledger);
+  const A = sumInPeriod(ledger, input.metric, input.period_a.from, input.period_a.to, input.categoryNames, attribution);
+  const B = sumInPeriod(ledger, input.metric, input.period_b.from, input.period_b.to, input.categoryNames, attribution);
 
   const cats = new Set<string>([...A.byCat.keys(), ...B.byCat.keys()]);
   const by_group = [...cats].map(name => {
