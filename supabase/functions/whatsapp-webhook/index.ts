@@ -647,6 +647,7 @@ Deno.serve(async (req) => {
         .update({ processed_at: new Date().toISOString(), ignored_reason: "orchestrator_error" })
         .eq("id", inbound_message_id).then(() => {}, () => {});
     } finally {
+      stopHints();
       triggerDispatcher();
     }
   };
