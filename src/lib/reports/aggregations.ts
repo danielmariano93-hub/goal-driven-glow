@@ -83,12 +83,39 @@ export function groupByMonth(txns: ReportTxn[]): MonthlyBucket[] {
   return [...map.values()].sort((a, b) => a.ym.localeCompare(b.ym));
 }
 
-export function byCategory(txns: ReportTxn[]): CategoryBucket[] {
+/**
+ * Ranking canônico por categoria (finance_truth.v1).
+ *
+ * O estorno vinculado abate a categoria da despesa ORIGINAL — nunca aparece
+ * como categoria "Estornos". `allTxns` é o histórico completo, porque a compra
+ * original pode estar fora do período filtrado.
+ */
+export function byCategory(txns: ReportTxn[], allTxns: ReportTxn[] = txns): CategoryBucket[] {
+  const universe = canonicalLedgerRows(allTxns);
+  const attribution = buildRefundAttribution(
+    universe.map((t) => ({
+      id: t.id ?? "",
+      category_id: t.category_id ?? null,
+      refund_of_transaction_id: t.refund_of_transaction_id ?? null,
+      movement_kind: t.movement_kind ?? null,
+    })) as unknown as TransactionRow[],
+  );
+  const nameById = new Map<string, string>();
+  for (const t of universe) {
+    if (t.category_id && t.category_name) nameById.set(t.category_id, t.category_name);
+  }
+
   const map = new Map<string, { total: number; count: number }>();
-  for (const t of txns) {
+  for (const t of canonicalLedgerRows(txns)) {
     const signed = behavioralMetricAmount(asCanonicalTransaction(t), "expense");
     if (signed === 0) continue;
-    const k = t.category_name || "Sem categoria";
+    const effectiveId = effectiveCategoryId(
+      { id: t.id ?? "", category_id: t.category_id ?? null } as TransactionRow,
+      attribution,
+    );
+    const k = effectiveId
+      ? (nameById.get(effectiveId) ?? t.category_name ?? "Sem categoria")
+      : "Sem categoria";
     const cur = map.get(k) ?? { total: 0, count: 0 };
     cur.total = round2(cur.total + signed);
     if (signed > 0) cur.count += 1;
@@ -107,6 +134,7 @@ export function byCategory(txns: ReportTxn[]): CategoryBucket[] {
     .sort((a, b) => b.total - a.total)
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
+
 
 const FLEXIBLE_CATEGORY_RX = /lazer|restaurante|delivery|bar|ifood|assinatura|streaming|vestu[aá]rio|beleza|outros|mercado|aliment[aá]ç[aã]o|transporte/i;
 const ESSENTIAL_CATEGORY_RX = /moradia|aluguel|condom[ií]nio|financiamento|d[ií]vida|empr[eé]stimo|sa[uú]de|seguro|educaç[aã]o|imposto|conta|energia|[aá]gua|internet/i;
