@@ -21,7 +21,7 @@ import {
   type CategoryRow,
   type TransactionRow,
 } from "./facts";
-import { canonicalMerchantKey, merchantLabel } from "./merchant";
+import { normalizeMerchant, merchantLabel } from "./merchant";
 
 export const FINANCE_TRUTH_VERSION = "finance_truth.v1";
 
