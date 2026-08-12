@@ -34,9 +34,9 @@ describe("finance_truth.v1 — atribuição de estorno", () => {
 
   it("byCategory retorna o valor líquido da categoria original", () => {
     const rows = byCategory([purchase, refund], [purchase, refund]);
-    const transporte = rows.find((r) => r.categoryId === "cat-transporte");
+    const transporte = rows.find((r) => r.category === "cat-transporte");
     expect(transporte?.total).toBeCloseTo(460.82, 2);
-    expect(rows.find((r) => r.categoryId === "cat-outros")).toBeUndefined();
+    expect(rows.find((r) => r.category === "cat-outros")).toBeUndefined();
   });
 });
 
@@ -57,7 +57,7 @@ describe("debt_status.v1", () => {
       today: "2026-08-12",
     });
     expect(out.facts.overdue_count).toBe(1);
-    expect(out.evidence[0]?.situation).toBe("em_atraso");
-    expect(out.evidence[0]?.days_overdue).toBeGreaterThan(0);
+    expect(out.breakdown[0]?.situation).toBe("em_atraso");
+    expect(out.breakdown[0]?.days_overdue).toBeGreaterThan(0);
   });
 });

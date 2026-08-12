@@ -43,7 +43,7 @@ export default function Dividas() {
     today: todayIso,
   });
   const statusByDebt = new Map<string, DebtStatusItem>(
-    debtStatus.evidence.map((item) => [item.debt_id, item]),
+    debtStatus.breakdown.map((item) => [item.debt_id, item]),
   );
 
   return (
