@@ -22,6 +22,8 @@ import {
   type TransactionRow,
 } from "./facts";
 import { normalizeMerchant, merchantLabel } from "./merchant";
+import type { EngineConfidence } from "./engineEnvelope";
+import type { PeriodRange } from "./bridges";
 
 export const FINANCE_TRUTH_VERSION = "finance_truth.v1";
 
@@ -37,7 +39,6 @@ export const TRANSACTION_FACT_SELECT =
 export const BANK_ANCHOR_SELECT =
   "account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta";
 
-export type EngineConfidence = "high" | "medium" | "low";
 
 export interface FactEvidence {
   engine: string;
@@ -96,11 +97,6 @@ export interface CanonicalComparison {
   drivers: CanonicalCategoryDriver[];
   merchant_drivers: Array<{ key: string; label: string; delta_abs: number; total_a: number; total_b: number }>;
   evidence: FactEvidence;
-}
-
-export interface PeriodRange {
-  start: string;
-  end: string;
 }
 
 function todayIso(): string {
