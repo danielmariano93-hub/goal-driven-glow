@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
-      sb.from("debts").select("id,outstanding_balance,status").eq("user_id", userId).eq("status", "active"),
+      sb.from("debts").select("id,name,creditor,outstanding_balance,status,installment_amount,due_day,first_due_date,start_date,installments_total,installments_paid,accounting_method").eq("user_id", userId).eq("status", "active"),
       sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
       sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", iso(cutoff30)),
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
@@ -68,9 +68,12 @@ Deno.serve(async (req) => {
       sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
       sb.from("credit_card_statements").select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date").eq("user_id", userId),
       sb.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,absorbed_by_statement_id").eq("user_id", userId),
+      sb.from("debt_payments").select("debt_id,paid_at,amount,installments_covered,principal_amount").eq("user_id", userId).gte("paid_at", iso(cutoff90)),
+      sb.from("pending_confirmations").select("id,status,created_at").eq("user_id", userId).eq("status", "pending"),
+      sb.from("category_spending_goals").select("id,monthly_limit,active").eq("user_id", userId).eq("active", true),
     ]);
 
-    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR,snapR,stmtR,instR]
+    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR,snapR,stmtR,instR,debtPayR,pendingR,catGoalsR]
       .map((r, index) => ({ index, error: r.error }))
       .find((r) => r.error);
     if (failedRead?.error) throw new Error(`pulse_read_${failedRead.index}: ${failedRead.error.message}`);
