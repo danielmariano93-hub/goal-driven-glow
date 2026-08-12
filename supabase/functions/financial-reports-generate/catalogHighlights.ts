@@ -87,7 +87,7 @@ export async function buildCatalogHighlights(
     const in7 = new Date(now.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
     const currentYM = ymOf(now);
 
-    const [cards, statements, installments, debts, rules, accounts] = await Promise.all([
+    const [cards, statements, installments, debts, rules, accounts, bankAnchors] = await Promise.all([
       sb.from("credit_cards").select("id,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("credit_card_statements")
         .select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date")
@@ -99,7 +99,8 @@ export async function buildCatalogHighlights(
       sb.from("recurring_rules")
         .select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,name")
         .eq("user_id", userId).eq("status", "active"),
-      sb.from("accounts").select("current_balance,active").eq("user_id", userId),
+      sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId),
+      sb.from("account_balance_snapshots").select(BANK_ANCHOR_SELECT).eq("user_id", userId),
     ]);
 
     const cardRows = (cards.data ?? []) as Array<{ id: string; closing_day?: number | null; due_day?: number | null }>;
@@ -148,11 +149,16 @@ export async function buildCatalogHighlights(
     const commitments7d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 7 });
     const commitments30d = computeCommitmentAgenda({ ...agendaBase, horizonDays: 30 });
 
+    // finance_truth.v1: caixa disponível vem da verdade bancária canônica
+    // (âncora `bank_confirmed` + movimentos), igual à Home, ao Assessor e ao MCP.
+    // Somar `accounts.current_balance` produzia um saldo paralelo.
     const availableToday = Number(
-      ((accounts.data ?? []) as Array<{ current_balance?: number | string; active?: boolean }>)
-        .filter((a) => a?.active !== false)
-        .reduce((acc, a) => acc + Number(a.current_balance ?? 0), 0)
-        .toFixed(2),
+      Object.values(computeAccountBalances(
+        (accounts.data ?? []) as never,
+        transactions,
+        (bankAnchors.data ?? []) as never,
+        { asOf: todayISO },
+      )).reduce((acc, value) => acc + Number(value || 0), 0).toFixed(2),
     );
 
     const subscriptionRules = ruleRows.filter((r) => r?.kind === "expense" && (r.frequency ?? "monthly") === "monthly");
