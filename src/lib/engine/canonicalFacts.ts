@@ -224,11 +224,11 @@ export function computeCanonicalCategoryFacts(
     } else {
       bucket.refunds = round2(bucket.refunds - signed);
     }
+    const descriptors = t as { merchant_name?: string | null; friendly_description?: string | null };
     const mKey = normalizeMerchant(
-      (t as { merchant_name?: string | null }).merchant_name
-        ?? t.friendly_description
-        ?? t.description,
+      descriptors.merchant_name ?? descriptors.friendly_description ?? t.description,
     );
+
     if (mKey) {
       const merchant = bucket.merchants.get(mKey)
         ?? { label: merchantLabel(mKey), net: 0, count: 0 };
