@@ -106,17 +106,35 @@ function dueDateOf(anchor: string, index: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function anchorFor(debt: DebtScheduleRow): string | null {
+/**
+ * Âncora da agenda (vencimento da 1ª parcela).
+ *
+ * Ordem de precedência:
+ *  1. `first_due_date` informado;
+ *  2. `start_date` + `due_day` (contrato com início conhecido);
+ *  3. apenas `due_day`: a agenda é DERIVADA do que o usuário declarou —
+ *     a parcela nº `covered + 1` é a que vence no `due_day` do ciclo corrente.
+ *     Sem isso, uma dívida cadastrada hoje com 18/35 pagas teria o próximo
+ *     vencimento projetado 18 meses à frente e nunca acusaria atraso.
+ */
+function anchorFor(debt: DebtScheduleRow, covered: number, today: string): string | null {
   if (debt.first_due_date) return debt.first_due_date.slice(0, 10);
   const day = Number(debt.due_day ?? 0);
-  if (!debt.start_date || !day) return null;
-  const start = debt.start_date.slice(0, 10);
-  const [y, m] = start.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
-  const anchorDay = Math.min(day, lastDay);
-  const candidate = `${y}-${String(m).padStart(2, "0")}-${String(anchorDay).padStart(2, "0")}`;
-  // Se o dia de vencimento já passou no mês de início, a 1ª parcela é no mês seguinte.
-  return candidate >= start ? candidate : dueDateOf(candidate, 2);
+  if (!day) return null;
+  if (debt.start_date) {
+    const start = debt.start_date.slice(0, 10);
+    const [y, m] = start.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
+    const anchorDay = Math.min(day, lastDay);
+    const candidate = `${y}-${String(m).padStart(2, "0")}-${String(anchorDay).padStart(2, "0")}`;
+    // Se o dia de vencimento já passou no mês de início, a 1ª parcela é no mês seguinte.
+    return candidate >= start ? candidate : dueDateOf(candidate, 2);
+  }
+  // Agenda derivada: ciclo corrente = due_day do mês de hoje.
+  const [ty, tm] = today.slice(0, 10).split("-").map(Number);
+  const lastDay = new Date(Date.UTC(ty ?? 1970, tm ?? 1, 0)).getUTCDate();
+  const cycleDue = `${ty}-${String(tm).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+  return dueDateOf(cycleDue, 1 - Math.max(0, covered));
 }
 
 function coveredInstallments(debt: DebtScheduleRow, payments: DebtPaymentRow[]): number {
@@ -164,7 +182,7 @@ function evaluateDebt(
     return { ...base, situation: "quitada", reason: "dívida encerrada ou saldo zerado" };
   }
 
-  const anchor = anchorFor(debt);
+  const anchor = anchorFor(debt, covered, today);
   if (!anchor || !installment || installment <= 0) {
     return base;
   }
@@ -238,7 +256,7 @@ export function computeDebtStatus(
   input: DebtStatusInput,
 ): EngineEnvelope<DebtStatusFacts, DebtStatusItem, DebtStatusItem> {
   const today = input.today.slice(0, 10);
-  const dueSoonDays = input.dueSoonDays ?? 5;
+  const dueSoonDays = input.dueSoonDays ?? 7;
   const paymentsByDebt = new Map<string, DebtPaymentRow[]>();
   for (const p of input.payments ?? []) {
     const list = paymentsByDebt.get(p.debt_id) ?? [];
@@ -306,4 +324,81 @@ export function computeDebtStatus(
     }),
     confidence,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Agenda de parcelas para a UI (mesmo contrato de âncora usado nos alertas).
+// ---------------------------------------------------------------------------
+
+export type DebtInstallmentState = "paga" | "vencida" | "proxima" | "a_vencer";
+
+export interface DebtInstallmentRow {
+  index: number;
+  due_date: string;
+  amount: number;
+  state: DebtInstallmentState;
+}
+
+export interface DebtScheduleView {
+  installments: DebtInstallmentRow[];
+  installments_paid: number;
+  installments_total: number | null;
+  paid_amount: number;
+  outstanding: number;
+  percent_paid: number;
+  payoff_date: string | null;
+  next_due_date: string | null;
+  overdue_count: number;
+  derived_schedule: boolean;
+  /** Marcos de gamificação já atingidos (25/50/75/100). */
+  milestones: number[];
+}
+
+export function buildDebtSchedule(
+  debt: DebtScheduleRow,
+  payments: DebtPaymentRow[],
+  today: string,
+): DebtScheduleView {
+  const day = today.slice(0, 10);
+  const covered = coveredInstallments(debt, payments);
+  const installment = debt.installment_amount == null ? null : round2(Number(debt.installment_amount));
+  const total = debt.installments_total == null ? null : Number(debt.installments_total);
+  const outstanding = round2(Number(debt.outstanding_balance ?? 0));
+  const contracted = round2(Number(debt.original_amount ?? 0));
+  const paidAmount = round2(Math.max(0, contracted - outstanding));
+  const percent = contracted > 0 ? Math.min(100, (paidAmount / contracted) * 100) : 0;
+  const anchor = installment && installment > 0 ? anchorFor(debt, covered, day) : null;
+
+  const rows: DebtInstallmentRow[] = [];
+  if (anchor && installment) {
+    const count = total ?? Math.max(covered + 12, 12);
+    for (let i = 1; i <= Math.min(count, 600); i += 1) {
+      const due = dueDateOf(anchor, i);
+      const state: DebtInstallmentState = i <= covered
+        ? "paga"
+        : due < day
+          ? "vencida"
+          : i === covered + 1
+            ? "proxima"
+            : "a_vencer";
+      rows.push({ index: i, due_date: due, amount: installment, state });
+    }
+  }
+
+  const pending = rows.filter((r) => r.state !== "paga");
+  const milestones = [25, 50, 75, 100].filter((m) => percent >= m);
+
+  return {
+    installments: rows,
+    installments_paid: covered,
+    installments_total: total,
+    paid_amount: paidAmount,
+    outstanding,
+    percent_paid: percent,
+    payoff_date: total && rows.length >= total ? rows[total - 1]!.due_date : null,
+    next_due_date: pending[0]?.due_date ?? null,
+    overdue_count: rows.filter((r) => r.state === "vencida").length,
+    derived_schedule: !debt.first_due_date && !debt.start_date && !!debt.due_day,
+    milestones,
+  };
 }

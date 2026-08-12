@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Plus, Trash2, Loader2, Pencil, AlertOctagon, CheckCircle2, Coins } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Plus, Trash2, Loader2, Pencil, AlertOctagon, CheckCircle2, Coins, ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAccounts,
@@ -13,7 +14,7 @@ import {
 import { debtSchema } from "@/lib/validation/finance";
 import { computeActiveDebtsTotal, formatBRL } from "@/lib/engine/facts";
 import { resolveDebtPlan } from "@/lib/finance/accounting";
-import { computeDebtStatus, type DebtScheduleRow, type DebtStatusItem } from "@/lib/engine/debtStatus";
+import { computeDebtStatus, buildDebtSchedule, type DebtScheduleRow, type DebtStatusItem } from "@/lib/engine/debtStatus";
 
 export default function Dividas() {
   const { data: items, isLoading } = useDebts();
@@ -25,6 +26,23 @@ export default function Dividas() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DebtRow | null>(null);
   const [paying, setPaying] = useState<DebtRow | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+
+  // CTA do Nino ("Registrar pagamento") chega com ?debt=<id>&action=pagar.
+  const focusDebtId = params.get("debt");
+  const focusAction = params.get("action");
+  useEffect(() => {
+    if (!focusDebtId || !items?.length) return;
+    const target = items.find((d) => d.id === focusDebtId);
+    if (!target) return;
+    setExpanded(target.id);
+    if (focusAction === "pagar") setPaying(target);
+    const next = new URLSearchParams(params);
+    next.delete("debt");
+    next.delete("action");
+    setParams(next, { replace: true });
+  }, [focusDebtId, focusAction, items, params, setParams]);
 
   // Fonte única (finance_contract.v2): total de dívidas ativas pelo core.
   const totalOutstanding = computeActiveDebtsTotal(items ?? []);
@@ -171,11 +189,20 @@ export default function Dividas() {
                     <div className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400 transition-all" style={{ width: `${progress}%` }} />
                   </div>
                 </div>
+                <DebtScheduleBlock
+                  debt={d}
+                  payments={debtPayments}
+                  today={todayIso}
+                  expanded={expanded === d.id}
+                  onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                  onPay={() => setPaying(d)}
+                />
               </li>
               );
             })}
           </ul>
         </>
+
       )}
 
       {paying && (
@@ -212,6 +239,107 @@ export default function Dividas() {
             )
           }
         />
+      )}
+    </div>
+  );
+}
+
+function DebtScheduleBlock({
+  debt,
+  payments,
+  today,
+  expanded,
+  onToggle,
+  onPay,
+}: {
+  debt: DebtRow;
+  payments: Array<{ debt_id: string; paid_at: string | null; amount: number | null; installments_covered?: number | null }>;
+  today: string;
+  expanded: boolean;
+  onToggle: () => void;
+  onPay: () => void;
+}) {
+  const schedule = buildDebtSchedule(
+    debt as unknown as DebtScheduleRow,
+    payments
+      .filter((p) => p.debt_id === debt.id)
+      .map((p) => ({
+        debt_id: p.debt_id,
+        paid_at: String(p.paid_at ?? "").slice(0, 10),
+        amount: Number(p.amount ?? 0),
+        installments_covered: p.installments_covered ?? null,
+      })),
+    today,
+  );
+
+  if (schedule.installments.length === 0) {
+    return (
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        Informe valor da parcela e dia de vencimento para o Nino acompanhar a agenda desta dívida.
+      </p>
+    );
+  }
+
+  const pending = schedule.installments.filter((i) => i.state !== "paga");
+  const visible = expanded ? schedule.installments : pending.slice(0, 3);
+  const fmtDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("pt-BR");
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold text-foreground">
+          Parcelas {schedule.installments_paid}
+          {schedule.installments_total ? `/${schedule.installments_total}` : ""} pagas
+          {schedule.overdue_count > 0 ? ` · ${schedule.overdue_count} em atraso` : ""}
+        </p>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="inline-flex min-h-11 items-center gap-1 text-[11px] font-semibold text-primary"
+          aria-expanded={expanded}
+        >
+          {expanded ? "Recolher" : "Ver todas"}
+          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        </button>
+      </div>
+
+      {schedule.milestones.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {schedule.milestones.map((m) => (
+            <span key={m} className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
+              <Trophy size={10} /> {m === 100 ? "Quitada" : `${m}% quitado`}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <ul className="mt-2 space-y-1">
+        {visible.map((i) => (
+          <li key={i.index} className="flex items-center justify-between gap-2 rounded-xl bg-secondary/40 px-2.5 py-1.5">
+            <span className="text-[11px] text-muted-foreground">
+              <span className="font-semibold text-foreground">{i.index}ª</span> · {fmtDate(i.due_date)} · {formatBRL(i.amount)}
+            </span>
+            {i.state === "paga" ? (
+              <span className="text-[10px] font-semibold text-success">Paga</span>
+            ) : i.state === "vencida" ? (
+              <button type="button" onClick={onPay} className="min-h-11 rounded-full bg-destructive/10 px-3 text-[10px] font-semibold text-destructive">
+                Vencida · registrar
+              </button>
+            ) : i.state === "proxima" ? (
+              <button type="button" onClick={onPay} className="min-h-11 rounded-full bg-primary/10 px-3 text-[10px] font-semibold text-primary">
+                Próxima · registrar
+              </button>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">A vencer</span>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {schedule.payoff_date && (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          Quitação prevista em {fmtDate(schedule.payoff_date)} · falta {formatBRL(schedule.outstanding)}
+        </p>
       )}
     </div>
   );

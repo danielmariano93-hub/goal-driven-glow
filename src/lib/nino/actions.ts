@@ -42,9 +42,15 @@ export function diagnosisRouteForSituation(
     const cardId = stringValue(evaluation.card_id);
     return cardId ? `/app/cartoes?card=${encodeURIComponent(cardId)}` : "/app/cartoes";
   }
+  if (situation.situation_type === "recurring_commitment_pressure") {
+    const debtId = stringValue(evaluation.debt_id);
+    return debtId ? `/app/dividas?debt=${encodeURIComponent(debtId)}&action=pagar` : "/app/dividas";
+  }
   if (situation.situation_type === "behavioral_pattern") {
+    if (evaluation.days_without_checkin != null) return "/app/emocoes?action=checkin";
     return situation.status === "observed" ? "/app/nino?section=aprendizados" : "/app/lancamentos";
   }
+
   if (situation.situation_type === "anticipation") return "/app/planejamento";
   if (situation.situation_type === "cash_flow_imbalance") return "/app/relatorios?foco=categorias&periodo=atual";
   if (situation.situation_type === "spending_pace_change") return "/app/relatorios";
