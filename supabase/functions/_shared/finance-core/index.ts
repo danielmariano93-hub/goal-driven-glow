@@ -2,6 +2,15 @@
 // Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
 export * from "./facts.ts";
+export * from "./engineEnvelope.ts";
+export * from "./merchant.ts";
+export * from "./merchantIntelligence.ts";
+export * from "./behaviorChange.ts";
+export * from "./recurringDiscovery.ts";
+export * from "./costStructure.ts";
+export * from "./anomalies.ts";
+export * from "./savingsOpportunities.ts";
+export * from "./financialEvolution.ts";
 export * from "./bridges.ts";
 export * from "./spendingRhythm.ts";
 export * from "./dailyAverage.ts";

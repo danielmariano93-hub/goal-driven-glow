@@ -20,6 +20,15 @@ import { resolve } from "node:path";
 
 export const FINANCE_CORE_MODULES = [
   "facts",
+  "engineEnvelope",
+  "merchant",
+  "merchantIntelligence",
+  "behaviorChange",
+  "recurringDiscovery",
+  "costStructure",
+  "anomalies",
+  "savingsOpportunities",
+  "financialEvolution",
   "bridges",
   "spendingRhythm",
   "dailyAverage",
@@ -53,15 +62,16 @@ const formatPrivateBRL = (n: number): string =>
 `;
 
 export function toEdgeSource(source) {
+  const relative = new RegExp(`from "\\./(${FINANCE_CORE_MODULES.join("|")})"`, "g");
   let out = source
-    .replace(/from "\.\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|incomeProjection|commitmentAgenda|metrics)"/g, 'from "./$1.ts"')
+    .replace(relative, 'from "./$1.ts"')
     .replace(/import \{ formatPrivateBRL \} from "\.\.\/privacy";\n/g, PRIVACY_SHIM);
   return HEADER + out;
 }
 
 export function toEdgeReportSource(source) {
   const out = source
-    .replace(/from "@\/lib\/engine\/(facts|bridges|spendingRhythm|dailyAverage|cardExposure|incomeProjection|commitmentAgenda|metrics)"/g, 'from "../finance-core/$1.ts"')
+    .replace(new RegExp(`from "@/lib/engine/(${FINANCE_CORE_MODULES.join("|")})"`, "g"), 'from "../finance-core/$1.ts"')
     .replace(/from "@\/lib\/copy\/(resultWording)"/g, 'from "../copy/$1.ts"')
     .replace(/from "\.\/(types|periods|engine|highlights|numericGuard|narrative)"/g, 'from "./$1.ts"');
   return HEADER + out;

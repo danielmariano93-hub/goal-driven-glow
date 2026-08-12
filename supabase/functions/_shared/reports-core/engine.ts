@@ -4,11 +4,14 @@
 // Todas as métricas derivam de finance_contract.v2 (src/lib/engine/facts).
 import {
   behavioralMetricAmount,
+  buildRefundAttribution,
   computeTotalCash,
   computeCreditCardOutstanding,
+  effectiveCategoryId,
   round2,
   type TransactionRow,
 } from "../finance-core/facts.ts";
+
 import { eachDay, resolvePeriods, shortDay, daysInPeriod } from "./periods.ts";
 import { detectHighlights, mergeHighlights } from "./highlights.ts";
 import {
@@ -45,6 +48,20 @@ function categoryNameOf(t: TransactionRow, names: Record<string, string>): strin
   return (id && names[id]) || "Sem categoria";
 }
 
+/**
+ * Nome de categoria já com estorno atribuído à categoria original
+ * (`finance_contract.v2`): um estorno abate a categoria que gerou o gasto,
+ * nunca cria uma categoria "Estornos" fantasma.
+ */
+function effectiveCategoryNameOf(
+  t: TransactionRow,
+  names: Record<string, string>,
+  attribution: ReturnType<typeof buildRefundAttribution>,
+): string {
+  const id = effectiveCategoryId(t, attribution) ?? "";
+  return (id && names[id]) || "Sem categoria";
+}
+
 function expenseOf(t: TransactionRow): number {
   return behavioralMetricAmount(t, "expense");
 }
@@ -63,11 +80,12 @@ function buildCategories(
   names: Record<string, string>,
   totalExpense: number,
 ): CategorySlice[] {
+  const attribution = buildRefundAttribution([...current, ...previous]);
   const cur = new Map<string, { total: number; count: number }>();
   for (const t of current) {
     const amount = expenseOf(t);
     if (amount === 0) continue;
-    const key = categoryNameOf(t, names);
+    const key = effectiveCategoryNameOf(t, names, attribution);
     const acc = cur.get(key) ?? { total: 0, count: 0 };
     acc.total = round2(acc.total + amount);
     if (amount > 0) acc.count += 1;
@@ -77,7 +95,7 @@ function buildCategories(
   for (const t of previous) {
     const amount = expenseOf(t);
     if (amount === 0) continue;
-    const key = categoryNameOf(t, names);
+    const key = effectiveCategoryNameOf(t, names, attribution);
     prev.set(key, round2((prev.get(key) ?? 0) + amount));
   }
   return [...cur.entries()]
@@ -97,6 +115,7 @@ function buildCategories(
 }
 
 function buildSeries(period: ReportPeriod, txns: TransactionRow[]): SeriesPoint[] {
+
   const byDay = new Map<string, { expense: number; income: number }>();
   for (const t of txns) {
     const acc = byDay.get(t.occurred_at) ?? { expense: 0, income: 0 };
