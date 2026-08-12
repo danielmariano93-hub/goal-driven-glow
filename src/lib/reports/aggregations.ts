@@ -113,9 +113,11 @@ export function byCategory(txns: ReportTxn[], allTxns: ReportTxn[] = txns): Cate
       { id: t.id ?? "", category_id: t.category_id ?? null } as TransactionRow,
       attribution,
     );
+    // Fontes sem `category_id` (exportações/legado) continuam agrupando pelo
+    // nome já resolvido na linha.
     const k = effectiveId
       ? (nameById.get(effectiveId) ?? t.category_name ?? "Sem categoria")
-      : "Sem categoria";
+      : (t.category_name ?? "Sem categoria");
     const cur = map.get(k) ?? { total: 0, count: 0 };
     cur.total = round2(cur.total + signed);
     if (signed > 0) cur.count += 1;
