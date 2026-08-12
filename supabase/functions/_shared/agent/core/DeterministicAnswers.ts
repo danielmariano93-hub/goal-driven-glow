@@ -120,6 +120,29 @@ export function formatSpendingForDate(result: any): string {
   return `Em ${result.date}, você gastou ${money(result.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}${excluded}`;
 }
 
+const CONFIDENCE_LABEL: Record<string, string> = {
+  high: "alta", medium: "média", low: "baixa", insufficient_data: "insuficiente",
+};
+
+export function formatForecastMonthClose(result: any): string {
+  const point = money(result.point);
+  const band = result.low != null && result.high != null
+    ? ` Faixa provável entre ${money(result.low)} e ${money(result.high)}.`
+    : "";
+  const drivers = result.drivers ?? {};
+  const lines = [
+    `Fechando ${String(result.month ?? "").replace("-", "/")}, a previsão de gasto total é ${point}.${band}`,
+    `O que compõe: ${money(drivers.mtd_expense)} já gastos em ${drivers.day_of_month} de ${drivers.days_in_month} dias, mais ${money(drivers.recurring_future)} de compromissos e fatura conhecidos, mais o consumo projetado do restante do mês.`,
+  ];
+  const provenance = result.provenance ?? {};
+  const confidence = CONFIDENCE_LABEL[String(provenance.confidence ?? "")] ?? "não informada";
+  const rows = provenance.row_count ?? provenance.sample_size;
+  lines.push(`Evidência: ${rows ?? 0} lançamentos do período, motor ${result.model_used}; confiança ${confidence}.`);
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  if (notes.length) lines.push(`Limitação: ${notes.join(" ")}`);
+  return lines.join("\n");
+}
+
 function failureReply(capability: CapabilityDecision, error: string | null): string {
   // Raw provider/database errors stay in telemetry and are never exposed to
   // the user. The response says what failed and whether data was changed.
@@ -137,6 +160,7 @@ function failureReply(capability: CapabilityDecision, error: string | null): str
   }
   return `Não consegui consultar seus dados financeiros agora. Nenhum dado foi alterado.${suffix}`;
 }
+
 
 export async function executeDeterministicCapability(
   sb: SupabaseClient,
@@ -156,9 +180,31 @@ export async function executeDeterministicCapability(
     duration_ms: execution.duration_ms, error: execution.error,
   };
   if (!execution.ok) {
+    // Degradação honesta: em vez de "problema técnico", o Nino entrega o que
+    // o snapshot canônico consegue provar e diz explicitamente o que faltou.
+    const calls = [call];
+    if (capability.required_tool !== "get_financial_snapshot") {
+      const degraded = await runTool({
+        sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text,
+      }, "get_financial_snapshot", {}, { timeoutMs: 12_000, maxRetries: 0 });
+      calls.push({
+        step_index: 2, tool_name: degraded.tool_name, args: degraded.args,
+        result: degraded.ok ? degraded.result : null, ok: degraded.ok,
+        duration_ms: degraded.duration_ms, error: degraded.error,
+      });
+      if (degraded.ok) {
+        return {
+          reply: [
+            formatFinancialSnapshot(degraded.result),
+            `Não consegui rodar o cálculo completo de ${capability.name} agora, então respondi com a base reconciliada acima. Nenhum dado foi alterado e o motivo técnico ficou registrado.`,
+          ].join("\n"),
+          steps: 2, tokensIn: 0, tokensOut: 0, toolCalls: calls, finish: "tool_error",
+        };
+      }
+    }
     return {
-      reply: failureReply(capability, execution.error), steps: 1, tokensIn: 0, tokensOut: 0,
-      toolCalls: [call], finish: "tool_error",
+      reply: failureReply(capability, execution.error), steps: calls.length, tokensIn: 0, tokensOut: 0,
+      toolCalls: calls, finish: "tool_error",
     };
   }
   let reply: string;
@@ -167,6 +213,8 @@ export async function executeDeterministicCapability(
   else if (capability.name === "before_spending") reply = formatBeforeSpending(execution.result);
   else if (capability.name === "recent_transactions") reply = formatRecentTransactions(execution.result as any[]);
   else if (capability.name === "weekday_literal") reply = formatSpendingForDate(execution.result);
+  else if (capability.name === "forecast_month_close") reply = formatForecastMonthClose(execution.result);
   else return null;
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }
+

@@ -236,7 +236,7 @@ export async function scanUser(
       body: insight.body,
       action: { ...(insight.action ?? {}), route: reviewRoute },
       evidence: insight.evidence,
-      channel_ready: insight.severity === "critical" ? "both" : "app",
+      channel_ready: "both", // política (severidade, catálogo, quiet hours) decide o canal
       dedup_key: insight.dedup_key,
       expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
     };

@@ -18,6 +18,7 @@ export type CapabilityName =
   | "transaction_management"
   | "visualization"
   | "financial_analysis"
+  | "forecast_month_close"
   | "money_leaks"
   | "debt_status"
   | "insights"
@@ -259,12 +260,24 @@ export function classifyCapability(
     };
   }
 
+  // Previsão/fechamento do mês tem UMA tool canônica. Sem rota obrigatória o
+  // modelo improvisava e, quando a tool falhava, virava desculpa genérica.
+  if (/\b(previsao|previsoes|prever|projecao|projetar|vou fechar|fecho o mes|fechar o mes|fechamento do mes|fim do mes|final do mes|termina o mes|quanto vou gastar (?:no|neste|esse|este) mes)\b/.test(t)) {
+    return {
+      name: "forecast_month_close", execution: "deterministic",
+      allowed_tools: ["forecast_month_close", "get_financial_snapshot"],
+      required_tool: "forecast_month_close", context: { metrics: true },
+      reason: "canonical_month_close_forecast",
+    };
+  }
+
   if (/\b(compare|comparar|comparacao|previsao|projecao|fechamento|por que|porque|mudou|aumentou|diminuiu|onde gasto mais)\b/.test(t)) {
     return {
       name: "financial_analysis", execution: "llm_scoped", allowed_tools: GROUPS.analysis,
       required_tool: null, context: { metrics: true }, reason: "financial_analysis_scoped",
     };
   }
+
 
   if (/\b(insight|dica|orientacao|sugestao|o que a ia acha|o que o nino acha)\b/.test(t)) {
     return {
