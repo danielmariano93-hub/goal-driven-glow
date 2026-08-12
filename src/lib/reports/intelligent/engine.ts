@@ -2,11 +2,14 @@
 // Todas as métricas derivam de finance_contract.v2 (src/lib/engine/facts).
 import {
   behavioralMetricAmount,
+  buildRefundAttribution,
   computeTotalCash,
   computeCreditCardOutstanding,
+  effectiveCategoryId,
   round2,
   type TransactionRow,
 } from "@/lib/engine/facts";
+
 import { eachDay, resolvePeriods, shortDay, daysInPeriod } from "./periods";
 import { detectHighlights, mergeHighlights } from "./highlights";
 import {
