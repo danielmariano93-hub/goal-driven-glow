@@ -125,16 +125,22 @@ export function computeCostStructure(
     });
   }
 
-  // Recorrências cadastradas que não caem em categoria estrutural entram como compromisso.
+  // Recorrências cadastradas entram como compromisso mensal equivalente.
+  const PER_MONTH: Record<RecurringRow["frequency"], number> = {
+    daily: 30,
+    weekly: 4.345,
+    monthly: 1,
+    yearly: 1 / 12,
+  };
   for (const r of input.recurring ?? []) {
-    if ((r.status ?? "active") !== "active") continue;
-    const amount = Number((r as unknown as { amount?: number }).amount ?? 0);
+    if (r.active === false) continue;
+    if (r.type !== "expense") continue;
+    const amount = Number(r.amount ?? 0);
     if (amount <= 0) continue;
-    const label = String((r as unknown as { description?: string }).description ?? "Recorrência");
     buckets.push({
-      key: `recorrencia:${label}`,
-      label,
-      monthly_amount: round2(amount),
+      key: `recorrencia:${r.id}`,
+      label: r.name || "Recorrência",
+      monthly_amount: round2(amount * (PER_MONTH[r.frequency] ?? 1)),
       source: "recorrencia",
       detail: "Recorrência cadastrada pelo usuário.",
     });
@@ -153,16 +159,17 @@ export function computeCostStructure(
 
   for (const d of input.debts ?? []) {
     if ((d.status ?? "active") !== "active") continue;
-    const installment = Number((d as unknown as { installment_amount?: number }).installment_amount ?? 0);
+    const installment = Number(d.installment_amount ?? 0);
     if (installment <= 0) continue;
     buckets.push({
-      key: `divida:${(d as unknown as { id?: string }).id ?? d.name}`,
-      label: String((d as unknown as { name?: string }).name ?? "Dívida"),
+      key: `divida:${d.id}`,
+      label: d.name || "Dívida",
       monthly_amount: round2(installment),
       source: "divida",
       detail: "Parcela mensal de dívida ativa.",
     });
   }
+
 
   // Estrutural = categorias estruturais observadas + compromissos declarados que
   // não estejam já dentro delas (assinaturas e dívidas entram uma única vez).
