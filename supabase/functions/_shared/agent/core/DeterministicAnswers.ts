@@ -122,26 +122,34 @@ export function formatSpendingForDate(result: any): string {
   return `Em ${result.date}, você gastou ${money(result.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}${excluded}`;
 }
 
-const CONFIDENCE_LABEL: Record<string, string> = {
-  high: "alta", medium: "média", low: "baixa", insufficient_data: "insuficiente",
+const CONFIDENCE_SENTENCE: Record<string, string> = {
+  high: "Tenho bastante histórico seu, então essa conta está bem firme.",
+  medium: "Ainda pode variar um pouco conforme o mês avança.",
+  low: "É uma estimativa inicial, com poucos dados até agora.",
+  insufficient_data: "Ainda estou aprendendo seu ritmo, então trate como um primeiro palpite.",
 };
 
 export function formatForecastMonthClose(result: any): string {
   const point = money(result.point);
-  const band = result.low != null && result.high != null
-    ? ` Faixa provável entre ${money(result.low)} e ${money(result.high)}.`
-    : "";
   const drivers = result.drivers ?? {};
   const lines = [
-    `Fechando ${String(result.month ?? "").replace("-", "/")}, a previsão de gasto total é ${point}.${band}`,
-    `O que compõe: ${money(drivers.mtd_expense)} já gastos em ${drivers.day_of_month} de ${drivers.days_in_month} dias, mais ${money(drivers.recurring_future)} de compromissos e fatura conhecidos, mais o consumo projetado do restante do mês.`,
+    `Fechando ${String(result.month ?? "").replace("-", "/")}, você deve gastar cerca de *${point}* 📊`,
   ];
+  if (result.low != null && result.high != null) {
+    lines.push(`Provavelmente entre ${money(result.low)} e ${money(result.high)}.`);
+  }
+  lines.push(
+    "",
+    `• Já gastos: ${money(drivers.mtd_expense)} (dia ${drivers.day_of_month} de ${drivers.days_in_month})`,
+    `• Já agendado até o fim do mês: ${money(drivers.recurring_future)}`,
+    `• O resto é o seu consumo do dia a dia, projetado`,
+  );
   const provenance = result.provenance ?? {};
-  const confidence = CONFIDENCE_LABEL[String(provenance.confidence ?? "")] ?? "não informada";
   const rows = provenance.row_count ?? provenance.sample_size;
-  lines.push(`Evidência: ${rows ?? 0} lançamentos do período, motor ${result.model_used}; confiança ${confidence}.`);
+  const confidence = CONFIDENCE_SENTENCE[String(provenance.confidence ?? "")] ?? "";
+  lines.push("", `Base: ${rows ?? 0} lançamentos seus.${confidence ? ` ${confidence}` : ""}`);
   const notes = Array.isArray(result.notes) ? result.notes : [];
-  if (notes.length) lines.push(`Limitação: ${notes.join(" ")}`);
+  if (notes.length) lines.push(`Vale saber: ${notes.join(" ")}`);
   return lines.join("\n");
 }
 
