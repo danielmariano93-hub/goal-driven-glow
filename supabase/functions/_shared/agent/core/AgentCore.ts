@@ -624,7 +624,7 @@ ${JSON.stringify(hints)}
     }, (m) => metrics.errors.push("persist:" + m), null);
   }
 
-  const body = validateReply(reply);
+  const body = humanizeReply(validateReply(reply));
   await timeStage(metrics, "persist", async () => {
     if (input.channel !== "app" && input.to_phone) {
       await enqueueReply(sb, {
