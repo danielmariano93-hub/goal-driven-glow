@@ -15,23 +15,25 @@ function money(value: unknown): string { return BRL.format(Number(value ?? 0)); 
 export function formatFinancialSnapshot(s: any): string {
   const paceDelta = Number(s.daily_pace ?? 0) - Number(s.typical_daily_pace ?? 0);
   const pace = paceDelta > 0.009
-    ? `${money(Math.abs(paceDelta))}/dia acima do seu ritmo típico`
+    ? `${money(Math.abs(paceDelta))}/dia acima do seu ritmo de sempre`
     : paceDelta < -0.009
-      ? `${money(Math.abs(paceDelta))}/dia abaixo do seu ritmo típico`
-      : "alinhado ao seu ritmo típico";
+      ? `${money(Math.abs(paceDelta))}/dia abaixo do seu ritmo de sempre`
+      : "no seu ritmo de sempre";
   const lines = [
-    `Hoje você tem ${money(s.available_today)} disponível.`,
-    `Neste mês: entradas ${money(s.current_month_income)} e gastos de consumo ${money(s.current_month_expense)}.`,
-    `Seu ritmo está em ${money(s.daily_pace)}/dia; o típico é ${money(s.typical_daily_pace)}/dia — ${pace}.`,
+    `Hoje você tem *${money(s.available_today)}* disponível 💛`,
+    "",
+    `• Entrou este mês: ${money(s.current_month_income)}`,
+    `• Você gastou: ${money(s.current_month_expense)}`,
+    `• Ritmo: ${money(s.daily_pace)}/dia — ${pace}`,
   ];
   if (Number(s.card_due_this_month ?? 0) > 0) {
-    lines.push(`Cartão a vencer na competência: ${money(s.card_due_this_month)}${s.card_due_estimated ? " (estimado pelas parcelas e compras conhecidas)" : " (fatura oficial)"}.`);
+    lines.push(`• Cartão a vencer: ${money(s.card_due_this_month)}${s.card_due_estimated ? " (estimativa pelas compras e parcelas já conhecidas)" : ""}`);
   }
   const otherDebt = Array.isArray(s.active_debts)
     ? s.active_debts.reduce((sum: number, debt: any) => sum + Number(debt.outstanding_balance ?? 0), 0)
     : 0;
-  if (otherDebt > 0) lines.push(`Dívidas ativas fora do cartão: ${money(otherDebt)}.`);
-  lines.push(`Considerando ${money(s.known_future_commitments)} de outros compromissos conhecidos, a projeção para o fim do mês é ${money(s.projected_month_end_available)}.`);
+  if (otherDebt > 0) lines.push(`• Dívidas em aberto: ${money(otherDebt)}`);
+  lines.push("", `Se nada mudar, você fecha o mês com cerca de *${money(s.projected_month_end_available)}* — já contando ${money(s.known_future_commitments)} de compromissos que estão na agenda.`);
   return lines.join("\n");
 }
 
