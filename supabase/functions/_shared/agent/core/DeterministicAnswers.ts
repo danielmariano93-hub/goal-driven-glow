@@ -100,7 +100,7 @@ export function formatBeforeSpending(result: any): string {
 
 export function formatRecentTransactions(rows: any[]): string {
   if (!rows.length) return "Ainda não há lançamentos registrados.";
-  return ["Seus últimos lançamentos:", ...rows.map((x) =>
+  return ["Seus últimos lançamentos 👇", ...rows.map((x) =>
     `• ${x.occurred_at} · ${x.type === "expense" ? "−" : "+"}${money(x.amount)}${x.description ? ` · ${x.description}` : ""}`,
   )].join("\n");
 }
@@ -110,14 +110,14 @@ export function formatSpendingForDate(result: any): string {
   if (count === 0) {
     const excluded = Number(result.excluded_low_confidence ?? 0);
     return excluded > 0
-      ? `Não encontrei gastos com data comportamental confiável em ${result.date}. Desconsiderei ${excluded} lançamento${excluded > 1 ? "s" : ""} que parecia${excluded > 1 ? "m" : ""} apenas postagem bancária.`
+      ? `Não encontrei gastos em ${result.date}. Deixei de fora ${excluded} lançamento${excluded > 1 ? "s" : ""} que o banco registrou em outro dia.`
       : `Não encontrei gastos de consumo em ${result.date}.`;
   }
   const top = Array.isArray(result.categories) && result.categories[0]
     ? ` A maior categoria foi ${result.categories[0].name}, com ${money(result.categories[0].value)}.`
     : "";
   const excluded = Number(result.excluded_low_confidence ?? 0) > 0
-    ? ` Desconsiderei ${result.excluded_low_confidence} postagem de baixa confiança para não atribuir ao dia errado.`
+    ? ` Deixei de fora ${result.excluded_low_confidence} lançamento que o banco registrou em outro dia.`
     : "";
   return `Em ${result.date}, você gastou ${money(result.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}${excluded}`;
 }
@@ -156,19 +156,19 @@ export function formatForecastMonthClose(result: any): string {
 function failureReply(capability: CapabilityDecision, error: string | null): string {
   // Raw provider/database errors stay in telemetry and are never exposed to
   // the user. The response says what failed and whether data was changed.
-  const suffix = error ? " O motivo técnico foi registrado para diagnóstico." : "";
+  const suffix = error ? " Já registrei aqui para eu resolver." : "";
   if (capability.name === "before_spending") {
     if (error === "missing_planned_date") return "Preciso da data do gasto para calcular o caixa e a competência corretamente. Nenhum dado foi alterado.";
     if (error === "planned_date_in_past") return "Essa data já passou. Diga uma data de hoje em diante para eu simular sem misturar previsão com histórico; nenhum dado foi alterado.";
     if (error === "category_not_found") return "Não reconheci essa categoria entre as suas categorias cadastradas. Diga o nome como aparece no app; nenhum dado foi alterado.";
     if (error === "card_ambiguous" || error === "card_not_found") return "Preciso saber qual cartão usar para calcular o ciclo e o vencimento corretos. Nenhum dado foi alterado.";
     if (error === "account_not_found") return "Não reconheci a conta informada. Diga o nome como aparece no app; nenhum dado foi alterado.";
-    return `Não consegui consultar o motor financeiro para concluir a simulação. Nenhum dado foi alterado.${suffix}`;
+    return `Não consegui concluir a simulação agora. Nenhum dado foi alterado.${suffix}`;
   }
   if (capability.name === "goals_overview") {
     return `Não consegui carregar suas metas agora. Nenhuma meta foi alterada.${suffix}`;
   }
-  return `Não consegui consultar seus dados financeiros agora. Nenhum dado foi alterado.${suffix}`;
+  return `Não consegui olhar seus dados agora. Nenhum dado foi alterado.${suffix}`;
 }
 
 
@@ -206,7 +206,7 @@ export async function executeDeterministicCapability(
         return {
           reply: [
             formatFinancialSnapshot(degraded.result),
-            `Não consegui rodar o cálculo completo de ${capability.name} agora, então respondi com a base reconciliada acima. Nenhum dado foi alterado e o motivo técnico ficou registrado.`,
+            `Essa parte mais detalhada não veio agora, então te trouxe o essencial acima. Nada foi alterado nos seus dados.`,
           ].join("\n"),
           steps: 2, tokensIn: 0, tokensOut: 0, toolCalls: calls, finish: "tool_error",
         };
