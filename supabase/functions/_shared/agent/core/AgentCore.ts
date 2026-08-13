@@ -34,6 +34,7 @@ import { asEvidence } from "../../intelligence/evidence.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
+import { humanizeReply } from "./ReplyHumanizer.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -623,7 +624,7 @@ ${JSON.stringify(hints)}
     }, (m) => metrics.errors.push("persist:" + m), null);
   }
 
-  const body = validateReply(reply);
+  const body = humanizeReply(validateReply(reply));
   await timeStage(metrics, "persist", async () => {
     if (input.channel !== "app" && input.to_phone) {
       await enqueueReply(sb, {

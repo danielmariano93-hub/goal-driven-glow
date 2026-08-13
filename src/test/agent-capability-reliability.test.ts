@@ -97,7 +97,7 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
       projected_month_end_available: 200, cards_owed_estimated: false,
     });
     expect(reply).toContain("R$ 10,00/dia acima");
-    expect(reply).toContain("R$ 250,00 de outros compromissos");
+    expect(reply).toContain("250,00 de compromissos");
   });
 
   it("inclui metas pessoais, de categoria e conjuntas no mesmo overview", () => {

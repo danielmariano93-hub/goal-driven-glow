@@ -27,14 +27,32 @@ function stripInternalNames(text: string): string {
     .replace(/;\s*\./g, ".");
 }
 
-/** Espaçamento leve: linhas curtas, sem blocos de texto colados. */
+/** Normaliza markdown para o WhatsApp: `**x**` → `*x*`, `* item` / `- item`
+ *  viram bullets `•`, e o feio `* *item*:` deixa de existir. */
+function normalizeMarkdown(line: string): string {
+  let out = line.replace(/\*\*(.+?)\*\*/g, "*$1*");
+  out = out.replace(/^\s*[*-]\s+/, "• ");
+  // "• *uber*:" → "• *uber*:" ok; "• * *uber*" → "• *uber*"
+  out = out.replace(/^•\s*\*\s+\*/, "• *");
+  out = out.replace(/^#{1,6}\s*/, "");
+  return out;
+}
+
+/** Espaçamento leve: linhas curtas, bullets limpos, uma linha em branco antes
+ *  do primeiro item de uma lista. */
 function lightenLayout(text: string): string {
-  return text
+  const lines = text
     .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, ""))
-    .filter((line, index, all) => !(line === "" && all[index - 1] === ""))
-    .join("\n")
-    .trim();
+    .map((line) => normalizeMarkdown(line).replace(/[ \t]+$/g, ""))
+    .filter((line, index, all) => !(line === "" && all[index - 1] === ""));
+  const out: string[] = [];
+  for (const line of lines) {
+    const isBullet = line.startsWith("• ");
+    const prev = out[out.length - 1] ?? "";
+    if (isBullet && prev && !prev.startsWith("• ")) out.push("");
+    out.push(line);
+  }
+  return out.join("\n").trim();
 }
 
 export function humanizeReply(raw: string | null | undefined): string {

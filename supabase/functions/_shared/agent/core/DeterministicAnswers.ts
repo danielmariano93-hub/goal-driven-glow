@@ -15,23 +15,25 @@ function money(value: unknown): string { return BRL.format(Number(value ?? 0)); 
 export function formatFinancialSnapshot(s: any): string {
   const paceDelta = Number(s.daily_pace ?? 0) - Number(s.typical_daily_pace ?? 0);
   const pace = paceDelta > 0.009
-    ? `${money(Math.abs(paceDelta))}/dia acima do seu ritmo típico`
+    ? `${money(Math.abs(paceDelta))}/dia acima do seu ritmo de sempre`
     : paceDelta < -0.009
-      ? `${money(Math.abs(paceDelta))}/dia abaixo do seu ritmo típico`
-      : "alinhado ao seu ritmo típico";
+      ? `${money(Math.abs(paceDelta))}/dia abaixo do seu ritmo de sempre`
+      : "no seu ritmo de sempre";
   const lines = [
-    `Hoje você tem ${money(s.available_today)} disponível.`,
-    `Neste mês: entradas ${money(s.current_month_income)} e gastos de consumo ${money(s.current_month_expense)}.`,
-    `Seu ritmo está em ${money(s.daily_pace)}/dia; o típico é ${money(s.typical_daily_pace)}/dia — ${pace}.`,
+    `Hoje você tem *${money(s.available_today)}* disponível 💛`,
+    "",
+    `• Entrou este mês: ${money(s.current_month_income)}`,
+    `• Você gastou: ${money(s.current_month_expense)}`,
+    `• Ritmo: ${money(s.daily_pace)}/dia — ${pace}`,
   ];
   if (Number(s.card_due_this_month ?? 0) > 0) {
-    lines.push(`Cartão a vencer na competência: ${money(s.card_due_this_month)}${s.card_due_estimated ? " (estimado pelas parcelas e compras conhecidas)" : " (fatura oficial)"}.`);
+    lines.push(`• Cartão a vencer: ${money(s.card_due_this_month)}${s.card_due_estimated ? " (estimativa pelas compras e parcelas já conhecidas)" : ""}`);
   }
   const otherDebt = Array.isArray(s.active_debts)
     ? s.active_debts.reduce((sum: number, debt: any) => sum + Number(debt.outstanding_balance ?? 0), 0)
     : 0;
-  if (otherDebt > 0) lines.push(`Dívidas ativas fora do cartão: ${money(otherDebt)}.`);
-  lines.push(`Considerando ${money(s.known_future_commitments)} de outros compromissos conhecidos, a projeção para o fim do mês é ${money(s.projected_month_end_available)}.`);
+  if (otherDebt > 0) lines.push(`• Dívidas em aberto: ${money(otherDebt)}`);
+  lines.push("", `Se nada mudar, você fecha o mês com cerca de *${money(s.projected_month_end_available)}* — já contando ${money(s.known_future_commitments)} de compromissos que estão na agenda.`);
   return lines.join("\n");
 }
 
@@ -98,7 +100,7 @@ export function formatBeforeSpending(result: any): string {
 
 export function formatRecentTransactions(rows: any[]): string {
   if (!rows.length) return "Ainda não há lançamentos registrados.";
-  return ["Seus últimos lançamentos:", ...rows.map((x) =>
+  return ["Seus últimos lançamentos 👇", ...rows.map((x) =>
     `• ${x.occurred_at} · ${x.type === "expense" ? "−" : "+"}${money(x.amount)}${x.description ? ` · ${x.description}` : ""}`,
   )].join("\n");
 }
@@ -108,57 +110,65 @@ export function formatSpendingForDate(result: any): string {
   if (count === 0) {
     const excluded = Number(result.excluded_low_confidence ?? 0);
     return excluded > 0
-      ? `Não encontrei gastos com data comportamental confiável em ${result.date}. Desconsiderei ${excluded} lançamento${excluded > 1 ? "s" : ""} que parecia${excluded > 1 ? "m" : ""} apenas postagem bancária.`
+      ? `Não encontrei gastos em ${result.date}. Deixei de fora ${excluded} lançamento${excluded > 1 ? "s" : ""} que o banco registrou em outro dia.`
       : `Não encontrei gastos de consumo em ${result.date}.`;
   }
   const top = Array.isArray(result.categories) && result.categories[0]
     ? ` A maior categoria foi ${result.categories[0].name}, com ${money(result.categories[0].value)}.`
     : "";
   const excluded = Number(result.excluded_low_confidence ?? 0) > 0
-    ? ` Desconsiderei ${result.excluded_low_confidence} postagem de baixa confiança para não atribuir ao dia errado.`
+    ? ` Deixei de fora ${result.excluded_low_confidence} lançamento que o banco registrou em outro dia.`
     : "";
   return `Em ${result.date}, você gastou ${money(result.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}${excluded}`;
 }
 
-const CONFIDENCE_LABEL: Record<string, string> = {
-  high: "alta", medium: "média", low: "baixa", insufficient_data: "insuficiente",
+const CONFIDENCE_SENTENCE: Record<string, string> = {
+  high: "Tenho bastante histórico seu, então essa conta está bem firme.",
+  medium: "Ainda pode variar um pouco conforme o mês avança.",
+  low: "É uma estimativa inicial, com poucos dados até agora.",
+  insufficient_data: "Ainda estou aprendendo seu ritmo, então trate como um primeiro palpite.",
 };
 
 export function formatForecastMonthClose(result: any): string {
   const point = money(result.point);
-  const band = result.low != null && result.high != null
-    ? ` Faixa provável entre ${money(result.low)} e ${money(result.high)}.`
-    : "";
   const drivers = result.drivers ?? {};
   const lines = [
-    `Fechando ${String(result.month ?? "").replace("-", "/")}, a previsão de gasto total é ${point}.${band}`,
-    `O que compõe: ${money(drivers.mtd_expense)} já gastos em ${drivers.day_of_month} de ${drivers.days_in_month} dias, mais ${money(drivers.recurring_future)} de compromissos e fatura conhecidos, mais o consumo projetado do restante do mês.`,
+    `Fechando ${String(result.month ?? "").replace("-", "/")}, você deve gastar cerca de *${point}* 📊`,
   ];
+  if (result.low != null && result.high != null) {
+    lines.push(`Provavelmente entre ${money(result.low)} e ${money(result.high)}.`);
+  }
+  lines.push(
+    "",
+    `• Já gastos: ${money(drivers.mtd_expense)} (dia ${drivers.day_of_month} de ${drivers.days_in_month})`,
+    `• Já agendado até o fim do mês: ${money(drivers.recurring_future)}`,
+    `• O resto é o seu consumo do dia a dia, projetado`,
+  );
   const provenance = result.provenance ?? {};
-  const confidence = CONFIDENCE_LABEL[String(provenance.confidence ?? "")] ?? "não informada";
   const rows = provenance.row_count ?? provenance.sample_size;
-  lines.push(`Evidência: ${rows ?? 0} lançamentos do período, motor ${result.model_used}; confiança ${confidence}.`);
+  const confidence = CONFIDENCE_SENTENCE[String(provenance.confidence ?? "")] ?? "";
+  lines.push("", `Base: ${rows ?? 0} lançamentos seus.${confidence ? ` ${confidence}` : ""}`);
   const notes = Array.isArray(result.notes) ? result.notes : [];
-  if (notes.length) lines.push(`Limitação: ${notes.join(" ")}`);
+  if (notes.length) lines.push(`Vale saber: ${notes.join(" ")}`);
   return lines.join("\n");
 }
 
 function failureReply(capability: CapabilityDecision, error: string | null): string {
   // Raw provider/database errors stay in telemetry and are never exposed to
   // the user. The response says what failed and whether data was changed.
-  const suffix = error ? " O motivo técnico foi registrado para diagnóstico." : "";
+  const suffix = error ? " Já registrei aqui para eu resolver." : "";
   if (capability.name === "before_spending") {
     if (error === "missing_planned_date") return "Preciso da data do gasto para calcular o caixa e a competência corretamente. Nenhum dado foi alterado.";
     if (error === "planned_date_in_past") return "Essa data já passou. Diga uma data de hoje em diante para eu simular sem misturar previsão com histórico; nenhum dado foi alterado.";
     if (error === "category_not_found") return "Não reconheci essa categoria entre as suas categorias cadastradas. Diga o nome como aparece no app; nenhum dado foi alterado.";
     if (error === "card_ambiguous" || error === "card_not_found") return "Preciso saber qual cartão usar para calcular o ciclo e o vencimento corretos. Nenhum dado foi alterado.";
     if (error === "account_not_found") return "Não reconheci a conta informada. Diga o nome como aparece no app; nenhum dado foi alterado.";
-    return `Não consegui consultar o motor financeiro para concluir a simulação. Nenhum dado foi alterado.${suffix}`;
+    return `Não consegui concluir a simulação agora. Nenhum dado foi alterado.${suffix}`;
   }
   if (capability.name === "goals_overview") {
     return `Não consegui carregar suas metas agora. Nenhuma meta foi alterada.${suffix}`;
   }
-  return `Não consegui consultar seus dados financeiros agora. Nenhum dado foi alterado.${suffix}`;
+  return `Não consegui olhar seus dados agora. Nenhum dado foi alterado.${suffix}`;
 }
 
 
@@ -196,7 +206,7 @@ export async function executeDeterministicCapability(
         return {
           reply: [
             formatFinancialSnapshot(degraded.result),
-            `Não consegui rodar o cálculo completo de ${capability.name} agora, então respondi com a base reconciliada acima. Nenhum dado foi alterado e o motivo técnico ficou registrado.`,
+            `Essa parte mais detalhada não veio agora, então te trouxe o essencial acima. Nada foi alterado nos seus dados.`,
           ].join("\n"),
           steps: 2, tokensIn: 0, tokensOut: 0, toolCalls: calls, finish: "tool_error",
         };
