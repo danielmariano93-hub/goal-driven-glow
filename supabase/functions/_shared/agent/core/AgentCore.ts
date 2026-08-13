@@ -34,6 +34,7 @@ import { asEvidence } from "../../intelligence/evidence.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
+import { humanizeReply } from "./ReplyHumanizer.ts";
 
 export type HandleTurnInput = {
   user_id: string;
