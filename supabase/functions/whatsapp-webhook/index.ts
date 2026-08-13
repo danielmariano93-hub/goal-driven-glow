@@ -634,15 +634,22 @@ Deno.serve(async (req) => {
         inbound_message_id, provider_message_id: evt.provider_message_id,
         session: getSessionName(), error_code: sanitized,
       });
-      const idem = `orch-err:${inbound_message_id}`;
-      await sb.from("outbound_messages").insert({
-        user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
-        channel: "whatsapp",
-        idempotency_key: idem,
-        inbound_message_id,
-        status: "queued",
-        body: FRIENDLY_ORCHESTRATOR_ERROR,
-      }).then(() => {}, () => {});
+      // Nunca duas mensagens para o mesmo inbound: se o turno já enfileirou
+      // uma resposta válida antes de estourar (persistência, telemetria etc.),
+      // o usuário recebe só ela — o aviso de falha é suprimido.
+      const { data: alreadyQueued } = await sb.from("outbound_messages")
+        .select("id").eq("inbound_message_id", inbound_message_id).limit(1).maybeSingle();
+      if (!(alreadyQueued as any)?.id) {
+        const idem = `orch-err:${inbound_message_id}`;
+        await sb.from("outbound_messages").insert({
+          user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
+          channel: "whatsapp",
+          idempotency_key: idem,
+          inbound_message_id,
+          status: "queued",
+          body: FRIENDLY_ORCHESTRATOR_ERROR,
+        }).then(() => {}, () => {});
+      }
       await sb.from("inbound_messages")
         .update({ processed_at: new Date().toISOString(), ignored_reason: "orchestrator_error" })
         .eq("id", inbound_message_id).then(() => {}, () => {});
