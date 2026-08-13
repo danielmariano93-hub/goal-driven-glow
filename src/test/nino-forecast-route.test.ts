@@ -28,6 +28,6 @@ describe("Nino — previsão de fechamento", () => {
     expect(reply).toContain("4.200,50");
     expect(reply).toContain("3.900,00");
     expect(reply).toContain("88 lançamentos");
-    expect(reply).toContain("confiança média");
+    expect(reply).not.toMatch(/confiança|contract|v8/i);
   });
 });
