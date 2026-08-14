@@ -17,22 +17,6 @@ export type CommunicationPreferences = {
   anticipation_kinds?: string[] | null;
 };
 
-/** Catálogo autorizado de comunicações por WhatsApp. Nada fora desta lista é enfileirado. */
-export const WHATSAPP_ALLOWED_KINDS = new Set([
-  "card_cycle_acceleration",
-  "expected_recurring_payment",
-  "month_phase_spending_risk",
-  "small_spend_acceleration",
-  "upcoming_cash_pressure",
-  "weekday_spending_risk",
-  "weekend_spending_risk",
-  "emotional_checkin_due",
-  "duplicate_expense",
-  "spending_spike",
-  "goal_at_risk",
-  "forgotten_bill",
-]);
-
 /** Tipos originados do motor de antecipação (exigem consentimento específico). */
 export const ANTICIPATION_KINDS = new Set([
   "card_cycle_acceleration",
@@ -148,12 +132,9 @@ export function decideCommunication(args: {
   const muted = new Set(preferences.muted_proactive_kinds ?? []);
 
 
-  if (candidate.channel_ready !== "both" && candidate.channel_ready !== target) {
-    return { allowed: false, reason: "channel_not_ready", channel: target, priority: 0 };
-  }
-  if (target === "whatsapp" && !WHATSAPP_ALLOWED_KINDS.has(candidate.kind)) {
-    return { allowed: false, reason: "kind_not_in_whatsapp_catalog", channel: target, priority: 0 };
-  }
+  // Elegibilidade de canal e severidade pertence ao communication_catalog,
+  // aplicado pelo dispatcher antes desta política. `channel_ready` permanece
+  // apenas como metadado de compatibilidade para sugestões históricas.
   if (ANTICIPATION_KINDS.has(candidate.kind)) {
     if (preferences.anticipation_enabled === false) {
       return { allowed: false, reason: "anticipation_opt_out", channel: target, priority: 0 };

@@ -32,13 +32,13 @@ describe("communicationPolicy", () => {
     expect(d.reason).toBe("eligible");
   });
 
-  it("bloqueia canal não pronto", () => {
+  it("delega ao catálogo a elegibilidade de canal", () => {
     const d = decideCommunication({
       candidate: { ...baseCandidate, channel_ready: "app" },
       target: "whatsapp", preferences: prefs, history: [], now,
     });
-    expect(d.allowed).toBe(false);
-    expect(d.reason).toBe("channel_not_ready");
+    expect(d.allowed).toBe(true);
+    expect(d.reason).toBe("eligible");
   });
 
   it("respeita opt-out granular de WhatsApp", () => {

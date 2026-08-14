@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decideCommunication, WHATSAPP_ALLOWED_KINDS, type CommunicationPreferences } from "../../supabase/functions/_shared/intelligence/communicationPolicy.ts";
+import { decideCommunication, type CommunicationPreferences } from "../../supabase/functions/_shared/intelligence/communicationPolicy.ts";
+import { catalogAllowsChannel, resolveSuggestionDispatchState } from "../../supabase/functions/_shared/agent/core/CommunicationDispatcherV3.ts";
 
 const prefs: CommunicationPreferences = {
   proactive_financial: true,
@@ -31,17 +32,30 @@ function candidate(over: Partial<Parameters<typeof decideCommunication>[0]["cand
 const now = new Date("2026-08-06T15:00:00-03:00");
 
 describe("catálogo autorizado de WhatsApp", () => {
-  it("permite apenas os tipos do catálogo", () => {
-    for (const kind of WHATSAPP_ALLOWED_KINDS) {
-      const d = decideCommunication({ candidate: candidate({ kind }), target: "whatsapp", preferences: prefs, history: [], now });
-      expect(d.reason, kind).not.toBe("kind_not_in_whatsapp_catalog");
-    }
+  it("usa o catálogo como fonte única para o canal", () => {
+    expect(catalogAllowsChannel({
+      kind: "debt_overdue", active: true, allowed_channels: ["app", "whatsapp"],
+      default_channels: ["app", "whatsapp"], requires_manual_approval: false,
+      min_severity_for_whatsapp: "attention",
+    }, "whatsapp", "attention").ok).toBe(true);
   });
 
-  it("bloqueia tipo fora do catálogo", () => {
-    const d = decideCommunication({ candidate: candidate({ kind: "novo_tipo_qualquer" }), target: "whatsapp", preferences: prefs, history: [], now });
-    expect(d.allowed).toBe(false);
-    expect(d.reason).toBe("kind_not_in_whatsapp_catalog");
+  it("bloqueia WhatsApp quando o catálogo não habilita o canal", () => {
+    const gate = catalogAllowsChannel({
+      kind: "editorial", active: true, allowed_channels: ["app"],
+      default_channels: ["app"], requires_manual_approval: false,
+      min_severity_for_whatsapp: "attention",
+    }, "whatsapp", "attention");
+    expect(gate.ok).toBe(false);
+    expect(gate.reason).toBe("channel_disabled_in_catalog");
+  });
+
+  it("mantém pendente o WhatsApp adiado mesmo após entrega no app", () => {
+    expect(resolveSuggestionDispatchState({
+      anyQueued: true,
+      deferUntil: "2026-08-07T11:00:00.000Z",
+      awaitingApproval: false,
+    })).toBe("deferred");
   });
 
   it("respeita consentimento de antecipação", () => {
