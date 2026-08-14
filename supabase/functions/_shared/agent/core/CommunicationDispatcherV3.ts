@@ -17,6 +17,24 @@ export type DispatchOutcome = {
   body?: string;
 };
 
+export type SuggestionDispatchState = "dispatched" | "deferred" | "awaiting_approval" | "dismissed";
+
+/**
+ * Um adiamento de qualquer canal tem precedência sobre uma entrega parcial.
+ * Assim, uma notificação criada no app durante o horário silencioso não faz o
+ * alerta de WhatsApp desaparecer: a sugestão volta depois para concluir o canal.
+ */
+export function resolveSuggestionDispatchState(args: {
+  anyQueued: boolean;
+  deferUntil: string | null;
+  awaitingApproval: boolean;
+}): SuggestionDispatchState {
+  if (args.deferUntil) return "deferred";
+  if (args.anyQueued) return "dispatched";
+  if (args.awaitingApproval) return "awaiting_approval";
+  return "dismissed";
+}
+
 type CatalogEntry = {
   kind: string;
   active: boolean;
@@ -259,15 +277,8 @@ export async function dispatchSuggestions(
         ? "awaiting_manual_approval"
         : null;
       if (gate) {
-        // Canal desligado por rollout/catálogo é configuração intencional, não
-        // bloqueio de política: não vira "mensagem bloqueada" no painel.
-        const configuredOff = gate === "rollout_channel_disabled"
-          || gate === "kind_disabled_in_catalog"
-          || gate === "channel_disabled_in_catalog"
-          || gate === "severity_below_whatsapp_threshold"
-          || gate === "sensitive_kind_app_only";
         if (gate === "awaiting_manual_approval") awaitingApproval = true;
-        if (!dryRun && !configuredOff) {
+        if (!dryRun) {
           await record(sb, {
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "suppressed", reason: gate, dedup_key: candidate.dedup_key,
@@ -403,13 +414,7 @@ export async function dispatchSuggestions(
 
     if (!dryRun) {
       // Adiada ≠ descartada ≠ aguardando aprovação: cada estado tem retorno próprio.
-      const nextStatus = anyQueued
-        ? "dispatched"
-        : deferUntil
-        ? "deferred"
-        : awaitingApproval
-        ? "awaiting_approval"
-        : "dismissed";
+      const nextStatus = resolveSuggestionDispatchState({ anyQueued, deferUntil, awaitingApproval });
       await sb.from("pending_proactive_suggestions").update({
         status: nextStatus,
         dispatched_at: anyQueued ? new Date().toISOString() : null,
