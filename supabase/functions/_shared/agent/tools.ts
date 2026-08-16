@@ -787,6 +787,22 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
     }, String((pending as any).id));
   }
 
+  // Auto-aprendizado: correção de categoria feita pelo usuário passa a valer
+  // para o mesmo estabelecimento nas próximas vezes.
+  if (!result.idempotent && (pending as any).kind === "transaction_update") {
+    const payload = ((pending as any).payload ?? {}) as any;
+    const newCategoryId = payload?.patch?.category_id ?? null;
+    if (newCategoryId && payload?.transaction_id) {
+      try {
+        await ctx.sb.rpc("agent_learn_merchant_category", {
+          p_user_id: ctx.user_id,
+          p_transaction_id: payload.transaction_id,
+          p_category_id: newCategoryId,
+        });
+      } catch (_e) { /* aprendizado nunca quebra a confirmação */ }
+    }
+  }
+
   return {
     ok: true,
     result: {
