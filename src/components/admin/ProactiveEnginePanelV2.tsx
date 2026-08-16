@@ -72,9 +72,9 @@ function readableReason(reason: string | null): string {
   return reason ? dict.commReason(reason) : "Sem motivo registrado";
 }
 
-export type CommSection = "engine" | "simulation" | "queue" | "catalog" | "templates";
+export type CommSection = "engine" | "simulation" | "queue" | "effectiveness" | "catalog" | "templates";
 
-const ALL_SECTIONS: CommSection[] = ["engine", "simulation", "queue", "catalog", "templates"];
+const ALL_SECTIONS: CommSection[] = ["engine", "simulation", "queue", "effectiveness", "catalog", "templates"];
 
 export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] } = {}) {
   const visible = new Set(sections ?? ALL_SECTIONS);
