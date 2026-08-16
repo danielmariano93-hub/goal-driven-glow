@@ -406,7 +406,7 @@ export async function transcribeInboundAudio(args: {
       return { ok: false, code: "unsupported_format", detail: fail.detail };
     }
     if (fail.code === "size_exceeds") return { ok: false, code: "too_long", detail: fail.detail };
-    return { ok: false, code: "download_failed", detail: fail.code };
+    return { ok: false, code: "download_failed", detail: `${fail.code}|${fail.detail ?? ""}` };
   }
   if (dl.bytes.length > MAX_AUDIO_BYTES) return { ok: false, code: "too_long", detail: String(dl.bytes.length) };
   if (dl.bytes.length < 512) return { ok: false, code: "empty_audio" };
