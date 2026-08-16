@@ -218,6 +218,8 @@ export async function dispatchSuggestions(
   const nowIso = new Date().toISOString();
   const columns = "id,user_id,channel_ready,kind,title,body,severity,dedup_key,action,evidence";
   const limit = opts.max ?? 5;
+  // A fila é lida com folga: a escolha de quem fala é por valor, não por FIFO.
+  const poolSize = Math.max(limit * 6, 24);
   const [pendingResp, deferredResp] = await Promise.all([
     sb.from("pending_proactive_suggestions").select(columns)
       .eq("user_id", userId).eq("status", "pending")
