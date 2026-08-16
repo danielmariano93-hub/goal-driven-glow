@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { interpret, type ParsedIntent } from "../parser.ts";
 import { extractSpans } from "../extract.ts";
+import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 import {
   create_transaction_draft, create_transfer_draft,
   add_goal_contribution_draft,
@@ -44,9 +45,10 @@ export async function deterministicFallback(
 ): Promise<FallbackOutcome> {
   const intent: ParsedIntent = interpret(input.text);
   const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text };
+  const entryAllowed = allowsEntryDraft(input.text);
 
   const spans = extractSpans(input.text);
-  if (spans.amount != null && spans.amount > 0 && spans.description && (spans.payment_method || spans.card_hint || spans.account_hint)) {
+  if (entryAllowed && spans.amount != null && spans.amount > 0 && spans.description && (spans.payment_method || spans.card_hint || spans.account_hint)) {
     const r = await create_transaction_draft(ctx, {
       type: "expense",
       amount: spans.amount,
@@ -86,7 +88,7 @@ export async function deterministicFallback(
     }
   }
 
-  if (intent.kind === "transaction") {
+  if (entryAllowed && intent.kind === "transaction") {
     const r = await create_transaction_draft(ctx, {
       type: intent.type, amount: intent.amount,
       account: intent.account_hint ?? "",

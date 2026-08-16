@@ -4,6 +4,7 @@
 // server-side by the orchestrator using the user's own data.
 
 import { parseSpelledMoney } from "./amountWords.ts";
+import { allowsEntryDraft } from "./core/HypotheticalGuard.ts";
 
 export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
@@ -37,6 +38,29 @@ export function parseBrAmount(raw: string): number | null {
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100) / 100;
 }
+
+/** Multiplicador textual logo após um número: "3 mil", "2 milhões", "1,5 mi".
+ *  Retorna { factor, consumed } — consumed = nº de chars do sufixo casado. */
+export const SCALE_SUFFIX_RX = /^\s*(?:reais?\s+)?(mil|milh(?:o|õ)es|milh(?:a|ã)o|mi|k)\b/i;
+
+export function scaleAfter(text: string): { factor: number; consumed: number } {
+  const m = String(text ?? "").match(SCALE_SUFFIX_RX);
+  if (!m) return { factor: 1, consumed: 0 };
+  const token = m[1].toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const factor = token === "mil" || token === "k" ? 1_000 : 1_000_000;
+  return { factor, consumed: m[0].length };
+}
+
+/** parseBrAmount + multiplicador textual ("3 mil reais" → 3000). */
+export function parseBrAmountWithScale(raw: string, trailing: string): number | null {
+  const base = parseBrAmount(raw);
+  if (base == null) return null;
+  const { factor } = scaleAfter(trailing);
+  const scaled = base * factor;
+  return Math.round(scaled * 100) / 100;
+}
+
+
 
 /** Today in America/Sao_Paulo as ISO yyyy-mm-dd */
 export function todaySaoPaulo(now: Date = new Date()): string {
@@ -200,7 +224,12 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const occurred_at = relativeDate(lower, now);
   const amountMatch = lower.match(AMOUNT_RE);
   // Fala natural não usa dígitos: "cinquenta reais e quarenta centavos".
-  const amount = amountMatch ? parseBrAmount(amountMatch[1]) : parseSpelledMoney(lower);
+  const amount = amountMatch
+    ? parseBrAmountWithScale(
+        amountMatch[1],
+        lower.slice((amountMatch.index ?? 0) + amountMatch[0].length),
+      )
+    : parseSpelledMoney(lower);
 
   // Queries (no writes)
   if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) {
@@ -214,6 +243,11 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   }
 
   if (amount === null) return { kind: "unknown", text: raw };
+
+  // Hipótese/consultoria ("se eu tivesse 3 mil por mês") carrega valor mas NÃO
+  // é pedido de registro: nunca virar transação/transferência/aporte.
+  if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
+
 
   // Transfer
   if (/\btransfer(i|ir|indo|iu)\b/.test(lower) || /\bpassei? .* para\b/.test(lower)) {

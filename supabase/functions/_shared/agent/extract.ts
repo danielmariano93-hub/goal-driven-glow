@@ -3,7 +3,7 @@
 // identificados. Preservar literalmente siglas informadas ("VOS" nunca vira "VPS").
 // Nunca inventar dados.
 
-import { parseBrAmount } from "./parser.ts";
+import { parseBrAmount, parseBrAmountWithScale, scaleAfter } from "./parser.ts";
 
 export type ExtractedSpans = {
   amount: number | null;
@@ -153,16 +153,19 @@ export function extractSpans(raw: string): ExtractedSpans {
   // 1) amount
   const amt = remaining.match(AMOUNT_RX);
   if (amt && amt.index != null) {
-    const parsed = parseBrAmount(amt[1]);
+    const end = amt.index + amt[0].length;
+    const trailing = remaining.slice(end);
+    const parsed = parseBrAmountWithScale(amt[1], trailing);
     if (parsed != null && parsed > 0) {
       out.amount = parsed;
-      // Remove valor + possíveis "R$" prefixados
+      // Remove valor + possíveis "R$" prefixados + multiplicador ("3 mil")
       const fullStart = Math.max(0, amt.index - 3); // margem para "R$ "
       const rawPrefix = remaining.slice(fullStart, amt.index);
       const cut = /r\$\s*$/i.test(rawPrefix) ? fullStart : amt.index;
-      remaining = stripSpan(remaining, cut, amt.index + amt[0].length);
+      remaining = stripSpan(remaining, cut, end + scaleAfter(trailing).consumed);
     }
   }
+
 
   // 2) installments
   const inst = remaining.match(INSTALLMENT_RX);

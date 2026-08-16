@@ -2,10 +2,11 @@
 // WhatsApp. It narrows the 41-tool registry before any model is called and
 // marks factual intents that must be answered from one canonical tool.
 import type { ParsedIntent } from "../parser.ts";
-import { parseBrAmount, shiftSaoPaulo, todaySaoPaulo } from "../parser.ts";
+import { parseBrAmountWithScale, shiftSaoPaulo, todaySaoPaulo } from "../parser.ts";
 import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
+import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 
 export type CapabilityName =
   | "weekday_pattern"
@@ -88,11 +89,26 @@ function normalize(text: string): string {
 }
 
 function extractAmount(text: string): number | null {
-  const money = text.match(/r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i)?.[1];
-  if (money) return parseBrAmount(money);
-  const afterVerb = normalize(text).match(/(?:gastar|comprar|compra|gasto|simular|simulacao|custa|valor(?: de)?)\s+(?:de\s+)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/)?.[1];
-  return afterVerb ? parseBrAmount(afterVerb) : null;
+  const AMOUNT_BODY = /(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/;
+  const money = text.match(new RegExp(`r\\$\\s*${AMOUNT_BODY.source}`, "i"));
+  if (money?.[1]) {
+    return parseBrAmountWithScale(money[1], text.slice((money.index ?? 0) + money[0].length));
+  }
+  const t = normalize(text);
+  const afterVerb = t.match(
+    new RegExp(`(?:gastar|comprar|compra|gasto|simular|simulacao|custa|valor(?: de)?|fixo de|aproximadamente)\\s+(?:de\\s+)?${AMOUNT_BODY.source}`),
+  );
+  if (afterVerb?.[1]) {
+    return parseBrAmountWithScale(afterVerb[1], t.slice((afterVerb.index ?? 0) + afterVerb[0].length));
+  }
+  // "3 mil por mês" sem verbo âncora: o multiplicador já garante a magnitude.
+  const scaled = t.match(new RegExp(`${AMOUNT_BODY.source}\\s*(?:reais?\\s+)?(?:mil|milh(?:o|õ)es|milh(?:a|ã)o|mi|k)\\b`));
+  if (scaled?.[1]) {
+    return parseBrAmountWithScale(scaled[1], t.slice((scaled.index ?? 0) + scaled[1].length));
+  }
+  return null;
 }
+
 
 function validISODate(value: string): string | undefined {
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return undefined;
@@ -177,8 +193,11 @@ export function hasEntryIntent(text: string): boolean {
   const q = normalize(text);
   // Perguntas ("quanto gastei?") são análise, não registro.
   if (/\b(quanto|qual|quais|onde|quando|como|por que|porque|me mostra|resumo)\b/.test(q) || /\?\s*$/.test(text.trim())) return false;
+  // Hipótese/simulação ("se eu tivesse 3 mil por mês") nunca é registro.
+  if (!allowsEntryDraft(text)) return false;
   return /\b(registr\w*|lanc\w*|lança\w*|anot\w*|adicion\w*|gastei|paguei|comprei|recebi|ganhei|torrei)\b/.test(normalize(text));
 }
+
 
 export function classifyCapability(
   text: string,
@@ -375,7 +394,7 @@ export function classifyCapability(
     };
   }
 
-  if (["transaction", "transfer", "goal_contribution", "goal"].includes(parsed.kind)) {
+  if (["transaction", "transfer", "goal_contribution", "goal"].includes(parsed.kind) && allowsEntryDraft(text)) {
     return {
       name: "transaction_entry", execution: "llm_scoped", allowed_tools: GROUPS.transactionEntry,
       // Registro com valor identificado NÃO pode terminar em prosa: ou sai um
@@ -384,6 +403,7 @@ export function classifyCapability(
       context: { accounts: true, cards: true }, reason: `parsed_${parsed.kind}`,
     };
   }
+
 
   // Pedido explícito de registro sem valor legível: mantém o turno na rota de
   // lançamento (para perguntar o que falta) em vez de cair no assistente geral.
