@@ -40,6 +40,9 @@ import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
 import {
+  classifyConversational, deterministicConversationalReply, generateConversationalReply,
+} from "./Conversational.ts";
+import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
 
