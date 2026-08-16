@@ -41,6 +41,8 @@ export type AdvisorInstallmentInput = {
   monthly_debt_installments: number;
   /** Parcelas de cartão já contratadas, por mês (média). */
   monthly_card_installments: number;
+  /** Parcelas de cartão já contratadas por mês futuro ("2026-09" => 320.5). */
+  card_installments_by_month?: Record<string, number>;
 };
 
 export type AdvisorInstallmentResult = {
