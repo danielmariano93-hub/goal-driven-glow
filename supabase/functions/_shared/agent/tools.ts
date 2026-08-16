@@ -24,6 +24,7 @@ import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
+import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, draftCardDateBR } from "./core/DraftCard.ts";
 import { confirmationExecutor } from "./core/PendingConfirmations.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
@@ -419,6 +420,11 @@ async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ 
   return null;
 }
 
+async function categoryNameById(ctx: ToolContext, id: string): Promise<string | null> {
+  const { data } = await ctx.sb.from("categories").select("name").eq("id", id).maybeSingle();
+  return (data as any)?.name ?? null;
+}
+
 async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined, type: "income"|"expense"): Promise<string | null> {
   if (!hintOrId) return null;
   if (/^[0-9a-f-]{36}$/i.test(hintOrId)) {
@@ -500,6 +506,39 @@ function isExplicitCategoryMention(userText?: string | null, category?: string |
   return cues.some((cue) => text.includes(cue));
 }
 
+/** Palavras que nunca são estabelecimento/descrição. */
+const NON_MERCHANT_TERMS = new Set([
+  ...METHOD_ONLY_TERMS,
+  "gasto","gastos","despesa","despesas","receita","receitas","reais","real","conta","contas",
+  "hoje","ontem","anteontem","amanha","categoria","descricao","valor","banco","dinheiro",
+  "mes","mês","semana","dia","dias","total","parcelas","parcela","vezes",
+]);
+
+/**
+ * Extrai o "em quê foi" de frases como "gasto em 15/08 em adega" ou
+ * "paguei 40 no posto". Serve de DESCRIÇÃO — nunca de categoria.
+ */
+export function extractMerchantFromText(text?: string | null): string | null {
+  const raw = String(text ?? "");
+  if (!raw.trim()) return null;
+  const rx = /\b(?:em|no|na|nos|nas|num|numa)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9'’\-\s]{1,30})/gi;
+  const found: string[] = [];
+  for (const m of raw.matchAll(rx)) {
+    const candidate = String(m[1] ?? "")
+      .replace(/\s+(?:em|no|na|de|do|da|com|por)\b.*$/i, "")
+      .trim()
+      .replace(/[.,;!?]+$/, "");
+    if (!candidate) continue;
+    const norm = normalizeDesc(candidate);
+    if (!norm || /\d/.test(norm)) continue;
+    if (norm.split(/\s+/).every((w) => NON_MERCHANT_TERMS.has(w))) continue;
+    found.push(candidate);
+  }
+  // O último "em X" da frase costuma ser o estabelecimento ("gasto em 15/08 em adega").
+  return found.length ? found[found.length - 1] : null;
+}
+
+
 export async function create_transaction_draft(ctx: ToolContext, args: {
   type: "income"|"expense"; amount: number; account?: string;
   credit_card?: string; installments_total?: number;
@@ -508,7 +547,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   const amount = Number(args?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
   if (args.type !== "income" && args.type !== "expense") return { ok: false, error: "invalid_type" };
-  const rawDesc = (args.description ?? "").trim();
+  let rawDesc = (args.description ?? "").trim();
   const normDesc = normalizeDesc(rawDesc);
   if (rawDesc && METHOD_ONLY_TERMS.has(normDesc)) {
     return { ok: false, error: "needs_description", hint: "A descrição não pode ser apenas o meio de pagamento (crédito, débito, pix, cartão…). Pergunte ao usuário 'em quê foi essa compra?' antes de criar o rascunho." } as any;
@@ -518,6 +557,25 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   // Any model-inferred category stays null and is resolved by the central queue after confirmation.
   const explicitCategoryHint = isExplicitCategoryMention(ctx.user_text, args.category) ? args.category : undefined;
   const cat = await resolveCategoryId(ctx, explicitCategoryHint, args.type);
+  const categoryName = cat ? await categoryNameById(ctx, cat) : null;
+
+  // "gastei 96 em adega" — "adega" é DESCRIÇÃO/estabelecimento, não categoria.
+  // Se o modelo mandou isso como categoria (e não foi pedido explicitamente),
+  // aproveitamos como descrição em vez de descartar a informação do usuário.
+  if (!rawDesc) {
+    const fromCategoryArg = !explicitCategoryHint && args.category ? String(args.category).trim() : "";
+    const merchant = extractMerchantFromText(ctx.user_text);
+    rawDesc = (merchant || fromCategoryArg || "").trim();
+  }
+  if (!rawDesc) {
+    return {
+      ok: false,
+      error: "needs_description",
+      hint: "Não há descrição nem estabelecimento. Pergunte em UMA frase curta em quê foi o gasto (ex.: 'R$ 96,00 em 15/08 — em quê foi?') e não crie o rascunho antes da resposta.",
+    } as any;
+  }
+  const description = rawDesc;
+  const categoryStatus: "explicit" | "auto_later" = cat && explicitCategoryHint ? "explicit" : "auto_later";
 
   if (args.credit_card && args.type === "expense") {
     const card = await resolveCreditCardId(ctx, args.credit_card);
@@ -525,7 +583,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
     const n = Math.max(1, Math.min(48, Number(args.installments_total ?? 1) || 1));
     const payload = {
       type: args.type, amount, occurred_at,
-      description: args.description ?? null,
+      description,
       category_id: cat,
       category_explicit: Boolean(cat && explicitCategoryHint),
       payment_method: "credit_card",
@@ -533,20 +591,40 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
       installments_total: n,
     };
     const parcelStr = n > 1 ? ` em ${n}x` : "";
-    const summary = `Despesa de ${BRL.format(amount)} no cartão ${card.name}${parcelStr}${args.description ? ` — ${args.description}` : ""} em ${occurred_at}.`;
+    const summary = `Despesa de ${BRL.format(amount)} no cartão ${card.name}${parcelStr} — ${description} em ${occurred_at}.`;
     const id = await upsertDraft(ctx, "transaction", payload, summary);
     if (!id) return { ok: false, error: "draft_failed" };
-    return { ok: true, result: { draft_id: id, summary, card: card.name, installments_total: n } };
+    const fields = {
+      kind: "expense" as const,
+      amount, description, category: categoryName, category_status: categoryStatus,
+      card: card.name, installments_total: n, occurred_at,
+    };
+    return {
+      ok: true,
+      result: {
+        draft_id: id, summary, card: card.name, installments_total: n,
+        card_fields: fields, card_text: renderDraftCard(fields, id),
+      },
+    };
   }
 
   const acc = await resolveAccountId(ctx, args.account);
   if (!acc) return { ok: false, error: "account_not_found" };
-  const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, category_explicit: Boolean(cat && explicitCategoryHint), occurred_at, description: args.description ?? null, payment_method: "account" };
-  const summary = `${args.type === "income" ? "Receita" : "Despesa"} de ${BRL.format(amount)} em ${acc.name}${args.description ? ` — ${args.description}` : ""} em ${occurred_at}.`;
+  const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, category_explicit: Boolean(cat && explicitCategoryHint), occurred_at, description, payment_method: "account" };
+  const summary = `${args.type === "income" ? "Receita" : "Despesa"} de ${BRL.format(amount)} em ${acc.name} — ${description} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transaction", payload, summary);
   if (!id) return { ok: false, error: "draft_failed" };
-  return { ok: true, result: { draft_id: id, summary } };
+  const fields = {
+    kind: args.type === "income" ? "income" as const : "expense" as const,
+    amount, description, category: categoryName, category_status: categoryStatus,
+    account: acc.name, occurred_at,
+  };
+  return {
+    ok: true,
+    result: { draft_id: id, summary, card_fields: fields, card_text: renderDraftCard(fields, id) },
+  };
 }
+
 
 export async function create_transfer_draft(ctx: ToolContext, args: {
   amount: number; from_account: string; to_account: string; occurred_at?: string; description?: string;
@@ -670,7 +748,7 @@ export async function cancel_pending_action(ctx: ToolContext): Promise<ToolResul
 
 export async function confirm_pending_action(ctx: ToolContext, args: { id?: string }): Promise<ToolResult> {
   let q = ctx.sb.from("pending_confirmations")
-    .select("id, kind, expires_at")
+    .select("id, kind, expires_at, payload")
     .eq("conversation_id", ctx.conversation_id)
     .eq("user_id", ctx.user_id)
     .eq("status", "pending");
@@ -691,19 +769,52 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
   if (execError) return { ok: false, error: `confirmation_rpc_failed:${execError.message}` };
   const result = exec as { ok?: boolean; result?: any; error?: string; idempotent?: boolean } | null;
   if (!result?.ok) return { ok: false, error: result?.error ?? "confirmation_failed" };
+
+  // Recibo determinístico: ecoa o que ficou salvo (valor, descrição, data),
+  // nunca uma frase genérica igual a todas as outras.
+  let receipt = result.idempotent
+    ? "Essa operação já havia sido confirmada. Está tudo certo por aqui. ✅"
+    : buildReceipt((pending as any).kind, result.result);
+  if (!result.idempotent && (pending as any).kind === "transaction") {
+    const payload = ((pending as any).payload ?? {}) as any;
+    const catName = payload.category_id ? await categoryNameById(ctx, String(payload.category_id)) : null;
+    receipt = renderReceiptCard({
+      kind: payload.type === "income" ? "income" : "expense",
+      amount: Number(payload.amount ?? result.result?.amount ?? 0),
+      description: payload.description ?? null,
+      category: catName,
+      occurred_at: String(payload.occurred_at ?? todaySaoPaulo()),
+    }, String((pending as any).id));
+  }
+
+  // Auto-aprendizado: correção de categoria feita pelo usuário passa a valer
+  // para o mesmo estabelecimento nas próximas vezes.
+  if (!result.idempotent && (pending as any).kind === "transaction_update") {
+    const payload = ((pending as any).payload ?? {}) as any;
+    const newCategoryId = payload?.patch?.category_id ?? null;
+    if (newCategoryId && payload?.transaction_id) {
+      try {
+        await ctx.sb.rpc("agent_learn_merchant_category", {
+          p_user_id: ctx.user_id,
+          p_transaction_id: payload.transaction_id,
+          p_category_id: newCategoryId,
+        });
+      } catch (_e) { /* aprendizado nunca quebra a confirmação */ }
+    }
+  }
+
   return {
     ok: true,
     result: {
       draft_id: (pending as any).id,
       kind: (pending as any).kind,
       idempotent: !!result.idempotent,
-      receipt: result.idempotent
-        ? "Essa operação já havia sido confirmada. Está tudo certo por aqui. ✅"
-        : buildReceipt((pending as any).kind, result.result),
+      receipt,
       result: result.result,
     },
   };
 }
+
 
 // ---------- Read/edit tools (novas) ----------
 
@@ -818,6 +929,27 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
     `Editar lançamento (${scope === "one" ? "esta parcela" : scope === "future" ? "esta e futuras" : "todas as parcelas"}): ` +
     Object.entries(patch).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
 
+  // Cartão humano da edição: nomes reais no lugar de ids técnicos.
+  const newCategoryName = patch.category_id
+    ? await categoryNameById(ctx, String(patch.category_id))
+    : ("category_id" in patch ? "eu classifico depois" : null);
+  const oldCategoryName = (tx as any).category_id
+    ? await categoryNameById(ctx, String((tx as any).category_id))
+    : null;
+  const changes = Object.keys(patch).map((field) => {
+    if (field === "category_id") return { field, from: oldCategoryName, to: newCategoryName };
+    if (field === "amount") {
+      return { field, from: draftCardBRL.format(Number((tx as any).amount ?? 0)), to: draftCardBRL.format(Number(patch.amount)) };
+    }
+    if (field === "occurred_at") {
+      return { field, from: draftCardDateBR(String((tx as any).occurred_at)), to: draftCardDateBR(String(patch.occurred_at)) };
+    }
+    if (field === "description") return { field, from: (tx as any).description ?? null, to: String(patch.description ?? "—") };
+    if (field === "payment_method") return { field, from: null, to: patch.payment_method === "credit_card" ? "cartão de crédito" : "conta" };
+    if (field === "account_id" || field === "credit_card_id") return null;
+    return { field, from: null, to: String(patch[field] ?? "—") };
+  }).filter(Boolean) as Array<{ field: string; from?: string | null; to?: string | null }>;
+
   const payload = {
     transaction_id: id,
     expected_version: (tx as any).version ?? 1,
@@ -834,7 +966,14 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
   };
   const draftId = await upsertDraft(ctx, "transaction_update", payload, summary);
   if (!draftId) return { ok: false, error: "draft_failed" };
-  return { ok: true, result: { draft_id: draftId, summary, transaction_id: id, scope, patch, before: (payload as any).before } };
+  return {
+    ok: true,
+    result: {
+      draft_id: draftId, summary, transaction_id: id, scope, patch,
+      before: (payload as any).before,
+      card_text: renderUpdateCard(changes, scope, draftId),
+    },
+  };
 }
 
 export async function draft_transaction_delete(ctx: ToolContext, args: {
