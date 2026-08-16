@@ -48,6 +48,12 @@ import {
 } from "./ConversationMemory.ts";
 import { findPending, confirmationExecutor } from "./PendingConfirmations.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
+import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
+
+/** Cartão de rascunho de lançamento na última fala do Nino. */
+const DRAFT_CARD_RX =
+  /(?:•\s*\*?(?:Despesa|Receita|Transfer[êe]ncia)\*?:)|(?:deixa eu confirmar antes de salvar)|(?:pode salvar\?)|(?:rascunhei aqui)|(?:fecho assim\?)|(?:confere pra mim)/i;
+
 
 export type HandleTurnInput = {
   user_id: string;
