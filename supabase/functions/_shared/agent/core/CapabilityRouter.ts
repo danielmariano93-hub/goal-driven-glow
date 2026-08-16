@@ -89,11 +89,26 @@ function normalize(text: string): string {
 }
 
 function extractAmount(text: string): number | null {
-  const money = text.match(/r\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i)?.[1];
-  if (money) return parseBrAmount(money);
-  const afterVerb = normalize(text).match(/(?:gastar|comprar|compra|gasto|simular|simulacao|custa|valor(?: de)?)\s+(?:de\s+)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/)?.[1];
-  return afterVerb ? parseBrAmount(afterVerb) : null;
+  const AMOUNT_BODY = /(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/;
+  const money = text.match(new RegExp(`r\\$\\s*${AMOUNT_BODY.source}`, "i"));
+  if (money?.[1]) {
+    return parseBrAmountWithScale(money[1], text.slice((money.index ?? 0) + money[0].length));
+  }
+  const t = normalize(text);
+  const afterVerb = t.match(
+    new RegExp(`(?:gastar|comprar|compra|gasto|simular|simulacao|custa|valor(?: de)?|fixo de|aproximadamente)\\s+(?:de\\s+)?${AMOUNT_BODY.source}`),
+  );
+  if (afterVerb?.[1]) {
+    return parseBrAmountWithScale(afterVerb[1], t.slice((afterVerb.index ?? 0) + afterVerb[0].length));
+  }
+  // "3 mil por mês" sem verbo âncora: o multiplicador já garante a magnitude.
+  const scaled = t.match(new RegExp(`${AMOUNT_BODY.source}\\s*(?:reais?\\s+)?(?:mil|milh(?:o|õ)es|milh(?:a|ã)o|mi|k)\\b`));
+  if (scaled?.[1]) {
+    return parseBrAmountWithScale(scaled[1], t.slice((scaled.index ?? 0) + scaled[1].length));
+  }
+  return null;
 }
+
 
 function validISODate(value: string): string | undefined {
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return undefined;
