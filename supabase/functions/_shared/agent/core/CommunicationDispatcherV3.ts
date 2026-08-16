@@ -242,17 +242,73 @@ export async function dispatchSuggestions(
       .in("id", deferredIds);
   }
 
-  const rows = [
+  const pool = [
     ...(((pendingResp.data as any[] | null) ?? [])),
     ...(((deferredResp.data as any[] | null) ?? [])),
-  ].slice(0, limit) as CommunicationCandidate[];
+  ] as CommunicationCandidate[];
 
-  const [prefs, recent, catalog, templates] = await Promise.all([
+  const [prefs, recent, catalog, templates, monthlyIncome, learning] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
     loadCatalog(sb),
     loadTemplates(sb),
+    loadMonthlyIncome(sb, userId),
+    loadKindLearning(sb, userId),
   ]);
+
+  const dryRunEarly = opts.dryRun === true;
+  const ranked = rankInsights(pool, (row) => {
+    const evidence = (row.evidence ?? {}) as Record<string, unknown>;
+    const stats = learning.get(row.kind);
+    return {
+      kind: row.kind,
+      severity: String(row.severity),
+      confidence: Number(evidence.confidence ?? 0.7),
+      impactAmount: Number(evidence.impact_amount ?? evidence.amount ?? 0),
+      monthlyIncome,
+      daysUntilEvent: evidence.days_until_event == null ? null : Number(evidence.days_until_event),
+      actionable: Boolean((row as any).action),
+      dismissals: stats?.dismissals ?? 0,
+      actions: stats?.actions ?? 0,
+      falsePositives: stats?.false_positives ?? 0,
+    };
+  });
+
+  // Coerência: um assunto lógico por rodada; ruído sem materialidade não fala.
+  const rows: CommunicationCandidate[] = [];
+  const seenTopics = new Set<string>();
+  for (const { item, value } of ranked) {
+    const evidence = (item.evidence ?? {}) as Record<string, unknown>;
+    const topic = String(evidence.logical_topic_key ?? item.kind);
+    const drop = value.muted
+      ? "muted_by_learning"
+      : seenTopics.has(topic)
+      ? "topic_already_selected"
+      : !meetsMateriality({
+        kind: item.kind,
+        severity: String(item.severity),
+        impactAmount: Number(evidence.impact_amount ?? evidence.amount ?? 0),
+        monthlyIncome,
+        daysUntilEvent: evidence.days_until_event == null ? null : Number(evidence.days_until_event),
+      }) && !isAppTaskKind(item.kind)
+      ? "below_materiality"
+      : null;
+    if (drop) {
+      if (!dryRunEarly) {
+        await record(sb, {
+          user_id: userId, suggestion_id: item.id, kind: item.kind, channel: "app",
+          status: "suppressed", reason: drop, dedup_key: item.dedup_key,
+          evidence: item.evidence, block_context: { policy_reason: drop, value_score: value.score },
+        });
+      }
+      results0.push({ id: item.id, channel: "app", status: "skipped", reason: drop });
+      continue;
+    }
+    seenTopics.add(topic);
+    (item as any).value_score = value.score;
+    rows.push(item);
+    if (rows.length >= limit) break;
+  }
   const rollout: Array<"app" | "whatsapp"> = opts.channels?.length ? opts.channels : ["app", "whatsapp"];
   const targets: Array<"app" | "whatsapp"> = opts.channel ? [opts.channel] : ["app", "whatsapp"];
   const dryRun = opts.dryRun === true;
