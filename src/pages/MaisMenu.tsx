@@ -40,6 +40,7 @@ const understand: Item[] = [
 
 const account: Item[] = [
   { path: "/app/perfil", label: "Perfil", desc: "Conta, conexões e privacidade", icon: User },
+  { path: "/app/plano", label: "Seu plano", desc: "O que está incluído hoje", icon: BadgeCheck },
   { path: "/app/importar", label: "Importar dados", desc: "CSV, OFX e legado", icon: Upload },
 ];
 
