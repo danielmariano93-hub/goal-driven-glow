@@ -108,7 +108,7 @@ GLOSSÁRIO PATRIMONIAL (use exatamente estas definições):
 - Parcelas de meses futuros são compromisso agendado, não dívida de hoje, e não entram no patrimônio líquido atual.`;
 
 
-export const DEFAULT_MODEL = "google/gemini-2.5-flash";
+export const DEFAULT_MODEL = "google/gemini-3.6-flash";
 
 export type ActivePrompt = {
   id: string | null;
