@@ -32,9 +32,16 @@ export type MediaHint = {
   chatId?: string;
   id?: string | { serialized?: string; _serialized?: string };
   messageTimestamp?: number | string;
+  /** Duração informada pelo provedor (nota de voz), em segundos. */
+  seconds?: number;
+  /** Tamanho informado pelo provedor, em bytes. */
+  mediaSize?: number;
+  /** "ptt" quando é nota de voz. */
+  mediaType?: string;
   /** Where the parser found the media descriptor. Purely diagnostic. */
-  via: "root_media" | "message_image" | "message_document" | "message_video" | "data_message";
+  via: "root_media" | "message_image" | "message_document" | "message_video" | "message_audio" | "data_message";
 };
+
 
 export type ClassifiedInbound =
   | {
@@ -199,6 +206,11 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
   const asStr = (v: unknown): string | undefined =>
     typeof v === "string" && v ? v : undefined;
 
+  const asNum = (v: unknown): number | undefined => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+
   // 1) Root `media` object (WAHA WEBJS-like)
   const rootMedia = get(pl, "media");
   if (rootMedia && typeof rootMedia === "object") {
@@ -214,19 +226,42 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
         filename, directPath: asStr(get(rootMedia, "directPath")),
         chatId: asStr(get(pl, "from")), id: get(pl, "id") as MediaHint["id"],
         messageTimestamp: get(pl, "timestamp") as number | string | undefined,
+        seconds: asNum(get(rootMedia, "seconds")) ?? asNum(get(pl, "duration")),
+        mediaSize: asNum(get(rootMedia, "filesize")) ?? asNum(get(rootMedia, "fileLength")),
+        mediaType: asStr(get(pl, "mediaType")) ?? asStr(get(rootMedia, "mediaType")),
         via: "root_media",
       };
     }
   }
 
-  // 2) message.{imageMessage|documentMessage|videoMessage} (NOWEB shape)
+  // 2) message.{imageMessage|documentMessage|videoMessage|audioMessage} (NOWEB shape)
   const messages = [
     get(pl, "message"),
     get(get(pl, "_data"), "message"),
   ];
   for (const m of messages) {
     if (!m || typeof m !== "object") continue;
+    // Nota de voz (PTT) e áudio comum — o Nino transcreve e segue o fluxo textual.
+    const aud = get(m, "audioMessage") ?? get(m, "pttMessage");
+    if (aud && typeof aud === "object") {
+      return {
+        url: asStr(get(aud, "url")),
+        mediaUrl: asStr(get(aud, "mediaUrl")),
+        directPath: asStr(get(aud, "directPath")),
+        base64: asStr(get(aud, "base64")) ?? asStr(get(aud, "data")),
+        mime_type: asStr(get(aud, "mimetype")) ?? "audio/ogg",
+        mimetype: asStr(get(aud, "mimetype")) ?? "audio/ogg",
+        filename: asStr(get(aud, "fileName")) ?? asStr(get(aud, "filename")),
+        chatId: asStr(get(pl, "from")), id: get(pl, "id") as MediaHint["id"],
+        messageTimestamp: get(pl, "timestamp") as number | string | undefined,
+        seconds: asNum(get(aud, "seconds")),
+        mediaSize: asNum(get(aud, "fileLength")),
+        mediaType: get(aud, "ptt") === true || get(m, "pttMessage") ? "ptt" : "audio",
+        via: m === messages[1] ? "data_message" : "message_audio",
+      };
+    }
     const doc = get(m, "documentMessage");
+
     if (doc && typeof doc === "object") {
       return {
         url: asStr(get(doc, "url")),
