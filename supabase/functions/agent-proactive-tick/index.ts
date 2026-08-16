@@ -177,8 +177,11 @@ Deno.serve(async (req) => {
 
     if (stages.includes("proactive")) {
       try {
+        // Fonte única de conteúdo financeiro: o diagnóstico canônico. O motor
+        // legado permanece apenas para sinais operacionais e de engajamento.
+        const fromDiagnosis = await syncDiagnosisSuggestions(sb, uid, { persist: !dryRun });
         const generated = await scanUser(sb, uid, { persist: !dryRun, maxSuggestions: 8 });
-        suggestions = generated.length;
+        suggestions = generated.length + fromDiagnosis.length;
         if (dryRun) {
           preview = generated.map((item) => ({
             kind: item.kind,
