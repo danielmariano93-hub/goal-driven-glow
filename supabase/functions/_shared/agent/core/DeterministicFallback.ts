@@ -10,6 +10,7 @@ import {
   create_transaction_draft, create_transfer_draft,
   add_goal_contribution_draft,
   get_financial_summary, list_recent_transactions,
+  listActiveAccounts,
   type ToolContext,
 } from "../tools.ts";
 
@@ -26,6 +27,15 @@ function draftReply(result: any): string {
   const card = result?.card_text ? String(result.card_text) : null;
   if (card) return card;
   return `${result?.summary ?? ""}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.`.trim();
+}
+
+/** Pergunta determinística de conta, com os nomes reais do usuário. */
+async function accountQuestion(ctx: ToolContext): Promise<string> {
+  try {
+    const names = (await listActiveAccounts(ctx)).map((a) => a.name).filter(Boolean);
+    if (names.length) return `Em qual conta eu registro? (${names.join(", ")})`;
+  } catch { /* segue com pergunta genérica */ }
+  return "Em qual conta eu registro esse lançamento?";
 }
 
 export async function deterministicFallback(
@@ -49,7 +59,7 @@ export async function deterministicFallback(
     });
     if (r.ok) return { reply: draftReply(r.result), draft_id: (r.result as any).draft_id, kind: "draft" };
     if ((r as any).error === "needs_description") return { reply: "Só me diz em quê foi esse gasto que eu registro na hora.", kind: "question" };
-    if (r.error === "account_not_found") return { reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", kind: "question" };
+    if (r.error === "account_not_found") return { reply: await accountQuestion(ctx), kind: "question" };
     if (r.error === "card_not_found") return { reply: "Em qual cartão eu registro?", kind: "question" };
   }
 
@@ -86,7 +96,7 @@ export async function deterministicFallback(
     });
     if (!r.ok) {
       if (r.error === "account_not_found") {
-        return { reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", kind: "question" };
+        return { reply: await accountQuestion(ctx), kind: "question" };
       }
       if ((r as any).error === "needs_description") {
         return { reply: "Só me diz em quê foi esse gasto que eu registro na hora.", kind: "question" };

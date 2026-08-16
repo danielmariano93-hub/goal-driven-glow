@@ -130,11 +130,63 @@ const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
+/** Lê um cartão do próprio Nino colado de volta pelo usuário:
+ *  "• *Despesa:* R$ 50,40 / • *Descrição:* KFC / • *Categoria:* Alimentação /
+ *   • *Data:* 16/08/2026 / • *Conta:* Banco Itau".
+ *  Retorna null quando o texto não tem o formato de cartão. */
+export function parseStructuredCard(
+  text: string,
+  now: Date = new Date(),
+): Extract<ParsedIntent, { kind: "transaction" }> | null {
+  const raw = String(text ?? "");
+  if (!raw.trim()) return null;
+  const clean = raw.replace(/\*/g, "");
+  const field = (labels: string) => {
+    const rx = new RegExp(`(?:^|\\n)\\s*(?:[•\\-*·]\\s*)?(?:${labels})\\s*:\\s*(.+)`, "i");
+    const m = clean.match(rx);
+    return m?.[1]?.trim() || null;
+  };
+  const expenseRaw = field("despesa|gasto|sa[íi]da|valor");
+  const incomeRaw = field("receita|entrada|recebimento");
+  const amountRaw = incomeRaw ?? expenseRaw;
+  if (!amountRaw) return null;
+  const description = field("descri[çc][aã]o|estabelecimento");
+  if (!description) return null;
+  const digits = amountRaw.match(AMOUNT_RE);
+  const amount = digits ? parseBrAmount(digits[1]) : parseSpelledMoney(amountRaw);
+  if (amount === null || !(amount > 0)) return null;
+
+  const dateRaw = field("data|quando");
+  let occurred_at = relativeDate(String(dateRaw ?? clean).toLowerCase(), now);
+  if (dateRaw) {
+    const iso = dateRaw.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    const br = dateRaw.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    if (iso && isValidCalendarDate(iso[1])) occurred_at = iso[1];
+    else if (br) {
+      const y = br[3] ? (br[3].length === 2 ? `20${br[3]}` : br[3]) : todaySaoPaulo(now).slice(0, 4);
+      const candidate = `${y}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
+      if (isValidCalendarDate(candidate)) occurred_at = candidate;
+    }
+  }
+  return {
+    kind: "transaction",
+    type: incomeRaw ? "income" : "expense",
+    amount,
+    occurred_at,
+    description,
+    category_hint: field("categoria") ?? undefined,
+    account_hint: field("conta|carteira") ?? undefined,
+  };
+}
+
 export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const raw = (text ?? "").trim();
   if (!raw) return { kind: "unknown", text: "" };
+  const card = parseStructuredCard(raw, now);
+  if (card) return card;
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
+
 
   const wordCount = raw.split(/\s+/).length;
   if (wordCount <= 4 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {

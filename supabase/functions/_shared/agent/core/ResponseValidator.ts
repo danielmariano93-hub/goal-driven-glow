@@ -72,6 +72,12 @@ const GRAPH_CLAIM_RX = /\b(aqui\s+est[aá]|segue|preparei|gerei|enviei|montei|cr
 // lançamento?") sem ferramenta executada é invenção do modelo.
 const DRAFT_CARD_RX = /\brascunh\w+\b|\bconfirm\w+\b[^?\n]{0,60}\?|\bt[aá]\s+certo\b[^?\n]{0,20}\?/i;
 
+// Inversão de persona: o modelo escreve como se fosse o usuário falando com o
+// Nino ("Ah, Nino!", "Nino, esqueci de perguntar", "obrigado, Nino").
+// O Nino é quem responde — jamais se dirige a si mesmo.
+export const PERSONA_INVERSION_RX = /(^|[\s,;!¡"“(])(ah|oi|ol[aá]|e a[íi]|obrigad[oa]|valeu|desculpa|nossa|opa)[,!\s]+nino\b|\bnino[,!]\s+(esqueci|preciso|me\s|pode\s|voc[eê]\s)/i;
+
+
 const MUTATION_TOOLS = new Set([
   "create_transaction_draft", "create_transfer_draft", "create_goal_contribution_draft",
   "create_goal_draft", "confirm_pending_action",
@@ -82,9 +88,8 @@ const MUTATION_TOOLS = new Set([
  * "Ops, algo deu errado… tente novamente", que não diz nada ao usuário.
  */
 export function entryFailureMessage(toolCalls: ToolCallEvidence[] = []): string {
-  const errors = toolCalls
-    .filter((c) => !c.ok && MUTATION_TOOLS.has(String(c.tool_name)))
-    .map((c) => String((c as any).error ?? (c as any).result?.error ?? ""));
+  const failed = toolCalls.filter((c) => !c.ok && MUTATION_TOOLS.has(String(c.tool_name)));
+  const errors = failed.map((c) => String((c as any).error ?? (c as any).result?.error ?? ""));
   const joined = errors.join(" ");
   if (/needs_amount|invalid_amount/.test(joined)) {
     return "Só me faltou o valor para registrar. Qual foi o valor?";
@@ -95,9 +100,17 @@ export function entryFailureMessage(toolCalls: ToolCallEvidence[] = []): string 
   if (/needs_description/.test(joined)) {
     return "Me diz em quê foi esse lançamento (o estabelecimento ou o item) e eu registro.";
   }
+  if (/account_not_found/.test(joined)) {
+    const accounts = failed
+      .flatMap((c) => ((c as any).result?.accounts ?? []) as string[])
+      .filter((name) => typeof name === "string" && name.trim());
+    if (accounts.length) return `Em qual conta eu registro? (${[...new Set(accounts)].join(", ")})`;
+    return "Em qual conta eu registro esse lançamento?";
+  }
   if (/card_not_found/.test(joined)) {
     return "Não encontrei esse cartão. Em qual cartão foi?";
   }
+
   return "Não registrei nada ainda. Me confirma o valor e em quê foi, que eu lanço na hora.";
 }
 
@@ -114,7 +127,23 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
     catch { reasons.push("malformed_json_leak"); }
     return { action: "regenerate", body: trimmed.slice(0, MAX_REPLY_LEN), reasons };
   }
+  // Inversão de persona: descarta e devolve resposta determinística.
+  if (PERSONA_INVERSION_RX.test(trimmed)) {
+    reasons.push("persona_inversion");
+    const body = ctx.entryTurn === true
+      ? entryFailureMessage(ctx.toolCalls ?? [])
+      : FRIENDLY_ORCHESTRATOR_ERROR;
+    return { action: "accept", body, reasons };
+  }
+  // Turno de lançamento em que a ferramenta de rascunho falhou: a resposta é
+  // sempre determinística, jamais prosa livre do modelo.
+  if (ctx.entryTurn === true && ctx.hasSuccessfulMutation === false
+    && (ctx.toolCalls ?? []).some((c) => !c.ok && MUTATION_TOOLS.has(String(c.tool_name)))) {
+    reasons.push("entry_tool_failed");
+    return { action: "accept", body: entryFailureMessage(ctx.toolCalls ?? []), reasons };
+  }
   // Receipt without a draft is inconsistent
+
   if (ctx.expectedKind === "receipt" && ctx.hasDraft === false) {
     reasons.push("receipt_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };

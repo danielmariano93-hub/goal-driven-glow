@@ -408,18 +408,37 @@ async function upsertDraft(ctx: ToolContext, kind: string, payload: any, summary
   return data as string;
 }
 
-async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
-  if (hintOrId === undefined || hintOrId === null) return null;
+/** Lista as contas ativas do usuário (nome + id). */
+export async function listActiveAccounts(ctx: ToolContext): Promise<Array<{ id: string; name: string; type?: string }>> {
   const { data, error } = await ctx.sb.from("accounts").select("id,name,type")
-    .eq("user_id", ctx.user_id).eq("active", true);
+    .eq("user_id", ctx.user_id).eq("active", true).order("name");
   if (error) throw new Error(`accounts_query_failed:${error.message}`);
-  const list: Candidate[] = (data ?? []).map((a: any) => ({
+  return (data ?? []) as Array<{ id: string; name: string; type?: string }>;
+}
+
+/** Resolve a conta do lançamento.
+ *  Hint ausente/vazio NÃO é erro: quando o usuário tem exatamente uma conta
+ *  ativa, ela é a conta padrão e o lançamento segue sem pergunta. Só devolve
+ *  null quando há ambiguidade real (2+ contas) ou o hint não casa com nada. */
+async function resolveAccountId(ctx: ToolContext, hintOrId?: string): Promise<{ id: string; name: string } | null> {
+  const accounts = await listActiveAccounts(ctx);
+  const hint = String(hintOrId ?? "").trim();
+  if (!hint) {
+    return accounts.length === 1 ? { id: accounts[0].id, name: accounts[0].name } : null;
+  }
+  const list: Candidate[] = accounts.map((a: any) => ({
     id: a.id, name: a.name, aliases: [a.type].filter(Boolean),
   }));
-  const r = resolveEntity(hintOrId, list);
+  const r = resolveEntity(hint, list);
   if (r.kind === "single") return { id: r.match.id, name: r.match.name };
+  // Hint genérico ("conta corrente", "conta") com uma única conta ativa:
+  // é a conta padrão do usuário.
+  if (accounts.length === 1 && /\bconta\b|\bcorrente\b|\bd[eé]bito\b|\bdinheiro\b/i.test(hint)) {
+    return { id: accounts[0].id, name: accounts[0].name };
+  }
   return null;
 }
+
 
 async function categoryNameById(ctx: ToolContext, id: string): Promise<string | null> {
   const { data } = await ctx.sb.from("categories").select("name").eq("id", id).maybeSingle();
@@ -650,7 +669,18 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   }
 
   const acc = await resolveAccountId(ctx, args.account);
-  if (!acc) return { ok: false, error: "account_not_found" };
+  if (!acc) {
+    const options = (await listActiveAccounts(ctx)).map((a) => a.name).filter(Boolean);
+    return {
+      ok: false,
+      error: "account_not_found",
+      result: { accounts: options },
+      hint: options.length
+        ? `Pergunte em UMA frase curta em qual conta registrar, listando: ${options.join(", ")}.`
+        : "O usuário não tem conta ativa cadastrada. Peça para cadastrar uma conta no app.",
+    } as any;
+  }
+
   const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, category_explicit: Boolean(cat && explicitCategoryHint), occurred_at, description, payment_method: "account" };
   const summary = `${args.type === "income" ? "Receita" : "Despesa"} de ${BRL.format(amount)} em ${acc.name} — ${description} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transaction", payload, summary);
