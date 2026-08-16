@@ -224,13 +224,13 @@ export async function dispatchSuggestions(
     sb.from("pending_proactive_suggestions").select(columns)
       .eq("user_id", userId).eq("status", "pending")
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .order("created_at", { ascending: true }).limit(limit),
+      .order("created_at", { ascending: true }).limit(poolSize),
     // Adiadas voltam à fila quando a janela de silêncio/cap expira.
     sb.from("pending_proactive_suggestions").select(columns)
       .eq("user_id", userId).eq("status", "deferred")
       .lte("next_attempt_at", nowIso)
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .order("next_attempt_at", { ascending: true }).limit(limit),
+      .order("next_attempt_at", { ascending: true }).limit(poolSize),
   ]);
   const error = pendingResp.error ?? deferredResp.error;
   if (error) throw new Error(`pending_suggestions:${error.message}`);
