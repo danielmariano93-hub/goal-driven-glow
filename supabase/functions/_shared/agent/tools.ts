@@ -1109,13 +1109,13 @@ import { templateToArtifactArgs, TEMPLATE_KEYS, type TemplateKey } from "./templ
 import { parseTemplateArgs } from "./templates/templateSchemas.ts";
 import { computeForecast } from "../analytics/forecast.ts";
 import {
-  analyze_merchants, merchant_profile, explain_behavior_change, discover_recurring,
+  analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
 } from "./engineTools.ts";
 
 export {
-  analyze_merchants, merchant_profile, explain_behavior_change, discover_recurring,
+  analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
 };
@@ -2060,6 +2060,21 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: analyze_merchants,
+  },
+  {
+    name: "merchant_distribution",
+    description: "DISTRIBUIÇÃO determinística de uma CATEGORIA por estabelecimento: total real da categoria, total identificado, cobertura e share de cada estabelecimento sobre o TOTAL DA CATEGORIA. Use para 'como está a distribuição da categoria X', 'onde mais gastei em X', 'quais estabelecimentos pesaram na categoria'. Nunca calcule percentual por conta própria.",
+    parameters: {
+      type: "object",
+      properties: {
+        days: { type: "integer", minimum: 7, maximum: 730 },
+        from: optionalStr, to: optionalStr,
+        category_id: optionalStr, category_name: optionalStr,
+        limit: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+    execute: merchant_distribution,
   },
   {
     name: "merchant_profile",
