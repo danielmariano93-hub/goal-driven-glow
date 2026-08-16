@@ -90,7 +90,7 @@ describe("downloadInboundMedia — resiliência de áudio", () => {
       apiKey: "secret", session: SESSION, messageId: "msg", kind: "audio",
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.detail).toContain("status_404");
+    if (r.ok === false) expect(r.detail).toContain("status_404");
     expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6);
   });
 

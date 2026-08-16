@@ -29,6 +29,8 @@ export type MediaHint = {
   mimeType?: string;
   filename?: string;
   directPath?: string;
+  /** Identificador próprio do arquivo, quando diferente do ID da mensagem. */
+  fileId?: string;
   chatId?: string;
   id?: string | { serialized?: string; _serialized?: string };
   messageTimestamp?: number | string;
