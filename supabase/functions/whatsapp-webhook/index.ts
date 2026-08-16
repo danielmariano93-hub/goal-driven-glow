@@ -30,6 +30,7 @@ import { participantSplitReply } from "../_shared/messaging/splitParticipantSupp
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
+import { shouldAcknowledge } from "../_shared/agent/core/Conversational.ts";
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 // deno-lint-ignore no-explicit-any
