@@ -63,17 +63,18 @@ const FINANCIAL_RX =
 const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
   {
     kind: "identity",
-    rx: /\b(quem (é|e|voc[êe] é|vc é)|o que (voc[êe]|vc) (é|e)\b|vc é o que|voc[êe] é o que|voce e o que|é um rob[oô]|e um robo|é humano|e humano|é uma? (ia|intelig[êe]ncia)|quem te (criou|fez|desenvolveu)|quem foi que te criou|qual (é )?o seu nome|como (voc[êe]|vc) se chama|voc[êe] existe)\b/i,
+    rx: /(?:^|\W)(?:quem (?:é|e|voc[êe] é|vc é)|o que (?:voc[êe]|vc) (?:é|e)(?=\W|$)|vc é o que|voc[êe] é o que|voce e o que|(?:é|e) (?:um|uma) rob[oô]|(?:é|e) humano|(?:é|e) uma? (?:ia|intelig[êe]ncia)|quem te (?:criou|fez|desenvolveu|programou)|quem foi que te criou|qual (?:é )?o seu nome|como (?:voc[êe]|vc) se chama|voc[êe] existe|você é real|vc é real)/i,
   },
   {
     kind: "capabilities",
-    rx: /\b(o que (voc[êe]|vc) (faz|consegue|sabe|pode)|no que (voc[êe]|vc) (me )?ajuda|como (voc[êe]|vc) (funciona|me ajuda|pode me ajudar)|como (te )?us(o|ar)|pra que (voc[êe]|vc) serve|quais (são )?suas (fun[cç][õo]es|habilidades)|me ajuda com o qu[êe]|o que d[aá] pra fazer (aqui|com voc[êe]))\b/i,
+    rx: /(?:^|\W)(?:o que (?:voc[êe]|vc) (?:faz|consegue|sabe|pode)|no que (?:voc[êe]|vc) (?:me )?ajuda|como (?:voc[êe]|vc) (?:funciona|me ajuda|pode me ajudar)|como (?:te )?us(?:o|ar)|pra que (?:voc[êe]|vc) serve|quais (?:são )?suas (?:fun[cç][õo]es|habilidades)|me ajuda com o qu[êe]|o que d[aá] pra fazer (?:aqui|com voc[êe]))/i,
   },
-  { kind: "thanks", rx: /^(muito )?(obrigad[oa]|valeu|vlw|brigad[oa]|agrade[cç]o|top|show|perfeito|maravilha|isso a[íi]|👍|❤️|💛)\W*$/i },
-  { kind: "farewell", rx: /^(tchau|at[ée] (mais|logo|amanh[ãa])|falou|fui|boa noite\W*$|bom descanso|abra[çc]o)\W*$/i },
-  { kind: "greeting", rx: /^(oi+|ol[áa]|e a[íi]|eae|opa|hey|hello|bom dia|boa tarde|boa noite|fala|salve|tudo bem\??|tudo certo\??)([\s,!.]*(nino|nino\.ia|meu nino))?\W*$/i },
-  { kind: "howareyou", rx: /\b(como (voc[êe]|vc) (est[áa]|ta|tá)|tudo (bem|certo) (com )?(voc[êe]|vc)|como vai (voc[êe]|vc)?)\b/i },
+  { kind: "thanks", rx: /^(?:muito )?(?:obrigad[oa]|valeu|vlw|brigad[oa]|agrade[cç]o|top|show|perfeito|maravilha|isso a[íi]|👍|❤️|💛)\W*$/i },
+  { kind: "farewell", rx: /^(?:tchau|at[ée] (?:mais|logo|amanh[ãa])|falou|fui|bom descanso|abra[çc]o)\W*$/i },
+  { kind: "greeting", rx: /^(?:oi+|ol[áa]|e a[íi]|eae|opa|hey|hello|bom dia|boa tarde|boa noite|fala|salve|tudo bem\??|tudo certo\??)(?:[\s,!.]*(?:nino|nino\.ia|meu nino))?\W*$/i },
+  { kind: "howareyou", rx: /(?:^|\W)(?:como (?:voc[êe]|vc) (?:est[áa]|ta|tá)|tudo (?:bem|certo) (?:com )?(?:voc[êe]|vc)|como vai (?:voc[êe]|vc))/i },
 ];
+
 
 /**
  * Classifica a mensagem como conversa não-financeira. Conservador de
