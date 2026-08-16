@@ -121,3 +121,4 @@ export function applyMemoryToText(
   if (!topic) return { text: raw, used: false };
   return { text: `${raw} (assunto: ${topic})`, used: true };
 }
+
