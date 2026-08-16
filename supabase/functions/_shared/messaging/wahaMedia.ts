@@ -169,6 +169,24 @@ async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, m
   return last;
 }
 
+/** Resumo diagnóstico da mídia inbound — sem URLs, sem bytes, sem PII. */
+export function describeMediaHint(media: (MediaHint & { mediaSize?: number; seconds?: number }) | undefined | null): Record<string, unknown> {
+  if (!media) return { present: false };
+  const url = media.url ?? media.mediaUrl;
+  return {
+    present: true,
+    via: (media as { via?: string }).via ?? null,
+    mime: (media.mime_type ?? media.mimetype ?? media.mimeType ?? "").split(";")[0] || null,
+    has_url: Boolean(url),
+    url_https: url ? url.startsWith("https://") : null,
+    has_base64: Boolean(media.base64 ?? media.data),
+    has_id: Boolean(serializedId(media.id)),
+    has_chat: Boolean(media.chatId),
+    seconds: media.seconds ?? null,
+    size: media.mediaSize ?? null,
+  };
+}
+
 export async function downloadInboundMedia(opts: { media: MediaHint | undefined; apiUrl?: string; apiKey?: string; session?: string; messageId?: string; kind?: MediaKind }): Promise<DownloadResult> {
   const kind: MediaKind = opts.kind ?? "document";
   const declaredMime = (opts.media?.mime_type ?? opts.media?.mimeType ?? opts.media?.mimetype ?? "").toLowerCase();
@@ -176,39 +194,71 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
   const inline = opts.media?.base64 ?? opts.media?.data ?? (opts.media?.body?.startsWith("data:") ? opts.media.body : undefined);
   const directUrl = opts.media?.url ?? opts.media?.mediaUrl;
   const messageId = opts.messageId || serializedId(opts.media?.id);
+  const canUseProvider = Boolean(opts.apiUrl && opts.apiKey && opts.session && messageId);
+  const trail: string[] = [];
+  let last: Extract<DownloadResult, { ok: false }> | null = null;
 
+  // 1) Áudio/documento embutido: nada de rede.
   if (inline) {
     const bytes = base64ToBytes(inline);
-    if (!bytes) return { ok: false, code: "download_failed", detail: "b64_decode" };
-    return finalize(bytes, declaredMime, filename, kind);
+    if (bytes) return finalize(bytes, declaredMime, filename, kind);
+    trail.push("inline:b64_decode");
+    last = { ok: false, code: "download_failed", detail: "b64_decode" };
   }
+
+  // 2) URL direta. Uma URL recusada pela guarda NÃO encerra a tentativa
+  //    quando ainda podemos baixar autenticado pelo provedor.
   if (directUrl) {
     const guard = assertPublicHttpsUrl(directUrl);
-    if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
-    const headerSets: Array<Record<string, string>> = [{}];
-    try {
-      if (opts.apiUrl && opts.apiKey && new URL(directUrl).origin === new URL(opts.apiUrl).origin) {
-        headerSets.unshift(...authHeaderCandidates(opts.apiKey));
+    if (!guard.ok) {
+      trail.push(`direct:unsafe_url:${guard.code}`);
+      last = { ok: false, code: "unsafe_url", detail: guard.code };
+      if (!canUseProvider) return { ok: false, code: "unsafe_url", detail: `${guard.code}|${trail.join(",")}` };
+    } else {
+      const headerSets: Array<Record<string, string>> = [{}];
+      try {
+        if (opts.apiUrl && opts.apiKey && new URL(directUrl).origin === new URL(opts.apiUrl).origin) {
+          headerSets.unshift(...authHeaderCandidates(opts.apiKey));
+        }
+      } catch { /* URLs já foram validadas */ }
+      for (const headers of headerSets) {
+        const result = await fetchWithLimits(directUrl, headers, kind);
+        if (result.ok === true) return finalize(result.bytes, declaredMime, filename, kind);
+        const fail = result as Extract<FetchResult, { ok: false }>;
+        trail.push(`direct:${fail.code}${fail.detail ? `:${fail.detail}` : ""}`);
+        last = { ok: false, code: fail.code, detail: fail.detail };
+        // Erros terminais do arquivo em si não se resolvem trocando de rota.
+        if (["size_exceeds", "timeout"].includes(fail.code)) {
+          return { ok: false, code: fail.code, detail: `${fail.detail ?? ""}|${trail.join(",")}` };
+        }
+        if (fail.code !== "download_failed" && !canUseProvider) {
+          return { ok: false, code: fail.code, detail: `${fail.detail ?? ""}|${trail.join(",")}` };
+        }
+        break;
       }
-    } catch { /* URLs já foram validadas */ }
-    let last: Extract<FetchResult, { ok: false }> = { ok: false, code: "download_failed" };
-    for (const headers of headerSets) {
-      const result = await fetchWithLimits(directUrl, headers, kind);
-      if (result.ok === true) return finalize(result.bytes, declaredMime, filename, kind);
-      const fail = result as Extract<FetchResult, { ok: false }>;
-      last = fail;
-      if (fail.code !== "download_failed") return { ok: false, code: fail.code, detail: fail.detail };
     }
-    if (last.code !== "download_failed") return { ok: false, code: last.code, detail: last.detail };
   }
-  if (opts.apiUrl && opts.apiKey && opts.session && messageId) {
-    const result = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, messageId, opts.media, kind);
+
+  // 3) Download autenticado no provedor (rota que funciona quando o payload
+  //    só traz o descritor da mídia).
+  if (canUseProvider) {
+    const result = await fetchWahaMedia(opts.apiUrl!, opts.apiKey!, opts.session!, messageId, opts.media, kind);
     if (result.ok === true) return finalize(result.bytes, declaredMime, filename, kind);
     const fail = result as Extract<FetchResult, { ok: false }>;
-    return { ok: false, code: fail.code, detail: fail.detail };
+    trail.push(`provider:${fail.code}${fail.detail ? `:${fail.detail}` : ""}`);
+    return { ok: false, code: fail.code, detail: trail.join(",") };
   }
-  return { ok: false, code: "no_url" };
+
+  if (last) return { ok: false, code: last.code, detail: `${last.detail ?? ""}|${trail.join(",")}` };
+  const missing = [
+    opts.apiUrl ? null : "api_url",
+    opts.apiKey ? null : "api_key",
+    opts.session ? null : "session",
+    messageId ? null : "message_id",
+  ].filter(Boolean).join("+");
+  return { ok: false, code: "no_url", detail: missing || undefined };
 }
+
 
 function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kind: MediaKind = "document"): DownloadResult {
   if (bytes.length === 0) return { ok: false, code: "empty" };
