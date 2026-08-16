@@ -35,6 +35,8 @@ import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
+import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
+import { validateAgainstEvidence } from "./TruthValidator.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -307,13 +309,25 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     entry.role === "user" && String(entry.content ?? "").trim() !== String(input.text ?? "").trim()
   )?.content;
   capability = resumeDeterministicCapability(input.text, routed.intent, previousUserText) ?? capability;
+
+  // COMPREENDER — plano determinístico do turno (assunto herdado, período
+  // resolvido em pt-BR e sub-perguntas). Se a mensagem atual é só complemento
+  // ("e em agosto?"), o roteamento passa a ver o assunto completo.
+  const turnPlan = buildTurnPlan({ text: input.text, history });
+  if (turnPlan.followup || turnPlan.composed) {
+    capability = classifyCapability(
+      turnPlan.effective_text,
+      routeIntent(turnPlan.effective_text).intent,
+      interpretSemanticQuery(turnPlan.effective_text),
+    );
+  }
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
-  systemPrompt = `${capabilityPrompt(capability)}\n\n${systemPrompt}`;
+  systemPrompt = `${capabilityPrompt(capability)}\n\n${turnPlanPrompt(turnPlan)}\n\n${systemPrompt}`;
 
   // Load only the factual slices required by this capability. This turns the
   // previously decorative FinancialContext360 facade into actual grounding
@@ -452,7 +466,7 @@ ${JSON.stringify(hints)}
   // ---- Planner (LLM loop or fallback) ------------------------------------
   const planner = await timeStage(metrics, "plan", () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
-    user_text: input.text, hasPrompt: !!prompt,
+    user_text: turnPlan.followup ? turnPlan.effective_text : input.text, hasPrompt: !!prompt,
     history, capability,
   }, {
     model: prompt?.model ?? "google/gemini-2.5-flash",
@@ -622,6 +636,16 @@ ${JSON.stringify(hints)}
         if (callsError) throw callsError;
       }
     }, (m) => metrics.errors.push("persist:" + m), null);
+  }
+
+  // CALCULAR → CONVERSAR: gate factual. A resposta jamais contradiz os motores.
+  const truth = validateAgainstEvidence(reply, toolCallLog, turnPlan.effective_period);
+  if (!truth.ok && truth.canonical_headline) {
+    metrics.errors.push("truth_gate:" + truth.issues.map((i) => i.type).join(","));
+    metrics.validations = (metrics.validations ?? 0) + truth.issues.length;
+    reply = truth.canonical_headline;
+  } else if (!truth.ok) {
+    metrics.errors.push("truth_gate_flagged:" + truth.issues.map((i) => i.type).join(","));
   }
 
   const body = humanizeReply(validateReply(reply));
