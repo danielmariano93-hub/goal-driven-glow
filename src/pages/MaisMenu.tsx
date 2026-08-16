@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  BadgeCheck,
   CreditCard,
   Heart,
   User,
@@ -40,6 +41,7 @@ const understand: Item[] = [
 
 const account: Item[] = [
   { path: "/app/perfil", label: "Perfil", desc: "Conta, conexões e privacidade", icon: User },
+  { path: "/app/plano", label: "Seu plano", desc: "O que está incluído hoje", icon: BadgeCheck },
   { path: "/app/importar", label: "Importar dados", desc: "CSV, OFX e legado", icon: Upload },
 ];
 
@@ -166,6 +168,11 @@ export default function MaisMenu() {
           <ChevronRight size={14} className="text-muted-foreground" />
         </button>
       </section>
+
+      <nav className="flex flex-wrap justify-center gap-4 pb-2 text-[11px] text-muted-foreground">
+        <a href="/privacidade">Política de Privacidade</a>
+        <a href="/termos">Termos de Uso</a>
+      </nav>
     </div>
   );
 }

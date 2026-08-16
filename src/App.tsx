@@ -19,6 +19,10 @@ import ResetPassword from "./pages/auth/ResetPassword";
 import OAuthConsent from "./pages/auth/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
+const Privacidade = lazy(() => import("./pages/legal/Privacidade"));
+const Termos = lazy(() => import("./pages/legal/Termos"));
+const Plano = lazy(() => import("./pages/Plano"));
+
 // Financial user (lazy)
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Index = lazy(() => import("./pages/Index"));
@@ -96,6 +100,9 @@ const App = () => (
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
+              <Route path="/privacidade" element={<Privacidade />} />
+              <Route path="/termos" element={<Termos />} />
+
 
               <Route
                 path="/onboarding"
@@ -124,6 +131,7 @@ const App = () => (
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
                 <Route path="perfil" element={<Perfil />} />
+                <Route path="plano" element={<Plano />} />
                 <Route path="whatsapp" element={<WhatsApp />} />
                 <Route path="importar" element={<Importar />} />
                 <Route path="mais" element={<MaisMenu />} />
