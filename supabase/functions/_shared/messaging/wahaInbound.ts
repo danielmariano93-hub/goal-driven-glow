@@ -32,9 +32,16 @@ export type MediaHint = {
   chatId?: string;
   id?: string | { serialized?: string; _serialized?: string };
   messageTimestamp?: number | string;
+  /** Duração informada pelo provedor (nota de voz), em segundos. */
+  seconds?: number;
+  /** Tamanho informado pelo provedor, em bytes. */
+  mediaSize?: number;
+  /** "ptt" quando é nota de voz. */
+  mediaType?: string;
   /** Where the parser found the media descriptor. Purely diagnostic. */
-  via: "root_media" | "message_image" | "message_document" | "message_video" | "data_message";
+  via: "root_media" | "message_image" | "message_document" | "message_video" | "message_audio" | "data_message";
 };
+
 
 export type ClassifiedInbound =
   | {
