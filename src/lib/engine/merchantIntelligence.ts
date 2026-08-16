@@ -360,7 +360,7 @@ export function rankMerchants(
       resolved_total: grossResolved,
       unresolved_total: round2(Math.max(0, totalPeriodExpense - grossResolved)),
       top_merchant: top
-        ? { label: top.label, net_total: top.net_total, share: periodNet > 0 ? round2(top.net_total / periodNet) : 0 }
+        ? { label: top.label, net_total: top.net_total, share: shareBase > 0 ? round2(top.net_total / shareBase) : 0 }
         : null,
     },
     breakdown: rows.slice(0, limit),
