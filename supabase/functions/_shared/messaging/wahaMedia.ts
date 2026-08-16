@@ -532,6 +532,7 @@ export async function transcribeInboundAudio(args: {
   messageId?: string;
   waha?: { apiUrl?: string; apiKey?: string; session?: string };
   timeoutMs?: number;
+  onStage?: (stage: "downloaded" | "format_identified" | "transcription_submitted", metadata: Record<string, unknown>) => void | Promise<void>;
 }): Promise<AudioTranscriptionResult> {
   if (!isAudioMedia(args.media)) return { ok: false, code: "not_audio" };
 
@@ -562,7 +563,10 @@ export async function transcribeInboundAudio(args: {
   if (dl.bytes.length > MAX_AUDIO_BYTES) return { ok: false, code: "too_long", detail: String(dl.bytes.length) };
   if (dl.bytes.length < 512) return { ok: false, code: "empty_audio" };
 
+  await args.onStage?.("downloaded", { bytes: dl.bytes.length, mime: dl.mime_type });
+
   if (!FORMAT_BY_MIME[dl.mime_type]) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
+  await args.onStage?.("format_identified", { mime: dl.mime_type });
 
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
@@ -583,6 +587,7 @@ export async function transcribeInboundAudio(args: {
     ownedBytes.set(normalized.bytes);
     form.append("file", new Blob([ownedBytes.buffer], { type: normalized.mime }), normalized.filename);
     form.append("stream", "true");
+    await args.onStage?.("transcription_submitted", { mime: normalized.mime, bytes: normalized.bytes.length });
     const resp = await fetch(TRANSCRIPTION_GATEWAY, {
       method: "POST",
       headers: {
