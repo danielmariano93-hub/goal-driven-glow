@@ -7,6 +7,7 @@
 
 export type TruthIssue =
   | { type: "value_not_in_evidence"; value: number }
+  | { type: "percent_not_in_evidence"; value: number }
   | { type: "period_mismatch"; expected: string; found: string }
   | { type: "no_evidence" };
 
@@ -18,7 +19,9 @@ export type TruthVerdict = {
 };
 
 const MONEY_RX = /R\$\s*(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:[.,]\d{1,2})?)/g;
+const PERCENT_RX = /(-?\d{1,3}(?:[.,]\d{1,2})?)\s*%/g;
 const YMD_RX = /\b(20\d{2})-(\d{2})-(\d{2})\b/g;
+
 
 function parseBrl(raw: string): number {
   const cleaned = raw.replace(/\./g, "").replace(",", ".");
