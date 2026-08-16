@@ -328,6 +328,56 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       </Section>
       </>}
 
+      {show("effectiveness") && <>
+      <Section title="Eficácia por tipo de insight" icon={Activity} description="Últimos 30 dias: quais avisos geraram ação e quais o usuário descartou.">
+        {effectiveness.isLoading ? (
+          <p className="text-sm text-neutral-500">Calculando eficácia…</p>
+        ) : effectiveness.isError ? (
+          <EmptyState title="Não foi possível calcular a eficácia" description={(effectiveness.error as Error).message} />
+        ) : (effectiveness.data ?? []).length === 0 ? (
+          <EmptyState title="Ainda sem histórico" description="Nenhuma comunicação foi entregue nos últimos 30 dias." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase text-neutral-500">
+                <tr>
+                  <th className="py-2 text-left">Tipo</th>
+                  <th className="text-right">Entregues</th>
+                  <th className="text-right">Geraram ação</th>
+                  <th className="text-right">Descartadas</th>
+                  <th className="text-right">Não útil</th>
+                  <th className="text-right">Retidas</th>
+                  <th className="text-right">Taxa de ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {[...(effectiveness.data ?? [])]
+                  .sort((a, b) => b.delivered - a.delivered)
+                  .map((row) => (
+                    <tr key={row.kind}>
+                      <td className="py-2 font-medium">{dict.commKind(row.kind)}</td>
+                      <td className="text-right">{row.delivered}</td>
+                      <td className="text-right">{row.acted}</td>
+                      <td className="text-right">{row.dismissed}</td>
+                      <td className="text-right">{row.not_useful}</td>
+                      <td className="text-right">{row.suppressed}</td>
+                      <td className={`text-right font-medium ${row.action_rate >= 0.2 ? "text-emerald-600" : row.dismissed > row.acted ? "text-amber-600" : ""}`}>
+                        {(row.action_rate * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            <p className="mt-3 text-xs text-neutral-500">
+              Tipos com mais descartes que ações têm a prioridade reduzida automaticamente para cada usuário.
+            </p>
+          </div>
+        )}
+      </Section>
+      </>}
+
+
+
       {show("catalog") && <>
       <Section title="Fluxos e regras de convivência" icon={Settings2} description="Cada tipo é um fluxo: quando dispara, por quais canais, com que intervalo mínimo e teto diário.">
         <div className="overflow-x-auto">
