@@ -8,7 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 type SupabaseClient = any;
 
-import { rankMerchants, merchantProfile, computeMerchantStats } from "../finance-core/merchantIntelligence.ts";
+import { rankMerchants, merchantProfile, computeMerchantStats, merchantDistribution } from "../finance-core/merchantIntelligence.ts";
 import { computeBehaviorChange } from "../finance-core/behaviorChange.ts";
 import { discoverRecurring } from "../finance-core/recurringDiscovery.ts";
 import { computeCostStructure } from "../finance-core/costStructure.ts";
