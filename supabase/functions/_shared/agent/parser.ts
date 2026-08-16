@@ -4,6 +4,7 @@
 // server-side by the orchestrator using the user's own data.
 
 import { parseSpelledMoney } from "./amountWords.ts";
+import { allowsEntryDraft } from "./core/HypotheticalGuard.ts";
 
 export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
