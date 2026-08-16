@@ -177,8 +177,11 @@ export function hasEntryIntent(text: string): boolean {
   const q = normalize(text);
   // Perguntas ("quanto gastei?") são análise, não registro.
   if (/\b(quanto|qual|quais|onde|quando|como|por que|porque|me mostra|resumo)\b/.test(q) || /\?\s*$/.test(text.trim())) return false;
+  // Hipótese/simulação ("se eu tivesse 3 mil por mês") nunca é registro.
+  if (!allowsEntryDraft(text)) return false;
   return /\b(registr\w*|lanc\w*|lança\w*|anot\w*|adicion\w*|gastei|paguei|comprei|recebi|ganhei|torrei)\b/.test(normalize(text));
 }
+
 
 export function classifyCapability(
   text: string,
