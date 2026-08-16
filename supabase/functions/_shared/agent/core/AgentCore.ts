@@ -244,16 +244,26 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       const recovered = await guard(async () => {
         const hist = await (await import("./ConversationHistory.ts")).loadHistory(
           sb, input.conversation_id, { limit: 12, excludeMessageId: null });
-        const lastUserTexts = hist.filter(h => h.role === "user")
-          .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
-        // Tenta primeiro cada mensagem isolada (do mais recente ao mais antigo),
-        // preservando quebras de linha — é o que permite ler um cartão colado.
-        for (const candidate of [...lastUserTexts].reverse()) {
+        const lastAssistant = [...hist].reverse().find(h => h.role !== "user");
+        const assistantAskedForEntry = DRAFT_CARD_RX.test(String(lastAssistant?.content ?? ""));
+        const userTexts = hist.filter(h => h.role === "user")
+          .map(h => String(h.content ?? "").trim()).filter(Boolean);
+        const lastUserBefore = userTexts[userTexts.length - 1] ?? "";
+        // Trava dura: só remonta rascunho quando o contexto imediato É de
+        // lançamento. "Sim" respondendo a pergunta analítica nunca cria despesa.
+        if (!assistantAskedForEntry && !hasEntryIntent(lastUserBefore)) {
+          metrics.errors.push("confirm_recover:skipped_non_entry_context");
+          return null;
+        }
+        const candidates = userTexts.slice(-4)
+          .filter(t => hasEntryIntent(t) && allowsEntryDraft(t) && !/\?\s*$/.test(t));
+        // Do mais recente ao mais antigo, sempre mensagem isolada (nunca
+        // concatenada): concatenar misturava consultoria com confirmação.
+        for (const candidate of [...candidates].reverse()) {
           const fb = await deterministicFallback(sb, { ...input, text: candidate });
           if (fb.kind === "draft") return fb;
         }
-        const recoveredText = [...lastUserTexts, input.text].join(". ");
-        return await deterministicFallback(sb, { ...input, text: recoveredText });
+        return null;
       }, (m) => metrics.errors.push("confirm_recover:" + m), null as any);
       if (recovered && recovered.kind === "draft") {
         metrics.fallback_used = true;
