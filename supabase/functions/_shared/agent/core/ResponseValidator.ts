@@ -127,7 +127,23 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
     catch { reasons.push("malformed_json_leak"); }
     return { action: "regenerate", body: trimmed.slice(0, MAX_REPLY_LEN), reasons };
   }
+  // Inversão de persona: descarta e devolve resposta determinística.
+  if (PERSONA_INVERSION_RX.test(trimmed)) {
+    reasons.push("persona_inversion");
+    const body = ctx.entryTurn === true
+      ? entryFailureMessage(ctx.toolCalls ?? [])
+      : FRIENDLY_ORCHESTRATOR_ERROR;
+    return { action: "accept", body, reasons };
+  }
+  // Turno de lançamento em que a ferramenta de rascunho falhou: a resposta é
+  // sempre determinística, jamais prosa livre do modelo.
+  if (ctx.entryTurn === true && ctx.hasSuccessfulMutation === false
+    && (ctx.toolCalls ?? []).some((c) => !c.ok && MUTATION_TOOLS.has(String(c.tool_name)))) {
+    reasons.push("entry_tool_failed");
+    return { action: "accept", body: entryFailureMessage(ctx.toolCalls ?? []), reasons };
+  }
   // Receipt without a draft is inconsistent
+
   if (ctx.expectedKind === "receipt" && ctx.hasDraft === false) {
     reasons.push("receipt_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
