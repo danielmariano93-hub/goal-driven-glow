@@ -28,6 +28,7 @@ export type WeekdayPatternResult = {
   winner: (WeekdayMetricRow & { margin_pct: number; margin_amount: number }) | null;
   candidate: (WeekdayMetricRow & { margin_pct: number; margin_amount: number }) | null;
   runner_up: WeekdayMetricRow | null;
+  tied_leaders: WeekdayMetricRow[];
   total_concentration_winner: (WeekdayMetricRow & { share_pct: number }) | null;
   frequency_winner: WeekdayMetricRow | null;
   ticket_winner: WeekdayMetricRow | null;
@@ -35,6 +36,13 @@ export type WeekdayPatternResult = {
   outliers: Array<{ date: string; weekday: number; label: string; amount: number }>;
   excluded_low_confidence: number;
   data_coverage: number;
+  /** Base monetária somada no período e média verdadeira por dia corrido. */
+  base_amount: number;
+  mean_per_day: number;
+  /** Qual base de gasto alimentou a métrica: consumo total ou apenas ajustável. */
+  metric_base: "total_consumption" | "adjustable";
+  /** Fração da base que veio de data de postagem bancária (ressalva de precisão). */
+  bank_posting_share: number;
   gates: Record<string, boolean>;
   exclusions: string[];
   limitations: string[];
@@ -92,6 +100,7 @@ export function computeWeekdayPatternFromDailyFacts(args: {
     local_date: string;
     weekday?: number;
     total_adjustable: number;
+    total_consumption?: number;
     entries_count?: number;
     is_exceptional_day?: boolean;
     data_confidence?: number;
@@ -99,8 +108,15 @@ export function computeWeekdayPatternFromDailyFacts(args: {
   from: string;
   to: string;
   coverage?: number;
+  /**
+   * Base monetária da métrica. O padrão é o consumo total: o usuário compara a
+   * resposta com o que saiu da conta, não com um subconjunto "ajustável".
+   */
+  metricBase?: "total_consumption" | "adjustable";
+  bankPostingShare?: number;
   policy?: Parameters<typeof computeWeekdayTruth>[0]["policy"];
 }): WeekdayPatternResult {
+  const metricBase = args.metricBase ?? "total_consumption";
   const truth = computeWeekdayTruth({
     from: args.from,
     to: args.to,
@@ -109,18 +125,23 @@ export function computeWeekdayPatternFromDailyFacts(args: {
     days: args.days.map((day) => ({
       date: day.local_date,
       weekday: day.weekday,
-      amount: Math.max(0, Number(day.total_adjustable ?? 0)),
+      amount: Math.max(0, Number(
+        (metricBase === "total_consumption" ? day.total_consumption ?? day.total_adjustable : day.total_adjustable) ?? 0,
+      )),
       transactions: Math.max(0, Number(day.entries_count ?? 0)),
       exceptional: Boolean(day.is_exceptional_day),
       confidence: Number(day.data_confidence ?? 1),
     })),
   });
-  return toWeekdayPatternResult(truth, 0);
+  return toWeekdayPatternResult(truth, 0, metricBase, args.bankPostingShare ?? 0);
 }
+
 
 function toWeekdayPatternResult(
   truth: ReturnType<typeof computeWeekdayTruth>,
   excludedLowConfidence: number,
+  metricBase: "total_consumption" | "adjustable" = "adjustable",
+  bankPostingShare = 0,
 ): WeekdayPatternResult {
   const totalAll = truth.weekdays.reduce((sum, row) => sum + row.total, 0);
   const totalRow = [...truth.weekdays].filter((row) => row.total > 0).sort((a, b) => b.total - a.total)[0] ?? null;
@@ -142,6 +163,7 @@ function toWeekdayPatternResult(
     winner: truth.winner,
     candidate: truth.candidate,
     runner_up: truth.runner_up,
+    tied_leaders: truth.tied_leaders,
     total_concentration_winner: totalRow
       ? { ...totalRow, share_pct: totalAll ? round2((totalRow.total / totalAll) * 100) : 0 }
       : null,
@@ -151,6 +173,10 @@ function toWeekdayPatternResult(
     outliers: truth.outliers,
     excluded_low_confidence: excludedLowConfidence,
     data_coverage: truth.data_coverage,
+    base_amount: truth.base_amount,
+    mean_per_day: truth.mean_per_day,
+    metric_base: metricBase,
+    bank_posting_share: round2(Math.max(0, Math.min(1, Number(bankPostingShare) || 0))),
     gates: truth.gates,
     exclusions: [
       "transferências internas",
@@ -158,8 +184,9 @@ function toWeekdayPatternResult(
       "pagamento de fatura",
       "movimentos planejados ou cancelados",
       "dias extraordinários separados do comportamento típico",
-      "datas comportamentais de baixa confiança",
-      "gastos fixos fora da métrica de gasto ajustável no caminho canônico",
+      ...(metricBase === "adjustable"
+        ? ["gastos fixos fora da métrica de gasto ajustável"]
+        : []),
     ],
     limitations: truth.limitations,
   };

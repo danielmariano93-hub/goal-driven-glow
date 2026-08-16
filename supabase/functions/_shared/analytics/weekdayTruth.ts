@@ -64,6 +64,12 @@ export type WeekdayTruthResult = {
   winner: (WeekdayTruthMetric & { margin_pct: number; margin_amount: number }) | null;
   candidate: (WeekdayTruthMetric & { margin_pct: number; margin_amount: number }) | null;
   runner_up: WeekdayTruthMetric | null;
+  /** Dias empatados na liderança (diferença relativa abaixo do gate de separação). */
+  tied_leaders: WeekdayTruthMetric[];
+  /** Soma de todos os dias considerados no período, base monetária das médias. */
+  base_amount: number;
+  /** Média verdadeira por dia corrido do período (inclui dias sem gasto). */
+  mean_per_day: number;
   weekdays: WeekdayTruthMetric[];
   outliers: Array<{ date: string; weekday: number; label: string; amount: number }>;
   data_coverage: number;
@@ -296,6 +302,17 @@ export function computeWeekdayTruth(args: {
   } : null;
   const winner = decision === "established" ? candidate : null;
 
+  // Empate declarado: líderes dentro do gate de separação relativa. Serve para a
+  // resposta nomear os dias pesados em vez de calar por falta de "vencedor".
+  const tiedLeaders = top
+    ? ranked.filter((row) =>
+      row.weekday === top.weekday
+      || (top.typical_amount > 0 && (top.typical_amount - row.typical_amount) / top.typical_amount < policy.min_separation_pct)
+    )
+    : [];
+  const baseAmount = weekdays.reduce((sum, row) => sum + row.total, 0);
+  const totalDays = weekdays.reduce((sum, row) => sum + row.occurrences, 0);
+
   return {
     formula_version: WEEKDAY_TRUTH_FORMULA_VERSION,
     period: { from: args.from, to: args.to, weeks_observed: round2(weeksObserved) },
@@ -304,6 +321,9 @@ export function computeWeekdayTruth(args: {
     winner,
     candidate,
     runner_up: second,
+    tied_leaders: tiedLeaders,
+    base_amount: round2(baseAmount),
+    mean_per_day: round2(totalDays ? baseAmount / totalDays : 0),
     weekdays,
     outliers,
     data_coverage: round2(dataCoverage),

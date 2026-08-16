@@ -66,11 +66,28 @@ export async function executeWeekdayPattern(args: {
     minDaysWithData: 1,
   });
 
+  // Transparência de precisão: quanto da base veio de data de extrato.
+  const factById = new Map(facts.map((fact) => [fact.transaction_id, fact]));
+  let baseTotal = 0;
+  let bankTotal = 0;
+  for (const row of data) {
+    const fact = factById.get(String(row.id));
+    if (!fact || !fact.is_consumption) continue;
+    if (fact.local_date < from || fact.local_date > to) continue;
+    const value = Math.max(0, Number(fact.amount_net ?? 0));
+    baseTotal += value;
+    if (String(row.behavior_date_source ?? "") === "bank_posting_date") bankTotal += value;
+  }
+  const bankPostingShare = baseTotal > 0 ? bankTotal / baseTotal : 0;
+
+
   const result = computeWeekdayPatternFromDailyFacts({
     days,
     from,
     to,
     coverage: quality.coverage,
+    metricBase: "total_consumption",
+    bankPostingShare,
   });
   result.metric_key = args.query.metric_key;
   if (!quality.ok) {
@@ -83,3 +100,4 @@ export async function executeWeekdayPattern(args: {
     reply: composeWeekdayPatternReply(result, args.query),
   };
 }
+
