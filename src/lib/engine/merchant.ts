@@ -43,7 +43,23 @@ const NOISE_TOKENS = [
   "no",
   "na",
   "com",
+  // Ruído de POS/PIX que escondia a marca real ("PIX WHATS QRCODE 99 FOOD").
+  "whats",
+  "whatsapp",
+  "qrcode",
+  "qr",
+  "code",
+  "atm",
+  "tmob",
 ];
+
+/**
+ * Marcas cujo nome é (ou contém) apenas números. Sem esta lista o filtro de
+ * tokens numéricos apagava "99" e o gasto desaparecia do ranking mesmo
+ * continuando na categoria. `merchant_truth.v2`.
+ */
+const NUMERIC_BRAND_TOKENS = new Set(["99", "123", "365", "1746"]);
+
 
 /**
  * Marcas conhecidas: um token estável resolve o canônico mesmo com sufixos
