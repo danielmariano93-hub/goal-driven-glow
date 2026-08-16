@@ -131,6 +131,7 @@ const App = () => (
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
                 <Route path="perfil" element={<Perfil />} />
+                <Route path="plano" element={<Plano />} />
                 <Route path="whatsapp" element={<WhatsApp />} />
                 <Route path="importar" element={<Importar />} />
                 <Route path="mais" element={<MaisMenu />} />
