@@ -94,11 +94,16 @@ export function planInstallmentDecision(input: AdvisorInstallmentInput): Advisor
   const recurringFree = round2(income - typical - debts - cards);
   const month0 = input.today.slice(0, 7);
 
+  const byMonth = input.card_installments_by_month ?? {};
   const timeline: AdvisorMonth[] = [];
   for (let i = 0; i < installments; i += 1) {
+    const month = addMonth(month0, i);
+    // Parcela de cartão já contratada para aquele mês tem precedência sobre a
+    // média: é obrigação conhecida, não estimativa.
+    const contracted = Number(byMonth[month] ?? NaN);
     const freeBefore = i === 0
       ? round2(Number(input.projected_month_end_available) || 0)
-      : recurringFree;
+      : round2(Number.isFinite(contracted) ? income - typical - debts - contracted : recurringFree);
     const freeAfter = round2(freeBefore - installmentAmount);
     timeline.push({
       month: addMonth(month0, i),
