@@ -28,7 +28,7 @@ describe("propósito e identidade sem aviso indevido", () => {
     for (const q of asks) expect(shouldAcknowledge(q), q).toBe(false);
   });
 
-  it("aviso continua ligado em turno analítico", () => {
+  it("nenhum aviso em turno analítico — só os três pontinhos", () => {
     for (const q of [
       "quanto gastei em agosto?",
       "me manda um gráfico da evolução dos meus gastos",
@@ -36,7 +36,7 @@ describe("propósito e identidade sem aviso indevido", () => {
       "gastei 32 no mercado",
       "como estão minhas metas?",
     ]) {
-      expect(shouldAcknowledge(q), q).toBe(true);
+      expect(shouldAcknowledge(q), q).toBe(false);
     }
   });
 

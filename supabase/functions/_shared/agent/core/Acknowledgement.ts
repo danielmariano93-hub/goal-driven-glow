@@ -16,28 +16,34 @@ export type AckPlan = {
   observed_p75_ms: number | null;
 };
 
-const MIN_DELAY_MS = 3_000;
-const MAX_DELAY_MS = 9_000;
+// O aviso virou exceção (só turnos longos de documento). Antes de 25s o
+// "digitando…" já cobre a espera; avisar antes disso é ruído de chatbot.
+const MIN_DELAY_MS = 25_000;
+const MAX_DELAY_MS = 45_000;
 
-/** Frase por natureza do pedido — determinística, sem jargão técnico. */
+/**
+ * Frase por natureza do pedido — determinística, sem jargão técnico e sem
+ * "só um instante": quando esse aviso aparece (só em turno longo de documento),
+ * ele diz exatamente o que está sendo lido.
+ */
 export function ackMessageFor(text: string): string {
   const t = String(text ?? "").toLowerCase();
   if (/\b(gr[aá]fico|visualiza|em barras|em pizza|em linha)\b/.test(t)) {
-    return "Só um instante — estou montando o gráfico com seus números 📊";
+    return "Estou montando o gráfico com seus números 📊";
   }
   if (/\b(importa|extrato|planilha|pdf|fatura|print|comprovante|foto)\b/.test(t)) {
-    return "Recebi — estou lendo os lançamentos um por um antes de te mostrar 🧾";
+    return "Estou lendo os lançamentos um por um antes de te mostrar 🧾";
   }
   if (/\b(previs[aã]o|fecha|fechamento|proje|vai sobrar|vou fechar)\b/.test(t)) {
-    return "Só um instante — estou projetando o fechamento do seu mês 🔎";
+    return "Estou projetando o fechamento do seu mês 🔎";
   }
   if (/\b(compar|evolu|tend[eê]ncia|m[eê]s passado|antes)\b/.test(t)) {
-    return "Só um instante — estou comparando os dois períodos 🔎";
+    return "Estou comparando os dois períodos 🔎";
   }
   if (/\b(quanto|gastei|onde|categoria|estabelecimento|saldo)\b/.test(t)) {
-    return "Só um instante — estou somando seus lançamentos do período 🔎";
+    return "Estou somando seus lançamentos do período 🔎";
   }
-  return "Só um instante — já estou com isso 👀";
+  return "Estou com isso aqui 👀";
 }
 
 function percentile(values: number[], p: number): number | null {

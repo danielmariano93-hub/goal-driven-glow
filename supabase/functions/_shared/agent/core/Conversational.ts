@@ -121,28 +121,27 @@ export function classifyConversational(text: string): ConversationalClassificati
   return { kind: null, deterministic: false, reason: "unclassified" };
 }
 
-/** Sinais de turno analítico de verdade (rodam motor, podem demorar). */
-const ANALYTIC_RX =
-  /(?:^|\W)(?:gr[áa]fico|chart|relat[óo]rio|an[áa]lise|analisa|analisar|compara|comparar|compare|evolu[cç][ãa]o|tend[êe]ncia|proje[cç]|previs|simula|resumo|balan[cç]o|extrato|fechamento|m[ée]dia|padr[ãa]o|onde (?:eu )?(?:mais )?gast|quanto (?:eu )?(?:j[áa] )?(?:gastei|recebi|tenho|devo|falta)|meu saldo|minhas? (?:metas?|d[íi]vidas?|contas?|faturas?|assinaturas?))/i;
-const MONTHS_RX = /(?:^|\W)(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|este m[êe]s|m[êe]s passado|semana|hoje|ontem|[uú]ltimos? \d+ dias)/i;
-const MONEY_RX = /(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais|conto|pila)?/i;
+/** Turno pesado de leitura de documento — o único que pode justificar aviso. */
+const HEAVY_DOC_RX =
+  /(?:^|\W)(?:extrato|fatura em (?:pdf|anexo)|planilha|csv|pdf|comprovantes?|notas? fiscais?|importa[rç]|essas? (?:linhas|transa[cç][õo]es)|segue (?:o|a) (?:lista|arquivo))/i;
 
 /**
- * O aviso de espera é OPT-IN: só aparece quando o turno é comprovadamente
- * analítico ou de escrita financeira. Conversa (identidade, propósito,
- * saudação, papo geral) nunca recebe aviso — só "digitando…".
+ * Aviso de espera é EXCEÇÃO, não regra.
+ *
+ * Os três pontinhos ("digitando…") já resolvem a percepção de espera. Mandar
+ * "só um instante" a cada pergunta faz o Nino soar como chatbot. Então:
+ *  - conversa, pergunta analítica, simulação e consultoria => NENHUM aviso;
+ *  - só turnos comprovadamente longos (leitura de documento/extrato/lote de
+ *    lançamentos) mantêm um único aviso, e depois de bastante tempo.
  */
 export function shouldAcknowledge(text: string): boolean {
   const raw = String(text ?? "").trim();
   if (!raw) return false;
   if (classifyConversational(raw).kind !== null) return false;
-  if (ANALYTIC_RX.test(raw)) return true;
-  if (FINANCIAL_RX.test(raw)) return true;
   const words = raw.split(/\s+/).length;
-  if (words >= 25 && MONEY_RX.test(raw)) return true;
-  if (words >= 25 && MONTHS_RX.test(raw)) return true;
-  // Mensagem longa com anexo/pedido complexo: melhor avisar do que deixar mudo.
-  return words >= 40;
+  if (HEAVY_DOC_RX.test(raw) && words >= 8) return true;
+  // Lote colado de lançamentos: a leitura demora de verdade.
+  return words >= 120;
 }
 
 function identityReply(firstName?: string | null): string {

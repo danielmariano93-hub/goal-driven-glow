@@ -1261,12 +1261,110 @@ import {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
 } from "./engineTools.ts";
+import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 
 export {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
 };
+
+/**
+ * Consultoria de decisão parcelada (`nino_advisor.v1`).
+ *
+ * Responde "consigo assumir essa parcela?" com linha do tempo mês a mês, e —
+ * quando não cabe ou cabe apertado — já traz onde liberar o valor que falta,
+ * usando o motor de oportunidades reais de economia. Nenhum número é estimado
+ * pelo modelo: tudo vem do snapshot canônico e dos motores determinísticos.
+ */
+export async function plan_installment_decision(ctx: ToolContext, args: {
+  amount: number;
+  installments?: number;
+  method?: "cash" | "card";
+  description?: string;
+}): Promise<ToolResult> {
+  const amount = Number(args?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
+  const installments = Math.max(1, Math.min(48, Math.floor(Number(args?.installments ?? 1)) || 1));
+  const method: "cash" | "card" = args?.method === "cash" ? "cash" : "card";
+
+  const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+  const settingsRes = await ctx.sb.from("user_financial_settings")
+    .select("approximate_monthly_income").eq("user_id", ctx.user_id).maybeSingle();
+  const declaredIncome = Number(settingsRes?.data?.approximate_monthly_income ?? 0);
+  const observedIncome = Number(snap.current_month_income ?? 0)
+    + Number(snap.confirmed_future_income ?? 0)
+    + Number(snap.estimated_fixed_income ?? 0);
+  const monthlyIncome = declaredIncome > 0 ? declaredIncome : observedIncome;
+
+  const monthlyTypicalExpense = Math.round(Number(snap.typical_daily_pace ?? 0) * 30 * 100) / 100;
+  const monthlyDebtInstallments = (snap.active_debts ?? [])
+    .reduce((sum: number, d: any) => sum + Number(d.installment_amount ?? 0), 0);
+
+  // Parcelas de cartão já contratadas, por mês de competência futuro.
+  const cardByMonth: Record<string, number> = {};
+  const instRes = await ctx.sb.from("credit_card_installments")
+    .select("competence_month,amount,status")
+    .eq("user_id", ctx.user_id)
+    .gte("competence_month", snap.today.slice(0, 7));
+  for (const row of (instRes?.data ?? []) as any[]) {
+    if (String(row.status ?? "") === "paid") continue;
+    const key = String(row.competence_month ?? "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(key)) continue;
+    cardByMonth[key] = Math.round(((cardByMonth[key] ?? 0) + Number(row.amount ?? 0)) * 100) / 100;
+  }
+  const futureMonths = Object.values(cardByMonth);
+  const monthlyCardInstallments = futureMonths.length
+    ? Math.round(futureMonths.reduce((a, b) => a + b, 0) / futureMonths.length * 100) / 100
+    : 0;
+
+  const decision = planInstallmentDecision({
+    amount, installments, method,
+    today: snap.today,
+    projected_month_end_available: Number(snap.projected_month_end_available ?? 0),
+    monthly_income: monthlyIncome,
+    monthly_typical_expense: monthlyTypicalExpense,
+    monthly_debt_installments: monthlyDebtInstallments,
+    monthly_card_installments: monthlyCardInstallments,
+    card_installments_by_month: cardByMonth,
+  });
+
+  // Consultor de verdade: quando aperta, já mostra de onde tirar.
+  let savings: unknown = null;
+  if (decision.verdict !== "cabe") {
+    const opportunities = await find_savings_opportunities({ sb: ctx.sb, user_id: ctx.user_id }, { days: 90 })
+      .catch(() => null);
+    savings = opportunities && (opportunities as any).ok ? (opportunities as any).result : null;
+  }
+
+  return {
+    ok: true,
+    result: {
+      ...decision,
+      description: args?.description ?? null,
+      reconciliation_id: snap.reconciliation_id,
+      income_basis: declaredIncome > 0 ? "declared_monthly_income" : "observed_income_projection",
+      monthly_income: monthlyIncome,
+      monthly_typical_expense: monthlyTypicalExpense,
+      monthly_debt_installments: Math.round(monthlyDebtInstallments * 100) / 100,
+      monthly_card_installments: monthlyCardInstallments,
+      savings_plan: savings,
+      answer_format: {
+        shape: "advisor_decision",
+        must_include: [
+          "veredito direto (cabe / cabe apertado / não cabe)",
+          "valor da parcela e nº de meses",
+          "folga mensal projetada e meses apertados, se houver",
+          decision.verdict === "cabe"
+            ? "uma recomendação de acompanhamento"
+            : "quanto precisa liberar por mês e de onde (savings_plan)",
+          "uma pergunta de decisão no final",
+        ],
+        forbidden: ["inventar juros", "calcular número fora deste resultado", "listar genérico sem valor em reais"],
+      },
+    },
+  };
+}
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
   const [txs, categoriesResult] = await Promise.all([
@@ -2303,6 +2401,21 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: get_debt_status,
+  },
+  {
+    name: "plan_installment_decision",
+    description: "CONSULTORIA: diz se o usuário consegue assumir um gasto/parcela, com linha do tempo mês a mês (folga antes e depois), meses que ficam apertados, quanto precisa liberar por mês e onde cortar. Use para 'consigo pagar', 'cabe no meu mês', 'vale a pena parcelar em Nx', 'impacto dessa parcela', 'quanto consigo reduzir para caber'.",
+    parameters: {
+      type: "object",
+      properties: {
+        amount: num,
+        installments: { type: "integer", minimum: 1, maximum: 48 },
+        method: { type: "string", enum: ["cash", "card"] },
+        description: optionalStr,
+      },
+      required: ["amount"], additionalProperties: false,
+    },
+    execute: plan_installment_decision,
   },
 ];
 
