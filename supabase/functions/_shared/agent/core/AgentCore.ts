@@ -244,25 +244,47 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
           sb, input.conversation_id, { limit: 12, excludeMessageId: null });
         const lastUserTexts = hist.filter(h => h.role === "user")
           .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
+        // Tenta primeiro cada mensagem isolada (do mais recente ao mais antigo),
+        // preservando quebras de linha — é o que permite ler um cartão colado.
+        for (const candidate of [...lastUserTexts].reverse()) {
+          const fb = await deterministicFallback(sb, { ...input, text: candidate });
+          if (fb.kind === "draft") return fb;
+        }
         const recoveredText = [...lastUserTexts, input.text].join(". ");
-        const fb = await deterministicFallback(sb, { ...input, text: recoveredText });
-        return fb;
+        return await deterministicFallback(sb, { ...input, text: recoveredText });
       }, (m) => metrics.errors.push("confirm_recover:" + m), null as any);
       if (recovered && recovered.kind === "draft") {
         metrics.fallback_used = true;
+        // O usuário JÁ confirmou: executa o rascunho reconstruído no mesmo turno.
+        let finalReply = recovered.reply;
+        let finalKind: "draft" | "receipt" = "draft";
+        const executed = await guard(async () => {
+          const pending = await findPending(sb, input.conversation_id, input.user_id);
+          if (!pending) return null;
+          const { data, error } = await sb.rpc(confirmationExecutor(pending.kind), {
+            p_pending_id: pending.id, p_user_id: input.user_id,
+          });
+          if (error) throw new Error(error.message);
+          return data ?? true;
+        }, (m) => metrics.errors.push("confirm_recover_exec:" + m), null as any);
+        if (executed) {
+          finalReply = buildReceipt(recovered.reply);
+          finalKind = "receipt";
+        }
         if (input.channel !== "app" && input.to_phone) {
           await enqueueReply(sb, {
             user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
-            body: recovered.reply, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+            body: finalReply, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
             source: input.channel === "simulator" ? "simulator" : "whatsapp",
           });
         }
         return {
-          reply: recovered.reply, reply_kind: "draft", path: "deterministic_fallback",
+          reply: finalReply, reply_kind: finalKind, path: "deterministic_fallback",
           draft_id: recovered.draft_id, session_id,
         };
       }
     }
+
     const v = validate(policyReply.body, { expectedKind: policyReply.replyKind, hasDraft: !!policyReply.draft_id });
     metrics.validations = v.reasons.length;
     const body = v.body;
