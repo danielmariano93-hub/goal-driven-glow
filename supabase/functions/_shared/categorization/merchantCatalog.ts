@@ -62,6 +62,34 @@ export function matchCuratedMerchant(raw: string | null | undefined): CuratedMer
   return CURATED_MERCHANTS.find((m) => m.patterns.some((p) => p.test(text))) ?? null;
 }
 
+/** Só as marcas de altíssima precisão (nenhum aprendizado pode contradizer). */
+export function matchAuthoritativeMerchant(raw: string | null | undefined): CuratedMerchant | null {
+  const hit = matchCuratedMerchant(raw);
+  return hit?.authoritative ? hit : null;
+}
+
+/**
+ * Intermediadores de pagamento: aparecem no extrato mas NÃO são o comércio
+ * econômico. Sozinhos nunca determinam merchant nem categoria.
+ */
+const PASS_THROUGH_DESCRIPTORS: RegExp[] = [
+  /\bpagseguro\b/i,
+  /\bpag\s*bank\b|\bpagbank\b/i,
+  /\bmercado\s*pago\b|\bmercpago\b|\bmercadopago\b/i,
+  /\bpicpay\b/i,
+  /\bstone\b|\bcielo\b|\bgetnet\b|\bredecard\b/i,
+  /\bpjbank\b/i,
+];
+
+/** A descrição só traz intermediador de pagamento (sem marca conhecida)? */
+export function isPassThroughDescriptor(raw: string | null | undefined): boolean {
+  const text = String(raw ?? "");
+  if (!text.trim()) return false;
+  if (!PASS_THROUGH_DESCRIPTORS.some((rx) => rx.test(text))) return false;
+  return !matchCuratedMerchant(text);
+}
+
+
 export function curatedStorageKeys(): Array<{ merchant_key: string; canonical_name: string; semantic_category: string }> {
   return CURATED_MERCHANTS.map((m) => ({
     merchant_key: storageMerchantKey(m.canonical_name),
