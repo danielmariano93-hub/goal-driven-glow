@@ -21,6 +21,13 @@ export type FallbackOutcome = {
   kind: "info" | "question" | "draft";
 };
 
+/** Texto do rascunho: prefere o cartão determinístico da ferramenta. */
+function draftReply(result: any): string {
+  const card = result?.card_text ? String(result.card_text) : null;
+  if (card) return card;
+  return `${result?.summary ?? ""}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.`.trim();
+}
+
 export async function deterministicFallback(
   sb: SupabaseClient,
   input: { user_id: string; conversation_id: string; text: string },
@@ -40,7 +47,8 @@ export async function deterministicFallback(
       occurred_at: spans.occurred_at ?? undefined,
       description: spans.description,
     });
-    if (r.ok) return { reply: `${(r.result as any).summary}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.`, draft_id: (r.result as any).draft_id, kind: "draft" };
+    if (r.ok) return { reply: draftReply(r.result), draft_id: (r.result as any).draft_id, kind: "draft" };
+    if ((r as any).error === "needs_description") return { reply: "Só me diz em quê foi esse gasto que eu registro na hora.", kind: "question" };
     if (r.error === "account_not_found") return { reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", kind: "question" };
     if (r.error === "card_not_found") return { reply: "Em qual cartão eu registro?", kind: "question" };
   }
@@ -80,9 +88,12 @@ export async function deterministicFallback(
       if (r.error === "account_not_found") {
         return { reply: "Em qual conta eu registro? (ex.: Nubank, Itaú, Carteira)", kind: "question" };
       }
+      if ((r as any).error === "needs_description") {
+        return { reply: "Só me diz em quê foi esse gasto que eu registro na hora.", kind: "question" };
+      }
       return { reply: "Não consegui entender direito. Pode repetir?", kind: "info" };
     }
-    return { reply: `${(r.result as any).summary}\nResponda *CONFIRMAR* para registrar ou *CANCELAR* para descartar.`, draft_id: (r.result as any).draft_id, kind: "draft" };
+    return { reply: draftReply(r.result), draft_id: (r.result as any).draft_id, kind: "draft" };
   }
 
   if (intent.kind === "transfer") {
@@ -91,12 +102,12 @@ export async function deterministicFallback(
       occurred_at: intent.occurred_at,
     });
     if (!r.ok) return { reply: "Escreva assim: “transferir 100 de Nubank para Itaú”.", kind: "question" };
-    return { reply: `${(r.result as any).summary}\nResponda *CONFIRMAR* ou *CANCELAR*.`, draft_id: (r.result as any).draft_id, kind: "draft" };
+    return { reply: draftReply(r.result), draft_id: (r.result as any).draft_id, kind: "draft" };
   }
 
   if (intent.kind === "goal_contribution" && intent.goal_hint) {
     const r = await add_goal_contribution_draft(ctx, { goal: intent.goal_hint, amount: intent.amount, occurred_at: intent.occurred_at });
-    if (r.ok) return { reply: `${(r.result as any).summary}\nResponda *CONFIRMAR* ou *CANCELAR*.`, draft_id: (r.result as any).draft_id, kind: "draft" };
+    if (r.ok) return { reply: draftReply(r.result), draft_id: (r.result as any).draft_id, kind: "draft" };
   }
 
   return {

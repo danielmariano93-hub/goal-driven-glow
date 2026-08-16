@@ -72,19 +72,34 @@ function normalizeMarkdown(line: string): string {
 }
 
 /** Bullet colado no meio do parágrafo ("Eu faço: • Registrar…") quebra em
- *  linhas próprias antes de qualquer outra normalização. */
+ *  linhas próprias antes de qualquer outra normalização. Também trata o
+ *  asterisco de lista colado na frase ("Rascunhei aqui: * Despesa: R$ 96,00"),
+ *  que no WhatsApp saía como texto corrido feio. `*bold*` nunca tem espaço
+ *  depois do asterisco, então a regra não desmonta negrito. */
 function splitInlineBullets(text: string): string {
   return text
+    // "texto: * item" → bullet em nova linha (hífen não conta: aparece em prosa)
+    .replace(/(\S)[ \t]+\*[ \t]+(?=\S)/g, "$1\n• ")
     // "texto: • item" ou "texto • item" → bullet em nova linha
     .replace(/([^\n])[ \t]+(?=•[ \t]*\S)/g, (_m, before: string) => `${before}\n`)
     // "• item • item" na mesma linha → um por linha
     .replace(/(\S)[ \t]+•[ \t]+/g, "$1\n• ");
 }
 
+/** Pergunta de fechamento grudada no último dado ("Data: 15/08/2026 Posso
+ *  registrar?") ganha parágrafo próprio. */
+function detachClosingQuestion(text: string): string {
+  return text.replace(
+    /([^\n])[ \t]+((?:Posso registrar|Confirmo|Fecho assim|Pode salvar|Confirma|Tudo certo)\??)\s*$/i,
+    (_m, before: string, question: string) => `${before}\n\n${question}`,
+  );
+}
+
+
 /** Espaçamento leve: linhas curtas, bullets limpos, uma linha em branco antes
  *  do primeiro item de uma lista. */
 function lightenLayout(text: string): string {
-  const lines = splitInlineBullets(text)
+  const lines = detachClosingQuestion(splitInlineBullets(text))
     .split("\n")
     .map((line) => normalizeMarkdown(line).replace(/[ \t]+$/g, ""))
     .filter((line, index, all) => !(line === "" && all[index - 1] === ""))

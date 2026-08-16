@@ -617,7 +617,16 @@ ${JSON.stringify(hints)}
     toolCallLog.push(...turn.toolCalls);
     for (const c of turn.toolCalls) metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
     const draftCall = turn.toolCalls.find(c => c.ok && c.tool_name.endsWith("_draft"));
-    if (draftCall) { draft_id = (draftCall.result as any)?.draft_id; kind = "draft"; }
+    if (draftCall) {
+      draft_id = (draftCall.result as any)?.draft_id;
+      kind = "draft";
+      // Verdade do sistema acima da prosa do modelo: quando a ferramenta
+      // entrega o cartão renderizado, é ele que vai ao usuário. Isso elimina
+      // categoria/descrição inventadas e layout quebrado.
+      const cardText = (draftCall.result as any)?.card_text;
+      if (cardText) reply = String(cardText);
+    }
+
     else if (turn.toolCalls.some(c => c.tool_name === "confirm_pending_action" && c.ok)) {
       const confirmCall = turn.toolCalls.find(c => c.tool_name === "confirm_pending_action" && c.ok);
       draft_id = (confirmCall?.result as any)?.draft_id;
