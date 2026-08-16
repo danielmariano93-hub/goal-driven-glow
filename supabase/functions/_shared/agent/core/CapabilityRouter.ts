@@ -6,6 +6,7 @@ import { parseBrAmount, shiftSaoPaulo, todaySaoPaulo } from "../parser.ts";
 import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
+import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 
 export type CapabilityName =
   | "weekday_pattern"
