@@ -320,8 +320,6 @@ export function rankMerchants(
   const rowsRaw = compare(current, previous).sort((a, b) => b.net_total - a.net_total || b.delta_abs - a.delta_abs);
 
   const periodNet = round2(current.reduce((s, m) => s + m.net_total, 0));
-  // Share SEMPRE calculado no motor — a LLM nunca faz percentual.
-  const rows = rowsRaw.map((r) => ({ ...r, share: periodNet > 0 ? round2(r.net_total / periodNet) : 0 }));
   const previousNet = round2(previous.reduce((s, m) => s + m.net_total, 0));
 
   // Cobertura: gasto do período com merchant resolvido / gasto total do período.
@@ -334,6 +332,12 @@ export function rankMerchants(
   }
   const grossResolved = round2(current.reduce((s, m) => s + m.gross_total, 0));
   const coverage = totalPeriodExpense > 0 ? round2(grossResolved / totalPeriodExpense) : 0;
+
+  // Share SEMPRE calculado no motor — e SEMPRE sobre o total REAL do período/
+  // categoria, nunca sobre o subtotal dos merchants identificados.
+  const shareBase = totalPeriodExpense > 0 ? totalPeriodExpense : periodNet;
+  const rows = rowsRaw.map((r) => ({ ...r, share: shareBase > 0 ? round2(r.net_total / shareBase) : 0 }));
+
 
   const top = current[0] ?? null;
   const sampleSize = current.reduce((s, m) => s + m.count, 0);
