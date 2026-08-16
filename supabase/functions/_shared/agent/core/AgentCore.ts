@@ -359,6 +359,12 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
   systemPrompt = `${capabilityPrompt(capability)}\n\n${turnPlanPrompt(turnPlan)}\n\n${systemPrompt}`;
+  if (mandatoryTools.length > 1) {
+    systemPrompt = `[EXECUÇÃO OBRIGATÓRIA DAS SUB-PERGUNTAS]\n`
+      + `Chame TODAS estas ferramentas neste turno antes de responder: ${mandatoryTools.join(", ")}.\n`
+      + `Cada sub-pergunta recebe sua própria resposta com número da ferramenta correspondente. `
+      + `Não responda parcialmente e não deixe nenhuma sub-pergunta sem número.\n\n${systemPrompt}`;
+  }
 
   // Load only the factual slices required by this capability. This turns the
   // previously decorative FinancialContext360 facade into actual grounding
