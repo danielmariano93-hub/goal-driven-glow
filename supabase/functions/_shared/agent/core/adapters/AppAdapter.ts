@@ -14,6 +14,7 @@ import { buildReceipt } from "../ReceiptBuilder.ts";
 import { confirmationExecutor } from "../PendingConfirmations.ts";
 import { findBulkPending, executeBulkPending } from "../BulkEntry.ts";
 
+import { hasExplicitChartIntent } from "../../../intelligence/chartIntent.ts";
 import { generate_chart_artifact } from "../../tools.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -222,11 +223,11 @@ function mentionsChart(text: string): boolean {
   return /\b(gr[aá]fico|visualiza|abaixo|📊|📈|📉)\b/i.test(text || "");
 }
 
-// Amplo: cobre TODO pedido visual/tendência. Se um destes casar, NUNCA
-// interceptamos no fast-path textual — deixamos o LLM (ou o fallback) chamar
-// generate_chart_artifact. Sincronizado com prompt.ts e com o guardrail server.
+// Intenção visual EXPLÍCITA apenas (`nino_brain.v2`). "evolução", "tendência",
+// "dia a dia" e "ritmo dos gastos" são análise TEXTUAL: não geram artefato em
+// nenhuma camada. Fonte única: intelligence/chartIntent.ts.
 export function wantsChart(text: string): boolean {
-  return /\b(gr[aá]fico|gr[aá]ficos|graficos?|chart|visualiz(a|ar|a[çc][aã]o)|em\s+barras?|em\s+pizza|em\s+donut|em\s+linhas?|linha|curva|dia\s+a\s+dia|diariamente|por\s+dia|por\s+semana|por\s+m[eê]s|evolu(?:[cç][aã]o|ir|indo)|tend[eê]ncia|m[eé]dia\s+(?:di[aá]ria|do\s+dia|acumulada)|gasto\s+m[eé]dio|estou\s+reduzindo|reduzindo\s+meus?\s+gastos|andando\s+de\s+lado|est[aá]\s+(?:caindo|subindo)|ritmo\s+dos?\s+gastos?)\b/i.test(text || "");
+  return hasExplicitChartIntent(text || "");
 }
 
 // Escolhe o kind determinístico quando o LLM falha. Prioriza a série de média

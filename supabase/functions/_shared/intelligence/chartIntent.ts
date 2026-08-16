@@ -26,9 +26,24 @@ function requestedDays(t: string): number {
   return Math.max(1, Math.min(366, Number(match?.[1] ?? 30)));
 }
 
+/**
+ * Única fonte de verdade sobre intenção VISUAL explícita (`nino_brain.v2`).
+ * "evolução", "tendência", "dia a dia" e "por dia" NÃO são pedidos de gráfico:
+ * são análise textual. Só pedidos explícitos geram artefato.
+ */
+export function hasExplicitChartIntent(text: string): boolean {
+  const t = normalize(text);
+  if (/\b(grafico|graficos|chart|charts|donut|pizza)\b/.test(t)) return true;
+  if (/\b(plote|plotar|plota)\b/.test(t)) return true;
+  if (/\b(visualizar|visualizacao|visualiza)\b/.test(t)) return true;
+  if (/\bem\s+(linha|linhas|barra|barras|colunas?)\b/.test(t)) return true;
+  if (/\b(mostra|mostrar|me mostre|quero)\b.{0,20}\b(grafico|visual)\b/.test(t)) return true;
+  return false;
+}
+
 export function inferChartRequest(text: string): ChartRequest | null {
   const t = normalize(text);
-  if (!/\b(grafico|chart|visual|linha|barras?|pizza|donut)\b/.test(t)) return null;
+  if (!hasExplicitChartIntent(text)) return null;
 
   if (interpretSemanticQuery(text)?.intent === "weekday_pattern") {
     return { mode: "weekday_pattern" };

@@ -11,11 +11,24 @@ export type TruthIssue =
   | { type: "period_mismatch"; expected: string; found: string }
   | { type: "no_evidence" };
 
+export type ClaimProvenance = {
+  kind: "money" | "percent";
+  value: number;
+  /** Ferramenta que sustenta o número; `null` quando não há proveniência. */
+  tool_name: string | null;
+  /** exact = veio do motor; derived = soma/diferença/razão da evidência. */
+  origin: "exact" | "derived" | "unbacked";
+};
+
 export type TruthVerdict = {
   ok: boolean;
   issues: TruthIssue[];
   /** Headline canônica disponível para substituir a resposta, se preciso. */
   canonical_headline: string | null;
+  /** Rastreabilidade claim -> ferramenta (auditoria e telemetria). */
+  provenance: ClaimProvenance[];
+  /** Claims sem proveniência (subconjunto de `provenance`). */
+  unbacked: ClaimProvenance[];
 };
 
 const MONEY_RX = /R\$\s*(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:[.,]\d{1,2})?)/g;
@@ -69,6 +82,24 @@ export function validateAgainstEvidence(
   const okCalls = (toolCalls ?? []).filter((c) => c.ok && c.result != null);
   const canonical_headline = okCalls.map((c) => extractHeadline(c.result)).find(Boolean) ?? null;
 
+  // Índice número -> ferramentas que o produziram (proveniência por claim).
+  const byValue = new Map<number, string[]>();
+  const indexTool = (tool: string, result: unknown) => {
+    const numbers = new Set<number>();
+    collectNumbers(result, numbers);
+    for (const n of numbers) {
+      const list = byValue.get(n) ?? [];
+      if (!list.includes(tool)) list.push(tool);
+      byValue.set(n, list);
+    }
+  };
+  for (const call of okCalls) indexTool(call.tool_name, call.result);
+  const toolFor = (value: number, tolerance = 1): string | null => {
+    for (const [n, tools] of byValue) if (Math.abs(n - value) <= tolerance) return tools[0] ?? null;
+    return null;
+  };
+  const provenance: ClaimProvenance[] = [];
+
   const claimed: number[] = [];
   for (const match of String(reply ?? "").matchAll(MONEY_RX)) {
     const value = parseBrl(match[1]);
@@ -83,10 +114,14 @@ export function validateAgainstEvidence(
   }
 
   if (claimed.length === 0 && claimedPercents.length === 0) {
-    return { ok: true, issues, canonical_headline };
+    return { ok: true, issues, canonical_headline, provenance, unbacked: [] };
   }
   if (okCalls.length === 0) {
-    return { ok: false, issues: [{ type: "no_evidence" }], canonical_headline };
+    const unbacked: ClaimProvenance[] = [
+      ...claimed.map((value) => ({ kind: "money" as const, value, tool_name: null, origin: "unbacked" as const })),
+      ...claimedPercents.map((value) => ({ kind: "percent" as const, value, tool_name: null, origin: "unbacked" as const })),
+    ];
+    return { ok: false, issues: [{ type: "no_evidence" }], canonical_headline, provenance: unbacked, unbacked };
   }
 
   const known = new Set<number>();
@@ -99,7 +134,12 @@ export function validateAgainstEvidence(
     ));
 
   for (const value of claimed) {
-    if (!near(value) && !derived(value)) issues.push({ type: "value_not_in_evidence", value });
+    if (near(value)) provenance.push({ kind: "money", value, tool_name: toolFor(value), origin: "exact" });
+    else if (derived(value)) provenance.push({ kind: "money", value, tool_name: null, origin: "derived" });
+    else {
+      provenance.push({ kind: "money", value, tool_name: null, origin: "unbacked" });
+      issues.push({ type: "value_not_in_evidence", value });
+    }
   }
 
   // Um percentual é aceito quando: (a) o motor já o entregou (0..100 ou 0..1
@@ -113,7 +153,17 @@ export function validateAgainstEvidence(
     );
   };
   for (const value of claimedPercents) {
-    if (value > 0 && !percentKnown(value)) issues.push({ type: "percent_not_in_evidence", value });
+    if (value <= 0) continue;
+    if (percentKnown(value)) {
+      provenance.push({
+        kind: "percent", value,
+        tool_name: toolFor(value) ?? toolFor(value / 100, 0.01),
+        origin: toolFor(value) ? "exact" : "derived",
+      });
+    } else {
+      provenance.push({ kind: "percent", value, tool_name: null, origin: "unbacked" });
+      issues.push({ type: "percent_not_in_evidence", value });
+    }
   }
 
   if (expectedPeriod?.from) {
@@ -127,5 +177,6 @@ export function validateAgainstEvidence(
   }
 
 
-  return { ok: issues.length === 0, issues, canonical_headline };
+  const unbacked = provenance.filter((c) => c.origin === "unbacked");
+  return { ok: issues.length === 0, issues, canonical_headline, provenance, unbacked };
 }

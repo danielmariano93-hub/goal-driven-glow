@@ -153,6 +153,90 @@ export function formatForecastMonthClose(result: any): string {
   return lines.join("\n");
 }
 
+function datePt(value: unknown): string {
+  const raw = String(value ?? "");
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : raw;
+}
+
+/**
+ * Distribuição por estabelecimento (`merchant_distribution.v1`) — 100%
+ * determinística. Ordem, valores e percentuais vêm do motor; nada é
+ * recalculado, reordenado ou estimado aqui (e muito menos pela LLM).
+ * O denominador do percentual é sempre o TOTAL REAL da categoria.
+ */
+export function formatMerchantDistribution(result: any): string {
+  const scope = result?.category?.name ? `em ${result.category.name}` : "no período";
+  const from = datePt(result?.period?.from);
+  const to = datePt(result?.period?.to);
+  const total = Number(result?.category_total ?? 0);
+  const merchants: any[] = Array.isArray(result?.merchants) ? result.merchants : [];
+  if (total <= 0 || merchants.length === 0) {
+    return `Não encontrei gastos ${scope} entre ${from} e ${to}.`;
+  }
+  const ranked = merchants
+    .slice()
+    .sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0));
+  const lines = [
+    `${result?.category?.name ? `Em ${result.category.name}, você` : "Você"} gastou *${money(total)}* entre ${from} e ${to}.`,
+    "",
+  ];
+  ranked.forEach((row, index) => {
+    const pct = PCT.format(Number(row.share_of_category ?? 0) * 100);
+    const count = Number(row.transactions_count ?? 0);
+    lines.push(
+      `${index + 1}. ${row.merchant} — ${money(row.amount)} · ${pct}%`
+      + (count > 1 ? ` (${count} lançamentos)` : ""),
+    );
+  });
+  // Reconciliação: a soma listada nunca pode ser apresentada como o total.
+  const listed = ranked.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const unresolved = Number(result?.unresolved_total ?? 0);
+  const missing = Math.max(0, total - listed);
+  if (unresolved > 1 && Number(result?.coverage ?? 1) < 0.995) {
+    lines.push(
+      "",
+      `Identifiquei o estabelecimento de ${money(result?.resolved_total ?? listed)} desse total (${PCT.format(Number(result?.coverage ?? 0) * 100)}% de cobertura); ${money(unresolved)} ficaram sem estabelecimento reconhecido.`,
+    );
+  } else if (missing > 1) {
+    lines.push("", `Os demais ${money(missing)} estão espalhados em estabelecimentos menores.`);
+  }
+  return lines.join("\n");
+}
+
+/** Evolução financeira: análise TEXTUAL determinística (nunca gráfico). */
+export function formatFinancialEvolution(result: any): string {
+  const facts = result?.facts ?? {};
+  const windows: any[] = Array.isArray(result?.breakdown) ? result.breakdown : [];
+  const w30 = windows.find((w) => w.key === "30d");
+  const w90 = windows.find((w) => w.key === "90d");
+  const trend = String(facts.trend ?? "estavel");
+  const trendPhrase = trend === "melhorando"
+    ? "você vem gastando menos que o seu próprio histórico"
+    : trend === "piorando"
+      ? "seu gasto vem subindo em relação ao seu próprio histórico"
+      : "seu gasto está estável em relação ao seu histórico";
+  const lines: string[] = [];
+  if (w30) {
+    lines.push(
+      `Nos últimos 30 dias entraram *${money(w30.income)}* e saíram *${money(w30.expense)}* — resultado de ${money(w30.net)}.`,
+      "",
+      `• Tendência: ${trendPhrase}${facts.expense_trend_pct != null ? ` (${PCT.format(Number(facts.expense_trend_pct))}%)` : ""}`,
+    );
+  } else {
+    lines.push(`Tendência: ${trendPhrase}.`);
+  }
+  if (w90) lines.push(`• Média mensal de gasto nos 90 dias: ${money(w90.expense_monthly_avg)}`);
+  if (facts.savings_rate_30d != null) {
+    lines.push(`• Você guardou ${PCT.format(Number(facts.savings_rate_30d) * 100)}% do que entrou nos últimos 30 dias`);
+  }
+  lines.push(`• Estabilidade dos seus meses: ${String(facts.stability ?? "media")}`);
+  if (facts.best_month) lines.push(`• Melhor mês: ${String(facts.best_month.month).replace("-", "/")} com resultado de ${money(facts.best_month.net)}`);
+  if (facts.worst_month) lines.push(`• Mês mais difícil: ${String(facts.worst_month.month).replace("-", "/")} com resultado de ${money(facts.worst_month.net)}`);
+  return lines.join("\n");
+}
+
+
 function failureReply(capability: CapabilityDecision, error: string | null): string {
   // Raw provider/database errors stay in telemetry and are never exposed to
   // the user. The response says what failed and whether data was changed.
@@ -224,6 +308,10 @@ export async function executeDeterministicCapability(
   else if (capability.name === "recent_transactions") reply = formatRecentTransactions(execution.result as any[]);
   else if (capability.name === "weekday_literal") reply = formatSpendingForDate(execution.result);
   else if (capability.name === "forecast_month_close") reply = formatForecastMonthClose(execution.result);
+  // Distribuição por estabelecimento e evolução financeira nunca voltam para a
+  // LLM: a resposta sai formatada direto do resultado do motor.
+  else if (capability.name === "merchant_distribution") reply = formatMerchantDistribution(execution.result);
+  else if (capability.name === "financial_evolution") reply = formatFinancialEvolution(execution.result);
   else return null;
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }

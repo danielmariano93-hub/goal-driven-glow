@@ -508,6 +508,11 @@ export function merchantDistribution(
   }
 
   const resolvedTotal = round2(current.reduce((s, m) => s + m.net_total, 0));
+  // O share é fração (0..1) com 4 casas: a apresentação precisa de uma decimal
+  // percentual honesta (16,3% e não 16%). Arredondar a 2 casas aqui destruía
+  // essa precisão e fazia a soma dos percentuais não fechar com o total.
+  const share = (value: number) =>
+    categoryTotal > 0 ? Math.round((value / categoryTotal) * 10_000) / 10_000 : 0;
   const merchants = current
     .slice()
     .sort((a, b) => b.net_total - a.net_total)
@@ -515,7 +520,7 @@ export function merchantDistribution(
     .map((m) => ({
       merchant: m.label,
       amount: m.net_total,
-      share_of_category: categoryTotal > 0 ? round2(m.net_total / categoryTotal) : 0,
+      share_of_category: share(m.net_total),
       transactions_count: m.count,
     }));
 
@@ -525,7 +530,8 @@ export function merchantDistribution(
     category_total: categoryTotal,
     resolved_total: resolvedTotal,
     unresolved_total: round2(Math.max(0, categoryTotal - resolvedTotal)),
-    coverage: categoryTotal > 0 ? round2(resolvedTotal / categoryTotal) : 0,
+    coverage: categoryTotal > 0 ? Math.round((resolvedTotal / categoryTotal) * 10_000) / 10_000 : 0,
+
     merchants,
   };
 }

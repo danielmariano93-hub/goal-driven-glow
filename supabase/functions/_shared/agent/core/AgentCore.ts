@@ -32,11 +32,16 @@ import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.t
 import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
 import { asEvidence } from "../../intelligence/evidence.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
+import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
+import { executeComposite } from "./CompositeExecutor.ts";
+import {
+  applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
+} from "./ConversationMemory.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -313,7 +318,19 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // COMPREENDER — plano determinístico do turno (assunto herdado, período
   // resolvido em pt-BR e sub-perguntas). Se a mensagem atual é só complemento
   // ("e em agosto?"), o roteamento passa a ver o assunto completo.
+  // Memória conversacional persistente: tópico/período ativos sobrevivem entre
+  // mensagens (TTL de 6h) e só entram quando a mensagem atual não traz assunto.
+  const memory = await guard(
+    () => loadConversationMemory(sb, session_id ?? null),
+    (m) => metrics.errors.push("conv_memory:" + m),
+    null,
+  );
   const turnPlan = buildTurnPlan({ text: input.text, history });
+  const memoryText = applyMemoryToText(input.text, memory, { followup: turnPlan.followup });
+  if (memoryText.used) {
+    turnPlan.effective_text = `${turnPlan.effective_text} (assunto: ${memory?.active_category ?? memory?.current_topic})`;
+    turnPlan.followup = true;
+  }
   if (turnPlan.followup || turnPlan.composed) {
     capability = classifyCapability(
       turnPlan.effective_text,
@@ -500,8 +517,30 @@ ${JSON.stringify(hints)}
       systemPrompt;
   }
 
+  // Perguntas compostas: executor determinístico real. Cada sub-pergunta chama
+  // sua ferramenta canônica e recebe seu próprio bloco com número do motor.
+  const composite = mandatoryTools.length > 1
+    ? await guard(
+      () => executeComposite(sb, {
+        user_id: input.user_id, conversation_id: input.conversation_id, plan: turnPlan,
+      }),
+      (m) => metrics.errors.push("composite:" + m),
+      null,
+    )
+    : null;
+
   // ---- Planner (LLM loop or fallback) ------------------------------------
-  const planner = await timeStage(metrics, "plan", () => planAction(sb, {
+  const planner = composite && composite.answered >= 2
+    ? {
+      path: "deterministic_tool" as const,
+      errorSanitized: null,
+      modelAttempts: [],
+      turn: {
+        reply: composite.reply, steps: composite.toolCalls.length, tokensIn: 0, tokensOut: 0,
+        toolCalls: composite.toolCalls, finish: "stop" as const,
+      },
+    }
+    : await timeStage(metrics, "plan", () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: turnPlan.followup ? turnPlan.effective_text : input.text, hasPrompt: !!prompt,
     history, capability,
@@ -607,7 +646,9 @@ ${JSON.stringify(hints)}
   const successfulMutation = toolCallLog.some(c => c.ok && (
     /_draft$/.test(String(c.tool_name)) || c.tool_name === "confirm_pending_action"
   ));
-  const chartRequested = /\b(gr[aá]fico|chart|visualiza|em\s+barras?|em\s+linha|em\s+pizza|evolu[çc][aã]o|tend[eê]ncia|dia\s+a\s+dia|por\s+dia)\b/i.test(String(input.text ?? ""));
+  // Gráfico só quando há intenção visual EXPLÍCITA. "Evolução"/"tendência" são
+  // análise textual e não podem exigir artefato em nenhuma camada.
+  const chartRequested = hasExplicitChartIntent(String(input.text ?? ""));
   const validated = await timeStage(metrics, "validate", async () => validate(reply, {
     expectedKind: kind, hasDraft: !!draft_id,
     hasSuccessfulMutation: successfulMutation,
@@ -684,6 +725,29 @@ ${JSON.stringify(hints)}
   } else if (!truth.ok) {
     metrics.errors.push("truth_gate_flagged:" + truth.issues.map((i) => i.type).join(","));
   }
+  if (truth.unbacked.length) {
+    // Auditoria: todo número sem proveniência fica registrado com o claim exato.
+    metrics.errors.push(
+      "truth_unbacked:" + truth.unbacked.map((c) => `${c.kind}:${c.value}`).slice(0, 6).join(","),
+    );
+  }
+
+  // Persiste ponteiros de conversa (tópico/período/intenção) para o próximo turno.
+  await guard(() => saveConversationMemory(sb, session_id ?? null, {
+    current_topic: detectCategory(turnPlan.effective_text) ?? memory?.current_topic ?? capability.name,
+    active_category: detectCategory(turnPlan.effective_text) ?? memory?.active_category ?? null,
+    previous_intent: capability.name,
+    active_period: {
+      from: turnPlan.effective_period.from,
+      to: turnPlan.effective_period.to,
+      label: turnPlan.effective_period.label,
+    },
+    comparison_period: turnPlan.previous_period,
+    pending_action: draft_id ?? null,
+    last_tool_context: toolCallLog.length
+      ? { tool: String(toolCallLog[toolCallLog.length - 1]?.tool_name ?? ""), period: turnPlan.previous_period }
+      : (memory?.last_tool_context ?? null),
+  }), (m) => metrics.errors.push("conv_memory_save:" + m), null);
 
   const body = humanizeReply(validateReply(reply));
   await timeStage(metrics, "persist", async () => {
