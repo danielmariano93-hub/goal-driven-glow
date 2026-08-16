@@ -4,6 +4,17 @@
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+/** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
+const ALLOWED_AUDIO_MIME = new Set([
+  "audio/ogg", "audio/opus", "audio/mpeg", "audio/mp4", "audio/m4a", "audio/x-m4a",
+  "audio/wav", "audio/x-wav", "audio/webm", "audio/aac", "audio/amr",
+]);
+
+export type MediaKind = "document" | "audio";
+
+function allowedFor(kind: MediaKind): Set<string> {
+  return kind === "audio" ? ALLOWED_AUDIO_MIME : ALLOWED_MIME;
+}
 const MAX_BYTES = 20 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 15_000;
 
@@ -35,6 +46,19 @@ function detectMime(bytes: Uint8Array): string | null {
   return null;
 }
 
+/** Assinaturas de contêiner de áudio — usadas só na rota de voz. */
+function detectAudioMime(bytes: Uint8Array): string | null {
+  if (bytes.length < 12) return null;
+  const ascii = (i: number, n: number) => String.fromCharCode(...bytes.slice(i, i + n));
+  if (ascii(0, 4) === "OggS") return "audio/ogg";
+  if (ascii(0, 3) === "ID3" || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return "audio/mpeg";
+  if (ascii(4, 4) === "ftyp") return "audio/mp4";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WAVE") return "audio/wav";
+  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "audio/webm";
+  if (ascii(0, 5) === "#!AMR") return "audio/amr";
+  return null;
+}
+
 function base64ToBytes(b64: string): Uint8Array | null {
   try {
     const clean = b64.replace(/^data:[^,]+,/, "").replace(/\s+/g, "");
@@ -50,7 +74,7 @@ export type DownloadResult =
   | { ok: true; bytes: Uint8Array; mime_type: string; filename: string }
   | { ok: false; code: DownloadCode; detail?: string };
 
-async function fetchWithLimits(url: string, headers: Record<string, string>): Promise<FetchResult> {
+async function fetchWithLimits(url: string, headers: Record<string, string>, kind: MediaKind = "document"): Promise<FetchResult> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
@@ -59,7 +83,7 @@ async function fetchWithLimits(url: string, headers: Record<string, string>): Pr
     const declaredLength = Number(r.headers.get("content-length") ?? 0);
     if (declaredLength > MAX_BYTES) return { ok: false, code: "size_exceeds", detail: String(declaredLength) };
     const responseType = (r.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-    if (responseType && !ALLOWED_MIME.has(responseType) && responseType !== "application/octet-stream")
+    if (responseType && !allowedFor(kind).has(responseType.replace(/^audio\/ogg.*$/, "audio/ogg")) && responseType !== "application/octet-stream")
       return { ok: false, code: "mime_not_allowed", detail: responseType.slice(0, 80) };
     const reader = r.body?.getReader();
     if (!reader) return { ok: false, code: "empty" };
@@ -116,13 +140,13 @@ function endpointCandidates(apiUrl: string, session: string, messageId: string, 
 
 export type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
 
-async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint): Promise<FetchResult> {
+async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint, kind: MediaKind = "document"): Promise<FetchResult> {
   const guard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
   if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
   let last: FetchResult = { ok: false, code: "download_failed", detail: "all_candidates_failed" };
   for (const url of endpointCandidates(apiUrl, session, messageId, media)) {
     for (const headers of authHeaderCandidates(apiKey)) {
-      const result = await fetchWithLimits(url, headers);
+      const result = await fetchWithLimits(url, headers, kind);
       if (result.ok === true) return result;
       const fail = result as Extract<FetchResult, { ok: false }>;
       last = fail;
@@ -132,7 +156,8 @@ async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, m
   return last;
 }
 
-export async function downloadInboundMedia(opts: { media: MediaHint | undefined; apiUrl?: string; apiKey?: string; session?: string; messageId?: string }): Promise<DownloadResult> {
+export async function downloadInboundMedia(opts: { media: MediaHint | undefined; apiUrl?: string; apiKey?: string; session?: string; messageId?: string; kind?: MediaKind }): Promise<DownloadResult> {
+  const kind: MediaKind = opts.kind ?? "document";
   const declaredMime = (opts.media?.mime_type ?? opts.media?.mimeType ?? opts.media?.mimetype ?? "").toLowerCase();
   const filename = (opts.media?.filename ?? `wa-${Date.now()}`).slice(0, 120);
   const inline = opts.media?.base64 ?? opts.media?.data ?? (opts.media?.body?.startsWith("data:") ? opts.media.body : undefined);
@@ -142,7 +167,7 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
   if (inline) {
     const bytes = base64ToBytes(inline);
     if (!bytes) return { ok: false, code: "download_failed", detail: "b64_decode" };
-    return finalize(bytes, declaredMime, filename);
+    return finalize(bytes, declaredMime, filename, kind);
   }
   if (directUrl) {
     const guard = assertPublicHttpsUrl(directUrl);
@@ -155,8 +180,8 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
     } catch { /* URLs já foram validadas */ }
     let last: Extract<FetchResult, { ok: false }> = { ok: false, code: "download_failed" };
     for (const headers of headerSets) {
-      const result = await fetchWithLimits(directUrl, headers);
-      if (result.ok === true) return finalize(result.bytes, declaredMime, filename);
+      const result = await fetchWithLimits(directUrl, headers, kind);
+      if (result.ok === true) return finalize(result.bytes, declaredMime, filename, kind);
       const fail = result as Extract<FetchResult, { ok: false }>;
       last = fail;
       if (fail.code !== "download_failed") return { ok: false, code: fail.code, detail: fail.detail };
@@ -164,21 +189,213 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
     if (last.code !== "download_failed") return { ok: false, code: last.code, detail: last.detail };
   }
   if (opts.apiUrl && opts.apiKey && opts.session && messageId) {
-    const result = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, messageId, opts.media);
-    if (result.ok === true) return finalize(result.bytes, declaredMime, filename);
+    const result = await fetchWahaMedia(opts.apiUrl, opts.apiKey, opts.session, messageId, opts.media, kind);
+    if (result.ok === true) return finalize(result.bytes, declaredMime, filename, kind);
     const fail = result as Extract<FetchResult, { ok: false }>;
     return { ok: false, code: fail.code, detail: fail.detail };
   }
   return { ok: false, code: "no_url" };
 }
 
-function finalize(bytes: Uint8Array, declaredMime: string, filename: string): DownloadResult {
+function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kind: MediaKind = "document"): DownloadResult {
   if (bytes.length === 0) return { ok: false, code: "empty" };
   if (bytes.length > MAX_BYTES) return { ok: false, code: "size_exceeds", detail: String(bytes.length) };
-  const magic = detectMime(bytes);
+  const magic = kind === "audio" ? detectAudioMime(bytes) : detectMime(bytes);
   if (!magic) return { ok: false, code: "magic_mismatch" };
-  if (!ALLOWED_MIME.has(magic)) return { ok: false, code: "mime_not_allowed", detail: magic };
+  if (!allowedFor(kind).has(magic)) return { ok: false, code: "mime_not_allowed", detail: magic };
+  if (kind === "audio") {
+    const audioExt = magic === "audio/mpeg" ? "mp3" : magic === "audio/mp4" ? "m4a" : magic.split("/")[1];
+    void declaredMime;
+    return { ok: true, bytes, mime_type: magic, filename: /\.[a-z0-9]{2,4}$/i.test(filename) ? filename : `${filename}.${audioExt}` };
+  }
   void declaredMime; // magic bytes são a fonte de verdade.
   const ext = magic === "application/pdf" ? "pdf" : magic.split("/")[1];
   return { ok: true, bytes, mime_type: magic, filename: /\.[a-z0-9]{2,4}$/i.test(filename) ? filename : `${filename}.${ext}` };
+}
+
+
+// ===================== ÁUDIO INBOUND (nota de voz) =====================
+// Transcrição de áudio inbound do WhatsApp (nota de voz / PTT).
+//
+// Decisão de produto: áudio NÃO é um fluxo separado. Ele é transcrito e o texto
+// entra no mesmo pipeline textual do Nino — registrar gasto, perguntar, tudo.
+// Assim não existe uma "inteligência de áudio" paralela para manter.
+//
+// Nota técnica: o WhatsApp envia OGG/Opus, formato recusado pelo endpoint
+// dedicado de transcrição. Usamos o modelo multimodal do gateway, que aceita
+// `input_audio` em ogg/mp3/m4a/wav/webm.
+
+type AudioDownload = DownloadResult;
+
+const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const MODEL = "google/gemini-3.6-flash";
+/** ~2 minutos de voz do WhatsApp em Opus. Acima disso recusamos com explicação. */
+const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
+const MAX_SECONDS = 150;
+
+export type AudioTranscriptionCode =
+  | "not_audio"
+  | "too_long"
+  | "download_failed"
+  | "unsupported_format"
+  | "empty_audio"
+  | "transcription_failed";
+
+export type AudioTranscriptionResult =
+  | { ok: true; text: string; mime_type: string; bytes: number }
+  | { ok: false; code: AudioTranscriptionCode; detail?: string };
+
+const FORMAT_BY_MIME: Record<string, string> = {
+  "audio/ogg": "ogg",
+  "audio/opus": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/m4a": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/webm": "webm",
+  "audio/aac": "aac",
+};
+
+function pickMime(hint: AudioHint | null | undefined): string {
+  return String(hint?.mime_type ?? hint?.mimeType ?? hint?.mimetype ?? "")
+    .split(";")[0].trim().toLowerCase();
+}
+
+export type AudioHint = MediaHint & {
+  seconds?: number | string;
+  duration?: number | string;
+  mimetype?: string;
+};
+
+/** True quando a mídia inbound é voz/áudio (PTT incluído). */
+export function isAudioMedia(hint: AudioHint | null | undefined): boolean {
+  if (!hint) return false;
+  const mime = pickMime(hint);
+  if (mime.startsWith("audio/")) return true;
+  return String(hint.mediaType ?? "").toLowerCase() === "ptt";
+}
+
+function durationSeconds(hint: AudioHint): number | null {
+  const raw = Number(hint.seconds ?? hint.duration ?? 0);
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+/** Mensagem curta e honesta para cada falha — nunca silêncio. */
+export function audioFailureReply(code: AudioTranscriptionCode, firstName?: string | null): string {
+  const hi = firstName ? `${firstName}, ` : "";
+  switch (code) {
+    case "too_long":
+      return `${hi}esse áudio ficou longo pra mim ouvir de uma vez 😅 Manda um mais curtinho (até uns 2 minutos) ou me escreve em texto que eu resolvo na hora.`;
+    case "empty_audio":
+      return `${hi}o áudio chegou vazio aqui. Grava de novo ou me manda por texto?`;
+    case "unsupported_format":
+      return `${hi}não consegui abrir esse formato de áudio. Grava direto aqui no WhatsApp ou me escreve que eu já cuido.`;
+    default:
+      return `${hi}não consegui entender o áudio dessa vez 🙏 Pode repetir gravando de novo ou me escrever em texto?`;
+  }
+}
+
+/**
+ * Baixa e transcreve o áudio. Devolve o texto pronto para entrar no pipeline
+ * textual do agente. Nunca lança: falhas viram código tratável.
+ */
+export async function transcribeInboundAudio(args: {
+  media: AudioHint;
+  messageId?: string;
+  waha?: { apiUrl?: string; apiKey?: string; session?: string };
+  timeoutMs?: number;
+}): Promise<AudioTranscriptionResult> {
+  if (!isAudioMedia(args.media)) return { ok: false, code: "not_audio" };
+
+  const secs = durationSeconds(args.media);
+  if (secs && secs > MAX_SECONDS) return { ok: false, code: "too_long", detail: `${Math.round(secs)}s` };
+  const declaredBytes = Number(args.media.mediaSize ?? 0);
+  if (declaredBytes && declaredBytes > MAX_AUDIO_BYTES) {
+    return { ok: false, code: "too_long", detail: String(declaredBytes) };
+  }
+
+  const dl = await downloadInboundMedia({
+    media: args.media,
+    apiUrl: args.waha?.apiUrl,
+    apiKey: args.waha?.apiKey,
+    session: args.waha?.session,
+    messageId: args.messageId,
+    kind: "audio",
+  });
+  if (dl.ok !== true) {
+    const fail = dl as Extract<AudioDownload, { ok: false }>;
+    if (fail.code === "empty") return { ok: false, code: "empty_audio" };
+    if (fail.code === "mime_not_allowed" || fail.code === "magic_mismatch") {
+      return { ok: false, code: "unsupported_format", detail: fail.detail };
+    }
+    if (fail.code === "size_exceeds") return { ok: false, code: "too_long", detail: fail.detail };
+    return { ok: false, code: "download_failed", detail: fail.code };
+  }
+  if (dl.bytes.length > MAX_AUDIO_BYTES) return { ok: false, code: "too_long", detail: String(dl.bytes.length) };
+  if (dl.bytes.length < 512) return { ok: false, code: "empty_audio" };
+
+  const format = FORMAT_BY_MIME[dl.mime_type];
+  if (!format) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
+
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
+  try {
+    const resp = await fetch(GATEWAY, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Lovable-API-Key": key,
+        "X-Lovable-AIG-SDK": "edge-function",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Transcreva literalmente o áudio em português do Brasil. Devolva SOMENTE a transcrição, "
+              + "sem comentários, sem aspas, sem rótulos. Números e valores em dígitos (ex.: 32 reais). "
+              + "Se não houver fala audível, devolva exatamente: [SEM_FALA].",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Transcreva este áudio." },
+              { type: "input_audio", input_audio: { data: bytesToBase64(dl.bytes), format } },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!resp.ok) {
+      const detail = (await resp.text().catch(() => "")).slice(0, 200);
+      console.error("[audio] transcription_http", resp.status, detail);
+      return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
+    }
+    const json = await resp.json().catch(() => null) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+    const text = String(json?.choices?.[0]?.message?.content ?? "").trim();
+    if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
+    return { ok: true, text: text.slice(0, 1500), mime_type: dl.mime_type, bytes: dl.bytes.length };
+  } catch (e) {
+    const err = e as Error;
+    return { ok: false, code: "transcription_failed", detail: err.name === "AbortError" ? "timeout" : "exception" };
+  } finally {
+    clearTimeout(timer);
+  }
 }
