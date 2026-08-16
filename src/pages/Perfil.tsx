@@ -312,7 +312,7 @@ function DataZone() {
     const { error } = await supabase.rpc("user_request_deletion" as any, { p_reason: null });
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Solicitação registrada. Você poderá acompanhar o status abaixo.");
+    toast.success("Exclusão agendada. Você tem 3 dias para desistir.");
     setConfirmText("");
     await loadRequest();
   };
@@ -328,8 +328,8 @@ function DataZone() {
   };
 
   const statusLabels: Record<string, string> = {
-    pending: "Pendente — aguardando análise",
-    approved: "Aprovada — em período de carência",
+    pending: "Registrada",
+    approved: "Confirmada — em período de carência",
     processing: "Em processamento",
     completed: "Concluída",
     rejected: "Recusada",
@@ -341,7 +341,7 @@ function DataZone() {
   return (
     <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
       <h2 className="text-sm font-semibold">Meus dados</h2>
-      <p className="mt-1 text-xs text-muted-foreground">Exporte tudo em JSON ou solicite exclusão da sua conta.</p>
+      <p className="mt-1 text-xs text-muted-foreground">Exporte tudo em JSON ou exclua sua conta definitivamente.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={doExport} disabled={busy} className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
           Exportar meus dados
@@ -354,7 +354,8 @@ function DataZone() {
       <div className="mt-6 pt-4 border-t border-border">
         <p className="text-xs font-medium text-destructive">Zona de risco</p>
         <p className="text-[11px] text-muted-foreground mt-1">
-          A exclusão passa por análise. Após aprovação, há um período de carência antes da remoção definitiva.
+          A exclusão é definitiva e feita por você mesmo. Depois de confirmar, há 3 dias de carência para
+          desistir; passado esse prazo, apagamos sua conta e todos os seus dados automaticamente.
         </p>
 
         {activeRequest && (
@@ -364,7 +365,7 @@ function DataZone() {
             {request.grace_period_ends_at && (
               <p><span className="text-muted-foreground">Fim da carência:</span> {new Date(request.grace_period_ends_at).toLocaleString("pt-BR")}</p>
             )}
-            {request.status === "pending" && (
+            {(request.status === "pending" || request.status === "approved") && (
               <button onClick={cancelDeletion} disabled={busy}
                 className="mt-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs disabled:opacity-40">
                 Cancelar solicitação
@@ -394,7 +395,7 @@ function DataZone() {
               disabled={busy || confirmText !== "EXCLUIR MINHA CONTA"}
               className="mt-2 rounded-full bg-destructive text-destructive-foreground px-4 py-2 text-sm disabled:opacity-40"
             >
-              Solicitar exclusão da conta
+              Excluir minha conta
             </button>
           </>
         )}

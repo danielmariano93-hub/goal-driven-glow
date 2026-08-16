@@ -19,6 +19,10 @@ import ResetPassword from "./pages/auth/ResetPassword";
 import OAuthConsent from "./pages/auth/OAuthConsent";
 import NotFound from "./pages/NotFound";
 import { NativeRuntime } from "@/components/native/NativeRuntime";
+import { NativeLockGate } from "@/components/native/NativeLockGate";
+import { PrivacyScreen } from "@/components/native/PrivacyScreen";
+import { OfflineNotice } from "@/components/OfflineNotice";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 
 const Privacidade = lazy(() => import("./pages/legal/Privacidade"));
 const Termos = lazy(() => import("./pages/legal/Termos"));
@@ -86,6 +90,7 @@ const Fallback = () => (
 );
 
 const App = () => (
+  <AppErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <BrowserRouter>
@@ -94,6 +99,9 @@ const App = () => (
           <PrivacyModeProvider>
           <Toaster />
           <Sonner />
+          <OfflineNotice />
+          <NativeLockGate />
+          <PrivacyScreen />
           <Suspense fallback={<Fallback />}>
             <Routes>
               <Route path="/" element={<Landing />} />
@@ -215,6 +223,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
+  </AppErrorBoundary>
 );
 
 export default App;

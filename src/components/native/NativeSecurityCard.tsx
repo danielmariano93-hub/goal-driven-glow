@@ -30,7 +30,10 @@ export function NativeSecurityCard() {
         <Fingerprint className="h-5 w-5 text-primary" />
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold">Desbloqueio biométrico</h2>
-          <p className="text-xs text-muted-foreground">Proteja o acesso neste aparelho.</p>
+          <p className="text-xs text-muted-foreground">
+            Ao abrir o app, pedimos Face ID ou Touch ID. Se você cancelar, a sessão continua salva e você pode
+            desbloquear depois ou entrar com e-mail e senha.
+          </p>
         </div>
         <button type="button" onClick={toggle} disabled={busy} className="rounded-full border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : enabled ? "Desativar" : "Ativar"}

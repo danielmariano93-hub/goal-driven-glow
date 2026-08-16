@@ -105,8 +105,10 @@ export type Database = {
           id: string
           processed_at: string | null
           processed_by: string | null
+          purge_report: Json | null
           reason: string | null
           requested_at: string
+          self_service: boolean
           status: Database["public"]["Enums"]["deletion_status"]
           user_id: string
         }
@@ -117,8 +119,10 @@ export type Database = {
           id?: string
           processed_at?: string | null
           processed_by?: string | null
+          purge_report?: Json | null
           reason?: string | null
           requested_at?: string
+          self_service?: boolean
           status?: Database["public"]["Enums"]["deletion_status"]
           user_id: string
         }
@@ -129,8 +133,10 @@ export type Database = {
           id?: string
           processed_at?: string | null
           processed_by?: string | null
+          purge_report?: Json | null
           reason?: string | null
           requested_at?: string
+          self_service?: boolean
           status?: Database["public"]["Enums"]["deletion_status"]
           user_id?: string
         }
@@ -150,6 +156,33 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      account_deletion_targets: {
+        Row: {
+          purge_order: number
+          reason: string | null
+          strategy: string
+          table_name: string
+          updated_at: string
+          user_column: string
+        }
+        Insert: {
+          purge_order?: number
+          reason?: string | null
+          strategy?: string
+          table_name: string
+          updated_at?: string
+          user_column: string
+        }
+        Update: {
+          purge_order?: number
+          reason?: string | null
+          strategy?: string
+          table_name?: string
+          updated_at?: string
+          user_column?: string
+        }
+        Relationships: []
       }
       accounts: {
         Row: {
@@ -11744,6 +11777,13 @@ export type Database = {
         Returns: Json
       }
       documents_cleanup_tick: { Args: never; Returns: number }
+      due_deletion_requests: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          user_id: string
+        }[]
+      }
       ensure_profile: { Args: never; Returns: undefined }
       ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
       finalize_invoice_statement: {
@@ -12206,6 +12246,7 @@ export type Database = {
       }
       product_events_prune: { Args: { _days?: number }; Returns: number }
       prune_product_events: { Args: { _days?: number }; Returns: number }
+      purge_user_data: { Args: { p_user_id: string }; Returns: Json }
       recalc_credit_card_statement: {
         Args: { p_statement_id: string }
         Returns: Json
@@ -12589,6 +12630,7 @@ export type Database = {
         Returns: string
       }
       sweep_orphan_agent_runs: { Args: never; Returns: number }
+      sync_account_deletion_targets: { Args: never; Returns: number }
       sync_installment_absorption: {
         Args: { p_statement_id?: string }
         Returns: undefined
@@ -12633,7 +12675,7 @@ export type Database = {
         Returns: undefined
       }
       user_export_data: { Args: never; Returns: Json }
-      user_request_deletion: { Args: { p_reason: string }; Returns: string }
+      user_request_deletion: { Args: { p_reason?: string }; Returns: string }
       validate_invoice_import: {
         Args: { p_document_id: string; p_item_ids: string[] }
         Returns: Json

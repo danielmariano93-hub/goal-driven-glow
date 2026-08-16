@@ -10,8 +10,14 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { PlatformRole } from "@/lib/admin/permissions";
-import { persistNativeSession, restoreNativeSession, unlockWithBiometrics } from "@/lib/native/session";
+import {
+  clearNativeSession,
+  persistNativeSession,
+  requestBiometricUnlock,
+  restoreNativeSession,
+} from "@/lib/native/session";
 import { isNativePlatform } from "@/lib/native/platform";
+import { nativeLog } from "@/lib/native/logSanitizer";
 
 export type Profile = {
   id: string;
@@ -37,6 +43,10 @@ type AuthContextValue = {
   platformRole: PlatformRole | null;
   isPlatformAdmin: boolean;
   recovering: boolean;
+  /** App nativo: sessão válida, porém aguardando desbloqueio biométrico. */
+  locked: boolean;
+  lockReason: "cancelled" | "failed" | "unavailable" | "not_enrolled" | null;
+  unlock: () => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (
     email: string,
@@ -96,6 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [platformRole, setPlatformRole] = useState<PlatformRole | null>(null);
   const [recovering, setRecovering] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [lockReason, setLockReason] = useState<AuthContextValue["lockReason"]>(null);
   const lastUserIdRef = useRef<string | null>(null);
 
   const hydrateProfile = async (uid: string) => {
@@ -154,9 +166,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           activeSession = restored.data.session;
         }
       }
-      if (activeSession && !(await unlockWithBiometrics())) {
-        await supabase.auth.signOut();
-        activeSession = null;
+      if (activeSession) {
+        // Cancelar/falhar a biometria NÃO derruba a sessão: entramos em estado bloqueado.
+        const outcome = await requestBiometricUnlock();
+        if (!outcome.ok) {
+          nativeLog("auth", "session_locked", { reason: outcome.reason });
+          setLocked(true);
+          setLockReason(outcome.reason as AuthContextValue["lockReason"]);
+        }
       }
       setSession(activeSession);
       setUser(activeSession?.user ?? null);
@@ -184,6 +201,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       platformRole,
       isPlatformAdmin: !!platformRole,
       recovering,
+      locked,
+      lockReason,
+      async unlock() {
+        const outcome = await requestBiometricUnlock();
+        if (outcome.ok) {
+          setLocked(false);
+          setLockReason(null);
+          return true;
+        }
+        setLockReason(outcome.reason as AuthContextValue["lockReason"]);
+        return false;
+      },
       async signIn(email, password) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return { error: error ? friendlyAuthError(error.message) : null };
@@ -204,10 +233,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signOut() {
         await supabase.auth.signOut();
+        await clearNativeSession();
         setProfile(null);
         setRoles([]);
         setPlatformRole(null);
         setRecovering(false);
+        setLocked(false);
+        setLockReason(null);
       },
       async requestPasswordReset(email) {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -230,7 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [status, authError, session, user, profile, roles, platformRole, recovering]
+    [status, authError, session, user, profile, roles, platformRole, recovering, locked, lockReason]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

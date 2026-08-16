@@ -1,17 +1,27 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
+// Identidade definitiva do produto. Mantida em sincronia com
+// src/lib/native/appIdentity.ts (mesma fonte de verdade).
+const APP_ID = "br.com.meunino.app";
+const APP_NAME = "Meu Nino";
+
+// Live reload é OPT-IN e só existe fora de produção.
+// Ex.: CAP_ENV=development CAP_DEV_SERVER_URL=http://192.168.0.10:8080 npx cap sync ios
+const env = process.env.CAP_ENV ?? "production";
+const devServerUrl = env !== "production" ? process.env.CAP_DEV_SERVER_URL : undefined;
+
 const config: CapacitorConfig = {
-  appId: "app.lovable.p73db6dbefc9046e48278b978492e7f92",
-  appName: "goal-driven-glow",
+  appId: APP_ID,
+  appName: APP_NAME,
   webDir: "dist",
-  server: {
-    url: "https://73db6dbe-fc90-46e4-8278-b978492e7f92.lovableproject.com?forceHideBadge=true",
-    cleartext: true,
+  ios: {
+    contentInset: "never",
   },
   plugins: {
     StatusBar: { overlaysWebView: true },
     Keyboard: { resize: "native" },
   },
+  ...(devServerUrl ? { server: { url: devServerUrl, cleartext: true } } : {}),
 };
 
 export default config;
