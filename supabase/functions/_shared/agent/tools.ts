@@ -669,7 +669,18 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   }
 
   const acc = await resolveAccountId(ctx, args.account);
-  if (!acc) return { ok: false, error: "account_not_found" };
+  if (!acc) {
+    const options = (await listActiveAccounts(ctx)).map((a) => a.name).filter(Boolean);
+    return {
+      ok: false,
+      error: "account_not_found",
+      result: { accounts: options },
+      hint: options.length
+        ? `Pergunte em UMA frase curta em qual conta registrar, listando: ${options.join(", ")}.`
+        : "O usuário não tem conta ativa cadastrada. Peça para cadastrar uma conta no app.",
+    } as any;
+  }
+
   const payload = { type: args.type, amount, account_id: acc.id, category_id: cat, category_explicit: Boolean(cat && explicitCategoryHint), occurred_at, description, payment_method: "account" };
   const summary = `${args.type === "income" ? "Receita" : "Despesa"} de ${BRL.format(amount)} em ${acc.name} — ${description} em ${occurred_at}.`;
   const id = await upsertDraft(ctx, "transaction", payload, summary);
