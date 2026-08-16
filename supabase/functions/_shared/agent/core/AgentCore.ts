@@ -40,6 +40,9 @@ import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
 import {
+  classifyConversational, deterministicConversationalReply, generateConversationalReply,
+} from "./Conversational.ts";
+import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
 
@@ -281,6 +284,51 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       draft_id: policyReply.draft_id, result: policyReply.result, session_id,
     };
   }
+
+  // ---- CONVERSAR — rota casual (sem motor financeiro) ---------------------
+  // "o que você é?", "bom dia", "obrigado", "qual a capital da França": não há
+  // número, período nem motor. Responde com persona + identidade canônica, em
+  // um único passo, sem tocar no pipeline analítico.
+  const conversational = classifyConversational(input.text);
+  if (conversational.kind && !(await tctx.pending())) {
+    const firstName = await guard(async () => {
+      const { data } = await sb.from("profiles").select("full_name").eq("id", input.user_id).maybeSingle();
+      const full = String((data as any)?.full_name ?? "").trim();
+      return full ? full.split(/\s+/)[0] : null;
+    }, (m) => metrics.errors.push("conv_profile:" + m), null);
+
+    const hourSP = Number(new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", hour12: false }));
+    let convReply = conversational.deterministic
+      ? deterministicConversationalReply(conversational.kind, { first_name: firstName, hour: hourSP })
+      : null;
+    if (!convReply) {
+      const convHistory = await tctx.history(6, input.channel === "app" ? input.inbound_message_id : null)
+        .catch(() => [] as Array<{ role: string; content: string }>);
+      convReply = await generateConversationalReply({
+        text: input.text, history: convHistory as any, first_name: firstName,
+      });
+    }
+
+    if (convReply) {
+      metrics.path = "conversational";
+      metrics.capability = "conversational";
+      if (input.channel !== "app" && input.to_phone) {
+        await enqueueReply(sb, {
+          user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+          body: convReply, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+          source: input.channel === "simulator" ? "simulator" : "whatsapp",
+        });
+      }
+      metrics.stages.total = Date.now() - t0;
+      await logDecision(sb, buildRecord({
+        run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+        channel: input.channel, intent: `conversational:${conversational.kind}`,
+        policy_decision: "info", metrics, validations: [],
+      }));
+      return { reply: convReply, reply_kind: "info", path: "deterministic_fallback", session_id };
+    }
+  }
+
 
   // Extra decision (for observability + telemetry)
   const decision = decideTurn(routed.intent, {

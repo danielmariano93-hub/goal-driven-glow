@@ -30,6 +30,7 @@ import { participantSplitReply } from "../_shared/messaging/splitParticipantSupp
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
+import { shouldAcknowledge } from "../_shared/agent/core/Conversational.ts";
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -590,16 +591,24 @@ Deno.serve(async (req) => {
       sendTypingPresence(evt.from_phone, "start").catch(() => {});
     }, 8_000);
     // Aviso calibrado pela latência real do usuário e pelo que está em curso.
-    const ack = await planAcknowledgement(sb, { user_id: link.user_id as string, text: evt.body ?? "" })
-      .catch(() => ({ delay_ms: 4_000, message: "Só um instante — já estou com isso 👀", observed_p75_ms: null }));
-    const noticeTimer = setTimeout(() => {
-      if (settled) return;
-      sendEphemeralText(evt.from_phone, ack.message).catch(() => {});
-    }, ack.delay_ms);
+    // Conversa casual ("o que você é?", "bom dia", "obrigado") NÃO recebe aviso:
+    // não há motor financeiro rodando, então avisar é ruído.
+    const wantsAck = shouldAcknowledge(evt.body ?? "");
+    const ack = wantsAck
+      ? await planAcknowledgement(sb, { user_id: link.user_id as string, text: evt.body ?? "" })
+        .catch(() => ({ delay_ms: 4_000, message: "Só um instante — já estou com isso 👀", observed_p75_ms: null }))
+      : null;
+    const noticeTimer = ack
+      ? setTimeout(() => {
+        if (settled) return;
+        sendEphemeralText(evt.from_phone, ack.message).catch(() => {});
+      }, ack.delay_ms)
+      : null;
+
     const stopHints = () => {
       settled = true;
       clearInterval(typingTimer);
-      clearTimeout(noticeTimer);
+      if (noticeTimer) clearTimeout(noticeTimer);
       sendTypingPresence(evt.from_phone, "stop").catch(() => {});
     };
     try {
