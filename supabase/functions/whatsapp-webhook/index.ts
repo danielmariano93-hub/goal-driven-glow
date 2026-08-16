@@ -526,18 +526,51 @@ Deno.serve(async (req) => {
   // se tivesse sido digitado (registrar gasto, perguntar, corrigir).
   if (isAudioMedia(evt.media as AudioHint | null)) {
     const access = getWahaAccess();
+    const descriptor = describeMediaHint(evt.media as AudioHint);
     const t0 = Date.now();
     const transcription = await transcribeInboundAudio({
       media: evt.media as AudioHint,
       messageId: evt.provider_message_id,
       waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },
     });
-    console.info("[webhook] audio_transcription", JSON.stringify({
+    const diag = {
       ok: transcription.ok,
       code: transcription.ok ? null : transcription.code,
+      detail: transcription.ok ? null : (transcription.detail ?? null),
       ms: Date.now() - t0,
       chars: transcription.ok ? transcription.text.length : 0,
-    }));
+      provider: {
+        has_api_url: Boolean(access.api_url),
+        has_api_key: Boolean(access.api_key),
+        session: Boolean(access.session),
+      },
+      media: descriptor,
+    };
+    console.info("[webhook] audio_transcription", JSON.stringify(diag));
+    if (!transcription.ok) {
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "inbound_persisted",
+        ok: false,
+        user_id: link.user_id as string,
+        inbound_message_id,
+        provider_message_id: evt.provider_message_id,
+        session: access.session,
+        error_code: `audio_${transcription.code}`,
+        metadata: {
+          detail: String(transcription.detail ?? "").slice(0, 200),
+          via: String(descriptor.via ?? ""),
+          mime: String(descriptor.mime ?? ""),
+          has_url: Boolean(descriptor.has_url),
+          url_https: descriptor.url_https === null ? null : Boolean(descriptor.url_https),
+          has_base64: Boolean(descriptor.has_base64),
+          has_id: Boolean(descriptor.has_id),
+          has_chat: Boolean(descriptor.has_chat),
+          provider_api_url: Boolean(access.api_url),
+          provider_api_key: Boolean(access.api_key),
+        },
+      });
+    }
+
     if (transcription.ok) {
       evt.body = transcription.text;
       await sb.from("inbound_messages")
