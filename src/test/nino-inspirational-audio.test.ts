@@ -5,7 +5,7 @@ import {
   shouldAcknowledge,
 } from "../../supabase/functions/_shared/agent/core/Conversational.ts";
 import { findBrokenPhrases, humanizeReply } from "../../supabase/functions/_shared/agent/core/ReplyHumanizer.ts";
-import { audioFailureReply, isAudioMedia } from "../../supabase/functions/_shared/messaging/audioTranscription.ts";
+import { audioFailureReply, isAudioMedia } from "../../supabase/functions/_shared/messaging/wahaMedia.ts";
 
 describe("propósito e identidade sem aviso indevido", () => {
   const asks = [
