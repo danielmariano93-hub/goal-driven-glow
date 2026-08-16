@@ -45,7 +45,23 @@ const NOISE_TOKENS = [
   "no",
   "na",
   "com",
+  // Ruído de POS/PIX que escondia a marca real ("PIX WHATS QRCODE 99 FOOD").
+  "whats",
+  "whatsapp",
+  "qrcode",
+  "qr",
+  "code",
+  "atm",
+  "tmob",
 ];
+
+/**
+ * Marcas cujo nome é (ou contém) apenas números. Sem esta lista o filtro de
+ * tokens numéricos apagava "99" e o gasto desaparecia do ranking mesmo
+ * continuando na categoria. `merchant_truth.v2`.
+ */
+const NUMERIC_BRAND_TOKENS = new Set(["99", "123", "365", "1746"]);
+
 
 /**
  * Marcas conhecidas: um token estável resolve o canônico mesmo com sufixos
@@ -55,7 +71,9 @@ const KNOWN_BRANDS: Array<{ match: RegExp; canonical: string }> = [
   { match: /\bifood\b|\bi food\b/, canonical: "iFood" },
   { match: /\buber\s*eats\b/, canonical: "Uber Eats" },
   { match: /\buber\b/, canonical: "Uber" },
-  { match: /\b99\s*(app|pop|taxi)\b|\b99app\b/, canonical: "99" },
+  // 99 Food (delivery) antes de 99 (mobilidade): sinal específico manda.
+  { match: /\b99\s*food\b|\b99foo\w*\b|\b99\s*foo\b/, canonical: "99 Food" },
+  { match: /\b99\s*(app|pop|taxi)\b|\b99app\b|(?:^|\s)99(?:$|\s)/, canonical: "99" },
   { match: /\brappi\b/, canonical: "Rappi" },
   { match: /\bnetflix\b/, canonical: "Netflix" },
   { match: /\bspotify\b/, canonical: "Spotify" },
@@ -77,33 +95,93 @@ const KNOWN_BRANDS: Array<{ match: RegExp; canonical: string }> = [
   { match: /\bmcdonald|\bmc donalds\b|\bbk\b|\bburger king\b/, canonical: "Fast food" },
   { match: /\bposto\b|\bipiranga\b|\bshell\b|\bpetrobras\b/, canonical: "Posto de combustível" },
   { match: /\bautopass\b|\bbilhete\s*unico\b/, canonical: "Autopass" },
+  { match: /\bmarket\s*4\s*you\b|\bmarket4you\b/, canonical: "Market4you" },
+  { match: /\bsouk\s*4\s*u\b|\bsouk4u\b/, canonical: "Souk4u" },
 ];
 
 /**
- * Texto normalizado do estabelecimento: minúsculo, sem acento, sem números e
- * sem ruído bancário. Retorna `null` quando não sobra sinal utilizável.
+ * Intermediadores de pagamento: NÃO são o estabelecimento econômico. Quando a
+ * descrição só traz o intermediador, o gasto fica sem merchant resolvido (e
+ * entra na cobertura como "não identificado") em vez de virar verdade.
  */
-export function normalizeMerchant(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const base = String(raw)
+const PASS_THROUGH_BRANDS: RegExp[] = [
+  /\bpagseguro\b/,
+  /\bpag\s*bank\b|\bpagbank\b/,
+  /\bmercado\s*pago\b|\bmercpago\b|\bmercadopago\b/,
+  /\bpicpay\b/,
+  /\bstone\b|\bcielo\b|\bgetnet\b|\bredecard\b/,
+];
+
+/** A descrição traz apenas um intermediador de pagamento? */
+export function isPassThroughMerchant(raw: string | null | undefined): boolean {
+  const base = baseText(raw);
+  if (!base) return false;
+  if (!PASS_THROUGH_BRANDS.some((rx) => rx.test(base))) return false;
+  // Se além do intermediador existir uma marca conhecida, a marca vence.
+  return !KNOWN_BRANDS.some((b) => b.match.test(base));
+}
+
+function baseText(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return String(raw)
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Precedência canônica da identidade do estabelecimento (`merchant_truth.v2`).
+ * Uma fonte única para todo o produto; nunca inventa texto.
+ */
+export function merchantSourceText(row: {
+  merchant_name?: string | null;
+  normalized_description?: string | null;
+  friendly_description?: string | null;
+  description?: string | null;
+  bank_description?: string | null;
+  raw_description?: string | null;
+}): string | null {
+  const candidates = [
+    row.merchant_name,
+    row.normalized_description,
+    row.friendly_description,
+    row.description,
+    row.bank_description,
+    row.raw_description,
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate ?? "").trim();
+    if (!value) continue;
+    if (normalizeMerchant(value)) return value;
+  }
+  return null;
+}
+
+/**
+ * Texto normalizado do estabelecimento: minúsculo, sem acento, sem ruído
+ * bancário. Números só sobrevivem quando fazem parte de uma marca conhecida
+ * ("99", "Market4you"). Retorna `null` quando não sobra sinal utilizável.
+ */
+export function normalizeMerchant(raw: string | null | undefined): string | null {
+  const base = baseText(raw);
   if (!base) return null;
 
   const tokens = base
     .split(" ")
     .filter((tk) => tk.length > 0)
-    .filter((tk) => !/^\d+$/.test(tk))
+    .filter((tk) => !/^\d+$/.test(tk) || NUMERIC_BRAND_TOKENS.has(tk))
     .filter((tk) => !NOISE_TOKENS.includes(tk));
 
   const cleaned = tokens.join(" ").trim();
-  if (cleaned.length < 3) return null;
+  if (!cleaned) return null;
+  const hasNumericBrand = tokens.some((tk) => NUMERIC_BRAND_TOKENS.has(tk));
+  if (cleaned.length < 3 && !hasNumericBrand) return null;
   return cleaned;
 }
+
 
 /** Nome apresentável a partir do texto normalizado. */
 export function merchantLabel(normalized: string): string {
@@ -127,8 +205,32 @@ export interface MerchantResolver {
 }
 
 /**
- * Cria o resolvedor canônico. Precedência: alias do usuário/global (quando
- * confiança >= 0.5) → marca conhecida → texto normalizado.
+ * Aliases genéricos jamais impõem identidade/categoria: são prefixos de POS,
+ * não estabelecimentos. Governança de `merchant_truth.v2` (alias hygiene).
+ */
+const GENERIC_ALIAS_KEYS = new Set([
+  "pay", "est", "pag", "pagto", "compra", "celular", "conta", "loja", "mercado",
+  "posto", "farmacia", "padaria", "restaurante", "servico", "servicos", "outros",
+]);
+
+/** Classificação de risco de um alias aprendido. */
+export function aliasSafety(alias: MerchantAliasRow & { confirmed?: boolean }): "safe" | "needs_review" | "dangerous" {
+  const key = normalizeMerchant(alias.alias_normalized ?? null);
+  if (!key) return "dangerous";
+  if (GENERIC_ALIAS_KEYS.has(key)) return "dangerous";
+  const tokens = key.split(" ").filter(Boolean);
+  const specific = key.length >= 4 || tokens.some((tk) => NUMERIC_BRAND_TOKENS.has(tk));
+  if (!specific) return "dangerous";
+  const confidence = typeof alias.confidence === "number" ? alias.confidence : 0;
+  if (alias.confirmed && confidence >= 0.9) return "safe";
+  if (confidence >= 0.9) return "needs_review";
+  return "needs_review";
+}
+
+/**
+ * Cria o resolvedor canônico. Precedência: alias específico do usuário/global
+ * (confiança >= 0.5 e não genérico) → marca conhecida → texto normalizado.
+ * Intermediadores de pagamento sozinhos não resolvem estabelecimento.
  */
 export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): MerchantResolver {
   const aliasMap = new Map<string, string>();
@@ -137,6 +239,7 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
     const canonical = (a.canonical_name ?? "").trim();
     if (!normalized || !canonical) continue;
     if (typeof a.confidence === "number" && a.confidence < 0.5) continue;
+    if (aliasSafety(a) === "dangerous") continue;
     aliasMap.set(normalized, canonical);
   }
 
@@ -147,21 +250,30 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
       const cacheKey = String(raw ?? "");
       if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null;
 
+      const base = baseText(raw);
       const normalized = normalizeMerchant(raw);
       let resolution: MerchantResolution | null = null;
 
+      // Marca conhecida vence intermediador e ruído, mesmo antes da limpeza.
+      const brandFromBase = base ? KNOWN_BRANDS.find((b) => b.match.test(base)) : undefined;
+
+      if (isPassThroughMerchant(raw)) {
+        cache.set(cacheKey, null);
+        return null;
+      }
+
       if (normalized) {
         const alias = aliasMap.get(normalized);
+        const brand = brandFromBase ?? KNOWN_BRANDS.find((b) => b.match.test(normalized));
         if (alias) {
           resolution = { key: alias.toLowerCase(), label: alias, source: "alias" };
+        } else if (brand) {
+          resolution = { key: brand.canonical.toLowerCase(), label: brand.canonical, source: "brand" };
         } else {
-          const brand = KNOWN_BRANDS.find((b) => b.match.test(normalized));
-          if (brand) {
-            resolution = { key: brand.canonical.toLowerCase(), label: brand.canonical, source: "brand" };
-          } else {
-            resolution = { key: normalized, label: merchantLabel(normalized), source: "normalized" };
-          }
+          resolution = { key: normalized, label: merchantLabel(normalized), source: "normalized" };
         }
+      } else if (brandFromBase) {
+        resolution = { key: brandFromBase.canonical.toLowerCase(), label: brandFromBase.canonical, source: "brand" };
       }
 
       cache.set(cacheKey, resolution);
@@ -169,6 +281,7 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
     },
   };
 }
+
 
 /** Resolve um termo digitado pelo usuário ("uber", "ifood") para chave canônica. */
 export function merchantQueryKey(term: string, resolver?: MerchantResolver): string | null {

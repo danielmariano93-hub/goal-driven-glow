@@ -12,6 +12,7 @@ import {
 import {
   buildMerchantResolver,
   merchantMatches,
+  merchantSourceText,
   normalizeMerchant,
   type MerchantAliasRow,
   type MerchantResolver,
@@ -55,6 +56,8 @@ export interface MerchantStats {
   last_at: string | null;
   /** Dia da semana com maior concentração de valor. */
   top_weekday: { weekday: number; label: string; share: number } | null;
+  /** Participação no total do período/categoria (0..1). Calculada no motor. */
+  share: number;
   categories: Array<{ category_id: string | null; total: number }>;
   occurrences: MerchantOccurrence[];
 }
@@ -118,6 +121,7 @@ function emptyStats(key: string, label: string): MerchantStats {
     first_at: null,
     last_at: null,
     top_weekday: null,
+    share: 0,
     categories: [],
     occurrences: [],
   };
@@ -139,7 +143,9 @@ export function computeMerchantStats(input: MerchantsInput): MerchantStats[] {
   // 1ª passada: despesas de consumo do período.
   for (const t of input.txs) {
     if (!isConsumptionExpense(t)) continue;
-    const resolution = resolver.resolve(t.description);
+    // `merchant_truth.v2`: identidade canônica vem da precedência única
+    // merchant_name → normalized_description → friendly → description → banco.
+    const resolution = resolver.resolve(merchantSourceText(t as never) ?? t.description);
     if (!resolution) continue;
     merchantByTxId.set(t.id, resolution);
     if (!inRange(t.occurred_at, input.period)) continue;
@@ -294,6 +300,12 @@ export interface MerchantRankingFacts {
   merchant_count: number;
   /** Quanto do gasto do período tem estabelecimento identificável. */
   coverage: number;
+  /** Total gasto no período (ou na categoria filtrada), resolvido ou não. */
+  category_total: number;
+  /** Total com estabelecimento resolvido. */
+  resolved_total: number;
+  /** Total sem estabelecimento resolvido (intermediador, descrição pobre). */
+  unresolved_total: number;
   top_merchant: { label: string; net_total: number; share: number } | null;
 }
 
@@ -307,9 +319,11 @@ export function rankMerchants(
   const previous = computeMerchantStats({ ...input, resolver, period: comparisonPeriod });
   const limit = input.limit ?? 10;
 
-  const rows = compare(current, previous).sort((a, b) => b.net_total - a.net_total || b.delta_abs - a.delta_abs);
+  const rowsRaw = compare(current, previous).sort((a, b) => b.net_total - a.net_total || b.delta_abs - a.delta_abs);
 
   const periodNet = round2(current.reduce((s, m) => s + m.net_total, 0));
+  // Share SEMPRE calculado no motor — a LLM nunca faz percentual.
+  const rows = rowsRaw.map((r) => ({ ...r, share: periodNet > 0 ? round2(r.net_total / periodNet) : 0 }));
   const previousNet = round2(previous.reduce((s, m) => s + m.net_total, 0));
 
   // Cobertura: gasto do período com merchant resolvido / gasto total do período.
@@ -340,6 +354,9 @@ export function rankMerchants(
       delta_pct: safePct(periodNet, previousNet),
       merchant_count: current.length,
       coverage,
+      category_total: totalPeriodExpense,
+      resolved_total: grossResolved,
+      unresolved_total: round2(Math.max(0, totalPeriodExpense - grossResolved)),
       top_merchant: top
         ? { label: top.label, net_total: top.net_total, share: periodNet > 0 ? round2(top.net_total / periodNet) : 0 }
         : null,
