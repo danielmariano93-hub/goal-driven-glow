@@ -137,6 +137,18 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
     },
     enabled: show("templates"),
   });
+  const effectiveness = useQuery({
+    queryKey: ["admin_v2_insight_effectiveness"],
+    queryFn: async (): Promise<EffectivenessRow[]> => {
+      const { data, error } = await rpc("admin_v2_insight_effectiveness", { _days: 30 });
+      if (error) throw new Error(adminErrorMessage(error, "Falha ao carregar eficácia dos insights"));
+      return ((data as { by_kind?: EffectivenessRow[] } | null)?.by_kind ?? []);
+    },
+    staleTime: 60_000,
+    enabled: show("effectiveness"),
+  });
+
+
 
   const refresh = async () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["admin_proactive_engine_status"] }),
