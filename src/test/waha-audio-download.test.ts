@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { classifyInbound } from "../../supabase/functions/_shared/messaging/wahaInbound";
-import { describeMediaHint, downloadInboundMedia, pcmFloatToWav } from "../../supabase/functions/_shared/messaging/wahaMedia";
+import { describeMediaHint, downloadInboundMedia, pcmFloatToWav, prepareAudioForTranscription } from "../../supabase/functions/_shared/messaging/wahaMedia";
 
 const SESSION = "default";
 const wrap = (payload: unknown) => ({ event: "message", session: SESSION, payload });
@@ -137,5 +137,19 @@ describe("conversão PCM para WAV", () => {
     expect(new TextDecoder().decode(wav.slice(0, 4))).toBe("RIFF");
     expect(new TextDecoder().decode(wav.slice(8, 12))).toBe("WAVE");
     expect(new DataView(wav.buffer).getUint32(40, true)).toBe(6);
+  });
+});
+
+describe("preparação para transcrição", () => {
+  it("preserva OGG/Opus original sem conversão intermediária", () => {
+    const prepared = prepareAudioForTranscription(OGG, "audio/ogg");
+    expect(prepared.bytes).toBe(OGG);
+    expect(prepared.mime).toBe("audio/ogg");
+    expect(prepared.filename).toBe("recording.ogg");
+  });
+
+  it("preserva formatos aceitos e rejeita MIME desconhecido", () => {
+    expect(prepareAudioForTranscription(new Uint8Array([1]), "audio/mpeg").filename).toBe("recording.mp3");
+    expect(() => prepareAudioForTranscription(new Uint8Array([1]), "audio/flac")).toThrow("unsupported_audio");
   });
 });

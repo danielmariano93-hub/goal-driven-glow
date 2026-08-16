@@ -537,6 +537,13 @@ Deno.serve(async (req) => {
       media: evt.media as AudioHint,
       messageId: evt.provider_message_id,
       waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },
+      onStage: async (stage, metadata) => {
+        await recordWhatsappPipelineEvent(sb, {
+          stage: `audio_${stage}`, user_id: link.user_id as string,
+          inbound_message_id, provider_message_id: evt.provider_message_id,
+          session: access.session, metadata,
+        });
+      },
     });
     const diag = {
       ok: transcription.ok,
@@ -577,11 +584,6 @@ Deno.serve(async (req) => {
     }
 
     if (transcription.ok) {
-      await recordWhatsappPipelineEvent(sb, {
-        stage: "media_downloaded", user_id: link.user_id as string,
-        inbound_message_id, provider_message_id: evt.provider_message_id,
-        session: access.session, metadata: { bytes: transcription.bytes, mime: transcription.mime_type },
-      });
       await recordWhatsappPipelineEvent(sb, {
         stage: "audio_transcribed", user_id: link.user_id as string,
         inbound_message_id, provider_message_id: evt.provider_message_id,

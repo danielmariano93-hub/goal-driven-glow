@@ -10,6 +10,8 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { PlatformRole } from "@/lib/admin/permissions";
+import { persistNativeSession, restoreNativeSession, unlockWithBiometrics } from "@/lib/native/session";
+import { isNativePlatform } from "@/lib/native/platform";
 
 export type Profile = {
   id: string;
@@ -121,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
+      void persistNativeSession(newSession);
       setSession(newSession);
       setUser(newSession?.user ?? null);
       if (event === "PASSWORD_RECOVERY") {
@@ -143,11 +146,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      if (data.session?.user) {
-        lastUserIdRef.current = data.session.user.id;
-        await hydrateProfile(data.session.user.id);
+      let activeSession = data.session;
+      if (!activeSession && isNativePlatform()) {
+        const stored = await restoreNativeSession().catch(() => null);
+        if (stored?.access_token && stored.refresh_token) {
+          const restored = await supabase.auth.setSession({ access_token: stored.access_token, refresh_token: stored.refresh_token });
+          activeSession = restored.data.session;
+        }
+      }
+      if (activeSession && !(await unlockWithBiometrics())) {
+        await supabase.auth.signOut();
+        activeSession = null;
+      }
+      setSession(activeSession);
+      setUser(activeSession?.user ?? null);
+      if (activeSession?.user) {
+        lastUserIdRef.current = activeSession.user.id;
+        await hydrateProfile(activeSession.user.id);
       } else {
         setStatus("ready");
       }

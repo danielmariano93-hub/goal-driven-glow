@@ -344,6 +344,15 @@
     padding-top: calc(env(safe-area-inset-top) + 0.5rem);
   }
 
+  .native-app body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .native-app #root {
+    min-height: 100dvh;
+  }
+
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 

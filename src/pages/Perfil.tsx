@@ -10,6 +10,7 @@ import { WhatsAppLinkSheet } from "@/components/whatsapp/WhatsAppLinkSheet";
 import { AIPreferencesCard } from "@/components/AIPreferencesCard";
 import { FastLogTokenCard } from "@/components/FastLogTokenCard";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { NativeSecurityCard } from "@/components/native/NativeSecurityCard";
 
 export default function Perfil() {
   const { user, profile, refreshProfile, requestPasswordReset } = useAuth();
@@ -154,6 +155,7 @@ export default function Perfil() {
           {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar link de alteração de senha"}
         </button>
       </div>
+      <NativeSecurityCard />
 
       <div className="mt-6">
         <AIPreferencesCard />
