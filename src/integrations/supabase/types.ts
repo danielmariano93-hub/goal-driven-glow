@@ -9618,6 +9618,7 @@ export type Database = {
           raw_description: string | null
           refund_link_confidence: number | null
           refund_link_method: string | null
+          refund_match_status: string | null
           refund_of_transaction_id: string | null
           settles_card_id: string | null
           shared_expense_id: string | null
@@ -9685,6 +9686,7 @@ export type Database = {
           raw_description?: string | null
           refund_link_confidence?: number | null
           refund_link_method?: string | null
+          refund_match_status?: string | null
           refund_of_transaction_id?: string | null
           settles_card_id?: string | null
           shared_expense_id?: string | null
@@ -9752,6 +9754,7 @@ export type Database = {
           raw_description?: string | null
           refund_link_confidence?: number | null
           refund_link_method?: string | null
+          refund_match_status?: string | null
           refund_of_transaction_id?: string | null
           settles_card_id?: string | null
           shared_expense_id?: string | null
@@ -11734,6 +11737,15 @@ export type Database = {
         Returns: undefined
       }
       match_refund_candidate: { Args: { p_refund_id: string }; Returns: string }
+      match_refund_candidate_v2: {
+        Args: { p_refund_id: string }
+        Returns: {
+          candidate_count: number
+          candidate_id: string
+          match_score: number
+          match_status: string
+        }[]
+      }
       my_advisor_action_feedback: {
         Args: { _action_key: string; _review_id: string; _status: string }
         Returns: Json
