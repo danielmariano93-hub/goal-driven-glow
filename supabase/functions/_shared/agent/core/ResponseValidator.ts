@@ -72,6 +72,12 @@ const GRAPH_CLAIM_RX = /\b(aqui\s+est[aá]|segue|preparei|gerei|enviei|montei|cr
 // lançamento?") sem ferramenta executada é invenção do modelo.
 const DRAFT_CARD_RX = /\brascunh\w+\b|\bconfirm\w+\b[^?\n]{0,60}\?|\bt[aá]\s+certo\b[^?\n]{0,20}\?/i;
 
+// Inversão de persona: o modelo escreve como se fosse o usuário falando com o
+// Nino ("Ah, Nino!", "Nino, esqueci de perguntar", "obrigado, Nino").
+// O Nino é quem responde — jamais se dirige a si mesmo.
+export const PERSONA_INVERSION_RX = /(^|[\s,;!¡"“(])(ah|oi|ol[aá]|e a[íi]|obrigad[oa]|valeu|desculpa|nossa|opa)[,!\s]+nino\b|\bnino[,!]\s+(esqueci|preciso|me\s|pode\s|voc[eê]\s)/i;
+
+
 const MUTATION_TOOLS = new Set([
   "create_transaction_draft", "create_transfer_draft", "create_goal_contribution_draft",
   "create_goal_draft", "confirm_pending_action",
