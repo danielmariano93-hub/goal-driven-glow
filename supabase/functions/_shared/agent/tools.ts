@@ -1261,6 +1261,7 @@ import {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
 } from "./engineTools.ts";
+import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 
 export {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
@@ -2400,6 +2401,21 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: get_debt_status,
+  },
+  {
+    name: "plan_installment_decision",
+    description: "CONSULTORIA: diz se o usuário consegue assumir um gasto/parcela, com linha do tempo mês a mês (folga antes e depois), meses que ficam apertados, quanto precisa liberar por mês e onde cortar. Use para 'consigo pagar', 'cabe no meu mês', 'vale a pena parcelar em Nx', 'impacto dessa parcela', 'quanto consigo reduzir para caber'.",
+    parameters: {
+      type: "object",
+      properties: {
+        amount: num,
+        installments: { type: "integer", minimum: 1, maximum: 48 },
+        method: { type: "string", enum: ["cash", "card"] },
+        description: optionalStr,
+      },
+      required: ["amount"], additionalProperties: false,
+    },
+    execute: plan_installment_decision,
   },
 ];
 
