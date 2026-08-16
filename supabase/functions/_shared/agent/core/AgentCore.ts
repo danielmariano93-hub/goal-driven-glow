@@ -321,8 +321,39 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       interpretSemanticQuery(turnPlan.effective_text),
     );
   }
+
+  // Pergunta composta não é só detectada: ela é EXECUTADA. Roteamos cada
+  // sub-pergunta, unimos o escopo de ferramentas e exigimos que todas as
+  // ferramentas canônicas envolvidas sejam chamadas no mesmo turno.
+  let mandatoryTools: string[] = [];
+  if (turnPlan.composed) {
+    const subCapabilities = turnPlan.tasks.map((task) =>
+      classifyCapability(task, routeIntent(task).intent, interpretSemanticQuery(task))
+    );
+    const distinct = [...new Set(subCapabilities.map((c) => c.name))];
+    if (distinct.length > 1) {
+      const tools = new Set<string>(capability.allowed_tools);
+      const context: Record<string, boolean> = { ...(capability.context as Record<string, boolean>) };
+      for (const sub of subCapabilities) {
+        for (const tool of sub.allowed_tools) tools.add(tool);
+        for (const [k, v] of Object.entries(sub.context)) if (v) context[k] = true;
+        if (sub.required_tool) mandatoryTools.push(sub.required_tool);
+      }
+      mandatoryTools = [...new Set(mandatoryTools)];
+      capability = {
+        ...capability,
+        name: capability.name,
+        execution: "llm_scoped",
+        allowed_tools: [...tools],
+        required_tool: null,
+        context: context as typeof capability.context,
+        reason: `composed_multi_capability:${distinct.join("+")}`,
+      };
+    }
+  }
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
+
 
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
