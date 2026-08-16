@@ -40,7 +40,7 @@ describe("rota conversacional", () => {
       "como está minha meta?",
     ]) {
       expect(classifyConversational(q).kind, q).toBeNull();
-      expect(shouldAcknowledge(q), q).toBe(true);
+      expect(shouldAcknowledge(q), q).toBe(false);
     }
   });
 

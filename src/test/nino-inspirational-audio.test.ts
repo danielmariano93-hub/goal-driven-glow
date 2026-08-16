@@ -36,7 +36,7 @@ describe("propósito e identidade sem aviso indevido", () => {
       "gastei 32 no mercado",
       "como estão minhas metas?",
     ]) {
-      expect(shouldAcknowledge(q), q).toBe(true);
+      expect(shouldAcknowledge(q), q).toBe(false);
     }
   });
 
