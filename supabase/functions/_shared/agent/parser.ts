@@ -38,6 +38,29 @@ export function parseBrAmount(raw: string): number | null {
   return Math.round(n * 100) / 100;
 }
 
+/** Multiplicador textual logo após um número: "3 mil", "2 milhões", "1,5 mi".
+ *  Retorna { factor, consumed } — consumed = nº de chars do sufixo casado. */
+export const SCALE_SUFFIX_RX = /^\s*(?:reais?\s+)?(mil|milh(?:o|õ)es|milh(?:a|ã)o|mi|k)\b/i;
+
+export function scaleAfter(text: string): { factor: number; consumed: number } {
+  const m = String(text ?? "").match(SCALE_SUFFIX_RX);
+  if (!m) return { factor: 1, consumed: 0 };
+  const token = m[1].toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const factor = token === "mil" || token === "k" ? 1_000 : 1_000_000;
+  return { factor, consumed: m[0].length };
+}
+
+/** parseBrAmount + multiplicador textual ("3 mil reais" → 3000). */
+export function parseBrAmountWithScale(raw: string, trailing: string): number | null {
+  const base = parseBrAmount(raw);
+  if (base == null) return null;
+  const { factor } = scaleAfter(trailing);
+  const scaled = base * factor;
+  return Math.round(scaled * 100) / 100;
+}
+
+
+
 /** Today in America/Sao_Paulo as ISO yyyy-mm-dd */
 export function todaySaoPaulo(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
