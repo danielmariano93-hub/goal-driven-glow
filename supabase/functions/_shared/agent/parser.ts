@@ -223,7 +223,12 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const occurred_at = relativeDate(lower, now);
   const amountMatch = lower.match(AMOUNT_RE);
   // Fala natural não usa dígitos: "cinquenta reais e quarenta centavos".
-  const amount = amountMatch ? parseBrAmount(amountMatch[1]) : parseSpelledMoney(lower);
+  const amount = amountMatch
+    ? parseBrAmountWithScale(
+        amountMatch[1],
+        lower.slice((amountMatch.index ?? 0) + amountMatch[0].length),
+      )
+    : parseSpelledMoney(lower);
 
   // Queries (no writes)
   if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) {
