@@ -31,7 +31,7 @@ import { handleParticipantInbound } from "../_shared/split/participantPipeline.t
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
 import { shouldAcknowledge } from "../_shared/agent/core/Conversational.ts";
-import { audioFailureReply, isAudioMedia, transcribeInboundAudio, type AudioHint } from "../_shared/messaging/wahaMedia.ts";
+import { audioFailureReply, describeMediaHint, isAudioMedia, transcribeInboundAudio, type AudioHint } from "../_shared/messaging/wahaMedia.ts";
 
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
