@@ -251,7 +251,7 @@ export function classifyCapability(
   if (/\b(evolucao|evoluindo|tendencia|dia a dia|por dia|diariamente|ritmo dos? gastos?|estou reduzindo|andando de lado)\b/.test(t)) {
     return {
       name: "financial_evolution", execution: "deterministic",
-      allowed_tools: ["analyze_financial_evolution", "explain_behavior_change", "get_spending_rhythm"],
+      allowed_tools: ["analyze_financial_evolution", "explain_behavior_change", "spending_average_daily_trend", "compare_periods"],
       required_tool: "analyze_financial_evolution", context: { metrics: true },
       reason: "canonical_financial_evolution_textual",
     };
