@@ -234,15 +234,17 @@ async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, m
         const path = trustedMediaPath(descriptor.mediaUrl);
         if (path) {
           const resolved = await fetchWithLimits(`${apiUrl.replace(/\/$/, "")}${path}`, providerAuthHeaders(apiKey), kind);
-          if (resolved.ok) return resolved;
-          diagnostics.push(`canonical_media:${resolved.detail ?? resolved.code}`);
+          if (resolved.ok === true) return resolved;
+          const resolvedFailure = resolved as Extract<FetchResult, { ok: false }>;
+          diagnostics.push(`canonical_media:${resolvedFailure.detail ?? resolvedFailure.code}`);
         } else {
           diagnostics.push("canonical_media:unsafe_path");
         }
       } else {
-        diagnostics.push(`${candidate.family}:${descriptor.detail ?? descriptor.code}`);
-        if (["provider_unauthorized", "timeout"].includes(descriptor.code)) {
-          return { ...descriptor, detail: diagnostics.join(";").slice(0, 400) };
+        const descriptorFailure = descriptor as Extract<typeof descriptor, { ok: false }>;
+        diagnostics.push(`${candidate.family}:${descriptorFailure.detail ?? descriptorFailure.code}`);
+        if (["provider_unauthorized", "timeout"].includes(descriptorFailure.code)) {
+          return { ok: false, code: descriptorFailure.code, detail: diagnostics.join(";").slice(0, 400) };
         }
       }
       continue;
