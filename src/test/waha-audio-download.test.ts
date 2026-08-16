@@ -94,6 +94,26 @@ describe("downloadInboundMedia — resiliência de áudio", () => {
     expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6);
   });
 
+  it("resolve mídia pela rota canônica da mensagem quando o payload não traz URL útil", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.includes("downloadMedia=true")) {
+        return Response.json({ media: { url: "http://waha:3000/api/files/default/resolved.ogg" } });
+      }
+      if (value.endsWith("/api/files/default/resolved.ogg")) {
+        return new Response(OGG, { status: 200, headers: { "content-type": "audio/ogg" } });
+      }
+      return new Response("missing", { status: 404 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const r = await downloadInboundMedia({
+      media: { mime_type: "audio/ogg", id: "msg", chatId: "5511999999999@c.us" },
+      apiUrl: "https://waha.example.com", apiKey: "secret", session: SESSION, messageId: "msg", kind: "audio",
+    });
+    expect(r.ok).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("downloadMedia=true"))).toBe(true);
+  });
+
   it("sem credenciais do provedor devolve no_url com o que está faltando", async () => {
     const r = await downloadInboundMedia({ media: { mime_type: "audio/ogg", id: "a4" }, kind: "audio" });
     expect(r.ok).toBe(false);

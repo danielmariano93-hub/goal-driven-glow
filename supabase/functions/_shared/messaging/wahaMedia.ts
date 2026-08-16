@@ -127,7 +127,7 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
   return path;
 }
 
-type MediaCandidate = { url: string; family: string };
+type MediaCandidate = { url: string; family: string; descriptor?: boolean };
 
 function trustedMediaPath(raw: string | undefined): string | null {
   if (!raw || raw.includes("\\") || raw.includes("..")) return null;
@@ -162,6 +162,13 @@ function endpointCandidates(apiUrl: string, session: string, messageId: string, 
   const s = encodeURIComponent(session);
   const id = encodeURIComponent(messageId);
   const chat = media?.chatId ? encodeURIComponent(media.chatId) : "";
+  if (chat) {
+    candidates.push({
+      url: `${base}/api/${s}/chats/${chat}/messages/${id}?downloadMedia=true`,
+      family: "canonical_message",
+      descriptor: true,
+    });
+  }
   const fileId = encodeURIComponent(media?.fileId ?? messageId);
   candidates.push(
     { url: `${base}/api/${s}/files/${fileId}`, family: "session_file" },
@@ -182,12 +189,64 @@ function endpointCandidates(apiUrl: string, session: string, messageId: string, 
 
 export type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
 
+async function fetchWahaDescriptor(url: string, apiKey: string): Promise<
+  | { ok: true; mediaUrl?: string; base64?: string }
+  | { ok: false; code: DownloadCode; detail?: string }
+> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers: providerAuthHeaders(apiKey), redirect: "error", signal: controller.signal });
+    if (response.status === 401 || response.status === 403) return { ok: false, code: "provider_unauthorized", detail: `status_${response.status}` };
+    if (response.status === 404) return { ok: false, code: "media_not_found", detail: "status_404" };
+    if (!response.ok) return { ok: false, code: "download_failed", detail: `status_${response.status}` };
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    const media = body?.media && typeof body.media === "object" ? body.media as Record<string, unknown> : null;
+    const mediaUrl = typeof media?.url === "string" ? media.url
+      : typeof media?.mediaUrl === "string" ? media.mediaUrl
+      : typeof body?.mediaUrl === "string" ? body.mediaUrl
+      : undefined;
+    const base64 = typeof media?.data === "string" ? media.data
+      : typeof media?.base64 === "string" ? media.base64
+      : undefined;
+    if (!mediaUrl && !base64) return { ok: false, code: "media_not_found", detail: "descriptor_without_media" };
+    return { ok: true, mediaUrl, base64 };
+  } catch (error) {
+    return { ok: false, code: (error as Error).name === "AbortError" ? "timeout" : "download_failed" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint, kind: MediaKind = "document"): Promise<FetchResult> {
   const guard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
   if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
   let last: FetchResult = { ok: false, code: "media_not_found", detail: "all_candidates_not_found" };
   const diagnostics: string[] = [];
   for (const candidate of endpointCandidates(apiUrl, session, messageId, media)) {
+    if (candidate.descriptor) {
+      const descriptor = await fetchWahaDescriptor(candidate.url, apiKey);
+      if (descriptor.ok) {
+        if (descriptor.base64) {
+          const bytes = base64ToBytes(descriptor.base64);
+          if (bytes) return { ok: true, bytes };
+        }
+        const path = trustedMediaPath(descriptor.mediaUrl);
+        if (path) {
+          const resolved = await fetchWithLimits(`${apiUrl.replace(/\/$/, "")}${path}`, providerAuthHeaders(apiKey), kind);
+          if (resolved.ok) return resolved;
+          diagnostics.push(`canonical_media:${resolved.detail ?? resolved.code}`);
+        } else {
+          diagnostics.push("canonical_media:unsafe_path");
+        }
+      } else {
+        diagnostics.push(`${candidate.family}:${descriptor.detail ?? descriptor.code}`);
+        if (["provider_unauthorized", "timeout"].includes(descriptor.code)) {
+          return { ...descriptor, detail: diagnostics.join(";").slice(0, 400) };
+        }
+      }
+      continue;
+    }
     const result = await fetchWithLimits(candidate.url, providerAuthHeaders(apiKey), kind);
     if (result.ok === true) return result;
     const fail = result as Extract<FetchResult, { ok: false }>;
