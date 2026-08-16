@@ -87,7 +87,7 @@ export async function deterministicFallback(
     }
   }
 
-  if (intent.kind === "transaction") {
+  if (entryAllowed && intent.kind === "transaction") {
     const r = await create_transaction_draft(ctx, {
       type: intent.type, amount: intent.amount,
       account: intent.account_hint ?? "",
