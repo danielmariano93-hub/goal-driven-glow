@@ -56,9 +56,13 @@ describe("product quality hardening", () => {
   it("cria detalhe acionável e feedback para falsos positivos", () => {
     expect(migration).toContain("my_proactive_suggestion_feedback");
     expect(migration).toContain("not_duplicate");
-    expect(proactive).toContain("transactions: rows.map");
-    expect(proactive).toContain("/app/alertas/");
+    // Duplicidade agora pertence ao motor de diagnóstico e nasce como tarefa no app.
+    expect(proactive).not.toContain("duplicate_expense");
+    const diagnosisBridge = read("supabase/functions/_shared/intelligence/diagnosisToCommunication.ts");
+    expect(diagnosisBridge).toContain("/app/alertas/");
+    expect(diagnosisBridge).toContain("duplicate_expense");
   });
+
 
   it("faz backfill de categorização, memória e dicas históricas", () => {
     expect(migration).toContain("alias pessoal exato");
