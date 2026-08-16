@@ -2,7 +2,6 @@
 // Ordem prioritária para imagens: base64 inline -> mediaUrl HTTPS autenticada -> endpoint WAHA -> fallbacks.
 
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
-import { OggOpusDecoder } from "npm:ogg-opus-decoder@1.7.3";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
@@ -376,8 +375,9 @@ function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kin
 // entra no mesmo pipeline textual do Nino — registrar gasto, perguntar, tudo.
 // Assim não existe uma "inteligência de áudio" paralela para manter.
 //
-// O WhatsApp envia OGG/Opus. Antes da transcrição, decodificamos para WAV PCM
-// completo para evitar diferenças de suporte entre engines e contêineres.
+// O WhatsApp envia OGG/Opus. O contêiner original é preservado porque o endpoint
+// de transcrição o aceita diretamente; conversão WASM no edge era um ponto de
+// falha desnecessário e impedia notas de voz válidas de chegarem ao Nino.
 
 type AudioDownload = DownloadResult;
 
@@ -473,20 +473,10 @@ export function pcmFloatToWav(channelData: Float32Array[], sampleRate: number): 
   return out;
 }
 
-async function normalizeAudioForTranscription(bytes: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string; filename: string }> {
-  if (mime !== "audio/ogg" && mime !== "audio/opus") {
-    const extension = FORMAT_BY_MIME[mime] ?? "wav";
-    return { bytes, mime, filename: `recording.${extension}` };
-  }
-  const decoder = new OggOpusDecoder();
-  try {
-    await decoder.ready;
-    const decoded = decoder.decode(bytes);
-    if (!decoded.samplesDecoded || !decoded.channelData.length) throw new Error("empty_decode");
-    return { bytes: pcmFloatToWav(decoded.channelData, decoded.sampleRate), mime: "audio/wav", filename: "recording.wav" };
-  } finally {
-    decoder.free();
-  }
+export function prepareAudioForTranscription(bytes: Uint8Array, mime: string): { bytes: Uint8Array; mime: string; filename: string } {
+  const extension = FORMAT_BY_MIME[mime];
+  if (!extension) throw new Error("unsupported_audio");
+  return { bytes, mime, filename: `recording.${extension}` };
 }
 
 async function readTranscriptionStream(response: Response): Promise<string> {
@@ -580,9 +570,9 @@ export async function transcribeInboundAudio(args: {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
   try {
-    let normalized: Awaited<ReturnType<typeof normalizeAudioForTranscription>>;
+    let normalized: ReturnType<typeof prepareAudioForTranscription>;
     try {
-      normalized = await normalizeAudioForTranscription(dl.bytes, dl.mime_type);
+      normalized = prepareAudioForTranscription(dl.bytes, dl.mime_type);
     } catch {
       return { ok: false, code: "unsupported_format", detail: "decode_failed" };
     }

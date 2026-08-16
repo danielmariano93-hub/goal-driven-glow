@@ -15,7 +15,6 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       // Bridge npm:* Deno specifiers so vitest can import _shared modules.
       "npm:zod@3.23.8": "zod",
-      "npm:ogg-opus-decoder@1.7.3": "ogg-opus-decoder",
     },
   },
 });
