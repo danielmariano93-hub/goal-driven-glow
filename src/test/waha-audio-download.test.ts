@@ -53,6 +53,47 @@ describe("downloadInboundMedia — resiliência de áudio", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("rebasa uma rota de mídia do payload na origem confiável e usa somente X-Api-Key", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe("https://waha.example.com/api/files/default/voice.ogg");
+      expect(init?.headers).toEqual({ "X-Api-Key": "secret" });
+      return new Response(OGG, { status: 200, headers: { "content-type": "audio/ogg" } });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const r = await downloadInboundMedia({
+      media: { url: "http://waha:3000/api/files/default/voice.ogg", mime_type: "audio/ogg", id: "msg" },
+      apiUrl: "https://waha.example.com", apiKey: "secret", session: SESSION, messageId: "msg", kind: "audio",
+    });
+    expect(r.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("não envia credencial para um caminho arbitrário recebido no payload", async () => {
+    const requested: string[] = [];
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      requested.push(String(url));
+      return new Response("missing", { status: 404 });
+    }) as unknown as typeof fetch;
+    await downloadInboundMedia({
+      media: { url: "http://evil.invalid/private/audio.ogg", mime_type: "audio/ogg", id: "msg" },
+      apiUrl: "https://waha.example.com", apiKey: "secret", session: SESSION, messageId: "msg", kind: "audio",
+    });
+    expect(requested.every((url) => url.startsWith("https://waha.example.com/api/"))).toBe(true);
+    expect(requested.some((url) => url.includes("evil.invalid"))).toBe(false);
+  });
+
+  it("não mascara 404 com tentativas redundantes de autenticação", async () => {
+    const fetchMock = vi.fn(async () => new Response("missing", { status: 404 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const r = await downloadInboundMedia({
+      media: { mime_type: "audio/ogg", id: "msg" }, apiUrl: "https://waha.example.com",
+      apiKey: "secret", session: SESSION, messageId: "msg", kind: "audio",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.detail).toContain("status_404");
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6);
+  });
+
   it("sem credenciais do provedor devolve no_url com o que está faltando", async () => {
     const r = await downloadInboundMedia({ media: { mime_type: "audio/ogg", id: "a4" }, kind: "audio" });
     expect(r.ok).toBe(false);

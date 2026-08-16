@@ -528,6 +528,11 @@ Deno.serve(async (req) => {
     const access = getWahaAccess();
     const descriptor = describeMediaHint(evt.media as AudioHint);
     const t0 = Date.now();
+    await recordWhatsappPipelineEvent(sb, {
+      stage: "audio_detected", user_id: link.user_id as string,
+      inbound_message_id, provider_message_id: evt.provider_message_id,
+      session: access.session, metadata: { mime: String(descriptor.mime ?? "") },
+    });
     const transcription = await transcribeInboundAudio({
       media: evt.media as AudioHint,
       messageId: evt.provider_message_id,
@@ -572,6 +577,16 @@ Deno.serve(async (req) => {
     }
 
     if (transcription.ok) {
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "media_downloaded", user_id: link.user_id as string,
+        inbound_message_id, provider_message_id: evt.provider_message_id,
+        session: access.session, metadata: { bytes: transcription.bytes, mime: transcription.mime_type },
+      });
+      await recordWhatsappPipelineEvent(sb, {
+        stage: "audio_transcribed", user_id: link.user_id as string,
+        inbound_message_id, provider_message_id: evt.provider_message_id,
+        session: access.session, metadata: { chars: transcription.text.length },
+      });
       evt.body = transcription.text;
       await sb.from("inbound_messages")
         .update({ body: transcription.text.slice(0, 2000), detected_intent: "audio_transcribed" })

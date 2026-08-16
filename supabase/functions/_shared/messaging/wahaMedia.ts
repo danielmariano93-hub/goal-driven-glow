@@ -29,6 +29,8 @@ export type MediaHint = {
   data?: string;
   body?: string;
   directPath?: string;
+  /** Identificador do arquivo no provedor; não é necessariamente o ID da mensagem. */
+  fileId?: string;
   mediaKey?: string;
   mediaSize?: number;
   mediaType?: string;
@@ -69,7 +71,7 @@ function base64ToBytes(b64: string): Uint8Array | null {
   } catch { return null; }
 }
 
-export type DownloadCode = "mime_not_allowed" | "size_exceeds" | "download_failed" | "empty" | "magic_mismatch" | "no_url" | "unsafe_url" | "timeout";
+export type DownloadCode = "mime_not_allowed" | "size_exceeds" | "download_failed" | "provider_unauthorized" | "media_not_found" | "empty" | "magic_mismatch" | "no_url" | "unsafe_url" | "timeout";
 export type DownloadResult =
   | { ok: true; bytes: Uint8Array; mime_type: string; filename: string }
   | { ok: false; code: DownloadCode; detail?: string };
@@ -79,6 +81,8 @@ async function fetchWithLimits(url: string, headers: Record<string, string>, kin
   const timer = setTimeout(() => ac.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
     const r = await fetch(url, { headers, redirect: "error", signal: ac.signal });
+    if (r.status === 401 || r.status === 403) return { ok: false, code: "provider_unauthorized", detail: `status_${r.status}` };
+    if (r.status === 404) return { ok: false, code: "media_not_found", detail: "status_404" };
     if (!r.ok) return { ok: false, code: "download_failed", detail: `status_${r.status}` };
     const declaredLength = Number(r.headers.get("content-length") ?? 0);
     if (declaredLength > MAX_BYTES) return { ok: false, code: "size_exceeds", detail: String(declaredLength) };
@@ -107,8 +111,8 @@ async function fetchWithLimits(url: string, headers: Record<string, string>, kin
   } finally { clearTimeout(timer); }
 }
 
-function authHeaderCandidates(apiKey: string): Array<Record<string, string>> {
-  return [{ "X-Api-Key": apiKey }, { "X-API-Key": apiKey }, { Authorization: `Bearer ${apiKey}` }];
+function providerAuthHeaders(apiKey: string): Record<string, string> {
+  return { "X-Api-Key": apiKey };
 }
 
 function serializedId(value: MediaHint["id"] | string | undefined): string {
@@ -122,32 +126,56 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
   return path;
 }
 
-function endpointCandidates(apiUrl: string, session: string, messageId: string, media?: MediaHint): string[] {
+type MediaCandidate = { url: string; family: string };
+
+function trustedMediaPath(raw: string | undefined): string | null {
+  if (!raw || raw.includes("\\") || raw.includes("..")) return null;
+  let path = raw.trim();
+  try {
+    const parsed = new URL(path.includes("://") ? path : `https://placeholder.invalid/${path.replace(/^\/+/, "")}`);
+    if (parsed.username || parsed.password) return null;
+    path = parsed.pathname + parsed.search;
+  } catch {
+    return null;
+  }
+  if (!path.startsWith("/")) path = `/${path}`;
+  // Somente rotas de mídia do próprio WAHA podem ser rebaseadas na origem
+  // confiável. Caminhos CDN/WhatsApp nunca recebem a chave do provedor.
+  return /^\/api\/(?:files(?:\/|\?)|[^/]+\/(?:files|messages|chats)\/)/.test(path) ? path : null;
+}
+
+function endpointCandidates(apiUrl: string, session: string, messageId: string, media?: MediaHint): MediaCandidate[] {
   const base = apiUrl.replace(/\/$/, "");
-  const candidates: string[] = [];
+  const candidates: MediaCandidate[] = [];
+  const realPaths = [media?.url, media?.mediaUrl, media?.directPath]
+    .map(trustedMediaPath)
+    .filter((path): path is string => Boolean(path));
+  for (const path of realPaths) candidates.push({ url: `${base}${path}`, family: "payload_path" });
   const configured = typeof globalThis.Deno !== "undefined"
     ? globalThis.Deno.env.get("WAHA_MEDIA_ENDPOINT_TEMPLATE")?.trim()
     : undefined;
   if (configured) {
     const path = renderTemplate(configured, { session, id: messageId, chatId: media?.chatId ?? "", timestamp: String(media?.messageTimestamp ?? "") });
-    if (path) candidates.push(`${base}${path}`);
+    if (path) candidates.push({ url: `${base}${path}`, family: "configured" });
   }
   const s = encodeURIComponent(session);
   const id = encodeURIComponent(messageId);
   const chat = media?.chatId ? encodeURIComponent(media.chatId) : "";
+  const fileId = encodeURIComponent(media?.fileId ?? messageId);
   candidates.push(
-    `${base}/api/${s}/files/${id}`,
-    `${base}/api/${s}/messages/${id}/download`,
-    `${base}/api/files/${s}/${id}`,
-    `${base}/api/${s}/messages/${id}/media`,
+    { url: `${base}/api/${s}/files/${fileId}`, family: "session_file" },
+    { url: `${base}/api/${s}/messages/${id}/download`, family: "message_download" },
+    { url: `${base}/api/files/${s}/${fileId}`, family: "files_session" },
+    { url: `${base}/api/${s}/messages/${id}/media`, family: "message_media" },
   );
   if (chat) {
     candidates.push(
-      `${base}/api/${s}/chats/${chat}/messages/${id}/download`,
-      `${base}/api/${s}/chats/${chat}/messages/${id}/media`,
+      { url: `${base}/api/${s}/chats/${chat}/messages/${id}/download`, family: "chat_download" },
+      { url: `${base}/api/${s}/chats/${chat}/messages/${id}/media`, family: "chat_media" },
     );
   }
-  return [...new Set(candidates)];
+  const seen = new Set<string>();
+  return candidates.filter(({ url }) => !seen.has(url) && Boolean(seen.add(url)));
 
 }
 
@@ -156,17 +184,19 @@ export type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: D
 async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint, kind: MediaKind = "document"): Promise<FetchResult> {
   const guard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
   if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
-  let last: FetchResult = { ok: false, code: "download_failed", detail: "all_candidates_failed" };
-  for (const url of endpointCandidates(apiUrl, session, messageId, media)) {
-    for (const headers of authHeaderCandidates(apiKey)) {
-      const result = await fetchWithLimits(url, headers, kind);
-      if (result.ok === true) return result;
-      const fail = result as Extract<FetchResult, { ok: false }>;
-      last = fail;
-      if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed"].includes(fail.code)) return fail;
+  let last: FetchResult = { ok: false, code: "media_not_found", detail: "all_candidates_not_found" };
+  const diagnostics: string[] = [];
+  for (const candidate of endpointCandidates(apiUrl, session, messageId, media)) {
+    const result = await fetchWithLimits(candidate.url, providerAuthHeaders(apiKey), kind);
+    if (result.ok === true) return result;
+    const fail = result as Extract<FetchResult, { ok: false }>;
+    diagnostics.push(`${candidate.family}:${fail.detail ?? fail.code}`);
+    last = fail;
+    if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed", "provider_unauthorized"].includes(fail.code)) {
+      return { ...fail, detail: diagnostics.join(";").slice(0, 400) };
     }
   }
-  return last;
+  return { ...last, detail: diagnostics.join(";").slice(0, 400) || last.detail };
 }
 
 /** Resumo diagnóstico da mídia inbound — sem URLs, sem bytes, sem PII. */
@@ -218,7 +248,7 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
       const headerSets: Array<Record<string, string>> = [{}];
       try {
         if (opts.apiUrl && opts.apiKey && new URL(directUrl).origin === new URL(opts.apiUrl).origin) {
-          headerSets.unshift(...authHeaderCandidates(opts.apiKey));
+          headerSets.unshift(providerAuthHeaders(opts.apiKey));
         }
       } catch { /* URLs já foram validadas */ }
       for (const headers of headerSets) {
