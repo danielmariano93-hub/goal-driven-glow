@@ -607,7 +607,7 @@ Deno.serve(async (req) => {
     const stopHints = () => {
       settled = true;
       clearInterval(typingTimer);
-      clearTimeout(noticeTimer);
+      if (noticeTimer) clearTimeout(noticeTimer);
       sendTypingPresence(evt.from_phone, "stop").catch(() => {});
     };
     try {
