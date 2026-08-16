@@ -87,6 +87,37 @@ function clampDays(value: unknown, fallback: number): number {
   return Math.max(7, Math.min(730, Math.round(n)));
 }
 
+/**
+ * Período explícito (`period_truth.v1`) tem prioridade sobre `days`.
+ * Sem período e sem `days`, cai no fallback do chamador.
+ */
+function periodFromArgs(args: { from?: string; to?: string; days?: number }, fallbackDays: number): EnginePeriod {
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  const from = String(args?.from ?? "").slice(0, 10);
+  const to = String(args?.to ?? "").slice(0, 10);
+  if (ymd.test(from) && ymd.test(to) && from <= to) return { from, to };
+  if (ymd.test(from) && !ymd.test(to)) return { from, to: todaySaoPaulo().slice(0, 10) };
+  return windowFor(clampDays(args?.days, fallbackDays), ymd.test(to) ? to : undefined);
+}
+
+/** Resolve nome de categoria informado pelo usuário para id (match exato > prefixo). */
+async function resolveCategoryId(
+  ctx: EngineToolContext,
+  args: { category_id?: string; category_name?: string },
+): Promise<string | null> {
+  const explicit = String(args?.category_id ?? "").trim();
+  if (explicit) return explicit;
+  const wanted = String(args?.category_name ?? "").trim();
+  if (!wanted) return null;
+  const names = await loadCategoryNames(ctx);
+  const norm = (v: string) => v.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
+  const target = norm(wanted);
+  const entries = Object.entries(names);
+  return entries.find(([, name]) => norm(name) === target)?.[0]
+    ?? entries.find(([, name]) => norm(name).startsWith(target) || target.startsWith(norm(name)))?.[0]
+    ?? null;
+}
+
 type EngineToolResult = { ok: true; result: any } | { ok: false; error: string };
 
 async function guard(fn: () => Promise<any>): Promise<EngineToolResult> {
@@ -99,35 +130,47 @@ async function guard(fn: () => Promise<any>): Promise<EngineToolResult> {
 
 // ---------------------------------------------------------------- merchants
 
-export function analyze_merchants(ctx: EngineToolContext, args: { days?: number; category_id?: string; limit?: number }): Promise<EngineToolResult> {
+export function analyze_merchants(
+  ctx: EngineToolContext,
+  args: { days?: number; from?: string; to?: string; category_id?: string; category_name?: string; limit?: number },
+): Promise<EngineToolResult> {
   return guard(async () => {
-    const days = clampDays(args?.days, 30);
-    const period = windowFor(days);
+    const period = periodFromArgs(args ?? {}, 30);
     const comparison = previousWindow(period);
-    const [txs, aliases] = await Promise.all([
+    const [txs, aliases, categoryId] = await Promise.all([
       loadEngineTransactions(ctx, comparison.from, period.to),
       loadAliases(ctx),
+      resolveCategoryId(ctx, args ?? {}),
     ]);
     const env = rankMerchants({
       txs: txs as any,
       period,
       comparisonPeriod: comparison,
       aliases,
-      categoryId: args?.category_id ?? null,
+      categoryId,
       limit: Math.max(3, Math.min(25, Number(args?.limit ?? 10))),
     });
     const top = env.facts.top_merchant;
+    const share = top && env.facts.period_net_total > 0
+      ? ` (${Math.round((top.net_total / env.facts.period_net_total) * 100)}% do período)`
+      : "";
     const headline = top
-      ? `No período, ${brl(env.facts.period_net_total)} saíram em estabelecimentos identificados; ${top.label} lidera com ${brl(top.net_total)}.`
-      : `No período, ${brl(env.facts.period_net_total)} saíram em estabelecimentos identificados.`;
-    return withAnswerFormat(env, headline, env.facts.delta_abs);
+      ? `Entre ${period.from} e ${period.to}, ${brl(env.facts.period_net_total)} saíram em estabelecimentos identificados; ${top.label} lidera com ${brl(top.net_total)}${share}.`
+      : `Entre ${period.from} e ${period.to}, ${brl(env.facts.period_net_total)} saíram em estabelecimentos identificados.`;
+    return withAnswerFormat(
+      { ...env, facts: { ...env.facts, period, category_id: categoryId } },
+      headline,
+      env.facts.delta_abs,
+    );
   });
 }
 
-export function merchant_profile(ctx: EngineToolContext, args: { query: string; days?: number }): Promise<EngineToolResult> {
+export function merchant_profile(
+  ctx: EngineToolContext,
+  args: { query: string; days?: number; from?: string; to?: string },
+): Promise<EngineToolResult> {
   return guard(async () => {
-    const days = clampDays(args?.days, 90);
-    const period = windowFor(days);
+    const period = periodFromArgs(args ?? ({} as any), 90);
     const comparison = previousWindow(period);
     const [txs, aliases] = await Promise.all([
       loadEngineTransactions(ctx, comparison.from, period.to),

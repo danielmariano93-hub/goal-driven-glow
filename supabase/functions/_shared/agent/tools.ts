@@ -2051,7 +2051,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Ranking de ESTABELECIMENTOS (onde/em quem o dinheiro sai), líquido de estornos, com variação vs período anterior e o driver (frequência x ticket x novo). Use para 'onde meu dinheiro está escapando', 'com quem gasto mais', 'quem consome meu dinheiro'.",
     parameters: {
       type: "object",
-      properties: { days: { type: "integer", minimum: 7, maximum: 730 }, category_id: optionalStr, limit: { type: "integer" } },
+      properties: {
+        days: { type: "integer", minimum: 7, maximum: 730 },
+        from: optionalStr, to: optionalStr,
+        category_id: optionalStr, category_name: optionalStr,
+        limit: { type: "integer" },
+      },
       additionalProperties: false,
     },
     execute: analyze_merchants,
@@ -2061,7 +2066,11 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Perfil de UM estabelecimento: total líquido, número de compras, ticket médio, maior compra, dia da semana típico e variação vs período anterior. Use para 'quanto gastei com iFood/Uber/mercado X'.",
     parameters: {
       type: "object",
-      properties: { query: requiredStr, days: { type: "integer", minimum: 7, maximum: 730 } },
+      properties: {
+        query: requiredStr,
+        days: { type: "integer", minimum: 7, maximum: 730 },
+        from: optionalStr, to: optionalStr,
+      },
       required: ["query"], additionalProperties: false,
     },
     execute: merchant_profile,
