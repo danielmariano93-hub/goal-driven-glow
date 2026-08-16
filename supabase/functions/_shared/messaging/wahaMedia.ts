@@ -134,8 +134,21 @@ function endpointCandidates(apiUrl: string, session: string, messageId: string, 
   }
   const s = encodeURIComponent(session);
   const id = encodeURIComponent(messageId);
-  candidates.push(`${base}/api/${s}/files/${id}`, `${base}/api/${s}/messages/${id}/download`, `${base}/api/files/${s}/${id}`);
+  const chat = media?.chatId ? encodeURIComponent(media.chatId) : "";
+  candidates.push(
+    `${base}/api/${s}/files/${id}`,
+    `${base}/api/${s}/messages/${id}/download`,
+    `${base}/api/files/${s}/${id}`,
+    `${base}/api/${s}/messages/${id}/media`,
+  );
+  if (chat) {
+    candidates.push(
+      `${base}/api/${s}/chats/${chat}/messages/${id}/download`,
+      `${base}/api/${s}/chats/${chat}/messages/${id}/media`,
+    );
+  }
   return [...new Set(candidates)];
+
 }
 
 export type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
