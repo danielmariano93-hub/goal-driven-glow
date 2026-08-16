@@ -14,15 +14,46 @@ function outputMode(t: string): SemanticQuery["output"] {
   return visual ? "both" : "text";
 }
 
+/** Aceita singular e plural: "sexta", "sextas-feiras", "sábados", "fins de semana". */
+const WEEKDAY_PATTERNS: Array<{ weekday: number; re: RegExp }> = [
+  { weekday: 0, re: /\bdomingos?\b/ },
+  { weekday: 1, re: /\bsegundas?(?:-feiras?)?\b/ },
+  { weekday: 2, re: /\btercas?(?:-feiras?)?\b/ },
+  { weekday: 3, re: /\bquartas?(?:-feiras?)?\b/ },
+  { weekday: 4, re: /\bquintas?(?:-feiras?)?\b/ },
+  { weekday: 5, re: /\bsextas?(?:-feiras?)?\b/ },
+  { weekday: 6, re: /\bsabados?\b/ },
+];
+
+const WEEKEND_RE = /\b(fim|final|fins|finais) de semana\b|\bfim de semana\b|\bweekend\b/;
+
+export function mentionedWeekdays(text: string): number[] {
+  const t = normalize(text);
+  const found = new Set<number>();
+  for (const { weekday, re } of WEEKDAY_PATTERNS) if (re.test(t)) found.add(weekday);
+  if (WEEKEND_RE.test(t)) { found.add(6); found.add(0); }
+  return [...found].sort((a, b) => a - b);
+}
+
 export function isInterpretationCorrection(text: string): boolean {
   const t = normalize(text);
-  return /\b(nao foi isso|nao e isso|nao era isso|eu digo|quero dizer|na media|sem considerar|tirando|desconsiderando|sem picos|sem outliers)\b/.test(t);
+  return /\b(nao foi isso|nao e isso|nao era isso|eu digo|quero dizer|na media|em media|sem considerar|tirando|desconsiderando|sem picos|sem outliers)\b/.test(t);
+}
+
+/**
+ * Contestação/pedido de confirmação sobre uma leitura anterior:
+ * "então sexta não é meu maior gasto?", "tem certeza?", "duvida:".
+ * Nesses turnos a métrica NÃO pode trocar silenciosamente.
+ */
+export function isPatternChallenge(text: string): boolean {
+  const t = normalize(text);
+  return /\b(duvida|tem certeza|certeza|nao e|nao seria|nao era|entao .{0,40}\bnao\b|confere|isso esta certo|esta correto)\b/.test(t);
 }
 
 function isDirectSingleWeekdayLookup(t: string): boolean {
-  const namedWeekday = /\b(segunda(?:-feira)?|terca(?:-feira)?|quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|sabado|domingo)\b/.test(t);
+  const namedWeekday = WEEKDAY_PATTERNS.some(({ re }) => re.test(t));
   const directAmount = /\b(quanto|qual valor|total|soma|gastei|gasto|gastos|despesa|despesas)\b/.test(t);
-  const comparison = /\b(qual dia|que dia|em qual dia|dia da semana|mais gasto|gasto mais|maior gasto|concentrou mais|mais vezes|frequencia|padrao|geralmente|normalmente|costumo|tipicamente|habitual)\b/.test(t);
+  const comparison = /\b(qual dia|que dia|em qual dia|dias? da semana|mais gasto|gasto mais|maior gasto|maiores gastos|concentrou mais|mais vezes|frequencia|padrao|geralmente|normalmente|costumo|tipicamente|habitual|na media|em media)\b/.test(t);
   return namedWeekday && directAmount && !comparison;
 }
 
@@ -38,21 +69,24 @@ export function interpretSemanticQuery(text: string, contextText?: string | null
   if (!current) return null;
 
   const correction = isInterpretationCorrection(text);
-  const contextual = correction && contextText
+  const challenge = isPatternChallenge(text);
+  const contextual = (correction || challenge) && contextText
     ? `${normalize(contextText)} ${current}`.trim()
     : current;
 
-  if (isDirectSingleWeekdayLookup(contextual) && !correction) return null;
+  if (isDirectSingleWeekdayLookup(contextual) && !correction && !challenge) return null;
 
-  const weekday = /\b(qual dia|que dia|em qual dia|dia da semana|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.test(contextual);
+  const named = mentionedWeekdays(contextual);
+  const weekday = named.length > 0 || /\b(qual dia|que dia|em qual dia|dias? da semana)\b/.test(contextual);
   const spending = /\b(gast\w*|despes\w*|compr\w*|consumo|dinheiro|valor|total)\b/.test(contextual);
-  const comparative = /\b(qual dia|que dia|em qual dia|dia da semana|mais gasto|gasto mais|maior gasto|concentrou mais|mais vezes|frequencia|padrao|geralmente|normalmente|costumo|tipicamente|habitual|na media|sem picos|sem outliers)\b/.test(contextual);
+  const comparative = /\b(qual dia|que dia|em qual dia|dias? da semana|mais gasto|gasto mais|maior gasto|maiores gastos|concentrou mais|mais vezes|frequencia|padrao|geralmente|normalmente|costumo|tipicamente|habitual|na media|em media|sem picos|sem outliers)\b/.test(contextual)
+    || challenge;
   if (!weekday || !spending || !comparative) return null;
 
   const frequency = /\b(mais vezes|frequencia|quantas compras|numero de compras|quantidade de compras)\b/.test(contextual);
   const ticket = /\b(ticket|por compra|media por compra|valor medio de cada compra)\b/.test(contextual);
   const concentration = /\b(concentrou|concentracao|somando tudo|total por dia|maior volume|participacao do total)\b/.test(contextual);
-  const typical = correction || /\b(geralmente|normalmente|costumo|tipicamente|na media|padrao|habitual|sem picos|sem outliers)\b/.test(contextual);
+  const typical = correction || /\b(geralmente|normalmente|costumo|tipicamente|na media|em media|padrao|habitual|sem picos|sem outliers)\b/.test(contextual);
 
   let interpretation: SemanticQuery["interpretation"] = "typical_behavior";
   let metric_key = "weekday_typical_spend";
@@ -84,6 +118,8 @@ export function interpretSemanticQuery(text: string, contextText?: string | null
     outlier_policy,
     period: { kind: "rolling_weeks", value: weeks },
     correction,
+    challenge,
+    mentioned_weekdays: named,
     original_text: text,
   };
 }

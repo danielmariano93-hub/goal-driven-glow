@@ -37,6 +37,10 @@ export type SemanticQuery = {
   outlier_policy: OutlierPolicy;
   period: { kind: "rolling_weeks" | "rolling_days" | "month"; value: number };
   correction: boolean;
+  /** O usuário está contestando/pedindo confirmação de uma leitura anterior. */
+  challenge?: boolean;
+  /** Dias da semana citados explicitamente pelo usuário (0=domingo). */
+  mentioned_weekdays?: number[];
   original_text: string;
 };
 

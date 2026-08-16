@@ -19,6 +19,7 @@ import {
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { cycleFor } from "../finance-core/cardExposure.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
+import { interpretSemanticQuery } from "../intelligence/semanticQuery.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
@@ -940,7 +941,13 @@ export async function get_weekday_spending_pattern(ctx: ToolContext, args: {
   weeks?: number;
 }): Promise<ToolResult> {
   try {
-    const interpretation = args?.interpretation ?? "typical_behavior";
+    // Trava anti-troca-de-métrica: quem decide a interpretação é o texto do
+    // usuário, não o modelo. Sem isso, uma pergunta de média virava
+    // "concentração do total" no turno seguinte, sem o usuário pedir.
+    const semantic = interpretSemanticQuery(ctx.user_text ?? "");
+    const interpretation = semantic?.interpretation && semantic.interpretation !== "raw_series"
+      ? semantic.interpretation
+      : (args?.interpretation ?? "typical_behavior");
     const result = await executeWeekdayPattern({
       sb: ctx.sb,
       user_id: ctx.user_id,
@@ -954,8 +961,10 @@ export async function get_weekday_spending_pattern(ctx: ToolContext, args: {
           : "weekday_total_concentration",
         output: "text",
         outlier_policy: interpretation === "typical_behavior" ? "exclude_for_typical" : "keep",
-        period: { kind: "rolling_weeks", value: Math.max(4, Math.min(52, Number(args?.weeks ?? 12))) },
-        correction: false,
+        period: { kind: "rolling_weeks", value: Math.max(4, Math.min(52, Number(semantic?.period.value ?? args?.weeks ?? 12))) },
+        correction: Boolean(semantic?.correction),
+        challenge: Boolean(semantic?.challenge),
+        mentioned_weekdays: semantic?.mentioned_weekdays ?? [],
         original_text: ctx.user_text ?? "",
       },
     });
