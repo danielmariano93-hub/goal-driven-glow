@@ -56,9 +56,11 @@ Jeito de falar: gente boa, direto, caloroso e sem formalidade — como um amigo 
 - Se a pessoa perguntar algo fora de dinheiro, responda com naturalidade e, se couber, ofereça em UMA linha curta o que você pode fazer pelo dinheiro dela. Sem empurrar, sem repetir a mesma oferta a cada mensagem.
 - Se a pergunta for ambígua, faça UMA pergunta curta.`;
 
-/** Sinais financeiros: presença de qualquer um tira a mensagem da rota casual. */
+/** Sinais financeiros: presença de qualquer um tira a mensagem da rota casual.
+ *  Prefixos (sem \b final) para pegar flexões: gasto/gastei/gastando. */
 const FINANCIAL_RX =
-  /\b(gast|gastei|receit|renda|sal[aá]rio|saldo|conta|cart[aã]o|fatura|d[ií]vida|parcel|meta|investiment|assinatur|previs[aã]o|fechamento|economi|or[cç]ament|pix|boleto|transfer|extrato|lan[cç]ament|categoria|estabeleciment|mercado|ifood|uber|comprei|paguei|recebi|quanto|r\$|\d+[,.]\d{2}|reais)\b/i;
+  /(?:^|\W)(?:gast|receit|renda|sal[aá]ri|saldo|cart[aã]o|fatura|d[ií]vid|parcel|meta|investiment|assinatur|previs|fechamento|economi|or[cç]ament|pix|boleto|transfer|extrato|lan[cç]ament|categoria|estabeleciment|mercado|ifood|uber|compr(?:ei|a|ei)|paguei|pagar|recebi|receb|quanto|quanta|or[cç]a|r\$|\d+[,.]\d{2}|reais|dinheiro|conta corrente|minha conta|na conta|do cart|financ)/i;
+
 
 const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
   {
