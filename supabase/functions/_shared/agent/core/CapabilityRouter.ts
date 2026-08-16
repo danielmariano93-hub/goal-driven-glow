@@ -2,7 +2,7 @@
 // WhatsApp. It narrows the 41-tool registry before any model is called and
 // marks factual intents that must be answered from one canonical tool.
 import type { ParsedIntent } from "../parser.ts";
-import { parseBrAmount, shiftSaoPaulo, todaySaoPaulo } from "../parser.ts";
+import { parseBrAmount, parseBrAmountWithScale, shiftSaoPaulo, todaySaoPaulo } from "../parser.ts";
 import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
