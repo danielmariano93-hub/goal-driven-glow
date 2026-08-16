@@ -148,8 +148,14 @@ export function decideByRefundOrigin(input:{description:string;candidates:Catego
 }
 export function decideCategoryDeterministic(input:{explicit?:string|null;description:string;candidates:CategoryCandidate[];aliases:AliasRow[];history:HistoryRow[];preferences?:PersonalPreferenceRow[];globalKnowledge?:GlobalKnowledgeRow[]}):CategoryDecision|null{
   const pattern=normalizedPattern(input.description);
-  return decideExplicit(input.explicit,input.candidates)
-    ?? decideByPersonalPreference(input.description,input.preferences??[])
+  const explicit=decideExplicit(input.explicit,input.candidates);
+  if(explicit)return explicit;
+  // Marca canônica antes de qualquer aprendizado (99 Food, Uber, Seguro de cartão).
+  const authoritative=decideByAuthoritativeMerchant(input.description,input.candidates);
+  if(authoritative)return authoritative;
+  // Intermediador de pagamento sozinho: sem evidência econômica, sem categoria.
+  if(isPassThroughOnly(input.description))return null;
+  return decideByPersonalPreference(input.description,input.preferences??[])
     ?? decideByAlias(pattern,input.aliases)
     ?? decideByFuzzyAlias(pattern,input.aliases)
     ?? decideByHistory(pattern,input.history)
