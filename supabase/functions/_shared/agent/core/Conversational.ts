@@ -87,19 +87,25 @@ export function classifyConversational(text: string): ConversationalClassificati
   const raw = String(text ?? "").trim();
   if (!raw) return { kind: null, deterministic: false, reason: "empty" };
   if (raw.length > 320) return { kind: null, deterministic: false, reason: "too_long" };
-  if (FINANCIAL_RX.test(raw)) return { kind: null, deterministic: false, reason: "financial_signal" };
 
+  // Identidade, capacidade e social vencem sinais financeiros fracos
+  // ("o que você faz com meu dinheiro?" continua sendo pergunta sobre você).
   for (const entry of RX) {
     if (entry.rx.test(raw)) {
       return { kind: entry.kind, deterministic: true, reason: `rx:${entry.kind}` };
     }
   }
 
+  // Daqui pra baixo, qualquer sinal financeiro devolve o turno ao pipeline
+  // analítico com toda a verdade de sempre.
+  if (FINANCIAL_RX.test(raw)) return { kind: null, deterministic: false, reason: "financial_signal" };
+
   // Pergunta/assunto geral, sem nada financeiro: conversa mesmo.
   const looksLikeQuestion = /[?]$/.test(raw) || /^(qual|quem|quando|onde|como|por que|porque|o que|me (conta|explica|diz))\b/i.test(raw);
   if (looksLikeQuestion && raw.split(/\s+/).length <= 40) {
     return { kind: "chat", deterministic: false, reason: "general_question" };
   }
+
   return { kind: null, deterministic: false, reason: "unclassified" };
 }
 
