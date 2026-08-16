@@ -57,7 +57,7 @@ export default function ComunicacaoProativa() {
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
           { id: "jornadas", label: "Jornadas", render: () => <div className="space-y-6"><SplitReminderJourney /><ProactiveEnginePanelV2 sections={["catalog"]} /></div> },
           { id: "mensagens", label: "Mensagens", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
-          { id: "entregas", label: "Entregas e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue"]} /> },
+          { id: "entregas", label: "Entregas e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue", "effectiveness"]} /> },
         ]}
       />
     </div>
