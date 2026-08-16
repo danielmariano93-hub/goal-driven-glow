@@ -31,6 +31,8 @@ import { handleParticipantInbound } from "../_shared/split/participantPipeline.t
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
 import { shouldAcknowledge } from "../_shared/agent/core/Conversational.ts";
+import { audioFailureReply, isAudioMedia, transcribeInboundAudio, type AudioHint } from "../_shared/messaging/audioTranscription.ts";
+
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -518,10 +520,55 @@ Deno.serve(async (req) => {
       { status: 207, functionName: FN, userId: link.user_id as string, errorCode: "conversation_error" },
     );
   }
+
+  // === ÁUDIO: nota de voz vira texto e segue o pipeline textual normal ======
+  // Nada de inteligência paralela: o que a pessoa falou entra exatamente como
+  // se tivesse sido digitado (registrar gasto, perguntar, corrigir).
+  if (isAudioMedia(evt.media as AudioHint | null)) {
+    const access = getWahaAccess();
+    const t0 = Date.now();
+    const transcription = await transcribeInboundAudio({
+      media: evt.media as AudioHint,
+      messageId: evt.provider_message_id,
+      waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },
+    });
+    console.info("[webhook] audio_transcription", JSON.stringify({
+      ok: transcription.ok,
+      code: transcription.ok ? null : transcription.code,
+      ms: Date.now() - t0,
+      chars: transcription.ok ? transcription.text.length : 0,
+    }));
+    if (transcription.ok) {
+      evt.body = transcription.text;
+      await sb.from("inbound_messages")
+        .update({ body: transcription.text.slice(0, 2000), detected_intent: "audio_transcribed" })
+        .eq("id", inbound_message_id).then(() => {}, () => {});
+    } else {
+      const first = await firstNameFor(sb, link.user_id as string);
+      await sb.from("outbound_messages").insert({
+        user_id: link.user_id, to_phone: evt.from_phone, kind: "agent", channel: "whatsapp",
+        inbound_message_id, idempotency_key: `audio-fail:${evt.provider_message_id}`,
+        status: "queued", body: audioFailureReply(transcription.code, first),
+      }).then(() => {}, () => {});
+      await sb.from("inbound_messages").update({
+        processed_at: new Date().toISOString(),
+        ignored_reason: `audio_${transcription.code}`,
+        media_error: transcription.code,
+      }).eq("id", inbound_message_id).then(() => {}, () => {});
+      await sb.from("conversation_messages").insert({
+        conversation_id: conversationId, user_id: link.user_id, direction: "inbound",
+        body_masked: "[áudio não compreendido]",
+      }).then(() => {}, () => {});
+      triggerDispatcher();
+      return json({ ok: true, audio: "failed", code: transcription.code });
+    }
+  }
+
   await sb.from("conversation_messages").insert({
     conversation_id: conversationId, user_id: link.user_id, direction: "inbound",
     body_masked: evt.body.slice(0, 500),
   });
+
 
   // === MEDIA PATH: fallback com link direto para o Assessor ===
   // Decisão de produto: a leitura de mídias processáveis (imagem, PDF,

@@ -71,10 +71,20 @@ function normalizeMarkdown(line: string): string {
   return out;
 }
 
+/** Bullet colado no meio do parágrafo ("Eu faço: • Registrar…") quebra em
+ *  linhas próprias antes de qualquer outra normalização. */
+function splitInlineBullets(text: string): string {
+  return text
+    // "texto: • item" ou "texto • item" → bullet em nova linha
+    .replace(/([^\n])[ \t]+(?=•[ \t]*\S)/g, (_m, before: string) => `${before}\n`)
+    // "• item • item" na mesma linha → um por linha
+    .replace(/(\S)[ \t]+•[ \t]+/g, "$1\n• ");
+}
+
 /** Espaçamento leve: linhas curtas, bullets limpos, uma linha em branco antes
  *  do primeiro item de uma lista. */
 function lightenLayout(text: string): string {
-  const lines = text
+  const lines = splitInlineBullets(text)
     .split("\n")
     .map((line) => normalizeMarkdown(line).replace(/[ \t]+$/g, ""))
     .filter((line, index, all) => !(line === "" && all[index - 1] === ""))
@@ -98,6 +108,7 @@ export function findBrokenPhrases(text: string): string[] {
   if (/\b(?:pel[oa]s?|por|de|em|com)\s*[.,;!?]/i.test(t)) issues.push("preposition_before_punctuation");
   if (/^\s*•\s*$/m.test(t)) issues.push("empty_bullet");
   if (/\s{3,}/.test(t)) issues.push("collapsed_gap");
+  if (/\S[ \t]+•[ \t]+\S/.test(t)) issues.push("inline_bullet");
   return issues;
 }
 

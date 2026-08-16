@@ -14,6 +14,7 @@
 
 export type ConversationalKind =
   | "identity"
+  | "purpose"
   | "capabilities"
   | "greeting"
   | "farewell"
@@ -44,6 +45,10 @@ export const NINO_IDENTITY = {
     "não movimento dinheiro, não pago conta e não acesso seu banco",
     "só falo do que está registrado por você",
   ],
+  purpose:
+    "existo para tirar o peso do dinheiro das costas de quem fala comigo: em vez de planilha, clareza; "
+    + "em vez de susto no fim do mês, decisão tomada com calma",
+  promise: "você para de descobrir o problema quando já é tarde",
 } as const;
 
 /** Persona conversacional — tom, não regra financeira. */
@@ -54,7 +59,10 @@ Jeito de falar: gente boa, direto, caloroso e sem formalidade — como um amigo 
 - Nunca cite fornecedores de modelo, empresas de IA, versões, ferramentas internas ou jargão de sistema. Você é o Nino, ponto.
 - Nunca invente número, saldo, data ou fato financeiro nesta conversa.
 - Se a pessoa perguntar algo fora de dinheiro, responda com naturalidade e, se couber, ofereça em UMA linha curta o que você pode fazer pelo dinheiro dela. Sem empurrar, sem repetir a mesma oferta a cada mensagem.
-- Se a pergunta for ambígua, faça UMA pergunta curta.`;
+- Se a pergunta for ambígua, faça UMA pergunta curta.
+- Fale em benefício, não em funcionalidade: "você para de descobrir o problema no fim do mês" vale mais do que "eu tenho relatórios".
+- Quando falar de si, termine com um convite concreto e pequeno ("me conta um gasto de hoje que eu te mostro"). Nunca abra falando dos seus limites — eles só aparecem se perguntarem, e em uma linha.
+- Nunca escreva bullet no meio de uma frase: lista sempre em linhas próprias.`;
 
 /** Sinais financeiros: presença de qualquer um tira a mensagem da rota casual.
  *  Prefixos (sem \b final) para pegar flexões: gasto/gastei/gastando. */
@@ -66,6 +74,10 @@ const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
   {
     kind: "identity",
     rx: /(?:^|\W)(?:quem (?:é|e|voc[êe] é|vc é)|o que (?:voc[êe]|vc) (?:é|e)(?=\W|$)|vc é o que|voc[êe] é o que|voce e o que|(?:é|e) (?:um|uma) rob[oô]|(?:é|e) humano|(?:é|e) uma? (?:ia|intelig[êe]ncia)|quem te (?:criou|fez|desenvolveu|programou)|quem foi que te criou|qual (?:é )?o seu nome|como (?:voc[êe]|vc) se chama|voc[êe] existe|você é real|vc é real)/i,
+  },
+  {
+    kind: "purpose",
+    rx: /(?:^|\W)(?:(?:me )?(?:fala|conta|explica|diz)\s+(?:um pouco\s+)?(?:mais\s+)?(?:sobre|de)\s+(?:voc[êe]|vc|ti|si)|(?:qual|quais)?\s*(?:é\s+)?(?:o\s+)?(?:seu|teu)\s+(?:prop[óo]sito|objetivo|miss[ãa]o|papel|sentido)|prop[óo]sito|por que (?:voc[êe]|vc)\s+(?:existe|foi criad)|pra que (?:voc[êe]|vc)\s+(?:existe|foi criad)|sobre o que (?:é|e)\s+(?:o\s+)?(?:meu nino|nino)|o que (?:é|e)\s+(?:o\s+)?meu nino|me apresenta|se apresent|fala de voc[êe]|falar sobre voc[êe])/i,
   },
   {
     kind: "capabilities",
@@ -109,27 +121,55 @@ export function classifyConversational(text: string): ConversationalClassificati
   return { kind: null, deterministic: false, reason: "unclassified" };
 }
 
-/** O aviso de espera só existe quando o turno realmente pode demorar. */
+/** Sinais de turno analítico de verdade (rodam motor, podem demorar). */
+const ANALYTIC_RX =
+  /(?:^|\W)(?:gr[áa]fico|chart|relat[óo]rio|an[áa]lise|analisa|analisar|compara|comparar|compare|evolu[cç][ãa]o|tend[êe]ncia|proje[cç]|previs|simula|resumo|balan[cç]o|extrato|fechamento|m[ée]dia|padr[ãa]o|onde (?:eu )?(?:mais )?gast|quanto (?:eu )?(?:j[áa] )?(?:gastei|recebi|tenho|devo|falta)|meu saldo|minhas? (?:metas?|d[íi]vidas?|contas?|faturas?|assinaturas?))/i;
+const MONTHS_RX = /(?:^|\W)(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|este m[êe]s|m[êe]s passado|semana|hoje|ontem|[uú]ltimos? \d+ dias)/i;
+const MONEY_RX = /(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais|conto|pila)?/i;
+
+/**
+ * O aviso de espera é OPT-IN: só aparece quando o turno é comprovadamente
+ * analítico ou de escrita financeira. Conversa (identidade, propósito,
+ * saudação, papo geral) nunca recebe aviso — só "digitando…".
+ */
 export function shouldAcknowledge(text: string): boolean {
-  const c = classifyConversational(text);
-  return c.kind === null;
+  const raw = String(text ?? "").trim();
+  if (!raw) return false;
+  if (classifyConversational(raw).kind !== null) return false;
+  if (ANALYTIC_RX.test(raw)) return true;
+  if (FINANCIAL_RX.test(raw)) return true;
+  const words = raw.split(/\s+/).length;
+  if (words >= 25 && MONEY_RX.test(raw)) return true;
+  if (words >= 25 && MONTHS_RX.test(raw)) return true;
+  // Mensagem longa com anexo/pedido complexo: melhor avisar do que deixar mudo.
+  return words >= 40;
 }
 
 function identityReply(firstName?: string | null): string {
   const hi = firstName ? `Oi, ${firstName}! ` : "Oi! ";
-  return `${hi}Eu sou o ${NINO_IDENTITY.name}, seu ${NINO_IDENTITY.what} do ${NINO_IDENTITY.product} — falo com você aqui no ${NINO_IDENTITY.channels[0]} e no ${NINO_IDENTITY.channels[1]}.\n\n`
-    + `Na prática: você me conta o que gastou (ou me manda o print, o PDF, o extrato) e eu organizo, entendo seus padrões e te aviso antes de o mês apertar.\n\n`
-    + `O que eu não faço: ${NINO_IDENTITY.limits[0]} — o controle continua todo seu.`;
+  return `${hi}Eu sou o *${NINO_IDENTITY.name}* — o ${NINO_IDENTITY.what} do ${NINO_IDENTITY.product}. Fico aqui no seu WhatsApp, do seu lado, todos os dias.\n\n`
+    + `Você me conta o que gastou (ou só me manda o print, o PDF, o extrato) e eu cuido do resto: organizo, entendo seu jeito de gastar e te aviso *antes* de o mês apertar.\n\n`
+    + `A ideia é simples: ${NINO_IDENTITY.promise}. Dinheiro deixa de ser peso e volta a ser escolha sua.\n\n`
+    + `Quer sentir isso agora? Me diz um gasto de hoje — tipo "gastei 32 no mercado" — e eu te mostro.`;
+}
+
+function purposeReply(firstName?: string | null): string {
+  const hi = firstName ? `${firstName}, ` : "";
+  return `${hi}vou te contar o porquê de eu existir 💛\n\n`
+    + `A maioria das pessoas não perde dinheiro por falta de conta: perde por falta de clareza. Descobre o problema quando o mês já virou.\n\n`
+    + `Eu ${NINO_IDENTITY.purpose}. É isso que eu faço todo dia com você: escuto, organizo, aponto o que mudou e te aviso antes do aperto — em uma frase, sem planilha, sem sermão.\n\n`
+    + `Se topar, começamos pequeno: me conta um gasto ou me manda um print, e você já vê a diferença.`;
 }
 
 function capabilitiesReply(firstName?: string | null): string {
   const hi = firstName ? `${firstName}, ` : "";
-  return `${hi}posso te ajudar assim 👇\n\n`
-    + `• Registrar na hora: "gastei 32 no mercado" — ou me manda o print/PDF e eu leio tudo\n`
-    + `• Responder de verdade: quanto, onde, com quem e o que mudou nos seus gastos\n`
-    + `• Olhar pra frente: fechamento do mês, metas, dívidas e assinaturas\n`
-    + `• Avaliar uma compra antes de você decidir\n\n`
-    + `Quer começar por qual?`;
+  return `${hi}na prática, é assim que eu te ajudo:\n\n`
+    + `• *Sem esforço*: "gastei 32 no mercado" — ou me manda o print, o PDF, o extrato, e eu leio tudo\n`
+    + `• *Com respostas de verdade*: quanto, onde, com quem e o que mudou no seu jeito de gastar\n`
+    + `• *Olhando pra frente*: como o mês vai fechar, suas metas, dívidas e assinaturas\n`
+    + `• *Na hora de decidir*: "posso comprar isso?" — eu te mostro o impacto antes\n\n`
+    + `${NINO_IDENTITY.promise.charAt(0).toUpperCase()}${NINO_IDENTITY.promise.slice(1)}.\n\n`
+    + `Por onde quer começar?`;
 }
 
 /** Resposta determinística para as intenções sociais e de identidade. */
@@ -141,6 +181,8 @@ export function deterministicConversationalReply(
   switch (kind) {
     case "identity":
       return identityReply(name);
+    case "purpose":
+      return purposeReply(name);
     case "capabilities":
       return capabilitiesReply(name);
     case "greeting": {
@@ -197,6 +239,7 @@ export async function generateConversationalReply(args: {
           {
             role: "system",
             content: `Quem você é (use como verdade): ${NINO_IDENTITY.name}, ${NINO_IDENTITY.what} do ${NINO_IDENTITY.product}. `
+              + `Seu propósito: ${NINO_IDENTITY.purpose}. Sua promessa: ${NINO_IDENTITY.promise}. `
               + `Você faz: ${NINO_IDENTITY.does.join("; ")}. Você não faz: ${NINO_IDENTITY.limits.join("; ")}.`
               + (args.first_name ? ` A pessoa se chama ${args.first_name}.` : ""),
           },
