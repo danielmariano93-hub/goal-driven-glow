@@ -1,88 +1,82 @@
-# Meu Nino nas lojas (App Store e Google Play) — análise e caminho
+# Infraestrutura para publicar o Meu Nino na App Store e no Google Play (com plano pago)
 
-## 1. O que já temos hoje
+Você confirmou que haverá plano pago dentro do app. Isso torna a camada de assinatura parte obrigatória da infraestrutura, porque as duas lojas exigem compra in-app para conteúdo digital.
 
-**Frontend (web app React + Vite + Tailwind)**
-- Layout responsivo já pensado para celular: `BottomTabBar` no mobile, `DesktopSidebar` no desktop, `viewport-fit=cover` no `index.html`.
-- ~40 telas do produto (Home, Lançamentos, Cartões, Dívidas, Metas, Investimentos, Desafios, Emoções, Relatórios, Divisão do Rolê, Assessor/Nino, Admin, Landing, Auth).
-- Anexos e importação já existem via `input type=file` (Assessor, Importar CSV/OFX).
+## 1. O que já está pronto (verificado no código)
 
-**Backend (Lovable Cloud)**
-- ~30 funções de servidor: agente (`agent-chat`, `agent-run`), WhatsApp (webhook, envio, watchdog), documentos, relatórios, insights, motores proativos, admin.
-- Núcleo financeiro determinístico compartilhado (`_shared`, `src/lib/engine`) com verdade financeira única.
-- Autenticação por e-mail/senha já implementada; papéis/admin com RBAC.
+- Web app React/Vite responsivo, com barra inferior no mobile e sidebar no desktop.
+- ~45 telas do produto + landing + autenticação; rotas sob `/app` protegidas.
+- Backend na Lovable Cloud com ~30 funções (agente, WhatsApp, documentos, relatórios, motores proativos, admin) e núcleo financeiro determinístico.
+- Autenticação por e-mail/senha, RBAC de admin, guarda de inatividade de sessão.
+- Exportação de dados do usuário e **solicitação de exclusão de conta** já existentes em Perfil (`user_export_data`, `user_request_deletion`) — atendem parcialmente a exigência das lojas.
+- Preferências de notificação por tipo já modeladas (`notification_preferences`).
 
-**O que ainda não existe para lojas**
-- Nenhum manifesto PWA, ícones de app, service worker ou projeto nativo (nada de Capacitor).
-- Nenhuma notificação push nativa (hoje a proatividade vive no WhatsApp).
-- Nenhum fluxo de assinatura/pagamento no app.
-- Nenhuma tela de exclusão de conta acessível pelo usuário final (exigência das duas lojas).
+## 2. Infraestrutura que falta
 
-## 2. Caminho recomendado
+**A. Camada de app instalável / nativa**
+- Não existe manifesto web, ícones de app, splash, nem `apple-touch-icon` (só `favicon.ico` e o símbolo SVG da marca).
+- Não existe projeto nativo (nenhum Capacitor, iOS ou Android).
+- Não existe esquema de deep link nem tratamento de retorno de autenticação para app nativo.
 
-Duas etapas, do mais barato ao mais completo:
+**B. Assinatura e cobrança (bloqueante para as lojas)**
+- Nenhuma tabela de plano, assinatura, entitlement ou histórico de cobrança no banco.
+- Nenhum provedor de pagamento ligado.
+- Nenhum controle de acesso por plano no app (hoje tudo é liberado para qualquer usuário logado).
+- Precisa: Apple In-App Purchase + Google Play Billing para o app; opcional cobrança web separada para quem assina pelo site.
+- Precisa de um serviço de recibos/entitlement: verificação de recibo da Apple, Real-time Developer Notifications do Google, webhook que grava o status no banco e uma única fonte de verdade "este usuário tem plano ativo até X".
 
-**Etapa A — App instalável (PWA)**: manifesto, ícones e metadados para "adicionar à tela de início". Entrega a sensação de app em dias, sem conta de desenvolvedor e sem revisão de loja. Não aparece nas lojas.
+**C. Notificações**
+- Não há push nativo: hoje a proatividade sai só por WhatsApp. Faltam projeto FCM (Android), chave APNs (iOS), tabela de tokens de dispositivo, função de envio e roteamento de canal no despachante de comunicação existente para não duplicar mensagem entre push e WhatsApp.
 
-**Etapa B — App nativo real com Capacitor**: o mesmo código React roda dentro de um app iOS/Android nativo, com push, câmera, gravação de áudio, biometria e presença nas lojas. É o caminho para App Store e Play Store.
+**D. Conformidade e páginas legais**
+- Não existem rotas de Política de Privacidade nem Termos de Uso (as lojas exigem URL pública e link dentro do app).
+- Falta declaração de privacidade das lojas (App Privacy / Data Safety) cobrindo dados financeiros e conversas com IA.
+- Exclusão de conta: hoje passa por análise e carência; as lojas exigem caminho claro e concluível iniciado pelo usuário — precisa de revisão de texto e de prazo automático.
+- Falta consentimento explícito de tratamento de dados no cadastro (LGPD).
 
-```text
-React/Vite (mesmo código)
-   ├── Web (meunino.com.br)  ← hoje
-   ├── PWA instalável        ← Etapa A
-   └── Capacitor
-         ├── iOS   → App Store   (precisa de Mac/Xcode)
-         └── Android → Play Store
-```
+**E. Recursos nativos que sustentam a aprovação**
+- Sem câmera nativa, gravação de áudio nativa, biometria ou armazenamento seguro de sessão. Sem eles o app tende a ser visto como "só um site" pela Apple.
+- Sessão hoje usa armazenamento web padrão; em app nativo precisa de armazenamento seguro e refresh em background.
 
-## 3. O que precisa ser construído para as lojas (Etapa B)
-
-**Produto / identidade**
-- Ícone de app em todos os tamanhos, splash screen, screenshots por tamanho de tela, textos e categoria da loja.
-- Política de privacidade e termos publicados em URL fixa (já temos domínio).
-
-**Exigências que reprovam o app se faltarem**
-- Exclusão de conta dentro do app (Apple 5.1.1(v) e Play): tela em Perfil que dispara a exclusão de fato (já existe função de processamento no backend, falta a porta de entrada do usuário).
-- Login social da Apple quando houver login social de terceiros.
-- Rótulos de privacidade / Data Safety declarando dados financeiros e conversas com IA.
-- Se houver plano pago dentro do app: compra in-app obrigatória (Apple IAP / Play Billing), não cartão externo.
-- Risco de reprovação por "app é só um site" (Apple 4.2): mitigado usando recursos nativos reais (push, áudio, câmera, biometria) em vez de um WebView puro.
-
-**Funcionalidades nativas que fazem sentido para o Nino**
-- Push nativo para alertas e insights proativos (hoje só WhatsApp).
-- Gravação de áudio nativa para falar com o Nino (o pipeline de transcrição já existe no WhatsApp).
-- Câmera para fotografar comprovantes (o pipeline documental já existe).
-- Biometria/PIN para abrir o app, dado que é dado financeiro.
-- Deep links (`meunino://` e links do domínio) e um widget/atalho de lançamento rápido no futuro.
-
-**Infra e processo**
+**F. Processo de release**
 - Conta Apple Developer (USD 99/ano) e Google Play (USD 25 único).
-- Máquina macOS com Xcode (ou serviço de build em nuvem) para gerar o app iOS.
-- Fluxo de release: TestFlight e faixa interna do Play antes de publicar; versionamento e changelog.
-- Atenção a LGPD e ao fato de o app tratar dados financeiros sensíveis.
+- Mac com Xcode ou serviço de build em nuvem para gerar o iOS.
+- Ficha das lojas: nome, descrição, categoria, screenshots por tamanho, classificação de conteúdo.
+- Versionamento, TestFlight e faixa interna do Play, conta de teste para o revisor.
+- Observabilidade de crash e erro no app nativo.
 
-## 4. Ordem sugerida de execução
+## 3. Ordem para deixar tudo preparado
 
-1. PWA instalável + ícones e identidade de app (rápido, valida a experiência mobile).
-2. Tela de exclusão de conta, política de privacidade e termos publicados.
-3. Ajustes de app nativo na interface: áreas seguras (notch), gestos, teclado, estados offline.
-4. Adicionar Capacitor e gerar os projetos iOS/Android.
-5. Push nativo + áudio nativo + câmera + biometria.
-6. Assinatura in-app, se houver plano pago.
-7. Pacote de loja (screenshots, textos, privacidade) e submissão em TestFlight/faixa interna.
-8. Publicação nas duas lojas.
+**Fase 1 — Fundação (dá para fazer agora, sem contas de loja)**
+1. Ícones, splash, manifesto e metadados: app instalável e identidade visual de aplicativo.
+2. Páginas de Política de Privacidade e Termos, com link no app e no cadastro.
+3. Ajuste do fluxo de exclusão de conta para o padrão das lojas.
+4. Modelo de planos e entitlement no banco (planos, assinatura, status, origem da compra) e um gate de acesso por plano no app, ainda sem cobrar.
 
-## 5. Detalhes técnicos
+**Fase 2 — Casca nativa**
+5. Capacitor com projetos iOS e Android, áreas seguras, teclado, gestos, deep links.
+6. Armazenamento seguro de sessão e biometria opcional.
+7. Câmera e gravação de áudio nativas ligadas aos pipelines de documento e de transcrição que já existem.
 
-- Capacitor roda o build do Vite dentro de um WebView nativo; nada do React precisa ser reescrito, e a mesma base continua servindo a web.
-- Push nativo exige FCM (Android) e APNs (iOS) com uma tabela de tokens de dispositivo e um roteador de canal no despachante de comunicação já existente, para escolher entre WhatsApp e push sem duplicar mensagem.
-- Sessão do backend precisa de armazenamento seguro no dispositivo e refresh em background; o cliente atual usa armazenamento web padrão.
-- Chamadas ao backend continuam iguais; é preciso liberar o esquema de app nas configurações de redirecionamento de autenticação.
-- Notificações e áudio pedem permissões declaradas em `Info.plist` e no manifesto Android.
-- Nada disso altera o núcleo financeiro nem o agente; é camada de entrega.
+**Fase 3 — Monetização e notificações**
+8. In-App Purchase (Apple) e Play Billing, com verificação de recibo e webhooks gravando o entitlement.
+9. Push nativo (FCM + APNs) com tokens por dispositivo e roteamento de canal.
+10. Telas de assinatura: planos, estado atual, restaurar compra, cancelar.
 
-## 6. Decisões que preciso de você
+**Fase 4 — Publicação**
+11. Ficha das lojas, declarações de privacidade, classificação, conta de teste.
+12. TestFlight e faixa interna, correções de revisão, publicação.
 
-- Vai existir plano pago dentro do app? Isso muda muito o escopo (compra in-app).
-- Lançar nas duas lojas ao mesmo tempo ou começar por Android (revisão mais simples e rápida)?
-- Você tem Mac disponível ou prefere build em nuvem para o iOS?
+## 4. Detalhes técnicos
+
+- Capacitor executa o build do Vite dentro de um WebView nativo; o React não é reescrito e a web continua servida do mesmo código.
+- O entitlement deve ser resolvido no servidor a partir dos recibos, nunca por estado local do app; o cliente apenas lê o status.
+- Compra pela loja e compra pela web precisam convergir para o mesmo registro de assinatura, com a origem marcada, para evitar cobrança dupla.
+- Push exige tabela de tokens com dispositivo/plataforma e limpeza de tokens inválidos; o despachante de comunicação atual passa a escolher canal por preferência e presença de token.
+- Permissões de câmera, microfone e notificação precisam ser declaradas nos arquivos nativos com textos de justificativa em português.
+- Nada disso altera o núcleo financeiro nem o agente: é camada de entrega, cobrança e conformidade.
+
+## 5. Confirmações antes de executar
+
+- Começo pela Fase 1 completa nesta entrega (ícones, manifesto, legal, modelo de planos e gate), deixando o nativo para a etapa seguinte.
+- Preciso saber, para a Fase 3: quantos planos, preços e se haverá teste gratuito.
