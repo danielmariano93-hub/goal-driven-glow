@@ -168,6 +168,11 @@ export default function MaisMenu() {
           <ChevronRight size={14} className="text-muted-foreground" />
         </button>
       </section>
+
+      <nav className="flex flex-wrap justify-center gap-4 pb-2 text-[11px] text-muted-foreground">
+        <a href="/privacidade">Política de Privacidade</a>
+        <a href="/termos">Termos de Uso</a>
+      </nav>
     </div>
   );
 }
