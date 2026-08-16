@@ -5,7 +5,7 @@ import { resolveBehavioralDate } from "../../supabase/functions/_shared/analytic
 const source = (path: string) => readFileSync(path, "utf8");
 
 describe("contrato global de data comportamental e capacidades do Nino", () => {
-  it("preserva a data contábil e bloqueia postagem bancária de baixa confiança", () => {
+  it("preserva a data contábil e admite postagem bancária com ressalva de origem", () => {
     const resolved = resolveBehavioralDate({
       occurred_at: "2026-08-03",
       behavioral_day: "2026-08-03",
@@ -13,7 +13,10 @@ describe("contrato global de data comportamental e capacidades do Nino", () => {
       behavior_date_confidence: 0.35,
     });
     expect(resolved.day).toBe("2026-08-03");
-    expect(resolved.eligibleForBehavior).toBe(false);
+    // Descartar extrato tirava 3 de cada 4 lançamentos da série comportamental.
+    // Agora o dado entra e a origem viaja para a ressalva na resposta.
+    expect(resolved.basis).toBe("bank_posting");
+    expect(resolved.eligibleForBehavior).toBe(true);
   });
 
   it("faz rollout sem e-mail, UUID pessoal ou lista piloto", () => {
