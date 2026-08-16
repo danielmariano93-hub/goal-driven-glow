@@ -11359,6 +11359,14 @@ export type Database = {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
         Returns: Json
       }
+      agent_learn_merchant_category: {
+        Args: {
+          p_category_id: string
+          p_transaction_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       agent_prompt_create_draft: {
         Args: { p_from_id?: string }
         Returns: string
