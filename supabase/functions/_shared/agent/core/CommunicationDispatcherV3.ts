@@ -6,6 +6,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { decideCommunication, type CommunicationPreferences, type DeliveryHistory } from "../../intelligence/communicationPolicy.ts";
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 import { suggestionLogicalKey } from "../../intelligence/logicalDedup.ts";
+import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 
 
 export type DispatchOutcome = {
@@ -205,6 +206,39 @@ async function record(sb: SupabaseClient, args: {
   if (error) throw new Error(`communication_delivery:${error.message}`);
 }
 
+/** Renda operacional dos últimos 30 dias — base do piso de materialidade. */
+async function loadMonthlyIncome(sb: SupabaseClient, userId: string): Promise<number | null> {
+  const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const { data, error } = await sb.from("transactions")
+    .select("amount")
+    .eq("user_id", userId).eq("status", "confirmed").eq("type", "income")
+    .eq("movement_kind", "transaction")
+    .gte("occurred_at", from).limit(500);
+  if (error) return null;
+  const total = ((data as Array<{ amount: number }> | null) ?? [])
+    .reduce((sum, row) => sum + Math.abs(Number(row.amount) || 0), 0);
+  return total > 0 ? total : null;
+}
+
+export type KindLearning = { dismissals: number; actions: number; false_positives: number };
+
+/** Aprendizado por tipo: o que o usuário descarta perde vez; o que ele usa ganha. */
+async function loadKindLearning(sb: SupabaseClient, userId: string): Promise<Map<string, KindLearning>> {
+  const map = new Map<string, KindLearning>();
+  const { data, error } = await sb.from("insight_kind_learning")
+    .select("kind,dismissals,actions,false_positives")
+    .eq("user_id", userId);
+  if (error) return map;
+  for (const row of ((data as Array<{ kind: string } & KindLearning> | null) ?? [])) {
+    map.set(row.kind, {
+      dismissals: Number(row.dismissals) || 0,
+      actions: Number(row.actions) || 0,
+      false_positives: Number(row.false_positives) || 0,
+    });
+  }
+  return map;
+}
+
 export async function dispatchSuggestions(
   sb: SupabaseClient,
   userId: string,
@@ -218,17 +252,19 @@ export async function dispatchSuggestions(
   const nowIso = new Date().toISOString();
   const columns = "id,user_id,channel_ready,kind,title,body,severity,dedup_key,action,evidence";
   const limit = opts.max ?? 5;
+  // A fila é lida com folga: a escolha de quem fala é por valor, não por FIFO.
+  const poolSize = Math.max(limit * 6, 24);
   const [pendingResp, deferredResp] = await Promise.all([
     sb.from("pending_proactive_suggestions").select(columns)
       .eq("user_id", userId).eq("status", "pending")
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .order("created_at", { ascending: true }).limit(limit),
+      .order("created_at", { ascending: true }).limit(poolSize),
     // Adiadas voltam à fila quando a janela de silêncio/cap expira.
     sb.from("pending_proactive_suggestions").select(columns)
       .eq("user_id", userId).eq("status", "deferred")
       .lte("next_attempt_at", nowIso)
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .order("next_attempt_at", { ascending: true }).limit(limit),
+      .order("next_attempt_at", { ascending: true }).limit(poolSize),
   ]);
   const error = pendingResp.error ?? deferredResp.error;
   if (error) throw new Error(`pending_suggestions:${error.message}`);
@@ -240,21 +276,77 @@ export async function dispatchSuggestions(
       .in("id", deferredIds);
   }
 
-  const rows = [
+  const pool = [
     ...(((pendingResp.data as any[] | null) ?? [])),
     ...(((deferredResp.data as any[] | null) ?? [])),
-  ].slice(0, limit) as CommunicationCandidate[];
+  ] as CommunicationCandidate[];
 
-  const [prefs, recent, catalog, templates] = await Promise.all([
+  const [prefs, recent, catalog, templates, monthlyIncome, learning] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
     loadCatalog(sb),
     loadTemplates(sb),
+    loadMonthlyIncome(sb, userId),
+    loadKindLearning(sb, userId),
   ]);
+
+  const dryRunEarly = opts.dryRun === true;
+  const results: DispatchOutcome[] = [];
+  const ranked = rankInsights(pool, (row) => {
+    const evidence = (row.evidence ?? {}) as Record<string, unknown>;
+    const stats = learning.get(row.kind);
+    return {
+      kind: row.kind,
+      severity: String(row.severity),
+      confidence: Number(evidence.confidence ?? 0.7),
+      impactAmount: Number(evidence.impact_amount ?? evidence.amount ?? 0),
+      monthlyIncome,
+      daysUntilEvent: evidence.days_until_event == null ? null : Number(evidence.days_until_event),
+      actionable: Boolean((row as any).action),
+      dismissals: stats?.dismissals ?? 0,
+      actions: stats?.actions ?? 0,
+      falsePositives: stats?.false_positives ?? 0,
+    };
+  });
+
+  // Coerência: um assunto lógico por rodada; ruído sem materialidade não fala.
+  const rows: CommunicationCandidate[] = [];
+  const seenTopics = new Set<string>();
+  for (const { item, value } of ranked) {
+    const evidence = (item.evidence ?? {}) as Record<string, unknown>;
+    const topic = String(evidence.logical_topic_key ?? item.kind);
+    const drop = value.muted
+      ? "muted_by_learning"
+      : seenTopics.has(topic)
+      ? "topic_already_selected"
+      : !meetsMateriality({
+        kind: item.kind,
+        severity: String(item.severity),
+        impactAmount: Number(evidence.impact_amount ?? evidence.amount ?? 0),
+        monthlyIncome,
+        daysUntilEvent: evidence.days_until_event == null ? null : Number(evidence.days_until_event),
+      }) && !isAppTaskKind(item.kind)
+      ? "below_materiality"
+      : null;
+    if (drop) {
+      if (!dryRunEarly) {
+        await record(sb, {
+          user_id: userId, suggestion_id: item.id, kind: item.kind, channel: "app",
+          status: "suppressed", reason: drop, dedup_key: item.dedup_key,
+          evidence: item.evidence, block_context: { policy_reason: drop, value_score: value.score },
+        });
+      }
+      results.push({ id: item.id, channel: "app", status: "skipped", reason: drop });
+      continue;
+    }
+    seenTopics.add(topic);
+    (item as any).value_score = value.score;
+    rows.push(item);
+    if (rows.length >= limit) break;
+  }
   const rollout: Array<"app" | "whatsapp"> = opts.channels?.length ? opts.channels : ["app", "whatsapp"];
   const targets: Array<"app" | "whatsapp"> = opts.channel ? [opts.channel] : ["app", "whatsapp"];
-  const dryRun = opts.dryRun === true;
-  const results: DispatchOutcome[] = [];
+  const dryRun = dryRunEarly;
 
   const { data: link, error: linkError } = await sb.from("whatsapp_links")
     .select("phone_e164").eq("user_id", userId).eq("status", "active")

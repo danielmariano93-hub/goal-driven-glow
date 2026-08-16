@@ -6532,6 +6532,39 @@ export type Database = {
           },
         ]
       }
+      insight_kind_learning: {
+        Row: {
+          actions: number
+          dismissals: number
+          false_positives: number
+          kind: string
+          last_acted_at: string | null
+          last_dismissed_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actions?: number
+          dismissals?: number
+          false_positives?: number
+          kind: string
+          last_acted_at?: string | null
+          last_dismissed_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actions?: number
+          dismissals?: number
+          false_positives?: number
+          kind?: string
+          last_acted_at?: string | null
+          last_dismissed_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       intelligence_metric_registry: {
         Row: {
           active: boolean
@@ -11344,6 +11377,10 @@ export type Database = {
         Returns: Json
       }
       admin_v2_ia_ocr_metrics: { Args: { _days?: number }; Returns: Json }
+      admin_v2_insight_effectiveness: {
+        Args: { _days?: number }
+        Returns: Json
+      }
       admin_v2_message_intelligence: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
@@ -11851,6 +11888,16 @@ export type Database = {
       import_transactions_batch: {
         Args: { p_account_id: string; p_rows: Json }
         Returns: Json
+      }
+      insight_learning_bump: {
+        Args: {
+          _actions?: number
+          _dismissals?: number
+          _false_positives?: number
+          _kind: string
+          _user_id: string
+        }
+        Returns: undefined
       }
       insights_generate_tick: { Args: never; Returns: number }
       is_behavioral_consumption: {

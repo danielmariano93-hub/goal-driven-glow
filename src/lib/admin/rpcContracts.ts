@@ -32,6 +32,7 @@ export const ADMIN_RPC_ARGS = {
   admin_v2_message_intelligence: ["_days"],
   admin_v2_messaging_activity: ["_days"],
   admin_v2_nino_quality_summary: ["_days"],
+  admin_v2_insight_effectiveness: ["_days"],
   admin_v2_proactive_summary: ["_days", "_channel", "_kind"],
   admin_v2_product_features: ["_from", "_to", "_tz"],
   admin_v2_product_opportunities: ["_from", "_to", "_tz"],
