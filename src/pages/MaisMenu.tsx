@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  BadgeCheck,
   CreditCard,
   Heart,
   User,
