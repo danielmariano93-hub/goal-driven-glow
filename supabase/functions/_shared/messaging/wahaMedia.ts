@@ -528,7 +528,9 @@ export async function transcribeInboundAudio(args: {
     if (normalized.bytes.length > 25 * 1024 * 1024) return { ok: false, code: "too_long", detail: String(normalized.bytes.length) };
     const form = new FormData();
     form.append("model", TRANSCRIPTION_MODEL);
-    form.append("file", new Blob([normalized.bytes], { type: normalized.mime }), normalized.filename);
+    const ownedBytes = new Uint8Array(normalized.bytes.byteLength);
+    ownedBytes.set(normalized.bytes);
+    form.append("file", new Blob([ownedBytes.buffer], { type: normalized.mime }), normalized.filename);
     form.append("stream", "true");
     const resp = await fetch(TRANSCRIPTION_GATEWAY, {
       method: "POST",
