@@ -19,6 +19,10 @@ import ResetPassword from "./pages/auth/ResetPassword";
 import OAuthConsent from "./pages/auth/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
+const Privacidade = lazy(() => import("./pages/legal/Privacidade"));
+const Termos = lazy(() => import("./pages/legal/Termos"));
+const Plano = lazy(() => import("./pages/Plano"));
+
 // Financial user (lazy)
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Index = lazy(() => import("./pages/Index"));
