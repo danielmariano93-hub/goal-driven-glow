@@ -11,6 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "cap:sync": "cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android",
     "sync:finance-core": "node scripts/sync-finance-core.mjs",
     "prebuild": "node scripts/sync-finance-core.mjs",
     "pretest": "node scripts/sync-finance-core.mjs"

@@ -18,6 +18,7 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import OAuthConsent from "./pages/auth/OAuthConsent";
 import NotFound from "./pages/NotFound";
+import { NativeRuntime } from "@/components/native/NativeRuntime";
 
 const Privacidade = lazy(() => import("./pages/legal/Privacidade"));
 const Termos = lazy(() => import("./pages/legal/Termos"));
@@ -88,6 +89,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <BrowserRouter>
+        <NativeRuntime />
         <AuthProvider>
           <PrivacyModeProvider>
           <Toaster />

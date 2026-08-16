@@ -11,6 +11,8 @@ import { ChartArtifactRenderer } from "./artifacts/ChartArtifactRenderer";
 import type { ChartArtifact } from "@/types/artifacts";
 import { useAuth } from "@/context/AuthContext";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { NativeCaptureButton } from "@/components/native/NativeCaptureButton";
+import { NativeRecorderButton } from "@/components/native/NativeRecorderButton";
 
 type Pending = {
   id: string;
@@ -458,6 +460,17 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
               if (attachment) URL.revokeObjectURL(attachment.url);
               setAttachment(next);
             }}
+            disabled={sending || loadingHistory}
+          />
+          <NativeCaptureButton
+            onSelected={(next) => {
+              if (attachment) URL.revokeObjectURL(attachment.url);
+              setAttachment(next);
+            }}
+            disabled={sending || loadingHistory}
+          />
+          <NativeRecorderButton
+            onTranscript={(text) => { setInput(text); void send(text); }}
             disabled={sending || loadingHistory}
           />
           <input

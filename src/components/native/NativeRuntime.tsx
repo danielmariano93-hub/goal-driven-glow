@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { App as CapacitorApp } from "@capacitor/app";
-import { Keyboard } from "@capacitor/keyboard";
+import { Keyboard, KeyboardResize } from "@capacitor/keyboard";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { isNativePlatform } from "@/lib/native/platform";
 
@@ -22,7 +22,7 @@ export function NativeRuntime() {
     document.documentElement.classList.add("native-app");
     void StatusBar.setOverlaysWebView({ overlay: true });
     void StatusBar.setStyle({ style: Style.Light });
-    void Keyboard.setResizeMode({ mode: "native" });
+    void Keyboard.setResizeMode({ mode: KeyboardResize.Native });
     let active = true;
     let removeUrl: (() => Promise<void>) | undefined;
     void CapacitorApp.addListener("appUrlOpen", ({ url }) => {
