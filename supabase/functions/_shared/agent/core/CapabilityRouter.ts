@@ -378,7 +378,7 @@ export function classifyCapability(
     };
   }
 
-  if (["transaction", "transfer", "goal_contribution", "goal"].includes(parsed.kind)) {
+  if (["transaction", "transfer", "goal_contribution", "goal"].includes(parsed.kind) && allowsEntryDraft(text)) {
     return {
       name: "transaction_entry", execution: "llm_scoped", allowed_tools: GROUPS.transactionEntry,
       // Registro com valor identificado NÃO pode terminar em prosa: ou sai um
@@ -387,6 +387,7 @@ export function classifyCapability(
       context: { accounts: true, cards: true }, reason: `parsed_${parsed.kind}`,
     };
   }
+
 
   // Pedido explícito de registro sem valor legível: mantém o turno na rota de
   // lançamento (para perguntar o que falta) em vez de cair no assistente geral.
