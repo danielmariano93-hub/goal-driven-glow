@@ -41,19 +41,36 @@ export function composeWeekdayPatternReply(result: WeekdayPatternResult, query: 
 
   // Regra P0: insufficient/candidate/ambiguous = ABSTENÇÃO. O modelo nunca
   // recebe autorização para transformar baixa confiança em uma conclusão.
+  // Confiança baixa NÃO é motivo para não responder: entregamos a leitura
+  // observada do período (fato) e sinalizamos que ainda não é padrão (juízo).
+  const observed = result.weekdays
+    .filter((row) => row.typical_amount > 0)
+    .sort((x, y) => y.typical_amount - x.typical_amount)[0]
+    ?? result.candidate
+    ?? null;
+
   if (result.decision === "ambiguous") {
     const a = result.candidate;
     const b = result.weekdays
       .filter((row) => row.weekday !== a?.weekday && row.typical_amount > 0)
       .sort((x, y) => y.typical_amount - x.typical_amount)[0];
     if (a && b) {
-      return `${prefix}${a.label} e ${b.label} estão próximos demais no seu histórico para eu afirmar que um deles é seu dia típico de maior gasto. Vou esperar mais dados antes de cravar um padrão.`;
+      return `${prefix}${a.label} (${BRL.format(a.typical_amount)}) e ${b.label} (${BRL.format(b.typical_amount)}) estão praticamente empatados por ocorrência. `
+        + `Pelo que já tenho, esses são os seus dois dias mais pesados — só não dá para eleger um padrão único ainda.`;
     }
     return `${prefix}Os dias líderes estão próximos demais para eu apontar um padrão semanal confiável.`;
   }
   if (result.decision !== "established" || !result.winner) {
+    if (observed) {
+      const total = result.total_concentration_winner;
+      const extra = total && total.weekday !== observed.weekday
+        ? ` No valor total, quem lidera é ${total.label} (${total.share_pct}%).`
+        : "";
+      return `${prefix}No histórico que tenho até agora, ${observed.label} aparece na frente, com cerca de `
+        + `${BRL.format(observed.typical_amount)} por ocorrência.${extra} Ainda são poucas semanas para eu chamar isso de padrão seu.`;
+    }
     const limitation = result.limitations[0];
-    return `${prefix}Ainda não tenho histórico confiável suficiente para afirmar em qual dia você normalmente gasta mais.${limitation ? ` ${limitation}` : ""}`;
+    return `${prefix}Ainda não encontrei gastos registrados nesse período para comparar os dias da semana.${limitation ? ` ${limitation}` : ""}`;
   }
 
   const w = result.winner;
