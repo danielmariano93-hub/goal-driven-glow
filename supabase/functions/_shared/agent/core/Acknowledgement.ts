@@ -16,8 +16,10 @@ export type AckPlan = {
   observed_p75_ms: number | null;
 };
 
-const MIN_DELAY_MS = 3_000;
-const MAX_DELAY_MS = 9_000;
+// O aviso virou exceção (só turnos longos de documento). Antes de 25s o
+// "digitando…" já cobre a espera; avisar antes disso é ruído de chatbot.
+const MIN_DELAY_MS = 25_000;
+const MAX_DELAY_MS = 45_000;
 
 /** Frase por natureza do pedido — determinística, sem jargão técnico. */
 export function ackMessageFor(text: string): string {
