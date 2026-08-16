@@ -3,6 +3,8 @@
 // invoked from tests. Never invents accounts/categories — those are resolved
 // server-side by the orchestrator using the user's own data.
 
+import { parseSpelledMoney } from "./amountWords.ts";
+
 export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
   | { kind: "transfer"; amount: number; occurred_at: string; from_hint?: string; to_hint?: string }
@@ -116,14 +118,14 @@ function relativeDate(text: string, now: Date = new Date()): string {
   return today;
 }
 
-const CONFIRM_WORDS = /^\s*(confirmar|confirma|sim|ok|okay|yes|👍)\s*[.!]?\s*$/i;
+const CONFIRM_WORDS = /^\s*(confirm(?:o|a|ar|ado|ada|amos)?|sim|ok|okay|yes|isso|👍)\s*[.!]?\s*$/i;
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 
 // Loose confirm/cancel: exige que a PRIMEIRA palavra seja um marcador
 // forte (sim/pode/cancela/...) e limita a ≤4 palavras. Retiramos gatilhos
 // ambíguos como "ta"/"tá"/"isso" que casavam frases naturais tipo
 // "Ta escrito na mensagem".
-const CONFIRM_LOOSE = /^\s*(sim|pode|confirma(?:r|do)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
+const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
 const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
@@ -135,7 +137,7 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
 
   const wordCount = raw.split(/\s+/).length;
-  if (wordCount <= 4 && !AMOUNT_RE.test(raw)) {
+  if (wordCount <= 4 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
   }
@@ -145,7 +147,8 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const lower = raw.toLowerCase();
   const occurred_at = relativeDate(lower, now);
   const amountMatch = lower.match(AMOUNT_RE);
-  const amount = amountMatch ? parseBrAmount(amountMatch[1]) : null;
+  // Fala natural não usa dígitos: "cinquenta reais e quarenta centavos".
+  const amount = amountMatch ? parseBrAmount(amountMatch[1]) : parseSpelledMoney(lower);
 
   // Queries (no writes)
   if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) {

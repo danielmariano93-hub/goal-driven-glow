@@ -35,6 +35,7 @@ import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
+import { entryFailureMessage } from "./ResponseValidator.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
@@ -659,7 +660,11 @@ ${JSON.stringify(hints)}
     } catch (e) {
       errorSanitized = errorSanitized ?? String((e as Error).message ?? "fallback_error").slice(0, 200);
       metrics.errors.push("fallback:" + errorSanitized);
-      reply = FRIENDLY_ORCHESTRATOR_ERROR; kind = "info";
+      // Em lançamento, erro genérico está proibido: diga o que faltou.
+      reply = capability.name === "transaction_entry"
+        ? entryFailureMessage(toolCallLog as any)
+        : FRIENDLY_ORCHESTRATOR_ERROR;
+      kind = "info";
     }
   }
 
@@ -713,6 +718,7 @@ ${JSON.stringify(hints)}
     userText: input.text,
     toolCalls: toolCallLog,
     requiredTool: capability.required_tool,
+    entryTurn: capability.name === "transaction_entry",
     artifactExpected: chartRequested,
     artifactReady: !!metrics.artifact_id,
   }));

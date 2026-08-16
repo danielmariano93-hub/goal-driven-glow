@@ -23,6 +23,7 @@ import { interpretSemanticQuery } from "../intelligence/semanticQuery.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
+import { parseSpelledMoney } from "./amountWords.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
 import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, draftCardDateBR } from "./core/DraftCard.ts";
 import { confirmationExecutor } from "./core/PendingConfirmations.ts";
@@ -539,14 +540,54 @@ export function extractMerchantFromText(text?: string | null): string | null {
 }
 
 
+/**
+ * Tipo do lançamento é INFERIDO, não recusado. O modelo às vezes omite `type`
+ * e o usuário nunca deve receber erro técnico por isso: verbos de entrada
+ * ("recebi", "salário", "caiu") indicam receita, o resto é despesa.
+ */
+export function inferDraftType(
+  provided: unknown,
+  userText?: string | null,
+): "income" | "expense" | null {
+  if (provided === "income" || provided === "expense") return provided;
+  const t = String(userText ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  if (!t.trim()) return "expense";
+  if (/\b(recebi|receb\w*|ganhei|entrou|caiu|salario|pro labore|pro-labore|reembolso|rendimento|comissao|freela|deposito recebido|pix recebido|venda)\b/.test(t)) {
+    return "income";
+  }
+  if (/\b(gastei|paguei|comprei|torrei|debitou|debitei|assinatura|conta|boleto|almoc\w*|jantar|mercado|uber|lancamento|registr\w*|anot\w*)\b/.test(t)) {
+    return "expense";
+  }
+  // Sem sinal nenhum: despesa é o caso dominante em lançamento manual.
+  return "expense";
+}
+
 export async function create_transaction_draft(ctx: ToolContext, args: {
-  type: "income"|"expense"; amount: number; account?: string;
+  type?: "income"|"expense"; amount: number; account?: string;
   credit_card?: string; installments_total?: number;
   category?: string; occurred_at?: string; description?: string;
 }): Promise<ToolResult> {
-  const amount = Number(args?.amount);
-  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "invalid_amount" };
-  if (args.type !== "income" && args.type !== "expense") return { ok: false, error: "invalid_type" };
+  const inferredType = inferDraftType(args?.type, ctx.user_text);
+  if (!inferredType) {
+    return {
+      ok: false,
+      error: "needs_type",
+      hint: "Não ficou claro se é gasto ou recebimento. Pergunte isso em UMA frase curta e não crie o rascunho antes da resposta.",
+    } as any;
+  }
+  args = { ...args, type: inferredType };
+  const spelled = parseSpelledMoney(String(ctx.user_text ?? ""));
+  const amount = Number(Number.isFinite(Number(args?.amount)) && Number(args?.amount) > 0 ? args.amount : (spelled ?? args?.amount));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return {
+      ok: false,
+      error: "needs_amount",
+      hint: "Não identifiquei o valor. Pergunte o valor em UMA frase curta, preservando o que já foi entendido (estabelecimento/data), e não crie o rascunho antes da resposta.",
+    } as any;
+  }
   let rawDesc = (args.description ?? "").trim();
   const normDesc = normalizeDesc(rawDesc);
   if (rawDesc && METHOD_ONLY_TERMS.has(normDesc)) {
