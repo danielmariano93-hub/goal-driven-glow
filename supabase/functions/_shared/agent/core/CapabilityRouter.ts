@@ -172,6 +172,14 @@ function lastNamedWeekday(text: string): string | null {
   return shiftSaoPaulo(today, -daysBack);
 }
 
+/** Intenção explícita de registrar algo no ledger. */
+export function hasEntryIntent(text: string): boolean {
+  const q = normalize(text);
+  // Perguntas ("quanto gastei?") são análise, não registro.
+  if (/\b(quanto|qual|quais|onde|quando|como|por que|porque|me mostra|resumo)\b/.test(q) || /\?\s*$/.test(text.trim())) return false;
+  return /\b(registr\w*|lanc\w*|lança\w*|anot\w*|adicion\w*|gastei|paguei|comprei|recebi|ganhei|torrei)\b/.test(normalize(text));
+}
+
 export function classifyCapability(
   text: string,
   parsed: ParsedIntent,
@@ -370,7 +378,19 @@ export function classifyCapability(
   if (["transaction", "transfer", "goal_contribution", "goal"].includes(parsed.kind)) {
     return {
       name: "transaction_entry", execution: "llm_scoped", allowed_tools: GROUPS.transactionEntry,
-      required_tool: null, context: { accounts: true, cards: true }, reason: `parsed_${parsed.kind}`,
+      // Registro com valor identificado NÃO pode terminar em prosa: ou sai um
+      // rascunho real (salvo na base) ou uma pergunta pelo dado que falta.
+      required_tool: parsed.kind === "transaction" ? "create_transaction_draft" : null,
+      context: { accounts: true, cards: true }, reason: `parsed_${parsed.kind}`,
+    };
+  }
+
+  // Pedido explícito de registro sem valor legível: mantém o turno na rota de
+  // lançamento (para perguntar o que falta) em vez de cair no assistente geral.
+  if (hasEntryIntent(text)) {
+    return {
+      name: "transaction_entry", execution: "llm_scoped", allowed_tools: GROUPS.transactionEntry,
+      required_tool: null, context: { accounts: true, cards: true }, reason: "entry_intent_incomplete",
     };
   }
 
@@ -394,6 +414,21 @@ export function resumeDeterministicCapability(
 ): CapabilityDecision | null {
   if (!previousUserText) return null;
   const slot = normalize(text);
+
+  // LANÇAMENTO — resposta curta de slot ("Alimentação", "no crédito", "ontem")
+  // depois de um pedido de registro retoma o MESMO lançamento com ferramenta
+  // obrigatória, para o rascunho ser salvo de verdade.
+  if (hasEntryIntent(previousUserText) && slot.split(" ").length <= 5 && !/\?$/.test(slot)) {
+    const previousEntry = classifyCapability(previousUserText, parsed, null);
+    if (previousEntry.name === "transaction_entry") {
+      return {
+        ...previousEntry,
+        required_tool: "create_transaction_draft",
+        reason: "transaction_entry_slot_resumed",
+      };
+    }
+  }
+
   const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot);
   if (!looksLikeSlot) return null;
   const previous = classifyCapability(previousUserText, parsed, null);

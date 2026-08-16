@@ -3,6 +3,8 @@
 // invoked from tests. Never invents accounts/categories — those are resolved
 // server-side by the orchestrator using the user's own data.
 
+import { parseSpelledMoney } from "./amountWords.ts";
+
 export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
   | { kind: "transfer"; amount: number; occurred_at: string; from_hint?: string; to_hint?: string }
@@ -135,7 +137,7 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
 
   const wordCount = raw.split(/\s+/).length;
-  if (wordCount <= 4 && !AMOUNT_RE.test(raw)) {
+  if (wordCount <= 4 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
   }
@@ -145,7 +147,8 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const lower = raw.toLowerCase();
   const occurred_at = relativeDate(lower, now);
   const amountMatch = lower.match(AMOUNT_RE);
-  const amount = amountMatch ? parseBrAmount(amountMatch[1]) : null;
+  // Fala natural não usa dígitos: "cinquenta reais e quarenta centavos".
+  const amount = amountMatch ? parseBrAmount(amountMatch[1]) : parseSpelledMoney(lower);
 
   // Queries (no writes)
   if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) {

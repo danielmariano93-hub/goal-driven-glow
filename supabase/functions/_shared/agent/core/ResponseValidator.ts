@@ -41,6 +41,8 @@ export type ValidationContext = {
   artifactReady?: boolean;
   /** Canonical tool that must have succeeded before a factual answer. */
   requiredTool?: string | null;
+  /** True quando o turno é de lançamento (registro no ledger). */
+  entryTurn?: boolean;
 };
 
 const DRAFT_LANGUAGE_RX = /\b(rascunho|proposta)\b.*\b(confirmar|confirma|registrar|registro|criar|criei|salvar)\b|\b(posso|vou|quer que eu)\s+(criar|crie|registrar|registre|salvar|salve)\b/i;
@@ -65,6 +67,39 @@ const DRAFT_INVITE_RX = /(responda\s*\*?\s*confirmar\s*\*?)|(\*?\s*confirmar\s*\
 // produzido um. Bloqueia "aqui está o gráfico", "segue o gráfico", "preparei/
 // gerei/enviei o gráfico" quando artifactReady === false.
 const GRAPH_CLAIM_RX = /\b(aqui\s+est[aá]|segue|preparei|gerei|enviei|montei|criei)\b[^.\n]{0,60}\b(gr[aá]fico|visualiza[çc][aã]o|chart)\b/i;
+
+// Qualquer cartão de rascunho em prosa ("Rascunhei aqui...", "confirma esse
+// lançamento?") sem ferramenta executada é invenção do modelo.
+const DRAFT_CARD_RX = /\brascunh\w+\b|\bconfirm\w+\b[^?\n]{0,60}\?|\bt[aá]\s+certo\b[^?\n]{0,20}\?/i;
+
+const MUTATION_TOOLS = new Set([
+  "create_transaction_draft", "create_transfer_draft", "create_goal_contribution_draft",
+  "create_goal_draft", "confirm_pending_action",
+]);
+
+/**
+ * Mensagem honesta e específica para falha de lançamento. Substitui o
+ * "Ops, algo deu errado… tente novamente", que não diz nada ao usuário.
+ */
+export function entryFailureMessage(toolCalls: ToolCallEvidence[] = []): string {
+  const errors = toolCalls
+    .filter((c) => !c.ok && MUTATION_TOOLS.has(String(c.tool_name)))
+    .map((c) => String((c as any).error ?? (c as any).result?.error ?? ""));
+  const joined = errors.join(" ");
+  if (/needs_amount|invalid_amount/.test(joined)) {
+    return "Só me faltou o valor para registrar. Qual foi o valor?";
+  }
+  if (/needs_type|invalid_type/.test(joined)) {
+    return "Só me diga se isso foi um gasto ou um recebimento e eu registro.";
+  }
+  if (/needs_description/.test(joined)) {
+    return "Me diz em quê foi esse lançamento (o estabelecimento ou o item) e eu registro.";
+  }
+  if (/card_not_found/.test(joined)) {
+    return "Não encontrei esse cartão. Em qual cartão foi?";
+  }
+  return "Não registrei nada ainda. Me confirma o valor e em quê foi, que eu lanço na hora.";
+}
 
 export function validate(raw: string, ctx: ValidationContext = {}): ValidationResult {
   const reasons: string[] = [];
@@ -103,6 +138,10 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
     reasons.push("hallucinated_draft_invite");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
   }
+  if (ctx.entryTurn === true && ctx.hasSuccessfulMutation === false && DRAFT_CARD_RX.test(trimmed)) {
+    reasons.push("hallucinated_draft_card");
+    return { action: "accept", body: entryFailureMessage(ctx.toolCalls ?? []), reasons };
+  }
   if (ctx.hasDraft === false && DRAFT_LANGUAGE_RX.test(trimmed)) {
     reasons.push("draft_language_without_draft");
     return { action: "fallback_deterministic", body: FRIENDLY_ORCHESTRATOR_ERROR, reasons };
@@ -113,6 +152,9 @@ export function validate(raw: string, ctx: ValidationContext = {}): ValidationRe
     );
     if (!requiredSucceeded) {
       reasons.push(`required_tool_missing:${ctx.requiredTool}`);
+      if (MUTATION_TOOLS.has(String(ctx.requiredTool))) {
+        return { action: "accept", body: entryFailureMessage(ctx.toolCalls ?? []), reasons };
+      }
       const honestFailure = /\b(n[aã]o consegui|indispon[ií]vel|tente novamente|nenhum dado foi alterado)\b/i.test(trimmed);
       return {
         action: "accept",
