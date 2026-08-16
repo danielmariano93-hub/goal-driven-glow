@@ -2,6 +2,7 @@
 // Ordem prioritária para imagens: base64 inline -> mediaUrl HTTPS autenticada -> endpoint WAHA -> fallbacks.
 
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
+import { OggOpusDecoder } from "npm:ogg-opus-decoder@1.7.3";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
@@ -314,14 +315,13 @@ function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kin
 // entra no mesmo pipeline textual do Nino — registrar gasto, perguntar, tudo.
 // Assim não existe uma "inteligência de áudio" paralela para manter.
 //
-// Nota técnica: o WhatsApp envia OGG/Opus, formato recusado pelo endpoint
-// dedicado de transcrição. Usamos o modelo multimodal do gateway, que aceita
-// `input_audio` em ogg/mp3/m4a/wav/webm.
+// O WhatsApp envia OGG/Opus. Antes da transcrição, decodificamos para WAV PCM
+// completo para evitar diferenças de suporte entre engines e contêineres.
 
 type AudioDownload = DownloadResult;
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3.6-flash";
+const TRANSCRIPTION_GATEWAY = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
+const TRANSCRIPTION_MODEL = "openai/gpt-4o-transcribe";
 /** ~2 minutos de voz do WhatsApp em Opus. Acima disso recusamos com explicação. */
 const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 150;
@@ -375,13 +375,83 @@ function durationSeconds(hint: AudioHint): number | null {
   return Number.isFinite(raw) && raw > 0 ? raw : null;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+function writeAscii(view: DataView, offset: number, value: string): void {
+  for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+}
+
+export function pcmFloatToWav(channelData: Float32Array[], sampleRate: number): Uint8Array {
+  if (!channelData.length || !channelData[0]?.length || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+    throw new Error("invalid_pcm");
   }
-  return btoa(bin);
+  const channels = Math.min(channelData.length, 2);
+  const samples = Math.min(...channelData.slice(0, channels).map((channel) => channel.length));
+  const dataBytes = samples * channels * 2;
+  const out = new Uint8Array(44 + dataBytes);
+  const view = new DataView(out.buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, dataBytes, true);
+  let offset = 44;
+  for (let sample = 0; sample < samples; sample++) {
+    for (let channel = 0; channel < channels; channel++) {
+      const value = Math.max(-1, Math.min(1, channelData[channel][sample] ?? 0));
+      view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return out;
+}
+
+async function normalizeAudioForTranscription(bytes: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string; filename: string }> {
+  if (mime !== "audio/ogg" && mime !== "audio/opus") {
+    const extension = FORMAT_BY_MIME[mime] ?? "wav";
+    return { bytes, mime, filename: `recording.${extension}` };
+  }
+  const decoder = new OggOpusDecoder();
+  try {
+    await decoder.ready;
+    const decoded = decoder.decode(bytes);
+    if (!decoded.samplesDecoded || !decoded.channelData.length) throw new Error("empty_decode");
+    return { bytes: pcmFloatToWav(decoded.channelData, decoded.sampleRate), mime: "audio/wav", filename: "recording.wav" };
+  } finally {
+    decoder.free();
+  }
+}
+
+async function readTranscriptionStream(response: Response): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let transcript = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = done ? "" : lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === "[DONE]") continue;
+      try {
+        const event = JSON.parse(raw) as { type?: string; delta?: string; text?: string };
+        if (event.type === "transcript.text.delta" && event.delta) transcript += event.delta;
+        if (event.type === "transcript.text.done" && event.text) transcript = event.text;
+      } catch { /* evento parcial/inválido é ignorado */ }
+    }
+    if (done) break;
+  }
+  return transcript.trim();
 }
 
 /** Mensagem curta e honesta para cada falha — nunca silêncio. */
@@ -441,8 +511,7 @@ export async function transcribeInboundAudio(args: {
   if (dl.bytes.length > MAX_AUDIO_BYTES) return { ok: false, code: "too_long", detail: String(dl.bytes.length) };
   if (dl.bytes.length < 512) return { ok: false, code: "empty_audio" };
 
-  const format = FORMAT_BY_MIME[dl.mime_type];
-  if (!format) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
+  if (!FORMAT_BY_MIME[dl.mime_type]) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
 
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
@@ -450,42 +519,32 @@ export async function transcribeInboundAudio(args: {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
   try {
-    const resp = await fetch(GATEWAY, {
+    let normalized: Awaited<ReturnType<typeof normalizeAudioForTranscription>>;
+    try {
+      normalized = await normalizeAudioForTranscription(dl.bytes, dl.mime_type);
+    } catch {
+      return { ok: false, code: "unsupported_format", detail: "decode_failed" };
+    }
+    if (normalized.bytes.length > 25 * 1024 * 1024) return { ok: false, code: "too_long", detail: String(normalized.bytes.length) };
+    const form = new FormData();
+    form.append("model", TRANSCRIPTION_MODEL);
+    form.append("file", new Blob([normalized.bytes], { type: normalized.mime }), normalized.filename);
+    form.append("stream", "true");
+    const resp = await fetch(TRANSCRIPTION_GATEWAY, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
+        Authorization: `Bearer ${key}`,
         "X-Lovable-AIG-SDK": "edge-function",
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Transcreva literalmente o áudio em português do Brasil. Devolva SOMENTE a transcrição, "
-              + "sem comentários, sem aspas, sem rótulos. Números e valores em dígitos (ex.: 32 reais). "
-              + "Se não houver fala audível, devolva exatamente: [SEM_FALA].",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Transcreva este áudio." },
-              { type: "input_audio", input_audio: { data: bytesToBase64(dl.bytes), format } },
-            ],
-          },
-        ],
-      }),
+      body: form,
     });
     if (!resp.ok) {
       const detail = (await resp.text().catch(() => "")).slice(0, 200);
       console.error("[audio] transcription_http", resp.status, detail);
       return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
     }
-    const json = await resp.json().catch(() => null) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
-    const text = String(json?.choices?.[0]?.message?.content ?? "").trim();
+    const text = await readTranscriptionStream(resp);
     if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
     return { ok: true, text: text.slice(0, 1500), mime_type: dl.mime_type, bytes: dl.bytes.length };
   } catch (e) {

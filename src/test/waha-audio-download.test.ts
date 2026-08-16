@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { classifyInbound } from "../../supabase/functions/_shared/messaging/wahaInbound";
-import { describeMediaHint, downloadInboundMedia } from "../../supabase/functions/_shared/messaging/wahaMedia";
+import { describeMediaHint, downloadInboundMedia, pcmFloatToWav } from "../../supabase/functions/_shared/messaging/wahaMedia";
 
 const SESSION = "default";
 const wrap = (payload: unknown) => ({ event: "message", session: SESSION, payload });
@@ -108,5 +108,14 @@ describe("downloadInboundMedia — resiliência de áudio", () => {
     expect(d).toMatchObject({ present: true, mime: "audio/ogg", has_url: true, url_https: true, has_id: true });
     expect(JSON.stringify(d)).not.toContain("waha.example");
     expect(describeMediaHint(undefined)).toEqual({ present: false });
+  });
+});
+
+describe("conversão PCM para WAV", () => {
+  it("gera um arquivo WAV completo com cabeçalho e amostras", () => {
+    const wav = pcmFloatToWav([new Float32Array([0, 0.5, -0.5])], 16_000);
+    expect(new TextDecoder().decode(wav.slice(0, 4))).toBe("RIFF");
+    expect(new TextDecoder().decode(wav.slice(8, 12))).toBe("WAVE");
+    expect(new DataView(wav.buffer).getUint32(40, true)).toBe(6);
   });
 });
