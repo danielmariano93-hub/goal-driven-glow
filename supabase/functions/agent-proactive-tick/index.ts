@@ -10,6 +10,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { scanUser } from "../_shared/agent/core/ProactiveEngineV2.ts";
+import { syncDiagnosisSuggestions } from "../_shared/intelligence/diagnosisToCommunication.ts";
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { markProactiveScan, selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
@@ -183,7 +184,7 @@ Deno.serve(async (req) => {
         const generated = await scanUser(sb, uid, { persist: !dryRun, maxSuggestions: 8 });
         suggestions = generated.length + fromDiagnosis.length;
         if (dryRun) {
-          preview = generated.map((item) => ({
+          preview = [...fromDiagnosis, ...generated].map((item) => ({
             kind: item.kind,
             channel_ready: item.channel_ready,
             title: item.title,
