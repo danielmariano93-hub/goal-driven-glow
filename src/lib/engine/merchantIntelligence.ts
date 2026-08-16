@@ -465,3 +465,65 @@ export function merchantsExplainingCategory(
     confidence: confidenceFromSample(sampleSize, { minSample: 3, goodSample: 12 }),
   });
 }
+
+/**
+ * Contrato determinístico de DISTRIBUIÇÃO por estabelecimento dentro de uma
+ * categoria/período (`merchant_distribution.v1`).
+ *
+ * Regra inviolável: `share_of_category` = valor do merchant / TOTAL REAL da
+ * categoria. Nunca sobre o subtotal dos merchants identificados — se a
+ * cobertura é parcial, a resposta declara isso.
+ */
+export interface MerchantDistributionRow {
+  merchant: string;
+  amount: number;
+  share_of_category: number;
+  transactions_count: number;
+}
+
+export interface MerchantDistribution {
+  period: { from: string; to: string; label?: string | null };
+  category: { id: string | null; name: string | null };
+  category_total: number;
+  resolved_total: number;
+  unresolved_total: number;
+  coverage: number;
+  merchants: MerchantDistributionRow[];
+}
+
+export function merchantDistribution(
+  input: MerchantsInput & { categoryName?: string | null },
+): MerchantDistribution {
+  const resolver = input.resolver ?? buildMerchantResolver(input.aliases ?? []);
+  const current = computeMerchantStats({ ...input, resolver });
+
+  let categoryTotal = 0;
+  for (const t of input.txs) {
+    if (!isConsumptionExpense(t)) continue;
+    if (!inRange(t.occurred_at, input.period)) continue;
+    if (input.categoryId && (t.category_id ?? null) !== input.categoryId) continue;
+    categoryTotal = round2(categoryTotal + Number(t.amount || 0));
+  }
+
+  const resolvedTotal = round2(current.reduce((s, m) => s + m.net_total, 0));
+  const merchants = current
+    .slice()
+    .sort((a, b) => b.net_total - a.net_total)
+    .slice(0, input.limit ?? 10)
+    .map((m) => ({
+      merchant: m.label,
+      amount: m.net_total,
+      share_of_category: categoryTotal > 0 ? round2(m.net_total / categoryTotal) : 0,
+      transactions_count: m.count,
+    }));
+
+  return {
+    period: { from: input.period.from, to: input.period.to, label: input.period.label ?? null },
+    category: { id: input.categoryId ?? null, name: input.categoryName ?? null },
+    category_total: categoryTotal,
+    resolved_total: resolvedTotal,
+    unresolved_total: round2(Math.max(0, categoryTotal - resolvedTotal)),
+    coverage: categoryTotal > 0 ? round2(resolvedTotal / categoryTotal) : 0,
+    merchants,
+  };
+}
