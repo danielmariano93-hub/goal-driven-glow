@@ -6,6 +6,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { loadProfile } from "./UserProfile.ts";
 import { runAllDetectors, rank, type Insight, type DetectorCtx } from "./InsightsEngine.ts";
 import { emotionalReminderDue, EMOTIONAL_REMINDER_KIND } from "../../intelligence/emotionalReminder.ts";
+import { DIAGNOSIS_OWNED_KINDS } from "../../intelligence/insightValue.ts";
 
 export type ProactiveSuggestion = {
   id?: string;
@@ -42,47 +43,6 @@ function fixedCategoryMessage(insight: Insight): Insight {
     body: `${category} parece uma despesa predominantemente fixa. O Nino não recomenda cortar automaticamente; primeiro confirme a composição e identifique somente itens pontuais ou ajustáveis.`,
     evidence: { ...insight.evidence, fixed_category_guard: true },
   };
-}
-
-function duplicateInsights(ctx: DetectorCtx): Insight[] {
-  const tx = (ctx.transactions ?? []).filter((row) => row.type === "expense" && (row.movement_kind ?? "transaction") === "transaction");
-  const groups = new Map<string, typeof tx>();
-  for (const row of tx) {
-    const description = (row.description ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
-    if (!description || Number(row.amount) <= 0) continue;
-    const key = `${description}::${Number(row.amount).toFixed(2)}::${row.occurred_at.slice(0, 10)}`;
-    const list = groups.get(key) ?? [];
-    list.push(row);
-    groups.set(key, list);
-  }
-
-  const output: Insight[] = [];
-  for (const [key, rows] of groups) {
-    if (rows.length < 2) continue;
-    output.push({
-      id: `dup-${key}`,
-      kind: "duplicate_expense",
-      severity: "attention",
-      score: Math.min(1, 0.45 + rows.length * 0.12),
-      title: `Confira ${rows.length} lançamentos de ${rows[0].description ?? "mesmo estabelecimento"}`,
-      body: `${rows.length} lançamentos de R$ ${Number(rows[0].amount).toFixed(2).replace(".", ",")} apareceram no mesmo dia. Eles podem ser legítimos; confirme antes de excluir qualquer item.`,
-      evidence: {
-        count: rows.length,
-        description: rows[0].description ?? "Lançamento",
-        amount: Number(rows[0].amount),
-        occurred_at: rows[0].occurred_at,
-        transactions: rows.map((row) => ({
-          id: row.id,
-          description: row.description ?? "Lançamento",
-          amount: Number(row.amount),
-          occurred_at: row.occurred_at,
-        })),
-      },
-      dedup_key: `dup:${key}`,
-      action: { type: "review_duplicate" },
-    });
-  }
-  return output;
 }
 
 function enrichInsight(insight: Insight): Insight {
@@ -218,10 +178,12 @@ export async function scanUser(
     ...((feedbackRows as Array<{ dedup_key: string | null }> | null) ?? []).map((row) => row.dedup_key).filter(Boolean),
   ] as string[]);
 
+  // Conteúdo financeiro pertence ao diagnóstico canônico (fonte única). Aqui
+  // ficam apenas sinais operacionais, comportamentais e de engajamento.
   const base = runAllDetectors(profile, ctx)
-    .filter((insight) => insight.kind !== "duplicate_expense")
+    .filter((insight) => !DIAGNOSIS_OWNED_KINDS.has(insight.kind))
     .map(enrichInsight);
-  const insights = rank([...base, ...duplicateInsights(ctx)], ctx);
+  const insights = rank(base, ctx);
   const max = Math.max(1, Math.min(options.maxSuggestions ?? 8, 20));
 
   const suggestions: ProactiveSuggestion[] = insights.slice(0, max).map((insight) => {
