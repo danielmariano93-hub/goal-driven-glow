@@ -46,6 +46,8 @@ import {
 import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
+import { findPending, confirmationExecutor } from "./PendingConfirmations.ts";
+import { buildReceipt } from "./ReceiptBuilder.ts";
 
 export type HandleTurnInput = {
   user_id: string;
@@ -261,14 +263,14 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         const executed = await guard(async () => {
           const pending = await findPending(sb, input.conversation_id, input.user_id);
           if (!pending) return null;
-          const { data, error } = await sb.rpc(confirmationExecutor(pending.kind), {
+          const { error } = await sb.rpc(confirmationExecutor(pending.kind), {
             p_pending_id: pending.id, p_user_id: input.user_id,
           });
           if (error) throw new Error(error.message);
-          return data ?? true;
+          return pending;
         }, (m) => metrics.errors.push("confirm_recover_exec:" + m), null as any);
         if (executed) {
-          finalReply = buildReceipt(recovered.reply);
+          finalReply = buildReceipt(String((executed as any).kind) as any, (executed as any).payload);
           finalKind = "receipt";
         }
         if (input.channel !== "app" && input.to_phone) {
