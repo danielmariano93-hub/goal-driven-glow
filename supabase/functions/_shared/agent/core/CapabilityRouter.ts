@@ -397,6 +397,27 @@ export function resumeDeterministicCapability(
   const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot);
   if (!looksLikeSlot) return null;
   const previous = classifyCapability(previousUserText, parsed, null);
+
+  // CONSULTORIA — "e se fosse em 12x?" reaproveita valor e intenção do turno
+  // anterior em vez de reabrir a coleta.
+  if (previous.name === "advisor_consult") {
+    const combined = classifyCapability(`${previousUserText} ${text}`, parsed, null);
+    if (combined.name === "advisor_consult" && !combined.clarification && combined.required_tool) {
+      const installments = installmentsFromText(text)
+        ?? (combined.tool_args as any)?.installments
+        ?? (previous.tool_args as any)?.installments;
+      const amount = (combined.tool_args as any)?.amount ?? (previous.tool_args as any)?.amount;
+      return {
+        ...combined,
+        tool_args: amount
+          ? { ...(combined.tool_args ?? {}), amount, installments: installments ?? 1 }
+          : combined.tool_args,
+        reason: "advisor_consult_resumed",
+      };
+    }
+    return null;
+  }
+
   if (previous.name !== "before_spending" || !previous.clarification) return null;
   const resumed = classifyCapability(`${previousUserText} ${text}`, parsed, null);
   if (resumed.name !== "before_spending" || resumed.clarification || !resumed.required_tool) return null;
