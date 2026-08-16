@@ -118,14 +118,14 @@ function relativeDate(text: string, now: Date = new Date()): string {
   return today;
 }
 
-const CONFIRM_WORDS = /^\s*(confirmar|confirma|sim|ok|okay|yes|👍)\s*[.!]?\s*$/i;
+const CONFIRM_WORDS = /^\s*(confirm(?:o|a|ar|ado|ada|amos)?|sim|ok|okay|yes|isso|👍)\s*[.!]?\s*$/i;
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 
 // Loose confirm/cancel: exige que a PRIMEIRA palavra seja um marcador
 // forte (sim/pode/cancela/...) e limita a ≤4 palavras. Retiramos gatilhos
 // ambíguos como "ta"/"tá"/"isso" que casavam frases naturais tipo
 // "Ta escrito na mensagem".
-const CONFIRM_LOOSE = /^\s*(sim|pode|confirma(?:r|do)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
+const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
 const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
