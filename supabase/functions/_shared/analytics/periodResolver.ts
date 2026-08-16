@@ -80,12 +80,6 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
     return { from: shift(today, -((dow + 6) % 7)), to: today, label: "esta semana", matched: "esta semana", complete: false, kind: "week" };
   }
-  if (/\b(mes passado|mes anterior)\b/.test(t)) {
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const prevYear = month === 1 ? year - 1 : year;
-    const p = monthPeriod(prevYear, prevMonth, today, true);
-    return { ...p, label: "mês passado", matched: "mês passado" };
-  }
   if (/\bmesmo periodo do mes passado\b/.test(t)) {
     const prevMonth = month === 1 ? 12 : month - 1;
     const prevYear = month === 1 ? year - 1 : year;
@@ -97,6 +91,12 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
       label: "mesmo período do mês passado", matched: "mesmo periodo do mes passado",
       complete: false, kind: "range",
     };
+  }
+  if (/\b(mes passado|mes anterior)\b/.test(t)) {
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const p = monthPeriod(prevYear, prevMonth, today, true);
+    return { ...p, label: "mês passado", matched: "mês passado" };
   }
   const lastMonths = t.match(/\bultimos?\s+(dois|tres|2|3|4|5|6)\s+meses\b/);
   if (lastMonths) {
