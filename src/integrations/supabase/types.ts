@@ -1875,6 +1875,63 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_plans: {
+        Row: {
+          apple_product_id: string | null
+          billing_interval: string
+          code: string
+          created_at: string
+          currency: string
+          description: string | null
+          features: Json
+          google_product_id: string | null
+          highlights: string[]
+          id: string
+          is_active: boolean
+          name: string
+          price_cents: number
+          sort_order: number
+          trial_days: number
+          updated_at: string
+        }
+        Insert: {
+          apple_product_id?: string | null
+          billing_interval?: string
+          code: string
+          created_at?: string
+          currency?: string
+          description?: string | null
+          features?: Json
+          google_product_id?: string | null
+          highlights?: string[]
+          id?: string
+          is_active?: boolean
+          name: string
+          price_cents?: number
+          sort_order?: number
+          trial_days?: number
+          updated_at?: string
+        }
+        Update: {
+          apple_product_id?: string | null
+          billing_interval?: string
+          code?: string
+          created_at?: string
+          currency?: string
+          description?: string | null
+          features?: Json
+          google_product_id?: string | null
+          highlights?: string[]
+          id?: string
+          is_active?: boolean
+          name?: string
+          price_cents?: number
+          sort_order?: number
+          trial_days?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       break_glass_sessions: {
         Row: {
           admin_id: string
@@ -10395,6 +10452,85 @@ export type Database = {
           },
         ]
       }
+      user_subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean
+          canceled_at: string | null
+          created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          last_verified_at: string | null
+          original_transaction_id: string | null
+          plan_id: string
+          raw_receipt: Json | null
+          source: string
+          status: string
+          store_transaction_id: string | null
+          trial_ends_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean
+          canceled_at?: string | null
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          last_verified_at?: string | null
+          original_transaction_id?: string | null
+          plan_id: string
+          raw_receipt?: Json | null
+          source?: string
+          status?: string
+          store_transaction_id?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean
+          canceled_at?: string | null
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          last_verified_at?: string | null
+          original_transaction_id?: string | null
+          plan_id?: string
+          raw_receipt?: Json | null
+          source?: string
+          status?: string
+          store_transaction_id?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "user_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       wave1_pre_snapshot: {
         Row: {
           bill_payments: number
@@ -11630,6 +11766,19 @@ export type Database = {
             }
             Returns: Json
           }
+      get_my_plan: {
+        Args: never
+        Returns: {
+          current_period_end: string
+          features: Json
+          is_paid: boolean
+          plan_code: string
+          plan_name: string
+          source: string
+          status: string
+          trial_ends_at: string
+        }[]
+      }
       grant_platform_admin: {
         Args: {
           _role: Database["public"]["Enums"]["platform_role"]
