@@ -243,6 +243,11 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
 
   if (amount === null) return { kind: "unknown", text: raw };
 
+  // Hipótese/consultoria ("se eu tivesse 3 mil por mês") carrega valor mas NÃO
+  // é pedido de registro: nunca virar transação/transferência/aporte.
+  if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
+
+
   // Transfer
   if (/\btransfer(i|ir|indo|iu)\b/.test(lower) || /\bpassei? .* para\b/.test(lower)) {
     const parts = lower.match(/\bde\s+([\wçãéíáóêô ]+?)\s+para\s+([\wçãéíáóêô ]+)/);
