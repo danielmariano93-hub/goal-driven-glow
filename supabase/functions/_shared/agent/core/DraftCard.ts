@@ -75,3 +75,40 @@ export function renderReceiptCard(f: DraftCardFields, seed = ""): string {
     : "";
   return `${head}${tail}`;
 }
+
+const FIELD_LABEL: Record<string, string> = {
+  description: "Descrição",
+  category_id: "Categoria",
+  amount: "Valor",
+  occurred_at: "Data",
+  notes: "Observação",
+  payment_method: "Forma de pagamento",
+  account_id: "Conta",
+  credit_card_id: "Cartão",
+};
+
+export type UpdateCardChange = { field: string; from?: string | null; to?: string | null };
+
+/** Cartão de edição: o usuário vê o que muda, em português, não `category_id=`. */
+export function renderUpdateCard(
+  changes: UpdateCardChange[],
+  scope: "one" | "future" | "all",
+  seed = "",
+): string {
+  const scopeText = scope === "one"
+    ? "só neste lançamento"
+    : scope === "future"
+    ? "neste e nos próximos"
+    : "em todas as parcelas";
+  const body = changes.map((c) => {
+    const label = FIELD_LABEL[c.field] ?? c.field;
+    const to = c.to ?? "—";
+    return c.from && c.from !== to
+      ? `• *${label}:* ${c.from} → ${to}`
+      : `• *${label}:* ${to}`;
+  });
+  const ask = pickVariant("draft_ask", `${seed}|${scope}|${changes.length}`);
+  return `Ajuste anotado, ${scopeText}:\n\n${body.join("\n")}\n\n${ask}`;
+}
+
+export { BRL as draftCardBRL, dateBR as draftCardDateBR };

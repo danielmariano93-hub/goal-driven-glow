@@ -24,7 +24,7 @@ import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
-import { renderDraftCard, renderReceiptCard } from "./core/DraftCard.ts";
+import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, draftCardDateBR } from "./core/DraftCard.ts";
 import { confirmationExecutor } from "./core/PendingConfirmations.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
@@ -913,6 +913,27 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
     `Editar lançamento (${scope === "one" ? "esta parcela" : scope === "future" ? "esta e futuras" : "todas as parcelas"}): ` +
     Object.entries(patch).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
 
+  // Cartão humano da edição: nomes reais no lugar de ids técnicos.
+  const newCategoryName = patch.category_id
+    ? await categoryNameById(ctx, String(patch.category_id))
+    : (Object.hasOwn(patch, "category_id") ? "eu classifico depois" : null);
+  const oldCategoryName = (tx as any).category_id
+    ? await categoryNameById(ctx, String((tx as any).category_id))
+    : null;
+  const changes = Object.keys(patch).map((field) => {
+    if (field === "category_id") return { field, from: oldCategoryName, to: newCategoryName };
+    if (field === "amount") {
+      return { field, from: draftCardBRL.format(Number((tx as any).amount ?? 0)), to: draftCardBRL.format(Number(patch.amount)) };
+    }
+    if (field === "occurred_at") {
+      return { field, from: draftCardDateBR(String((tx as any).occurred_at)), to: draftCardDateBR(String(patch.occurred_at)) };
+    }
+    if (field === "description") return { field, from: (tx as any).description ?? null, to: String(patch.description ?? "—") };
+    if (field === "payment_method") return { field, from: null, to: patch.payment_method === "credit_card" ? "cartão de crédito" : "conta" };
+    if (field === "account_id" || field === "credit_card_id") return null;
+    return { field, from: null, to: String(patch[field] ?? "—") };
+  }).filter(Boolean) as Array<{ field: string; from?: string | null; to?: string | null }>;
+
   const payload = {
     transaction_id: id,
     expected_version: (tx as any).version ?? 1,
@@ -929,7 +950,14 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
   };
   const draftId = await upsertDraft(ctx, "transaction_update", payload, summary);
   if (!draftId) return { ok: false, error: "draft_failed" };
-  return { ok: true, result: { draft_id: draftId, summary, transaction_id: id, scope, patch, before: (payload as any).before } };
+  return {
+    ok: true,
+    result: {
+      draft_id: draftId, summary, transaction_id: id, scope, patch,
+      before: (payload as any).before,
+      card_text: renderUpdateCard(changes, scope, draftId),
+    },
+  };
 }
 
 export async function draft_transaction_delete(ctx: ToolContext, args: {
