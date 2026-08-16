@@ -203,8 +203,32 @@ export interface MerchantResolver {
 }
 
 /**
- * Cria o resolvedor canônico. Precedência: alias do usuário/global (quando
- * confiança >= 0.5) → marca conhecida → texto normalizado.
+ * Aliases genéricos jamais impõem identidade/categoria: são prefixos de POS,
+ * não estabelecimentos. Governança de `merchant_truth.v2` (alias hygiene).
+ */
+const GENERIC_ALIAS_KEYS = new Set([
+  "pay", "est", "pag", "pagto", "compra", "celular", "conta", "loja", "mercado",
+  "posto", "farmacia", "padaria", "restaurante", "servico", "servicos", "outros",
+]);
+
+/** Classificação de risco de um alias aprendido. */
+export function aliasSafety(alias: MerchantAliasRow & { confirmed?: boolean }): "safe" | "needs_review" | "dangerous" {
+  const key = normalizeMerchant(alias.alias_normalized ?? null);
+  if (!key) return "dangerous";
+  if (GENERIC_ALIAS_KEYS.has(key)) return "dangerous";
+  const tokens = key.split(" ").filter(Boolean);
+  const specific = key.length >= 4 || tokens.some((tk) => NUMERIC_BRAND_TOKENS.has(tk));
+  if (!specific) return "dangerous";
+  const confidence = typeof alias.confidence === "number" ? alias.confidence : 0;
+  if (alias.confirmed && confidence >= 0.9) return "safe";
+  if (confidence >= 0.9) return "needs_review";
+  return "needs_review";
+}
+
+/**
+ * Cria o resolvedor canônico. Precedência: alias específico do usuário/global
+ * (confiança >= 0.5 e não genérico) → marca conhecida → texto normalizado.
+ * Intermediadores de pagamento sozinhos não resolvem estabelecimento.
  */
 export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): MerchantResolver {
   const aliasMap = new Map<string, string>();
@@ -213,6 +237,7 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
     const canonical = (a.canonical_name ?? "").trim();
     if (!normalized || !canonical) continue;
     if (typeof a.confidence === "number" && a.confidence < 0.5) continue;
+    if (aliasSafety(a) === "dangerous") continue;
     aliasMap.set(normalized, canonical);
   }
 
@@ -223,21 +248,30 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
       const cacheKey = String(raw ?? "");
       if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null;
 
+      const base = baseText(raw);
       const normalized = normalizeMerchant(raw);
       let resolution: MerchantResolution | null = null;
 
+      // Marca conhecida vence intermediador e ruído, mesmo antes da limpeza.
+      const brandFromBase = base ? KNOWN_BRANDS.find((b) => b.match.test(base)) : undefined;
+
+      if (isPassThroughMerchant(raw)) {
+        cache.set(cacheKey, null);
+        return null;
+      }
+
       if (normalized) {
         const alias = aliasMap.get(normalized);
-        if (alias) {
+        const brand = brandFromBase ?? KNOWN_BRANDS.find((b) => b.match.test(normalized));
+        if (brand) {
+          resolution = { key: brand.canonical.toLowerCase(), label: brand.canonical, source: "brand" };
+        } else if (alias) {
           resolution = { key: alias.toLowerCase(), label: alias, source: "alias" };
         } else {
-          const brand = KNOWN_BRANDS.find((b) => b.match.test(normalized));
-          if (brand) {
-            resolution = { key: brand.canonical.toLowerCase(), label: brand.canonical, source: "brand" };
-          } else {
-            resolution = { key: normalized, label: merchantLabel(normalized), source: "normalized" };
-          }
+          resolution = { key: normalized, label: merchantLabel(normalized), source: "normalized" };
         }
+      } else if (brandFromBase) {
+        resolution = { key: brandFromBase.canonical.toLowerCase(), label: brandFromBase.canonical, source: "brand" };
       }
 
       cache.set(cacheKey, resolution);
@@ -245,6 +279,7 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
     },
   };
 }
+
 
 /** Resolve um termo digitado pelo usuário ("uber", "ifood") para chave canônica. */
 export function merchantQueryKey(term: string, resolver?: MerchantResolver): string | null {
