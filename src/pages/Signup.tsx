@@ -155,7 +155,15 @@ export default function Signup() {
               </button>
 
               <p className="text-center text-xs text-muted-foreground">
-                Ao criar sua conta, você concorda com nossos termos e política de privacidade.
+                Ao criar sua conta, você concorda com os{" "}
+                <a href="/termos" className="underline">
+                  Termos de Uso
+                </a>{" "}
+                e a{" "}
+                <a href="/privacidade" className="underline">
+                  Política de Privacidade
+                </a>
+                .
               </p>
             </form>
           )}
