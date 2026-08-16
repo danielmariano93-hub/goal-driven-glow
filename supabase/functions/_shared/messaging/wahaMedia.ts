@@ -364,6 +364,9 @@ export function audioFailureReply(code: AudioTranscriptionCode, firstName?: stri
       return `${hi}o áudio chegou vazio aqui. Grava de novo ou me manda por texto?`;
     case "unsupported_format":
       return `${hi}não consegui abrir esse formato de áudio. Grava direto aqui no WhatsApp ou me escreve que eu já cuido.`;
+    case "download_failed":
+      return `${hi}não consegui baixar seu áudio agora 🙏 Manda de novo em alguns segundos ou me escreve em texto que eu já resolvo.`;
+
     default:
       return `${hi}não consegui entender o áudio dessa vez 🙏 Pode repetir gravando de novo ou me escrever em texto?`;
   }
