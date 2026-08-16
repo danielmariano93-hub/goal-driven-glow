@@ -29,6 +29,8 @@ export type MediaHint = {
   mimeType?: string;
   filename?: string;
   directPath?: string;
+  /** Identificador próprio do arquivo, quando diferente do ID da mensagem. */
+  fileId?: string;
   chatId?: string;
   id?: string | { serialized?: string; _serialized?: string };
   messageTimestamp?: number | string;
@@ -224,6 +226,7 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
       return {
         url, mediaUrl, base64: b64, data: b64, mime_type: mime, mimetype: mime,
         filename, directPath: asStr(get(rootMedia, "directPath")),
+        fileId: asStr(get(rootMedia, "id")) ?? asStr(get(rootMedia, "fileId")) ?? asStr(get(rootMedia, "file_id")),
         chatId: asStr(get(pl, "from")), id: get(pl, "id") as MediaHint["id"],
         messageTimestamp: get(pl, "timestamp") as number | string | undefined,
         seconds: asNum(get(rootMedia, "seconds")) ?? asNum(get(pl, "duration")),
@@ -248,6 +251,7 @@ function resolveMedia(pl: unknown): MediaHint | undefined {
         url: asStr(get(aud, "url")),
         mediaUrl: asStr(get(aud, "mediaUrl")),
         directPath: asStr(get(aud, "directPath")),
+        fileId: asStr(get(aud, "id")) ?? asStr(get(aud, "fileId")) ?? asStr(get(aud, "fileSha256")),
         base64: asStr(get(aud, "base64")) ?? asStr(get(aud, "data")),
         mime_type: asStr(get(aud, "mimetype")) ?? "audio/ogg",
         mimetype: asStr(get(aud, "mimetype")) ?? "audio/ogg",

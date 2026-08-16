@@ -2,6 +2,7 @@
 // Ordem prioritária para imagens: base64 inline -> mediaUrl HTTPS autenticada -> endpoint WAHA -> fallbacks.
 
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
+import { OggOpusDecoder } from "npm:ogg-opus-decoder@1.7.3";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
@@ -29,6 +30,8 @@ export type MediaHint = {
   data?: string;
   body?: string;
   directPath?: string;
+  /** Identificador do arquivo no provedor; não é necessariamente o ID da mensagem. */
+  fileId?: string;
   mediaKey?: string;
   mediaSize?: number;
   mediaType?: string;
@@ -69,7 +72,7 @@ function base64ToBytes(b64: string): Uint8Array | null {
   } catch { return null; }
 }
 
-export type DownloadCode = "mime_not_allowed" | "size_exceeds" | "download_failed" | "empty" | "magic_mismatch" | "no_url" | "unsafe_url" | "timeout";
+export type DownloadCode = "mime_not_allowed" | "size_exceeds" | "download_failed" | "provider_unauthorized" | "media_not_found" | "empty" | "magic_mismatch" | "no_url" | "unsafe_url" | "timeout";
 export type DownloadResult =
   | { ok: true; bytes: Uint8Array; mime_type: string; filename: string }
   | { ok: false; code: DownloadCode; detail?: string };
@@ -79,6 +82,8 @@ async function fetchWithLimits(url: string, headers: Record<string, string>, kin
   const timer = setTimeout(() => ac.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
     const r = await fetch(url, { headers, redirect: "error", signal: ac.signal });
+    if (r.status === 401 || r.status === 403) return { ok: false, code: "provider_unauthorized", detail: `status_${r.status}` };
+    if (r.status === 404) return { ok: false, code: "media_not_found", detail: "status_404" };
     if (!r.ok) return { ok: false, code: "download_failed", detail: `status_${r.status}` };
     const declaredLength = Number(r.headers.get("content-length") ?? 0);
     if (declaredLength > MAX_BYTES) return { ok: false, code: "size_exceeds", detail: String(declaredLength) };
@@ -107,8 +112,8 @@ async function fetchWithLimits(url: string, headers: Record<string, string>, kin
   } finally { clearTimeout(timer); }
 }
 
-function authHeaderCandidates(apiKey: string): Array<Record<string, string>> {
-  return [{ "X-Api-Key": apiKey }, { "X-API-Key": apiKey }, { Authorization: `Bearer ${apiKey}` }];
+function providerAuthHeaders(apiKey: string): Record<string, string> {
+  return { "X-Api-Key": apiKey };
 }
 
 function serializedId(value: MediaHint["id"] | string | undefined): string {
@@ -122,51 +127,138 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
   return path;
 }
 
-function endpointCandidates(apiUrl: string, session: string, messageId: string, media?: MediaHint): string[] {
+type MediaCandidate = { url: string; family: string; descriptor?: boolean };
+
+function trustedMediaPath(raw: string | undefined): string | null {
+  if (!raw || raw.includes("\\") || raw.includes("..")) return null;
+  let path = raw.trim();
+  try {
+    const parsed = new URL(path.includes("://") ? path : `https://placeholder.invalid/${path.replace(/^\/+/, "")}`);
+    if (parsed.username || parsed.password) return null;
+    path = parsed.pathname + parsed.search;
+  } catch {
+    return null;
+  }
+  if (!path.startsWith("/")) path = `/${path}`;
+  // Somente rotas de mídia do próprio WAHA podem ser rebaseadas na origem
+  // confiável. Caminhos CDN/WhatsApp nunca recebem a chave do provedor.
+  return /^\/api\/(?:files(?:\/|\?)|[^/]+\/(?:files|messages|chats)\/)/.test(path) ? path : null;
+}
+
+function endpointCandidates(apiUrl: string, session: string, messageId: string, media?: MediaHint): MediaCandidate[] {
   const base = apiUrl.replace(/\/$/, "");
-  const candidates: string[] = [];
+  const candidates: MediaCandidate[] = [];
+  const realPaths = [media?.url, media?.mediaUrl, media?.directPath]
+    .map(trustedMediaPath)
+    .filter((path): path is string => Boolean(path));
+  for (const path of realPaths) candidates.push({ url: `${base}${path}`, family: "payload_path" });
   const configured = typeof globalThis.Deno !== "undefined"
     ? globalThis.Deno.env.get("WAHA_MEDIA_ENDPOINT_TEMPLATE")?.trim()
     : undefined;
   if (configured) {
     const path = renderTemplate(configured, { session, id: messageId, chatId: media?.chatId ?? "", timestamp: String(media?.messageTimestamp ?? "") });
-    if (path) candidates.push(`${base}${path}`);
+    if (path) candidates.push({ url: `${base}${path}`, family: "configured" });
   }
   const s = encodeURIComponent(session);
   const id = encodeURIComponent(messageId);
   const chat = media?.chatId ? encodeURIComponent(media.chatId) : "";
+  if (chat) {
+    candidates.push({
+      url: `${base}/api/${s}/chats/${chat}/messages/${id}?downloadMedia=true`,
+      family: "canonical_message",
+      descriptor: true,
+    });
+  }
+  const fileId = encodeURIComponent(media?.fileId ?? messageId);
   candidates.push(
-    `${base}/api/${s}/files/${id}`,
-    `${base}/api/${s}/messages/${id}/download`,
-    `${base}/api/files/${s}/${id}`,
-    `${base}/api/${s}/messages/${id}/media`,
+    { url: `${base}/api/${s}/files/${fileId}`, family: "session_file" },
+    { url: `${base}/api/${s}/messages/${id}/download`, family: "message_download" },
+    { url: `${base}/api/files/${s}/${fileId}`, family: "files_session" },
+    { url: `${base}/api/${s}/messages/${id}/media`, family: "message_media" },
   );
   if (chat) {
     candidates.push(
-      `${base}/api/${s}/chats/${chat}/messages/${id}/download`,
-      `${base}/api/${s}/chats/${chat}/messages/${id}/media`,
+      { url: `${base}/api/${s}/chats/${chat}/messages/${id}/download`, family: "chat_download" },
+      { url: `${base}/api/${s}/chats/${chat}/messages/${id}/media`, family: "chat_media" },
     );
   }
-  return [...new Set(candidates)];
+  const seen = new Set<string>();
+  return candidates.filter(({ url }) => !seen.has(url) && Boolean(seen.add(url)));
 
 }
 
 export type FetchResult = { ok: true; bytes: Uint8Array } | { ok: false; code: DownloadCode; detail?: string };
 
+async function fetchWahaDescriptor(url: string, apiKey: string): Promise<
+  | { ok: true; mediaUrl?: string; base64?: string }
+  | { ok: false; code: DownloadCode; detail?: string }
+> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers: providerAuthHeaders(apiKey), redirect: "error", signal: controller.signal });
+    if (response.status === 401 || response.status === 403) return { ok: false, code: "provider_unauthorized", detail: `status_${response.status}` };
+    if (response.status === 404) return { ok: false, code: "media_not_found", detail: "status_404" };
+    if (!response.ok) return { ok: false, code: "download_failed", detail: `status_${response.status}` };
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    const media = body?.media && typeof body.media === "object" ? body.media as Record<string, unknown> : null;
+    const mediaUrl = typeof media?.url === "string" ? media.url
+      : typeof media?.mediaUrl === "string" ? media.mediaUrl
+      : typeof body?.mediaUrl === "string" ? body.mediaUrl
+      : undefined;
+    const base64 = typeof media?.data === "string" ? media.data
+      : typeof media?.base64 === "string" ? media.base64
+      : undefined;
+    if (!mediaUrl && !base64) return { ok: false, code: "media_not_found", detail: "descriptor_without_media" };
+    return { ok: true, mediaUrl, base64 };
+  } catch (error) {
+    return { ok: false, code: (error as Error).name === "AbortError" ? "timeout" : "download_failed" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchWahaMedia(apiUrl: string, apiKey: string, session: string, messageId: string, media?: MediaHint, kind: MediaKind = "document"): Promise<FetchResult> {
   const guard = assertPublicHttpsUrl(`${apiUrl.replace(/\/$/, "")}/api/`);
   if (!guard.ok) return { ok: false, code: "unsafe_url", detail: guard.code };
-  let last: FetchResult = { ok: false, code: "download_failed", detail: "all_candidates_failed" };
-  for (const url of endpointCandidates(apiUrl, session, messageId, media)) {
-    for (const headers of authHeaderCandidates(apiKey)) {
-      const result = await fetchWithLimits(url, headers, kind);
-      if (result.ok === true) return result;
-      const fail = result as Extract<FetchResult, { ok: false }>;
-      last = fail;
-      if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed"].includes(fail.code)) return fail;
+  let last: FetchResult = { ok: false, code: "media_not_found", detail: "all_candidates_not_found" };
+  const diagnostics: string[] = [];
+  for (const candidate of endpointCandidates(apiUrl, session, messageId, media)) {
+    if (candidate.descriptor) {
+      const descriptor = await fetchWahaDescriptor(candidate.url, apiKey);
+      if (descriptor.ok) {
+        if (descriptor.base64) {
+          const bytes = base64ToBytes(descriptor.base64);
+          if (bytes) return { ok: true, bytes };
+        }
+        const path = trustedMediaPath(descriptor.mediaUrl);
+        if (path) {
+          const resolved = await fetchWithLimits(`${apiUrl.replace(/\/$/, "")}${path}`, providerAuthHeaders(apiKey), kind);
+          if (resolved.ok === true) return resolved;
+          const resolvedFailure = resolved as Extract<FetchResult, { ok: false }>;
+          diagnostics.push(`canonical_media:${resolvedFailure.detail ?? resolvedFailure.code}`);
+        } else {
+          diagnostics.push("canonical_media:unsafe_path");
+        }
+      } else {
+        const descriptorFailure = descriptor as Extract<typeof descriptor, { ok: false }>;
+        diagnostics.push(`${candidate.family}:${descriptorFailure.detail ?? descriptorFailure.code}`);
+        if (["provider_unauthorized", "timeout"].includes(descriptorFailure.code)) {
+          return { ok: false, code: descriptorFailure.code, detail: diagnostics.join(";").slice(0, 400) };
+        }
+      }
+      continue;
+    }
+    const result = await fetchWithLimits(candidate.url, providerAuthHeaders(apiKey), kind);
+    if (result.ok === true) return result;
+    const fail = result as Extract<FetchResult, { ok: false }>;
+    diagnostics.push(`${candidate.family}:${fail.detail ?? fail.code}`);
+    last = fail;
+    if (["size_exceeds", "unsafe_url", "timeout", "mime_not_allowed", "provider_unauthorized"].includes(fail.code)) {
+      return { ...fail, detail: diagnostics.join(";").slice(0, 400) };
     }
   }
-  return last;
+  return { ...last, detail: diagnostics.join(";").slice(0, 400) || last.detail };
 }
 
 /** Resumo diagnóstico da mídia inbound — sem URLs, sem bytes, sem PII. */
@@ -218,7 +310,7 @@ export async function downloadInboundMedia(opts: { media: MediaHint | undefined;
       const headerSets: Array<Record<string, string>> = [{}];
       try {
         if (opts.apiUrl && opts.apiKey && new URL(directUrl).origin === new URL(opts.apiUrl).origin) {
-          headerSets.unshift(...authHeaderCandidates(opts.apiKey));
+          headerSets.unshift(providerAuthHeaders(opts.apiKey));
         }
       } catch { /* URLs já foram validadas */ }
       for (const headers of headerSets) {
@@ -284,14 +376,13 @@ function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kin
 // entra no mesmo pipeline textual do Nino — registrar gasto, perguntar, tudo.
 // Assim não existe uma "inteligência de áudio" paralela para manter.
 //
-// Nota técnica: o WhatsApp envia OGG/Opus, formato recusado pelo endpoint
-// dedicado de transcrição. Usamos o modelo multimodal do gateway, que aceita
-// `input_audio` em ogg/mp3/m4a/wav/webm.
+// O WhatsApp envia OGG/Opus. Antes da transcrição, decodificamos para WAV PCM
+// completo para evitar diferenças de suporte entre engines e contêineres.
 
 type AudioDownload = DownloadResult;
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-3.6-flash";
+const TRANSCRIPTION_GATEWAY = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
+const TRANSCRIPTION_MODEL = "openai/gpt-4o-transcribe";
 /** ~2 minutos de voz do WhatsApp em Opus. Acima disso recusamos com explicação. */
 const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 150;
@@ -345,13 +436,83 @@ function durationSeconds(hint: AudioHint): number | null {
   return Number.isFinite(raw) && raw > 0 ? raw : null;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+function writeAscii(view: DataView, offset: number, value: string): void {
+  for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+}
+
+export function pcmFloatToWav(channelData: Float32Array[], sampleRate: number): Uint8Array {
+  if (!channelData.length || !channelData[0]?.length || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+    throw new Error("invalid_pcm");
   }
-  return btoa(bin);
+  const channels = Math.min(channelData.length, 2);
+  const samples = Math.min(...channelData.slice(0, channels).map((channel) => channel.length));
+  const dataBytes = samples * channels * 2;
+  const out = new Uint8Array(44 + dataBytes);
+  const view = new DataView(out.buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, dataBytes, true);
+  let offset = 44;
+  for (let sample = 0; sample < samples; sample++) {
+    for (let channel = 0; channel < channels; channel++) {
+      const value = Math.max(-1, Math.min(1, channelData[channel][sample] ?? 0));
+      view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return out;
+}
+
+async function normalizeAudioForTranscription(bytes: Uint8Array, mime: string): Promise<{ bytes: Uint8Array; mime: string; filename: string }> {
+  if (mime !== "audio/ogg" && mime !== "audio/opus") {
+    const extension = FORMAT_BY_MIME[mime] ?? "wav";
+    return { bytes, mime, filename: `recording.${extension}` };
+  }
+  const decoder = new OggOpusDecoder();
+  try {
+    await decoder.ready;
+    const decoded = decoder.decode(bytes);
+    if (!decoded.samplesDecoded || !decoded.channelData.length) throw new Error("empty_decode");
+    return { bytes: pcmFloatToWav(decoded.channelData, decoded.sampleRate), mime: "audio/wav", filename: "recording.wav" };
+  } finally {
+    decoder.free();
+  }
+}
+
+async function readTranscriptionStream(response: Response): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let transcript = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = done ? "" : lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === "[DONE]") continue;
+      try {
+        const event = JSON.parse(raw) as { type?: string; delta?: string; text?: string };
+        if (event.type === "transcript.text.delta" && event.delta) transcript += event.delta;
+        if (event.type === "transcript.text.done" && event.text) transcript = event.text;
+      } catch { /* evento parcial/inválido é ignorado */ }
+    }
+    if (done) break;
+  }
+  return transcript.trim();
 }
 
 /** Mensagem curta e honesta para cada falha — nunca silêncio. */
@@ -411,8 +572,7 @@ export async function transcribeInboundAudio(args: {
   if (dl.bytes.length > MAX_AUDIO_BYTES) return { ok: false, code: "too_long", detail: String(dl.bytes.length) };
   if (dl.bytes.length < 512) return { ok: false, code: "empty_audio" };
 
-  const format = FORMAT_BY_MIME[dl.mime_type];
-  if (!format) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
+  if (!FORMAT_BY_MIME[dl.mime_type]) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
 
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
@@ -420,42 +580,34 @@ export async function transcribeInboundAudio(args: {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
   try {
-    const resp = await fetch(GATEWAY, {
+    let normalized: Awaited<ReturnType<typeof normalizeAudioForTranscription>>;
+    try {
+      normalized = await normalizeAudioForTranscription(dl.bytes, dl.mime_type);
+    } catch {
+      return { ok: false, code: "unsupported_format", detail: "decode_failed" };
+    }
+    if (normalized.bytes.length > 25 * 1024 * 1024) return { ok: false, code: "too_long", detail: String(normalized.bytes.length) };
+    const form = new FormData();
+    form.append("model", TRANSCRIPTION_MODEL);
+    const ownedBytes = new Uint8Array(normalized.bytes.byteLength);
+    ownedBytes.set(normalized.bytes);
+    form.append("file", new Blob([ownedBytes.buffer], { type: normalized.mime }), normalized.filename);
+    form.append("stream", "true");
+    const resp = await fetch(TRANSCRIPTION_GATEWAY, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
+        Authorization: `Bearer ${key}`,
         "X-Lovable-AIG-SDK": "edge-function",
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Transcreva literalmente o áudio em português do Brasil. Devolva SOMENTE a transcrição, "
-              + "sem comentários, sem aspas, sem rótulos. Números e valores em dígitos (ex.: 32 reais). "
-              + "Se não houver fala audível, devolva exatamente: [SEM_FALA].",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Transcreva este áudio." },
-              { type: "input_audio", input_audio: { data: bytesToBase64(dl.bytes), format } },
-            ],
-          },
-        ],
-      }),
+      body: form,
     });
     if (!resp.ok) {
       const detail = (await resp.text().catch(() => "")).slice(0, 200);
       console.error("[audio] transcription_http", resp.status, detail);
       return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
     }
-    const json = await resp.json().catch(() => null) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
-    const text = String(json?.choices?.[0]?.message?.content ?? "").trim();
+    const text = await readTranscriptionStream(resp);
     if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
     return { ok: true, text: text.slice(0, 1500), mime_type: dl.mime_type, bytes: dl.bytes.length };
   } catch (e) {
