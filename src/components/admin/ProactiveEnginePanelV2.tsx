@@ -60,6 +60,17 @@ type PreviewItem = {
   evidence?: Record<string, unknown>;
 };
 
+type EffectivenessRow = {
+  kind: string;
+  total: number;
+  delivered: number;
+  suppressed: number;
+  acted: number;
+  dismissed: number;
+  not_useful: number;
+  action_rate: number;
+};
+
 const rpc = (supabase as unknown as {
   rpc: (name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string; code?: string } | null }>;
 }).rpc.bind(supabase);
