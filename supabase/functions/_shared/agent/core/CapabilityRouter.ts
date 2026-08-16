@@ -5,6 +5,7 @@ import type { ParsedIntent } from "../parser.ts";
 import { parseBrAmount, shiftSaoPaulo, todaySaoPaulo } from "../parser.ts";
 import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
+import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 
 export type CapabilityName =
   | "weekday_pattern"
@@ -22,6 +23,7 @@ export type CapabilityName =
   | "financial_analysis"
   | "forecast_month_close"
   | "money_leaks"
+  | "advisor_consult"
   | "debt_status"
   | "insights"
   | "shared_goals"
@@ -63,6 +65,10 @@ const GROUPS = {
   leaks: [
     "analyze_merchants", "merchant_profile", "discover_recurring", "analyze_cost_structure",
     "find_savings_opportunities", "detect_spending_anomalies", "explain_behavior_change",
+  ],
+  advisor: [
+    "plan_installment_decision", "find_savings_opportunities", "get_financial_snapshot",
+    "forecast_month_close", "analyze_cost_structure", "get_debt_status", "run_before_spending",
   ],
   debts: ["get_debt_status", "list_recent_transactions", "get_financial_snapshot"],
   sharedGoals: [
@@ -207,6 +213,40 @@ export function classifyCapability(
     return {
       name: "goals_overview", execution: "deterministic", allowed_tools: ["get_goals_overview"],
       required_tool: "get_goals_overview", context: {}, reason: "canonical_goals_overview",
+    };
+  }
+
+  // CONSULTORIA — o Nino como consultor, não só assistente. Decisão de
+  // afordabilidade/parcelamento e plano de redução vêm de motor determinístico.
+  const advisorIntent = classifyAdvisorIntent(text);
+  if (advisorIntent) {
+    const amount = extractAmount(text);
+    const installments = installmentsFromText(text);
+    if (advisorIntent === "affordability" && amount) {
+      return {
+        name: "advisor_consult", execution: "deterministic", allowed_tools: GROUPS.advisor,
+        required_tool: "plan_installment_decision",
+        context: { metrics: true, categoryGoals: true, accounts: true, cards: true },
+        tool_args: { amount, installments: installments ?? 1 },
+        reason: "advisor_installment_decision",
+      };
+    }
+    if (advisorIntent === "affordability") {
+      return {
+        name: "advisor_consult", execution: "deterministic", allowed_tools: GROUPS.advisor,
+        required_tool: null, context: { metrics: true },
+        clarification: "Qual valor você está pensando e em quantas vezes? Com isso eu te digo se cabe no seu mês.",
+        reason: "advisor_missing_amount",
+      };
+    }
+    // Redução e trade-off: economia real primeiro; se houver valor citado, a
+    // decisão parcelada entra na mesma resposta.
+    return {
+      name: "advisor_consult", execution: "llm_scoped", allowed_tools: GROUPS.advisor,
+      required_tool: "find_savings_opportunities",
+      context: { metrics: true, categoryGoals: true },
+      tool_args: amount ? { days: 90 } : { days: 90 },
+      reason: advisorIntent === "tradeoff" ? "advisor_tradeoff" : "advisor_reduction_plan",
     };
   }
 
