@@ -263,10 +263,10 @@ export function buildMerchantResolver(aliases: MerchantAliasRow[] = []): Merchan
       if (normalized) {
         const alias = aliasMap.get(normalized);
         const brand = brandFromBase ?? KNOWN_BRANDS.find((b) => b.match.test(normalized));
-        if (brand) {
-          resolution = { key: brand.canonical.toLowerCase(), label: brand.canonical, source: "brand" };
-        } else if (alias) {
+        if (alias) {
           resolution = { key: alias.toLowerCase(), label: alias, source: "alias" };
+        } else if (brand) {
+          resolution = { key: brand.canonical.toLowerCase(), label: brand.canonical, source: "brand" };
         } else {
           resolution = { key: normalized, label: merchantLabel(normalized), source: "normalized" };
         }
