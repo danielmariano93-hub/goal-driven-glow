@@ -121,6 +121,22 @@ export function decideByCuratedCatalog(raw: string, candidates: CategoryCandidat
   const hit=matchCuratedMerchant(raw); if (!hit) return null; const id=matchByName(candidates,hit.semantic_category); if (!id) return null;
   return { category_id:id, category_source:"global", category_confidence:0.99, category_reason:`catálogo global curado: ${hit.canonical_name}` };
 }
+/**
+ * Marcas autoritativas vencem qualquer aprendizado (alias/preferência) porque o
+ * aprendizado pode ter sido poluído por importação. Ex.: "99 FOOD02/08" jamais
+ * é Transporte; "Seguro do cartão" jamais é Assinaturas.
+ */
+export function decideByAuthoritativeMerchant(raw: string, candidates: CategoryCandidate[]): CategoryDecision | null {
+  const hit=matchAuthoritativeMerchant(raw); if (!hit) return null; const id=matchByName(candidates,hit.semantic_category); if (!id) return null;
+  return { category_id:id, category_source:"global", category_confidence:0.99, category_reason:`marca canônica: ${hit.canonical_name}` };
+}
+/**
+ * Intermediador de pagamento sozinho não é evidência categórica: o lançamento
+ * fica sem categoria (necessita revisão) em vez de herdar um alias inventado.
+ */
+export function isPassThroughOnly(raw: string | null | undefined): boolean {
+  return isPassThroughDescriptor(raw);
+}
 export function decideByRule(description: string, candidates: CategoryCandidate[]): CategoryDecision | null {
   const target=description.toLowerCase(); for (const r of RULES) if (r.pattern.test(target)) { const id=matchByName(candidates,r.category); if (id) return { category_id:id, category_source:"rule", category_confidence:0.75, category_reason:`regra: ${r.category}` }; } return null;
 }
