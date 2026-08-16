@@ -23,7 +23,7 @@ const VENDOR_WORD = String.raw`(?:google|openai|open\s?ai|anthropic|gemini|gpt(?
 const VENDOR_CLAUSES: RegExp[] = [
   // "criado/desenvolvido/treinado/feito pelo Google", "baseado no GPT-4"
   new RegExp(
-    String.raw`[,;]?\s*(?:fui\s+|sou\s+)?(?:criad[oa]|desenvolvid[oa]|treinad[oa]|feit[oa]|constru[íi]d[oa]|basead[oa]|alimentad[oa]|powered)\s+(?:pel[oa]s?|por|no|na|em|com|pela\s+)?\s*(?:empresa\s+|modelo\s+|tecnologia\s+)?${VENDOR_WORD}[a-z0-9.\- ]{0,20}`,
+    String.raw`[,;]?\s*(?:fui\s+|sou\s+)?(?:criad[oa]|desenvolvid[oa]|treinad[oa]|feit[oa]|constru[íi]d[oa]|basead[oa]|alimentad[oa]|powered)\s+(?:pel[oa]s?|por|no|na|em|com|pela\s+)?\s*(?:empresa\s+|modelo\s+|tecnologia\s+)?${VENDOR_WORD}(?:[ -]?[0-9][0-9a-z.]*)?`,
     "gi",
   ),
   // "um modelo de linguagem do Google", "a IA da OpenAI"
