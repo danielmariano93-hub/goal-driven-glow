@@ -1,4 +1,5 @@
 import { decideCategoryDeterministic, loadEffectiveThresholds, shouldAutoApply, type AliasRow, type CategoryCandidate, type CategoryDecision, type GlobalKnowledgeRow, type HistoryRow, type PersonalPreferenceRow, type ThresholdOverrides } from "./pipeline.ts";
+import { isPassThroughDescriptor, matchAuthoritativeMerchant } from "./merchantCatalog.ts";
 import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
 
 export const CATEGORY_ENGINE_VERSION = "categorization_truth.v2";
@@ -32,7 +33,20 @@ export async function loadCategorizationContext(sb:any,userId:string,type:"incom
   for(const r of [catsRes,aliasesRes,prefsRes,globalRes]) if(r?.error) throw new Error(`categorization_context_failed:${r.error.message}`);
   const candidates:CategoryCandidate[]=(catsRes.data??[]).map((r:any)=>({id:r.id,name:r.name,slug:r.slug,user_id:r.user_id})).sort((a:any,b:any)=>Number(b.user_id===userId)-Number(a.user_id===userId));
   const candidateIds=new Set(candidates.map(c=>c.id));
-  const aliases:AliasRow[]=(aliasesRes.data??[]).filter((r:any)=>r.category_id&&candidateIds.has(r.category_id)&&(r.confirmed_by_user_at||r.learned_from==="manual"||r.learned_from==="confirmation")).map((r:any)=>({pattern:normalizedPattern(r.normalized_pattern??r.alias_key),category_id:r.category_id,confidence:Number(r.confidence??0.98)}));
+  // Higiene de alias (`merchant_truth.v2`): intermediador de pagamento e apelido
+  // que contradiz marca canônica NUNCA entram como verdade categórica.
+  const aliases:AliasRow[]=(aliasesRes.data??[])
+    .filter((r:any)=>r.category_id&&candidateIds.has(r.category_id)&&(r.confirmed_by_user_at||r.learned_from==="manual"||r.learned_from==="confirmation"))
+    .filter((r:any)=>{
+      const raw=String(r.normalized_pattern??r.alias_key??"");
+      if(isPassThroughDescriptor(raw))return false;
+      const brand=matchAuthoritativeMerchant(raw);
+      if(!brand)return true;
+      const target=candidates.find((c)=>c.id===r.category_id);
+      const same=(a?:string|null,b?:string|null)=>String(a??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")===String(b??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      return same(target?.name,brand.semantic_category);
+    })
+    .map((r:any)=>({pattern:normalizedPattern(r.normalized_pattern??r.alias_key),category_id:r.category_id,confidence:Number(r.confidence??0.98)}));
   // V2 never scans raw transaction history on the hot path. Personal truth is
   // materialized in user_merchant_preferences by explicit corrections/backfill.
   // This removes legacy/import/model poisoning and makes classification cost

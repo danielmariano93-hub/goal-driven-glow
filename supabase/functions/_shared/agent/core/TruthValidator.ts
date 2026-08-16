@@ -7,6 +7,7 @@
 
 export type TruthIssue =
   | { type: "value_not_in_evidence"; value: number }
+  | { type: "percent_not_in_evidence"; value: number }
   | { type: "period_mismatch"; expected: string; found: string }
   | { type: "no_evidence" };
 
@@ -18,7 +19,9 @@ export type TruthVerdict = {
 };
 
 const MONEY_RX = /R\$\s*(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:[.,]\d{1,2})?)/g;
+const PERCENT_RX = /(-?\d{1,3}(?:[.,]\d{1,2})?)\s*%/g;
 const YMD_RX = /\b(20\d{2})-(\d{2})-(\d{2})\b/g;
+
 
 function parseBrl(raw: string): number {
   const cleaned = raw.replace(/\./g, "").replace(",", ".");
@@ -72,7 +75,14 @@ export function validateAgainstEvidence(
     if (Number.isFinite(value) && value > 0) claimed.push(Math.round(value * 100) / 100);
   }
 
-  if (claimed.length === 0) {
+  // V2: percentuais/shares também são fatos. Ninguém "estima" participação.
+  const claimedPercents: number[] = [];
+  for (const match of String(reply ?? "").matchAll(PERCENT_RX)) {
+    const value = Math.abs(Number(String(match[1]).replace(",", ".")));
+    if (Number.isFinite(value)) claimedPercents.push(Math.round(value * 10) / 10);
+  }
+
+  if (claimed.length === 0 && claimedPercents.length === 0) {
     return { ok: true, issues, canonical_headline };
   }
   if (okCalls.length === 0) {
@@ -92,6 +102,20 @@ export function validateAgainstEvidence(
     if (!near(value) && !derived(value)) issues.push({ type: "value_not_in_evidence", value });
   }
 
+  // Um percentual é aceito quando: (a) o motor já o entregou (0..100 ou 0..1
+  // como share/delta_pct/coverage), ou (b) é a razão exata entre dois valores
+  // da evidência (tolerância de 1 ponto percentual).
+  const percentKnown = (value: number) => {
+    if (knownList.some((k) => Math.abs(k - value) <= 1)) return true;
+    if (knownList.some((k) => k <= 1.0001 && Math.abs(k * 100 - value) <= 1)) return true;
+    return knownList.some((a) =>
+      a > 0 && knownList.some((b) => b > 0 && Math.abs((b / a) * 100 - value) <= 1)
+    );
+  };
+  for (const value of claimedPercents) {
+    if (value > 0 && !percentKnown(value)) issues.push({ type: "percent_not_in_evidence", value });
+  }
+
   if (expectedPeriod?.from) {
     for (const match of String(reply ?? "").matchAll(YMD_RX)) {
       const found = match[0];
@@ -101,6 +125,7 @@ export function validateAgainstEvidence(
       }
     }
   }
+
 
   return { ok: issues.length === 0, issues, canonical_headline };
 }

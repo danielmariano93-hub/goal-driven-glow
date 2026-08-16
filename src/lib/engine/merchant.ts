@@ -69,8 +69,9 @@ const KNOWN_BRANDS: Array<{ match: RegExp; canonical: string }> = [
   { match: /\bifood\b|\bi food\b/, canonical: "iFood" },
   { match: /\buber\s*eats\b/, canonical: "Uber Eats" },
   { match: /\buber\b/, canonical: "Uber" },
-  // 99 Food (delivery) antes de 99 (mobilidade): sinal específico manda.
-  { match: /\b99\s*food\b|\b99foo\w*\b|\b99\s*foo\b/, canonical: "99 Food" },
+  // 99 Food (delivery) antes de 99 (mobilidade): sinal específico manda, mesmo
+  // com dígitos colados pelo extrato ("99 FOOD02/08", "PAY 99Foo", "99foo").
+  { match: /\b99\s*foo\w*|\b99foo\w*|\b99\s*food/, canonical: "99 Food" },
   { match: /\b99\s*(app|pop|taxi)\b|\b99app\b|(?:^|\s)99(?:$|\s)/, canonical: "99" },
   { match: /\brappi\b/, canonical: "Rappi" },
   { match: /\bnetflix\b/, canonical: "Netflix" },

@@ -1,5 +1,5 @@
 import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
-import { matchCuratedMerchant } from "./merchantCatalog.ts";
+import { isPassThroughDescriptor, matchAuthoritativeMerchant, matchCuratedMerchant } from "./merchantCatalog.ts";
 
 export type CategorySource = "user" | "personal" | "alias" | "history" | "global" | "rule" | "llm" | "none";
 export type CategoryDecision = {
@@ -121,6 +121,22 @@ export function decideByCuratedCatalog(raw: string, candidates: CategoryCandidat
   const hit=matchCuratedMerchant(raw); if (!hit) return null; const id=matchByName(candidates,hit.semantic_category); if (!id) return null;
   return { category_id:id, category_source:"global", category_confidence:0.99, category_reason:`catálogo global curado: ${hit.canonical_name}` };
 }
+/**
+ * Marcas autoritativas vencem qualquer aprendizado (alias/preferência) porque o
+ * aprendizado pode ter sido poluído por importação. Ex.: "99 FOOD02/08" jamais
+ * é Transporte; "Seguro do cartão" jamais é Assinaturas.
+ */
+export function decideByAuthoritativeMerchant(raw: string, candidates: CategoryCandidate[]): CategoryDecision | null {
+  const hit=matchAuthoritativeMerchant(raw); if (!hit) return null; const id=matchByName(candidates,hit.semantic_category); if (!id) return null;
+  return { category_id:id, category_source:"global", category_confidence:0.99, category_reason:`marca canônica: ${hit.canonical_name}` };
+}
+/**
+ * Intermediador de pagamento sozinho não é evidência categórica: o lançamento
+ * fica sem categoria (necessita revisão) em vez de herdar um alias inventado.
+ */
+export function isPassThroughOnly(raw: string | null | undefined): boolean {
+  return isPassThroughDescriptor(raw);
+}
 export function decideByRule(description: string, candidates: CategoryCandidate[]): CategoryDecision | null {
   const target=description.toLowerCase(); for (const r of RULES) if (r.pattern.test(target)) { const id=matchByName(candidates,r.category); if (id) return { category_id:id, category_source:"rule", category_confidence:0.75, category_reason:`regra: ${r.category}` }; } return null;
 }
@@ -132,8 +148,14 @@ export function decideByRefundOrigin(input:{description:string;candidates:Catego
 }
 export function decideCategoryDeterministic(input:{explicit?:string|null;description:string;candidates:CategoryCandidate[];aliases:AliasRow[];history:HistoryRow[];preferences?:PersonalPreferenceRow[];globalKnowledge?:GlobalKnowledgeRow[]}):CategoryDecision|null{
   const pattern=normalizedPattern(input.description);
-  return decideExplicit(input.explicit,input.candidates)
-    ?? decideByPersonalPreference(input.description,input.preferences??[])
+  const explicit=decideExplicit(input.explicit,input.candidates);
+  if(explicit)return explicit;
+  // Marca canônica antes de qualquer aprendizado (99 Food, Uber, Seguro de cartão).
+  const authoritative=decideByAuthoritativeMerchant(input.description,input.candidates);
+  if(authoritative)return authoritative;
+  // Intermediador de pagamento sozinho: sem evidência econômica, sem categoria.
+  if(isPassThroughOnly(input.description))return null;
+  return decideByPersonalPreference(input.description,input.preferences??[])
     ?? decideByAlias(pattern,input.aliases)
     ?? decideByFuzzyAlias(pattern,input.aliases)
     ?? decideByHistory(pattern,input.history)

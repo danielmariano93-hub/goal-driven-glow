@@ -8,7 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 type SupabaseClient = any;
 
-import { rankMerchants, merchantProfile, computeMerchantStats } from "../finance-core/merchantIntelligence.ts";
+import { rankMerchants, merchantProfile, computeMerchantStats, merchantDistribution } from "../finance-core/merchantIntelligence.ts";
 import { computeBehaviorChange } from "../finance-core/behaviorChange.ts";
 import { discoverRecurring } from "../finance-core/recurringDiscovery.ts";
 import { computeCostStructure } from "../finance-core/costStructure.ts";
@@ -164,6 +164,62 @@ export function analyze_merchants(
     );
   });
 }
+
+/**
+ * Distribuição determinística por estabelecimento dentro de uma categoria
+ * (`merchant_distribution.v1`). A LLM não calcula valor nem percentual: o
+ * denominador do share é SEMPRE o total real da categoria no período.
+ */
+export function merchant_distribution(
+  ctx: EngineToolContext,
+  args: { days?: number; from?: string; to?: string; category_id?: string; category_name?: string; limit?: number },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const period = periodFromArgs(args ?? {}, 30);
+    const [txs, aliases, categoryId, names] = await Promise.all([
+      loadEngineTransactions(ctx, period.from, period.to),
+      loadAliases(ctx),
+      resolveCategoryId(ctx, args ?? {}),
+      loadCategoryNames(ctx),
+    ]);
+    const categoryName = categoryId ? (names[categoryId] ?? null) : (args?.category_name ?? null);
+    const dist = merchantDistribution({
+      txs: txs as any,
+      period,
+      aliases,
+      categoryId,
+      categoryName,
+      limit: Math.max(3, Math.min(25, Number(args?.limit ?? 8))),
+    });
+    return { ...dist, engine: "merchant_distribution", answer_format: { headline: distributionHeadline(dist) } };
+  });
+}
+
+/** Headline canônica da distribuição — declara cobertura quando parcial. */
+export function distributionHeadline(dist: {
+  category: { name: string | null };
+  category_total: number;
+  resolved_total: number;
+  coverage: number;
+  merchants: Array<{ merchant: string; amount: number; share_of_category: number }>;
+  period: { from: string; to: string };
+}): string {
+  const scope = dist.category.name ? `em ${dist.category.name}` : "no período";
+  if (dist.category_total <= 0) {
+    return `Não encontrei gastos ${scope} entre ${formatDatePt(dist.period.from)} e ${formatDatePt(dist.period.to)}.`;
+  }
+  const top = dist.merchants[0];
+  const base = `Você gastou ${brl(dist.category_total)} ${scope} entre ${formatDatePt(dist.period.from)} e ${formatDatePt(dist.period.to)}`;
+  const lead = top
+    ? `; ${top.merchant} lidera com ${brl(top.amount)} (${Math.round(top.share_of_category * 100)}% da categoria)`
+    : "";
+  const cov = dist.coverage < 1
+    ? `. Identifiquei o estabelecimento de ${brl(dist.resolved_total)} desse total (${Math.round(dist.coverage * 100)}% de cobertura)`
+    : "";
+  return `${base}${lead}${cov}.`;
+}
+
+
 
 export function merchant_profile(
   ctx: EngineToolContext,

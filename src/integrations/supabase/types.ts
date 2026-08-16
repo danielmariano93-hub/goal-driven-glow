@@ -11733,6 +11733,7 @@ export type Database = {
         Args: { p_id: string; p_provider_message_id: string }
         Returns: undefined
       }
+      match_refund_candidate: { Args: { p_refund_id: string }; Returns: string }
       my_advisor_action_feedback: {
         Args: { _action_key: string; _review_id: string; _status: string }
         Returns: Json
@@ -12129,6 +12130,8 @@ export type Database = {
         Args: never
         Returns: undefined
       }
+      refund_matcher_run: { Args: { p_user_id?: string }; Returns: number }
+      refund_merchant_key: { Args: { p_text: string }; Returns: string }
       reprocess_rejected_items: {
         Args: { p_document_id: string; p_reason_codes?: string[] }
         Returns: Json
