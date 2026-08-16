@@ -1,4 +1,5 @@
 import { decideCategoryDeterministic, loadEffectiveThresholds, shouldAutoApply, type AliasRow, type CategoryCandidate, type CategoryDecision, type GlobalKnowledgeRow, type HistoryRow, type PersonalPreferenceRow, type ThresholdOverrides } from "./pipeline.ts";
+import { isPassThroughDescriptor, matchAuthoritativeMerchant } from "./merchantCatalog.ts";
 import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
 
 export const CATEGORY_ENGINE_VERSION = "categorization_truth.v2";
