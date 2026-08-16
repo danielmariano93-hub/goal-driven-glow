@@ -6,6 +6,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { decideCommunication, type CommunicationPreferences, type DeliveryHistory } from "../../intelligence/communicationPolicy.ts";
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 import { suggestionLogicalKey } from "../../intelligence/logicalDedup.ts";
+import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 
 
 export type DispatchOutcome = {
@@ -205,6 +206,39 @@ async function record(sb: SupabaseClient, args: {
   if (error) throw new Error(`communication_delivery:${error.message}`);
 }
 
+/** Renda operacional dos últimos 30 dias — base do piso de materialidade. */
+async function loadMonthlyIncome(sb: SupabaseClient, userId: string): Promise<number | null> {
+  const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const { data, error } = await sb.from("transactions")
+    .select("amount")
+    .eq("user_id", userId).eq("status", "confirmed").eq("type", "income")
+    .eq("movement_kind", "transaction")
+    .gte("occurred_at", from).limit(500);
+  if (error) return null;
+  const total = ((data as Array<{ amount: number }> | null) ?? [])
+    .reduce((sum, row) => sum + Math.abs(Number(row.amount) || 0), 0);
+  return total > 0 ? total : null;
+}
+
+export type KindLearning = { dismissals: number; actions: number; false_positives: number };
+
+/** Aprendizado por tipo: o que o usuário descarta perde vez; o que ele usa ganha. */
+async function loadKindLearning(sb: SupabaseClient, userId: string): Promise<Map<string, KindLearning>> {
+  const map = new Map<string, KindLearning>();
+  const { data, error } = await sb.from("insight_kind_learning")
+    .select("kind,dismissals,actions,false_positives")
+    .eq("user_id", userId);
+  if (error) return map;
+  for (const row of ((data as Array<{ kind: string } & KindLearning> | null) ?? [])) {
+    map.set(row.kind, {
+      dismissals: Number(row.dismissals) || 0,
+      actions: Number(row.actions) || 0,
+      false_positives: Number(row.false_positives) || 0,
+    });
+  }
+  return map;
+}
+
 export async function dispatchSuggestions(
   sb: SupabaseClient,
   userId: string,
@@ -257,6 +291,7 @@ export async function dispatchSuggestions(
   ]);
 
   const dryRunEarly = opts.dryRun === true;
+  const results: DispatchOutcome[] = [];
   const ranked = rankInsights(pool, (row) => {
     const evidence = (row.evidence ?? {}) as Record<string, unknown>;
     const stats = learning.get(row.kind);
@@ -301,7 +336,7 @@ export async function dispatchSuggestions(
           evidence: item.evidence, block_context: { policy_reason: drop, value_score: value.score },
         });
       }
-      results0.push({ id: item.id, channel: "app", status: "skipped", reason: drop });
+      results.push({ id: item.id, channel: "app", status: "skipped", reason: drop });
       continue;
     }
     seenTopics.add(topic);
@@ -311,8 +346,7 @@ export async function dispatchSuggestions(
   }
   const rollout: Array<"app" | "whatsapp"> = opts.channels?.length ? opts.channels : ["app", "whatsapp"];
   const targets: Array<"app" | "whatsapp"> = opts.channel ? [opts.channel] : ["app", "whatsapp"];
-  const dryRun = opts.dryRun === true;
-  const results: DispatchOutcome[] = [];
+  const dryRun = dryRunEarly;
 
   const { data: link, error: linkError } = await sb.from("whatsapp_links")
     .select("phone_e164").eq("user_id", userId).eq("status", "active")
