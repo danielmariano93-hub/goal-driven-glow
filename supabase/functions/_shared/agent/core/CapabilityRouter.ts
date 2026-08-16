@@ -17,6 +17,8 @@ export type CapabilityName =
   | "transaction_entry"
   | "transaction_management"
   | "visualization"
+  | "merchant_distribution"
+  | "financial_evolution"
   | "financial_analysis"
   | "forecast_month_close"
   | "money_leaks"
