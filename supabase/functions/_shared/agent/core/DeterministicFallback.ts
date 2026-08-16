@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { interpret, type ParsedIntent } from "../parser.ts";
 import { extractSpans } from "../extract.ts";
+import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 import {
   create_transaction_draft, create_transfer_draft,
   add_goal_contribution_draft,
