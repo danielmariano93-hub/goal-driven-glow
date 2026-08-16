@@ -225,12 +225,36 @@ export function classifyCapability(
     };
   }
 
-  if (/\b(grafico|visualizacao|chart|linha|barras|pizza|evolucao|tendencia|dia a dia|por dia)\b/.test(t)) {
+  // Distribuição de categoria por estabelecimento é determinística: total real
+  // da categoria + share por estabelecimento calculados no motor.
+  if (/\b(distribuicao|distribuido|composicao|quebra|detalhamento|abertura)\b.{0,40}\b(categoria|gasto|gastos|alimentacao|transporte|mercado|lazer|saude|assinatura)/.test(t)
+    || /\b(quais|que)\s+estabelecimentos?\b/.test(t)
+    || /\bonde\s+(?:mais\s+)?gast\w+\s+(?:em|com|na|no)\b/.test(t)) {
+    return {
+      name: "merchant_distribution", execution: "deterministic",
+      allowed_tools: ["merchant_distribution", "analyze_merchants", "list_categories"],
+      required_tool: "merchant_distribution", context: {}, reason: "canonical_merchant_distribution",
+    };
+  }
+
+  // Gráfico só quando o usuário pede visual explicitamente. "Evolução" e
+  // "tendência" sozinhas são ANÁLISE TEXTUAL (`nino_brain.v2`).
+  if (/\b(grafico|graficos|visualizacao|chart|em linha|em linhas|em barras|em pizza|em donut)\b/.test(t)) {
     return {
       name: "visualization", execution: "llm_scoped", allowed_tools: GROUPS.visualization,
       required_tool: "generate_chart_artifact", context: {}, reason: "artifact_requested",
     };
   }
+
+  if (/\b(evolucao|evoluindo|tendencia|dia a dia|por dia|diariamente|ritmo dos? gastos?|estou reduzindo|andando de lado)\b/.test(t)) {
+    return {
+      name: "financial_evolution", execution: "deterministic",
+      allowed_tools: ["analyze_financial_evolution", "explain_behavior_change", "get_spending_rhythm"],
+      required_tool: "analyze_financial_evolution", context: { metrics: true },
+      reason: "canonical_financial_evolution_textual",
+    };
+  }
+
 
   if (/\b(metas? conjunta|objetivo conjunto|ranking.*meta|contribuidores|participantes.*meta)\b/.test(t)) {
     return {
