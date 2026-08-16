@@ -1,5 +1,5 @@
 import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
-import { matchCuratedMerchant } from "./merchantCatalog.ts";
+import { isPassThroughDescriptor, matchAuthoritativeMerchant, matchCuratedMerchant } from "./merchantCatalog.ts";
 
 export type CategorySource = "user" | "personal" | "alias" | "history" | "global" | "rule" | "llm" | "none";
 export type CategoryDecision = {
