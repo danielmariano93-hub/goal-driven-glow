@@ -492,7 +492,7 @@ export interface MerchantDistribution {
 }
 
 export function merchantDistribution(
-  input: MerchantsInput & { categoryName?: string | null },
+  input: MerchantsInput & { categoryName?: string | null; periodLabel?: string | null },
 ): MerchantDistribution {
   const resolver = input.resolver ?? buildMerchantResolver(input.aliases ?? []);
   const current = computeMerchantStats({ ...input, resolver });
@@ -518,7 +518,7 @@ export function merchantDistribution(
     }));
 
   return {
-    period: { from: input.period.from, to: input.period.to, label: input.period.label ?? null },
+    period: { from: input.period.from, to: input.period.to, label: input.periodLabel ?? null },
     category: { id: input.categoryId ?? null, name: input.categoryName ?? null },
     category_total: categoryTotal,
     resolved_total: resolvedTotal,
