@@ -353,6 +353,32 @@
     min-height: 100dvh;
   }
 
+  /* iOS: status bar sobrepõe a WebView; cabeçalhos fixos ganham a área segura. */
+  .native-app header.sticky,
+  .native-app header.fixed {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .native-app {
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  /* Sem seleção/lupa acidental em rótulos, mantendo campos de texto normais. */
+  .native-app button,
+  .native-app nav,
+  .native-app header {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Evita zoom automático do iOS ao focar campos. */
+  .native-app input,
+  .native-app textarea,
+  .native-app select {
+    font-size: max(16px, 1rem);
+  }
+
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 

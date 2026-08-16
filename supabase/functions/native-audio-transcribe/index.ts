@@ -2,9 +2,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { z } from "npm:zod@3.23.8";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
+const ALLOWED_MIME = ["audio/aac", "audio/m4a", "audio/x-m4a", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/webm", "audio/wav"];
+
+// MediaRecorder envia "audio/webm;codecs=opus"; normalizamos antes de validar.
 const Body = z.object({
   audio: z.string().min(32).max(4_000_000),
-  mime_type: z.enum(["audio/aac", "audio/m4a", "audio/mp4", "audio/ogg", "audio/webm", "audio/wav"]),
+  mime_type: z
+    .string()
+    .transform((value) => value.split(";")[0].trim().toLowerCase())
+    .refine((value) => ALLOWED_MIME.includes(value), { message: "formato de áudio não suportado" }),
   duration_ms: z.number().int().positive().max(150_000),
 });
 
