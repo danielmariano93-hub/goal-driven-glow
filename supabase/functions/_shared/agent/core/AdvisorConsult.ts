@@ -106,7 +106,7 @@ export function planInstallmentDecision(input: AdvisorInstallmentInput): Advisor
       : round2(Number.isFinite(contracted) ? income - typical - debts - contracted : recurringFree);
     const freeAfter = round2(freeBefore - installmentAmount);
     timeline.push({
-      month: addMonth(month0, i),
+      month,
       index: i + 1,
       free_before: freeBefore,
       installment: installmentAmount,
