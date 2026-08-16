@@ -595,7 +595,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
     const id = await upsertDraft(ctx, "transaction", payload, summary);
     if (!id) return { ok: false, error: "draft_failed" };
     const fields = {
-      kind: args.type === "income" ? "income" as const : "expense" as const,
+      kind: "expense" as const,
       amount, description, category: categoryName, category_status: categoryStatus,
       card: card.name, installments_total: n, occurred_at,
     };
@@ -916,7 +916,7 @@ export async function draft_transaction_update(ctx: ToolContext, args: {
   // Cartão humano da edição: nomes reais no lugar de ids técnicos.
   const newCategoryName = patch.category_id
     ? await categoryNameById(ctx, String(patch.category_id))
-    : (Object.hasOwn(patch, "category_id") ? "eu classifico depois" : null);
+    : ("category_id" in patch ? "eu classifico depois" : null);
   const oldCategoryName = (tx as any).category_id
     ? await categoryNameById(ctx, String((tx as any).category_id))
     : null;
