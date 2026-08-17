@@ -132,7 +132,7 @@ function Overview() {
             key={p.days}
             onClick={() => setDays(p.days)}
             className={`px-3 py-1.5 rounded-lg text-sm border transition ${
-              days === p.days ? "bg-primary text-white border-primary" : "bg-card border-border text-neutral-700 hover:border-border"
+              days === p.days ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground hover:border-border"
             }`}
           >
             {p.label}
@@ -243,7 +243,7 @@ function Overview() {
                   <tbody className="divide-y divide-neutral-100">
                     {q.data!.by_kind.map((row) => (
                       <tr key={row.kind}>
-                        <td className="py-2 pr-4 font-medium text-neutral-800">{dict.commKind(row.kind)}</td>
+                        <td className="py-2 pr-4 font-medium text-foreground">{dict.commKind(row.kind)}</td>
 
                         <td className="text-right pr-4">{row.total}</td>
                         <td className="text-right pr-4 text-success">{row.delivered}</td>

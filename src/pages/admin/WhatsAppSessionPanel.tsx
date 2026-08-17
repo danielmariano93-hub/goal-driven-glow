@@ -314,7 +314,7 @@ function InboundHealthCard({ onSync }: { onSync: () => void | Promise<void> }) {
   const healthy = state?.status === "healthy";
   return (
     <div className="surface-card p-4 flex flex-wrap items-center gap-3">
-      <div className={`h-2 w-2 rounded-full ${healthy ? "bg-emerald-500" : "bg-warning/100"}`} />
+      <div className={`h-2 w-2 rounded-full ${healthy ? "bg-success/100" : "bg-warning"}`} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">
           {loading ? "Verificando entrada de mensagens…" : healthy ? "Recebendo mensagens" : "Precisa de atenção"}

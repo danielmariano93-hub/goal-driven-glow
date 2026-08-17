@@ -220,7 +220,7 @@ export function ProactiveEnginePanel() {
               <tbody className="divide-y divide-neutral-100">
                 {(queue.data?.blocks ?? []).map((b) => (
                   <tr key={b.reason}>
-                    <td className="py-2 pr-4 font-medium text-neutral-800">{b.reason}</td>
+                    <td className="py-2 pr-4 font-medium text-foreground">{b.reason}</td>
                     <td className="text-right tabular-nums">{b.total}</td>
                   </tr>
                 ))}
@@ -248,7 +248,7 @@ export function ProactiveEnginePanel() {
               <tbody className="divide-y divide-neutral-100">
                 {(catalog.data ?? []).map((row) => (
                   <tr key={row.kind} className={row.active ? "" : "opacity-50"}>
-                    <td className="py-2 pr-4 font-medium text-neutral-800">{row.label || row.kind}</td>
+                    <td className="py-2 pr-4 font-medium text-foreground">{row.label || row.kind}</td>
                     <td className="pr-4 text-muted-foreground">{row.family ?? "—"}</td>
                     <td className="pr-4 text-right tabular-nums">{row.base_priority}</td>
                     <td className="pr-4 text-muted-foreground">{(row.allowed_channels ?? []).join(", ")}</td>

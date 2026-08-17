@@ -212,17 +212,17 @@ export function WhatsAppPairingDialog({
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
           {e.action === "retry" && (
-            <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-card px-3 py-1.5 hover:bg-amber-100">
+            <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-card px-3 py-1.5 hover:bg-warning/15">
               <RefreshCw className="h-3 w-3" /> Tentar novamente
             </button>
           )}
           {e.action === "switch_qr" && (
-            <button onClick={() => setMethod("qr")} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-card px-3 py-1.5 hover:bg-amber-100">
+            <button onClick={() => setMethod("qr")} className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-card px-3 py-1.5 hover:bg-warning/15">
               <QrCode className="h-3 w-3" /> Usar QR Code
             </button>
           )}
           {e.action === "reset" && (
-            <button onClick={resetSession} disabled={resetting} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-card px-3 py-1.5 hover:bg-amber-100 disabled:opacity-50">
+            <button onClick={resetSession} disabled={resetting} className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-card px-3 py-1.5 hover:bg-warning/15 disabled:opacity-50">
               {resetting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Redefinir sessão
             </button>
           )}
@@ -247,9 +247,9 @@ export function WhatsAppPairingDialog({
         </div>
 
         {succeeded ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-center space-y-2">
+          <div className="rounded-xl border border-success/30 bg-success/10 p-6 text-center space-y-2">
             <CheckCircle2 className="mx-auto h-8 w-8 text-success" />
-            <p className="text-sm font-semibold text-emerald-800">Aparelho conectado!</p>
+            <p className="text-sm font-semibold text-success">Aparelho conectado!</p>
             <p className="text-xs text-success">Fechando em instantes…</p>
           </div>
         ) : (

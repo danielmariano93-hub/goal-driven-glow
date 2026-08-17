@@ -142,7 +142,7 @@ export function BreakGlassPanel({ onChange }: Props) {
           type="button"
           onClick={reauthAndOpen}
           disabled={busy || !targetPseudo || reason.length < 20 || !ticket || !password}
-          className="inline-flex items-center gap-1.5 rounded bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded bg-warning px-3 py-2 text-sm font-medium text-warning-foreground hover:bg-warning/90 disabled:opacity-40"
         >
           <Unlock size={14} /> Abrir sessão break-glass
         </button>
