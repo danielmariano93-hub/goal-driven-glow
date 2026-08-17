@@ -195,10 +195,10 @@ const App = () => (
 
                 <Route path="operacao" element={<Navigate to="/admin/operacoes" replace />} />
                 <Route path="operacao/saude" element={<Navigate to="/admin/operacoes?secao=incidentes" replace />} />
-                <Route path="operacao/whatsapp" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
-                <Route path="whatsapp" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
-                <Route path="mensagens" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
-                <Route path="operacao/mensageria" element={<Navigate to="/admin/operacoes?secao=whatsapp" replace />} />
+                <Route path="operacao/whatsapp" element={<Navigate to="/admin/comunicacoes?aba=canais" replace />} />
+                <Route path="whatsapp" element={<Navigate to="/admin/comunicacoes?aba=canais" replace />} />
+                <Route path="mensagens" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
+                <Route path="operacao/mensageria" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
                 <Route path="operacao/assistente" element={<Navigate to="/admin/operacoes?secao=nino" replace />} />
                 <Route path="agente" element={<Navigate to="/admin/operacoes?secao=nino" replace />} />
                 <Route path="operacao/ia-ocr" element={<Navigate to="/admin/operacoes?secao=nino&aba=documentos" replace />} />
