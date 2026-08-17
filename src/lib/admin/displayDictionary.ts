@@ -134,11 +134,18 @@ const COMM_REASON: Record<string, string> = {
 
   kind_cooldown_24h: "Já enviado nas últimas 24 horas",
   daily_cap_reached: "Limite diário de mensagens atingido",
+  daily_frequency_cap: "Limite diário de mensagens atingido",
+  weekly_frequency_cap: "Limite semanal de mensagens atingido",
+  below_materiality: "Valor pequeno demais para incomodar o cliente",
+  severity_below_threshold: "Relevância abaixo do mínimo para avisar",
+  logical_duplicate: "Mesmo assunto já comunicado",
+  sem_motivo_registrado: "Sem motivo registrado",
   quiet_hours: "Fora do horário permitido",
   user_opted_out: "Cliente optou por não receber",
   duplicate_dedup_key: "Mensagem repetida (mesmo assunto)",
   low_priority: "Prioridade baixa para o momento",
 };
+
 
 const CHANNEL: Record<string, string> = {
   whatsapp: "WhatsApp",

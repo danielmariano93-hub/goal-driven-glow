@@ -154,17 +154,18 @@ export function ChannelsBoard() {
         <>
           <MetricRow>
             <MetricTile
-              label="Tentativas (14 dias)"
+              label="Envios tentados (14 dias)"
               value={(totals?.attempts ?? 0).toLocaleString("pt-BR")}
+              hint="Mensagens que entraram na fila de envio"
               spark={(monitor.data?.daily ?? []).map((d) => d.attempts)}
             />
             <MetricTile
-              label="Enviadas"
+              label="Entregues ao provedor"
               value={(totals?.sent ?? 0).toLocaleString("pt-BR")}
               spark={(monitor.data?.daily ?? []).map((d) => d.sent)}
             />
             <MetricTile
-              label="Falhas"
+              label="Falhas de envio"
               value={(totals?.failed ?? 0).toLocaleString("pt-BR")}
               polarity="lower_is_better"
               spark={(monitor.data?.daily ?? []).map((d) => d.failed)}
@@ -178,8 +179,9 @@ export function ChannelsBoard() {
 
           <Section
             title="Evolução dos envios"
-            description="Tentativas, envios e falhas por dia nos últimos 14 dias."
+            description="Fila de envio do WhatsApp: tentativas, envios e falhas por dia nos últimos 14 dias. Não inclui mensagens retidas pelo motor proativo."
           >
+
             <TrendChart
               kind="bar"
               xKey="day"
