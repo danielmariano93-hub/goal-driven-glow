@@ -12,6 +12,9 @@ import { AdminTabs } from "@/components/admin/AdminTabs";
 import { AdminChart } from "@/components/admin/AdminChart";
 import { dict } from "@/lib/admin/displayDictionary";
 import { SplitReminderJourney } from "@/components/admin/SplitReminderJourney";
+import { FlowsBoard } from "@/components/admin/messaging/FlowsBoard";
+import { MessageMonitor } from "@/components/admin/messaging/MessageMonitor";
+import { ChannelsBoard } from "@/components/admin/messaging/ChannelsBoard";
 
 
 type Summary = {
@@ -55,10 +58,21 @@ export default function ComunicacaoProativa() {
       <AdminTabs
         tabs={[
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
-          { id: "jornadas", label: "Jornadas", render: () => <div className="space-y-6"><SplitReminderJourney /><ProactiveEnginePanelV2 sections={["catalog"]} /></div> },
-          { id: "mensagens", label: "Mensagens", render: () => <ProactiveEnginePanelV2 sections={["templates", "simulation"]} /> },
-          { id: "entregas", label: "Entregas e regras", render: () => <ProactiveEnginePanelV2 sections={["engine", "queue", "effectiveness"]} /> },
+          { id: "fluxos", label: "Fluxos", render: () => <FlowsBoard /> },
+          { id: "mensagens", label: "Mensagens", render: () => <MessageMonitor /> },
+          { id: "canais", label: "Canais", render: () => <ChannelsBoard /> },
+          {
+            id: "jornadas",
+            label: "Jornadas",
+            render: () => (
+              <div className="space-y-6">
+                <SplitReminderJourney />
+                <ProactiveEnginePanelV2 sections={["engine", "queue"]} />
+              </div>
+            ),
+          },
         ]}
+
       />
     </div>
   );
