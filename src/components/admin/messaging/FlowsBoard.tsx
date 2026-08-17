@@ -178,8 +178,9 @@ export function FlowsBoard() {
                       {row.label || dict.commKind(row.kind)}
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {dict.commKind(row.kind)} · prioridade {row.base_priority}
+                      Prioridade {row.base_priority}
                     </p>
+
                   </div>
                   <label className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
                     <Power size={12} />
