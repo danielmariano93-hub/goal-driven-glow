@@ -11,6 +11,12 @@ const SURFACE: Record<string, string> = {
 };
 
 const FEATURE: Record<string, string> = {
+  messaging_failures: "Falhas no envio de mensagens",
+  messaging_failure_rate: "Taxa de falha de mensagens",
+  activation: "Ativação de novos clientes",
+  dormancy: "Clientes que pararam de usar",
+  agent_cost: "Custo da inteligência do Nino",
+  agent_errors: "Erros do Nino",
   agent: "Conversas com o Nino",
   agent_chat: "Conversa no aplicativo",
   agent_reply: "Resposta do Nino",

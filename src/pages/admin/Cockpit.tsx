@@ -81,7 +81,7 @@ function messagingSeries(rows: MessageRow[]) {
     if (!key) continue;
     const bucket = byDay.get(key) ?? { day: key, enviadas: 0, entregues: 0, falhas: 0 };
     if (row.status === "failed") bucket.falhas += 1;
-    else if (row.status === "delivered") { bucket.entregues += 1; bucket.enviadas += 1; }
+    else if (row.status === "delivered") bucket.entregues += 1;
     else if (row.status === "sent") bucket.enviadas += 1;
     byDay.set(key, bucket);
   }
@@ -208,7 +208,6 @@ export default function Cockpit() {
             value={data.total_users?.value === null || data.total_users?.value === undefined ? "—" : INT.format(data.total_users.value)}
             spark={baseSpark}
             polarity="higher_is_better"
-            deltaPct={halfOverHalf(newSpark)}
             hint="Total de clientes reais, sem administradores."
             emphasis
           />
@@ -267,7 +266,7 @@ export default function Cockpit() {
               kind="bar"
               series={[
                 { key: "entregues", label: "Entregues", tone: "success" },
-                { key: "enviadas", label: "Enviadas", tone: "primary" },
+                { key: "enviadas", label: "Enviadas sem confirmação", tone: "primary" },
                 { key: "falhas", label: "Falhas", tone: "danger" },
               ]}
               caption="Detalhe por mensagem e reprocessamento ficam em Comunicações › Mensagens."
