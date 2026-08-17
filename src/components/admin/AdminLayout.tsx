@@ -40,9 +40,9 @@ const GROUPS: Group[] = [
   {
     title: "Operação",
     items: [
-      { to: "/admin/operacoes", label: "Operações", icon: Activity, action: "operations.read" },
-      { to: "/admin/comunicacoes", label: "Comunicações", icon: MessageCircle, action: "messaging.read" },
+      { to: "/admin/comunicacoes", label: "Mensageria", icon: MessageCircle, action: "messaging.read" },
       { to: "/admin/nino-ia", label: "Nino & IA", icon: Bot, action: "operations.read" },
+      { to: "/admin/operacoes", label: "Saúde da plataforma", icon: Activity, action: "operations.read" },
     ],
   },
   {
