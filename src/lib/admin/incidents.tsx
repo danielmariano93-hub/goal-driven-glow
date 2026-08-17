@@ -135,7 +135,7 @@ export function buildIncidents({
     list.push({
       id: `cockpit-${item.key}`,
       severity: item.severity === "high" ? "critical" : "warning",
-      title: `${dict.feature(item.key)} precisa de atenção`,
+      title: `Atenção: ${dict.feature(item.key).toLowerCase()}`,
       impact: `Indicador em ${item.value}.`,
       action: { label: "Ver produto", to: "/admin/produto" },
     });
