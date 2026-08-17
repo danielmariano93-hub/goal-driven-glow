@@ -21,12 +21,14 @@ type Summary = {
   totals: {
     generated: number; suppressed: number; queued: number; sent: number;
     delivered: number; failed: number; acted: number; dismissed: number;
-    opt_out: number; cost_usd: number;
+    opt_out: number; cost_usd: number; released?: number;
   };
   by_kind: Array<{ kind: string; total: number; delivered: number; failed: number; suppressed: number; acted: number; cost_usd: number }>;
   by_channel: Array<{ channel: string; total: number; delivered: number; failed: number; suppressed: number; acted: number; cost_usd: number }>;
-  daily?: Array<{ day: string; total: number; delivered: number; failed: number }>;
+  by_reason?: Array<{ reason: string; channel: string; total: number; last_at: string | null }>;
+  daily?: Array<{ day: string; total: number; delivered: number; failed: number; suppressed?: number }>;
 };
+
 
 type QualitySummary = {
   communications: { total: number; useful: number; not_useful: number; suppressed: number };
@@ -119,10 +121,17 @@ function Overview() {
   }, [q.data]);
 
   const totals = q.data?.totals;
-  const deliveryRate = totals && totals.generated > 0
-    ? Math.round((totals.delivered / totals.generated) * 100) : 0;
+  const reasons = q.data?.by_reason ?? [];
+  const released = totals
+    ? (totals.released ?? totals.queued + totals.sent + totals.delivered + totals.acted + totals.failed)
+    : 0;
+  const releaseRate = totals && totals.generated > 0 ? Math.round((released / totals.generated) * 100) : 0;
+  const suppressionRate = totals && totals.generated > 0
+    ? Math.round((totals.suppressed / totals.generated) * 100) : 0;
+  const deliveryRate = released > 0 ? Math.round(((totals?.delivered ?? 0) / released) * 100) : 0;
   const actionRate = totals && totals.delivered > 0
     ? Math.round((totals.acted / totals.delivered) * 100) : 0;
+
 
   return (
     <div className="space-y-6">
