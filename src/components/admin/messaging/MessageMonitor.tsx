@@ -227,8 +227,8 @@ export function MessageMonitor() {
         />
       ) : (
         <>
-          <div className="hidden overflow-hidden rounded-2xl border border-border bg-card md:block">
-            <table className="w-full text-sm">
+          <div className="hidden overflow-x-auto rounded-2xl border border-border bg-card md:block">
+            <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-3 font-semibold">Quando</th>
@@ -250,7 +250,7 @@ export function MessageMonitor() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{dict.feature(row.feature ?? "unknown")}</p>
-                      <p className="truncate text-xs text-muted-foreground">{row.preview}</p>
+                      <p className="max-w-[420px] truncate text-xs text-muted-foreground">{row.preview}</p>
                     </td>
                     <td className="px-4 py-3 text-xs">{dict.channel(row.channel)}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{row.recipient}</td>
