@@ -65,7 +65,7 @@ export function buildIncidents({
         ? `${agent.failures_24h} conversa(s) falharam nas últimas 24 horas.`
         : "Nenhuma falha registrada nas últimas 24 horas.",
       probableCause: agent.active_prompt ? undefined : "Nenhuma versão de instrução publicada.",
-      action: { label: "Abrir Nino", to: "/admin/operacoes?secao=nino" },
+      action: { label: "Abrir Nino", to: "/admin/nino-ia?aba=qualidade" },
     });
   }
 
@@ -79,7 +79,7 @@ export function buildIncidents({
       title: `${broken.length} automação(ões) fora do ritmo`,
       impact: "Lembretes e envios programados podem não sair no horário combinado com o cliente.",
       probableCause: broken.map(([key]) => dict.job(key)).join(", "),
-      action: { label: "Ver automações", to: "/admin/operacoes?secao=incidentes" },
+      action: { label: "Ver automações", to: "/admin/operacoes" },
       technical: (
         <ul>
           {broken.map(([key, j]) => (
