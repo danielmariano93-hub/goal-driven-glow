@@ -194,16 +194,16 @@ const App = () => (
                 <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />
 
                 <Route path="operacao" element={<Navigate to="/admin/operacoes" replace />} />
-                <Route path="operacao/saude" element={<Navigate to="/admin/operacoes?secao=incidentes" replace />} />
+                <Route path="operacao/saude" element={<Navigate to="/admin/operacoes" replace />} />
                 <Route path="operacao/whatsapp" element={<Navigate to="/admin/comunicacoes?aba=canais" replace />} />
                 <Route path="whatsapp" element={<Navigate to="/admin/comunicacoes?aba=canais" replace />} />
                 <Route path="mensagens" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
                 <Route path="operacao/mensageria" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
-                <Route path="operacao/assistente" element={<Navigate to="/admin/operacoes?secao=nino" replace />} />
-                <Route path="agente" element={<Navigate to="/admin/operacoes?secao=nino" replace />} />
-                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/operacoes?secao=nino&aba=documentos" replace />} />
-                <Route path="operacao/assistente/simulador" element={<Navigate to="/admin/operacoes?secao=nino&aba=simulador" replace />} />
-                <Route path="agente/simulador" element={<Navigate to="/admin/operacoes?secao=nino&aba=simulador" replace />} />
+                <Route path="operacao/assistente" element={<Navigate to="/admin/nino-ia?aba=qualidade" replace />} />
+                <Route path="agente" element={<Navigate to="/admin/nino-ia?aba=modelos" replace />} />
+                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/nino-ia?aba=documentos" replace />} />
+                <Route path="operacao/assistente/simulador" element={<Navigate to="/admin/nino-ia?aba=simulador" replace />} />
+                <Route path="agente/simulador" element={<Navigate to="/admin/nino-ia?aba=simulador" replace />} />
                 <Route path="operacao/comunicacao-proativa" element={<Navigate to="/admin/comunicacoes" replace />} />
 
                 <Route path="governanca/seguranca" element={<Navigate to="/admin/administracao?secao=acessos" replace />} />

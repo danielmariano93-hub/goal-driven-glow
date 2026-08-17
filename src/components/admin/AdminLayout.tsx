@@ -40,9 +40,9 @@ const GROUPS: Group[] = [
   {
     title: "Operação",
     items: [
-      { to: "/admin/operacoes", label: "Operações", icon: Activity, action: "operations.read" },
-      { to: "/admin/comunicacoes", label: "Comunicações", icon: MessageCircle, action: "messaging.read" },
+      { to: "/admin/comunicacoes", label: "Mensageria", icon: MessageCircle, action: "messaging.read" },
       { to: "/admin/nino-ia", label: "Nino & IA", icon: Bot, action: "operations.read" },
+      { to: "/admin/operacoes", label: "Saúde da plataforma", icon: Activity, action: "operations.read" },
     ],
   },
   {
@@ -93,14 +93,14 @@ export function AdminLayout() {
   const linkClass = (active: boolean) =>
     `w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
       active
-        ? "bg-gradient-brand text-white shadow-brand"
+        ? "bg-gradient-brand text-primary-foreground shadow-brand"
         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
     } ${collapsed ? "md:justify-center md:px-2" : ""}`;
 
   const SidebarBody = (
     <>
       <div className={`flex items-center gap-2.5 px-5 h-16 border-b border-border ${collapsed ? "md:justify-center md:px-2" : ""}`}>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-brand text-white shadow-brand">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-brand text-primary-foreground shadow-brand">
           <ShieldCheck size={18} strokeWidth={2.4} />
         </span>
         {!collapsed && (

@@ -202,27 +202,27 @@ export function WhatsAppPairingDialog({
   const renderError = (code: string, onRetry: () => void) => {
     const e = mapPairingError(code);
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
+      <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs text-foreground space-y-2">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold">{e.title}</p>
-            <p className="mt-0.5 text-amber-800">{e.description}</p>
+            <p className="mt-0.5 text-foreground">{e.description}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
           {e.action === "retry" && (
-            <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 hover:bg-amber-100">
+            <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-card px-3 py-1.5 hover:bg-warning/15">
               <RefreshCw className="h-3 w-3" /> Tentar novamente
             </button>
           )}
           {e.action === "switch_qr" && (
-            <button onClick={() => setMethod("qr")} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 hover:bg-amber-100">
+            <button onClick={() => setMethod("qr")} className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-card px-3 py-1.5 hover:bg-warning/15">
               <QrCode className="h-3 w-3" /> Usar QR Code
             </button>
           )}
           {e.action === "reset" && (
-            <button onClick={resetSession} disabled={resetting} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 hover:bg-amber-100 disabled:opacity-50">
+            <button onClick={resetSession} disabled={resetting} className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-card px-3 py-1.5 hover:bg-warning/15 disabled:opacity-50">
               {resetting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Redefinir sessão
             </button>
           )}
@@ -247,17 +247,17 @@ export function WhatsAppPairingDialog({
         </div>
 
         {succeeded ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-center space-y-2">
-            <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" />
-            <p className="text-sm font-semibold text-emerald-800">Aparelho conectado!</p>
-            <p className="text-xs text-emerald-700">Fechando em instantes…</p>
+          <div className="rounded-xl border border-success/30 bg-success/10 p-6 text-center space-y-2">
+            <CheckCircle2 className="mx-auto h-8 w-8 text-success" />
+            <p className="text-sm font-semibold text-success">Aparelho conectado!</p>
+            <p className="text-xs text-success">Fechando em instantes…</p>
           </div>
         ) : (
           <>
             {needsReset && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex flex-wrap items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-700" />
-                <p className="text-xs text-amber-800 flex-1 min-w-[180px]">
+              <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 flex flex-wrap items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-foreground" />
+                <p className="text-xs text-foreground flex-1 min-w-[180px]">
                   A sessão está fora do ar. Redefina para gerar um novo QR ou código.
                 </p>
                 <button

@@ -13,10 +13,10 @@ export function AdminMetricCard({
 }) {
   const toneClass = {
     neutral: "border-border",
-    positive: "border-[#2FC99A]/35",
-    warning: "border-[#FF6B5F]/25",
-    critical: "border-[#FF6B5F]/55",
-    brand: "border-[#6D4AFF]/35",
+    positive: "border-success/35",
+    warning: "border-warning/40",
+    critical: "border-destructive/50",
+    brand: "border-primary/35",
   }[tone];
 
   return (

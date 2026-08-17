@@ -23,20 +23,20 @@ export type AdminIncident = {
 
 const TONE: Record<IncidentSeverity, { ring: string; text: string; icon: typeof AlertTriangle; label: string }> = {
   critical: {
-    ring: "border-rose-300/70 bg-rose-50/70",
-    text: "text-rose-700",
+    ring: "border-destructive/40 bg-destructive/5",
+    text: "text-destructive",
     icon: AlertOctagon,
     label: "Ação necessária",
   },
   warning: {
-    ring: "border-amber-300/70 bg-amber-50/70",
-    text: "text-amber-700",
+    ring: "border-warning/40 bg-warning/10",
+    text: "text-foreground",
     icon: AlertTriangle,
     label: "Em observação",
   },
   healthy: {
     ring: "border-border bg-card",
-    text: "text-emerald-700",
+    text: "text-success",
     icon: CheckCircle2,
     label: "Saudável",
   },

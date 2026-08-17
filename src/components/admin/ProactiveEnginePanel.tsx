@@ -162,7 +162,7 @@ export function ProactiveEnginePanel() {
                 type="button"
                 onClick={() => toggle.mutate({ enabled: !s?.enabled })}
                 disabled={toggle.isPending}
-                className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm hover:border-neutral-300 disabled:opacity-60"
+                className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-border disabled:opacity-60"
               >
                 {s?.enabled ? "Desligar motor" : "Ligar motor"}
               </button>
@@ -170,7 +170,7 @@ export function ProactiveEnginePanel() {
                 type="button"
                 onClick={() => toggle.mutate({ channels: channels.includes("whatsapp") ? ["app"] : ["app", "whatsapp"] })}
                 disabled={toggle.isPending}
-                className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm hover:border-neutral-300 disabled:opacity-60"
+                className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-border disabled:opacity-60"
               >
                 {channels.includes("whatsapp") ? "Restringir ao app" : "Liberar WhatsApp"}
               </button>
@@ -178,7 +178,7 @@ export function ProactiveEnginePanel() {
                 type="button"
                 onClick={() => runNow(true)}
                 disabled={running !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm hover:border-neutral-300 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-border disabled:opacity-60"
               >
                 <Play size={14} /> {running === "dry" ? "Simulando..." : "Simular (dry-run)"}
               </button>
@@ -186,19 +186,19 @@ export function ProactiveEnginePanel() {
                 type="button"
                 onClick={() => runNow(false)}
                 disabled={running !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-white disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-60"
               >
                 <Play size={14} /> {running === "real" ? "Executando..." : "Executar agora"}
               </button>
             </div>
 
-            <p className="mt-3 text-xs text-neutral-500">
+            <p className="mt-3 text-xs text-muted-foreground">
               Agendamento: {s?.cron?.length ? s.cron.map((c) => `${c.jobname} (${c.schedule})`).join(", ") : "nenhum cron ativo"}
               {" · "}Próxima janela prevista: {fmtDate(s?.next_tick_at ?? null)}
             </p>
 
             {(s?.last_tick_errors ?? []).length > 0 && (
-              <ul className="mt-3 space-y-1 text-xs text-amber-700">
+              <ul className="mt-3 space-y-1 text-xs text-foreground">
                 {(s?.last_tick_errors ?? []).slice(0, 5).map((err, index) => (
                   <li key={`${err.user_id}-${index}`}>{err.user_id?.slice(0, 8)}… — {err.error}</li>
                 ))}
@@ -214,13 +214,13 @@ export function ProactiveEnginePanel() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-wider text-neutral-500">
+              <thead className="text-xs uppercase tracking-wider text-muted-foreground">
                 <tr><th className="py-2 pr-4 text-left">Motivo do bloqueio</th><th className="text-right">Ocorrências</th></tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {(queue.data?.blocks ?? []).map((b) => (
                   <tr key={b.reason}>
-                    <td className="py-2 pr-4 font-medium text-neutral-800">{b.reason}</td>
+                    <td className="py-2 pr-4 font-medium text-foreground">{b.reason}</td>
                     <td className="text-right tabular-nums">{b.total}</td>
                   </tr>
                 ))}
@@ -236,7 +236,7 @@ export function ProactiveEnginePanel() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-wider text-neutral-500">
+              <thead className="text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="py-2 pr-4 text-left">Tipo</th>
                   <th className="pr-4 text-left">Família</th>
@@ -248,16 +248,16 @@ export function ProactiveEnginePanel() {
               <tbody className="divide-y divide-neutral-100">
                 {(catalog.data ?? []).map((row) => (
                   <tr key={row.kind} className={row.active ? "" : "opacity-50"}>
-                    <td className="py-2 pr-4 font-medium text-neutral-800">{row.label || row.kind}</td>
-                    <td className="pr-4 text-neutral-600">{row.family ?? "—"}</td>
+                    <td className="py-2 pr-4 font-medium text-foreground">{row.label || row.kind}</td>
+                    <td className="pr-4 text-muted-foreground">{row.family ?? "—"}</td>
                     <td className="pr-4 text-right tabular-nums">{row.base_priority}</td>
-                    <td className="pr-4 text-neutral-600">{(row.allowed_channels ?? []).join(", ")}</td>
+                    <td className="pr-4 text-muted-foreground">{(row.allowed_channels ?? []).join(", ")}</td>
                     <td className="space-x-2 text-right">
                       <button
                         type="button"
                         onClick={() => catalogUpdate.mutate({ kind: row.kind, active: !row.active })}
                         disabled={catalogUpdate.isPending}
-                        className="rounded-lg border border-neutral-200 px-2 py-1 text-xs hover:border-neutral-300 disabled:opacity-60"
+                        className="rounded-lg border border-border px-2 py-1 text-xs hover:border-border disabled:opacity-60"
                       >
                         {row.active ? "Desativar" : "Ativar"}
                       </button>
@@ -268,7 +268,7 @@ export function ProactiveEnginePanel() {
                           channels: (row.allowed_channels ?? []).includes("whatsapp") ? ["app"] : ["app", "whatsapp"],
                         })}
                         disabled={catalogUpdate.isPending}
-                        className="rounded-lg border border-neutral-200 px-2 py-1 text-xs hover:border-neutral-300 disabled:opacity-60"
+                        className="rounded-lg border border-border px-2 py-1 text-xs hover:border-border disabled:opacity-60"
                       >
                         {(row.allowed_channels ?? []).includes("whatsapp") ? "Só app" : "+ WhatsApp"}
                       </button>

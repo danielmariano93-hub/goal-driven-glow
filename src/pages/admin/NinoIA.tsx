@@ -10,15 +10,25 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { adminToast } from "@/components/admin/adminToast";
 import IAInteligencia from "./IAInteligencia";
+import Assistente from "./operacao/Assistente";
+import IaOcr from "./operacao/IaOcr";
+import Simulador from "./AgenteSimulador";
 
+/**
+ * Destino único da inteligência: qualidade, custo, configuração, documentos
+ * e simulador em um só nível de aba — nunca aba dentro de aba.
+ */
 export default function NinoIA() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Nino & IA" description="Configure modelos, comportamento, conhecimento oficial e acompanhe a qualidade das respostas." />
+      <PageHeader title="Nino & IA" description="Qualidade das respostas, custo por modelo, conhecimento oficial, leitura de documentos e simulador." />
       <AdminTabs tabs={[
+        { id: "qualidade", label: "Qualidade", render: () => <Assistente /> },
+        { id: "custo", label: "Custo e uso", render: () => <IAInteligencia /> },
         { id: "modelos", label: "Modelos", render: () => <Models /> },
         { id: "conhecimento", label: "Conhecimento", render: () => <Knowledge /> },
-        { id: "qualidade", label: "Qualidade por cliente", render: () => <IAInteligencia /> },
+        { id: "documentos", label: "Documentos", render: () => <IaOcr /> },
+        { id: "simulador", label: "Simulador", render: () => <Simulador /> },
       ]} />
     </div>
   );
