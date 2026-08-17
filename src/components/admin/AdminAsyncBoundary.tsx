@@ -106,7 +106,7 @@ export function PartialFailureNotice({
           <button
             type="button"
             onClick={onRetry}
-            className="shrink-0 rounded-full border border-amber-400 px-3 py-1 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-amber-400"
+            className="shrink-0 rounded-full border border-warning/50 px-3 py-1 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-warning"
           >
             Tentar novamente
           </button>

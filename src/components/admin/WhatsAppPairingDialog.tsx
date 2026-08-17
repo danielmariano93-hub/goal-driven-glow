@@ -202,7 +202,7 @@ export function WhatsAppPairingDialog({
   const renderError = (code: string, onRetry: () => void) => {
     const e = mapPairingError(code);
     return (
-      <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs text-amber-900 space-y-2">
+      <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs text-foreground space-y-2">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>

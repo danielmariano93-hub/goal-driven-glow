@@ -186,7 +186,7 @@ export function ProactiveEnginePanel() {
                 type="button"
                 onClick={() => runNow(false)}
                 disabled={running !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-white disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-60"
               >
                 <Play size={14} /> {running === "real" ? "Executando..." : "Executar agora"}
               </button>
