@@ -3,10 +3,10 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
-import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
+import { ServiceRow } from "@/components/admin/kit/ServiceRow";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
 import { dict } from "@/lib/admin/displayDictionary";
-import { formatDateTime, formatRate } from "@/lib/admin/formulas";
+import { formatRate } from "@/lib/admin/formulas";
 
 type Service = {
   job_key: string;
@@ -62,8 +62,12 @@ export default function OperacaoSaude() {
   if (error) return <EmptyState title="Não foi possível carregar a saúde da operação" description={error} />;
 
   const services = data?.services ?? [];
-  const healthy = services.filter((item) => serviceState(item).label === "Saudável").length;
-  const attention = services.length - healthy;
+  const healthyServices = services.filter((item) => serviceState(item).label === "Saudável");
+  const needsAttention = services
+    .filter((item) => serviceState(item).label !== "Saudável")
+    .sort((a, b) => b.failed - a.failed);
+  const healthy = healthyServices.length;
+  const attention = needsAttention.length;
 
   return (
     <div className="space-y-6">
@@ -84,24 +88,52 @@ export default function OperacaoSaude() {
       </div>
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-        <div className="mb-4">
+        <div className="mb-3">
           <h2 className="font-semibold">Serviços e rotinas</h2>
-          <p className="text-sm text-muted-foreground">Nomes técnicos ficam disponíveis apenas no diagnóstico.</p>
+          <p className="text-sm text-muted-foreground">
+            Primeiro o que exige atenção. O que está saudável fica recolhido.
+          </p>
         </div>
-        <AdminResponsiveList
-          rows={services}
-          rowKey={(row) => row.job_key}
-          columns={[
-            { key: "service", label: "Serviço", render: (row) => dict.job(row.job_key) },
-            { key: "status", label: "Estado", render: (row) => serviceState(row).label },
-            { key: "last", label: "Última execução", render: (row) => formatDateTime(row.last_run_at) },
-            { key: "processed", label: "Processados", render: (row) => row.processed, align: "right" },
-            { key: "failed", label: "Falhas", render: (row) => row.failed, align: "right" },
-            { key: "reason", label: "Motivo", render: (row) => row.last_error_code ?? "—" },
-          ]}
-        />
 
+        {needsAttention.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nenhum serviço exige atenção agora.</p>
+        ) : (
+          <ul>
+            {needsAttention.map((row) => (
+              <ServiceRow
+                key={row.job_key}
+                name={dict.job(row.job_key)}
+                state={serviceState(row).label}
+                tone="danger"
+                lastRunAt={row.last_run_at}
+                processed={row.processed}
+                failed={row.failed}
+                reason={row.last_error_code}
+              />
+            ))}
+          </ul>
+        )}
 
+        {healthyServices.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+              Saudáveis ({healthyServices.length})
+            </summary>
+            <ul className="mt-2">
+              {healthyServices.map((row) => (
+                <ServiceRow
+                  key={row.job_key}
+                  name={dict.job(row.job_key)}
+                  state="Saudável"
+                  tone="success"
+                  lastRunAt={row.last_run_at}
+                  processed={row.processed}
+                  failed={row.failed}
+                />
+              ))}
+            </ul>
+          </details>
+        )}
       </section>
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">

@@ -8369,6 +8369,30 @@ export type Database = {
         }
         Relationships: []
       }
+      proactive_global_limits: {
+        Row: {
+          id: boolean
+          max_per_day: number
+          max_per_week: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: boolean
+          max_per_day?: number
+          max_per_week?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: boolean
+          max_per_day?: number
+          max_per_week?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       product_cohorts_weekly: {
         Row: {
           activated_users: number
@@ -11292,6 +11316,11 @@ export type Database = {
         Args: { _channels?: string[]; _enabled?: boolean }
         Returns: Json
       }
+      admin_proactive_limits: { Args: never; Returns: Json }
+      admin_proactive_limits_update: {
+        Args: { _max_per_day: number; _max_per_week: number }
+        Returns: Json
+      }
       admin_proactive_queue: { Args: { _limit?: number }; Returns: Json }
       admin_process_deletion_request: {
         Args: { p_id: string }
@@ -11383,6 +11412,7 @@ export type Database = {
       }
       admin_v2_message_intelligence: { Args: { _days?: number }; Returns: Json }
       admin_v2_messaging_activity: { Args: { _days?: number }; Returns: Json }
+      admin_v2_messaging_failure_7d: { Args: never; Returns: Json }
       admin_v2_metrics_audit: { Args: never; Returns: Json }
       admin_v2_metrics_universe: { Args: never; Returns: Json }
       admin_v2_nino_item_trace: { Args: { _item_id: string }; Returns: Json }

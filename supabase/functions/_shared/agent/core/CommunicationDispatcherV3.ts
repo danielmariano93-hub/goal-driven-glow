@@ -141,14 +141,19 @@ export function renderCommunicationTemplate(
 }
 
 async function loadPreferences(sb: SupabaseClient, userId: string): Promise<CommunicationPreferences> {
-  const [prefsResp, profileResp] = await Promise.all([
+  const [prefsResp, profileResp, limitsResp] = await Promise.all([
     sb.from("notification_preferences")
       .select("proactive_financial,emotional_checkin,smart_tips,whatsapp_proactive,quiet_start,quiet_end,max_proactive_per_week,max_proactive_per_day,muted_proactive_kinds,timezone,quiet_behavior")
       .eq("user_id", userId).maybeSingle(),
     sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
+    // Limite global de convivência: vale quando o cliente não personalizou.
+    sb.from("proactive_global_limits").select("max_per_day,max_per_week").maybeSingle(),
   ]);
   const { data, error } = prefsResp;
   if (error) throw new Error(`notification_preferences:${error.message}`);
+
+  const globalDay = Number((limitsResp.data as any)?.max_per_day ?? 1);
+  const globalWeek = Number((limitsResp.data as any)?.max_per_week ?? 3);
 
   return {
     proactive_financial: (data as any)?.proactive_financial ?? true,
@@ -157,8 +162,8 @@ async function loadPreferences(sb: SupabaseClient, userId: string): Promise<Comm
     whatsapp_proactive: (data as any)?.whatsapp_proactive ?? false,
     quiet_start: (data as any)?.quiet_start ?? "21:00",
     quiet_end: (data as any)?.quiet_end ?? "08:00",
-    max_proactive_per_week: Number((data as any)?.max_proactive_per_week ?? 3),
-    max_proactive_per_day: Number((data as any)?.max_proactive_per_day ?? 1),
+    max_proactive_per_week: Number((data as any)?.max_proactive_per_week ?? globalWeek),
+    max_proactive_per_day: Number((data as any)?.max_proactive_per_day ?? globalDay),
     muted_proactive_kinds: Array.isArray((data as any)?.muted_proactive_kinds) ? (data as any).muted_proactive_kinds : [],
     // Fuso: preferência do usuário → perfil → fallback do produto.
     timezone: (data as any)?.timezone ?? (profileResp.data as any)?.timezone ?? null,

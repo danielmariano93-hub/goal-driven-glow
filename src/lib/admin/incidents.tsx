@@ -111,8 +111,9 @@ export function buildIncidents({
     list.push({
       id: "messaging-rate",
       severity: messagingFailureRate > 15 ? "critical" : "warning",
-      title: `${messagingFailureRate.toFixed(1)}% das mensagens falharam nos últimos 7 dias`,
-      impact: "Acima de 5% já compromete a confiança no canal.",
+      title: `${messagingFailureRate.toFixed(1)}% de falha no envio (últimos 7 dias)`,
+      impact:
+        "Janela fixa de 7 dias, independente do filtro de período. Acima de 5% já compromete a confiança no canal.",
       action: { label: "Ver entregabilidade", to: "/admin/comunicacoes" },
     });
   }
@@ -130,13 +131,15 @@ export function buildIncidents({
   }
 
   // --- Sinais vindos do próprio cockpit ---------------------------------
+  // `messaging_failures` é o mesmo fato da taxa de falha acima: não duplicamos.
   for (const item of attention ?? []) {
     if (item.severity !== "high" && item.severity !== "medium") continue;
+    if (item.key === "messaging_failures") continue;
     list.push({
       id: `cockpit-${item.key}`,
       severity: item.severity === "high" ? "critical" : "warning",
-      title: `Atenção: ${dict.feature(item.key).toLowerCase()}`,
-      impact: `Indicador em ${item.value}.`,
+      title: `${dict.feature(item.key)}: ${item.value}`,
+      impact: "Indicador de integridade fora do esperado.",
       action: { label: "Ver produto", to: "/admin/produto" },
     });
   }

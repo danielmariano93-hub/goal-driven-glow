@@ -4,6 +4,7 @@ import { Bell, Mail, Radio, ShieldAlert, DollarSign, MousePointerClick, BrainCir
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Section } from "@/components/admin/Section";
 import { StatCard, StatGrid } from "@/components/admin/StatCard";
+import { FunnelBars } from "@/components/admin/kit/FunnelBars";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
@@ -15,6 +16,7 @@ import { SplitReminderJourney } from "@/components/admin/SplitReminderJourney";
 import { FlowsBoard } from "@/components/admin/messaging/FlowsBoard";
 import { MessageMonitor } from "@/components/admin/messaging/MessageMonitor";
 import { ChannelsBoard } from "@/components/admin/messaging/ChannelsBoard";
+import { RulesBoard } from "@/components/admin/messaging/RulesBoard";
 
 
 type Summary = {
@@ -60,6 +62,7 @@ export default function ComunicacaoProativa() {
       <AdminTabs
         tabs={[
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
+          { id: "regras", label: "Regras", render: () => <RulesBoard /> },
           { id: "fluxos", label: "Fluxos", render: () => <FlowsBoard /> },
           { id: "mensagens", label: "Mensagens", render: () => <MessageMonitor /> },
           { id: "canais", label: "Canais", render: () => <ChannelsBoard /> },
@@ -184,14 +187,32 @@ function Overview() {
           <Section
             title="Funil de comunicação"
             icon={Radio}
-            description="Da oportunidade detectada até a mensagem que chegou ao cliente. Retidas não são falhas: são as regras de convivência protegendo o cliente."
+            description="Da oportunidade detectada até a mensagem que chegou ao cliente. Retidas não são falhas: são as regras de convivência protegendo o cliente — para ajustar limites e intervalos, abra a aba Regras."
           >
-            <StatGrid cols={4}>
-              <StatCard label="Retidas por regra" value={totals.suppressed} tone="warning" hint={`${suppressionRate}% das candidatas`} />
-              <StatCard label="Na fila" value={totals.queued} />
-              <StatCard label="Enviadas" value={totals.sent} />
-              <StatCard label="Falhas de envio" value={totals.failed} tone={totals.failed > 0 ? "warning" : "default"} />
-            </StatGrid>
+            <FunnelBars
+              unit={["mensagem", "mensagens"]}
+              steps={[
+                { label: "Candidatas geradas", users: totals.generated },
+                { label: "Liberadas para envio", users: released },
+                { label: "Entregues ao cliente", users: totals.delivered },
+                { label: "Geraram ação", users: totals.acted },
+              ]}
+              caption={`${suppressionRate}% das candidatas foram retidas por regra de convivência e ${actionRate}% das entregues geraram ação.`}
+            />
+
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Retidas por regra", value: totals.suppressed },
+                { label: "Na fila", value: totals.queued },
+                { label: "Enviadas sem confirmação", value: totals.sent },
+                { label: "Falhas de envio", value: totals.failed },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-border bg-card px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{item.label}</p>
+                  <p className="text-lg font-semibold tabular-nums text-foreground">{item.value}</p>
+                </div>
+              ))}
+            </div>
 
             {reasons.length > 0 && (
               <div className="mt-4 overflow-x-auto">
