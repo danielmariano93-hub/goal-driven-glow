@@ -165,26 +165,57 @@ function Overview() {
         <div className="space-y-6">
           <Section title="Visão geral" icon={Bell}>
             <StatGrid cols={4}>
-              <StatCard label="Geradas" value={totals.generated} tone="primary" />
-              <StatCard label="Entregues" value={totals.delivered} tone="success" hint={`${deliveryRate}% do gerado`} />
-              <StatCard label="Interações" value={totals.acted} tone="success" hint={`${actionRate}% das entregues`} />
+              <StatCard label="Candidatas geradas" value={totals.generated} tone="primary" hint="Oportunidades que o Nino detectou" />
+              <StatCard label="Liberadas para envio" value={released} hint={`${releaseRate}% das candidatas`} />
+              <StatCard label="Entregues" value={totals.delivered} tone="success" hint={`${deliveryRate}% das liberadas`} />
               <StatCard label="Custo (USD)" value={`$${(totals.cost_usd ?? 0).toFixed(4)}`} />
             </StatGrid>
           </Section>
 
-          <Section title="Fluxo de entrega" icon={Radio}>
+          <Section
+            title="Funil de comunicação"
+            icon={Radio}
+            description="Da oportunidade detectada até a mensagem que chegou ao cliente. Retidas não são falhas: são as regras de convivência protegendo o cliente."
+          >
             <StatGrid cols={4}>
-              <StatCard label="Enfileiradas" value={totals.queued} />
+              <StatCard label="Retidas por regra" value={totals.suppressed} tone="warning" hint={`${suppressionRate}% das candidatas`} />
+              <StatCard label="Na fila" value={totals.queued} />
               <StatCard label="Enviadas" value={totals.sent} />
-              <StatCard label="Falhas" value={totals.failed} tone={totals.failed > 0 ? "warning" : "default"} />
-              <StatCard label="Retidas por regra de convivência" value={totals.suppressed} tone="warning" />
+              <StatCard label="Falhas de envio" value={totals.failed} tone={totals.failed > 0 ? "warning" : "default"} />
             </StatGrid>
+
+            {reasons.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-muted-foreground text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left py-2 pr-4">Motivo da retenção</th>
+                      <th className="text-left pr-4">Canal</th>
+                      <th className="text-right pr-4">Ocorrências</th>
+                      <th className="text-right">Última vez</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {reasons.map((r) => (
+                      <tr key={`${r.reason}-${r.channel}`}>
+                        <td className="py-2 pr-4 font-medium text-foreground">{dict.commReason(r.reason)}</td>
+                        <td className="pr-4 text-muted-foreground">{dict.channel(r.channel)}</td>
+                        <td className="text-right pr-4 tabular-nums">{r.total}</td>
+                        <td className="text-right text-muted-foreground">
+                          {r.last_at ? new Date(r.last_at).toLocaleDateString("pt-BR") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Section>
 
           <Section
             title="Evolução das comunicações"
             icon={Radio}
-            description="Tentativas, entregas e falhas por dia no período selecionado."
+            description="Candidatas geradas, entregas e retenções por dia no período selecionado."
           >
             <AdminChart
               data={(q.data?.daily ?? []).map((item) => ({
@@ -196,13 +227,15 @@ function Overview() {
               }))}
               xKey="day"
               series={[
-                { key: "total", label: "Tentativas", color: "#6D4AFF" },
+                { key: "total", label: "Candidatas geradas", color: "#6D4AFF" },
                 { key: "delivered", label: "Entregues", color: "#2FC99A" },
-                { key: "failed", label: "Falhas", color: "#FF6B5F" },
+                { key: "suppressed", label: "Retidas por regra", color: "#FFB020" },
+                { key: "failed", label: "Falhas de envio", color: "#FF6B5F" },
               ]}
               caption={`${days} dias · ${channel ? dict.channel(channel) : "todos os canais"} · dados de entrega reais`}
             />
           </Section>
+
 
           <Section title="Preferências e dispensa" icon={ShieldAlert}>
             <StatGrid cols={3}>
