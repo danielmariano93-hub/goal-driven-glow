@@ -12,6 +12,9 @@ import { AdminTabs } from "@/components/admin/AdminTabs";
 import { AdminChart } from "@/components/admin/AdminChart";
 import { dict } from "@/lib/admin/displayDictionary";
 import { SplitReminderJourney } from "@/components/admin/SplitReminderJourney";
+import { FlowsBoard } from "@/components/admin/messaging/FlowsBoard";
+import { MessageMonitor } from "@/components/admin/messaging/MessageMonitor";
+import { ChannelsBoard } from "@/components/admin/messaging/ChannelsBoard";
 
 
 type Summary = {
