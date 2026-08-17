@@ -41,7 +41,7 @@ export function AdminDailyEvolutionCard({ series, sampleSize, sufficientSample, 
           </p>
         </div>
         {!sufficientSample && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 border border-amber-200">
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] text-foreground border border-warning/40">
             amostra insuficiente (n={sampleSize})
           </span>
         )}

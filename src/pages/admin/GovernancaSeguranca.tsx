@@ -45,7 +45,7 @@ export default function GovernancaSeguranca() {
         </div>
         <div className="surface-card p-4">
           <div className="text-[11px] uppercase text-muted-foreground">Break-glass ativas</div>
-          <div className="font-display text-2xl font-bold text-amber-600">
+          <div className="font-display text-2xl font-bold text-foreground">
             {data?.break_glass_active}
           </div>
         </div>

@@ -248,7 +248,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
               <StatCard label="Próxima execução" value={dateTime(s?.next_tick_at ?? null)} />
             </StatGrid>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={() => toggle.mutate({ enabled: !s?.enabled })} className="rounded-lg border border-neutral-200 px-3 py-1.5 text-sm">{s?.enabled ? "Desligar motor" : "Ligar motor"}</button>
+              <button type="button" onClick={() => toggle.mutate({ enabled: !s?.enabled })} className="rounded-lg border border-border px-3 py-1.5 text-sm">{s?.enabled ? "Desligar motor" : "Ligar motor"}</button>
               <button
                 type="button"
                 onClick={() => {
@@ -256,14 +256,14 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                   if (enabling && !window.confirm("Liberar WhatsApp permite envios reais para tipos autorizados. Confirma após concluir o smoke test em app?")) return;
                   toggle.mutate({ channels: enabling ? ["app", "whatsapp"] : ["app"] });
                 }}
-                className="rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+                className="rounded-lg border border-border px-3 py-1.5 text-sm"
               >
                 {channels.includes("whatsapp") ? "Bloquear WhatsApp" : "Liberar WhatsApp"}
               </button>
             </div>
-            <p className="mt-3 text-xs text-neutral-500">Agendamento: {s?.cron?.map((item) => `${item.jobname} (${item.schedule})`).join(", ") || "nenhum"}</p>
+            <p className="mt-3 text-xs text-muted-foreground">Agendamento: {s?.cron?.map((item) => `${item.jobname} (${item.schedule})`).join(", ") || "nenhum"}</p>
             {(s?.last_tick_errors ?? []).length > 0 && (
-              <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+              <div className="mt-3 rounded-lg bg-warning/10 p-3 text-xs text-foreground">
                 A última execução encontrou {(s?.last_tick_errors ?? []).length} erro(s).
                 Abra a observabilidade técnica para investigar sem expor dados nesta tela.
               </div>
@@ -276,17 +276,17 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       {show("simulation") && <>
       <Section title="Simulação por usuário" icon={Play} description="Mostra o output que seria gerado. Não grava sugestão, notificação nem WhatsApp.">
         <div className="flex flex-col gap-2 md:flex-row">
-          <input value={previewUserId} onChange={(event) => setPreviewUserId(event.target.value)} placeholder="UUID do usuário" className="min-w-0 flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={previewUserId} onChange={(event) => setPreviewUserId(event.target.value)} placeholder="UUID do usuário" className="min-w-0 flex-1 rounded-lg border border-border px-3 py-2 text-sm" />
           <button type="button" disabled={dryRun.isPending} onClick={() => dryRun.mutate()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Eye size={15} /> {dryRun.isPending ? "Simulando..." : "Simular sem enviar"}</button>
         </div>
-        {preview.length > 0 && <div className="mt-4 space-y-3">{preview.map((item) => <article key={item.dedup_key} className="rounded-xl border border-neutral-200 bg-white p-4"><div className="flex justify-between gap-3"><p className="font-medium">{item.title}</p><span className="text-xs text-neutral-500">{dict.commKind(item.kind)} · {dict.channel(item.channel_ready)}</span></div><p className="mt-2 text-sm text-neutral-600">{item.body}</p><p className="mt-2 break-all text-[11px] text-neutral-400">{item.dedup_key}</p></article>)}</div>}
+        {preview.length > 0 && <div className="mt-4 space-y-3">{preview.map((item) => <article key={item.dedup_key} className="rounded-xl border border-border bg-card p-4"><div className="flex justify-between gap-3"><p className="font-medium">{item.title}</p><span className="text-xs text-muted-foreground">{dict.commKind(item.kind)} · {dict.channel(item.channel_ready)}</span></div><p className="mt-2 text-sm text-muted-foreground">{item.body}</p><p className="mt-2 break-all text-[11px] text-muted-foreground">{item.dedup_key}</p></article>)}</div>}
       </Section>
       </>}
 
       {show("queue") && <>
       <Section title="Fila e bloqueios" icon={ListChecks} description="Sugestões pendentes e motivos reais de supressão.">
         {queue.isLoading ? (
-          <p className="text-sm text-neutral-500">Carregando a operação de mensagens…</p>
+          <p className="text-sm text-muted-foreground">Carregando a operação de mensagens…</p>
         ) : queue.isError ? (
           <EmptyState title="Não foi possível carregar a fila" description={(queue.error as Error).message} />
         ) : (
@@ -301,11 +301,11 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                 <h3 className="text-sm font-semibold">Aguardando processamento</h3>
                 <div className="mt-2 max-h-72 space-y-2 overflow-auto">
                   {(queue.data?.pending ?? []).length === 0 ? (
-                    <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhuma comunicação aguardando processamento.</p>
+                    <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nenhuma comunicação aguardando processamento.</p>
                   ) : (queue.data?.pending ?? []).slice(0, 20).map((item) => (
-                    <div key={item.id} className="rounded-xl border border-neutral-200 p-3">
+                    <div key={item.id} className="rounded-xl border border-border p-3">
                       <p className="text-sm font-medium">{item.title}</p>
-                      <p className="mt-1 text-xs text-neutral-500">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{dict.commKind(item.kind)} · {dateTime(item.created_at)} · {dict.channel(item.channel_ready)}</p>
                     </div>
                   ))}
                 </div>
@@ -314,9 +314,9 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                 <h3 className="text-sm font-semibold">Por que mensagens foram retidas</h3>
                 <div className="mt-2 space-y-2">
                   {(queue.data?.blocks ?? []).length === 0 ? (
-                    <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhuma retenção registrada nos últimos 30 dias.</p>
+                    <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nenhuma retenção registrada nos últimos 30 dias.</p>
                   ) : (queue.data?.blocks ?? []).map((item) => (
-                    <div key={item.reason} className="flex justify-between rounded-xl border border-neutral-200 p-3 text-sm">
+                    <div key={item.reason} className="flex justify-between rounded-xl border border-border p-3 text-sm">
                       <span>{readableReason(item.reason)}</span><strong>{item.total}</strong>
                     </div>
                   ))}
@@ -331,7 +331,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       {show("effectiveness") && <>
       <Section title="Eficácia por tipo de insight" icon={Activity} description="Últimos 30 dias: quais avisos geraram ação e quais o usuário descartou.">
         {effectiveness.isLoading ? (
-          <p className="text-sm text-neutral-500">Calculando eficácia…</p>
+          <p className="text-sm text-muted-foreground">Calculando eficácia…</p>
         ) : effectiveness.isError ? (
           <EmptyState title="Não foi possível calcular a eficácia" description={(effectiveness.error as Error).message} />
         ) : (effectiveness.data ?? []).length === 0 ? (
@@ -339,7 +339,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-neutral-500">
+              <thead className="text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="py-2 text-left">Tipo</th>
                   <th className="text-right">Entregues</th>
@@ -361,14 +361,14 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                       <td className="text-right">{row.dismissed}</td>
                       <td className="text-right">{row.not_useful}</td>
                       <td className="text-right">{row.suppressed}</td>
-                      <td className={`text-right font-medium ${row.action_rate >= 0.2 ? "text-emerald-600" : row.dismissed > row.acted ? "text-amber-600" : ""}`}>
+                      <td className={`text-right font-medium ${row.action_rate >= 0.2 ? "text-success" : row.dismissed > row.acted ? "text-foreground" : ""}`}>
                         {(row.action_rate * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
                       </td>
                     </tr>
                   ))}
               </tbody>
             </table>
-            <p className="mt-3 text-xs text-neutral-500">
+            <p className="mt-3 text-xs text-muted-foreground">
               Tipos com mais descartes que ações têm a prioridade reduzida automaticamente para cada usuário.
             </p>
           </div>
@@ -382,7 +382,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       <Section title="Fluxos e regras de convivência" icon={Settings2} description="Cada tipo é um fluxo: quando dispara, por quais canais, com que intervalo mínimo e teto diário.">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="text-xs uppercase text-neutral-500">
+            <thead className="text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="py-2 text-left">Fluxo</th>
                 <th className="text-left">Família</th>
@@ -397,8 +397,8 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
               {(catalog.data ?? []).map((item) => (
                 <tr key={item.kind} className={item.active ? "" : "opacity-50"}>
                   <td className="py-2 font-medium">{item.label || dict.commKind(item.kind)}</td>
-                  <td className="text-neutral-600">{item.family}</td>
-                  <td className="text-neutral-600">{(item.allowed_channels ?? []).map((c) => dict.channel(c)).join(" + ") || "—"}</td>
+                  <td className="text-muted-foreground">{item.family}</td>
+                  <td className="text-muted-foreground">{(item.allowed_channels ?? []).map((c) => dict.channel(c)).join(" + ") || "—"}</td>
                   <td className="text-right">
                     <input
                       type="number"
@@ -410,10 +410,10 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                           catalogUpdate.mutate({ kind: item.kind, cooldown_hours: value });
                         }
                       }}
-                      className="w-16 rounded border border-neutral-200 px-2 py-1 text-right text-xs"
+                      className="w-16 rounded border border-border px-2 py-1 text-right text-xs"
                       aria-label={`Intervalo mínimo em horas para ${item.label || item.kind}`}
                     />
-                    <span className="ml-1 text-xs text-neutral-400">h</span>
+                    <span className="ml-1 text-xs text-muted-foreground">h</span>
                   </td>
                   <td className="text-right">
                     <input
@@ -426,7 +426,7 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                           catalogUpdate.mutate({ kind: item.kind, max_per_day: value });
                         }
                       }}
-                      className="w-14 rounded border border-neutral-200 px-2 py-1 text-right text-xs"
+                      className="w-14 rounded border border-border px-2 py-1 text-right text-xs"
                       aria-label={`Máximo por dia para ${item.label || item.kind}`}
                     />
                   </td>
@@ -434,13 +434,13 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
                     <button
                       type="button"
                       onClick={() => catalogUpdate.mutate({ kind: item.kind, requires_manual_approval: !item.requires_manual_approval })}
-                      className="rounded border border-neutral-200 px-2 py-1 text-xs"
+                      className="rounded border border-border px-2 py-1 text-xs"
                     >
                       {item.requires_manual_approval ? "Manual" : "Automático"}
                     </button>
                   </td>
                   <td className="text-right">
-                    <button type="button" onClick={() => catalogUpdate.mutate({ kind: item.kind, active: !item.active })} className="rounded border border-neutral-200 px-2 py-1 text-xs">
+                    <button type="button" onClick={() => catalogUpdate.mutate({ kind: item.kind, active: !item.active })} className="rounded border border-border px-2 py-1 text-xs">
                       {item.active ? "Desativar" : "Ativar"}
                     </button>
                   </td>
@@ -456,18 +456,18 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
       <Section title="Templates e prévia" icon={FileText} description="Edite app e WhatsApp com versionamento e validação de variáveis.">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row">
           <label className="relative min-w-0 flex-1">
-            <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-neutral-400" />
+            <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-muted-foreground" />
             <input
               value={templateSearch}
               onChange={(event) => setTemplateSearch(event.target.value)}
               placeholder="Buscar por nome ou caso de uso"
-              className="w-full rounded-xl border border-neutral-200 py-2 pl-9 pr-3 text-sm"
+              className="w-full rounded-xl border border-border py-2 pl-9 pr-3 text-sm"
             />
           </label>
           <select
             value={templateChannel}
             onChange={(event) => setTemplateChannel(event.target.value as typeof templateChannel)}
-            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+            className="rounded-xl border border-border bg-card px-3 py-2 text-sm"
             aria-label="Filtrar templates por canal"
           >
             <option value="all">Todos os canais</option>
@@ -493,9 +493,9 @@ export function ProactiveEnginePanelV2({ sections }: { sections?: CommSection[] 
         </div>
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <div className="max-h-[420px] space-y-2 overflow-auto">
-            {templates.isLoading ? <p className="p-3 text-sm text-neutral-500">Carregando templates…</p> : activeTemplates.length === 0 ? <p className="rounded-xl border border-dashed p-4 text-sm text-neutral-500">Nenhum template corresponde aos filtros.</p> : activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-xl border p-3 text-left transition ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-neutral-200 hover:border-neutral-300"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-neutral-500">{dict.channel(item.channel)} · versão {item.version}</p></button>)}
+            {templates.isLoading ? <p className="p-3 text-sm text-muted-foreground">Carregando templates…</p> : activeTemplates.length === 0 ? <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Nenhum template corresponde aos filtros.</p> : activeTemplates.map((item) => <button key={item.id} type="button" onClick={() => { setSelectedTemplate(item); setTitleTemplate(item.title_template); setBodyTemplate(item.body_template); }} className={`w-full rounded-xl border p-3 text-left transition ${selectedTemplate?.id === item.id ? "border-primary bg-primary/5" : "border-border hover:border-border"}`}><p className="text-sm font-medium">{dict.commKind(item.kind)}</p><p className="mt-1 text-xs text-muted-foreground">{dict.channel(item.channel)} · versão {item.version}</p></button>)}
           </div>
-          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um caso de uso e canal para editar e visualizar." /> : <div className="space-y-3"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-medium text-neutral-600">Caso de uso<select value={selectedTemplate.kind} onChange={(event) => { const next = (templates.data ?? []).find((item) => item.active && item.kind === event.target.value && item.channel === selectedTemplate.channel); if (next) { setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); } }} className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900">{Array.from(new Set((templates.data ?? []).filter((item) => item.active && item.channel === selectedTemplate.channel).map((item) => item.kind))).map((item) => <option key={item} value={item}>{dict.commKind(item)}</option>)}</select></label><label className="text-xs font-medium text-neutral-600">Canal<select value={selectedTemplate.channel} onChange={(event) => { const nextChannel = event.target.value as TemplateRow["channel"]; const next = (templates.data ?? []).find((item) => item.active && item.kind === selectedTemplate.kind && item.channel === nextChannel); if (!next) { adminToast.error("Este caso de uso ainda não está liberado para esse canal."); return; } setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); }} className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900"><option value="app">App</option><option value="whatsapp">WhatsApp</option></select></label></div><p className="text-xs text-neutral-500">Versão atual {selectedTemplate.version} · variáveis permitidas: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</p><input aria-label="Título do template" value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" /><textarea aria-label="Mensagem do template" value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-neutral-300 bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-neutral-500">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
+          {!selectedTemplate ? <EmptyState title="Selecione um template" description="Escolha um caso de uso e canal para editar e visualizar." /> : <div className="space-y-3"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-medium text-muted-foreground">Caso de uso<select value={selectedTemplate.kind} onChange={(event) => { const next = (templates.data ?? []).find((item) => item.active && item.kind === event.target.value && item.channel === selectedTemplate.channel); if (next) { setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); } }} className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground">{Array.from(new Set((templates.data ?? []).filter((item) => item.active && item.channel === selectedTemplate.channel).map((item) => item.kind))).map((item) => <option key={item} value={item}>{dict.commKind(item)}</option>)}</select></label><label className="text-xs font-medium text-muted-foreground">Canal<select value={selectedTemplate.channel} onChange={(event) => { const nextChannel = event.target.value as TemplateRow["channel"]; const next = (templates.data ?? []).find((item) => item.active && item.kind === selectedTemplate.kind && item.channel === nextChannel); if (!next) { adminToast.error("Este caso de uso ainda não está liberado para esse canal."); return; } setSelectedTemplate(next); setTitleTemplate(next.title_template); setBodyTemplate(next.body_template); }} className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground"><option value="app">App</option><option value="whatsapp">WhatsApp</option></select></label></div><p className="text-xs text-muted-foreground">Versão atual {selectedTemplate.version} · variáveis permitidas: {selectedTemplate.allowed_variables.map((item) => `{{${item}}}`).join(", ")}</p><input aria-label="Título do template" value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} className="w-full rounded-xl border border-border px-3 py-2 text-sm" /><textarea aria-label="Mensagem do template" value={bodyTemplate} onChange={(event) => setBodyTemplate(event.target.value)} rows={6} className="w-full rounded-xl border border-border px-3 py-2 text-sm" /><div className="rounded-xl border border-dashed border-border bg-[#ECE5DD] p-4"><p className="text-xs uppercase text-muted-foreground">Prévia com dados fictícios</p><div className="mt-2 max-w-sm rounded-2xl rounded-tl-sm bg-card p-3 shadow-sm"><p className="font-semibold">{titleTemplate.replace(/\{\{title\}\}/g, "Possível duplicidade: Uber")}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{bodyTemplate.replace(/\{\{body\}\}/g, "Encontrei dois lançamentos de R$ 19,90 no mesmo dia. Confirme se são compras diferentes.").replace(/\{\{action_url\}\}/g, "www.meunino.com.br/app/alertas/exemplo")}</p></div></div><button type="button" disabled={templateSave.isPending} onClick={() => templateSave.mutate()} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm text-white disabled:opacity-60"><Save size={15} /> Publicar nova versão</button></div>}
         </div>
       </Section>
       </>}

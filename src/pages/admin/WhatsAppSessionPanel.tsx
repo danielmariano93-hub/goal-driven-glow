@@ -201,7 +201,7 @@ export function WhatsAppSetupWizard({ mode = "initial", onDone, onCancel }: { mo
       </div>
 
       {mode === "replace" && step === "creds" && (
-        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <div className="flex items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
           <AlertTriangle className="h-3 w-3" /> Você está substituindo as credenciais atuais.
         </div>
       )}
@@ -254,7 +254,7 @@ export function WhatsAppSetupWizard({ mode = "initial", onDone, onCancel }: { mo
             <div className="flex items-center gap-2"><StatusChip view={mapWhatsAppStatus(snap.status)} /></div>
           )}
           {qr ? (
-            <div className="rounded-xl border border-border bg-white p-4 grid place-items-center">
+            <div className="rounded-xl border border-border bg-card p-4 grid place-items-center">
               <img src={`data:${qr.mimeType};base64,${qr.base64}`} alt="QR de conexão" className="max-w-[240px]" />
             </div>
           ) : (
@@ -265,7 +265,7 @@ export function WhatsAppSetupWizard({ mode = "initial", onDone, onCancel }: { mo
 
       {step === "done" && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-emerald-700">
+          <div className="flex items-center gap-2 text-success">
             <CheckCircle2 className="h-5 w-5" />
             <p className="text-sm font-medium">WhatsApp conectado.</p>
           </div>
@@ -314,7 +314,7 @@ function InboundHealthCard({ onSync }: { onSync: () => void | Promise<void> }) {
   const healthy = state?.status === "healthy";
   return (
     <div className="surface-card p-4 flex flex-wrap items-center gap-3">
-      <div className={`h-2 w-2 rounded-full ${healthy ? "bg-emerald-500" : "bg-amber-500"}`} />
+      <div className={`h-2 w-2 rounded-full ${healthy ? "bg-emerald-500" : "bg-warning/100"}`} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">
           {loading ? "Verificando entrada de mensagens…" : healthy ? "Recebendo mensagens" : "Precisa de atenção"}
@@ -422,7 +422,7 @@ export function WhatsAppSessionPanel() {
       <section className="space-y-4">
         <div className="surface-card p-5 space-y-3">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+            <AlertTriangle className="h-4 w-4 text-foreground mt-0.5" />
             <div>
               <p className="text-sm font-semibold">Não consegui carregar o status</p>
               <p className="text-xs text-muted-foreground mt-1">Verifique sua conexão e tente novamente.</p>
@@ -511,7 +511,7 @@ export function WhatsAppSessionPanel() {
 
       <div className="surface-card p-5 space-y-4">
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1 text-emerald-700">
+          <span className="flex items-center gap-1 text-success">
             <ShieldCheck className="h-3 w-3" /> Credenciais configuradas
           </span>
           {config?.updated_at && <span>· atualizadas {humanizeRelative(config.updated_at)}</span>}
@@ -519,7 +519,7 @@ export function WhatsAppSessionPanel() {
         </div>
 
         {isConnected && (
-          <div className="flex items-center gap-2 text-emerald-700">
+          <div className="flex items-center gap-2 text-success">
             <CheckCircle2 className="h-4 w-4" />
             <p className="text-sm">Canal conectado{snap?.phone_masked ? ` (${snap.phone_masked})` : ""}.</p>
           </div>
@@ -550,7 +550,7 @@ export function WhatsAppSessionPanel() {
           {canSend && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <button disabled={!!busy} className="inline-flex items-center gap-1 rounded-full border border-amber-200 text-amber-800 px-3 py-1.5 text-xs hover:bg-amber-50 disabled:opacity-50">
+                <button disabled={!!busy} className="inline-flex items-center gap-1 rounded-full border border-warning/40 text-foreground px-3 py-1.5 text-xs hover:bg-warning/10 disabled:opacity-50">
                   Reiniciar
                 </button>
               </AlertDialogTrigger>

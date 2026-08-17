@@ -93,13 +93,13 @@ export function PartialFailureNotice({
   return (
     <div
       role="status"
-      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
     >
       <span className="min-w-0">
         Parte das informações não carregou. O que está na tela continua válido.
       </span>
       <div className="flex items-center gap-3">
-        <span className="hidden max-w-[18rem] truncate text-xs text-amber-800 md:inline" title={message}>
+        <span className="hidden max-w-[18rem] truncate text-xs text-foreground md:inline" title={message}>
           {message}
         </span>
         {onRetry && (

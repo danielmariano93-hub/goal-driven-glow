@@ -32,7 +32,7 @@ export function KpiCard({ label, envelope, format = defaultFormat, suffix, metaK
 
   const Icon = delta === null ? Minus : delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus;
   const tone =
-    isGood === null ? "text-muted-foreground" : isGood ? "text-emerald-600" : "text-rose-600";
+    isGood === null ? "text-muted-foreground" : isGood ? "text-success" : "text-destructive";
 
   const provenance = metaKey ? kpiProvenance(metaKey) : null;
 
@@ -67,7 +67,7 @@ export function KpiCard({ label, envelope, format = defaultFormat, suffix, metaK
         </span>
       </div>
       {envelope && !envelope.sufficient_sample && (
-        <div className="mt-1 text-[10px] text-amber-600">
+        <div className="mt-1 text-[10px] text-foreground">
           Ainda com poucos dados para conclusão
         </div>
       )}

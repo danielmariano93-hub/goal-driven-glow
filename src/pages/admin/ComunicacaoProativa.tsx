@@ -132,7 +132,7 @@ function Overview() {
             key={p.days}
             onClick={() => setDays(p.days)}
             className={`px-3 py-1.5 rounded-lg text-sm border transition ${
-              days === p.days ? "bg-primary text-white border-primary" : "bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300"
+              days === p.days ? "bg-primary text-white border-primary" : "bg-card border-border text-neutral-700 hover:border-border"
             }`}
           >
             {p.label}
@@ -141,14 +141,14 @@ function Overview() {
         <select
           value={channel}
           onChange={(e) => setChannel(e.target.value)}
-          className="px-3 py-1.5 rounded-lg text-sm border bg-white border-neutral-200"
+          className="px-3 py-1.5 rounded-lg text-sm border bg-card border-border"
         >
           {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
         <select
           value={kind}
           onChange={(e) => setKind(e.target.value)}
-          className="px-3 py-1.5 rounded-lg text-sm border bg-white border-neutral-200"
+          className="px-3 py-1.5 rounded-lg text-sm border bg-card border-border"
         >
           {kindOptions.map((k) => (
             <option key={k || "all"} value={k}>{k ? dict.commKind(k) : "Todos os tipos"}</option>
@@ -237,7 +237,7 @@ function Overview() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="text-neutral-500 text-xs uppercase tracking-wider">
+                  <thead className="text-muted-foreground text-xs uppercase tracking-wider">
                     <tr><th className="text-left py-2 pr-4">Tipo</th><th className="text-right pr-4">Total</th><th className="text-right pr-4">Entregues</th><th className="text-right pr-4">Interagidas</th><th className="text-right pr-4">Falhas</th><th className="text-right pr-4">Bloqueadas</th><th className="text-right">Custo</th></tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-100">
@@ -246,9 +246,9 @@ function Overview() {
                         <td className="py-2 pr-4 font-medium text-neutral-800">{dict.commKind(row.kind)}</td>
 
                         <td className="text-right pr-4">{row.total}</td>
-                        <td className="text-right pr-4 text-emerald-600">{row.delivered}</td>
+                        <td className="text-right pr-4 text-success">{row.delivered}</td>
                         <td className="text-right pr-4">{row.acted}</td>
-                        <td className="text-right pr-4 text-amber-600">{row.failed}</td>
+                        <td className="text-right pr-4 text-foreground">{row.failed}</td>
                         <td className="text-right pr-4">{row.suppressed}</td>
                         <td className="text-right tabular-nums">${(row.cost_usd ?? 0).toFixed(4)}</td>
                       </tr>

@@ -79,8 +79,8 @@ export function BreakGlassPanel({ onChange }: Props) {
   }
 
   return (
-    <div className="surface-card p-4 border border-amber-300/60">
-      <div className="flex items-center gap-2 text-amber-700 mb-2">
+    <div className="surface-card p-4 border border-warning/40">
+      <div className="flex items-center gap-2 text-foreground mb-2">
         <AlertTriangle size={16} />
         <h3 className="font-display text-base font-semibold">Break-glass (acesso emergencial)</h3>
       </div>
@@ -156,8 +156,8 @@ export function BreakGlassPanel({ onChange }: Props) {
         </button>
       </div>
 
-      {msg && <div className="mt-3 text-sm text-emerald-700">{msg}</div>}
-      {err && <div className="mt-3 text-sm text-rose-700">{err}</div>}
+      {msg && <div className="mt-3 text-sm text-success">{msg}</div>}
+      {err && <div className="mt-3 text-sm text-destructive">{err}</div>}
     </div>
   );
 }
