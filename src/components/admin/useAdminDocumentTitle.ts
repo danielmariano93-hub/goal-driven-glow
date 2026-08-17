@@ -6,8 +6,9 @@ const TITLES: Record<string, string> = {
   "/admin/visao-geral": "Visão geral",
   "/admin/clientes": "Clientes",
   "/admin/produto": "Produto",
-  "/admin/operacoes": "Operações",
-  "/admin/comunicacoes": "Comunicações",
+  "/admin/operacoes": "Saúde da plataforma",
+  "/admin/comunicacoes": "Mensageria",
+  "/admin/nino-ia": "Nino & IA",
   "/admin/administracao": "Administração",
 };
 
