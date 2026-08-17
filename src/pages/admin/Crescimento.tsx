@@ -8,6 +8,23 @@ import { adminErrorMessage, callAdminRpc, withPeriod } from "@/lib/admin/adminRp
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 import { dict } from "@/lib/admin/displayDictionary";
+import { FunnelBars } from "@/components/admin/kit/FunnelBars";
+
+/** Agrupa as linhas por experiência e ordena as etapas como um funil real. */
+function groupFunnel(rows: FunnelRow[]) {
+  const map = new Map<string, FunnelRow[]>();
+  for (const row of rows) {
+    const list = map.get(row.feature) ?? [];
+    list.push(row);
+    map.set(row.feature, list);
+  }
+  return Array.from(map.entries())
+    .map(([feature, steps]) => ({
+      feature,
+      steps: [...steps].sort((a, b) => b.users - a.users || b.events - a.events),
+    }))
+    .sort((a, b) => (b.steps[0]?.users ?? 0) - (a.steps[0]?.users ?? 0));
+}
 
 type Summary = {
   total_clients: number;
@@ -128,20 +145,31 @@ export default function Crescimento() {
       ) : null}
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-        <h2 className="mb-4 font-semibold">Funil das experiências</h2>
+        <h2 className="font-semibold">Funil das experiências</h2>
+        <p className="mb-4 mt-1 text-xs text-muted-foreground">
+          Quantos clientes chegam a cada etapa de cada experiência e onde eles param.
+        </p>
         {loading ? (
           <AdminSkeleton />
         ) : funnel?.funnel?.length ? (
-          <AdminResponsiveList
-            rows={funnel.funnel}
-            rowKey={(row, index) => `${row.feature}-${row.step}-${index}`}
-            columns={[
-              { key: "feature", label: "Experiência", render: (row) => dict.feature(row.feature) },
-              { key: "step", label: "Etapa", render: (row) => dict.step(row.step) },
-              { key: "users", label: "Usuários", render: (row) => row.users, align: "right" },
-              { key: "events", label: "Eventos", render: (row) => row.events, align: "right" },
-            ]}
-          />
+          <div className="space-y-5">
+            {groupFunnel(funnel.funnel).map((group) => (
+              <FunnelBars
+                key={group.feature}
+                title={dict.feature(group.feature)}
+                steps={group.steps.map((s) => ({
+                  label: dict.step(s.step),
+                  users: s.users,
+                  events: s.events,
+                }))}
+                caption={
+                  group.steps[0]?.users != null && group.steps[0].users < 5
+                    ? "Amostra pequena: não leia tendência aqui."
+                    : undefined
+                }
+              />
+            ))}
+          </div>
         ) : (
           <EmptyState title="Ainda não há eventos live suficientes para desenhar o funil" />
         )}

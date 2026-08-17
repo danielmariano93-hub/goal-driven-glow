@@ -8,9 +8,9 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 import { useAdminPlatformStatus } from "@/hooks/useAdminPlatformStatus";
-import { IncidentGroup } from "@/components/admin/AttentionCard";
+import { IncidentStrip } from "@/components/admin/kit/IncidentStrip";
 import { TechnicalDetails } from "@/components/admin/TechnicalDetails";
-import { buildIncidents, groupBySeverity } from "@/lib/admin/incidents";
+import { buildIncidents } from "@/lib/admin/incidents";
 import { universeCaption, universeNotes, type AdminUniverse } from "@/lib/admin/universe";
 import { fetchMessages, type MessageRow } from "@/lib/admin/messageCenter";
 
@@ -59,6 +59,15 @@ type DailyEvolution = {
   formula_version: string;
 };
 
+/** Falha de envio em janela fixa de 7 dias, independente do filtro de período. */
+type Failure7d = {
+  window_days: number;
+  total: number;
+  failed: number;
+  rate: number | null;
+  measured_at: string;
+};
+
 const dayLabel = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" })
     .format(new Date(iso));
@@ -97,6 +106,7 @@ export default function Cockpit() {
   const [evolution, setEvolution] = useState<DailyEvolution | null>(null);
   const [universe, setUniverse] = useState<AdminUniverse | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [failure7d, setFailure7d] = useState<Failure7d | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { data: platformStatus } = useAdminPlatformStatus();
@@ -110,13 +120,15 @@ export default function Cockpit() {
       callAdminRpc<DailyEvolution>("admin_v2_daily_evolution", withPeriod(range)),
       callAdminRpc<AdminUniverse>("admin_v2_metrics_universe"),
       fetchMessages({ from: range.from, to: range.to, limit: 500 }),
-    ]).then(([cockpitRes, evoRes, universeRes, msgRes]) => {
+      callAdminRpc<Failure7d>("admin_v2_messaging_failure_7d"),
+    ]).then(([cockpitRes, evoRes, universeRes, msgRes, failRes]) => {
       if (cancelled) return;
       if (cockpitRes.status === "fulfilled") setData(cockpitRes.value);
       else setError(adminErrorMessage(cockpitRes.reason, "Falha ao carregar a visão geral"));
       setEvolution(evoRes.status === "fulfilled" ? evoRes.value : null);
       setUniverse(universeRes.status === "fulfilled" ? universeRes.value : null);
       setMessages(msgRes.status === "fulfilled" ? msgRes.value : []);
+      setFailure7d(failRes.status === "fulfilled" ? failRes.value : null);
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -133,14 +145,13 @@ export default function Cockpit() {
   const contractsMismatch = health && clientsCount !== null && adminsCount !== null
     && health.auth_users !== clientsCount + adminsCount + testCount;
 
-  const incidents = groupBySeverity(
-    buildIncidents({
-      status: platformStatus,
-      universe,
-      attention: data.attention,
-      messagingFailureRate: data.messaging_failure_rate_7d?.value ?? null,
-    }),
-  );
+  // Falha de envio vem de uma janela real de 7 dias, não do filtro de período.
+  const incidentList = buildIncidents({
+    status: platformStatus,
+    universe,
+    attention: data.attention,
+    messagingFailureRate: failure7d?.rate ?? null,
+  });
 
   const series = evolution?.series ?? [];
   const growthChart = series.map((p) => ({
@@ -186,15 +197,7 @@ export default function Cockpit() {
         <h2 id="cockpit-incidentes" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Precisa da sua atenção
         </h2>
-        <div className="space-y-3">
-          <IncidentGroup
-            severity="critical"
-            incidents={incidents.critical}
-            emptyLabel={incidents.warning.length ? undefined : "Nada exige ação imediata agora."}
-          />
-          <IncidentGroup severity="warning" incidents={incidents.warning} />
-          <IncidentGroup severity="healthy" incidents={incidents.healthy} />
-        </div>
+        <IncidentStrip incidents={incidentList} emptyLabel="Nada exige ação agora." />
       </section>
 
       {/* 2. O negócio está crescendo? */}
@@ -287,7 +290,10 @@ export default function Cockpit() {
         </ul>
         <ul className="mt-3 space-y-1">
           <li>Clientes que começaram a usar no período: {INT.format(data.activation?.value ?? 0)}</li>
-          <li>Falha de mensagens (7 dias): {data.messaging_failure_rate_7d?.value ?? "—"}%</li>
+          <li>
+            Falha de envio nos últimos 7 dias corridos: {failure7d?.failed ?? 0} de{" "}
+            {failure7d?.total ?? 0} mensagens ({failure7d?.rate ?? 0}%)
+          </li>
           <li>Valor entregue: {data.value_delivered?.value ?? "—"}</li>
         </ul>
       </TechnicalDetails>
