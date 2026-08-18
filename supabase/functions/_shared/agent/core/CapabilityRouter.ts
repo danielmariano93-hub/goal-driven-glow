@@ -13,6 +13,7 @@ export type CapabilityName =
   | "weekday_pattern"
   | "weekday_literal"
   | "goals_overview"
+  | "goal_strategy"
   | "before_spending"
   | "financial_snapshot"
   | "recent_transactions"
