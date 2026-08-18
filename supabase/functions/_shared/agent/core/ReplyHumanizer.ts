@@ -32,23 +32,30 @@ const VENDOR_CLAUSES: RegExp[] = [
   new RegExp(String.raw`\b${VENDOR_WORD}\b[a-z0-9./-]*`, "gi"),
 ];
 
-/** Repara resíduos gramaticais deixados por qualquer remoção. */
-function repairGrammar(text: string): string {
-  return text
+/** Repara resíduos gramaticais deixados por qualquer remoção.
+ *  Atua SEMPRE linha por linha: colapsar espaços no texto inteiro destruía as
+ *  quebras de linha das respostas determinísticas (listas grudavam na chamada). */
+function repairGrammarLine(line: string): string {
+  return line
     // "criado pelo para te ajudar" / "criado por . " → tira a preposição órfã
     .replace(/\b(criad[oa]|desenvolvid[oa]|treinad[oa]|feit[oa]|basead[oa])\s+(?:pel[oa]s?|por|d[oa]|em|com|no|na)\s+(?=(?:para|pra|por|e|que|com|a fim)\b|[.,;!?]|$)/gi, "$1 ")
     // preposição/artigo órfão antes de pontuação
     .replace(/\b(?:pel[oa]s?|por|d[oa]s?|de|em|com|no|na|um|uma|o|a)\s+(?=[.,;!?])/gi, "")
     // "Fui  para te ajudar" → "Estou aqui para te ajudar"
     .replace(/\bfui\s+(?=para|pra)\b/gi, "estou aqui ")
-    .replace(/\s{2,}/g, " ")
-    .replace(/\s+([;,.!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([;,.!?])/g, "$1")
     .replace(/([;,])\s*([;,.])/g, "$2")
     .replace(/,\s*\./g, ".")
     .replace(/;\s*\./g, ".")
     .replace(/\.{2,}(?!\.)/g, ".")
     .replace(/\(\s*\)/g, "");
 }
+
+function repairGrammar(text: string): string {
+  return String(text ?? "").split("\n").map(repairGrammarLine).join("\n");
+}
+
 
 function stripInternalNames(text: string): string {
   let out = text;
