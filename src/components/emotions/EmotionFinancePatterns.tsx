@@ -3,7 +3,7 @@ import { Brain, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { formatBRL } from "@/lib/split/math";
-import { resolveEmotion, emotionByMood } from "@/lib/emotions/catalog";
+import { EMOTION_CATALOG, resolveEmotion } from "@/lib/emotions/catalog";
 import {
   computeEmotionFinance,
   type EmotionCheckinRow,
@@ -80,7 +80,8 @@ export function EmotionFinancePatterns() {
         period: { from, to },
         categoryNames,
         resolveEmotionKey: (value, mood) => {
-          const option = resolveEmotion(value) ?? emotionByMood(mood);
+          const option = resolveEmotion(value)
+            ?? (mood != null ? EMOTION_CATALOG.find((e) => e.mood === Number(mood)) ?? null : null);
           return option ? { key: option.key, label: option.label } : null;
         },
         minSample: Number(cfg.min_sample ?? 5),
