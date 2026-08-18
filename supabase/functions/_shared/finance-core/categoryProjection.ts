@@ -196,10 +196,14 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     }
     const declaredRecurring = beforePeriod.some((e) => e.recurringOrigin);
     const monthsPresent = monthlyTotals.size;
-    if (!declaredRecurring && monthsPresent < 2) continue;
-
-    const typical = round2(median([...monthlyTotals.values()].map((b) => b.amount)));
+    const monthAmounts = [...monthlyTotals.values()].map((b) => b.amount);
+    const typical = round2(median(monthAmounts));
     if (!(typical > 0)) continue;
+    // Evidência de série real: cobrança declarada como recorrente, ou presença
+    // em 3+ meses com valor mensal estável. Duas aparições soltas não bastam —
+    // era isso que enchia a projeção de cobranças que nunca vão acontecer.
+    const amountStable = monthAmounts.every((amount) => Math.abs(amount - typical) <= Math.max(2, typical * 0.35));
+    if (!declaredRecurring && !(monthsPresent >= 3 && amountStable)) continue;
     const expectedDay = Math.round(median(beforePeriod.map((e) => Number(e.date.slice(8, 10))))) || 1;
 
     const inPeriod = entries.filter((e) => e.date >= input.period.start && e.date <= input.period.end);
@@ -248,7 +252,7 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   let method: CategoryProjectionMethod;
   if (elapsed === 0 || (confirmedSpend === 0 && !hasSeries)) {
     method = "insufficient_data";
-  } else if (spendDayRatio <= 0.25) {
+  } else if (spendDayRatio <= 0.35) {
     method = "commitment";
   } else if (spendDayRatio >= 0.5 && recurringShareOfSpend < 0.5) {
     method = "flow";
