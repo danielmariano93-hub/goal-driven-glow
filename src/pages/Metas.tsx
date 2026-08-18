@@ -32,8 +32,9 @@ import { behavioralMetricAmount, computeGoalProgress, formatBRL, todayISO } from
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
+import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
-import { buildStrategyBase, buildStrategyForGoal } from "@/lib/goals/strategyInputs";
+import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
 
