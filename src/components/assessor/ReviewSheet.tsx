@@ -615,7 +615,22 @@ export function ReviewSheet({
                             placeholder="0,00"
                           />
                         </div>
+                        <div className="col-span-2">
+                          <label htmlFor="invoice-due-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Vencimento desta fatura</label>
+                          <input
+                            id="invoice-due-date"
+                            type="date"
+                            value={invoiceDueDateInput}
+                            onChange={(event) => setInvoiceDueDateInput(event.target.value)}
+                            onBlur={saveInvoiceDueDate}
+                            className="input-base text-sm"
+                          />
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Em branco, eu calculo pelo ciclo do cartão. Informe quando duas faturas caírem no mesmo mês.
+                          </p>
+                        </div>
                       </div>
+
                       <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
                         <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
                         <span>Estornos/créditos<br/><strong>−{formatBRL(invoiceSummary.credits)}</strong></span>
