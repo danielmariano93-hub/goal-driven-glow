@@ -30,6 +30,12 @@ import {
   type TransactionRow,
 } from "./facts";
 import {
+  computeCategoryProjection,
+  type CategoryProjection,
+  type CategoryProjectionConfidence,
+  type CategoryProjectionMethod,
+} from "./categoryProjection";
+import {
   computeCashBridge,
   computeNetWorthBridge,
   computePeriodPerformance,
