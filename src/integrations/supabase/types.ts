@@ -2043,6 +2043,57 @@ export type Database = {
           },
         ]
       }
+      card_reconciliation_events: {
+        Row: {
+          amount: number | null
+          competence_after: string | null
+          competence_before: string | null
+          created_at: string
+          credit_card_id: string | null
+          event_kind: string
+          evidence: Json
+          id: string
+          installment_id: string | null
+          purchase_id: string | null
+          reason: string | null
+          statement_id: string | null
+          transaction_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount?: number | null
+          competence_after?: string | null
+          competence_before?: string | null
+          created_at?: string
+          credit_card_id?: string | null
+          event_kind: string
+          evidence?: Json
+          id?: string
+          installment_id?: string | null
+          purchase_id?: string | null
+          reason?: string | null
+          statement_id?: string | null
+          transaction_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number | null
+          competence_after?: string | null
+          competence_before?: string | null
+          created_at?: string
+          credit_card_id?: string | null
+          event_kind?: string
+          evidence?: Json
+          id?: string
+          installment_id?: string | null
+          purchase_id?: string | null
+          reason?: string | null
+          statement_id?: string | null
+          transaction_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           archived_at: string | null
@@ -3409,7 +3460,9 @@ export type Database = {
           installments_total: number
           legacy_purchase_group_id: string | null
           merchant: string
+          merchant_canonical: string | null
           purchase_date: string
+          series_key: string | null
           source: string
           source_document_id: string | null
           status: string
@@ -3427,7 +3480,9 @@ export type Database = {
           installments_total?: number
           legacy_purchase_group_id?: string | null
           merchant: string
+          merchant_canonical?: string | null
           purchase_date: string
+          series_key?: string | null
           source?: string
           source_document_id?: string | null
           status?: string
@@ -3445,7 +3500,9 @@ export type Database = {
           installments_total?: number
           legacy_purchase_group_id?: string | null
           merchant?: string
+          merchant_canonical?: string | null
           purchase_date?: string
+          series_key?: string | null
           source?: string
           source_document_id?: string | null
           status?: string
@@ -11709,6 +11766,10 @@ export type Database = {
           statement_status: string
         }[]
       }
+      backfill_card_competence: {
+        Args: { p_dry_run?: boolean; p_user_id?: string }
+        Returns: Json
+      }
       backfill_product_events_from_history: {
         Args: { _days?: number }
         Returns: Json
@@ -11716,6 +11777,7 @@ export type Database = {
       bank_posting_sources: { Args: never; Returns: string[] }
       cancel_document_import: { Args: { p_document_id: string }; Returns: Json }
       cancel_pending_action: { Args: { p_id: string }; Returns: undefined }
+      canonical_merchant_token: { Args: { p_text: string }; Returns: string }
       card_competence_for: {
         Args: { p_card_id: string; p_date: string }
         Returns: string
@@ -12143,6 +12205,17 @@ export type Database = {
       mark_outbound_sent: {
         Args: { p_id: string; p_provider_message_id: string }
         Returns: undefined
+      }
+      match_card_installment: {
+        Args: {
+          p_credit_card_id: string
+          p_installments_total: number
+          p_legacy_group?: string
+          p_merchant: string
+          p_total_amount: number
+          p_user_id: string
+        }
+        Returns: string
       }
       match_refund_candidate: { Args: { p_refund_id: string }; Returns: string }
       match_refund_candidate_v2: {

@@ -631,7 +631,7 @@ function explainBalanceChange(bridge, performance) {
 }
 
 // src/lib/engine/cardExposure.ts
-var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v2";
+var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v3";
 var CARD_CYCLE_VERSION = "card_cycle.v2";
 var pad = (n) => String(n).padStart(2, "0");
 var lastDayOf = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
@@ -691,7 +691,16 @@ function openCycleOf(card, todayISO2) {
 }
 var SETTLED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed_paid"]);
 var CLOSED_STATUSES = /* @__PURE__ */ new Set(["paid", "settled", "closed", "closed_paid", "approved"]);
-var DEAD_INSTALLMENTS = /* @__PURE__ */ new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
+var DEAD_INSTALLMENTS = /* @__PURE__ */ new Set(["paid", "settled", "refunded", "cancelled", "reversed", "anticipated", "superseded"]);
+var NEUTRAL_MOVEMENTS = /* @__PURE__ */ new Set([
+  "card_payment",
+  "debt_payment",
+  "internal_transfer",
+  "external_transfer_in",
+  "external_transfer_out",
+  "investment_application",
+  "investment_redemption"
+]);
 var emptyFigure = () => ({ amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 });
 function isAuthoritativeCardStatement(statement) {
   const status = String(statement.status ?? "").toLowerCase();
@@ -707,23 +716,64 @@ function ymOf(value) {
   const v = String(value ?? "");
   return /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : null;
 }
-function estimateFromTxs(txs, cardId, ym) {
+function buildExclusionIndex(installments, statements) {
+  const reasons = /* @__PURE__ */ new Map();
+  const absorbedCompetence = /* @__PURE__ */ new Map();
+  const statementById = /* @__PURE__ */ new Map();
+  for (const s of statements) if (s.id) statementById.set(String(s.id), s);
+  for (const inst of installments) {
+    const txId = inst.legacy_transaction_id ? String(inst.legacy_transaction_id) : null;
+    if (!txId) continue;
+    const status = String(inst.status ?? "");
+    const absorbedId = inst.absorbed_by_statement_id ? String(inst.absorbed_by_statement_id) : null;
+    if (absorbedId) {
+      const stmt = statementById.get(absorbedId);
+      const ym = stmt ? ymOf(stmt.competence_month) : null;
+      if (ym) absorbedCompetence.set(txId, ym);
+      reasons.set(txId, "absorbed_by_statement");
+      continue;
+    }
+    if (DEAD_INSTALLMENTS.has(status)) reasons.set(txId, "installment_settled");
+  }
+  return { reasons, absorbedCompetence };
+}
+function exclusionOf(t, index) {
+  if (t.settles_card_id) return "card_payment";
+  const mk = String(t.movement_kind ?? "transaction");
+  if (NEUTRAL_MOVEMENTS.has(mk)) return mk === "card_payment" ? "card_payment" : "neutral_movement";
+  if (t.status && t.status !== "confirmed") return "not_confirmed";
+  const id = t.id ? String(t.id) : null;
+  if (id && index?.reasons.has(id)) return index.reasons.get(id);
+  return null;
+}
+function estimateFromTxs(txs, cardId, ym, index) {
   let total = 0;
+  let excludedAbsorbed = 0;
+  let excludedCount = 0;
+  const ids = [];
   for (const t of txs) {
     if (t.credit_card_id !== cardId) continue;
-    if (t.settles_card_id) continue;
-    if (t.status && t.status !== "confirmed") continue;
     if (ymOf(t.competence_date) !== ym) continue;
+    const reason = exclusionOf(t, index);
+    if (reason) {
+      if (reason === "absorbed_by_statement" || reason === "installment_settled") {
+        excludedAbsorbed += Math.abs(Number(t.amount || 0));
+        excludedCount += 1;
+      }
+      continue;
+    }
     const amt = Number(t.amount || 0);
     total += t.type === "income" ? -amt : amt;
+    if (t.id) ids.push(String(t.id));
   }
-  return round2(Math.max(0, total));
+  return { total: round2(Math.max(0, total)), ids, excludedAbsorbed: round2(excludedAbsorbed), excludedCount };
 }
 function installmentsOfCompetence(installments, txs, cardId, ym) {
   const ledgerIds = new Set(
     txs.filter((tx) => tx.credit_card_id === cardId && ymOf(tx.competence_date) === ym).map((tx) => tx.id).filter((id) => Boolean(id))
   );
   let total = 0;
+  const ids = [];
   for (const inst of installments) {
     if (inst.credit_card_id !== cardId) continue;
     if (inst.absorbed_by_statement_id) continue;
@@ -731,21 +781,32 @@ function installmentsOfCompetence(installments, txs, cardId, ym) {
     if (ymOf(inst.competence_month) !== ym) continue;
     if (inst.legacy_transaction_id && ledgerIds.has(inst.legacy_transaction_id)) continue;
     total += Number(inst.amount || 0);
+    if (inst.id) ids.push(String(inst.id));
   }
-  return round2(Math.max(0, total));
+  return { total: round2(Math.max(0, total)), ids };
 }
-function estimateFromCycle(txs, cardId, cycle) {
+function estimateFromCycle(txs, cardId, cycle, index) {
   let total = 0;
+  let excludedAbsorbed = 0;
+  let excludedCount = 0;
+  const ids = [];
   for (const t of txs) {
     if (t.credit_card_id !== cardId) continue;
-    if (t.settles_card_id) continue;
-    if (t.status && t.status !== "confirmed") continue;
     const day = String(t.occurred_at ?? "").slice(0, 10);
     if (!day || day < cycle.period_start || day > cycle.period_end) continue;
+    const reason = exclusionOf(t, index);
+    if (reason) {
+      if (reason === "absorbed_by_statement" || reason === "installment_settled") {
+        excludedAbsorbed += Math.abs(Number(t.amount || 0));
+        excludedCount += 1;
+      }
+      continue;
+    }
     const amt = Number(t.amount || 0);
     total += t.type === "income" ? -amt : amt;
+    if (t.id) ids.push(String(t.id));
   }
-  return round2(Math.max(0, total));
+  return { total: round2(Math.max(0, total)), ids, excludedAbsorbed: round2(excludedAbsorbed), excludedCount };
 }
 function figureFromStatement(statement) {
   const status = (statement.status ?? "").toString() || null;
@@ -763,16 +824,27 @@ function figureFromStatement(statement) {
     installmentsAmount: null
   };
 }
-function estimatedFigure(txs, installments, cardId, ym) {
-  const purchases = estimateFromTxs(txs, cardId, ym);
+function estimatedFigure(txs, installments, cardId, ym, index) {
+  const purchases = estimateFromTxs(txs, cardId, ym, index);
   const contracted = installmentsOfCompetence(installments, txs, cardId, ym);
-  const total = round2(purchases + contracted);
+  const total = round2(purchases.total + contracted.total);
   return {
     ...emptyFigure(),
     amount: total,
     source: total > 0 ? "estimated" : "unavailable",
-    purchasesAmount: purchases,
-    installmentsAmount: contracted
+    purchasesAmount: purchases.total,
+    installmentsAmount: contracted.total,
+    breakdown: {
+      newPurchases: purchases.total,
+      contractedInstallments: contracted.total,
+      feesInterest: 0,
+      refunds: 0,
+      credits: 0,
+      excludedAbsorbed: purchases.excludedAbsorbed,
+      excludedCount: purchases.excludedCount,
+      transactionIds: purchases.ids,
+      installmentIds: contracted.ids
+    }
   };
 }
 function computeCardExposure(input) {
@@ -785,6 +857,7 @@ function computeCardExposure(input) {
   const ids = new Set(cardIds);
   for (const s of statements) ids.add(s.credit_card_id);
   for (const i of installments) ids.add(i.credit_card_id);
+  const exclusion = buildExclusionIndex(installments, statements);
   for (const cardId of ids) {
     const cardStatements = statements.filter((s) => s.credit_card_id === cardId);
     const byYM = /* @__PURE__ */ new Map();
@@ -794,10 +867,10 @@ function computeCardExposure(input) {
     }
     const currentCandidate = byYM.get(currentYM);
     const currentRow = currentCandidate && isAuthoritativeCardStatement(currentCandidate) ? currentCandidate : void 0;
-    const current = currentRow ? figureFromStatement(currentRow) : estimatedFigure(txs, installments, cardId, currentYM);
+    const current = currentRow ? figureFromStatement(currentRow) : estimatedFigure(txs, installments, cardId, currentYM, exclusion);
     const nextCandidate = byYM.get(nextYM);
     const nextRow = nextCandidate && isAuthoritativeCardStatement(nextCandidate) ? nextCandidate : void 0;
-    const next = nextRow ? figureFromStatement(nextRow) : estimatedFigure(txs, installments, cardId, nextYM);
+    const next = nextRow ? figureFromStatement(nextRow) : estimatedFigure(txs, installments, cardId, nextYM, exclusion);
     let lastClosedYM = "";
     for (const [ym, s] of byYM) {
       if (isAuthoritativeCardStatement(s) && CLOSED_STATUSES.has((s.status ?? "").toString()) && ym > lastClosedYM) lastClosedYM = ym;
@@ -825,7 +898,27 @@ function computeCardExposure(input) {
     const totalCardDebt = round2(openStatementsDebt + (currentRow ? 0 : current.amount));
     const cfg = cycleConfig.get(cardId);
     const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today) : null;
-    const forming = openCycle ? { ...emptyFigure(), amount: estimateFromCycle(txs, cardId, openCycle), source: "estimated" } : emptyFigure();
+    const cycleSum = openCycle ? estimateFromCycle(txs, cardId, openCycle, exclusion) : null;
+    const forming = cycleSum ? {
+      ...emptyFigure(),
+      amount: cycleSum.total,
+      source: "estimated",
+      breakdown: {
+        newPurchases: cycleSum.total,
+        contractedInstallments: 0,
+        feesInterest: 0,
+        refunds: 0,
+        credits: 0,
+        excludedAbsorbed: cycleSum.excludedAbsorbed,
+        excludedCount: cycleSum.excludedCount,
+        transactionIds: cycleSum.ids,
+        installmentIds: []
+      }
+    } : emptyFigure();
+    const excludedAbsorbed = round2(
+      (current.breakdown?.excludedAbsorbed ?? 0) + (cycleSum?.excludedAbsorbed ?? 0)
+    );
+    const excludedCount = (current.breakdown?.excludedCount ?? 0) + (cycleSum?.excludedCount ?? 0);
     result[cardId] = {
       cardId,
       currentStatement: current,
@@ -837,6 +930,8 @@ function computeCardExposure(input) {
         currentRow && ((currentRow.status ?? "") === "needs_review" || round2(Number(currentRow.reconciliation_difference ?? 0)) !== 0)
       ),
       openCycle,
+      excludedAbsorbed,
+      excludedCount,
       formulaVersion: CARD_EXPOSURE_FORMULA_VERSION,
       cycleVersion: CARD_CYCLE_VERSION
     };
