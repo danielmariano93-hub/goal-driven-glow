@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.match_card_installment(uuid, uuid, text, integer, numeric, uuid) FROM authenticated;
