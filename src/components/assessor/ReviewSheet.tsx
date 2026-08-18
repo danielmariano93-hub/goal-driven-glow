@@ -14,6 +14,16 @@ import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
 import { invokeEdge, failureDescription } from "@/lib/edge/invoke";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { Button } from "@/components/ui/button";
+
+const MONTHS_BR = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const formatDateBR = (value: string | null) =>
+  value && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10).split("-").reverse().join("/") : "—";
+const formatCompetenceBR = (value: string | null) => {
+  if (!value || !/^\d{4}-\d{2}/.test(value)) return "—";
+  const [year, month] = value.split("-");
+  return `${MONTHS_BR[Number(month) - 1] ?? month}/${year}`;
+};
 
 type Item = {
   id: string;
