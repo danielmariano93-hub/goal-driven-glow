@@ -32,8 +32,9 @@ import { behavioralMetricAmount, computeGoalProgress, formatBRL, todayISO } from
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
+import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
-import { buildStrategyBase, buildStrategyForGoal } from "@/lib/goals/strategyInputs";
+import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
 
@@ -239,7 +240,9 @@ export default function Metas() {
                   onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
                   onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}
                   onToggleStatus={() => toggleCatGoal.mutate({ id: ev.goal.id, status: ev.goal.status === "active" ? "paused" : "active" })}
-                />
+                >
+                  <CategoryGoalStrategyCard strategy={buildStrategyForCategoryGoal(ev, numericTxs as never)} />
+                </CategoryGoalCard>
               ))}
             </ul>
           )}
@@ -270,7 +273,16 @@ export default function Metas() {
             const linkedInvestments = (investments ?? []).filter((i) => i.goal_id === g.id);
             const isOpen = expanded === g.id;
             return (
-              <li id={`goal-${g.id}`} key={g.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+              <li
+                id={`goal-${g.id}`}
+                key={g.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Abrir meta ${g.name}`}
+                onClick={() => navigate(`/app/metas/${g.id}`)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/app/metas/${g.id}`); } }}
+                className="cursor-pointer rounded-2xl border border-border bg-card p-4 shadow-card transition-colors hover:border-primary/40"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{g.name}</p>
@@ -300,7 +312,7 @@ export default function Metas() {
                     ) : null}
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
                     onClick={() => setContribFor(g)}
                     className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
@@ -332,6 +344,7 @@ export default function Metas() {
                   </button>
                 </div>
                 {g.kind !== "donation" && Number(g.target_amount) > 0 && prog.remaining > 0 ? (
+                  <div onClick={(e) => e.stopPropagation()}>
                   <GoalStrategyCard
                     strategy={buildStrategyForGoal(
                       { name: g.name, target_amount: Number(g.target_amount), target_date: g.target_date },
@@ -340,6 +353,7 @@ export default function Metas() {
                       strategyBase,
                     )}
                   />
+                  </div>
                 ) : null}
                 {isOpen && goalContribs.length > 0 && (
                   <ul className="mt-3 space-y-1 border-t border-border pt-3">

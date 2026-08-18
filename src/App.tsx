@@ -36,6 +36,8 @@ const LancamentoDetalhe = lazy(() => import("./pages/LancamentoDetalhe"));
 const Contas = lazy(() => import("./pages/Contas"));
 const Categorias = lazy(() => import("./pages/Categorias"));
 const Metas = lazy(() => import("./pages/Metas"));
+const MetaCategoriaDetalhe = lazy(() => import("./pages/MetaCategoriaDetalhe"));
+const MetaDetalhe = lazy(() => import("./pages/MetaDetalhe"));
 const Dividas = lazy(() => import("./pages/Dividas"));
 const Planejamento = lazy(() => import("./pages/Planejamento"));
 const RelatoriosHub = lazy(() => import("./pages/RelatoriosHub"));
@@ -130,6 +132,8 @@ const App = () => (
                 <Route path="contas" element={<Contas />} />
                 <Route path="categorias" element={<Categorias />} />
                 <Route path="metas" element={<Metas />} />
+                <Route path="metas/categoria/:id" element={<MetaCategoriaDetalhe />} />
+                <Route path="metas/:id" element={<MetaDetalhe />} />
                 <Route path="dividas" element={<Dividas />} />
                 <Route path="planejamento" element={<Planejamento />} />
                 <Route path="metas-conjuntas" element={<MetasConjuntas />} />
