@@ -24,5 +24,14 @@ describe("verdade financeira única — consumidores críticos", () => {
     const dispatcher = source("supabase/functions/_shared/agent/core/CommunicationDispatcherV3.ts");
     expect(dispatcher).toContain("communicationTopicKey");
     expect(dispatcher).not.toContain("`proactive:${candidate.id}:whatsapp`");
+    expect(dispatcher).toContain('outboundError?.code === "23505"');
+  });
+
+  it("escritas externas invalidam o snapshot do app em tempo real", () => {
+    const sync = source("src/components/finance/FinancialRealtimeSync.tsx");
+    expect(sync).toContain('table: "transactions"');
+    expect(sync).toContain('table: "category_spending_goals"');
+    expect(sync).toContain("invalidateFinancialQueries(queryClient)");
+    expect(sync).toContain("filter: `user_id=eq.${user.id}`");
   });
 });

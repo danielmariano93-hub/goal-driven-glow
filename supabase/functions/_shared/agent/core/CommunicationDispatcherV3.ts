@@ -544,6 +544,24 @@ export async function dispatchSuggestions(
               template_version: template?.version ?? null,
             },
           });
+          if (outboundError?.code === "23505") {
+            await record(sb, {
+              user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
+              status: "suppressed", reason: "logical_duplicate",
+              dedup_key: candidate.dedup_key, evidence: candidate.evidence,
+              block_context: {
+                policy_reason: "logical_duplicate",
+                logical_dedup_key: communicationTopicKey({
+                  userId,
+                  kind: candidate.kind,
+                  dedupKey: candidate.dedup_key,
+                  evidence: (candidate.evidence ?? {}) as Record<string, unknown>,
+                }),
+              },
+            });
+            results.push({ id: candidate.id, channel: target, status: "skipped", reason: "logical_duplicate" });
+            continue;
+          }
           if (outboundError) throw outboundError;
           await record(sb, {
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
