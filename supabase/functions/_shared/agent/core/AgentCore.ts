@@ -50,6 +50,10 @@ import {
 import { findPending, confirmationExecutor } from "./PendingConfirmations.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
+import {
+  askForCategory, mentionsAnaphoricCategory, mentionsGoalAnchor, resolveGoalCategoryScope,
+} from "./MerchantScope.ts";
+
 
 /** Cartão de rascunho de lançamento na última fala do Nino. */
 const DRAFT_CARD_RX =
