@@ -1272,6 +1272,27 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
   }
 }
 
+/**
+ * Plano de ataque da meta: quanto por mês, quanto por semana, de onde tirar
+ * e qual é o próximo passo. Tudo calculado, nada estimado pelo modelo.
+ */
+export async function get_goal_strategy(
+  ctx: ToolContext,
+  args: { goal?: string; goal_id?: string } = {},
+): Promise<ToolResult> {
+  try {
+    const result = await computeGoalStrategy(ctx.sb, ctx.user_id, args);
+    if (result.plans.length === 0) {
+      return { ok: true, result: { ...result, message: "Nenhuma meta ativa encontrada para montar o plano." } };
+    }
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+
+
 export async function create_split_expense_draft(ctx: ToolContext, args: {
   title: string; total: number; occurred_at?: string; due_date?: string;
   split_mode?: "equal" | "custom"; include_owner?: boolean;
