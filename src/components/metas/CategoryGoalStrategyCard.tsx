@@ -25,6 +25,16 @@ const OUTLOOK_LABEL: Record<CategoryGoalStrategy["outlook"], string> = {
   paused: "Pausada",
 };
 
+const METHOD_LABEL: Record<string, string> = {
+  flow: "Projetado pelo ritmo de gasto",
+  commitment: "Projetado pelas cobranças conhecidas",
+  hybrid: "Cobranças conhecidas + parcela variável",
+  insufficient_data: "Sem dados suficientes para projetar",
+  linear: "Projetado pelo ritmo de gasto",
+  weekday_weighted: "Projetado pelo ritmo de gasto",
+};
+
+
 type Props = {
   strategy: CategoryGoalStrategy;
   /** Aberto por padrão na tela de detalhe. */
