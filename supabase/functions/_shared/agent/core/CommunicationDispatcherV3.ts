@@ -173,13 +173,21 @@ async function loadPreferences(sb: SupabaseClient, userId: string): Promise<Comm
 
 }
 
-/** Cota de lembretes de cuidado, editável no painel admin. */
-async function loadCareQuota(sb: SupabaseClient): Promise<CareQuota> {
+/** Configuração de lembretes (cota de cuidado e canais), editável no painel admin. */
+async function loadReminderSettings(
+  sb: SupabaseClient,
+): Promise<{ careQuota: CareQuota; emotionalChannels: string[] }> {
   const { data } = await sb.from("proactive_reminder_settings")
-    .select("care_max_per_day,care_max_per_week").maybeSingle();
+    .select("care_max_per_day,care_max_per_week,emotional_channels").maybeSingle();
+  const row = (data ?? {}) as any;
   return {
-    maxPerDay: Number((data as any)?.care_max_per_day ?? DEFAULT_CARE_QUOTA.maxPerDay),
-    maxPerWeek: Number((data as any)?.care_max_per_week ?? DEFAULT_CARE_QUOTA.maxPerWeek),
+    careQuota: {
+      maxPerDay: Number(row.care_max_per_day ?? DEFAULT_CARE_QUOTA.maxPerDay),
+      maxPerWeek: Number(row.care_max_per_week ?? DEFAULT_CARE_QUOTA.maxPerWeek),
+    },
+    emotionalChannels: Array.isArray(row.emotional_channels) && row.emotional_channels.length
+      ? row.emotional_channels.map(String)
+      : ["app", "whatsapp"],
   };
 }
 
@@ -297,15 +305,16 @@ export async function dispatchSuggestions(
     ...(((deferredResp.data as any[] | null) ?? [])),
   ] as CommunicationCandidate[];
 
-  const [prefs, recent, catalog, templates, monthlyIncome, learning, careQuota] = await Promise.all([
+  const [prefs, recent, catalog, templates, monthlyIncome, learning, reminderSettings] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
     loadCatalog(sb),
     loadTemplates(sb),
     loadMonthlyIncome(sb, userId),
     loadKindLearning(sb, userId),
-    loadCareQuota(sb),
+    loadReminderSettings(sb),
   ]);
+  const { careQuota, emotionalChannels } = reminderSettings;
 
   const dryRunEarly = opts.dryRun === true;
   const results: DispatchOutcome[] = [];
@@ -378,7 +387,11 @@ export async function dispatchSuggestions(
     for (const target of targets) {
       const entry = catalog.get(candidate.kind);
       const catalogGate = catalogAllowsChannel(entry, target, String(candidate.severity));
-      const gate = !rollout.includes(target)
+      const reminderChannelBlocked = candidate.kind === "emotional_checkin_due"
+        && !emotionalChannels.includes(target);
+      const gate = reminderChannelBlocked
+        ? "reminder_channel_disabled"
+        : !rollout.includes(target)
         ? "rollout_channel_disabled"
         : !catalogGate.ok
         ? catalogGate.reason!
