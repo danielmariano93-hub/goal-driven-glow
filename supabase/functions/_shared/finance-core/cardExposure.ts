@@ -22,7 +22,7 @@
  */
 import { round2 } from "./facts.ts";
 
-export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v2";
+export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v3";
 /** Ciclo real por fechamento/vencimento (Onda 2). */
 export const CARD_CYCLE_VERSION = "card_cycle.v2";
 
@@ -166,6 +166,9 @@ export interface CardInstallmentRow {
   legacy_transaction_id?: string | null;
   /** parcela já absorvida por uma fatura fechada/paga (E6) — nunca é compromisso futuro */
   absorbed_by_statement_id?: string | null;
+  /** identidade da compra original (linhagem de parcelamento) */
+  purchase_id?: string | null;
+  installment_number?: number | null;
 }
 
 export interface CardTxRow {
@@ -177,6 +180,32 @@ export interface CardTxRow {
   type?: string | null;
   status?: string | null;
   settles_card_id?: string | null;
+  /** pagamento de fatura, transferência, amortização: nunca é consumo de cartão */
+  movement_kind?: string | null;
+}
+
+/** Motivo determinístico pelo qual um lançamento foi excluído da reconstrução. */
+export type CardExclusionReason =
+  | "absorbed_by_statement"
+  | "installment_settled"
+  | "not_confirmed"
+  | "card_payment"
+  | "neutral_movement";
+
+export interface StatementBreakdown {
+  /** compras novas do ciclo/competência (não parceladas ou 1ª parcela nova) */
+  newPurchases: number;
+  /** parcelas já contratadas atribuídas a esta competência */
+  contractedInstallments: number;
+  feesInterest: number;
+  refunds: number;
+  credits: number;
+  /** valor excluído por já pertencer a fatura anterior/absorvida */
+  excludedAbsorbed: number;
+  excludedCount: number;
+  /** ids dos lançamentos que formaram o número (reconciliável até a origem) */
+  transactionIds: string[];
+  installmentIds: string[];
 }
 
 export interface StatementFigure {
@@ -190,6 +219,8 @@ export interface StatementFigure {
   purchasesAmount?: number | null;
   /** parcelas contratadas da competência usadas na reconstrução */
   installmentsAmount?: number | null;
+  /** decomposição explicável — nenhum número mágico (E10/E18) */
+  breakdown?: StatementBreakdown | null;
 }
 
 export interface CardExposure {
@@ -204,6 +235,9 @@ export interface CardExposure {
   needsReview: boolean;
   /** ciclo em curso (fatura em formação), quando o cartão tem fechamento definido */
   openCycle: CardCycle | null;
+  /** lançamentos ignorados por já pertencerem a fatura anterior (auditoria) */
+  excludedAbsorbed: number;
+  excludedCount: number;
   formulaVersion: string;
   cycleVersion: string;
 }
@@ -211,7 +245,14 @@ export interface CardExposure {
 
 const SETTLED_STATUSES = new Set(["paid", "settled", "closed_paid"]);
 const CLOSED_STATUSES = new Set(["paid", "settled", "closed", "closed_paid", "approved"]);
-const DEAD_INSTALLMENTS = new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
+const DEAD_INSTALLMENTS = new Set(["paid", "settled", "refunded", "cancelled", "reversed", "anticipated", "superseded"]);
+/** Movimentos que nunca são consumo de cartão (E5). */
+const NEUTRAL_MOVEMENTS = new Set([
+  "card_payment", "debt_payment", "internal_transfer",
+  "external_transfer_in", "external_transfer_out",
+  "investment_application", "investment_redemption",
+]);
+
 
 const emptyFigure = (): StatementFigure => ({ amount: 0, source: "none", status: null, statedTotal: 0, paidAmount: 0 });
 
@@ -241,17 +282,90 @@ function ymOf(value?: string | null): string | null {
   return /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : null;
 }
 
-function estimateFromTxs(txs: CardTxRow[], cardId: string, ym: string): number {
+/**
+ * ÍNDICE DE EXCLUSÃO (card_exposure.v3)
+ * =====================================
+ * `competence_date` NUNCA é a única verdade. Um lançamento cuja parcela já foi
+ * absorvida por uma fatura fechada/paga pertence àquela fatura — mesmo que o
+ * ledger legado diga outra competência. Sem esta guarda, a fatura em formação
+ * recontava faturas antigas (incidente de 18/08/2026).
+ *
+ * PRECEDÊNCIA: statement oficial fechado/pago > installment absorvida >
+ * cronograma de parcelas > ciclo por data da compra > `competence_date` legado.
+ */
+export interface ExclusionIndex {
+  /** id da transação → motivo determinístico da exclusão */
+  reasons: Map<string, CardExclusionReason>;
+  /** id da transação → competência da fatura que a absorveu (verdade) */
+  absorbedCompetence: Map<string, string>;
+}
+
+export function buildExclusionIndex(
+  installments: CardInstallmentRow[],
+  statements: CardStatementRow[],
+): ExclusionIndex {
+  const reasons = new Map<string, CardExclusionReason>();
+  const absorbedCompetence = new Map<string, string>();
+  const statementById = new Map<string, CardStatementRow>();
+  for (const s of statements) if (s.id) statementById.set(String(s.id), s);
+
+  for (const inst of installments) {
+    const txId = inst.legacy_transaction_id ? String(inst.legacy_transaction_id) : null;
+    if (!txId) continue;
+    const status = String(inst.status ?? "");
+    const absorbedId = inst.absorbed_by_statement_id ? String(inst.absorbed_by_statement_id) : null;
+    if (absorbedId) {
+      const stmt = statementById.get(absorbedId);
+      const ym = stmt ? ymOf(stmt.competence_month) : null;
+      if (ym) absorbedCompetence.set(txId, ym);
+      // Fatura absorvedora é a verdade: o lançamento não volta para reconstrução.
+      reasons.set(txId, "absorbed_by_statement");
+      continue;
+    }
+    if (DEAD_INSTALLMENTS.has(status)) reasons.set(txId, "installment_settled");
+  }
+  return { reasons, absorbedCompetence };
+}
+
+/** Motivo pelo qual a transação não pode compor uma fatura reconstruída. */
+function exclusionOf(t: CardTxRow, index?: ExclusionIndex): CardExclusionReason | null {
+  if (t.settles_card_id) return "card_payment";
+  const mk = String(t.movement_kind ?? "transaction");
+  if (NEUTRAL_MOVEMENTS.has(mk)) return mk === "card_payment" ? "card_payment" : "neutral_movement";
+  if (t.status && t.status !== "confirmed") return "not_confirmed";
+  const id = t.id ? String(t.id) : null;
+  if (id && index?.reasons.has(id)) return index.reasons.get(id)!;
+  return null;
+}
+
+interface TxSum {
+  total: number;
+  ids: string[];
+  excludedAbsorbed: number;
+  excludedCount: number;
+}
+
+function estimateFromTxs(txs: CardTxRow[], cardId: string, ym: string, index?: ExclusionIndex): TxSum {
   let total = 0;
+  let excludedAbsorbed = 0;
+  let excludedCount = 0;
+  const ids: string[] = [];
   for (const t of txs) {
     if (t.credit_card_id !== cardId) continue;
-    if (t.settles_card_id) continue;
-    if (t.status && t.status !== "confirmed") continue;
     if (ymOf(t.competence_date) !== ym) continue;
+    const reason = exclusionOf(t, index);
+    if (reason) {
+      if (reason === "absorbed_by_statement" || reason === "installment_settled") {
+        excludedAbsorbed += Math.abs(Number(t.amount || 0));
+        excludedCount += 1;
+      }
+      continue;
+    }
     const amt = Number(t.amount || 0);
     total += t.type === "income" ? -amt : amt;
+    if (t.id) ids.push(String(t.id));
   }
-  return round2(Math.max(0, total));
+  return { total: round2(Math.max(0, total)), ids, excludedAbsorbed: round2(excludedAbsorbed), excludedCount };
 }
 
 /**
@@ -264,7 +378,7 @@ function installmentsOfCompetence(
   txs: CardTxRow[],
   cardId: string,
   ym: string,
-): number {
+): { total: number; ids: string[] } {
   const ledgerIds = new Set(
     txs
       .filter((tx) => tx.credit_card_id === cardId && ymOf(tx.competence_date) === ym)
@@ -272,6 +386,7 @@ function installmentsOfCompetence(
       .filter((id): id is string => Boolean(id)),
   );
   let total = 0;
+  const ids: string[] = [];
   for (const inst of installments) {
     if (inst.credit_card_id !== cardId) continue;
     if (inst.absorbed_by_statement_id) continue;
@@ -281,23 +396,35 @@ function installmentsOfCompetence(
     // Somá-la novamente inflaria a fatura estimada.
     if (inst.legacy_transaction_id && ledgerIds.has(inst.legacy_transaction_id)) continue;
     total += Number(inst.amount || 0);
+    if (inst.id) ids.push(String(inst.id));
   }
-  return round2(Math.max(0, total));
+  return { total: round2(Math.max(0, total)), ids };
 }
 
-function estimateFromCycle(txs: CardTxRow[], cardId: string, cycle: CardCycle): number {
+function estimateFromCycle(txs: CardTxRow[], cardId: string, cycle: CardCycle, index?: ExclusionIndex): TxSum {
   let total = 0;
+  let excludedAbsorbed = 0;
+  let excludedCount = 0;
+  const ids: string[] = [];
   for (const t of txs) {
     if (t.credit_card_id !== cardId) continue;
-    if (t.settles_card_id) continue;
-    if (t.status && t.status !== "confirmed") continue;
     const day = String(t.occurred_at ?? "").slice(0, 10);
     if (!day || day < cycle.period_start || day > cycle.period_end) continue;
+    const reason = exclusionOf(t, index);
+    if (reason) {
+      if (reason === "absorbed_by_statement" || reason === "installment_settled") {
+        excludedAbsorbed += Math.abs(Number(t.amount || 0));
+        excludedCount += 1;
+      }
+      continue;
+    }
     const amt = Number(t.amount || 0);
     total += t.type === "income" ? -amt : amt;
+    if (t.id) ids.push(String(t.id));
   }
-  return round2(Math.max(0, total));
+  return { total: round2(Math.max(0, total)), ids, excludedAbsorbed: round2(excludedAbsorbed), excludedCount };
 }
+
 
 function figureFromStatement(statement: CardStatementRow): StatementFigure {
   const status = (statement.status ?? "").toString() || null;
@@ -328,18 +455,31 @@ function estimatedFigure(
   installments: CardInstallmentRow[],
   cardId: string,
   ym: string,
+  index?: ExclusionIndex,
 ): StatementFigure {
-  const purchases = estimateFromTxs(txs, cardId, ym);
+  const purchases = estimateFromTxs(txs, cardId, ym, index);
   const contracted = installmentsOfCompetence(installments, txs, cardId, ym);
-  const total = round2(purchases + contracted);
+  const total = round2(purchases.total + contracted.total);
   return {
     ...emptyFigure(),
     amount: total,
     source: total > 0 ? "estimated" : "unavailable",
-    purchasesAmount: purchases,
-    installmentsAmount: contracted,
+    purchasesAmount: purchases.total,
+    installmentsAmount: contracted.total,
+    breakdown: {
+      newPurchases: purchases.total,
+      contractedInstallments: contracted.total,
+      feesInterest: 0,
+      refunds: 0,
+      credits: 0,
+      excludedAbsorbed: purchases.excludedAbsorbed,
+      excludedCount: purchases.excludedCount,
+      transactionIds: purchases.ids,
+      installmentIds: contracted.ids,
+    },
   };
 }
+
 
 export function computeCardExposure(input: {
   cardIds: string[];
@@ -364,6 +504,8 @@ export function computeCardExposure(input: {
   for (const s of statements) ids.add(s.credit_card_id);
   for (const i of installments) ids.add(i.credit_card_id);
 
+  // Guarda de absorção — precedência do documento sobre o ledger legado.
+  const exclusion = buildExclusionIndex(installments, statements);
 
   for (const cardId of ids) {
     const cardStatements = statements.filter((s) => s.credit_card_id === cardId);
@@ -379,7 +521,7 @@ export function computeCardExposure(input: {
       : undefined;
     const current = currentRow
       ? figureFromStatement(currentRow)
-      : estimatedFigure(txs, installments, cardId, currentYM);
+      : estimatedFigure(txs, installments, cardId, currentYM, exclusion);
 
     const nextCandidate = byYM.get(nextYM);
     const nextRow = nextCandidate && isAuthoritativeCardStatement(nextCandidate)
@@ -387,7 +529,8 @@ export function computeCardExposure(input: {
       : undefined;
     const next = nextRow
       ? figureFromStatement(nextRow)
-      : estimatedFigure(txs, installments, cardId, nextYM);
+      : estimatedFigure(txs, installments, cardId, nextYM, exclusion);
+
 
     // Última competência já fechada/paga: nada até ela pode contar como futuro.
     let lastClosedYM = "";
@@ -425,9 +568,30 @@ export function computeCardExposure(input: {
     // Fatura em formação: ciclo em curso, por DATA DA COMPRA (nunca dívida).
     const cfg = cycleConfig.get(cardId);
     const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today) : null;
-    const forming: StatementFigure = openCycle
-      ? { ...emptyFigure(), amount: estimateFromCycle(txs, cardId, openCycle), source: "estimated" }
+    const cycleSum = openCycle ? estimateFromCycle(txs, cardId, openCycle, exclusion) : null;
+    const forming: StatementFigure = cycleSum
+      ? {
+          ...emptyFigure(),
+          amount: cycleSum.total,
+          source: "estimated",
+          breakdown: {
+            newPurchases: cycleSum.total,
+            contractedInstallments: 0,
+            feesInterest: 0,
+            refunds: 0,
+            credits: 0,
+            excludedAbsorbed: cycleSum.excludedAbsorbed,
+            excludedCount: cycleSum.excludedCount,
+            transactionIds: cycleSum.ids,
+            installmentIds: [],
+          },
+        }
       : emptyFigure();
+
+    const excludedAbsorbed = round2(
+      (current.breakdown?.excludedAbsorbed ?? 0) + (cycleSum?.excludedAbsorbed ?? 0),
+    );
+    const excludedCount = (current.breakdown?.excludedCount ?? 0) + (cycleSum?.excludedCount ?? 0);
 
     result[cardId] = {
       cardId,
@@ -441,9 +605,12 @@ export function computeCardExposure(input: {
         ((currentRow.status ?? "") === "needs_review" || round2(Number(currentRow.reconciliation_difference ?? 0)) !== 0),
       ),
       openCycle,
+      excludedAbsorbed,
+      excludedCount,
       formulaVersion: CARD_EXPOSURE_FORMULA_VERSION,
       cycleVersion: CARD_CYCLE_VERSION,
     };
+
 
   }
 
@@ -471,6 +638,9 @@ export function emptyExposure(cardId: string): CardExposure {
     totalCardDebt: 0,
     needsReview: false,
     openCycle: null,
+    excludedAbsorbed: 0,
+    excludedCount: 0,
+
     formulaVersion: CARD_EXPOSURE_FORMULA_VERSION,
     cycleVersion: CARD_CYCLE_VERSION,
   };
