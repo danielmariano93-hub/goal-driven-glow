@@ -2264,7 +2264,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: run_before_spending,
   },
   {
-  {
+
     name: "get_goal_strategy",
     description: "Monta o plano determinístico para atingir uma meta: quanto guardar por mês e por semana, de onde tirar o dinheiro (sobra e categorias acima da própria média), viabilidade do prazo, alternativas honestas quando não fecha e o próximo passo. Use sempre que o usuário pedir ajuda, direção, dicas ou estratégia para alcançar uma meta.",
     parameters: {
