@@ -122,3 +122,66 @@ export function buildStrategyForGoal(
     overspendCategories: base.overspendCategories,
   });
 }
+
+type CategoryTxLike = TxLike & {
+  merchant_name?: string | null;
+  description?: string | null;
+  origin?: string | null;
+  movement_kind?: string | null;
+};
+
+/**
+ * Plano determinístico de um teto de categoria: agrega os gastos reais do
+ * período por estabelecimento (verdade de merchant) e separa o que é recorrente.
+ */
+export function buildStrategyForCategoryGoal(
+  evaluation: CategoryGoalEvaluation,
+  txs: CategoryTxLike[],
+): CategoryGoalStrategy {
+  const attribution = buildRefundAttribution(txs as never);
+  const byMerchant = new Map<string, { amount: number; count: number }>();
+  const byRecurring = new Map<string, number>();
+  let total = 0;
+
+  for (const tx of txs) {
+    if (String(tx.status ?? "confirmed") !== "confirmed") continue;
+    if (effectiveCategoryId(tx as never, attribution) !== evaluation.goal.category_id) continue;
+    if (tx.occurred_at < evaluation.period.start || tx.occurred_at > evaluation.period.end) continue;
+
+    const refundKind = String(tx.movement_kind ?? "") === "refund";
+    const value = refundKind
+      ? behavioralMetricAmount(tx as never, "expense")
+      : tx.type === "expense" && isRealMonthlyMovement(tx as never)
+        ? Number(tx.amount || 0)
+        : 0;
+    if (value === 0) continue;
+
+    const label = (tx.merchant_name || tx.description || "Sem descrição").trim() || "Sem descrição";
+    const current = byMerchant.get(label) ?? { amount: 0, count: 0 };
+    byMerchant.set(label, { amount: current.amount + value, count: current.count + (value > 0 ? 1 : 0) });
+    total += value;
+
+    if (value > 0 && String(tx.origin ?? "") === "recurring") {
+      byRecurring.set(label, (byRecurring.get(label) ?? 0) + value);
+    }
+  }
+
+  const denominator = total > 0 ? total : 1;
+  const hotspots: CategoryGoalHotspot[] = [...byMerchant.entries()]
+    .filter(([, item]) => item.amount > 0)
+    .map(([label, item]) => ({
+      label,
+      amount: round2(item.amount),
+      sharePct: round2((item.amount / denominator) * 100),
+      count: item.count,
+    }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 4);
+
+  const recurringInPeriod = [...byRecurring.entries()]
+    .map(([label, amount]) => ({ label, amount: round2(amount) }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 3);
+
+  return buildCategoryGoalStrategy({ evaluation, hotspots, recurringInPeriod });
+}
