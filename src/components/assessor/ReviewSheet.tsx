@@ -222,6 +222,7 @@ export function ReviewSheet({
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoiceDueDateInput(d.document?.invoice_due_date ? String(d.document.invoice_due_date).slice(0, 10) : "");
+      setInvoiceClosingDateInput(d.document?.invoice_closing_date ? String(d.document.invoice_closing_date).slice(0, 10) : "");
 
       setDocKind(d.document?.document_kind ?? null);
       // Also select rows confirmed by the legacy two-step flow when the
