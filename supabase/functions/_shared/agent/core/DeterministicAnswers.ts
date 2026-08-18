@@ -319,7 +319,9 @@ export async function executeDeterministicCapability(
   else if (capability.name === "merchant_distribution") reply = formatMerchantDistribution(execution.result);
   else if (capability.name === "financial_evolution") reply = formatFinancialEvolution(execution.result);
   else if (capability.name === "emotional_checkin") reply = formatEmotionalCheckin(execution.result);
+  else if (capability.name === "emotion_finance") reply = formatEmotionFinance(execution.result);
   else return null;
+
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }
 
@@ -347,4 +349,43 @@ function formatEmotionalCheckin(result: any): string {
     }.`,
     recent,
   ].filter(Boolean).join("\n");
+}
+
+/**
+ * Padrões emoção × gasto. Texto montado a partir das frases do motor, que já
+ * são associativas por contrato — aqui não se acrescenta nenhuma causa.
+ */
+function formatEmotionFinance(result: any): string {
+  if (result?.reason === "no_checkins") {
+    return [
+      "Ainda não tenho registros de como você se sentiu, então não consigo cruzar emoção com gasto sem inventar.",
+      "Se você me contar em uma palavra como está em alguns dias, em poucas semanas eu já consigo mostrar o padrão do seu histórico.",
+    ].join("\n\n");
+  }
+
+  const patterns = (result?.patterns ?? []) as any[];
+  const material = patterns.filter((p) => p.material);
+
+  if (material.length === 0) {
+    const considered = Number(result?.episodes_considered ?? 0);
+    return [
+      considered > 0
+        ? `Olhei seus ${considered} registro${considered > 1 ? "s" : ""} de humor com gasto no mesmo período e ainda não há associação forte o bastante para eu afirmar algo.`
+        : "Ainda não há registros suficientes para eu falar de padrão com honestidade.",
+      "Comparo sempre com o seu próprio padrão para o mesmo dia da semana, e prefiro dizer que não sei a arriscar uma leitura frágil.",
+    ].join("\n\n");
+  }
+
+  const lines = material.slice(0, 3).map((p) => `• ${p.sentence}`);
+  const composites = (result?.composites ?? []) as any[];
+  const extra = composites.length > 0
+    ? `\nQuando junto com o contexto: ${composites[0].sentence}`
+    : "";
+
+  return [
+    "Isto é o que aparece no seu histórico:",
+    lines.join("\n"),
+    extra.trim(),
+    "São associações observadas nos seus registros, não uma explicação do motivo.",
+  ].filter(Boolean).join("\n\n");
 }

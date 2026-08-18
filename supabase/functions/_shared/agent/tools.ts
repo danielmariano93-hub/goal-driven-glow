@@ -17,6 +17,14 @@ import {
 } from "../engine/facts.ts";
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
+import {
+  computeEmotionFinance,
+  DEFAULT_MIN_COMPOSITE_SAMPLE,
+  DEFAULT_MIN_DELTA_ABS,
+  DEFAULT_MIN_SAMPLE,
+  DEFAULT_MIN_UPLIFT_PCT,
+} from "../finance-core/emotionFinance.ts";
+
 import { cycleFor } from "../finance-core/cardExposure.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
 import { interpretSemanticQuery } from "../intelligence/semanticQuery.ts";
@@ -1989,7 +1997,152 @@ async function get_emotional_checkins(ctx: ToolContext, args: { days?: number })
   return { ok: true, result: { days, total: rows.length, average_mood: average, checkins: data ?? [] } };
 }
 
+/** Configuração admin do motor emocional-financeiro (com defaults seguros). */
+async function loadEmotionFinanceSettings(ctx: ToolContext) {
+  const fallback = {
+    window_days: 1,
+    min_sample: DEFAULT_MIN_SAMPLE,
+    min_composite_sample: DEFAULT_MIN_COMPOSITE_SAMPLE,
+    min_uplift_pct: DEFAULT_MIN_UPLIFT_PCT,
+    min_delta_abs: DEFAULT_MIN_DELTA_ABS,
+    lookback_days: 120,
+    prospective_enabled: true,
+    prospective_channels: ["app", "whatsapp"] as string[],
+  };
+  try {
+    const { data } = await ctx.sb.rpc("emotion_finance_settings");
+    const cfg = (data ?? {}) as Record<string, unknown>;
+    return {
+      window_days: Number(cfg.window_days ?? fallback.window_days),
+      min_sample: Number(cfg.min_sample ?? fallback.min_sample),
+      min_composite_sample: Number(cfg.min_composite_sample ?? fallback.min_composite_sample),
+      min_uplift_pct: Number(cfg.min_uplift_pct ?? fallback.min_uplift_pct),
+      min_delta_abs: Number(cfg.min_delta_abs ?? fallback.min_delta_abs),
+      lookback_days: Number(cfg.lookback_days ?? fallback.lookback_days),
+      prospective_enabled: cfg.prospective_enabled !== false,
+      prospective_channels: Array.isArray(cfg.prospective_channels)
+        ? (cfg.prospective_channels as string[])
+        : fallback.prospective_channels,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Padrões emoção × gasto do próprio usuário (`emotion_finance.v1`).
+ * O cálculo é 100% determinístico e comparado ao baseline pessoal por dia da
+ * semana. Associação observada — nunca causa.
+ */
+async function get_emotion_finance_patterns(
+  ctx: ToolContext,
+  args: { days?: number; emotion?: string },
+): Promise<ToolResult> {
+  const cfg = await loadEmotionFinanceSettings(ctx);
+  const days = Math.min(365, Math.max(30, Number(args?.days ?? cfg.lookback_days)));
+  const today = todaySP();
+  const start = new Date(`${today}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  const period = { from: start.toISOString().slice(0, 10), to: today };
+
+  const [{ txs, names }, checkinsResult, cardsResult] = await Promise.all([
+    loadTxAndCategories(ctx, period.from, period.to),
+    ctx.sb.from("emotional_checkins")
+      .select("occurred_at,mood,emotion_key,trigger_label")
+      .eq("user_id", ctx.user_id)
+      .gte("occurred_at", `${period.from}T00:00:00`)
+      .order("occurred_at", { ascending: false })
+      .limit(400),
+    ctx.sb.from("credit_cards").select("closing_day").eq("user_id", ctx.user_id),
+  ]);
+  if (checkinsResult.error) {
+    return { ok: false, error: "emotional_checkins_failed", details: checkinsResult.error.message };
+  }
+
+  const checkins = (checkinsResult.data ?? []) as Array<{
+    occurred_at: string; mood: number; emotion_key: string | null; trigger_label: string | null;
+  }>;
+  if (checkins.length === 0) {
+    return {
+      ok: true,
+      result: {
+        engine: "emotion_finance",
+        has_patterns: false,
+        reason: "no_checkins",
+        message: "Ainda não há registros de como você se sentiu, então não tenho base para cruzar emoção com gasto.",
+      },
+    };
+  }
+
+  const cardCloseDays = ((cardsResult.data ?? []) as Array<{ closing_day: number | null }>)
+    .map((c) => Number(c.closing_day))
+    .filter((d) => Number.isFinite(d) && d >= 1 && d <= 31);
+
+  const envelope = computeEmotionFinance({
+    txs: txs as unknown as TransactionRow[],
+    checkins,
+    period,
+    categoryNames: Object.fromEntries(names.entries()),
+    resolveEmotionKey: (value, mood) => {
+      const option = resolveEmotionTerm(value) ?? emotionByKey(value) ?? moodToEmotion(mood);
+      return option ? { key: option.key, label: option.label } : null;
+    },
+    minSample: cfg.min_sample,
+    minCompositeSample: cfg.min_composite_sample,
+    minUpliftPct: cfg.min_uplift_pct,
+    minDeltaAbs: cfg.min_delta_abs,
+    windowDays: cfg.window_days,
+    cardCloseDays,
+  });
+
+  const wanted = args?.emotion
+    ? (resolveEmotionTerm(args.emotion) ?? emotionByKey(args.emotion))?.key ?? null
+    : null;
+  const patterns = wanted
+    ? envelope.facts.patterns.filter((p) => p.facts.emotion_key === wanted)
+    : envelope.facts.patterns;
+
+  return {
+    ok: true,
+    result: {
+      engine: envelope.engine,
+      formula_version: envelope.evidence.formula_version,
+      has_patterns: patterns.some((p) => p.facts.material),
+      period,
+      confidence: envelope.confidence,
+      checkins_considered: envelope.facts.checkins_considered,
+      episodes_considered: envelope.facts.episodes_considered,
+      patterns: patterns.slice(0, 6).map((p) => ({
+        emotion_key: p.facts.emotion_key,
+        emotion_label: p.facts.emotion_label,
+        sample_size: p.facts.sample_size,
+        direction: p.facts.direction,
+        uplift_pct: p.facts.uplift_pct,
+        observed_avg: p.facts.observed_avg,
+        expected_avg: p.facts.expected_avg,
+        delta_abs: p.facts.delta_abs,
+        consistency: `${p.facts.consistency_hits}/${p.facts.sample_size}`,
+        material: p.facts.material,
+        confidence: p.confidence,
+        top_driver: p.drivers[0]?.category_name ?? null,
+        sentence: p.sentence,
+      })),
+      composites: envelope.facts.composites.slice(0, 3).map((p) => ({
+        emotion_label: p.facts.emotion_label,
+        context: p.context,
+        context_label: p.context_label,
+        sample_size: p.facts.sample_size,
+        uplift_pct: p.facts.uplift_pct,
+        sentence: p.sentence,
+      })),
+      language_rule: "É associação observada no histórico da pessoa. Nunca afirmar causa ('porque', 'causou', 'por estar').",
+      evidence: envelope.evidence,
+    },
+  };
+}
+
 export const AGENT_TOOLS: ToolSpec[] = [
+
 
   {
     name: "list_accounts",
@@ -2593,6 +2746,20 @@ export const AGENT_TOOLS: ToolSpec[] = [
     },
     execute: get_emotional_checkins,
   },
+  {
+    name: "get_emotion_finance_patterns",
+    description: "Cruza os check-ins emocionais com o gasto flexível do próprio usuário e devolve associações observadas contra o baseline pessoal do mesmo dia da semana. Use para 'o que acontece quando eu fico ansioso', 'minha emoção influencia meu gasto?', 'o que costuma acontecer antes de eu gastar'. É associação, nunca causa.",
+    parameters: {
+      type: "object",
+      properties: {
+        days: { type: "integer", minimum: 30, maximum: 365, description: "Janela de histórico analisada." },
+        emotion: { type: "string", description: "Filtra por um sentimento específico (opcional)." },
+      },
+      additionalProperties: false,
+    },
+    execute: get_emotion_finance_patterns,
+  },
+
 ];
 
 

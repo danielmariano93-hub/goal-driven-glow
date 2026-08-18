@@ -28,6 +28,8 @@ export type CapabilityName =
   | "advisor_consult"
   | "debt_status"
   | "emotional_checkin"
+  | "emotion_finance"
+
   | "insights"
   | "shared_goals"
   | "general";
@@ -341,7 +343,26 @@ export function classifyCapability(
     };
   }
 
+  // Emoção × gasto: pergunta de padrão, não de registro. Vem antes do check-in
+  // porque "quando eu fico ansioso eu gasto mais?" também cita sentimento.
+  const emotionWord = /\b(ansios\w+|ansiedade|estress\w+|cansad\w+|triste|tristeza|feliz|felicidade|animad\w+|tranquil\w+|calm\w+|impulsiv\w+|frustrad\w+|culpad\w+|culpa|preocupad\w+|emocao|emocoes|emocional|humor|sentimento|sentindo)\b/.test(t);
+  const spendWord = /\b(gast\w+|compr\w+|despesa|despesas|consumo|dinheiro|cartao|fatura|orcamento)\b/.test(t);
+  const patternWord = /\b(padrao|padroes|relacao|relaciona\w*|influenc\w+|associa\w+|correlac\w+|tem a ver|liga\w+ com|acontece|costum\w+|antes de|depois de|quando)\b/.test(t);
+  if (
+    (emotionWord && spendWord && patternWord)
+    || /\b(o que (?:costuma )?acontece\w* antes de (?:eu )?gastar)\b/.test(t)
+    || /\b(emocao|emocoes|humor|sentimento)\b.*\b(gast\w+|dinheiro)\b.*\b(padrao|influenc\w+|relacao|associa\w+)\b/.test(t)
+  ) {
+    return {
+      name: "emotion_finance", execution: "deterministic",
+      allowed_tools: ["get_emotion_finance_patterns", "get_emotional_checkins"],
+      required_tool: "get_emotion_finance_patterns", context: {},
+      reason: "canonical_emotion_finance",
+    };
+  }
+
   // Check-in emocional: "hoje fui ansioso", "registra que estou tranquilo".
+
   // Não captura frases financeiras ("preocupado com a fatura"), que seguem
   // para as rotas de dívida/caixa.
   const emotionalAsk = /\b(check ?in|checkin|humor|emocao|emocional|sentimento|me sinto|me senti|sentindo|estou|to|hoje fui|fui)\b/.test(t)

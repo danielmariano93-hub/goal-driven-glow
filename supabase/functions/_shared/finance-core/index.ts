@@ -10,6 +10,7 @@ export * from "./behaviorChange.ts";
 export * from "./recurringDiscovery.ts";
 export * from "./costStructure.ts";
 export * from "./anomalies.ts";
+export * from "./emotionFinance.ts";
 export * from "./savingsOpportunities.ts";
 export * from "./financialEvolution.ts";
 export * from "./bridges.ts";
