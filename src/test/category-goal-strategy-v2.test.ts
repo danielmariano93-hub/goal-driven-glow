@@ -149,13 +149,15 @@ describe("projeção por natureza da categoria", () => {
     expect(allCopy).not.toMatch(/por dia/i);
   });
 
+  /** Consumo contínuo: gasto na maioria dos dias do período. */
+  function transporteTxs(daily = 20): TransactionRow[] {
+    return Array.from({ length: 14 }, (_, i) =>
+      tx(TRANSPORTE, `2026-08-${String(i + 2).padStart(2, "0")}`, daily, i % 2 === 0 ? "Uber" : "99"));
+  }
+
   it("CASO 9: categoria diária (Transporte) mantém R$/dia", () => {
-    const txs = [
-      tx(TRANSPORTE, "2026-08-02", 60, "Uber"),
-      tx(TRANSPORTE, "2026-08-05", 40, "99"),
-      tx(TRANSPORTE, "2026-08-09", 30, "Autopass"),
-    ];
-    const ev = evaluateCategoryGoal(goal(), txs, today, "Transporte");
+    const ev = evaluateCategoryGoal(goal(), transporteTxs(), today, "Transporte");
+    expect(ev.projectionMethod).toBe("flow");
     expect(ev.supportsDailyBudget).toBe(true);
     expect(ev.dailyAllowance).toBeGreaterThan(0);
   });
