@@ -65,6 +65,17 @@ export const ADMIN_RPC_ARGS = {
     "_care_max_per_day",
     "_care_max_per_week",
   ],
+  admin_emotion_finance_config: [],
+  admin_emotion_finance_config_update: [
+    "_window_days",
+    "_min_sample",
+    "_min_composite_sample",
+    "_min_uplift_pct",
+    "_min_delta_abs",
+    "_lookback_days",
+    "_prospective_enabled",
+    "_prospective_channels",
+  ],
   admin_communication_templates: ["_kind"],
   admin_communication_template_upsert: [
     "_kind",
