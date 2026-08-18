@@ -191,11 +191,19 @@ export function merchant_distribution(
       categoryName,
       limit: Math.max(3, Math.min(25, Number(args?.limit ?? 8))),
     });
-    return { ...dist, engine: "merchant_distribution", answer_format: { headline: distributionHeadline(dist) } };
+    // Escopo explícito no resultado: sem categoria resolvida, o total é de
+    // TODAS as categorias e a resposta é obrigada a declarar isso.
+    const scope = categoryId || categoryName ? "category" : "all_categories";
+    return {
+      ...dist,
+      scope,
+      engine: "merchant_distribution",
+      answer_format: { headline: distributionHeadline({ ...dist, scope }) },
+    };
   });
 }
 
-/** Headline canônica da distribuição — declara cobertura quando parcial. */
+/** Headline canônica da distribuição — declara escopo e cobertura. */
 export function distributionHeadline(dist: {
   category: { name: string | null };
   category_total: number;
@@ -203,21 +211,24 @@ export function distributionHeadline(dist: {
   coverage: number;
   merchants: Array<{ merchant: string; amount: number; share_of_category: number }>;
   period: { from: string; to: string };
+  scope?: string;
 }): string {
-  const scope = dist.category.name ? `em ${dist.category.name}` : "no período";
+  const globalScope = dist.scope === "all_categories" || !dist.category.name;
+  const scope = globalScope ? "considerando todas as categorias" : `em ${dist.category.name}`;
   if (dist.category_total <= 0) {
     return `Não encontrei gastos ${scope} entre ${formatDatePt(dist.period.from)} e ${formatDatePt(dist.period.to)}.`;
   }
   const top = dist.merchants[0];
   const base = `Você gastou ${brl(dist.category_total)} ${scope} entre ${formatDatePt(dist.period.from)} e ${formatDatePt(dist.period.to)}`;
   const lead = top
-    ? `; ${top.merchant} lidera com ${brl(top.amount)} (${Math.round(top.share_of_category * 100)}% da categoria)`
+    ? `; ${top.merchant} lidera com ${brl(top.amount)} (${Math.round(top.share_of_category * 100)}% do total${globalScope ? "" : " da categoria"})`
     : "";
   const cov = dist.coverage < 1
-    ? `. Identifiquei o estabelecimento de ${brl(dist.resolved_total)} desse total (${Math.round(dist.coverage * 100)}% de cobertura)`
+    ? `. Reconheci o estabelecimento de ${brl(dist.resolved_total)} desse total (${Math.round(dist.coverage * 100)}% de cobertura)`
     : "";
   return `${base}${lead}${cov}.`;
 }
+
 
 
 

@@ -43,7 +43,7 @@ describe("merchant distribution determinística", () => {
     const text = formatMerchantDistribution(result);
     expect(text).toContain("Alimentação");
     expect(text).toMatch(/R\$\s?1\.000,00/);
-    expect(text).toContain("1. iFood");
+    expect(text).toContain("*iFood*");
     expect(text).toContain("70");
     expect(text).toContain("cobertura");
   });

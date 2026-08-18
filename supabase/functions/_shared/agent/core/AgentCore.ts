@@ -50,6 +50,10 @@ import {
 import { findPending, confirmationExecutor } from "./PendingConfirmations.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
+import {
+  askForCategory, mentionsAnaphoricCategory, mentionsGoalAnchor, resolveGoalCategoryScope,
+} from "./MerchantScope.ts";
+
 
 /** Cartão de rascunho de lançamento na última fala do Nino. */
 const DRAFT_CARD_RX =
@@ -459,20 +463,43 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     }
   }
   // Distribuição por estabelecimento precisa de categoria e período explícitos.
-  // Referência anafórica ("naquela categoria") é resolvida pela memória da
-  // conversa; o período vem do plano determinístico do turno.
+  // Cascata determinística de escopo: texto → memória da conversa → meta com
+  // teto ultrapassado (fonte oficial de metas) → último resultado do turno
+  // anterior. Sem escopo e com referência anafórica, o Nino PERGUNTA — nunca
+  // responde o total de todas as categorias como se fosse de uma categoria.
   if (capability.name === "merchant_distribution") {
     const args: Record<string, unknown> = { ...(capability.tool_args ?? {}) };
-    if (!args.from && !args.days) {
-      args.from = turnPlan.effective_period.from;
-      args.to = turnPlan.effective_period.to;
-    }
     if (!args.category_name) {
       const inherited = detectCategory(turnPlan.effective_text) ?? memory?.active_category ?? null;
       if (inherited) args.category_name = inherited;
     }
-    capability = { ...capability, tool_args: args };
+    let goalScope: Awaited<ReturnType<typeof resolveGoalCategoryScope>> = null;
+    if (!args.category_name
+      && (mentionsAnaphoricCategory(turnPlan.effective_text) || mentionsGoalAnchor(turnPlan.effective_text))) {
+      goalScope = await guard(
+        () => resolveGoalCategoryScope(sb, input.user_id),
+        (m) => metrics.errors.push("goal_scope:" + m),
+        null,
+      );
+      if (goalScope) {
+        args.category_name = goalScope.category_name;
+        if (goalScope.category_id) args.category_id = goalScope.category_id;
+        if (goalScope.period) { args.from = goalScope.period.from; args.to = goalScope.period.to; }
+      }
+    }
+    if (!args.from && !args.days) {
+      args.from = turnPlan.effective_period.from;
+      args.to = turnPlan.effective_period.to;
+    }
+    const needsCategory = mentionsAnaphoricCategory(turnPlan.effective_text);
+    capability = {
+      ...capability,
+      tool_args: args,
+      required_tool: !args.category_name && needsCategory ? null : capability.required_tool,
+      clarification: !args.category_name && needsCategory ? askForCategory() : capability.clarification,
+    };
   }
+
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
@@ -901,9 +928,25 @@ ${JSON.stringify(hints)}
 
 
   // Persiste ponteiros de conversa (tópico/período/intenção) para o próximo turno.
+  // A categoria efetivamente usada pelo motor (args ou resultado da ferramenta)
+  // tem precedência sobre o que o texto sugeria: sem isso, o follow-up
+  // anafórico ("naquela categoria") perdia o assunto.
+  const executedCategory = (() => {
+    for (const call of [...toolCallLog].reverse()) {
+      const fromResult = (call as any)?.result?.category?.name;
+      if (typeof fromResult === "string" && fromResult.trim()) return fromResult.trim();
+      const fromArgs = (call as any)?.args?.category_name;
+      if (typeof fromArgs === "string" && fromArgs.trim()) return fromArgs.trim();
+    }
+    return null;
+  })();
+  const resolvedCategory = executedCategory
+    ?? detectCategory(turnPlan.effective_text)
+    ?? (capability.tool_args?.category_name ? String(capability.tool_args.category_name) : null);
   await guard(() => saveConversationMemory(sb, session_id ?? null, {
-    current_topic: detectCategory(turnPlan.effective_text) ?? memory?.current_topic ?? capability.name,
-    active_category: detectCategory(turnPlan.effective_text) ?? memory?.active_category ?? null,
+    current_topic: resolvedCategory ?? memory?.current_topic ?? capability.name,
+    active_category: resolvedCategory ?? memory?.active_category ?? null,
+
     previous_intent: capability.name,
     active_period: {
       from: turnPlan.effective_period.from,
