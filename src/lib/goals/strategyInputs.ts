@@ -1,9 +1,8 @@
 // Entradas do motor de estratégia de meta a partir dos dados já carregados na tela.
 // Números vêm do ledger confirmado — nada é estimado.
 
-import { behavioralMetricAmount, isRealMonthlyMovement, effectiveCategoryId } from "@/lib/engine/facts";
+import { behavioralMetricAmount, isRealMonthlyMovement, effectiveCategoryId, todayISO } from "@/lib/engine/facts";
 import { buildGoalStrategy, type GoalStrategy } from "@/lib/engine/goalStrategy";
-import { todayISO } from "@/lib/utils/date";
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
