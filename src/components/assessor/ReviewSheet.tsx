@@ -14,6 +14,16 @@ import { BLOCK_MESSAGES, isCardDocument } from "@/lib/ledger/canonical";
 import { invoiceReconciliation, summarizeInvoiceLines, type StatementItemKind } from "@/lib/finance/invoice";
 import { invokeEdge, failureDescription } from "@/lib/edge/invoke";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { Button } from "@/components/ui/button";
+
+const MONTHS_BR = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const formatDateBR = (value: string | null) =>
+  value && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10).split("-").reverse().join("/") : "—";
+const formatCompetenceBR = (value: string | null) => {
+  if (!value || !/^\d{4}-\d{2}/.test(value)) return "—";
+  const [year, month] = value.split("-");
+  return `${MONTHS_BR[Number(month) - 1] ?? month}/${year}`;
+};
 
 type Item = {
   id: string;
@@ -156,6 +166,14 @@ export function ReviewSheet({
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
   const [invoiceDueDateInput, setInvoiceDueDateInput] = useState("");
+  const [invoiceClosingDateInput, setInvoiceClosingDateInput] = useState("");
+  const [dueConflict, setDueConflict] = useState<{
+    closing_date: string | null;
+    document_due_date: string;
+    document_competence_month: string;
+    cycle_due_date: string;
+    cycle_competence_month: string;
+  } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
 
   const [pendingWrites, setPendingWrites] = useState(0);
@@ -214,6 +232,7 @@ export function ReviewSheet({
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoiceDueDateInput(d.document?.invoice_due_date ? String(d.document.invoice_due_date).slice(0, 10) : "");
+      setInvoiceClosingDateInput(d.document?.invoice_closing_date ? String(d.document.invoice_closing_date).slice(0, 10) : "");
 
       setDocKind(d.document?.document_kind ?? null);
       // Also select rows confirmed by the legacy two-step flow when the
@@ -349,8 +368,25 @@ export function ReviewSheet({
     setDocumentInfo((current) => current ? { ...current, invoice_previous_balance: value } : current);
   }
 
-  // Vencimento manda na competência da fatura: sem ele o motor deriva pelo
-  // ciclo do cartão. Informar aqui resolve o caso de duas faturas no mesmo mês.
+  // Fechamento define o CICLO (e a competência). Vencimento é a data de
+  // pagamento. Salvar o fechamento não fixa competência: o ciclo do cartão faz.
+  async function saveInvoiceClosingDate() {
+    const raw = invoiceClosingDateInput.trim();
+    const current = documentInfo?.invoice_closing_date ? String(documentInfo.invoice_closing_date).slice(0, 10) : "";
+    if (raw === current) return;
+    if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return toast.error("Informe uma data de fechamento válida.");
+    const value = raw || null;
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: { action: "update-document", document_id: documentId, patch: { invoice_closing_date: value } },
+    });
+    if (error) return toast.error("Não consegui salvar o fechamento da fatura.");
+    setDocumentInfo((prev) => prev ? { ...prev, invoice_closing_date: value } : prev);
+    setDueConflict(null);
+    toast.success(value ? "Fechamento salvo." : "Fechamento removido.");
+  }
+
+  // Vencimento sozinho não manda na competência: quando ele discorda do ciclo
+  // do cartão, a confirmação devolve a divergência para você escolher.
   async function saveInvoiceDueDate() {
     const raw = invoiceDueDateInput.trim();
     const current = documentInfo?.invoice_due_date ? String(documentInfo.invoice_due_date).slice(0, 10) : "";
@@ -361,14 +397,35 @@ export function ReviewSheet({
       body: {
         action: "update-document",
         document_id: documentId,
-        patch: { invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null },
+        patch: { invoice_due_date: value, invoice_competence_month: null },
       },
     });
     if (error) return toast.error("Não consegui salvar o vencimento da fatura.");
-    setDocumentInfo((prev) => prev
-      ? { ...prev, invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null }
-      : prev);
+    setDocumentInfo((prev) => prev ? { ...prev, invoice_due_date: value, invoice_competence_month: null } : prev);
+    setDueConflict(null);
     toast.success(value ? "Vencimento salvo." : "Vencimento removido: vou calcular pelo ciclo do cartão.");
+  }
+
+  // Resolução explícita da divergência fechamento/vencimento: gravamos a data
+  // escolhida E a competência dela, e reenviamos a confirmação.
+  async function resolveDueConflict(source: "cycle" | "document") {
+    if (!dueConflict) return;
+    const due = source === "cycle" ? dueConflict.cycle_due_date : dueConflict.document_due_date;
+    const competence = source === "cycle" ? dueConflict.cycle_competence_month : dueConflict.document_competence_month;
+    setConfirming(true);
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: {
+        action: "update-document",
+        document_id: documentId,
+        patch: { invoice_due_date: due, invoice_competence_month: competence },
+      },
+    });
+    setConfirming(false);
+    if (error) return toast.error("Não consegui salvar a data escolhida.");
+    setInvoiceDueDateInput(String(due).slice(0, 10));
+    setDocumentInfo((prev) => prev ? { ...prev, invoice_due_date: due, invoice_competence_month: competence } : prev);
+    setDueConflict(null);
+    await confirmSelection();
   }
 
 
@@ -480,8 +537,27 @@ export function ReviewSheet({
         { action: "confirm", document_id: documentId, item_ids: ids },
       );
       if (failure) {
-        const diagnostic = (failure.details as { result?: { error?: string; suggested_competence_month?: string | null } } | undefined)?.result;
+        const diagnostic = (failure.details as { result?: {
+          error?: string;
+          suggested_competence_month?: string | null;
+          closing_date?: string | null;
+          document_due_date?: string;
+          document_competence_month?: string;
+          cycle_due_date?: string;
+          cycle_competence_month?: string;
+        } } | undefined)?.result;
         const settled = diagnostic?.error === "statement_already_settled";
+        if (diagnostic?.error === "due_date_conflict" && diagnostic.cycle_due_date && diagnostic.document_due_date) {
+          setDueConflict({
+            closing_date: diagnostic.closing_date ?? null,
+            document_due_date: String(diagnostic.document_due_date).slice(0, 10),
+            document_competence_month: String(diagnostic.document_competence_month ?? "").slice(0, 10),
+            cycle_due_date: String(diagnostic.cycle_due_date).slice(0, 10),
+            cycle_competence_month: String(diagnostic.cycle_competence_month ?? "").slice(0, 10),
+          });
+          toast.error("Confirme a data desta fatura", { description: failureDescription(failure) });
+          return;
+        }
         if (settled) {
           const suggestion = diagnostic?.suggested_competence_month;
           if (suggestion) {
@@ -679,8 +755,20 @@ export function ReviewSheet({
                             placeholder="0,00"
                           />
                         </div>
-                        <div className="col-span-2">
-                          <label htmlFor="invoice-due-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Vencimento desta fatura</label>
+                        <div>
+                          <label htmlFor="invoice-closing-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Fechamento da fatura</label>
+                          <input
+                            id="invoice-closing-date"
+                            type="date"
+                            value={invoiceClosingDateInput}
+                            onChange={(event) => setInvoiceClosingDateInput(event.target.value)}
+                            onBlur={saveInvoiceClosingDate}
+                            className="input-base text-sm"
+                          />
+                          <p className="mt-1 text-[10px] text-muted-foreground">Define o ciclo e o mês de competência.</p>
+                        </div>
+                        <div>
+                          <label htmlFor="invoice-due-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Vencimento (pagamento)</label>
                           <input
                             id="invoice-due-date"
                             type="date"
@@ -689,11 +777,26 @@ export function ReviewSheet({
                             onBlur={saveInvoiceDueDate}
                             className="input-base text-sm"
                           />
-                          <p className="mt-1 text-[10px] text-muted-foreground">
-                            Em branco, eu calculo pelo ciclo do cartão. Informe quando duas faturas caírem no mesmo mês.
-                          </p>
+                          <p className="mt-1 text-[10px] text-muted-foreground">Em branco, uso o vencimento do ciclo do cartão.</p>
                         </div>
+                        {dueConflict && (
+                          <div className="col-span-2 rounded-lg border border-warning/50 bg-warning/10 p-2">
+                            <p className="text-[11px] font-semibold">Fechamento e vencimento não combinam</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              Fechamento {formatDateBR(dueConflict.closing_date)}. Qual data vale para esta fatura?
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Button size="sm" variant="outline" disabled={confirming} onClick={() => resolveDueConflict("cycle")}>
+                                Ciclo do cartão · {formatDateBR(dueConflict.cycle_due_date)} ({formatCompetenceBR(dueConflict.cycle_competence_month)})
+                              </Button>
+                              <Button size="sm" variant="outline" disabled={confirming} onClick={() => resolveDueConflict("document")}>
+                                Documento · {formatDateBR(dueConflict.document_due_date)} ({formatCompetenceBR(dueConflict.document_competence_month)})
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
+
 
                       <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
                         <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>

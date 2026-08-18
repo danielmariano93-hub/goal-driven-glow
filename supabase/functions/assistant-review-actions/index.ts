@@ -158,6 +158,14 @@ Deno.serve(async (req) => {
       if (reason === "statement_already_settled") {
         const target = monthLabel(diagnostic?.competence_month);
         userMessage = `Essa fatura seria lançada em ${target || "uma competência"}, que já está registrada (${brl(diagnostic?.existing_total)}). Informe o vencimento correto desta fatura para eu registrar.`;
+      } else if (reason === "due_date_conflict") {
+        // Fechamento e vencimento são datas diferentes: quando o documento
+        // discorda do ciclo do cartão, quem decide é o usuário.
+        const dateLabel = (value: unknown) => {
+          const raw = String(value ?? "");
+          return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10).split("-").reverse().join("/") : "—";
+        };
+        userMessage = `Fechamento em ${dateLabel(diagnostic?.closing_date)}: pelo ciclo do cartão o vencimento é ${dateLabel(diagnostic?.cycle_due_date)} (${monthLabel(diagnostic?.cycle_competence_month)}), mas o documento diz ${dateLabel(diagnostic?.document_due_date)} (${monthLabel(diagnostic?.document_competence_month)}). Escolha qual data vale para esta fatura.`;
       } else if (reason === "missing_credit_card") {
         userMessage = "Escolha o cartão desta fatura antes de salvar. Nada foi gravado.";
       } else if (error.message.includes("invoice_not_reconciled")) {
