@@ -1,3 +1,5 @@
+// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 /**
  * Motor determinístico de estratégia de meta por categoria
  * (`category_goal_strategy.v2`).
@@ -14,12 +16,12 @@
  * `evaluateCategoryGoal`, da projeção decomposta e do ledger confirmado.
  */
 
-import type { CategoryGoalEvaluation } from "./metrics";
+import type { CategoryGoalEvaluation } from "./metrics.ts";
 import type {
   CategoryProjectionConfidence,
   CategoryProjectionMethod,
   ExpectedCommitment,
-} from "./categoryProjection";
+} from "./categoryProjection.ts";
 
 export type CategoryGoalOutlook =
   | "scheduled"

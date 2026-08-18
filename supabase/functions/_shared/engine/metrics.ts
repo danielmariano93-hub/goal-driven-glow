@@ -63,7 +63,11 @@ export interface CategoryGoalEvaluation {
   days_remaining: number;
   calculation_reference_date: string;
   included_transaction_count: number;
-  projection_method: "linear" | "weekday_weighted";
+  /** `category_projection.v1`: natureza da categoria decide o método. */
+  projection_method: "linear" | "weekday_weighted" | "flow" | "commitment" | "hybrid" | "insufficient_data";
+  projection_confidence: "high" | "medium" | "low";
+  supports_daily_budget: boolean;
+  remaining_known_commitments: number;
 }
 
 function flattenGoal(e: CoreGoalEvaluation): CategoryGoalEvaluation {
@@ -100,6 +104,9 @@ function flattenGoal(e: CoreGoalEvaluation): CategoryGoalEvaluation {
     calculation_reference_date: e.calculationReferenceDate,
     included_transaction_count: e.includedTransactionCount,
     projection_method: e.projectionMethod,
+    projection_confidence: e.projectionConfidence,
+    supports_daily_budget: e.supportsDailyBudget,
+    remaining_known_commitments: e.remainingKnownCommitments,
   };
 }
 

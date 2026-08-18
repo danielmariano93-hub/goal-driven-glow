@@ -38,7 +38,9 @@ export const FINANCE_CORE_MODULES = [
   "incomeProjection",
   "commitmentAgenda",
   "debtStatus",
+  "categoryProjection",
   "metrics",
+  "categoryGoalStrategy",
 ];
 
 export const REPORT_MODULES = [
