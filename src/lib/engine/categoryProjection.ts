@@ -164,7 +164,7 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
       ?? null;
     const resolution = resolver.resolve(source);
     const key = resolution?.key ?? `raw:${String(source ?? "sem_descricao").trim().toLowerCase()}`;
-    const label = resolution?.label ?? String(source ?? "Sem descrição").trim() || "Sem descrição";
+    const label = resolution?.label ?? (String(source ?? "").trim() || "Sem descrição");
     const group = groups.get(key) ?? { label, entries: [] };
     group.entries.push({
       date,
