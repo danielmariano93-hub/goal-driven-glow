@@ -155,7 +155,9 @@ export function ReviewSheet({
   const [recovering, setRecovering] = useState(false);
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
+  const [invoiceDueDateInput, setInvoiceDueDateInput] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
+
   const [pendingWrites, setPendingWrites] = useState(0);
   const [resolvingDup, setResolvingDup] = useState<string | null>(null);
 
