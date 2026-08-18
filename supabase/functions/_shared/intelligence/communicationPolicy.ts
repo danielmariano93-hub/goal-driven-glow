@@ -1,4 +1,5 @@
 import type { CommunicationCandidate } from "./contracts.ts";
+import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "./careKinds.ts";
 
 export type CommunicationPreferences = {
   proactive_financial?: boolean;
@@ -58,6 +59,9 @@ const BEHAVIOR_KINDS = new Set([
   "financial_procrastination",
   "financial_discipline",
   "relapse_risk",
+  // Lembrete de cuidado: pertence ao consentimento de check-in emocional,
+  // não ao consentimento de insight financeiro.
+  "emotional_checkin_due",
 ]);
 const SMART_TIP_KINDS = new Set([
   "saving_opportunity",
@@ -124,6 +128,8 @@ export function decideCommunication(args: {
   target: "app" | "whatsapp";
   preferences: CommunicationPreferences;
   history: DeliveryHistory[];
+  /** Cota própria dos lembretes de cuidado (configurável no painel admin). */
+  careQuota?: CareQuota;
   now?: Date;
 }): CommunicationDecision {
   const now = args.now ?? new Date();
@@ -198,9 +204,16 @@ export function decideCommunication(args: {
   }
 
   if (candidate.severity !== "critical") {
+    // Cuidado e insight financeiro têm cotas separadas: um lembrete carinhoso
+    // não consome a vez de um alerta de caixa (nem o contrário).
+    const care = isCareKind(candidate.kind);
+    const quota: CareQuota = args.careQuota ?? DEFAULT_CARE_QUOTA;
+    const scoped = accepted.filter((row) => isCareKind(row.kind) === care);
     const today = localDay(now, tz);
-    const dayRows = accepted.filter((row) => localDay(new Date(row.created_at), tz) === today);
-    const dailyCap = Math.max(0, Math.min(5, preferences.max_proactive_per_day ?? 1));
+    const dayRows = scoped.filter((row) => localDay(new Date(row.created_at), tz) === today);
+    const dailyCap = care
+      ? Math.max(0, Math.min(5, quota.maxPerDay))
+      : Math.max(0, Math.min(5, preferences.max_proactive_per_day ?? 1));
     if (dailyCap === 0 || uniqueCommunications(dayRows) >= dailyCap) {
       return {
         allowed: false, reason: "daily_frequency_cap", channel: target, priority: 0,
@@ -209,9 +222,11 @@ export function decideCommunication(args: {
     }
 
     const weekAgo = now.getTime() - 7 * 86_400_000;
-    const weekRows = accepted.filter((row) => new Date(row.created_at).getTime() >= weekAgo);
-    const weeklyCap = Math.max(1, Math.min(14, preferences.max_proactive_per_week ?? 3));
-    if (uniqueCommunications(weekRows) >= weeklyCap) {
+    const weekRows = scoped.filter((row) => new Date(row.created_at).getTime() >= weekAgo);
+    const weeklyCap = care
+      ? Math.max(0, Math.min(21, quota.maxPerWeek))
+      : Math.max(1, Math.min(14, preferences.max_proactive_per_week ?? 3));
+    if (weeklyCap === 0 || uniqueCommunications(weekRows) >= weeklyCap) {
       return {
         allowed: false, reason: "weekly_frequency_cap", channel: target, priority: 0,
         temporary: true, retryAt: new Date(now.getTime() + 3 * 86_400_000).toISOString(),

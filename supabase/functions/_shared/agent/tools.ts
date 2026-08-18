@@ -29,6 +29,9 @@ import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, dra
 import { confirmationExecutor } from "./core/PendingConfirmations.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
+import {
+  emotionByKey, emotionOptionsSentence, moodToEmotion, parseEmotionFromText, resolveEmotionTerm,
+} from "../intelligence/emotionParse.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const AGENT_QUERY_PAGE_SIZE = 1_000;
@@ -1908,6 +1911,84 @@ export async function explain_shared_goal_ranking(ctx: ToolContext, args: { goal
   };
 }
 
+
+/** Registro emocional por conversa: o Nino grava o catálogo canônico, nunca texto livre. */
+async function log_emotional_checkin(ctx: ToolContext, args: {
+  emotion?: string; mood?: number; notes?: string;
+}): Promise<ToolResult> {
+  const option = resolveEmotionTerm(args?.emotion)
+    ?? emotionByKey(args?.emotion)
+    ?? moodToEmotion(args?.mood)
+    ?? parseEmotionFromText(args?.emotion)
+    ?? parseEmotionFromText(ctx.user_text);
+  if (!option) {
+    return {
+      ok: false,
+      error: "emotion_not_recognized",
+      details: { options: emotionOptionsSentence() },
+      result: { ask: `Como você se sentiu? Pode ser: ${emotionOptionsSentence()}.` },
+    };
+  }
+
+  const today = todaySaoPaulo();
+  const dayStart = `${today}T00:00:00-03:00`;
+  const dayEnd = `${today}T23:59:59-03:00`;
+  const notes = String(args?.notes ?? "").trim().slice(0, 500) || null;
+
+  const { data: existing } = await ctx.sb.from("emotional_checkins")
+    .select("id").eq("user_id", ctx.user_id)
+    .gte("occurred_at", dayStart).lte("occurred_at", dayEnd)
+    .order("occurred_at", { ascending: false }).limit(1).maybeSingle();
+
+  const payload = {
+    user_id: ctx.user_id,
+    mood: option.mood,
+    emotion_key: option.key,
+    trigger_label: option.label,
+    notes,
+  };
+
+  if (existing?.id) {
+    const { error } = await ctx.sb.from("emotional_checkins")
+      .update(payload).eq("id", existing.id).eq("user_id", ctx.user_id);
+    if (error) return { ok: false, error: "emotional_checkin_update_failed", details: error.message };
+  } else {
+    const { error } = await ctx.sb.from("emotional_checkins")
+      .insert({ ...payload, occurred_at: new Date().toISOString() });
+    if (error) return { ok: false, error: "emotional_checkin_insert_failed", details: error.message };
+  }
+
+  return {
+    ok: true,
+    result: {
+      registered: true,
+      updated: Boolean(existing?.id),
+      emotion_key: option.key,
+      emotion_label: option.label,
+      emoji: option.emoji,
+      mood: option.mood,
+      local_date: today,
+      card: `${option.emoji} Registrei: hoje você se sentiu ${option.label.toLowerCase()}.`,
+    },
+  };
+}
+
+/** Últimos registros emocionais, para o Nino falar do padrão sem inventar. */
+async function get_emotional_checkins(ctx: ToolContext, args: { days?: number }): Promise<ToolResult> {
+  const days = Math.min(90, Math.max(1, Number(args?.days ?? 14)));
+  const from = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await ctx.sb.from("emotional_checkins")
+    .select("occurred_at,mood,emotion_key,trigger_label,notes")
+    .eq("user_id", ctx.user_id).gte("occurred_at", from)
+    .order("occurred_at", { ascending: false }).limit(120);
+  if (error) return { ok: false, error: "emotional_checkins_failed", details: error.message };
+  const rows = (data ?? []) as Array<{ mood: number; emotion_key: string | null }>;
+  const average = rows.length
+    ? Math.round((rows.reduce((sum, row) => sum + Number(row.mood ?? 0), 0) / rows.length) * 10) / 10
+    : null;
+  return { ok: true, result: { days, total: rows.length, average_mood: average, checkins: data ?? [] } };
+}
+
 export const AGENT_TOOLS: ToolSpec[] = [
 
   {
@@ -2487,6 +2568,30 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["amount"], additionalProperties: false,
     },
     execute: plan_installment_decision,
+  },
+  {
+    name: "log_emotional_checkin",
+    description: "Registra COMO O USUÁRIO SE SENTIU hoje (check-in emocional). Use quando a pessoa disser o que está sentindo ou responder ao lembrete de humor: 'hoje fui ansioso', 'estou tranquilo', 'registra que estou cansado', 'me senti culpado com essa compra'. Grava um único registro por dia (atualiza se já existir).",
+    parameters: {
+      type: "object",
+      properties: {
+        emotion: { type: "string", description: "Sentimento em pt-BR (tranquilo, atento, preocupado, confiante, impulsivo, frustrado, celebrando, culpado) ou a palavra usada pela pessoa." },
+        mood: { type: "integer", minimum: 1, maximum: 5, description: "Escala 1 (muito ruim) a 5 (muito bem), quando a pessoa der nota." },
+        notes: { type: "string", description: "Observação curta que a pessoa contou." },
+      },
+      additionalProperties: false,
+    },
+    execute: log_emotional_checkin,
+  },
+  {
+    name: "get_emotional_checkins",
+    description: "Histórico dos check-ins emocionais registrados (humor médio e registros recentes). Use para responder 'como eu estive', 'qual meu humor no mês' e para relacionar emoção com gasto.",
+    parameters: {
+      type: "object",
+      properties: { days: { type: "integer", minimum: 1, maximum: 90 } },
+      additionalProperties: false,
+    },
+    execute: get_emotional_checkins,
   },
 ];
 

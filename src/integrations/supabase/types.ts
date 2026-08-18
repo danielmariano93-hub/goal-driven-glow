@@ -8393,6 +8393,42 @@ export type Database = {
         }
         Relationships: []
       }
+      proactive_reminder_settings: {
+        Row: {
+          care_max_per_day: number
+          care_max_per_week: number
+          emotional_channels: string[]
+          emotional_enabled: boolean
+          emotional_hour: number
+          emotional_requires_activity: boolean
+          id: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          care_max_per_day?: number
+          care_max_per_week?: number
+          emotional_channels?: string[]
+          emotional_enabled?: boolean
+          emotional_hour?: number
+          emotional_requires_activity?: boolean
+          id?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          care_max_per_day?: number
+          care_max_per_week?: number
+          emotional_channels?: string[]
+          emotional_enabled?: boolean
+          emotional_hour?: number
+          emotional_requires_activity?: boolean
+          id?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       product_cohorts_weekly: {
         Row: {
           activated_users: number
@@ -11213,18 +11249,36 @@ export type Database = {
         Returns: boolean
       }
       admin_communication_catalog: { Args: never; Returns: Json }
-      admin_communication_catalog_update: {
-        Args: {
-          _active?: boolean
-          _allowed_channels?: string[]
-          _base_priority?: number
-          _cooldown_hours?: number
-          _kind: string
-          _max_per_day?: number
-          _requires_manual_approval?: boolean
-        }
-        Returns: Json
-      }
+      admin_communication_catalog_update:
+        | {
+            Args: {
+              _active?: boolean
+              _allowed_channels?: string[]
+              _base_priority?: number
+              _cooldown_hours?: number
+              _kind: string
+              _max_per_day?: number
+              _requires_manual_approval?: boolean
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              _active?: boolean
+              _allowed_channels?: string[]
+              _base_priority?: number
+              _cooldown_hours?: number
+              _default_channels?: string[]
+              _default_window_hours?: number
+              _kind: string
+              _max_per_day?: number
+              _min_severity_for_whatsapp?: string
+              _requires_manual_approval?: boolean
+              _sensitivity?: string
+              _whatsapp_min_absolute_impact?: number
+            }
+            Returns: Json
+          }
       admin_communication_template_upsert: {
         Args: {
           _active?: boolean
@@ -11337,6 +11391,18 @@ export type Database = {
       admin_reject_deletion_request: {
         Args: { p_id: string; p_notes: string }
         Returns: undefined
+      }
+      admin_reminder_settings: { Args: never; Returns: Json }
+      admin_reminder_settings_update: {
+        Args: {
+          _care_max_per_day?: number
+          _care_max_per_week?: number
+          _emotional_channels?: string[]
+          _emotional_enabled?: boolean
+          _emotional_hour?: number
+          _emotional_requires_activity?: boolean
+        }
+        Returns: Json
       }
       admin_reprocess_failed: { Args: { p_job_key: string }; Returns: Json }
       admin_run_check: { Args: { p_job_key: string }; Returns: Json }

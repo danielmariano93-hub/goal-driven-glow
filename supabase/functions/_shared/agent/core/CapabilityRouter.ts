@@ -7,6 +7,7 @@ import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
+import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
 
 export type CapabilityName =
   | "weekday_pattern"
@@ -26,6 +27,7 @@ export type CapabilityName =
   | "money_leaks"
   | "advisor_consult"
   | "debt_status"
+  | "emotional_checkin"
   | "insights"
   | "shared_goals"
   | "general";
@@ -336,6 +338,30 @@ export function classifyCapability(
     return {
       name: "transaction_management", execution: "llm_scoped", allowed_tools: GROUPS.transactionManagement,
       required_tool: "search_transactions", context: { accounts: true, cards: true }, reason: "transaction_crud",
+    };
+  }
+
+  // Check-in emocional: "hoje fui ansioso", "registra que estou tranquilo".
+  // Não captura frases financeiras ("preocupado com a fatura"), que seguem
+  // para as rotas de dívida/caixa.
+  const emotionalAsk = /\b(check ?in|checkin|humor|emocao|emocional|sentimento|me sinto|me senti|sentindo|estou|to|hoje fui|fui)\b/.test(t)
+    && !/\b(divida|fatura|cartao|saldo|meta|gasto|gastei|comprei|receita|salario|parcela|conta)\b/.test(t);
+  if ((emotionalAsk && parseEmotionFromText(t))
+    || /\b(registr\w+|anot\w+|marc\w+)\b.*\b(humor|emocao|emocional|sentimento|check ?in)\b/.test(t)) {
+    return {
+      name: "emotional_checkin", execution: "deterministic",
+      allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+      required_tool: "log_emotional_checkin", context: {},
+      reason: "canonical_emotional_checkin",
+    };
+  }
+
+  if (/\b(como (?:eu )?estive|meu humor|meus sentimentos|historico emocional|registros emocionais)\b/.test(t)) {
+    return {
+      name: "emotional_checkin", execution: "deterministic",
+      allowed_tools: ["get_emotional_checkins", "log_emotional_checkin"],
+      required_tool: "get_emotional_checkins", context: {},
+      reason: "canonical_emotional_history",
     };
   }
 

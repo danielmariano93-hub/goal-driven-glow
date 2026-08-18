@@ -204,24 +204,40 @@ export async function scanUser(
     };
   });
 
+  // Configuração de lembretes é do produto (painel admin), não constante de código.
+  const { data: reminderSettings } = await sb.from("proactive_reminder_settings")
+    .select("emotional_enabled,emotional_hour,emotional_requires_activity").maybeSingle();
+
+  // Atividade vale em qualquer canal: quem só usa o WhatsApp também é lembrado.
+  const surfaceSeenAt = (surfaceResp.data as { last_seen_at?: string | null } | null)?.last_seen_at ?? null;
+  const activityAt = [lastActivityAt, surfaceSeenAt]
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null;
+
   const reminder = emotionalReminderDue({
     now: new Date(),
     timezone: (profile as { timezone?: string | null }).timezone ?? "America/Sao_Paulo",
-    lastSurfaceSeenAt: (surfaceResp.data as { last_seen_at?: string | null } | null)?.last_seen_at ?? null,
+    lastActivityAt: activityAt,
     checkinDates: ((emotionalResp.data as Array<{ occurred_at: string }> | null) ?? []).map((row) => row.occurred_at),
+    settings: {
+      enabled: (reminderSettings as any)?.emotional_enabled ?? true,
+      hour: Number((reminderSettings as any)?.emotional_hour ?? 19),
+      requiresActivity: (reminderSettings as any)?.emotional_requires_activity ?? false,
+    },
   });
   if (reminder.due && !ctx.cooldowns?.has(`emotional-checkin:${reminder.localDate}`)) {
     suggestions.unshift({
       user_id: userId,
       kind: EMOTIONAL_REMINDER_KIND,
       severity: "info",
-      title: "Como você está hoje?",
-      body: "Um check-in de poucos segundos ajuda o Nino a entender o contexto das suas decisões, sem julgamento.",
+      title: "Como foi o seu dia?",
+      body: "Se quiser, me conta em uma palavra como você se sentiu hoje — tranquilo, ansioso, cansado, animado. Pode responder aqui mesmo que eu registro pra você, sem julgamento.",
       action: { type: "emotional_checkin", route: "/app/emocoes" },
-      evidence: { local_date: reminder.localDate, reason: "used_nino_without_checkin" },
-      channel_ready: "app",
+      evidence: { local_date: reminder.localDate, reason: reminder.reason },
+      channel_ready: "both",
       dedup_key: `emotional-checkin:${reminder.localDate}`,
-      expires_at: new Date(Date.now() + 6 * 3600000).toISOString(),
+      expires_at: new Date(Date.now() + 12 * 3600000).toISOString(),
     });
   }
 
