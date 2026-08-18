@@ -527,8 +527,27 @@ export function ReviewSheet({
         { action: "confirm", document_id: documentId, item_ids: ids },
       );
       if (failure) {
-        const diagnostic = (failure.details as { result?: { error?: string; suggested_competence_month?: string | null } } | undefined)?.result;
+        const diagnostic = (failure.details as { result?: {
+          error?: string;
+          suggested_competence_month?: string | null;
+          closing_date?: string | null;
+          document_due_date?: string;
+          document_competence_month?: string;
+          cycle_due_date?: string;
+          cycle_competence_month?: string;
+        } } | undefined)?.result;
         const settled = diagnostic?.error === "statement_already_settled";
+        if (diagnostic?.error === "due_date_conflict" && diagnostic.cycle_due_date && diagnostic.document_due_date) {
+          setDueConflict({
+            closing_date: diagnostic.closing_date ?? null,
+            document_due_date: String(diagnostic.document_due_date).slice(0, 10),
+            document_competence_month: String(diagnostic.document_competence_month ?? "").slice(0, 10),
+            cycle_due_date: String(diagnostic.cycle_due_date).slice(0, 10),
+            cycle_competence_month: String(diagnostic.cycle_competence_month ?? "").slice(0, 10),
+          });
+          toast.error("Confirme a data desta fatura", { description: failureDescription(failure) });
+          return;
+        }
         if (settled) {
           const suggestion = diagnostic?.suggested_competence_month;
           if (suggestion) {
