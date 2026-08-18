@@ -36,6 +36,8 @@ const LancamentoDetalhe = lazy(() => import("./pages/LancamentoDetalhe"));
 const Contas = lazy(() => import("./pages/Contas"));
 const Categorias = lazy(() => import("./pages/Categorias"));
 const Metas = lazy(() => import("./pages/Metas"));
+const MetaCategoriaDetalhe = lazy(() => import("./pages/MetaCategoriaDetalhe"));
+const MetaDetalhe = lazy(() => import("./pages/MetaDetalhe"));
 const Dividas = lazy(() => import("./pages/Dividas"));
 const Planejamento = lazy(() => import("./pages/Planejamento"));
 const RelatoriosHub = lazy(() => import("./pages/RelatoriosHub"));
