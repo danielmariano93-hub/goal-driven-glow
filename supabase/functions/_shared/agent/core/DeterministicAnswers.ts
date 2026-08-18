@@ -57,6 +57,37 @@ export function formatGoalsOverview(result: any): string {
   return lines.join("\n");
 }
 
+/**
+ * Plano de meta em texto: quanto, de onde, e o próximo passo.
+ * Sai formatado do motor — a IA não reescreve números.
+ */
+export function formatGoalStrategy(result: any): string {
+  const plans = Array.isArray(result?.plans) ? result.plans : [];
+  if (!plans.length) {
+    return "Você ainda não tem meta ativa para eu montar o plano. Me diga o alvo e o prazo e eu monto com você.";
+  }
+  const blocks = plans.slice(0, 3).map((plan: any) => {
+    const lines = [plan.headline];
+    if (plan.requiredMonthly != null && plan.requiredMonthly > 0) {
+      lines.push(`• Por mês: ${money(plan.requiredMonthly)}${plan.requiredWeekly ? ` (${money(plan.requiredWeekly)} por semana)` : ""}.`);
+    }
+    if (plan.currentMonthlyPace > 0) lines.push(`• Ritmo atual: ${money(plan.currentMonthlyPace)} por mês.`);
+    if (plan.monthlyGap != null && plan.monthlyGap > 0) lines.push(`• Diferença a cobrir: ${money(plan.monthlyGap)} por mês.`);
+    for (const source of (plan.fundingSources ?? []).slice(1, 4)) {
+      lines.push(`• De onde tirar: ${source.name} — ${money(source.monthlyAmount)} por mês.`);
+    }
+    for (const step of (plan.steps ?? []).slice(0, 3)) {
+      lines.push(`• ${step.title}: ${step.detail}`);
+    }
+    for (const alternative of (plan.alternatives ?? []).slice(0, 2)) {
+      lines.push(`• ${alternative.label}: ${alternative.detail}`);
+    }
+    lines.push(`Próximo passo: ${plan.nextAction}`);
+    return lines.join("\n");
+  });
+  return blocks.join("\n\n");
+}
+
 export function formatBeforeSpending(result: any): string {
   const amount = Number(result.amount ?? 0);
   const date = String(result.planned_date ?? "hoje");
@@ -249,7 +280,7 @@ function failureReply(capability: CapabilityDecision, error: string | null): str
     if (error === "account_not_found") return "Não reconheci a conta informada. Diga o nome como aparece no app; nenhum dado foi alterado.";
     return `Não consegui concluir a simulação agora. Nenhum dado foi alterado.${suffix}`;
   }
-  if (capability.name === "goals_overview") {
+  if (capability.name === "goals_overview" || capability.name === "goal_strategy") {
     return `Não consegui carregar suas metas agora. Nenhuma meta foi alterada.${suffix}`;
   }
   return `Não consegui olhar seus dados agora. Nenhum dado foi alterado.${suffix}`;
@@ -310,6 +341,7 @@ export async function executeDeterministicCapability(
   let reply: string;
   if (capability.name === "financial_snapshot") reply = formatFinancialSnapshot(execution.result);
   else if (capability.name === "goals_overview") reply = formatGoalsOverview(execution.result);
+  else if (capability.name === "goal_strategy") reply = formatGoalStrategy(execution.result);
   else if (capability.name === "before_spending") reply = formatBeforeSpending(execution.result);
   else if (capability.name === "recent_transactions") reply = formatRecentTransactions(execution.result as any[]);
   else if (capability.name === "weekday_literal") reply = formatSpendingForDate(execution.result);

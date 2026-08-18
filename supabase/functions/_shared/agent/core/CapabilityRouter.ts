@@ -13,6 +13,7 @@ export type CapabilityName =
   | "weekday_pattern"
   | "weekday_literal"
   | "goals_overview"
+  | "goal_strategy"
   | "before_spending"
   | "financial_snapshot"
   | "recent_transactions"
@@ -240,12 +241,23 @@ export function classifyCapability(
     };
   }
 
+  // ESTRATÉGIA DE META — pedido de direção ("como chego", "o que faço para",
+  // "me ajuda a bater a meta") vai para o motor de plano, não para conversa.
+  if (/\bmetas?\b/.test(t)
+    && /\b(como (?:faco|fazer|chego|chegar|consigo|conseguir|atinjo|atingir|bater|alcanco|alcancar)|o que (?:faco|fazer|preciso|devo)|plano|estrategia|dicas?|me ajuda|ajuda a|caminho|passos?|quanto (?:preciso|devo|tenho que) (?:guardar|separar|economizar))\b/.test(t)) {
+    return {
+      name: "goal_strategy", execution: "deterministic", allowed_tools: ["get_goal_strategy", "get_goals_overview"],
+      required_tool: "get_goal_strategy", context: {}, reason: "canonical_goal_strategy",
+    };
+  }
+
   if (/\b(?:quais|liste|mostre|mostrar|mostra|resuma|resumir|como (?:estao|vao))\b.{0,40}\bmetas?\b|\bmetas?\b.{0,35}\b(?:cadastradas|minhas|progresso|atingimento|andamento)\b/.test(t)) {
     return {
       name: "goals_overview", execution: "deterministic", allowed_tools: ["get_goals_overview"],
       required_tool: "get_goals_overview", context: {}, reason: "canonical_goals_overview",
     };
   }
+
 
   // CONSULTORIA — o Nino como consultor, não só assistente. Decisão de
   // afordabilidade/parcelamento e plano de redução vêm de motor determinístico.
