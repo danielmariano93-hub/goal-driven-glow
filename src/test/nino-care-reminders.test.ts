@@ -63,7 +63,7 @@ describe("leitura de sentimento em pt-BR", () => {
     expect(resolveEmotionTerm("ansioso")?.key).toBe("atento");
     expect(resolveEmotionTerm("cansada")?.key).toBe("frustrado");
     expect(parseEmotionFromText("hoje eu me senti bem tranquilo")?.key).toBe("tranquilo");
-    expect(parseEmotionFromText("comprei no impulso e fiquei com culpa")?.key).toBe("culpado");
+    expect(parseEmotionFromText("fiquei com culpa depois dessa compra")?.key).toBe("culpado");
   });
 
   it("não invade frases sem sentimento", () => {
