@@ -181,42 +181,44 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   for (const group of groups.values()) {
     const entries = [...group.entries].sort((a, b) => (a.date < b.date ? -1 : 1));
     const beforePeriod = entries.filter((e) => e.date < input.period.start);
-    const monthsBefore = new Set(beforePeriod.map((e) => e.date.slice(0, 7)));
-    if (monthsBefore.size < 2) continue;
 
-    const dates = beforePeriod.map((e) => e.date);
-    const gaps = intervalsOf(dates);
-    const medianGap = median(gaps);
-    const monthlyCadence = medianGap >= 24 && medianGap <= 38;
-    const gapsConsistent = gaps.every((gap) => Math.abs(gap - medianGap) <= Math.max(6, medianGap * 0.35));
-    const amounts = beforePeriod.map((e) => e.amount);
-    const typical = round2(median(amounts));
-    const amountStable = typical > 0
-      && amounts.every((amount) => Math.abs(amount - typical) <= Math.max(2, typical * 0.25));
+    // Presença mensal é o sinal de série; valor por mês pode variar
+    // (assinatura por consumo cobra várias vezes no mesmo ciclo).
+    const monthlyTotals = new Map<string, { amount: number; count: number }>();
+    for (const entry of beforePeriod) {
+      const ym = entry.date.slice(0, 7);
+      const bucket = monthlyTotals.get(ym) ?? { amount: 0, count: 0 };
+      bucket.amount += entry.amount;
+      bucket.count += 1;
+      monthlyTotals.set(ym, bucket);
+    }
     const declaredRecurring = beforePeriod.some((e) => e.recurringOrigin);
+    const monthsPresent = monthlyTotals.size;
+    if (!declaredRecurring && monthsPresent < 2) continue;
 
-    const isSeries = declaredRecurring || (monthlyCadence && gapsConsistent && amountStable);
-    if (!isSeries) continue;
+    const typical = round2(median([...monthlyTotals.values()].map((b) => b.amount)));
+    if (!(typical > 0)) continue;
+    const expectedDay = Math.round(median(beforePeriod.map((e) => Number(e.date.slice(8, 10))))) || 1;
 
     const inPeriod = entries.filter((e) => e.date >= input.period.start && e.date <= input.period.end);
     const chargedAmount = round2(inPeriod.reduce((sum, e) => sum + e.amount, 0));
-    const expectedDay = Math.round(median(beforePeriod.map((e) => Number(e.date.slice(8, 10)))));
 
     series.push({
       label: group.label,
       typicalAmount: typical,
       expectedDayOfMonth: expectedDay,
-      occurrences: beforePeriod.length,
+      occurrences: monthsPresent,
       chargedInPeriod: inPeriod.length > 0,
       chargedAmount,
     });
 
+    // Já cobrada no ciclo: não se espera nova cobrança da mesma série.
     if (inPeriod.length > 0) {
       chargedRecurringInPeriod = round2(chargedRecurringInPeriod + chargedAmount);
       continue;
     }
     const expectedAt = dateInPeriodMonth(input.period, expectedDay);
-    if (expectedAt >= input.todayIso && expectedAt <= input.period.end && typical > 0) {
+    if (expectedAt >= input.todayIso && expectedAt <= input.period.end) {
       expectedCommitments.push({ label: group.label, amount: typical, expectedAt });
     }
   }
@@ -233,17 +235,23 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   const remaining = Math.max(0, input.remainingDays);
 
   const hasSeries = series.length > 0;
-  const noEvidence = elapsed === 0 || (confirmedSpend === 0 && !hasSeries);
+
+  /**
+   * A natureza da categoria sai da FREQUÊNCIA de gasto no período: consumo
+   * contínuo aparece na maioria dos dias; compromisso aparece em poucos dias
+   * do ciclo. Extrapolar ritmo diário só é honesto no primeiro caso.
+   */
+  const spendDayRatio = elapsed > 0 ? spendDaysInPeriod / elapsed : 0;
 
   let method: CategoryProjectionMethod;
-  if (noEvidence) {
-    method = confirmedSpend === 0 && !hasSeries ? "insufficient_data" : "flow";
-  } else if (hasSeries && recurringShareOfSpend >= 0.8) {
+  if (elapsed === 0 || (confirmedSpend === 0 && !hasSeries)) {
+    method = "insufficient_data";
+  } else if (spendDayRatio <= 0.25) {
     method = "commitment";
-  } else if (hasSeries && recurringShareOfSpend >= 0.35) {
-    method = "hybrid";
-  } else {
+  } else if (spendDayRatio >= 0.5 && recurringShareOfSpend < 0.5) {
     method = "flow";
+  } else {
+    method = "hybrid";
   }
 
   let variableProjection = 0;
