@@ -39,6 +39,7 @@ import { entryFailureMessage } from "./ResponseValidator.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
+import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
 import {
   classifyConversational, deterministicConversationalReply, generateConversationalReply,
