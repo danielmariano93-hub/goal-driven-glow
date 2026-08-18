@@ -4418,6 +4418,48 @@ export type Database = {
         }
         Relationships: []
       }
+      emotion_finance_config: {
+        Row: {
+          id: boolean
+          lookback_days: number
+          min_composite_sample: number
+          min_delta_abs: number
+          min_sample: number
+          min_uplift_pct: number
+          prospective_channels: string[]
+          prospective_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+          window_days: number
+        }
+        Insert: {
+          id?: boolean
+          lookback_days?: number
+          min_composite_sample?: number
+          min_delta_abs?: number
+          min_sample?: number
+          min_uplift_pct?: number
+          prospective_channels?: string[]
+          prospective_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          window_days?: number
+        }
+        Update: {
+          id?: boolean
+          lookback_days?: number
+          min_composite_sample?: number
+          min_delta_abs?: number
+          min_sample?: number
+          min_uplift_pct?: number
+          prospective_channels?: string[]
+          prospective_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          window_days?: number
+        }
+        Relationships: []
+      }
       emotional_checkins: {
         Row: {
           created_at: string
@@ -11304,6 +11346,20 @@ export type Database = {
           total: number
         }[]
       }
+      admin_emotion_finance_config: { Args: never; Returns: Json }
+      admin_emotion_finance_config_update: {
+        Args: {
+          _lookback_days: number
+          _min_composite_sample: number
+          _min_delta_abs: number
+          _min_sample: number
+          _min_uplift_pct: number
+          _prospective_channels: string[]
+          _prospective_enabled: boolean
+          _window_days: number
+        }
+        Returns: Json
+      }
       admin_engagement_stats: { Args: never; Returns: Json }
       admin_list_platform_admins: {
         Args: never
@@ -11904,6 +11960,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      emotion_finance_settings: { Args: never; Returns: Json }
       ensure_profile: { Args: never; Returns: undefined }
       ensure_pseudonym: { Args: { _user_id: string }; Returns: string }
       finalize_invoice_statement: {

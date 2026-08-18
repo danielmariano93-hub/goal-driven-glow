@@ -28,6 +28,7 @@ export const FINANCE_CORE_MODULES = [
   "recurringDiscovery",
   "costStructure",
   "anomalies",
+  "emotionFinance",
   "savingsOpportunities",
   "financialEvolution",
   "bridges",
