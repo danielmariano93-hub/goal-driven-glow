@@ -788,6 +788,70 @@ ${JSON.stringify(hints)}
     reply = validated.body;
   }
 
+  // ---- Truth Gate v2 -----------------------------------------------------
+  // Regra absoluta: nenhum valor em reais e nenhum percentual sai daqui sem
+  // ferramenta determinística que o sustente. Quando falta prova, o Core tenta
+  // resgatar a resposta pelo motor canônico; se não conseguir, admite o limite
+  // em vez de inventar número.
+  let truth = validateAgainstEvidence(reply, toolCallLog, turnPlan.effective_period);
+  const unprovenNumbers = truth.issues.some((i) =>
+    i.type === "no_evidence" || i.type === "value_not_in_evidence" || i.type === "percent_not_in_evidence"
+  );
+  if (unprovenNumbers && kind !== "draft" && kind !== "receipt" && kind !== "question") {
+    metrics.errors.push("truth_gate_block:" + truth.issues.map((i) => i.type).join(","));
+    metrics.validations = (metrics.validations ?? 0) + truth.issues.length;
+
+    const rescueCapability = capability.required_tool && capability.execution === "deterministic"
+      ? capability
+      : classifyCapability(
+        turnPlan.effective_text,
+        routeIntent(turnPlan.effective_text).intent,
+        interpretSemanticQuery(turnPlan.effective_text),
+      );
+    const rescue = rescueCapability.execution === "deterministic" && rescueCapability.required_tool
+      ? await guard(
+        () => executeDeterministicCapability(sb, {
+          user_id: input.user_id,
+          conversation_id: input.conversation_id,
+          user_text: turnPlan.effective_text,
+          capability: rescueCapability,
+        }),
+        (m) => metrics.errors.push("truth_rescue:" + m),
+        null,
+      )
+      : null;
+
+    if (rescue?.reply && rescue.toolCalls.some((c: any) => c.ok)) {
+      for (const c of rescue.toolCalls as any[]) {
+        toolCallLog.push({ ...c, step_index: toolCallLog.length + 1 });
+        metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
+      }
+      metrics.tool_call_count = toolCallLog.length;
+      path = "deterministic_tool";
+      reply = rescue.reply;
+      metrics.errors.push("truth_rescued:" + rescueCapability.required_tool);
+    } else if (truth.canonical_headline) {
+      reply = truth.canonical_headline;
+    } else {
+      reply = "Não vou te dar número que eu não consiga provar com os seus lançamentos. "
+        + "Não consegui fechar essa conta agora — me diga a categoria e o período (ex.: \"alimentação em agosto\") "
+        + "que eu calculo direto na sua base.";
+    }
+    truth = validateAgainstEvidence(reply, toolCallLog, turnPlan.effective_period);
+  } else if (!truth.ok && truth.canonical_headline) {
+    metrics.errors.push("truth_gate:" + truth.issues.map((i) => i.type).join(","));
+    metrics.validations = (metrics.validations ?? 0) + truth.issues.length;
+    reply = truth.canonical_headline;
+  } else if (!truth.ok) {
+    metrics.errors.push("truth_gate_flagged:" + truth.issues.map((i) => i.type).join(","));
+  }
+  if (truth.unbacked.length) {
+    // Auditoria: todo número sem proveniência fica registrado com o claim exato.
+    metrics.errors.push(
+      "truth_unbacked:" + truth.unbacked.map((c) => `${c.kind}:${c.value}`).slice(0, 6).join(","),
+    );
+  }
+
   // ---- Persist run + tool calls -----------------------------------------
   const latency = Date.now() - startedAt;
   if (run_id) {
@@ -819,21 +883,6 @@ ${JSON.stringify(hints)}
     }, (m) => metrics.errors.push("persist:" + m), null);
   }
 
-  // CALCULAR → CONVERSAR: gate factual. A resposta jamais contradiz os motores.
-  const truth = validateAgainstEvidence(reply, toolCallLog, turnPlan.effective_period);
-  if (!truth.ok && truth.canonical_headline) {
-    metrics.errors.push("truth_gate:" + truth.issues.map((i) => i.type).join(","));
-    metrics.validations = (metrics.validations ?? 0) + truth.issues.length;
-    reply = truth.canonical_headline;
-  } else if (!truth.ok) {
-    metrics.errors.push("truth_gate_flagged:" + truth.issues.map((i) => i.type).join(","));
-  }
-  if (truth.unbacked.length) {
-    // Auditoria: todo número sem proveniência fica registrado com o claim exato.
-    metrics.errors.push(
-      "truth_unbacked:" + truth.unbacked.map((c) => `${c.kind}:${c.value}`).slice(0, 6).join(","),
-    );
-  }
 
   // Persiste ponteiros de conversa (tópico/período/intenção) para o próximo turno.
   await guard(() => saveConversationMemory(sb, session_id ?? null, {
