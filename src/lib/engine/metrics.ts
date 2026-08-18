@@ -502,7 +502,11 @@ function statusMessage(
     case "completed_over":
       return `O período terminou ${brl(currentOverage)} acima da meta.`;
     case "at_risk":
-      return `Para ficar dentro da meta, reduza aprox. ${brl(requiredDailyReduction)} por dia.`;
+      // Sem R$/dia válido (categoria de compromisso), a ação é evitar/reduzir
+      // o valor previsto — nunca pedir corte de "R$ 0,00 por dia".
+      return requiredDailyReduction > 0
+        ? `Para ficar dentro da meta, reduza aprox. ${brl(requiredDailyReduction)} por dia.`
+        : `Ainda está dentro do teto, mas a projeção indica ${brl(projectedOverage)} de excesso no fechamento.`;
     case "attention":
       return `No ritmo atual, você pode ultrapassar a meta em ${brl(projectedOverage)}.`;
     case "on_track":
