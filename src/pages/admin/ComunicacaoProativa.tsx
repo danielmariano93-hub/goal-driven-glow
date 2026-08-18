@@ -66,6 +66,8 @@ export default function ComunicacaoProativa() {
           { id: "regras", label: "Regras", render: () => <RulesBoard /> },
           { id: "fluxos", label: "Fluxos", render: () => <FlowsBoard /> },
           { id: "lembretes", label: "Lembretes", render: () => <RemindersBoard /> },
+          { id: "emocoes", label: "Emoção × gasto", render: () => <EmotionEngineBoard /> },
+
           { id: "mensagens", label: "Mensagens", render: () => <MessageMonitor /> },
           { id: "canais", label: "Canais", render: () => <ChannelsBoard /> },
           {
