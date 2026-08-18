@@ -140,7 +140,7 @@ export default function MetaCategoriaDetalhe() {
 
       {openForm && (
         <CategoryGoalForm
-          initial={goal}
+          initial={goal as never}
           categories={categories ?? []}
           txs={numericTxs as never}
           saving={saveCatGoal.isPending}
