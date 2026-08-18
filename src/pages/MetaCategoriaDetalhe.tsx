@@ -10,7 +10,7 @@ import {
   useDeleteCategorySpendingGoal,
   useUpdateCategorySpendingGoalStatus,
 } from "@/lib/db/finance";
-import { evaluateCategoryGoal } from "@/lib/engine/metrics";
+import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
@@ -23,6 +23,12 @@ export default function MetaCategoriaDetalhe() {
   const { data: catGoals, isLoading } = useCategorySpendingGoals();
   const { data: categories } = useCategories();
   const { data: txs } = useAllTransactions();
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
+  const { data: financialSnapshot } = useFinancialSnapshot({
+    start: `${currentMonth}-01`,
+    end: `${currentMonth}-${String(currentMonthEnd).padStart(2, "0")}`,
+  });
   const saveCatGoal = useSaveCategorySpendingGoal();
   const delCatGoal = useDeleteCategorySpendingGoal();
   const toggleCatGoal = useUpdateCategorySpendingGoalStatus();
@@ -35,28 +41,10 @@ export default function MetaCategoriaDetalhe() {
     [categories, goal],
   );
 
-  const evaluation = useMemo(() => {
-    if (!goal) return null;
-    return evaluateCategoryGoal(
-      {
-        id: goal.id, user_id: goal.user_id, category_id: goal.category_id,
-        mode: goal.mode as "percent_reduction" | "fixed_limit",
-        reduction_pct: goal.reduction_pct == null ? null : Number(goal.reduction_pct),
-        fixed_limit: goal.fixed_limit == null ? null : Number(goal.fixed_limit),
-        baseline_kind: goal.baseline_kind as "prev_month" | "avg_3m" | "custom",
-        baseline_value: goal.baseline_value == null ? null : Number(goal.baseline_value),
-        computed_limit: Number(goal.computed_limit),
-        frequency: goal.frequency as "once" | "monthly" | "custom",
-        start_date: goal.start_date,
-        end_date: goal.end_date,
-        status: goal.status as "active" | "paused" | "cancelled",
-        period_type: goal.period_type as never,
-      },
-      numericTxs as never,
-      new Date(),
-      categoryName,
-    );
-  }, [goal, numericTxs, categoryName]);
+  const evaluation = useMemo(
+    () => financialSnapshot?.activeCategoryGoals.find((item) => item.goal.id === goal?.id) ?? null,
+    [financialSnapshot, goal?.id],
+  );
 
   const strategy = useMemo(
     () => (evaluation ? buildStrategyForCategoryGoal(evaluation, numericTxs as never) : null),
