@@ -459,20 +459,43 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     }
   }
   // Distribuição por estabelecimento precisa de categoria e período explícitos.
-  // Referência anafórica ("naquela categoria") é resolvida pela memória da
-  // conversa; o período vem do plano determinístico do turno.
+  // Cascata determinística de escopo: texto → memória da conversa → meta com
+  // teto ultrapassado (fonte oficial de metas) → último resultado do turno
+  // anterior. Sem escopo e com referência anafórica, o Nino PERGUNTA — nunca
+  // responde o total de todas as categorias como se fosse de uma categoria.
   if (capability.name === "merchant_distribution") {
     const args: Record<string, unknown> = { ...(capability.tool_args ?? {}) };
-    if (!args.from && !args.days) {
-      args.from = turnPlan.effective_period.from;
-      args.to = turnPlan.effective_period.to;
-    }
     if (!args.category_name) {
       const inherited = detectCategory(turnPlan.effective_text) ?? memory?.active_category ?? null;
       if (inherited) args.category_name = inherited;
     }
-    capability = { ...capability, tool_args: args };
+    let goalScope: Awaited<ReturnType<typeof resolveGoalCategoryScope>> = null;
+    if (!args.category_name
+      && (mentionsAnaphoricCategory(turnPlan.effective_text) || mentionsGoalAnchor(turnPlan.effective_text))) {
+      goalScope = await guard(
+        () => resolveGoalCategoryScope(sb, input.user_id),
+        (m) => metrics.errors.push("goal_scope:" + m),
+        null,
+      );
+      if (goalScope) {
+        args.category_name = goalScope.category_name;
+        if (goalScope.category_id) args.category_id = goalScope.category_id;
+        if (goalScope.period) { args.from = goalScope.period.from; args.to = goalScope.period.to; }
+      }
+    }
+    if (!args.from && !args.days) {
+      args.from = turnPlan.effective_period.from;
+      args.to = turnPlan.effective_period.to;
+    }
+    const needsCategory = mentionsAnaphoricCategory(turnPlan.effective_text);
+    capability = {
+      ...capability,
+      tool_args: args,
+      required_tool: !args.category_name && needsCategory ? null : capability.required_tool,
+      clarification: !args.category_name && needsCategory ? askForCategory() : capability.clarification,
+    };
   }
+
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
