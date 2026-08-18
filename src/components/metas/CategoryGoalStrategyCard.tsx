@@ -67,16 +67,40 @@ export function CategoryGoalStrategyCard({ strategy, defaultOpen = false }: Prop
         <div className="mt-3 space-y-3 border-t border-border pt-3">
           <div className="grid grid-cols-2 gap-2 text-[11px]">
             <div>
-              <p className="text-muted-foreground">Projeção do período</p>
+              <p className="text-muted-foreground">
+                Projeção do período{strategy.projectionConfidence === "low" ? " (estimativa)" : ""}
+              </p>
               <p className="font-semibold tabular-nums">{formatBRL(strategy.projectedFinalSpend)}</p>
+              <p className="text-[10px] text-muted-foreground">{METHOD_LABEL[strategy.projectionMethod] ?? "Ritmo observado"}</p>
             </div>
             <div>
-              <p className="text-muted-foreground">{strategy.currentOverage > 0 ? "Excesso atual" : "Ainda disponível"}</p>
+              <p className="text-muted-foreground">Margem atual</p>
               <p className={`font-semibold tabular-nums ${strategy.currentOverage > 0 ? "text-destructive" : ""}`}>
-                {formatBRL(strategy.currentOverage > 0 ? strategy.currentOverage : strategy.remainingAmount)}
+                {strategy.currentOverage > 0
+                  ? `-${formatBRL(strategy.currentOverage)}`
+                  : formatBRL(strategy.remainingAmount)}
               </p>
+              {strategy.projectedOverage > 0 ? (
+                <p className="text-[10px] text-warning">
+                  Excesso projetado: {formatBRL(strategy.projectedOverage)}
+                </p>
+              ) : null}
             </div>
           </div>
+
+          {strategy.expectedCommitments.length > 0 ? (
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground">Cobranças ainda previstas</p>
+              <ul className="mt-1 space-y-1">
+                {strategy.expectedCommitments.map((item) => (
+                  <li key={`${item.label}-${item.expectedAt}`} className="flex items-start justify-between gap-2 text-[11px] leading-4">
+                    <span className="min-w-0 truncate text-muted-foreground">{item.label}</span>
+                    <span className="shrink-0 font-semibold tabular-nums">{formatBRL(item.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {strategy.hotspots.length > 0 ? (
             <div>
@@ -90,6 +114,14 @@ export function CategoryGoalStrategyCard({ strategy, defaultOpen = false }: Prop
                     <span className="shrink-0 font-semibold tabular-nums">{formatBRL(hotspot.amount)}</span>
                   </li>
                 ))}
+                {strategy.others.amount > 0 ? (
+                  <li className="flex items-start justify-between gap-2 text-[11px] leading-4">
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      Outros · {Math.round(strategy.others.sharePct)}%
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums">{formatBRL(strategy.others.amount)}</span>
+                  </li>
+                ) : null}
               </ul>
             </div>
           ) : null}
