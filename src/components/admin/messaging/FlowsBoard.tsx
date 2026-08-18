@@ -23,7 +23,17 @@ type CatalogRow = {
   cooldown_hours: number | null;
   max_per_day: number | null;
   requires_manual_approval: boolean | null;
+  default_channels: string[] | null;
+  min_severity_for_whatsapp: string | null;
+  sensitivity: string | null;
+  whatsapp_min_absolute_impact: number | null;
 };
+
+const SEVERITIES = [
+  { id: "info", label: "Qualquer aviso" },
+  { id: "attention", label: "Atenção ou mais" },
+  { id: "critical", label: "Só crítico" },
+] as const;
 
 type EffectivenessRow = {
   kind: string;
@@ -83,6 +93,9 @@ export function FlowsBoard() {
       max_per_day?: number;
       requires_manual_approval?: boolean;
       allowed_channels?: string[];
+      default_channels?: string[];
+      min_severity_for_whatsapp?: string;
+      whatsapp_min_absolute_impact?: number;
     }) => {
       try {
         await callAdminRpc("admin_communication_catalog_update", {
@@ -92,6 +105,9 @@ export function FlowsBoard() {
           _max_per_day: args.max_per_day ?? null,
           _requires_manual_approval: args.requires_manual_approval ?? null,
           _allowed_channels: args.allowed_channels ?? null,
+          _default_channels: args.default_channels ?? null,
+          _min_severity_for_whatsapp: args.min_severity_for_whatsapp ?? null,
+          _whatsapp_min_absolute_impact: args.whatsapp_min_absolute_impact ?? null,
         });
       } catch (error) {
         throw new Error(adminErrorMessage(error, "Falha ao atualizar o fluxo"));
@@ -214,7 +230,11 @@ export function FlowsBoard() {
                           ) {
                             return;
                           }
-                          update.mutate({ kind: row.kind, allowed_channels: next });
+                          update.mutate({
+                            kind: row.kind,
+                            allowed_channels: next,
+                            default_channels: next,
+                          });
                         }}
                         className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                           on
@@ -256,6 +276,40 @@ export function FlowsBoard() {
                         const value = Number(e.target.value);
                         if (Number.isFinite(value) && value !== (row.max_per_day ?? 0)) {
                           update.mutate({ kind: row.kind, max_per_day: value });
+                        }
+                      }}
+                      className="mt-1 h-9"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Vai ao WhatsApp a partir de
+                    <select
+                      defaultValue={row.min_severity_for_whatsapp ?? "attention"}
+                      onChange={(e) =>
+                        update.mutate({ kind: row.kind, min_severity_for_whatsapp: e.target.value })
+                      }
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      aria-label="Severidade mínima para WhatsApp"
+                    >
+                      {SEVERITIES.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Valor mínimo para falar (R$)
+                    <Input
+                      type="number"
+                      min={0}
+                      step={10}
+                      defaultValue={row.whatsapp_min_absolute_impact ?? 0}
+                      onBlur={(e) => {
+                        const value = Number(e.target.value);
+                        if (Number.isFinite(value) && value !== (row.whatsapp_min_absolute_impact ?? 0)) {
+                          update.mutate({ kind: row.kind, whatsapp_min_absolute_impact: value });
                         }
                       }}
                       className="mt-1 h-9"
