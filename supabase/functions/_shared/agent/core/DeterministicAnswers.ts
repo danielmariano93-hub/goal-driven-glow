@@ -333,6 +333,12 @@ function formatEmotionalCheckin(result: any): string {
     const extra = result.updated
       ? "Atualizei o registro de hoje."
       : "Isso me ajuda a ligar o que você sente ao que você gasta.";
+    // Sinal prospectivo é associação do histórico da própria pessoa, oferecido
+    // como convite — sem julgamento e sem afirmar causa.
+    const signal = result.prospective_signal;
+    if (signal?.headline) {
+      return `${base}\n${extra}\n\n${signal.headline}\n${signal.question ?? ""}`.trim();
+    }
     return `${base}\n${extra}`;
   }
   const total = Number(result?.total ?? 0);
