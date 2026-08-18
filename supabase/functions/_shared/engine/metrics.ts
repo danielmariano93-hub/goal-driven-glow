@@ -104,6 +104,9 @@ function flattenGoal(e: CoreGoalEvaluation): CategoryGoalEvaluation {
     calculation_reference_date: e.calculationReferenceDate,
     included_transaction_count: e.includedTransactionCount,
     projection_method: e.projectionMethod,
+    projection_confidence: e.projectionConfidence,
+    supports_daily_budget: e.supportsDailyBudget,
+    remaining_known_commitments: e.remainingKnownCommitments,
   };
 }
 
