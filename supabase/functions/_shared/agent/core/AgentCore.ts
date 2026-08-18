@@ -928,9 +928,25 @@ ${JSON.stringify(hints)}
 
 
   // Persiste ponteiros de conversa (tópico/período/intenção) para o próximo turno.
+  // A categoria efetivamente usada pelo motor (args ou resultado da ferramenta)
+  // tem precedência sobre o que o texto sugeria: sem isso, o follow-up
+  // anafórico ("naquela categoria") perdia o assunto.
+  const executedCategory = (() => {
+    for (const call of [...toolCallLog].reverse()) {
+      const fromResult = (call as any)?.result?.category?.name;
+      if (typeof fromResult === "string" && fromResult.trim()) return fromResult.trim();
+      const fromArgs = (call as any)?.args?.category_name;
+      if (typeof fromArgs === "string" && fromArgs.trim()) return fromArgs.trim();
+    }
+    return null;
+  })();
+  const resolvedCategory = executedCategory
+    ?? detectCategory(turnPlan.effective_text)
+    ?? (capability.tool_args?.category_name ? String(capability.tool_args.category_name) : null);
   await guard(() => saveConversationMemory(sb, session_id ?? null, {
-    current_topic: detectCategory(turnPlan.effective_text) ?? memory?.current_topic ?? capability.name,
-    active_category: detectCategory(turnPlan.effective_text) ?? memory?.active_category ?? null,
+    current_topic: resolvedCategory ?? memory?.current_topic ?? capability.name,
+    active_category: resolvedCategory ?? memory?.active_category ?? null,
+
     previous_intent: capability.name,
     active_period: {
       from: turnPlan.effective_period.from,
