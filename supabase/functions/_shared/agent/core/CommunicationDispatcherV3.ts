@@ -5,7 +5,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { decideCommunication, type CommunicationPreferences, type DeliveryHistory } from "../../intelligence/communicationPolicy.ts";
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
-import { suggestionLogicalKey } from "../../intelligence/logicalDedup.ts";
+import { communicationTopicKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
 
@@ -234,7 +234,12 @@ async function record(sb: SupabaseClient, args: {
     status: args.status,
     reason: args.reason ?? null,
     dedup_key: args.dedup_key ?? null,
-    logical_dedup_key: args.dedup_key ? suggestionLogicalKey(args.user_id, args.dedup_key) : null,
+    logical_dedup_key: args.dedup_key ? communicationTopicKey({
+      userId: args.user_id,
+      kind: args.kind,
+      dedupKey: args.dedup_key,
+      evidence: (args.evidence ?? {}) as Record<string, unknown>,
+    }) : null,
 
     evidence: args.evidence ?? {},
     cost_usd: 0,
@@ -354,7 +359,12 @@ export async function dispatchSuggestions(
   const seenTopics = new Set<string>();
   for (const { item, value } of ranked) {
     const evidence = (item.evidence ?? {}) as Record<string, unknown>;
-    const topic = String(evidence.logical_topic_key ?? item.kind);
+    const topic = communicationTopicKey({
+      userId,
+      kind: item.kind,
+      dedupKey: item.dedup_key,
+      evidence,
+    });
     const drop = value.muted
       ? "muted_by_learning"
       : seenTopics.has(topic)
@@ -463,7 +473,12 @@ export async function dispatchSuggestions(
 
       try {
         if (target === "app") {
-          const logicalKey = suggestionLogicalKey(userId, candidate.dedup_key);
+          const logicalKey = communicationTopicKey({
+            userId,
+            kind: candidate.kind,
+            dedupKey: candidate.dedup_key,
+            evidence: (candidate.evidence ?? {}) as Record<string, unknown>,
+          });
           // Mesmo assunto já comunicado (ex.: relatório inteligente do período)
           // não gera segunda notificação, mesmo com dedup_key de superfície
           // diferente.
@@ -516,7 +531,7 @@ export async function dispatchSuggestions(
             status: "queued",
             kind: "proactive",
             channel: "whatsapp",
-            idempotency_key: `proactive:${candidate.id}:whatsapp`,
+             idempotency_key: `proactive:${communicationTopicKey({ userId, kind: candidate.kind, dedupKey: candidate.dedup_key, evidence: (candidate.evidence ?? {}) as Record<string, unknown> })}:whatsapp`,
             context_type: "proactive_suggestion",
             context_id: candidate.id,
             surface: "whatsapp",
@@ -557,7 +572,12 @@ export async function dispatchSuggestions(
         dismissed_at: nextStatus === "dismissed" ? new Date().toISOString() : null,
         next_attempt_at: nextStatus === "deferred" ? deferUntil : null,
         defer_reason: nextStatus === "deferred" ? deferReason : null,
-        logical_dedup_key: suggestionLogicalKey(userId, candidate.dedup_key),
+         logical_dedup_key: communicationTopicKey({
+           userId,
+           kind: candidate.kind,
+           dedupKey: candidate.dedup_key,
+           evidence: (candidate.evidence ?? {}) as Record<string, unknown>,
+         }),
       }).eq("id", candidate.id).eq("status", "pending");
     }
 
