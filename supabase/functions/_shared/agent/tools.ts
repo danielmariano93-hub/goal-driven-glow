@@ -17,6 +17,7 @@ import {
 } from "../engine/facts.ts";
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import {
   computeEmotionFinance,
   DEFAULT_MIN_COMPOSITE_SAMPLE,
@@ -2261,6 +2262,19 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["amount", "planned_date"], additionalProperties: false,
     },
     execute: run_before_spending,
+  },
+  {
+  {
+    name: "get_goal_strategy",
+    description: "Monta o plano determinístico para atingir uma meta: quanto guardar por mês e por semana, de onde tirar o dinheiro (sobra e categorias acima da própria média), viabilidade do prazo, alternativas honestas quando não fecha e o próximo passo. Use sempre que o usuário pedir ajuda, direção, dicas ou estratégia para alcançar uma meta.",
+    parameters: {
+      type: "object",
+      properties: {
+        goal: { type: "string", description: "Nome ou parte do nome da meta. Vazio retorna todas as metas ativas." },
+      },
+      additionalProperties: false,
+    },
+    execute: get_goal_strategy,
   },
   {
     name: "get_goals_overview",
