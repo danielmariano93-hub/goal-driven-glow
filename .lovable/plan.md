@@ -58,7 +58,22 @@ Registrar por turno: capacidade, ferramentas usadas, e a lista de números com/s
 - Rodar a mesma pergunta com outras categorias (Transporte, Mercado) e com frases variadas ("onde mais gastei", "quais lugares pesaram", "analise novamente").
 - Forçar um caso sem ferramenta disponível e confirmar que nenhum número é inventado.
 
+### 6. Renomear um lançamento passa a valer nos relatórios
+
+Confirmei o problema no código: ao renomear (individual ou em lote), o app grava **apenas** o campo de descrição. Mas a identidade do estabelecimento usada por relatórios, rankings e pelo Nino segue a precedência `merchant_name` → `normalized_description` → descrição. Como o nome do banco continua em `merchant_name`, o relatório mostra o nome antigo e o seu novo nome é ignorado.
+
+Correção:
+- renomear passa a gravar o nome escolhido também como identidade canônica do estabelecimento (`merchant_name` + normalização), marcando a origem como "definido pelo usuário";
+- nome definido pelo usuário tem **precedência máxima** — nenhuma reimportação, alias global ou categorização automática pode sobrescrevê-lo;
+- opcionalmente, ao renomear, o Nino pergunta se deve aplicar o mesmo nome aos lançamentos futuros do mesmo estabelecimento (aprendizado de alias já existente no produto);
+- vale para renomeio individual e em lote, e o efeito aparece imediatamente nos relatórios, na Home, nas metas por categoria e nas respostas do assessor.
+
 ## Detalhes técnicos
+
+- `src/pages/Lancamentos.tsx` (renomeio individual e `runBulkRename`): passar a gravar `merchant_name`, `normalized_description` e a marca de origem do usuário, além de `description`.
+- `src/lib/engine/merchant.ts` (e a cópia sincronizada em `supabase/functions/_shared/finance-core/merchant.ts`): respeitar nome definido pelo usuário como verdade absoluta na precedência.
+- Alias de estabelecimento (`merchant_aliases`) atualizado quando o usuário confirma aplicar o novo nome aos próximos lançamentos.
+
 
 - `supabase/functions/_shared/agent/core/AgentCore.ts`: bloqueio duro quando `truth.issues` inclui `no_evidence`/`value_not_in_evidence` — retentativa dirigida à ferramenta da capacidade, e fallback textual sem número.
 - `supabase/functions/_shared/agent/core/CapabilityRouter.ts`: novos padrões para `merchant_distribution` + preenchimento de `tool_args` (`category_name`, `from`, `to`) a partir de `ConversationMemory` e do alerta de meta (`financial_situations` / `nino_intelligence_items` de tipo meta).
