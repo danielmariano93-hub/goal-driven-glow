@@ -197,7 +197,9 @@ function datePt(value: unknown): string {
  * O denominador do percentual é sempre o TOTAL REAL da categoria.
  */
 export function formatMerchantDistribution(result: any): string {
-  const scope = result?.category?.name ? `em ${result.category.name}` : "no período";
+  const categoryName = result?.category?.name ?? null;
+  const globalScope = !categoryName || result?.scope === "all_categories";
+  const scope = categoryName ? `em ${categoryName}` : "considerando todas as categorias";
   const from = datePt(result?.period?.from);
   const to = datePt(result?.period?.to);
   const total = Number(result?.category_total ?? 0);
@@ -208,16 +210,16 @@ export function formatMerchantDistribution(result: any): string {
   const ranked = merchants
     .slice()
     .sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0));
-  const lines = [
-    `${result?.category?.name ? `Em ${result.category.name}, você` : "Você"} gastou *${money(total)}* entre ${from} e ${to}.`,
-    "",
-  ];
-  ranked.forEach((row, index) => {
+  const header = globalScope
+    ? `Considerando *todas as categorias*, você gastou *${money(total)}* entre ${from} e ${to}.`
+    : `Em *${categoryName}*, você gastou *${money(total)}* entre ${from} e ${to}.`;
+  const lines = [header, ""];
+  ranked.forEach((row) => {
     const pct = PCT.format(Number(row.share_of_category ?? 0) * 100);
     const count = Number(row.transactions_count ?? 0);
     lines.push(
-      `${index + 1}. ${row.merchant} — ${money(row.amount)} · ${pct}%`
-      + (count > 1 ? ` (${count} lançamentos)` : ""),
+      `• *${row.merchant}* — ${money(row.amount)} · ${pct}%`
+      + (count > 1 ? ` · ${count} lançamentos` : ""),
     );
   });
   // Reconciliação: a soma listada nunca pode ser apresentada como o total.
@@ -227,13 +229,17 @@ export function formatMerchantDistribution(result: any): string {
   if (unresolved > 1 && Number(result?.coverage ?? 1) < 0.995) {
     lines.push(
       "",
-      `Identifiquei o estabelecimento de ${money(result?.resolved_total ?? listed)} desse total (${PCT.format(Number(result?.coverage ?? 0) * 100)}% de cobertura); ${money(unresolved)} ficaram sem estabelecimento reconhecido.`,
+      `Reconheci o estabelecimento de ${money(result?.resolved_total ?? listed)} desse total (${PCT.format(Number(result?.coverage ?? 0) * 100)}% de cobertura). Outros ${money(unresolved)} ainda estão sem estabelecimento identificado.`,
     );
   } else if (missing > 1) {
     lines.push("", `Os demais ${money(missing)} estão espalhados em estabelecimentos menores.`);
   }
+  if (globalScope) {
+    lines.push("", "Se quiser o mesmo recorte dentro de uma categoria específica, me diga qual.");
+  }
   return lines.join("\n");
 }
+
 
 /** Evolução financeira: análise TEXTUAL determinística (nunca gráfico). */
 export function formatFinancialEvolution(result: any): string {
