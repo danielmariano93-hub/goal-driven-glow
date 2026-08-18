@@ -5,6 +5,7 @@ import { behavioralMetricAmount, isRealMonthlyMovement, effectiveCategoryId, bui
 import { buildGoalStrategy, type GoalStrategy } from "@/lib/engine/goalStrategy";
 import { buildCategoryGoalStrategy, type CategoryGoalStrategy, type CategoryGoalHotspot } from "@/lib/engine/categoryGoalStrategy";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
+import { buildMerchantResolver, type MerchantAliasRow } from "@/lib/engine/merchant";
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
