@@ -150,7 +150,14 @@ export interface CategoryGoalEvaluation {
   message: string;
   calculationReferenceDate: string;
   includedTransactionCount: number;
-  projectionMethod: "linear" | "weekday_weighted";
+  projectionMethod: "linear" | "weekday_weighted" | CategoryProjectionMethod;
+  /** Projeção decomposta e auditável (`category_projection.v1`). */
+  projection: CategoryProjection;
+  projectionConfidence: CategoryProjectionConfidence;
+  /** R$/dia e "corte por dia" só são válidos quando true. */
+  supportsDailyBudget: boolean;
+  /** Cobranças recorrentes conhecidas que ainda caem no período. */
+  remainingKnownCommitments: number;
 
   // Aliases legados (mantidos para não quebrar consumidores existentes)
   spent: number;
