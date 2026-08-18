@@ -495,8 +495,9 @@ export function ReviewSheet({
         toast.error("A fatura não foi registrada", {
           description: `${failureDescription(failure)} Suas edições foram preservadas.`,
         });
-
+        return;
       }
+
       const payload = data ?? {};
       if (!payload.result) {
         toast.error("A fatura não foi registrada", { description: "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
