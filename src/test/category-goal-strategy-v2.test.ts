@@ -187,11 +187,8 @@ describe("estados e copy da meta", () => {
   });
 
   it("CASO 6: abaixo do teto mas com projeção acima → 'ainda dentro, mas em risco'", () => {
-    const txs = [
-      tx(TRANSPORTE, "2026-08-02", 200, "Uber"),
-      tx(TRANSPORTE, "2026-08-06", 200, "99"),
-      tx(TRANSPORTE, "2026-08-12", 200, "Autopass"),
-    ];
+    const txs = Array.from({ length: 14 }, (_, i) =>
+      tx(TRANSPORTE, `2026-08-${String(i + 2).padStart(2, "0")}`, 40, i % 2 === 0 ? "Uber" : "99"));
     const ev = evaluateCategoryGoal(goal(), txs, today, "Transporte");
     const strategy = buildStrategyForCategoryGoal(ev, txs as never);
 
