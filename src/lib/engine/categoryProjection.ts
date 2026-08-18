@@ -250,7 +250,7 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   let method: CategoryProjectionMethod;
   if (elapsed === 0 || (confirmedSpend === 0 && !hasSeries)) {
     method = "insufficient_data";
-  } else if (spendDayRatio <= 0.25) {
+  } else if (spendDayRatio <= 0.35) {
     method = "commitment";
   } else if (spendDayRatio >= 0.5 && recurringShareOfSpend < 0.5) {
     method = "flow";
