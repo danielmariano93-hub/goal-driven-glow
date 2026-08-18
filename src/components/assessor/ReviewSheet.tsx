@@ -480,10 +480,22 @@ export function ReviewSheet({
         { action: "confirm", document_id: documentId, item_ids: ids },
       );
       if (failure) {
+        const diagnostic = (failure.details as { result?: { error?: string; suggested_competence_month?: string | null } } | undefined)?.result;
+        const settled = diagnostic?.error === "statement_already_settled";
+        if (settled) {
+          const suggestion = diagnostic?.suggested_competence_month;
+          if (suggestion) {
+            setInvoiceDueDateInput((current) => current || String(suggestion).slice(0, 10));
+          }
+          toast.error("Confirme o vencimento desta fatura", {
+            description: `${failureDescription(failure)} Preencha o campo "Vencimento desta fatura" acima e confirme novamente.`,
+          });
+          return;
+        }
         toast.error("A fatura não foi registrada", {
           description: `${failureDescription(failure)} Suas edições foram preservadas.`,
         });
-        return;
+
       }
       const payload = data ?? {};
       if (!payload.result) {
