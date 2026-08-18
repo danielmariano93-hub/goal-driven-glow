@@ -230,6 +230,29 @@ export function ReviewSheet({
     return () => { cancelled = true; };
   }, [documentId]);
 
+  // Cartão único não é pergunta: com exatamente um cartão ativo, ele já vem
+  // marcado no documento e nos itens que chegaram sem destino.
+  const activeCards = useMemo(() => cards.filter((c) => c.active !== false), [cards]);
+  const singleCardApplied = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || !docKind || !isCardDocument(docKind) || activeCards.length !== 1) return;
+    if (singleCardApplied.current === documentId) return;
+    singleCardApplied.current = documentId;
+    const card = activeCards[0];
+    setBulkTarget((current) => current || `credit_card:${card.id}`);
+    const missing = items.filter((it) => !it.credit_card_id && it.status !== "confirmed" && it.status !== "ignored");
+    if (missing.length === 0) return;
+    void (async () => {
+      for (const it of missing) {
+        await patchItem(it.id, { payment_method: "credit_card", credit_card_id: card.id, account_id: null });
+      }
+      toast.success(`Cartão ${card.name} aplicado`, { description: "Você tem um único cartão ativo. Pode ajustar item por item se precisar." });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, docKind, activeCards, documentId]);
+
+
+
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected]);
   const invoiceSummary = useMemo(() => summarizeInvoiceLines(selectedItems.map((item) => ({
     ...item,
