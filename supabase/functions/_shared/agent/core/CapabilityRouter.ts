@@ -93,6 +93,16 @@ function normalize(text: string): string {
     .replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Categoria citada na pergunta (ou herdada via "(assunto: X)" da memória).
+ * Sem categoria reconhecida, a distribuição roda no período inteiro.
+ */
+function categoryArgsFromText(text: string): Record<string, unknown> {
+  const name = detectCategory(String(text ?? ""));
+  return name ? { category_name: name } : {};
+}
+
+
 function extractAmount(text: string): number | null {
   const AMOUNT_BODY = /(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/;
   const money = text.match(new RegExp(`r\\$\\s*${AMOUNT_BODY.source}`, "i"));
