@@ -1966,6 +1966,10 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
     if (error) return { ok: false, error: "emotional_checkin_insert_failed", details: error.message };
   }
 
+  // Sinal prospectivo: só sai quando o histórico da própria pessoa sustenta a
+  // associação (amostra + consistência + materialidade). Nunca afirma causa.
+  const signal = await emotionProspectiveSignal(ctx, option.key);
+
   return {
     ok: true,
     result: {
@@ -1977,9 +1981,38 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
       mood: option.mood,
       local_date: today,
       card: `${option.emoji} Registrei: hoje você se sentiu ${option.label.toLowerCase()}.`,
+      prospective_signal: signal,
     },
   };
 }
+
+/** Aviso preventivo do dia, se o padrão pessoal existir e estiver habilitado. */
+async function emotionProspectiveSignal(ctx: ToolContext, emotionKey: string) {
+  try {
+    const cfg = await loadEmotionFinanceSettings(ctx);
+    if (!cfg.prospective_enabled) return null;
+    const channel = String((ctx as unknown as { channel?: string }).channel ?? "app");
+    const allowed = cfg.prospective_channels.length === 0
+      || cfg.prospective_channels.includes(channel)
+      || (channel !== "whatsapp" && cfg.prospective_channels.includes("app"));
+    if (!allowed) return null;
+
+    const patterns = await get_emotion_finance_patterns(ctx, { emotion: emotionKey });
+    if (!patterns.ok) return null;
+    const found = ((patterns.result as { patterns?: any[] })?.patterns ?? [])
+      .find((p) => p.emotion_key === emotionKey && p.material && p.direction === "acima"
+        && (p.confidence === "medium" || p.confidence === "high"));
+    if (!found) return null;
+    return {
+      headline: found.sentence as string,
+      question: "Quer que eu te ajude a segurar os gastos flexíveis hoje?",
+      consistency: found.consistency as string,
+    };
+  } catch {
+    return null;
+  }
+}
+
 
 /** Últimos registros emocionais, para o Nino falar do padrão sem inventar. */
 async function get_emotional_checkins(ctx: ToolContext, args: { days?: number }): Promise<ToolResult> {
