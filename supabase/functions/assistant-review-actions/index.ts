@@ -145,10 +145,28 @@ Deno.serve(async (req) => {
       try { diagnostic = error.details ? JSON.parse(error.details) : null; } catch { diagnostic = null; }
       const difference = Math.abs(Number(diagnostic?.difference ?? diagnostic?.gap_amount ?? 0));
       const money = difference.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-      const userMessage = error.message.includes("invoice_not_reconciled")
-        ? `A fatura ainda não fecha${difference ? `: diferença de ${money}` : ""}. Suas edições continuam salvas; corrija a conciliação e tente novamente.`
-        : "Nada foi gravado. Suas edições continuam salvas e você pode tentar novamente.";
+      const brl = (value: unknown) => Number(value ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const monthLabel = (value: unknown) => {
+        const raw = String(value ?? "");
+        if (!/^\d{4}-\d{2}/.test(raw)) return "";
+        const [year, month] = raw.split("-");
+        const names = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+        return `${names[Number(month) - 1] ?? month}/${year}`;
+      };
+      const reason = String(diagnostic?.error ?? "");
+      let userMessage = "Nada foi gravado. Suas edições continuam salvas e você pode tentar novamente.";
+      if (reason === "statement_already_settled") {
+        const target = monthLabel(diagnostic?.competence_month);
+        userMessage = `Essa fatura seria lançada em ${target || "uma competência"}, que já está registrada (${brl(diagnostic?.existing_total)}). Informe o vencimento correto desta fatura para eu registrar.`;
+      } else if (reason === "missing_credit_card") {
+        userMessage = "Escolha o cartão desta fatura antes de salvar. Nada foi gravado.";
+      } else if (error.message.includes("invoice_not_reconciled")) {
+        userMessage = `A fatura ainda não fecha${difference ? `: diferença de ${money}` : ""}. Suas edições continuam salvas; corrija a conciliação e tente novamente.`;
+      } else if (error.message.includes("invoice_statement_failed") && difference) {
+        userMessage = `A fatura não fechou: diferença de ${money} entre o total informado e os lançamentos conciliados. Nada foi gravado.`;
+      }
       return fail("atomic_confirmation_failed", { status: 422, functionName: FN, details: { reason: error.message, result: diagnostic }, message: userMessage });
+
     }
 
     // Guarda anti-perda-silenciosa: item confirmado sem transação no ledger é

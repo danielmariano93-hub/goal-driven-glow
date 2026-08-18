@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Check, Loader2, AlertTriangle, Ban, Trash2, RotateCcw, Copy, FileWarning } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -155,7 +155,9 @@ export function ReviewSheet({
   const [recovering, setRecovering] = useState(false);
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
+  const [invoiceDueDateInput, setInvoiceDueDateInput] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false);
+
   const [pendingWrites, setPendingWrites] = useState(0);
   const [resolvingDup, setResolvingDup] = useState<string | null>(null);
 
@@ -211,6 +213,8 @@ export function ReviewSheet({
       setDocumentInfo(d.document);
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
+      setInvoiceDueDateInput(d.document?.invoice_due_date ? String(d.document.invoice_due_date).slice(0, 10) : "");
+
       setDocKind(d.document?.document_kind ?? null);
       // Also select rows confirmed by the legacy two-step flow when the
       // document itself never finalized. The new RPC will treat them as
@@ -225,6 +229,29 @@ export function ReviewSheet({
     })();
     return () => { cancelled = true; };
   }, [documentId]);
+
+  // Cartão único não é pergunta: com exatamente um cartão ativo, ele já vem
+  // marcado no documento e nos itens que chegaram sem destino.
+  const activeCards = useMemo(() => cards.filter((c) => c.active !== false), [cards]);
+  const singleCardApplied = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || !docKind || !isCardDocument(docKind) || activeCards.length !== 1) return;
+    if (singleCardApplied.current === documentId) return;
+    singleCardApplied.current = documentId;
+    const card = activeCards[0];
+    setBulkTarget((current) => current || `credit_card:${card.id}`);
+    const missing = items.filter((it) => !it.credit_card_id && it.status !== "confirmed" && it.status !== "ignored");
+    if (missing.length === 0) return;
+    void (async () => {
+      for (const it of missing) {
+        await patchItem(it.id, { payment_method: "credit_card", credit_card_id: card.id, account_id: null });
+      }
+      toast.success(`Cartão ${card.name} aplicado`, { description: "Você tem um único cartão ativo. Pode ajustar item por item se precisar." });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, docKind, activeCards, documentId]);
+
+
 
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.id)), [items, selected]);
   const invoiceSummary = useMemo(() => summarizeInvoiceLines(selectedItems.map((item) => ({
@@ -321,6 +348,30 @@ export function ReviewSheet({
     if (error) return toast.error("Não consegui salvar o saldo anterior da fatura.");
     setDocumentInfo((current) => current ? { ...current, invoice_previous_balance: value } : current);
   }
+
+  // Vencimento manda na competência da fatura: sem ele o motor deriva pelo
+  // ciclo do cartão. Informar aqui resolve o caso de duas faturas no mesmo mês.
+  async function saveInvoiceDueDate() {
+    const raw = invoiceDueDateInput.trim();
+    const current = documentInfo?.invoice_due_date ? String(documentInfo.invoice_due_date).slice(0, 10) : "";
+    if (raw === current) return;
+    if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return toast.error("Informe uma data de vencimento válida.");
+    const value = raw || null;
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: {
+        action: "update-document",
+        document_id: documentId,
+        patch: { invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null },
+      },
+    });
+    if (error) return toast.error("Não consegui salvar o vencimento da fatura.");
+    setDocumentInfo((prev) => prev
+      ? { ...prev, invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null }
+      : prev);
+    toast.success(value ? "Vencimento salvo." : "Vencimento removido: vou calcular pelo ciclo do cartão.");
+  }
+
+
 
   async function applyBulkTarget() {
     if (!bulkTarget || selected.size === 0) {
@@ -429,11 +480,24 @@ export function ReviewSheet({
         { action: "confirm", document_id: documentId, item_ids: ids },
       );
       if (failure) {
+        const diagnostic = (failure.details as { result?: { error?: string; suggested_competence_month?: string | null } } | undefined)?.result;
+        const settled = diagnostic?.error === "statement_already_settled";
+        if (settled) {
+          const suggestion = diagnostic?.suggested_competence_month;
+          if (suggestion) {
+            setInvoiceDueDateInput((current) => current || String(suggestion).slice(0, 10));
+          }
+          toast.error("Confirme o vencimento desta fatura", {
+            description: `${failureDescription(failure)} Preencha o campo "Vencimento desta fatura" acima e confirme novamente.`,
+          });
+          return;
+        }
         toast.error("A fatura não foi registrada", {
           description: `${failureDescription(failure)} Suas edições foram preservadas.`,
         });
         return;
       }
+
       const payload = data ?? {};
       if (!payload.result) {
         toast.error("A fatura não foi registrada", { description: "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
@@ -615,7 +679,22 @@ export function ReviewSheet({
                             placeholder="0,00"
                           />
                         </div>
+                        <div className="col-span-2">
+                          <label htmlFor="invoice-due-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Vencimento desta fatura</label>
+                          <input
+                            id="invoice-due-date"
+                            type="date"
+                            value={invoiceDueDateInput}
+                            onChange={(event) => setInvoiceDueDateInput(event.target.value)}
+                            onBlur={saveInvoiceDueDate}
+                            className="input-base text-sm"
+                          />
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Em branco, eu calculo pelo ciclo do cartão. Informe quando duas faturas caírem no mesmo mês.
+                          </p>
+                        </div>
                       </div>
+
                       <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
                         <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
                         <span>Estornos/créditos<br/><strong>−{formatBRL(invoiceSummary.credits)}</strong></span>
