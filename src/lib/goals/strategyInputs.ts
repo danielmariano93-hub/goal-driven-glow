@@ -131,15 +131,25 @@ type CategoryTxLike = TxLike & {
 };
 
 /**
- * Plano determinístico de um teto de categoria: agrega os gastos reais do
- * período por estabelecimento (verdade de merchant) e separa o que é recorrente.
+ * Plano determinístico de um teto de categoria.
+ *
+ * A distribuição por estabelecimento é MUTUAMENTE EXCLUSIVA: cada lançamento
+ * pertence a exatamente uma identidade canônica de merchant, então variantes do
+ * banco ("ON UBER TRIP H01/08", "PAY 99 TE 09/08") entram dentro da marca
+ * ("Uber", "99") e nunca aparecem como linha separada — é isso que fazia a soma
+ * dos percentuais passar de 100%.
+ *
+ * Numerador e denominador ficam na MESMA base (líquida de estorno), e o que
+ * sobra fora do ranking vira "Outros" — nunca negativo.
  */
 export function buildStrategyForCategoryGoal(
   evaluation: CategoryGoalEvaluation,
   txs: CategoryTxLike[],
+  aliases: MerchantAliasRow[] = [],
 ): CategoryGoalStrategy {
   const attribution = buildRefundAttribution(txs as never);
-  const byMerchant = new Map<string, { amount: number; count: number }>();
+  const resolver = buildMerchantResolver(aliases);
+  const byMerchant = new Map<string, { label: string; amount: number; count: number; recurring: boolean }>();
   const byRecurring = new Map<string, number>();
   let total = 0;
 
@@ -149,6 +159,7 @@ export function buildStrategyForCategoryGoal(
     if (tx.occurred_at < evaluation.period.start || tx.occurred_at > evaluation.period.end) continue;
 
     const refundKind = String(tx.movement_kind ?? "") === "refund";
+    // Base única: estorno abate o gasto, no numerador e no denominador.
     const value = refundKind
       ? behavioralMetricAmount(tx as never, "expense")
       : tx.type === "expense" && isRealMonthlyMovement(tx as never)
@@ -156,32 +167,51 @@ export function buildStrategyForCategoryGoal(
         : 0;
     if (value === 0) continue;
 
-    const label = (tx.merchant_name || tx.description || "Sem descrição").trim() || "Sem descrição";
-    const current = byMerchant.get(label) ?? { amount: 0, count: 0 };
-    byMerchant.set(label, { amount: current.amount + value, count: current.count + (value > 0 ? 1 : 0) });
+    const raw = tx.merchant_name || tx.description || "";
+    const resolution = resolver.resolve(raw);
+    const key = resolution?.key ?? `raw:${String(raw).trim().toLowerCase() || "sem_descricao"}`;
+    const label = resolution?.label ?? (String(raw).trim() || "Sem descrição");
+    const isRecurring = String(tx.origin ?? "") === "recurring";
+
+    const current = byMerchant.get(key) ?? { label, amount: 0, count: 0, recurring: false };
+    byMerchant.set(key, {
+      label: current.label,
+      amount: current.amount + value,
+      count: current.count + (value > 0 ? 1 : 0),
+      recurring: current.recurring || isRecurring,
+    });
     total += value;
 
-    if (value > 0 && String(tx.origin ?? "") === "recurring") {
+    if (value > 0 && isRecurring) {
       byRecurring.set(label, (byRecurring.get(label) ?? 0) + value);
     }
   }
 
-  const denominator = total > 0 ? total : 1;
-  const hotspots: CategoryGoalHotspot[] = [...byMerchant.entries()]
-    .filter(([, item]) => item.amount > 0)
-    .map(([label, item]) => ({
-      label,
-      amount: round2(item.amount),
-      sharePct: round2((item.amount / denominator) * 100),
-      count: item.count,
-    }))
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 4);
+  const categoryTotal = round2(Math.max(0, total));
+  const denominator = categoryTotal > 0 ? categoryTotal : 1;
+  const ranked = [...byMerchant.values()]
+    .filter((item) => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const hotspots: CategoryGoalHotspot[] = ranked.slice(0, 4).map((item) => ({
+    label: item.label,
+    amount: round2(item.amount),
+    sharePct: round2((item.amount / denominator) * 100),
+    count: item.count,
+    recurring: item.recurring,
+  }));
+
+  const hotspotsSum = round2(hotspots.reduce((sum, item) => sum + item.amount, 0));
+  const othersAmount = round2(Math.max(0, categoryTotal - hotspotsSum));
+  const others = {
+    amount: othersAmount,
+    sharePct: categoryTotal > 0 ? round2((othersAmount / denominator) * 100) : 0,
+  };
 
   const recurringInPeriod = [...byRecurring.entries()]
     .map(([label, amount]) => ({ label, amount: round2(amount) }))
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 3);
 
-  return buildCategoryGoalStrategy({ evaluation, hotspots, recurringInPeriod });
+  return buildCategoryGoalStrategy({ evaluation, hotspots, others, categoryTotal, recurringInPeriod });
 }
