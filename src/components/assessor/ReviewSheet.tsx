@@ -349,8 +349,25 @@ export function ReviewSheet({
     setDocumentInfo((current) => current ? { ...current, invoice_previous_balance: value } : current);
   }
 
-  // Vencimento manda na competência da fatura: sem ele o motor deriva pelo
-  // ciclo do cartão. Informar aqui resolve o caso de duas faturas no mesmo mês.
+  // Fechamento define o CICLO (e a competência). Vencimento é a data de
+  // pagamento. Salvar o fechamento não fixa competência: o ciclo do cartão faz.
+  async function saveInvoiceClosingDate() {
+    const raw = invoiceClosingDateInput.trim();
+    const current = documentInfo?.invoice_closing_date ? String(documentInfo.invoice_closing_date).slice(0, 10) : "";
+    if (raw === current) return;
+    if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return toast.error("Informe uma data de fechamento válida.");
+    const value = raw || null;
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: { action: "update-document", document_id: documentId, patch: { invoice_closing_date: value } },
+    });
+    if (error) return toast.error("Não consegui salvar o fechamento da fatura.");
+    setDocumentInfo((prev) => prev ? { ...prev, invoice_closing_date: value } : prev);
+    setDueConflict(null);
+    toast.success(value ? "Fechamento salvo." : "Fechamento removido.");
+  }
+
+  // Vencimento sozinho não manda na competência: quando ele discorda do ciclo
+  // do cartão, a confirmação devolve a divergência para você escolher.
   async function saveInvoiceDueDate() {
     const raw = invoiceDueDateInput.trim();
     const current = documentInfo?.invoice_due_date ? String(documentInfo.invoice_due_date).slice(0, 10) : "";
@@ -361,14 +378,35 @@ export function ReviewSheet({
       body: {
         action: "update-document",
         document_id: documentId,
-        patch: { invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null },
+        patch: { invoice_due_date: value, invoice_competence_month: null },
       },
     });
     if (error) return toast.error("Não consegui salvar o vencimento da fatura.");
-    setDocumentInfo((prev) => prev
-      ? { ...prev, invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null }
-      : prev);
+    setDocumentInfo((prev) => prev ? { ...prev, invoice_due_date: value, invoice_competence_month: null } : prev);
+    setDueConflict(null);
     toast.success(value ? "Vencimento salvo." : "Vencimento removido: vou calcular pelo ciclo do cartão.");
+  }
+
+  // Resolução explícita da divergência fechamento/vencimento: gravamos a data
+  // escolhida E a competência dela, e reenviamos a confirmação.
+  async function resolveDueConflict(source: "cycle" | "document") {
+    if (!dueConflict) return;
+    const due = source === "cycle" ? dueConflict.cycle_due_date : dueConflict.document_due_date;
+    const competence = source === "cycle" ? dueConflict.cycle_competence_month : dueConflict.document_competence_month;
+    setConfirming(true);
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: {
+        action: "update-document",
+        document_id: documentId,
+        patch: { invoice_due_date: due, invoice_competence_month: competence },
+      },
+    });
+    setConfirming(false);
+    if (error) return toast.error("Não consegui salvar a data escolhida.");
+    setInvoiceDueDateInput(String(due).slice(0, 10));
+    setDocumentInfo((prev) => prev ? { ...prev, invoice_due_date: due, invoice_competence_month: competence } : prev);
+    setDueConflict(null);
+    await confirmSelection();
   }
 
 
