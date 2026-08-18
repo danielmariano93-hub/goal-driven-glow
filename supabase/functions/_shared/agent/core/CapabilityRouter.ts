@@ -8,6 +8,7 @@ import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
+import { detectCategory } from "./ConversationMemory.ts";
 
 export type CapabilityName =
   | "weekday_pattern"
