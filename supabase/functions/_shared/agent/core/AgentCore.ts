@@ -458,6 +458,21 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       };
     }
   }
+  // Distribuição por estabelecimento precisa de categoria e período explícitos.
+  // Referência anafórica ("naquela categoria") é resolvida pela memória da
+  // conversa; o período vem do plano determinístico do turno.
+  if (capability.name === "merchant_distribution") {
+    const args: Record<string, unknown> = { ...(capability.tool_args ?? {}) };
+    if (!args.from && !args.days) {
+      args.from = turnPlan.effective_period.from;
+      args.to = turnPlan.effective_period.to;
+    }
+    if (!args.category_name) {
+      const inherited = detectCategory(turnPlan.effective_text) ?? memory?.active_category ?? null;
+      if (inherited) args.category_name = inherited;
+    }
+    capability = { ...capability, tool_args: args };
+  }
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
