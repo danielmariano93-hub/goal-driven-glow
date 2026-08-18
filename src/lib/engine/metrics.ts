@@ -561,22 +561,30 @@ export function evaluateCategoryGoal(
 
   const currentDailyRate = elapsedDays > 0 ? round2(actualSpend / elapsedDays) : 0;
 
-  // Projeção linear (garantindo nunca menor que o já gasto)
-  const projectedLinear = elapsedDays > 0
-    ? round2(actualSpend + currentDailyRate * remainingDays)
-    : actualSpend;
-  const projectedFinalSpend = Math.max(actualSpend, projectedLinear);
+  // Projeção por NATUREZA da categoria (`category_projection.v1`): consumo
+  // contínuo projeta por ritmo; compromisso projeta por cobranças conhecidas.
+  const projection = computeCategoryProjection({
+    txs,
+    categoryId: goal.category_id,
+    period: { start: period.start, end: period.end },
+    confirmedSpend: actualSpend,
+    elapsedDays,
+    remainingDays,
+    todayIso,
+  });
+  const projectedFinalSpend = Math.max(actualSpend, projection.components.projectedTotal);
   const projectedDifference = round2(limit - projectedFinalSpend);
   const projectedOverage = round2(Math.max(0, projectedFinalSpend - limit));
   const currentOverage = round2(Math.max(0, actualSpend - limit));
 
   const remainingBudget = Math.max(0, limit - actualSpend);
-  const dailyAllowance = actualSpend >= limit || remainingDays === 0
+  // R$/dia só existe onde o comportamento da categoria é de fluxo contínuo.
+  const dailyAllowance = !projection.supportsDailyBudget || actualSpend >= limit || remainingDays === 0
     ? 0
     : round2(remainingBudget / remainingDays);
 
   const allowedRemainingRate = remainingDays > 0 ? remainingBudget / remainingDays : 0;
-  const requiredDailyReduction = projectedOverage > 0 && remainingDays > 0
+  const requiredDailyReduction = projection.supportsDailyBudget && projectedOverage > 0 && remainingDays > 0
     ? round2(Math.max(0, currentDailyRate - allowedRemainingRate))
     : 0;
 
