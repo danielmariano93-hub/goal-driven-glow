@@ -496,7 +496,7 @@ async function enrichItems(
   sb: ReturnType<typeof createClient>,
   userId: string,
   items: ExtractionResult["items"],
-  sourceContext: { statementBank?: string | null; guidance?: string | null } = {},
+  sourceContext: { statementBank?: string | null; guidance?: string | null; documentKind?: string | null } = {},
 ) {
   // 1) Normalize itens primeiro (rápido, em memória) para saber quais descrições procurar no histórico.
   const normalized = items.map((item) => {
@@ -600,7 +600,14 @@ async function enrichItems(
       ? accountCandidates[0]
       : ((accounts ?? []).length === 1 && item.payment_method === "account" ? (accounts ?? [])[0] : null);
     const cardHint = (item.card_hint ?? "").toLowerCase();
-    const matchedCard = cardHint ? (cards ?? []).find((c) => c.name.toLowerCase().includes(cardHint) || cardHint.includes(c.name.toLowerCase())) : null;
+    // Cartão único não é pergunta: fatura de cartão com exatamente um cartão
+    // ativo resolve o destino sem depender de pista textual no documento.
+    const isCardDoc = String(sourceContext.documentKind ?? "") === "invoice"
+      || item.payment_method === "credit_card";
+    const matchedCard = (cardHint
+      ? (cards ?? []).find((c) => c.name.toLowerCase().includes(cardHint) || cardHint.includes(c.name.toLowerCase()))
+      : null)
+      ?? (isCardDoc && (cards ?? []).length === 1 ? (cards ?? [])[0] : null);
 
     const account_id = matchedAccount?.id ?? null;
     const credit_card_id = matchedCard?.id ?? null;
@@ -1182,6 +1189,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         const enriched = await enrichItems(sb, userId, freshItems, {
           statementBank: out.statement?.bank ?? statement?.bank ?? doc.statement_bank ?? null,
           guidance,
+          documentKind: (doc.document_kind as string | null) ?? null,
         });
         const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
           type: it.type,
