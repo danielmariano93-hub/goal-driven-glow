@@ -156,6 +156,14 @@ export function ReviewSheet({
   const [invoiceTotalInput, setInvoiceTotalInput] = useState("");
   const [invoicePreviousBalanceInput, setInvoicePreviousBalanceInput] = useState("");
   const [invoiceDueDateInput, setInvoiceDueDateInput] = useState("");
+  const [invoiceClosingDateInput, setInvoiceClosingDateInput] = useState("");
+  const [dueConflict, setDueConflict] = useState<{
+    closing_date: string | null;
+    document_due_date: string;
+    document_competence_month: string;
+    cycle_due_date: string;
+    cycle_competence_month: string;
+  } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
 
   const [pendingWrites, setPendingWrites] = useState(0);
