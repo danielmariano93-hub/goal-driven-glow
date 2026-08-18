@@ -629,7 +629,11 @@ export function evaluateCategoryGoal(
     message,
     calculationReferenceDate: referenceIso,
     includedTransactionCount,
-    projectionMethod: "linear",
+    projectionMethod: projection.method,
+    projection,
+    projectionConfidence: projection.confidence,
+    supportsDailyBudget: projection.supportsDailyBudget,
+    remainingKnownCommitments: projection.components.remainingKnownCommitments,
     // Aliases legados
     spent: actualSpend,
     limit,
