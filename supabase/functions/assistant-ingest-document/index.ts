@@ -1189,7 +1189,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         const enriched = await enrichItems(sb, userId, freshItems, {
           statementBank: out.statement?.bank ?? statement?.bank ?? doc.statement_bank ?? null,
           guidance,
-          documentKind: (doc.document_kind as string | null) ?? null,
+          documentKind,
         });
         const dupes = await classifyDuplicates(sb, userId, enriched.map((it) => ({
           type: it.type,
