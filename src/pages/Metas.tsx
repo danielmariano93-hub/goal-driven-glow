@@ -239,7 +239,9 @@ export default function Metas() {
                   onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
                   onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}
                   onToggleStatus={() => toggleCatGoal.mutate({ id: ev.goal.id, status: ev.goal.status === "active" ? "paused" : "active" })}
-                />
+                >
+                  <CategoryGoalStrategyCard strategy={buildStrategyForCategoryGoal(ev, numericTxs as never)} />
+                </CategoryGoalCard>
               ))}
             </ul>
           )}
