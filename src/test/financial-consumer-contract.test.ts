@@ -17,6 +17,7 @@ describe("verdade financeira única — consumidores críticos", () => {
     expect(adapter).toContain("computeAgentSnapshot");
     expect(adapter).toContain('source: "financial_snapshot_contract.v8"');
     expect(adapter).toContain("reconciliation_id: snapshot.reconciliation_id");
+    expect(adapter).toContain('String(row.logical_topic_key ?? "").includes("category_goal")');
   });
 
   it("WhatsApp usa identidade de domínio e não o id técnico da sugestão", () => {

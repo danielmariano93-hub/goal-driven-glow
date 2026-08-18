@@ -74,6 +74,15 @@ describe("comms_contract.v2 — chave lógica única", () => {
     expect(fromSituation).toBe("category_goal:u1:goal-1:2026-08-01");
     expect(fromGoal).toBe(fromSituation);
   });
+
+  it("normaliza alertas legados de meta mesmo sem goal_kind", () => {
+    expect(communicationTopicKey({
+      userId: "u1",
+      kind: "cash_flow_imbalance",
+      dedupKey: "diagnosis:situation:s1",
+      evidence: { logical_topic_key: "situation:category_goal_breach:goal-1:2026-08-01" },
+    })).toBe("category_goal:u1:goal-1:2026-08-01");
+  });
 });
 
 describe("comms_contract.v2 — consumidor único da fila", () => {

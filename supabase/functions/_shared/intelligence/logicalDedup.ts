@@ -52,12 +52,19 @@ export function communicationTopicKey(args: {
   const periodStart = typeof evidence.period_start === "string"
     ? evidence.period_start.slice(0, 10)
     : null;
-  if (goalId && periodStart && evidence.goal_kind === "category_spending") {
-    return `category_goal:${args.userId}:${goalId}:${periodStart}`;
-  }
   const explicit = typeof evidence.logical_topic_key === "string"
     ? evidence.logical_topic_key
     : null;
+  const legacyCategoryGoal = explicit?.match(/^situation:category_goal(?:_breach)?:([^:]+):(\d{4}-\d{2}-\d{2})/);
+  if (legacyCategoryGoal) {
+    return `category_goal:${args.userId}:${legacyCategoryGoal[1]}:${legacyCategoryGoal[2]}`;
+  }
+  if (goalId && periodStart && (
+    evidence.goal_kind === "category_spending"
+    || explicit?.includes("category_goal")
+  )) {
+    return `category_goal:${args.userId}:${goalId}:${periodStart}`;
+  }
   return explicit
     ? `topic:${args.userId}:${explicit}`
     : suggestionLogicalKey(args.userId, args.dedupKey);

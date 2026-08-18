@@ -162,7 +162,9 @@ export async function diagnosisCandidates(
   const rows = ((data as ItemRow[] | null) ?? []).filter((row) => {
     if (row.valid_until && new Date(row.valid_until) <= now) return false;
     // Metas por categoria são produzidas exclusivamente pelo snapshot abaixo.
-    return String(row.evidence?.goal_kind ?? "") !== "category_spending";
+    if (String(row.evidence?.goal_kind ?? "") === "category_spending") return false;
+    if (String(row.logical_topic_key ?? "").includes("category_goal")) return false;
+    return !String(row.dedup_key ?? "").includes("category_goal");
   });
   const snapshot = await computeAgentSnapshot(sb, userId);
   const categoryGoals: DiagnosisCandidate[] = snapshot.active_category_goals
