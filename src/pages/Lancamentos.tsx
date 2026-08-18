@@ -233,7 +233,14 @@ export default function Lancamentos() {
     setBulkRunning(true);
     try {
       const ids = Array.from(selected);
-      const { error } = await supabase.from("transactions").update({ description: bulkName.trim() }).in("id", ids);
+      // Renomear é verdade do usuário: grava também merchant_name (precedência
+      // máxima na cadeia de identidade), para valer em relatórios e no Nino.
+      const nextName = bulkName.trim();
+      const { error } = await supabase.from("transactions").update({
+        description: nextName,
+        merchant_name: nextName,
+        normalized_description: nextName,
+      }).in("id", ids);
       if (error) throw error;
       notifySuccess(`${ids.length} lançamento${ids.length === 1 ? "" : "s"} renomeado${ids.length === 1 ? "" : "s"}`);
       setBulkRenameOpen(false);

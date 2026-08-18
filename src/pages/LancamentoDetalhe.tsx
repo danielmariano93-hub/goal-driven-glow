@@ -150,7 +150,13 @@ export default function LancamentoDetalhe() {
     }
     setSaving(true);
     const patch: Record<string, unknown> = {};
-    if ((tx.description ?? "") !== description) patch.description = description || null;
+    if ((tx.description ?? "") !== description) {
+      // Nome dado pelo usuário vale em todo o sistema: grava também
+      // merchant_name/normalized_description (precedência máxima).
+      patch.description = description || null;
+      patch.merchant_name = description.trim() || null;
+      patch.normalized_description = description.trim() || null;
+    }
     if ((tx.category_id ?? "") !== categoryId) patch.category_id = categoryId || null;
     const parsedAmount = Number(String(amount).replace(",", "."));
     if (Number.isFinite(parsedAmount) && parsedAmount > 0 && parsedAmount !== Number(tx.amount)) patch.amount = parsedAmount;

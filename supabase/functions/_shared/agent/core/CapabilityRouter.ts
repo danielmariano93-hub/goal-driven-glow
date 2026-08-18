@@ -8,6 +8,7 @@ import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
+import { detectCategory } from "./ConversationMemory.ts";
 
 export type CapabilityName =
   | "weekday_pattern"
@@ -92,6 +93,16 @@ function normalize(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
     .replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim();
 }
+
+/**
+ * Categoria citada na pergunta (ou herdada via "(assunto: X)" da memória).
+ * Sem categoria reconhecida, a distribuição roda no período inteiro.
+ */
+function categoryArgsFromText(text: string): Record<string, unknown> {
+  const name = detectCategory(String(text ?? ""));
+  return name ? { category_name: name } : {};
+}
+
 
 function extractAmount(text: string): number | null {
   const AMOUNT_BODY = /(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/;
@@ -312,15 +323,22 @@ export function classifyCapability(
 
   // Distribuição de categoria por estabelecimento é determinística: total real
   // da categoria + share por estabelecimento calculados no motor.
+  // Cobre também "em quais locais/lugares gastei", "onde gastei nessa categoria"
+  // e referências anafóricas ("naquela categoria", "nessa categoria").
   if (/\b(distribuicao|distribuido|composicao|quebra|detalhamento|abertura)\b.{0,40}\b(categoria|gasto|gastos|alimentacao|transporte|mercado|lazer|saude|assinatura)/.test(t)
-    || /\b(quais|que)\s+estabelecimentos?\b/.test(t)
-    || /\bonde\s+(?:mais\s+)?gast\w+\s+(?:em|com|na|no)\b/.test(t)) {
+    || /\b(quais|que|quantos)\s+(?:sao\s+)?(?:os\s+|as\s+)?(estabelecimentos?|locais|lugares|comercios?|lojas?|restaurantes?|apps?|aplicativos?|servicos?)\b/.test(t)
+    || /\b(estabelecimentos?|locais|lugares|comercios?)\b.{0,30}\b(gast|consum|us)\w*/.test(t)
+    || /\bonde\s+(?:mais\s+)?(?:eu\s+)?(?:mais\s+)?gast\w+/.test(t)
+    || /\bgast\w+\s+(?:mais\s+)?onde\b/.test(t)
+    || /\b(nessa|naquela|dessa|daquela|nesta|desta|na mesma)\s+categoria\b/.test(t)) {
     return {
       name: "merchant_distribution", execution: "deterministic",
       allowed_tools: ["merchant_distribution", "analyze_merchants", "list_categories"],
-      required_tool: "merchant_distribution", context: {}, reason: "canonical_merchant_distribution",
+      required_tool: "merchant_distribution", context: {},
+      tool_args: categoryArgsFromText(text), reason: "canonical_merchant_distribution",
     };
   }
+
 
   // Gráfico só quando o usuário pede visual explicitamente. "Evolução" e
   // "tendência" sozinhas são ANÁLISE TEXTUAL (`nino_brain.v2`).
