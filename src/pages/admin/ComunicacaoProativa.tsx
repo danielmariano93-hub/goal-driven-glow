@@ -209,7 +209,7 @@ function Overview() {
             <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
                 { label: "Retidas por regra", value: totals.suppressed },
-                { label: "Na fila", value: totals.queued },
+                { label: "Aguardando confirmação do canal", value: totals.queued },
                 { label: "Enviadas sem confirmação", value: totals.sent },
                 { label: "Falhas de envio", value: totals.failed },
               ].map((item) => (
@@ -219,6 +219,7 @@ function Overview() {
                 </div>
               ))}
             </div>
+
 
             {reasons.length > 0 && (
               <div className="mt-4 overflow-x-auto">

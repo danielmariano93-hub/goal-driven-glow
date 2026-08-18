@@ -79,6 +79,8 @@ type TemplateRow = {
   title_template: string;
   body_template: string;
   version: number;
+  mode?: "fixed" | "ai_framed" | null;
+  frame_template?: string | null;
 };
 
 async function loadCatalog(sb: SupabaseClient): Promise<Map<string, CatalogEntry>> {
@@ -93,13 +95,14 @@ async function loadCatalog(sb: SupabaseClient): Promise<Map<string, CatalogEntry
 
 async function loadTemplates(sb: SupabaseClient): Promise<Map<string, TemplateRow>> {
   const { data, error } = await sb.from("communication_templates")
-    .select("id,kind,channel,title_template,body_template,version")
+    .select("id,kind,channel,title_template,body_template,version,mode,frame_template")
     .eq("active", true);
   if (error) throw new Error(`communication_templates:${error.message}`);
   const map = new Map<string, TemplateRow>();
   for (const row of ((data as TemplateRow[] | null) ?? [])) map.set(`${row.kind}:${row.channel}`, row);
   return map;
 }
+
 
 function notificationType(kind: string): string {
   if (/achievement|celebr|streak|improvement/i.test(kind)) return "achievement";
@@ -124,7 +127,7 @@ function primitiveContext(candidate: CommunicationCandidate, actionUrl: string |
 }
 
 export function renderCommunicationTemplate(
-  template: Pick<TemplateRow, "title_template" | "body_template"> | null | undefined,
+  template: Pick<TemplateRow, "title_template" | "body_template" | "mode" | "frame_template"> | null | undefined,
   candidate: CommunicationCandidate,
   actionUrl: string | null,
 ): { title: string; body: string } {
@@ -135,11 +138,22 @@ export function renderCommunicationTemplate(
     .replace(/[ \t]+\n/g, "\n")
     .replace(/ {2,}/g, " ")
     .trim();
+  const rawBody = render(template.body_template) || candidate.body;
+  // Moldura editável: o texto do motor (ou a leitura da IA) entra no lugar de {{body}}.
+  const frame = String(template.frame_template ?? "").trim();
+  const framed = frame
+    ? frame
+      .replace(/\{\{\s*body\s*\}\}/g, rawBody)
+      .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => context[key] ?? "")
+      .replace(/[ \t]+\n/g, "\n")
+      .trim()
+    : rawBody;
   return {
     title: render(template.title_template).slice(0, 100) || candidate.title,
-    body: render(template.body_template).slice(0, 1800) || candidate.body,
+    body: framed.slice(0, 1800) || candidate.body,
   };
 }
+
 
 async function loadPreferences(sb: SupabaseClient, userId: string): Promise<CommunicationPreferences> {
   const [prefsResp, profileResp, limitsResp] = await Promise.all([

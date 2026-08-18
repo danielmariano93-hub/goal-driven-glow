@@ -2798,8 +2798,10 @@ export type Database = {
           channel: string
           created_at: string
           created_by: string | null
+          frame_template: string | null
           id: string
           kind: string
+          mode: string
           title_template: string
           updated_at: string
           updated_by: string | null
@@ -2812,8 +2814,10 @@ export type Database = {
           channel: string
           created_at?: string
           created_by?: string | null
+          frame_template?: string | null
           id?: string
           kind: string
+          mode?: string
           title_template: string
           updated_at?: string
           updated_by?: string | null
@@ -2826,8 +2830,10 @@ export type Database = {
           channel?: string
           created_at?: string
           created_by?: string | null
+          frame_template?: string | null
           id?: string
           kind?: string
+          mode?: string
           title_template?: string
           updated_at?: string
           updated_by?: string | null
@@ -11308,16 +11314,30 @@ export type Database = {
         }
         Returns: Json
       }
-      admin_communication_template_upsert: {
-        Args: {
-          _active?: boolean
-          _body_template: string
-          _channel: string
-          _kind: string
-          _title_template: string
-        }
-        Returns: Json
-      }
+      admin_communication_template_coverage: { Args: never; Returns: Json }
+      admin_communication_template_upsert:
+        | {
+            Args: {
+              _active?: boolean
+              _body_template: string
+              _channel: string
+              _kind: string
+              _title_template: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              _active?: boolean
+              _body_template: string
+              _channel: string
+              _frame_template?: string
+              _kind: string
+              _mode?: string
+              _title_template: string
+            }
+            Returns: Json
+          }
       admin_communication_templates: { Args: { _kind?: string }; Returns: Json }
       admin_consumer_users_set: {
         Args: never
@@ -11505,6 +11525,10 @@ export type Database = {
       admin_v2_contract_health: { Args: never; Returns: Json }
       admin_v2_daily_evolution: {
         Args: { _from: string; _to: string; _tz?: string }
+        Returns: Json
+      }
+      admin_v2_delivery_queue_health: {
+        Args: { _stuck_minutes?: number }
         Returns: Json
       }
       admin_v2_governance_summary: { Args: never; Returns: Json }
