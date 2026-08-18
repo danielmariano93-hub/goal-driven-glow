@@ -133,3 +133,17 @@ describe("emotion_finance.v1", () => {
     expect(sentence).not.toMatch(/porque|causou|por estar|culpa/i);
   });
 });
+
+describe("roteamento de emoção × gasto", () => {
+  it("manda pergunta de padrão para o motor determinístico", async () => {
+    const { routeCapability } = await import("../../supabase/functions/_shared/agent/core/CapabilityRouter.ts");
+    const decision = routeCapability("quando eu fico ansioso eu gasto mais?");
+    expect(decision.name).toBe("emotion_finance");
+    expect(decision.required_tool).toBe("get_emotion_finance_patterns");
+  });
+
+  it("mantém registro de humor na rota de check-in", async () => {
+    const { routeCapability } = await import("../../supabase/functions/_shared/agent/core/CapabilityRouter.ts");
+    expect(routeCapability("hoje fui ansioso").name).toBe("emotional_checkin");
+  });
+});
