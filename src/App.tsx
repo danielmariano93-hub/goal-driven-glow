@@ -23,6 +23,7 @@ import { NativeLockGate } from "@/components/native/NativeLockGate";
 import { PrivacyScreen } from "@/components/native/PrivacyScreen";
 import { OfflineNotice } from "@/components/OfflineNotice";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
+import { FinancialRealtimeSync } from "@/components/finance/FinancialRealtimeSync";
 
 const Privacidade = lazy(() => import("./pages/legal/Privacidade"));
 const Termos = lazy(() => import("./pages/legal/Termos"));
@@ -98,6 +99,7 @@ const App = () => (
       <BrowserRouter>
         <NativeRuntime />
         <AuthProvider>
+          <FinancialRealtimeSync />
           <PrivacyModeProvider>
           <Toaster />
           <Sonner />

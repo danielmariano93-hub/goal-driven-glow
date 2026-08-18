@@ -36,3 +36,36 @@ export function suggestionLogicalKey(userId: string, dedupKey: string): string {
   }
   return `proactive:${userId}:${dedupKey}`;
 }
+
+/**
+ * Identidade de domínio de uma comunicação. IDs de situação/item/sugestão não
+ * podem criar assuntos diferentes para a mesma meta e o mesmo ciclo.
+ */
+export function communicationTopicKey(args: {
+  userId: string;
+  kind: string;
+  dedupKey: string;
+  evidence?: Record<string, unknown> | null;
+}): string {
+  const evidence = args.evidence ?? {};
+  const goalId = typeof evidence.goal_id === "string" ? evidence.goal_id : null;
+  const periodStart = typeof evidence.period_start === "string"
+    ? evidence.period_start.slice(0, 10)
+    : null;
+  const explicit = typeof evidence.logical_topic_key === "string"
+    ? evidence.logical_topic_key
+    : null;
+  const legacyCategoryGoal = explicit?.match(/^situation:category_goal(?:_breach)?:([^:]+):(\d{4}-\d{2}-\d{2})/);
+  if (legacyCategoryGoal) {
+    return `category_goal:${args.userId}:${legacyCategoryGoal[1]}:${legacyCategoryGoal[2]}`;
+  }
+  if (goalId && periodStart && (
+    evidence.goal_kind === "category_spending"
+    || explicit?.includes("category_goal")
+  )) {
+    return `category_goal:${args.userId}:${goalId}:${periodStart}`;
+  }
+  return explicit
+    ? `topic:${args.userId}:${explicit}`
+    : suggestionLogicalKey(args.userId, args.dedupKey);
+}

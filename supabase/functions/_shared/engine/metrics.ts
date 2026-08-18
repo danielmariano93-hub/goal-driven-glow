@@ -61,6 +61,9 @@ export interface CategoryGoalEvaluation {
   days_elapsed: number;
   days_total: number;
   days_remaining: number;
+  calculation_reference_date: string;
+  included_transaction_count: number;
+  projection_method: "linear" | "weekday_weighted";
 }
 
 function flattenGoal(e: CoreGoalEvaluation): CategoryGoalEvaluation {
@@ -94,6 +97,9 @@ function flattenGoal(e: CoreGoalEvaluation): CategoryGoalEvaluation {
     days_elapsed: e.daysElapsed,
     days_total: e.daysTotal,
     days_remaining: e.daysRemaining,
+    calculation_reference_date: e.calculationReferenceDate,
+    included_transaction_count: e.includedTransactionCount,
+    projection_method: e.projectionMethod,
   };
 }
 

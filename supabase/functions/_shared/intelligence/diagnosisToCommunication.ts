@@ -5,6 +5,8 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { isAppTaskKind } from "./insightValue.ts";
+import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { communicationTopicKey } from "./logicalDedup.ts";
 
 export type DiagnosisCandidate = {
   user_id: string;
@@ -157,8 +159,70 @@ export async function diagnosisCandidates(
     .order("priority", { ascending: false })
     .limit(40);
   if (error) throw new Error(`nino_intelligence_items:${error.message}`);
-  const rows = ((data as ItemRow[] | null) ?? []).filter((row) => !row.valid_until || new Date(row.valid_until) > now);
-  return consolidateByTopic(rows).map((row) => toCandidate(userId, row, now));
+  const rows = ((data as ItemRow[] | null) ?? []).filter((row) => {
+    if (row.valid_until && new Date(row.valid_until) <= now) return false;
+    // Metas por categoria são produzidas exclusivamente pelo snapshot abaixo.
+    if (String(row.evidence?.goal_kind ?? "") === "category_spending") return false;
+    if (String(row.logical_topic_key ?? "").includes("category_goal")) return false;
+    return !String(row.dedup_key ?? "").includes("category_goal");
+  });
+  const snapshot = await computeAgentSnapshot(sb, userId);
+  const categoryGoals: DiagnosisCandidate[] = snapshot.active_category_goals
+    .filter((goal) => ["exceeded", "at_risk", "attention", "limit_reached"].includes(goal.status))
+    .map((goal) => {
+      const exceeded = goal.current_overage > 0;
+      const topic = `category_goal:${userId}:${goal.goal_id}:${goal.period_start}`;
+      const impact = exceeded ? goal.current_overage : goal.projected_overage;
+      const title = exceeded
+        ? `Você passou o teto de ${goal.category_name ?? "categoria"} em R$ ${impact.toFixed(2).replace(".", ",")}`
+        : `${goal.category_name ?? "A categoria"} pode passar do teto em R$ ${impact.toFixed(2).replace(".", ",")}`;
+      return {
+        user_id: userId,
+        kind: "goal_feasibility",
+        severity: exceeded ? "critical" : "attention",
+        title,
+        body: goal.message,
+        action: { type: "review_goal", route: `/app/metas/categoria/${goal.goal_id}` },
+        evidence: {
+          source: "financial_snapshot_contract.v8",
+          goal_kind: "category_spending",
+          goal_id: goal.goal_id,
+          category_id: goal.category_id,
+          category_name: goal.category_name,
+          period_start: goal.period_start,
+          period_end: goal.period_end,
+          limit: goal.target_amount,
+          spent: goal.actual_spend,
+          projected: goal.projected_final_spend,
+          overage: goal.current_overage,
+          projected_overage: goal.projected_overage,
+          status: goal.status,
+          as_of: goal.calculation_reference_date,
+          included_transaction_count: goal.included_transaction_count,
+          projection_method: goal.projection_method,
+          reconciliation_id: snapshot.reconciliation_id,
+          formula_version: snapshot.formula_version,
+          logical_topic_key: topic,
+          impact_amount: impact,
+          confidence: goal.elapsed_days >= 14 ? 0.9 : goal.elapsed_days >= 7 ? 0.8 : 0.7,
+        },
+        channel_ready: "both" as const,
+        dedup_key: topic,
+        expires_at: `${goal.period_end}T23:59:59.999Z`,
+      };
+    });
+  const candidates = [...consolidateByTopic(rows).map((row) => toCandidate(userId, row, now)), ...categoryGoals];
+  const best = new Map<string, DiagnosisCandidate>();
+  for (const candidate of candidates) {
+    const key = communicationTopicKey({
+      userId,
+      kind: candidate.kind,
+      dedupKey: candidate.dedup_key,
+      evidence: candidate.evidence,
+    });
+    best.set(key, candidate);
+  }
+  return [...best.values()];
 }
 
 /** Materializa os candidatos do diagnóstico na fila de sugestões proativas. */

@@ -8,6 +8,7 @@ import {
   insightLogicalKey,
   periodReviewKey,
   suggestionLogicalKey,
+  communicationTopicKey,
 } from "../../supabase/functions/_shared/intelligence/logicalDedup.ts";
 
 const migrationsDir = `${process.cwd()}/supabase/migrations`;
@@ -55,6 +56,32 @@ describe("comms_contract.v2 — chave lógica única", () => {
 
   it("insight carrega família na chave lógica", () => {
     expect(insightLogicalKey("u1", "categorizacao", "cat:1")).toBe("insight:u1:categorizacao:cat:1");
+  });
+
+  it("colapsa a mesma meta e ciclo mesmo com chaves técnicas diferentes", () => {
+    const evidence = {
+      goal_kind: "category_spending",
+      goal_id: "goal-1",
+      period_start: "2026-08-01",
+      logical_topic_key: "situation:category_goal_breach:goal-1:2026-08-01",
+    };
+    const fromSituation = communicationTopicKey({
+      userId: "u1", kind: "cash_flow_imbalance", dedupKey: "diagnosis:situation:s1", evidence,
+    });
+    const fromGoal = communicationTopicKey({
+      userId: "u1", kind: "goal_feasibility", dedupKey: "diagnosis:category_goal_breach:goal-1", evidence,
+    });
+    expect(fromSituation).toBe("category_goal:u1:goal-1:2026-08-01");
+    expect(fromGoal).toBe(fromSituation);
+  });
+
+  it("normaliza alertas legados de meta mesmo sem goal_kind", () => {
+    expect(communicationTopicKey({
+      userId: "u1",
+      kind: "cash_flow_imbalance",
+      dedupKey: "diagnosis:situation:s1",
+      evidence: { logical_topic_key: "situation:category_goal_breach:goal-1:2026-08-01" },
+    })).toBe("category_goal:u1:goal-1:2026-08-01");
   });
 });
 

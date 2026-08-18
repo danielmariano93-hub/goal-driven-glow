@@ -29,7 +29,7 @@ import {
 } from "@/lib/db/sharedGoals";
 import { goalSchema, contributionSchema } from "@/lib/validation/finance";
 import { behavioralMetricAmount, computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
-import { evaluateCategoryGoal } from "@/lib/engine/metrics";
+import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
@@ -58,6 +58,12 @@ export default function Metas() {
   const { data: categories } = useCategories();
   const { data: txs } = useAllTransactions();
   const { data: catGoals } = useCategorySpendingGoals();
+  const currentMonth = todayISO().slice(0, 7);
+  const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
+  const { data: financialSnapshot } = useFinancialSnapshot({
+    start: `${currentMonth}-01`,
+    end: `${currentMonth}-${String(currentMonthEnd).padStart(2, "0")}`,
+  });
   const saveCatGoal = useSaveCategorySpendingGoal();
   const delCatGoal = useDeleteCategorySpendingGoal();
   const toggleCatGoal = useUpdateCategorySpendingGoalStatus();
@@ -115,21 +121,8 @@ export default function Metas() {
     return map;
   }, [categories]);
   const catGoalEvals = useMemo(
-    () => (catGoals ?? []).map((g) => evaluateCategoryGoal({
-      id: g.id, user_id: g.user_id, category_id: g.category_id,
-      mode: g.mode as "percent_reduction" | "fixed_limit",
-      reduction_pct: g.reduction_pct == null ? null : Number(g.reduction_pct),
-      fixed_limit: g.fixed_limit == null ? null : Number(g.fixed_limit),
-      baseline_kind: g.baseline_kind as "prev_month" | "avg_3m" | "custom",
-      baseline_value: g.baseline_value == null ? null : Number(g.baseline_value),
-      computed_limit: Number(g.computed_limit),
-      frequency: g.frequency as "once" | "monthly" | "custom",
-      start_date: g.start_date,
-      end_date: g.end_date,
-      status: g.status as "active" | "paused" | "cancelled",
-      period_type: (g.period_type as "this_month" | "next_month" | "next_30_days" | "custom" | "monthly_recurring" | undefined),
-    }, numericTxs, new Date(), catNameById[g.category_id])),
-    [catGoals, numericTxs, catNameById],
+    () => financialSnapshot?.activeCategoryGoals ?? [],
+    [financialSnapshot],
   );
   const strategyBase = useMemo(
     () => buildStrategyBase(numericTxs as never, catNameById),
