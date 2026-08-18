@@ -8,9 +8,11 @@ import {
 } from "../../supabase/functions/_shared/intelligence/emotionParse.ts";
 import { isCareKind } from "../../supabase/functions/_shared/intelligence/careKinds.ts";
 import { decideCommunication } from "../../supabase/functions/_shared/intelligence/communicationPolicy.ts";
-import { decide } from "../../supabase/functions/_shared/agent/core/CapabilityRouter.ts";
+import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter.ts";
+import { interpret } from "../../supabase/functions/_shared/agent/parser.ts";
 
 const at = (iso: string) => new Date(iso);
+const capability = (text: string) => classifyCapability(text, interpret(text), null);
 
 describe("lembrete de humor", () => {
   it("é devido para quem só usa o WhatsApp, sem exigir uso do app", () => {
@@ -71,12 +73,12 @@ describe("leitura de sentimento em pt-BR", () => {
 
 describe("roteamento do check-in", () => {
   it("manda registrar quando a pessoa conta como se sentiu", () => {
-    const decision = decide({ text: "hoje eu fui ansioso" } as never);
+    const decision = capability("hoje eu fui ansioso");
     expect(decision.required_tool).toBe("log_emotional_checkin");
   });
 
   it("não confunde preocupação financeira com humor", () => {
-    const decision = decide({ text: "estou preocupado com a fatura do cartão" } as never);
+    const decision = capability("estou preocupado com a fatura do cartão");
     expect(decision.required_tool).not.toBe("log_emotional_checkin");
   });
 });
