@@ -30,6 +30,8 @@ import { classifyBatch, fetchExistingCandidates } from "../_shared/import/dedupe
 
 import { classifyStatementItem, inferInstallmentDetails } from "../_shared/documents/invoice.ts";
 import { classifyWithContext, loadCategorizationContext } from "../_shared/categorization/engine.ts";
+import { derivePersonalPreferencesFromHistory } from "../_shared/categorization/personalHistory.ts";
+
 import { merchantCanonical, storageMerchantKey } from "../_shared/categorization/normalize.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
