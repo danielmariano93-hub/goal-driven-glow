@@ -18,6 +18,8 @@ import { MessageMonitor } from "@/components/admin/messaging/MessageMonitor";
 import { ChannelsBoard } from "@/components/admin/messaging/ChannelsBoard";
 import { RulesBoard } from "@/components/admin/messaging/RulesBoard";
 import { RemindersBoard } from "@/components/admin/messaging/RemindersBoard";
+import { EmotionEngineBoard } from "@/components/admin/messaging/EmotionEngineBoard";
+
 
 
 type Summary = {
