@@ -326,6 +326,30 @@ export function ReviewSheet({
     setDocumentInfo((current) => current ? { ...current, invoice_previous_balance: value } : current);
   }
 
+  // Vencimento manda na competência da fatura: sem ele o motor deriva pelo
+  // ciclo do cartão. Informar aqui resolve o caso de duas faturas no mesmo mês.
+  async function saveInvoiceDueDate() {
+    const raw = invoiceDueDateInput.trim();
+    const current = documentInfo?.invoice_due_date ? String(documentInfo.invoice_due_date).slice(0, 10) : "";
+    if (raw === current) return;
+    if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return toast.error("Informe uma data de vencimento válida.");
+    const value = raw || null;
+    const { error } = await supabase.functions.invoke("assistant-review-actions", {
+      body: {
+        action: "update-document",
+        document_id: documentId,
+        patch: { invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null },
+      },
+    });
+    if (error) return toast.error("Não consegui salvar o vencimento da fatura.");
+    setDocumentInfo((prev) => prev
+      ? { ...prev, invoice_due_date: value, invoice_competence_month: value ? `${value.slice(0, 7)}-01` : null }
+      : prev);
+    toast.success(value ? "Vencimento salvo." : "Vencimento removido: vou calcular pelo ciclo do cartão.");
+  }
+
+
+
   async function applyBulkTarget() {
     if (!bulkTarget || selected.size === 0) {
       toast.error("Selecione os lançamentos e escolha a origem.");
