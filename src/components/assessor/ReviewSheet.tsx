@@ -745,8 +745,20 @@ export function ReviewSheet({
                             placeholder="0,00"
                           />
                         </div>
-                        <div className="col-span-2">
-                          <label htmlFor="invoice-due-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Vencimento desta fatura</label>
+                        <div>
+                          <label htmlFor="invoice-closing-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Fechamento da fatura</label>
+                          <input
+                            id="invoice-closing-date"
+                            type="date"
+                            value={invoiceClosingDateInput}
+                            onChange={(event) => setInvoiceClosingDateInput(event.target.value)}
+                            onBlur={saveInvoiceClosingDate}
+                            className="input-base text-sm"
+                          />
+                          <p className="mt-1 text-[10px] text-muted-foreground">Define o ciclo e o mês de competência.</p>
+                        </div>
+                        <div>
+                          <label htmlFor="invoice-due-date" className="mb-1 block text-[10px] font-medium text-muted-foreground">Vencimento (pagamento)</label>
                           <input
                             id="invoice-due-date"
                             type="date"
@@ -755,11 +767,26 @@ export function ReviewSheet({
                             onBlur={saveInvoiceDueDate}
                             className="input-base text-sm"
                           />
-                          <p className="mt-1 text-[10px] text-muted-foreground">
-                            Em branco, eu calculo pelo ciclo do cartão. Informe quando duas faturas caírem no mesmo mês.
-                          </p>
+                          <p className="mt-1 text-[10px] text-muted-foreground">Em branco, uso o vencimento do ciclo do cartão.</p>
                         </div>
+                        {dueConflict && (
+                          <div className="col-span-2 rounded-lg border border-warning/50 bg-warning/10 p-2">
+                            <p className="text-[11px] font-semibold">Fechamento e vencimento não combinam</p>
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              Fechamento {formatDateBR(dueConflict.closing_date)}. Qual data vale para esta fatura?
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Button size="sm" variant="outline" disabled={confirming} onClick={() => resolveDueConflict("cycle")}>
+                                Ciclo do cartão · {formatDateBR(dueConflict.cycle_due_date)} ({formatCompetenceBR(dueConflict.cycle_competence_month)})
+                              </Button>
+                              <Button size="sm" variant="outline" disabled={confirming} onClick={() => resolveDueConflict("document")}>
+                                Documento · {formatDateBR(dueConflict.document_due_date)} ({formatCompetenceBR(dueConflict.document_competence_month)})
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
+
 
                       <div className="grid flex-[2] grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
                         <span>Compras/encargos<br/><strong>{formatBRL(invoiceSummary.charges)}</strong></span>
