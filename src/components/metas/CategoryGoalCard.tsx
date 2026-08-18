@@ -1,5 +1,6 @@
-import { Pencil, Trash2, Pause, Play, ExternalLink } from "lucide-react";
-import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Pencil, Trash2, Pause, Play, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
 import { formatBRL } from "@/lib/engine/facts";
 
@@ -8,6 +9,10 @@ type Props = {
   onEdit: () => void;
   onDelete: () => void;
   onToggleStatus: () => void;
+  /** Conteúdo extra (ex.: Plano do Nino) renderizado dentro do card. */
+  children?: ReactNode;
+  /** Quando falso, o card não navega (usado na própria tela de detalhe). */
+  clickable?: boolean;
 };
 
 const STATUS_STYLES: Record<CategoryGoalStatus, { label: string; pill: string; bar: string }> = {
@@ -38,14 +43,24 @@ function fmtRule(ev: CategoryGoalEvaluation): string {
   return `Redução de ${Number(ev.goal.reduction_pct ?? 0)}%`;
 }
 
-export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus }: Props) {
+export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, children, clickable = true }: Props) {
+  const navigate = useNavigate();
   const s = STATUS_STYLES[evaluation.status];
   const paused = evaluation.status === "paused";
   const barPct = Math.min(1, Math.max(0, evaluation.percentageUsed));
   const overLimit = evaluation.actualSpend > evaluation.targetAmount;
+  const open = () => { if (clickable) navigate(`/app/metas/categoria/${evaluation.goal.id}`); };
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
 
   return (
-    <li className={`rounded-[18px] border border-border bg-card p-4 shadow-card ${paused ? "opacity-70" : ""}`}>
+    <li
+      onClick={open}
+      onKeyDown={(e) => { if (clickable && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `Abrir meta de ${evaluation.categoryName ?? "categoria"}` : undefined}
+      className={`rounded-[18px] border border-border bg-card p-4 shadow-card ${paused ? "opacity-70" : ""} ${clickable ? "cursor-pointer transition-colors hover:border-primary/40" : ""}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[16px] font-bold leading-tight">{evaluation.categoryName ?? "Categoria"}</p>
@@ -53,7 +68,10 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus 
             {fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}
           </p>
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${s.pill}`}>{s.label}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${s.pill}`}>{s.label}</span>
+          {clickable ? <ChevronRight size={14} className="text-muted-foreground" /> : null}
+        </div>
       </div>
 
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
@@ -69,6 +87,24 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus 
         )}
       </p>
 
+      {evaluation.status !== "scheduled" && evaluation.status !== "paused" ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Projeção do período:{" "}
+          <span className={`font-semibold tabular-nums ${evaluation.projectedOverage > 0 ? "text-red-600" : "text-foreground"}`}>
+            {formatBRL(evaluation.projectedFinalSpend)}
+          </span>
+          {evaluation.projectedOverage > 0
+            ? ` · ${formatBRL(evaluation.projectedOverage)} acima do teto`
+            : ` · ${formatBRL(Math.max(0, evaluation.projectedDifference))} de folga`}
+        </p>
+      ) : null}
+
+      {overLimit ? (
+        <p className="mt-0.5 text-[11px] font-semibold text-red-600">
+          Excesso atual: {formatBRL(evaluation.currentOverage)}
+        </p>
+      ) : null}
+
       <p className="mt-2 text-[12px] text-foreground">{evaluation.message}</p>
       {evaluation.remainingDays > 0 && !overLimit && evaluation.status !== "scheduled" && (
         <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -83,20 +119,16 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus 
         </p>
       )}
 
+      {children}
+
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link
-          to={`/app/lancamentos?category=${evaluation.goal.category_id}&start=${evaluation.period.start}&end=${evaluation.period.end}`}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
-        >
-          <ExternalLink size={12} /> Ver gastos considerados
-        </Link>
-        <button onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium">
+        <button onClick={stop(onEdit)} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium">
           <Pencil size={12} /> Editar
         </button>
-        <button onClick={onToggleStatus} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium">
+        <button onClick={stop(onToggleStatus)} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium">
           {paused ? <><Play size={12} /> Reativar</> : <><Pause size={12} /> Pausar</>}
         </button>
-        <button onClick={onDelete} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-destructive">
+        <button onClick={stop(onDelete)} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-destructive">
           <Trash2 size={12} /> Excluir
         </button>
       </div>
