@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Compass, ChevronDown } from "lucide-react";
-import { formatBRL } from "@/lib/format";
+import { formatBRL } from "@/lib/engine/facts";
 import type { GoalStrategy } from "@/lib/engine/goalStrategy";
 
 const FEASIBILITY_TONE: Record<GoalStrategy["feasibility"], string> = {

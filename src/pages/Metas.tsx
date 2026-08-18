@@ -32,6 +32,8 @@ import { behavioralMetricAmount, computeGoalProgress, formatBRL, todayISO } from
 import { evaluateCategoryGoal } from "@/lib/engine/metrics";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
+import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
+import { buildStrategyBase, buildStrategyForGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
 
@@ -127,6 +129,10 @@ export default function Metas() {
       period_type: (g.period_type as "this_month" | "next_month" | "next_30_days" | "custom" | "monthly_recurring" | undefined),
     }, numericTxs, new Date(), catNameById[g.category_id])),
     [catGoals, numericTxs, catNameById],
+  );
+  const strategyBase = useMemo(
+    () => buildStrategyBase(numericTxs as never, catNameById),
+    [numericTxs, catNameById],
   );
   const goalOverview = useMemo(() => computeGoalOverview({
     goals: (goals ?? []).filter((goal) => goal.status === "active").map((goal) => ({ ...goal, target_amount: Number(goal.target_amount), monthly_target: goal.monthly_target == null ? null : Number(goal.monthly_target) })),
@@ -325,6 +331,16 @@ export default function Metas() {
                     <Trash2 size={12} /> Excluir
                   </button>
                 </div>
+                {g.kind !== "donation" && Number(g.target_amount) > 0 && prog.remaining > 0 ? (
+                  <GoalStrategyCard
+                    strategy={buildStrategyForGoal(
+                      { name: g.name, target_amount: Number(g.target_amount), target_date: g.target_date },
+                      prog.total,
+                      goalContribs.map((c) => ({ amount: Number(c.amount), occurred_at: c.occurred_at })),
+                      strategyBase,
+                    )}
+                  />
+                ) : null}
                 {isOpen && goalContribs.length > 0 && (
                   <ul className="mt-3 space-y-1 border-t border-border pt-3">
                     {goalContribs.map((c) => (
