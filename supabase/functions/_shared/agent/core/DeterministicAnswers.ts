@@ -273,6 +273,12 @@ export async function executeDeterministicCapability(
     result: execution.ok ? execution.result : null, ok: execution.ok,
     duration_ms: execution.duration_ms, error: execution.error,
   };
+  if (!execution.ok && execution.error === "emotion_not_recognized") {
+    // Não é falha técnica: falta só a palavra do sentimento.
+    const ask = (execution as any).result?.ask
+      ?? "Como você se sentiu hoje? Pode ser tranquilo, atento, preocupado, confiante, impulsivo, frustrado, celebrando ou culpado.";
+    return { reply: String(ask), steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
+  }
   if (!execution.ok) {
     // Degradação honesta: em vez de "problema técnico", o Nino entrega o que
     // o snapshot canônico consegue provar e diz explicitamente o que faltou.
@@ -312,7 +318,33 @@ export async function executeDeterministicCapability(
   // LLM: a resposta sai formatada direto do resultado do motor.
   else if (capability.name === "merchant_distribution") reply = formatMerchantDistribution(execution.result);
   else if (capability.name === "financial_evolution") reply = formatFinancialEvolution(execution.result);
+  else if (capability.name === "emotional_checkin") reply = formatEmotionalCheckin(execution.result);
   else return null;
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }
 
+
+/** Recibo curto do check-in emocional (registro do dia ou histórico). */
+function formatEmotionalCheckin(result: any): string {
+  if (result?.registered) {
+    const base = String(result.card ?? "Registrei como você se sentiu hoje.");
+    const extra = result.updated
+      ? "Atualizei o registro de hoje."
+      : "Isso me ajuda a ligar o que você sente ao que você gasta.";
+    return `${base}\n${extra}`;
+  }
+  const total = Number(result?.total ?? 0);
+  if (!total) {
+    return "Ainda não tenho registros de humor seus. Se quiser, me conta em uma palavra como você está hoje que eu guardo.";
+  }
+  const average = result?.average_mood;
+  const recent = (result?.checkins ?? []).slice(0, 3)
+    .map((row: any) => `• ${String(row.trigger_label ?? row.emotion_key ?? "registro")}`)
+    .join("\n");
+  return [
+    `Nos últimos ${result?.days ?? 14} dias você fez ${total} registro${total > 1 ? "s" : ""}${
+      average != null ? `, com humor médio ${average} de 5` : ""
+    }.`,
+    recent,
+  ].filter(Boolean).join("\n");
+}

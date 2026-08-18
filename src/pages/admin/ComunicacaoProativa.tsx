@@ -17,6 +17,7 @@ import { FlowsBoard } from "@/components/admin/messaging/FlowsBoard";
 import { MessageMonitor } from "@/components/admin/messaging/MessageMonitor";
 import { ChannelsBoard } from "@/components/admin/messaging/ChannelsBoard";
 import { RulesBoard } from "@/components/admin/messaging/RulesBoard";
+import { RemindersBoard } from "@/components/admin/messaging/RemindersBoard";
 
 
 type Summary = {
@@ -64,6 +65,7 @@ export default function ComunicacaoProativa() {
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
           { id: "regras", label: "Regras", render: () => <RulesBoard /> },
           { id: "fluxos", label: "Fluxos", render: () => <FlowsBoard /> },
+          { id: "lembretes", label: "Lembretes", render: () => <RemindersBoard /> },
           { id: "mensagens", label: "Mensagens", render: () => <MessageMonitor /> },
           { id: "canais", label: "Canais", render: () => <ChannelsBoard /> },
           {

@@ -7,6 +7,7 @@ import { decideCommunication, type CommunicationPreferences, type DeliveryHistor
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 import { suggestionLogicalKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
+import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
 
 
 export type DispatchOutcome = {
@@ -172,6 +173,24 @@ async function loadPreferences(sb: SupabaseClient, userId: string): Promise<Comm
 
 }
 
+/** Configuração de lembretes (cota de cuidado e canais), editável no painel admin. */
+async function loadReminderSettings(
+  sb: SupabaseClient,
+): Promise<{ careQuota: CareQuota; emotionalChannels: string[] }> {
+  const { data } = await sb.from("proactive_reminder_settings")
+    .select("care_max_per_day,care_max_per_week,emotional_channels").maybeSingle();
+  const row = (data ?? {}) as any;
+  return {
+    careQuota: {
+      maxPerDay: Number(row.care_max_per_day ?? DEFAULT_CARE_QUOTA.maxPerDay),
+      maxPerWeek: Number(row.care_max_per_week ?? DEFAULT_CARE_QUOTA.maxPerWeek),
+    },
+    emotionalChannels: Array.isArray(row.emotional_channels) && row.emotional_channels.length
+      ? row.emotional_channels.map(String)
+      : ["app", "whatsapp"],
+  };
+}
+
 async function history(sb: SupabaseClient, userId: string): Promise<DeliveryHistory[]> {
   const { data, error } = await sb.from("communication_deliveries")
     .select("created_at,kind,channel,status,dedup_key")
@@ -286,14 +305,16 @@ export async function dispatchSuggestions(
     ...(((deferredResp.data as any[] | null) ?? [])),
   ] as CommunicationCandidate[];
 
-  const [prefs, recent, catalog, templates, monthlyIncome, learning] = await Promise.all([
+  const [prefs, recent, catalog, templates, monthlyIncome, learning, reminderSettings] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
     loadCatalog(sb),
     loadTemplates(sb),
     loadMonthlyIncome(sb, userId),
     loadKindLearning(sb, userId),
+    loadReminderSettings(sb),
   ]);
+  const { careQuota, emotionalChannels } = reminderSettings;
 
   const dryRunEarly = opts.dryRun === true;
   const results: DispatchOutcome[] = [];
@@ -330,7 +351,7 @@ export async function dispatchSuggestions(
         impactAmount: Number(evidence.impact_amount ?? evidence.amount ?? 0),
         monthlyIncome,
         daysUntilEvent: evidence.days_until_event == null ? null : Number(evidence.days_until_event),
-      }) && !isAppTaskKind(item.kind)
+      }) && !isAppTaskKind(item.kind) && !isCareKind(item.kind)
       ? "below_materiality"
       : null;
     if (drop) {
@@ -366,7 +387,11 @@ export async function dispatchSuggestions(
     for (const target of targets) {
       const entry = catalog.get(candidate.kind);
       const catalogGate = catalogAllowsChannel(entry, target, String(candidate.severity));
-      const gate = !rollout.includes(target)
+      const reminderChannelBlocked = candidate.kind === "emotional_checkin_due"
+        && !emotionalChannels.includes(target);
+      const gate = reminderChannelBlocked
+        ? "reminder_channel_disabled"
+        : !rollout.includes(target)
         ? "rollout_channel_disabled"
         : !catalogGate.ok
         ? catalogGate.reason!
@@ -387,7 +412,7 @@ export async function dispatchSuggestions(
       }
 
 
-      const decision = decideCommunication({ candidate, target, preferences: prefs, history: recent });
+      const decision = decideCommunication({ candidate, target, preferences: prefs, history: recent, careQuota });
       if (!decision.allowed) {
         if (decision.temporary) {
           // Bloqueio temporário: adia, não descarta.

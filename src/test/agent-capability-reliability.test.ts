@@ -71,7 +71,7 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     ]);
     expect(openAIToolDefinitions(split.allowed_tools)).toHaveLength(4);
     expect(openAIToolDefinitions(capability("Me ajude").allowed_tools).length).toBeLessThanOrEqual(11);
-    expect(openAIToolDefinitions()).toHaveLength(53);
+    expect(openAIToolDefinitions()).toHaveLength(55);
   });
 
   it("formata simulação usando somente o contrato snapshot.v4", () => {

@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.admin_communication_catalog_update(text, boolean, integer, text[], integer, integer, boolean);
