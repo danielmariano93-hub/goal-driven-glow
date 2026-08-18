@@ -130,6 +130,8 @@ const App = () => (
                 <Route path="contas" element={<Contas />} />
                 <Route path="categorias" element={<Categorias />} />
                 <Route path="metas" element={<Metas />} />
+                <Route path="metas/categoria/:id" element={<MetaCategoriaDetalhe />} />
+                <Route path="metas/:id" element={<MetaDetalhe />} />
                 <Route path="dividas" element={<Dividas />} />
                 <Route path="planejamento" element={<Planejamento />} />
                 <Route path="metas-conjuntas" element={<MetasConjuntas />} />
