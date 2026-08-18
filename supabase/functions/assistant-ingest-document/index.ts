@@ -525,6 +525,36 @@ async function enrichItems(
     loadCategorizationContext(sb, userId, "expense"),
     loadCategorizationContext(sb, userId, "income"),
   ]);
+  // Verdade pessoal por histórico: estabelecimento já categorizado em
+  // lançamentos confirmados não volta como "sem categoria".
+  const descriptionsByType = { expense: [] as string[], income: [] as string[] };
+  for (const n of normalized) {
+    const bucket = n.item.type === "income" ? descriptionsByType.income : descriptionsByType.expense;
+    bucket.push(n.friendly || n.rawDesc);
+  }
+  const [historyExpense, historyIncome] = await Promise.all([
+    descriptionsByType.expense.length
+      ? derivePersonalPreferencesFromHistory(sb, userId, "expense", descriptionsByType.expense)
+      : Promise.resolve([]),
+    descriptionsByType.income.length
+      ? derivePersonalPreferencesFromHistory(sb, userId, "income", descriptionsByType.income)
+      : Promise.resolve([]),
+  ]);
+  const mergePreferences = (
+    context: typeof expenseCategoryContext,
+    derived: Awaited<ReturnType<typeof derivePersonalPreferencesFromHistory>>,
+  ) => {
+    if (derived.length === 0) return;
+    const validIds = new Set(context.candidates.map((c) => c.id));
+    const known = new Set((context.preferences ?? []).map((p) => p.merchant_key));
+    for (const row of derived) {
+      if (!row.category_id || !validIds.has(row.category_id) || known.has(row.merchant_key)) continue;
+      (context.preferences ??= []).push(row);
+    }
+  };
+  mergePreferences(expenseCategoryContext, historyExpense);
+  mergePreferences(incomeCategoryContext, historyIncome);
+
   const enriched = [];
   for (const n of normalized) {
     const { item, rawDesc, friendly, ruleCategory, ruleMovementKind, bankRef } = n;
