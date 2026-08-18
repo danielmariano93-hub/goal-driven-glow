@@ -119,7 +119,7 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
         </p>
       )}
 
-      {children}
+      {children ? <div onClick={(e) => e.stopPropagation()}>{children}</div> : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={stop(onEdit)} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium">
