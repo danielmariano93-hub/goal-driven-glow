@@ -11249,36 +11249,23 @@ export type Database = {
         Returns: boolean
       }
       admin_communication_catalog: { Args: never; Returns: Json }
-      admin_communication_catalog_update:
-        | {
-            Args: {
-              _active?: boolean
-              _allowed_channels?: string[]
-              _base_priority?: number
-              _cooldown_hours?: number
-              _kind: string
-              _max_per_day?: number
-              _requires_manual_approval?: boolean
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              _active?: boolean
-              _allowed_channels?: string[]
-              _base_priority?: number
-              _cooldown_hours?: number
-              _default_channels?: string[]
-              _default_window_hours?: number
-              _kind: string
-              _max_per_day?: number
-              _min_severity_for_whatsapp?: string
-              _requires_manual_approval?: boolean
-              _sensitivity?: string
-              _whatsapp_min_absolute_impact?: number
-            }
-            Returns: Json
-          }
+      admin_communication_catalog_update: {
+        Args: {
+          _active?: boolean
+          _allowed_channels?: string[]
+          _base_priority?: number
+          _cooldown_hours?: number
+          _default_channels?: string[]
+          _default_window_hours?: number
+          _kind: string
+          _max_per_day?: number
+          _min_severity_for_whatsapp?: string
+          _requires_manual_approval?: boolean
+          _sensitivity?: string
+          _whatsapp_min_absolute_impact?: number
+        }
+        Returns: Json
+      }
       admin_communication_template_upsert: {
         Args: {
           _active?: boolean
