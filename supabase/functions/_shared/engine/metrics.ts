@@ -179,6 +179,22 @@ export interface AgentFinancialSnapshot {
   };
   /** Explicação determinística (sem LLM) de como o saldo se formou. */
   balance_explanation: { headline: string; body: string; steps: string[] };
+  /** Agenda canônica de compromissos (commitment_agenda.v2) — datas e valores já apurados. */
+  commitment_agenda: {
+    horizon_start: string;
+    horizon_end: string;
+    total_income: number;
+    total_expense: number;
+    has_estimates: boolean;
+    items: Array<{
+      name: string;
+      type: "income" | "expense";
+      amount: number;
+      date: string;
+      source: string;
+      estimated: boolean;
+    }>;
+  };
   formula_version: string;
 }
 
@@ -425,6 +441,21 @@ export async function computeAgentSnapshot(
       headline: snap.balanceExplanation.headline,
       body: snap.balanceExplanation.body,
       steps: snap.balanceExplanation.steps,
+    },
+    commitment_agenda: {
+      horizon_start: snap.commitmentAgenda.horizonStart,
+      horizon_end: snap.commitmentAgenda.horizonEnd,
+      total_income: snap.commitmentAgenda.totalIncome,
+      total_expense: snap.commitmentAgenda.totalExpense,
+      has_estimates: snap.commitmentAgenda.hasEstimates,
+      items: snap.commitmentAgenda.items.map((item) => ({
+        name: item.name,
+        type: item.type,
+        amount: item.amount,
+        date: item.date,
+        source: String(item.source),
+        estimated: item.estimated,
+      })),
     },
     formula_version: snap.contractVersion,
   };
