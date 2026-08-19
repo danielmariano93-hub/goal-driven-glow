@@ -8474,6 +8474,45 @@ export type Database = {
         }
         Relationships: []
       }
+      proactive_decisions: {
+        Row: {
+          as_of: string
+          channel: string
+          created_at: string
+          decision: string
+          fingerprint: string
+          formula_version: string
+          id: string
+          priority_score: number
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          as_of: string
+          channel: string
+          created_at?: string
+          decision: string
+          fingerprint: string
+          formula_version?: string
+          id?: string
+          priority_score?: number
+          reason: string
+          user_id: string
+        }
+        Update: {
+          as_of?: string
+          channel?: string
+          created_at?: string
+          decision?: string
+          fingerprint?: string
+          formula_version?: string
+          id?: string
+          priority_score?: number
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       proactive_global_limits: {
         Row: {
           id: boolean
@@ -8531,6 +8570,141 @@ export type Database = {
           id?: boolean
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      proactive_signals: {
+        Row: {
+          actionable: boolean
+          amount: number
+          as_of: string
+          confidence: number
+          created_at: string
+          days_until: number | null
+          direction: string
+          domain: string
+          event_date: string | null
+          evidence: Json
+          formula_version: string
+          id: string
+          label: string
+          signal_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actionable?: boolean
+          amount?: number
+          as_of: string
+          confidence?: number
+          created_at?: string
+          days_until?: number | null
+          direction?: string
+          domain: string
+          event_date?: string | null
+          evidence?: Json
+          formula_version?: string
+          id?: string
+          label: string
+          signal_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actionable?: boolean
+          amount?: number
+          as_of?: string
+          confidence?: number
+          created_at?: string
+          days_until?: number | null
+          direction?: string
+          domain?: string
+          event_date?: string | null
+          evidence?: Json
+          formula_version?: string
+          id?: string
+          label?: string
+          signal_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      proactive_situations: {
+        Row: {
+          actionable: boolean
+          as_of: string
+          body: string
+          communication_kind: string
+          confidence: number
+          created_at: string
+          days_until: number | null
+          domains: Json
+          evidence: Json
+          fingerprint: string
+          formula_version: string
+          id: string
+          impact_amount: number
+          last_delivered_at: string | null
+          last_seen_at: string
+          primary_domain: string
+          priority_score: number
+          score_reasons: Json
+          severity: string
+          situation_type: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actionable?: boolean
+          as_of: string
+          body?: string
+          communication_kind: string
+          confidence?: number
+          created_at?: string
+          days_until?: number | null
+          domains?: Json
+          evidence?: Json
+          fingerprint: string
+          formula_version?: string
+          id?: string
+          impact_amount?: number
+          last_delivered_at?: string | null
+          last_seen_at?: string
+          primary_domain: string
+          priority_score?: number
+          score_reasons?: Json
+          severity?: string
+          situation_type: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actionable?: boolean
+          as_of?: string
+          body?: string
+          communication_kind?: string
+          confidence?: number
+          created_at?: string
+          days_until?: number | null
+          domains?: Json
+          evidence?: Json
+          fingerprint?: string
+          formula_version?: string
+          id?: string
+          impact_amount?: number
+          last_delivered_at?: string | null
+          last_seen_at?: string
+          primary_domain?: string
+          priority_score?: number
+          score_reasons?: Json
+          severity?: string
+          situation_type?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -11608,6 +11782,10 @@ export type Database = {
       admin_v2_nino_item_trace: { Args: { _item_id: string }; Returns: Json }
       admin_v2_nino_quality_summary: { Args: { _days?: number }; Returns: Json }
       admin_v2_operations_health: { Args: { _hours?: number }; Returns: Json }
+      admin_v2_proactive_intelligence_funnel: {
+        Args: { _days?: number }
+        Returns: Json
+      }
       admin_v2_proactive_summary: {
         Args: { _channel?: string; _days?: number; _kind?: string }
         Returns: Json
