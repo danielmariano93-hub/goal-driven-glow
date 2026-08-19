@@ -182,7 +182,17 @@ Deno.serve(async (req) => {
         // legado permanece apenas para sinais operacionais e de engajamento.
         const fromDiagnosis = await syncDiagnosisSuggestions(sb, uid, { persist: !dryRun });
         const generated = await scanUser(sb, uid, { persist: !dryRun, maxSuggestions: 8 });
-        suggestions = generated.length + fromDiagnosis.length;
+        // Camada multi-financeira: cruza domínios (fatura × caixa × metas ×
+        // compromissos) e decide quem merece a cota de atenção do usuário.
+        try {
+          multiFinance = await runMultiFinanceProactive(sb, uid, {
+            persist: !dryRun,
+            channels: effectiveChannels,
+          });
+        } catch (error) {
+          errors.push(stageError("multifinance", error));
+        }
+        suggestions = generated.length + fromDiagnosis.length + (multiFinance?.delivered_candidates ?? 0);
         if (dryRun) {
           preview = [...fromDiagnosis, ...generated].map((item) => ({
             kind: item.kind,
