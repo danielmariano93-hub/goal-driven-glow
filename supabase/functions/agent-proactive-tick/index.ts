@@ -16,6 +16,7 @@ import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatche
 import { markProactiveScan, selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
 import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
+import { runMultiFinanceProactive, type MultiFinanceRunResult } from "../_shared/proactive/pipeline.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -125,6 +126,7 @@ Deno.serve(async (req) => {
     behavior_hypotheses: number;
     advisor_reviews: number;
     advisor_skipped?: unknown;
+    multi_finance?: MultiFinanceRunResult | null;
     preview?: Array<{
       kind: string;
       channel_ready: string;
@@ -141,6 +143,7 @@ Deno.serve(async (req) => {
     let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, advisorReviews = 0;
     let advisorSkipped: unknown = undefined;
     let preview: Array<{ kind: string; channel_ready: string; title: string; body: string; dedup_key: string; evidence: Record<string, unknown> }> = [];
+    let multiFinance: MultiFinanceRunResult | null = null;
 
     if (!dryRun && stages.includes("profile")) {
       try {
@@ -182,7 +185,17 @@ Deno.serve(async (req) => {
         // legado permanece apenas para sinais operacionais e de engajamento.
         const fromDiagnosis = await syncDiagnosisSuggestions(sb, uid, { persist: !dryRun });
         const generated = await scanUser(sb, uid, { persist: !dryRun, maxSuggestions: 8 });
-        suggestions = generated.length + fromDiagnosis.length;
+        // Camada multi-financeira: cruza domínios (fatura × caixa × metas ×
+        // compromissos) e decide quem merece a cota de atenção do usuário.
+        try {
+          multiFinance = await runMultiFinanceProactive(sb, uid, {
+            persist: !dryRun,
+            channels: effectiveChannels,
+          });
+        } catch (error) {
+          errors.push(stageError("multifinance", error));
+        }
+        suggestions = generated.length + fromDiagnosis.length + (multiFinance?.delivered_candidates ?? 0);
         if (dryRun) {
           preview = [...fromDiagnosis, ...generated].map((item) => ({
             kind: item.kind,
@@ -214,6 +227,7 @@ Deno.serve(async (req) => {
       behavior_hypotheses: behaviorHypotheses,
       advisor_reviews: advisorReviews,
       advisor_skipped: advisorSkipped,
+      multi_finance: multiFinance,
       preview,
       errors,
     });
