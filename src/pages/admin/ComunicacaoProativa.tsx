@@ -19,6 +19,7 @@ import { ChannelsBoard } from "@/components/admin/messaging/ChannelsBoard";
 import { RulesBoard } from "@/components/admin/messaging/RulesBoard";
 import { RemindersBoard } from "@/components/admin/messaging/RemindersBoard";
 import { EmotionEngineBoard } from "@/components/admin/messaging/EmotionEngineBoard";
+import { IntelligenceFunnelBoard } from "@/components/admin/messaging/IntelligenceFunnelBoard";
 
 
 
@@ -65,6 +66,7 @@ export default function ComunicacaoProativa() {
       <AdminTabs
         tabs={[
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
+          { id: "inteligencia", label: "Inteligência", render: () => <IntelligenceFunnelBoard /> },
           { id: "regras", label: "Regras", render: () => <RulesBoard /> },
           { id: "fluxos", label: "Fluxos", render: () => <FlowsBoard /> },
           { id: "lembretes", label: "Lembretes", render: () => <RemindersBoard /> },
