@@ -13,6 +13,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { periodReviewKey } from "../_shared/intelligence/logicalDedup.ts";
 
 import { resolveAppPublicUrl } from "../_shared/messaging/appUrl.ts";
+import { buildShortLink } from "../_shared/agent/core/ShortLinks.ts";
 import type { TransactionRow } from "../_shared/finance-core/facts.ts";
 import { buildIntelligentReport } from "../_shared/reports-core/engine.ts";
 import { resolvePeriods } from "../_shared/reports-core/periods.ts";
