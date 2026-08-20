@@ -35,7 +35,7 @@ import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { parseSpelledMoney } from "./amountWords.ts";
 import { buildReceipt } from "./core/ReceiptBuilder.ts";
 import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, draftCardDateBR } from "./core/DraftCard.ts";
-import { confirmationExecutor } from "./core/PendingConfirmations.ts";
+import { executeConfirmation } from "./core/PendingConfirmations.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
 import {
@@ -844,14 +844,15 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
     if (expireError) return { ok: false, error: `pending_confirmation_expire_failed:${expireError.message}` };
     return { ok: false, error: "expired" };
   }
-  const executor = confirmationExecutor((pending as any).kind);
-  const { data: exec, error: execError } = await ctx.sb.rpc(executor, {
-    p_confirmation_id: (pending as any).id,
-    p_source_message_id: null,
+  const execution = await executeConfirmation(ctx.sb, {
+    id: (pending as any).id, kind: (pending as any).kind, user_id: ctx.user_id,
   });
-  if (execError) return { ok: false, error: `confirmation_rpc_failed:${execError.message}` };
-  const result = exec as { ok?: boolean; result?: any; error?: string; idempotent?: boolean } | null;
-  if (!result?.ok) return { ok: false, error: result?.error ?? "confirmation_failed" };
+  if (!execution.ok) return { ok: false, error: execution.error ?? "confirmation_failed" };
+  // Prova de escrita: sem ler de volta a linha, não existe recibo.
+  if (!execution.proof.proven) {
+    return { ok: false, error: `persistence_unproven:${execution.proof.reason ?? "unknown"}` };
+  }
+  const result = { ok: true, result: execution.result, idempotent: execution.idempotent };
 
   // Recibo determinístico: ecoa o que ficou salvo (valor, descrição, data),
   // nunca uma frase genérica igual a todas as outras.
