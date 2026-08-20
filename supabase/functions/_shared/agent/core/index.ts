@@ -26,6 +26,11 @@ export {
   validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR,
   type ValidationAction, type ValidationResult, type ValidationContext,
 } from "./ResponseValidator.ts";
+export {
+  classifyOutcome, isClarification, isAnswerable,
+  type OutcomeKind, type ToolOutcome,
+} from "./ToolOutcome.ts";
+
 export { formatReply, personalizeSystemPrompt } from "./ResponseGenerator.ts";
 export { buildSnapshot, type Snapshot360, type ContextRequest } from "./FinancialContext360.ts";
 export { createTurnContext, type TurnContext } from "./ContextPipeline.ts";

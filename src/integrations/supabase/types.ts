@@ -5502,6 +5502,8 @@ export type Database = {
           highlights: Json
           id: string
           invalidated_at: string | null
+          invalidation_domains: string[] | null
+          invalidation_reason: string | null
           methodology: string | null
           mode: string
           next_action: string | null
@@ -5518,6 +5520,8 @@ export type Database = {
           highlights?: Json
           id?: string
           invalidated_at?: string | null
+          invalidation_domains?: string[] | null
+          invalidation_reason?: string | null
           methodology?: string | null
           mode: string
           next_action?: string | null
@@ -5534,6 +5538,8 @@ export type Database = {
           highlights?: Json
           id?: string
           invalidated_at?: string | null
+          invalidation_domains?: string[] | null
+          invalidation_reason?: string | null
           methodology?: string | null
           mode?: string
           next_action?: string | null
@@ -13260,6 +13266,10 @@ export type Database = {
       transaction_delete_direct: {
         Args: { p_expected_version: number; p_id: string; p_scope?: string }
         Returns: Json
+      }
+      transaction_needs_categorization: {
+        Args: { _transaction_id: string; _user_id: string }
+        Returns: boolean
       }
       transaction_update_direct: {
         Args: {

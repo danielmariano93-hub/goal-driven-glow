@@ -85,12 +85,17 @@ async function persistDecision(admin:ReturnType<typeof createClient>,userId:stri
     category_id:result.category_id,category_source:result.category_source,category_confidence:result.category_confidence,
     category_reason:result.category_reason,category_review_status:"resolved",category_engine_version:CATEGORY_ENGINE_VERSION,
     category_classified_at:classifiedAt,category_decision_id:decision.id,
+  }:tx.category_id?{
+    // Nunca destruir categoria já existente: uma decisão fraca da máquina só
+    // marca revisão. Apagar aqui apagava histórico do usuário nas métricas.
+    category_review_status:result.action==="suggest_review"?"suggested":"needs_review",
+    category_engine_version:CATEGORY_ENGINE_VERSION,category_classified_at:classifiedAt,category_decision_id:decision.id,
   }:{
-    // A weak/ambiguous machine category must not remain in financial metrics while awaiting review.
     category_id:null,category_source:null,category_confidence:null,category_reason:null,
     category_review_status:result.action==="suggest_review"?"suggested":"needs_review",
     category_engine_version:CATEGORY_ENGINE_VERSION,category_classified_at:classifiedAt,category_decision_id:decision.id,
   };
+
   const {error:updateError}=await admin.from("transactions").update(patch).eq("id",tx.id).eq("user_id",userId);
   if(updateError)throw updateError;
   await admin.from("category_classification_queue").update({status:"completed",processed_at:classifiedAt,locked_at:null,last_error:null}).eq("transaction_id",tx.id);
