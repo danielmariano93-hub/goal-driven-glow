@@ -101,7 +101,7 @@ async function synthesizeNarrative(report: IntelligentReport): Promise<{
   const facts = {
     periodo: report.period.label,
     periodo_anterior: report.previousPeriod.label,
-    tipo: report.reportType === "weekly" ? "semanal" : "mensal",
+    tipo: report.reportType === "weekly" ? "semanal" : report.reportType === "monthly_partial" ? "mensal parcial (mês aberto)" : "mensal",
     nota_saude: report.healthScore,
     totais: report.payload.totals,
     top_categorias: report.payload.categories.slice(0, 5),
@@ -325,7 +325,11 @@ async function generateForUser(
     await sb.from("notifications").insert({
       user_id: userId,
       type: "financial_report",
-      title: reportType === "weekly" ? "Seu relatório da semana está pronto" : "Seu relatório do mês está pronto",
+      title: reportType === "weekly"
+        ? "Seu relatório da semana está pronto"
+        : reportType === "monthly_partial"
+          ? "Seu mês até agora está pronto"
+          : "Seu relatório do mês está pronto",
       body: `${period.label} • nota de saúde ${report.healthScore}/10`,
       action_url: `/app/relatorios-inteligentes/${reportId}`,
       dedup_key: `financial_report:${reportId}`,
