@@ -75,7 +75,7 @@ const DRAFT_CARD_RX = /\brascunh\w+\b|\bconfirm\w+\b[^?\n]{0,60}\?|\bt[aá]\s+ce
 // Inversão de persona: o modelo escreve como se fosse o usuário falando com o
 // Nino ("Ah, Nino!", "Nino, esqueci de perguntar", "obrigado, Nino").
 // O Nino é quem responde — jamais se dirige a si mesmo.
-export const PERSONA_INVERSION_RX = /(^|[\s,;!¡"“(])(ah|oi|ol[aá]|e a[íi]|obrigad[oa]|valeu|desculpa|nossa|opa)[,!\s]+nino\b|\bnino[,!]\s+(esqueci|preciso|me\s|pode\s|voc[eê]\s)/i;
+export const PERSONA_INVERSION_RX = /(^|[\s,;!¡"“(])(ah|oi|ol[aá]|e a[íi]|obrigad[oa]|valeu|desculpa|nossa|opa|certo|sim|n[ãa]o|beleza|blz|ok|okay|t[aá]|tudo bem|claro|perfeito|combinado|entendi|pode ser|pode|show|isso)[,!]+\s*nino\b|[,]\s*nino\s*[.!?]|\bnino[,!]\s+(esqueci|preciso|me\s|pode\s|voc[eê]\s)/i;
 
 
 const MUTATION_TOOLS = new Set([

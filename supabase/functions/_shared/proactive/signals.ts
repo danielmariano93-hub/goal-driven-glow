@@ -1,7 +1,64 @@
 // deno-lint-ignore-file no-explicit-any
 // proactive_multifinance.v1 — coleta de sinais canônicos (função pura).
 // Cada sinal aponta para o motor que o produziu; nenhum número nasce aqui.
-import type { FinancialSignal, MultiFinanceProactiveContext } from "./contracts.ts";
+import type {
+  FinancialSignal,
+  MultiFinanceProactiveContext,
+  PerformanceHighlightInput,
+} from "./contracts.ts";
+
+/** Confiança textual do motor de performance → 0..1. */
+function confidenceOf(label: string): number {
+  switch (label) {
+    case "high": return 0.9;
+    case "medium": return 0.75;
+    case "low": return 0.6;
+    default: return 0.4;
+  }
+}
+
+/** Tipo do sinal de performance, derivado do tópico e do sentimento. */
+function performanceSignalKind(h: PerformanceHighlightInput): string {
+  const positive = h.sentiment === "positive";
+  if (/category/.test(h.topic_key)) return positive ? "category_improvement" : "category_deterioration";
+  if (/card/.test(h.topic_key)) return "card_cycle_improvement";
+  if (/fixed|cost|structure/.test(h.topic_key)) return "fixed_cost_increase";
+  if (/behavior/.test(h.topic_key)) return "behavior_improvement";
+  if (/timing/.test(String(h.nature ?? "")) || h.nature === "timing") return "timing_effect";
+  if (/net|resultado/.test(h.topic_key)) return "net_improvement";
+  return positive ? "expense_improvement" : "expense_deterioration";
+}
+
+/**
+ * Highlights de performance viram SINAIS — nunca mensagem direta. Continuam
+ * passando por materialidade, prioridade, cota de atenção e canal.
+ */
+export function collectPerformanceSignals(ctx: MultiFinanceProactiveContext): FinancialSignal[] {
+  const highlights = ctx.performance_highlights ?? [];
+  return highlights.map((h) => ({
+    key: `performance:${h.topic_key}:${performanceSignalKind(h)}`,
+    domain: "performance" as const,
+    label: h.title,
+    amount: Math.abs(num(h.materiality)),
+    direction: h.sentiment === "positive" ? "achievement" : h.sentiment === "negative" ? "risk" : "context",
+    date: null,
+    days_until: null,
+    confidence: confidenceOf(String(h.confidence)),
+    actionable: Boolean(h.actionable),
+    route: "/app/relatorios",
+    evidence: {
+      source: "financial_performance",
+      highlight_id: h.id,
+      logical_topic_key: h.topic_key,
+      interpretation: h.body,
+      nature: h.nature,
+      recommended_action: h.recommended_action,
+      methodology: h.methodology,
+      performance_signal_kind: performanceSignalKind(h),
+      severity: h.severity,
+    },
+  }));
+}
 
 function num(value: unknown): number {
   const n = Number(value ?? 0);
@@ -264,6 +321,9 @@ export function collectFinancialSignals(ctx: MultiFinanceProactiveContext): Fina
       },
     });
   }
+
+  // ---------------- Performance (financial_performance.v1) ----------------
+  out.push(...collectPerformanceSignals(ctx));
 
   return out;
 }

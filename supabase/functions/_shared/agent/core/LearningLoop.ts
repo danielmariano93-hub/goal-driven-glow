@@ -2,6 +2,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { remember, recall } from "./MemoryStore.ts";
+import { learnComparisonPreference } from "./AdvisorInteractionLearning.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 
 export type TurnSignal = {
@@ -18,6 +19,10 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
     if (sig.policy_decision === "confirm" || sig.reply_kind === "receipt") {
       await reinforceRecent(sb, sig.user_id);
     }
+
+    // Correção de recorte ("prefiro dias úteis") vira preferência do consultor.
+    await learnComparisonPreference(sb, sig.user_id, sig.user_text);
+
 
     const isCorrection = sig.policy_decision === "cancel"
       || /não era isso|não foi isso|nao era isso|nao foi isso|errado|corrigir|corrija|eu digo na média|eu digo na media|sem considerar/i.test(sig.user_text);

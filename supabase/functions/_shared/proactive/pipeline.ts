@@ -63,6 +63,42 @@ async function loadAlreadyDelivered(sb: SupabaseClient, userId: string, days: nu
   return new Set(((data as any[]) ?? []).map((row) => String(row.fingerprint)));
 }
 
+/** Highlights do snapshot vigente de `financial_performance.v1`. */
+async function loadPerformanceHighlights(sb: SupabaseClient, userId: string) {
+  const { data } = await sb.from("financial_performance_snapshots")
+    .select("payload,as_of,created_at")
+    .eq("user_id", userId)
+    .is("invalidated_at", null)
+    .order("as_of", { ascending: false })
+    .limit(1);
+  const payload = ((data as any[]) ?? [])[0]?.payload as any;
+  const items = Array.isArray(payload?.highlights) ? payload.highlights : [];
+  return items.map((item: any) => ({
+    id: String(item.id ?? item.topic_key ?? "highlight"),
+    topic_key: String(item.topic_key ?? item.logical_topic_key ?? "performance:expense"),
+    title: String(item.title ?? item.title_fact ?? ""),
+    body: String(item.body ?? item.interpretation ?? ""),
+    materiality: Number(item.materiality ?? item.financial_weight ?? 0),
+    sentiment: (item.sentiment ?? "neutral") as "positive" | "negative" | "neutral",
+    severity: (item.severity ?? "info") as "info" | "attention" | "critical",
+    nature: item.nature ?? item.structural_or_timing ?? null,
+    confidence: String(item.confidence ?? "medium"),
+    actionable: Boolean(item.actionable),
+    recommended_action: item.recommended_action ?? null,
+    methodology: payload?.methodology ?? null,
+  })).filter((item: any) => item.title && Number.isFinite(item.materiality));
+}
+
+/** Afinidade aprendida por tópico (só ordena situações opcionais). */
+async function loadTopicAffinity(sb: SupabaseClient, userId: string): Promise<Record<string, number>> {
+  const { data } = await sb.from("user_advisor_topic_affinity")
+    .select("topic_key,score")
+    .eq("user_id", userId);
+  const out: Record<string, number> = {};
+  for (const row of ((data as any[]) ?? [])) out[String(row.topic_key)] = Number(row.score ?? 0);
+  return out;
+}
+
 export async function runMultiFinanceProactive(
   sb: SupabaseClient,
   userId: string,
@@ -75,7 +111,14 @@ export async function runMultiFinanceProactive(
 ): Promise<MultiFinanceRunResult> {
   const persist = opts.persist !== false;
   const channels = opts.channels ?? ["app"];
-  const ctx = await buildMultiFinanceProactiveContext(sb, userId);
+  const base = await buildMultiFinanceProactiveContext(sb, userId);
+  // Reaproveita o que já está calculado: highlights do snapshot vigente e a
+  // afinidade aprendida. Nenhum número novo nasce aqui.
+  const [performanceHighlights, affinity] = await Promise.all([
+    loadPerformanceHighlights(sb, userId),
+    loadTopicAffinity(sb, userId),
+  ]);
+  const ctx = { ...base, performance_highlights: performanceHighlights, affinity };
   const signals = collectFinancialSignals(ctx);
   const situations = composeFinancialSituations(signals, ctx);
   const alreadyDelivered = persist

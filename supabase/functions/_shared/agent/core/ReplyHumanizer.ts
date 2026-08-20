@@ -177,10 +177,18 @@ export function addEmojiAccent(text: string): string {
   return lines.join("\n");
 }
 
+/** O Nino nunca chama o usuário de "Nino": vocativo inventado sai do texto. */
+export function stripSelfVocative(text: string): string {
+  return String(text ?? "")
+    .replace(/(^|[\s.!?])(certo|sim|n[ãa]o|beleza|blz|ok|okay|t[áa]|claro|perfeito|combinado|entendi|opa|valeu|obrigad[oa]|ah|oi|ol[aá]|show|isso)[,!]+\s*nino\b/gi, "$1$2")
+    .replace(/,\s*nino\s*(?=[.!?]|$)/gim, "")
+    .replace(/^\s*nino[,!]\s+/gim, "");
+}
+
 export function humanizeReply(raw: string | null | undefined): string {
   const text = String(raw ?? "");
   if (!text.trim()) return text;
-  let out = lightenLayout(stripInternalNames(text));
+  let out = lightenLayout(stripSelfVocative(stripInternalNames(text)));
   // Guarda final: se a remoção ainda deixou frase quebrada, repara de novo.
   if (findBrokenPhrases(out).length) out = lightenLayout(repairGrammar(out));
   return addEmojiAccent(out);

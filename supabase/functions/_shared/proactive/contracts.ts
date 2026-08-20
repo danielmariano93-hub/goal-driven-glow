@@ -8,6 +8,7 @@ export const PROACTIVE_MULTIFINANCE_VERSION = "proactive_multifinance.v1";
 
 export type ProactiveDomain =
   | "cash"
+  | "performance"
   | "cards"
   | "goals"
   | "commitments"
@@ -70,6 +71,30 @@ export interface MultiFinanceProactiveContext {
     patterns: unknown[];
   };
   learning: Record<string, { dismissals: number; actions: number; false_positives: number }>;
+  /**
+   * Highlights JÁ calculados por `financial_performance.v1` (lidos do snapshot
+   * vigente). O motor proativo nunca recalcula — apenas reaproveita.
+   */
+  performance_highlights?: PerformanceHighlightInput[];
+  /** Afinidade aprendida por tópico (-1..+1). Só ordena, nunca suprime risco. */
+  affinity?: Record<string, number>;
+}
+
+/** Recorte mínimo de um highlight de performance consumido como sinal. */
+export interface PerformanceHighlightInput {
+  id: string;
+  topic_key: string;
+  title: string;
+  body: string;
+  /** Valor material em R$ (já determinístico). */
+  materiality: number;
+  sentiment: "positive" | "negative" | "neutral";
+  severity: "info" | "attention" | "critical";
+  nature: string | null;
+  confidence: string;
+  actionable: boolean;
+  recommended_action: string | null;
+  methodology: string | null;
 }
 
 export type SituationSeverity = "info" | "attention" | "critical";
