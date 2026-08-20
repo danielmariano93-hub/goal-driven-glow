@@ -26,6 +26,7 @@ export const FINANCE_CORE_MODULES = [
   "ninoClock",
   "financialComparison",
   "financialPerformance",
+  "advisorRelevance",
   "merchant",
   "merchantIntelligence",
   "behaviorChange",

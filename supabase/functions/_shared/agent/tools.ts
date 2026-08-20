@@ -1364,6 +1364,7 @@ import {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
+  compare_financial_metric, assess_financial_performance,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 
@@ -1371,6 +1372,7 @@ export {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
+  compare_financial_metric, assess_financial_performance,
 };
 
 /**
@@ -2763,6 +2765,38 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: find_savings_opportunities,
+  },
+  {
+    name: "compare_financial_metric",
+    description: "COMPARAÇÃO canônica de qualquer métrica financeira entre dois períodos, com recorte explícito (mês corrente x mesmo trecho do mês anterior, semana x semana, dias úteis equivalentes, período custom) e explicação da variação por categoria, estabelecimento e fixo/flexível. Use para 'gastei mais que mês passado?', 'comparado à semana passada', 'como está esse mês contra o anterior', 'minha renda caiu?'.",
+    parameters: {
+      type: "object",
+      properties: {
+        metric: { type: "string", enum: ["expense", "income", "net", "savings_rate", "category_spend", "merchant_spend", "transaction_count", "average_ticket", "card_spend", "cash_flow", "debt_payment", "investment_flow", "commitment_load"] },
+        mode: { type: "string", enum: ["MTD_EQUIVALENT", "MTD", "MONTH_OVER_MONTH", "WEEK_OVER_WEEK", "PREVIOUS_EQUIVALENT_PERIOD", "SAME_CALENDAR_DAYS_PREVIOUS_MONTH", "SAME_BUSINESS_DAY_INDEX_PREVIOUS_MONTH", "ROLLING_WINDOW", "YEAR_OVER_YEAR", "CUSTOM_PERIOD"] },
+        day_selection: { type: "string", enum: ["CHRONOLOGICAL", "BUSINESS_DAYS_ONLY"] },
+        category_name: optionalStr,
+        merchant: optionalStr,
+        from: optionalStr,
+        to: optionalStr,
+        window_days: { type: "integer", minimum: 7, maximum: 365 },
+      },
+      additionalProperties: false,
+    },
+    execute: compare_financial_metric,
+  },
+  {
+    name: "assess_financial_performance",
+    description: "RESPOSTA EXECUTIVA de 'como estou?': o que mudou de verdade, se a mudança é estrutural, de hábito ou apenas de calendário (desembolso que ainda não veio), o principal avanço, o principal ponto de atenção e a próxima ação. Use para 'como estou?', 'estou melhorando?', 'minha performance financeira', 'evoluí esse mês?'.",
+    parameters: {
+      type: "object",
+      properties: {
+        mode: { type: "string", enum: ["MTD_EQUIVALENT", "MONTH_OVER_MONTH", "ROLLING_WINDOW"] },
+        materiality_floor: num,
+      },
+      additionalProperties: false,
+    },
+    execute: assess_financial_performance,
   },
   {
     name: "analyze_financial_evolution",

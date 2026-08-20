@@ -25,8 +25,14 @@ import {
   businessDaysBetween,
   getEquivalentBusinessPeriod,
   getNthBusinessDay,
+  includedByDaySelection,
+  profileOf,
+  BRAZILIAN_CALENDAR_VERSION,
+  DAY_SELECTION_LABEL_PT,
+  type DaySelection,
   type Jurisdiction,
 } from "./brazilianCalendar.ts";
+
 import { monthOf, monthPeriod, previousMonth } from "./ninoClock.ts";
 
 export const FINANCIAL_COMPARISON_VERSION = "financial_comparison.v1";
@@ -77,14 +83,21 @@ export type ComparisonSide = {
   coverage: DataCoverage;
 };
 
+export type DriverNature = "structural" | "behavioral" | "timing" | "unknown";
+
 export type ComparisonDriver = {
   key: string;
   label: string;
+  /** Eixo do driver — nunca só categoria. */
+  driver_type: "category" | "merchant" | "flexibility" | "card" | "movement" | "residual";
+  nature: DriverNature;
   current: number;
   previous: number;
   delta_abs: number;
   delta_pct: number | null;
   share_of_delta: number;
+  /** Confiança do driver isolado (amostra pequena não vira explicação forte). */
+  confidence: EngineConfidence;
 };
 
 export type FinancialComparisonRequest = {
@@ -97,6 +110,12 @@ export type FinancialComparisonRequest = {
   mode: ComparisonMode;
   /** Data de referência local do usuário (NinoClock). */
   as_of: string;
+  /**
+   * Seleção de dias DENTRO da janela. `CHRONOLOGICAL` soma todos os dias
+   * corridos; `BUSINESS_DAYS_ONLY` soma apenas dias úteis. Nunca implícito no
+   * texto da resposta: aparece no `methodology`.
+   */
+  day_selection?: DaySelection;
   /** Período atual explícito (obrigatório em CUSTOM_PERIOD). */
   current_period?: Period;
   comparison_period?: Period;
@@ -109,7 +128,12 @@ export type FinancialComparisonRequest = {
   jurisdiction?: Jurisdiction;
   /** Métricas fora do ledger (patrimônio, meta) chegam prontas por período. */
   valueResolver?: (period: Period) => { value: number; sample_size: number } | null;
+  /** Eixos de driver desejados. Default: categoria + estabelecimento + fixo/flexível. */
+  driver_axes?: Array<"category" | "merchant" | "flexibility" | "card" | "movement">;
+  /** Categorias recorrentes conhecidas — usadas para classificar natureza. */
+  recurring_labels?: string[];
 };
+
 
 export type FinancialComparisonResult = {
   metric: ComparisonMetric;
@@ -117,6 +141,7 @@ export type FinancialComparisonResult = {
   subject_id: string | null;
   subject_label: string | null;
   mode: ComparisonMode;
+  day_selection: DaySelection;
   current: ComparisonSide;
   previous: ComparisonSide;
   delta_abs: number;
@@ -132,6 +157,8 @@ export type FinancialComparisonResult = {
     current_period: Period;
     previous_period: Period;
     business_calendar: string;
+    calendar_profile: string;
+    day_selection: DaySelection;
     jurisdiction: Jurisdiction;
     notes: string[];
   };
@@ -295,8 +322,55 @@ export function resolvePeriods(req: FinancialComparisonRequest): {
 }
 
 // ---------------------------------------------------------------------------
-// Métrica
+// Registro de métricas — sem `default => expense`
 // ---------------------------------------------------------------------------
+/**
+ * Toda métrica declarada precisa ter implementação explícita. Métrica sem
+ * implementação FALHA com `metric_not_implemented` — jamais cai silenciosamente
+ * em despesa, que era a origem de respostas "corretas para a métrica errada".
+ */
+export type MetricSource = "ledger" | "external";
+
+export const METRIC_REGISTRY: Record<ComparisonMetric, {
+  source: MetricSource;
+  label: string;
+  unit: "BRL" | "percent" | "count";
+  /** Métrica externa exige `valueResolver` (patrimônio, metas, compromissos). */
+  requires_resolver: boolean;
+}> = {
+  expense: { source: "ledger", label: "gasto", unit: "BRL", requires_resolver: false },
+  income: { source: "ledger", label: "entradas", unit: "BRL", requires_resolver: false },
+  net: { source: "ledger", label: "resultado", unit: "BRL", requires_resolver: false },
+  cash_flow: { source: "ledger", label: "fluxo de caixa", unit: "BRL", requires_resolver: false },
+  savings_rate: { source: "ledger", label: "taxa de poupança", unit: "percent", requires_resolver: false },
+  category_spend: { source: "ledger", label: "gasto na categoria", unit: "BRL", requires_resolver: false },
+  merchant_spend: { source: "ledger", label: "gasto no estabelecimento", unit: "BRL", requires_resolver: false },
+  transaction_count: { source: "ledger", label: "número de lançamentos", unit: "count", requires_resolver: false },
+  average_ticket: { source: "ledger", label: "ticket médio", unit: "BRL", requires_resolver: false },
+  card_spend: { source: "ledger", label: "gasto no cartão", unit: "BRL", requires_resolver: false },
+  debt_payment: { source: "ledger", label: "pagamento de dívidas", unit: "BRL", requires_resolver: false },
+  investment_flow: { source: "ledger", label: "aporte líquido em investimentos", unit: "BRL", requires_resolver: false },
+  net_worth: { source: "external", label: "patrimônio líquido", unit: "BRL", requires_resolver: true },
+  commitment_load: { source: "external", label: "carga de compromissos", unit: "BRL", requires_resolver: true },
+  goal_progress: { source: "external", label: "progresso das metas", unit: "BRL", requires_resolver: true },
+};
+
+export class MetricNotImplementedError extends Error {
+  readonly code = "metric_not_implemented";
+  constructor(readonly metric: string, readonly detail: string) {
+    super(`metric_not_implemented:${metric}:${detail}`);
+  }
+}
+
+const DEBT_PAYMENT_KINDS = new Set(["debt_payment", "loan_payment"]);
+const INVESTMENT_IN_KINDS = new Set(["investment_application"]);
+const INVESTMENT_OUT_KINDS = new Set(["investment_redemption"]);
+
+function merchantKeyOf(t: TransactionRow): string {
+  const raw = (t as { merchant_name?: string | null }).merchant_name ?? t.description ?? "";
+  return String(raw).trim().toLowerCase() || "sem estabelecimento";
+}
+
 function matchesScope(t: TransactionRow, req: FinancialComparisonRequest, attribution: Map<string, string | null>): boolean {
   const scope = req.scope ?? "overall";
   if (scope === "overall") return true;
@@ -304,8 +378,10 @@ function matchesScope(t: TransactionRow, req: FinancialComparisonRequest, attrib
   switch (scope) {
     case "category": return effectiveCategoryId(t, attribution) === req.subject_id;
     case "merchant": {
-      const raw = String((t as { merchant_name?: string | null }).merchant_name ?? t.description ?? "").toLowerCase();
-      return raw.includes(String(req.subject_id).toLowerCase());
+      // Escopo de estabelecimento é EXCLUSIVO: identidade canônica, não substring solta.
+      const key = merchantKeyOf(t);
+      const subject = String(req.subject_id).trim().toLowerCase();
+      return key === subject || key.split(/\s+/).join(" ").includes(subject);
     }
     case "card": return (t as { credit_card_id?: string | null }).credit_card_id === req.subject_id;
     case "account": return t.account_id === req.subject_id;
@@ -313,12 +389,20 @@ function matchesScope(t: TransactionRow, req: FinancialComparisonRequest, attrib
   }
 }
 
+type DriverAxis = "category" | "merchant" | "flexibility" | "card" | "movement";
+
 type Aggregate = {
   value: number;
   sample_size: number;
   transaction_days: Set<string>;
-  byDriver: Map<string, number>;
+  byAxis: Map<DriverAxis, Map<string, number>>;
 };
+
+function bump(agg: Aggregate, axis: DriverAxis, label: string, amount: number) {
+  const map = agg.byAxis.get(axis) ?? new Map<string, number>();
+  map.set(label, round2((map.get(label) ?? 0) + amount));
+  agg.byAxis.set(axis, map);
+}
 
 function aggregate(
   req: FinancialComparisonRequest,
@@ -327,29 +411,56 @@ function aggregate(
   attribution: Map<string, string | null>,
 ): Aggregate {
   const names = req.categoryNames ?? new Map<string, string>();
-  const out: Aggregate = { value: 0, sample_size: 0, transaction_days: new Set(), byDriver: new Map() };
+  const jur = req.jurisdiction ?? DEFAULT_JURISDICTION;
+  const daySelection = resolveDaySelection(req);
+  const meta = METRIC_REGISTRY[req.metric];
+  if (!meta) throw new MetricNotImplementedError(req.metric, "metrica_desconhecida");
+  const out: Aggregate = { value: 0, sample_size: 0, transaction_days: new Set(), byAxis: new Map() };
   let income = 0;
   let expense = 0;
   let count = 0;
   let cardExpense = 0;
+  let debtPayment = 0;
+  let investmentIn = 0;
+  let investmentOut = 0;
 
   for (const t of ledger) {
     const d = t.occurred_at.slice(0, 10);
     if (d < period.from || d > period.to) continue;
+    if (!includedByDaySelection(d, daySelection, jur)) continue;
     if (!matchesScope(t, req, attribution)) continue;
+    const mk = String((t as { movement_kind?: string | null }).movement_kind ?? "transaction");
+    const gross = Number(t.amount || 0);
+    const confirmed = String(t.status ?? "confirmed") === "confirmed";
+
+    // Movimentos patrimoniais/dívida não são "gasto comportamental", mas SÃO a
+    // métrica quando a pergunta é sobre eles.
+    if (confirmed && DEBT_PAYMENT_KINDS.has(mk)) debtPayment += gross;
+    if (confirmed && INVESTMENT_IN_KINDS.has(mk)) investmentIn += gross;
+    if (confirmed && INVESTMENT_OUT_KINDS.has(mk)) investmentOut += gross;
+    if (confirmed && (DEBT_PAYMENT_KINDS.has(mk) || INVESTMENT_IN_KINDS.has(mk) || INVESTMENT_OUT_KINDS.has(mk))) {
+      out.transaction_days.add(d);
+      bump(out, "movement", mk, gross);
+    }
+
     const inc = behavioralMetricAmount(t, "income");
     const exp = behavioralMetricAmount(t, "expense");
     if (inc === 0 && exp === 0) continue;
     income += inc;
     expense += exp;
     count += 1;
-    if ((t as { credit_card_id?: string | null }).credit_card_id) cardExpense += exp;
+    const cardId = (t as { credit_card_id?: string | null }).credit_card_id ?? null;
+    if (cardId) cardExpense += exp;
     out.transaction_days.add(d);
     if (exp !== 0) {
       const catId = effectiveCategoryId(t, attribution);
       const label = catId ? (names.get(catId) ?? "Sem categoria") : "Sem categoria";
-      out.byDriver.set(label, round2((out.byDriver.get(label) ?? 0) + exp));
+      bump(out, "category", label, exp);
+      bump(out, "merchant", merchantKeyOf(t), exp);
+      bump(out, "flexibility", isStructuralLabel(label) ? "fixo" : "flexível", exp);
+      if (cardId) bump(out, "card", cardId, exp);
     }
+    if (inc !== 0) bump(out, "movement", "entrada", inc);
   }
 
   switch (req.metric) {
@@ -360,11 +471,41 @@ function aggregate(
     case "transaction_count": out.value = count; break;
     case "average_ticket": out.value = count > 0 ? round2(expense / count) : 0; break;
     case "card_spend": out.value = round2(cardExpense); break;
-    default: out.value = round2(expense); break;
+    case "debt_payment": out.value = round2(debtPayment); break;
+    case "investment_flow": out.value = round2(investmentIn - investmentOut); break;
+    case "expense": out.value = round2(expense); break;
+    case "category_spend":
+    case "merchant_spend": {
+      if (!req.subject_id) {
+        throw new MetricNotImplementedError(req.metric, "subject_id_obrigatorio");
+      }
+      out.value = round2(expense);
+      break;
+    }
+    case "net_worth":
+    case "commitment_load":
+    case "goal_progress":
+      // Métricas de estoque/agenda não nascem do ledger: exigem `valueResolver`.
+      throw new MetricNotImplementedError(req.metric, "value_resolver_obrigatorio");
+    default:
+      throw new MetricNotImplementedError(String(req.metric), "sem_implementacao");
   }
-  out.sample_size = count;
+  out.sample_size = count || out.transaction_days.size;
   return out;
 }
+
+/** Rótulos estruturais (custo fixo) — espelha `classifyFlexibility` do custo. */
+function isStructuralLabel(label: string): boolean {
+  return /aluguel|condom|financ|presta|energia|luz|agua|água|internet|telefon|plano de saude|plano de saúde|escola|mensalidade|seguro|assinatura|streaming|academia/i
+    .test(label);
+}
+
+function resolveDaySelection(req: FinancialComparisonRequest): DaySelection {
+  if (req.day_selection) return req.day_selection;
+  // O único modo cuja intenção é intrinsecamente "somente dias úteis".
+  return req.mode === "SAME_BUSINESS_DAYS_RANGE" ? "BUSINESS_DAYS_ONLY" : "CHRONOLOGICAL";
+}
+
 
 function coverageOf(period: Period, agg: Aggregate, allDates: string[]): DataCoverage {
   const expected = calendarDays(period);
@@ -402,6 +543,73 @@ function comparabilityOf(current: ComparisonSide, previous: ComparisonSide, note
   if (current.sample_size === 0 || previous.sample_size === 0) return "low";
   return "low";
 }
+/**
+ * Drivers multi-eixo com RESIDUAL: a soma dos drivers de um eixo mais o
+ * residual reconcilia exatamente a variação total. Sem residual, um top-8
+ * mentia por omissão ("o aumento veio daí" quando vinha da cauda).
+ */
+function buildDrivers(
+  req: FinancialComparisonRequest,
+  aggC: Aggregate,
+  aggP: Aggregate,
+  deltaTotal: number,
+): ComparisonDriver[] {
+  const axes = req.driver_axes ?? ["category", "merchant", "flexibility"];
+  const recurring = (req.recurring_labels ?? []).map((s) => s.toLowerCase());
+  const total = Math.abs(deltaTotal) || 1;
+  const out: ComparisonDriver[] = [];
+
+  for (const axis of axes) {
+    const cur = aggC.byAxis.get(axis) ?? new Map<string, number>();
+    const pre = aggP.byAxis.get(axis) ?? new Map<string, number>();
+    const keys = new Set<string>([...cur.keys(), ...pre.keys()]);
+    const rows = [...keys].map((label) => {
+      const c = cur.get(label) ?? 0;
+      const p = pre.get(label) ?? 0;
+      const d = round2(c - p);
+      const isRecurring = recurring.includes(label.toLowerCase()) || isStructuralLabel(label);
+      // Desaparecimento total de um desembolso recorrente é CALENDÁRIO, não hábito.
+      const nature: DriverNature = isRecurring
+        ? (d < 0 && c === 0 && p > 0 ? "timing" : "structural")
+        : (Math.abs(d) > 0 ? "behavioral" : "unknown");
+      const samples = Math.abs(c) > 0 && Math.abs(p) > 0 ? 2 : 1;
+      return {
+        key: `${axis}:${label.toLowerCase().replace(/\s+/g, "_")}`,
+        label,
+        driver_type: axis,
+        nature,
+        current: round2(c),
+        previous: round2(p),
+        delta_abs: d,
+        delta_pct: p > 0 ? Math.round((d / p) * 10000) / 100 : null,
+        share_of_delta: Math.round((Math.abs(d) / total) * 10000) / 10000,
+        confidence: samples >= 2 ? "medium" : "low",
+      } satisfies ComparisonDriver;
+    }).sort((a, b) => Math.abs(b.delta_abs) - Math.abs(a.delta_abs));
+
+    const top = rows.slice(0, 8);
+    const explained = round2(top.reduce((s, r) => s + r.delta_abs, 0));
+    const axisTotal = round2(rows.reduce((s, r) => s + r.delta_abs, 0));
+    const residual = round2(axisTotal - explained);
+    out.push(...top);
+    if (Math.abs(residual) >= 0.01) {
+      out.push({
+        key: `${axis}:residual`,
+        label: `Outros (${axis})`,
+        driver_type: "residual",
+        nature: "unknown",
+        current: 0,
+        previous: 0,
+        delta_abs: residual,
+        delta_pct: null,
+        share_of_delta: Math.round((Math.abs(residual) / total) * 10000) / 10000,
+        confidence: "low",
+      });
+    }
+  }
+  return out;
+}
+
 
 export function computeFinancialComparison(req: FinancialComparisonRequest): FinancialComparisonResult {
   const jur = req.jurisdiction ?? DEFAULT_JURISDICTION;
@@ -410,9 +618,15 @@ export function computeFinancialComparison(req: FinancialComparisonRequest): Fin
   const attribution = buildRefundAttribution(ledger);
   const allDates = [...new Set(ledger.map((t) => t.occurred_at.slice(0, 10)))].sort();
 
+  const meta = METRIC_REGISTRY[req.metric];
+  if (!meta) throw new MetricNotImplementedError(String(req.metric), "metrica_desconhecida");
   const external = req.valueResolver;
-  const aggC = aggregate(req, cp, ledger, attribution);
-  const aggP = aggregate(req, pp, ledger, attribution);
+  if (meta.requires_resolver && !external) {
+    throw new MetricNotImplementedError(req.metric, "value_resolver_obrigatorio");
+  }
+  const emptyAgg = (): Aggregate => ({ value: 0, sample_size: 0, transaction_days: new Set(), byAxis: new Map() });
+  const aggC = meta.source === "external" ? emptyAgg() : aggregate(req, cp, ledger, attribution);
+  const aggP = meta.source === "external" ? emptyAgg() : aggregate(req, pp, ledger, attribution);
   const extC = external?.(cp) ?? null;
   const extP = external?.(pp) ?? null;
 
@@ -438,22 +652,8 @@ export function computeFinancialComparison(req: FinancialComparisonRequest): Fin
     ? Math.round((delta_abs / Math.abs(previous.value)) * 10000) / 100
     : null;
 
-  const driverKeys = new Set<string>([...aggC.byDriver.keys(), ...aggP.byDriver.keys()]);
-  const totalDelta = Math.abs(delta_abs) || 1;
-  const drivers: ComparisonDriver[] = [...driverKeys].map((label) => {
-    const cur = aggC.byDriver.get(label) ?? 0;
-    const pre = aggP.byDriver.get(label) ?? 0;
-    const d = round2(cur - pre);
-    return {
-      key: label.toLowerCase().replace(/\s+/g, "_"),
-      label,
-      current: cur,
-      previous: pre,
-      delta_abs: d,
-      delta_pct: pre > 0 ? Math.round((d / pre) * 10000) / 100 : null,
-      share_of_delta: Math.round((Math.abs(d) / totalDelta) * 10000) / 10000,
-    };
-  }).sort((a, b) => Math.abs(b.delta_abs) - Math.abs(a.delta_abs)).slice(0, 8);
+  const drivers = buildDrivers(req, aggC, aggP, delta_abs);
+  const daySelection = resolveDaySelection(req);
 
   if (Math.abs(current.days - previous.days) > 1) {
     notes.push(`Períodos com tamanhos diferentes (${current.days}d vs ${previous.days}d).`);
@@ -466,12 +666,19 @@ export function computeFinancialComparison(req: FinancialComparisonRequest): Fin
     return score >= 3 ? "high" : score === 2 ? "medium" : score === 1 ? "low" : "insufficient_data";
   })();
 
+  // A metodologia é PARTE DA RESPOSTA: métrica + recorte + seleção de dias.
+  const fullMethodology = `${METRIC_REGISTRY[req.metric].label}: ${methodology} Considerei ${DAY_SELECTION_LABEL_PT[daySelection]}`
+    + (daySelection === "BUSINESS_DAYS_ONLY"
+      ? ` (${current.business_days} dias úteis contra ${previous.business_days}).`
+      : ` (${current.days} dias contra ${previous.days}).`);
+
   return {
     metric: req.metric,
     scope: req.scope ?? "overall",
     subject_id: req.subject_id ?? null,
     subject_label: req.subject_label ?? null,
     mode: req.mode,
+    day_selection: daySelection,
     current,
     previous,
     delta_abs,
@@ -481,14 +688,17 @@ export function computeFinancialComparison(req: FinancialComparisonRequest): Fin
     confidence,
     drivers,
     exclusions: [...CANONICAL_EXCLUSIONS, REFUND_EXCLUSION],
-    methodology,
+    methodology: fullMethodology,
     evidence: {
       current_period: cp,
       previous_period: pp,
-      business_calendar: "brazilian_business_calendar.v1",
+      business_calendar: BRAZILIAN_CALENDAR_VERSION,
+      calendar_profile: profileOf(jur),
+      day_selection: daySelection,
       jurisdiction: jur,
       notes,
     },
     formula_version: FINANCIAL_COMPARISON_VERSION,
   };
 }
+

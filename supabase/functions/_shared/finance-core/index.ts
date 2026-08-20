@@ -8,6 +8,7 @@ export * from "./brazilianCalendar.ts";
 export * from "./ninoClock.ts";
 export * from "./financialComparison.ts";
 export * from "./financialPerformance.ts";
+export * from "./advisorRelevance.ts";
 export * from "./merchant.ts";
 export * from "./merchantIntelligence.ts";
 export * from "./behaviorChange.ts";

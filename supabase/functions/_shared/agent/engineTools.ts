@@ -16,6 +16,14 @@ import { detectAnomalies } from "../finance-core/anomalies.ts";
 import { computeSavingsOpportunities } from "../finance-core/savingsOpportunities.ts";
 import { computeFinancialEvolution } from "../finance-core/financialEvolution.ts";
 import { computeDebtStatus } from "../finance-core/debtStatus.ts";
+import {
+  computeFinancialComparison,
+  FINANCIAL_COMPARISON_VERSION,
+  type ComparisonMetric,
+  type ComparisonMode,
+} from "../finance-core/financialComparison.ts";
+import { computeFinancialPerformance } from "../finance-core/financialPerformance.ts";
+import { computeAdvisorDecision } from "../finance-core/advisorRelevance.ts";
 import { buildMerchantResolver, type MerchantAliasRow } from "../finance-core/merchant.ts";
 import { previousWindow, shiftDays, type EnginePeriod } from "../finance-core/engineEnvelope.ts";
 import { withAnswerFormat, brl, formatDatePt } from "./answerFormat.ts";
@@ -431,6 +439,162 @@ export function find_savings_opportunities(ctx: EngineToolContext, args: { days?
       : "Não encontrei economia clara sem mexer no seu custo estrutural.";
     return withAnswerFormat(env, headline);
   });
+}
+
+// ------------------------------------------------- comparação canônica v1
+
+const COMPARISON_METRICS = new Set<ComparisonMetric>([
+  "expense", "income", "net", "savings_rate", "category_spend", "merchant_spend",
+  "transaction_count", "average_ticket", "card_spend", "cash_flow", "debt_payment",
+  "investment_flow", "commitment_load",
+]);
+
+const COMPARISON_MODES = new Set<ComparisonMode>([
+  "PREVIOUS_EQUIVALENT_PERIOD", "SAME_CALENDAR_DAYS_PREVIOUS_MONTH", "SAME_NUMBER_OF_ELAPSED_DAYS",
+  "SAME_BUSINESS_DAY_INDEX_PREVIOUS_MONTH", "SAME_BUSINESS_DAYS_RANGE", "WEEK_OVER_WEEK",
+  "MONTH_OVER_MONTH", "MTD", "MTD_EQUIVALENT", "ROLLING_WINDOW", "YEAR_OVER_YEAR", "CUSTOM_PERIOD",
+]);
+
+/**
+ * `financial_comparison.v1` como tool única de comparação.
+ * Qualquer "gastei mais/menos que", "comparado a", "este mês x mês passado"
+ * passa por aqui: o recorte fica explícito em `methodology` e os drivers
+ * explicam a variação por vários eixos.
+ */
+export function compare_financial_metric(
+  ctx: EngineToolContext,
+  args: {
+    metric?: string; mode?: string; day_selection?: string;
+    category_name?: string; category_id?: string; merchant?: string;
+    from?: string; to?: string; window_days?: number;
+  },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const today = todaySaoPaulo().slice(0, 10);
+    const metric = (COMPARISON_METRICS.has(String(args?.metric) as ComparisonMetric)
+      ? String(args?.metric) : "expense") as ComparisonMetric;
+    const mode = (COMPARISON_MODES.has(String(args?.mode) as ComparisonMode)
+      ? String(args?.mode) : "MTD_EQUIVALENT") as ComparisonMode;
+    const [txs, names] = await Promise.all([
+      loadEngineTransactions(ctx, shiftDays(today, -800), today),
+      loadCategoryNames(ctx),
+    ]);
+    const categoryId = metric === "category_spend" ? await resolveCategoryId(ctx, args) : null;
+    if (metric === "category_spend" && !categoryId) throw new Error("category_not_found");
+    const merchant = String(args?.merchant ?? "").trim();
+    if (metric === "merchant_spend" && !merchant) throw new Error("merchant_required");
+
+    const explicitPeriod = /^\d{4}-\d{2}-\d{2}$/.test(String(args?.from ?? ""))
+      && /^\d{4}-\d{2}-\d{2}$/.test(String(args?.to ?? ""));
+    const result = computeFinancialComparison({
+      txs: txs as any,
+      categoryNames: new Map(Object.entries(names)),
+      metric,
+      scope: metric === "category_spend" ? "category" : metric === "merchant_spend" ? "merchant" : "overall",
+      subject_id: categoryId,
+      subject_label: metric === "merchant_spend" ? merchant : (categoryId ? names[categoryId] ?? null : null),
+      mode: explicitPeriod ? "CUSTOM_PERIOD" : mode,
+      as_of: today,
+      day_selection: args?.day_selection === "BUSINESS_DAYS_ONLY" ? "BUSINESS_DAYS_ONLY" : "CHRONOLOGICAL",
+      current_period: explicitPeriod ? { from: String(args!.from).slice(0, 10), to: String(args!.to).slice(0, 10) } : undefined,
+      window_days: Number(args?.window_days ?? 30),
+    });
+
+    const dir = result.direction === "up" ? "subiu" : result.direction === "down" ? "caiu" : "ficou estável";
+    const pct = result.delta_pct === null ? "" : ` (${result.delta_pct > 0 ? "+" : ""}${result.delta_pct.toFixed(1)}%)`;
+    const subject = result.subject_label ? ` em ${result.subject_label}` : "";
+    const headline = `${brl(result.current.value)}${subject} contra ${brl(result.previous.value)} — ${dir} ${brl(Math.abs(result.delta_abs))}${pct}.`;
+    const top = result.drivers.slice(0, 3)
+      .map((d) => `${d.label}: ${d.delta_abs > 0 ? "+" : ""}${brl(d.delta_abs)}`)
+      .join(" · ");
+    return {
+      ...result,
+      answer_format: {
+        version: "nino_answer_format.v1",
+        headline,
+        delta_line: top || null,
+        evidence_line: result.methodology,
+        confidence_label: result.confidence,
+      },
+    };
+  });
+}
+
+// ------------------------------------- performance executiva ("como estou?")
+
+/**
+ * `financial_performance.v1` + `advisor_relevance.v1`.
+ * Responde "como estou?" com o que MUDOU, por que mudou (timing x estrutura x
+ * comportamento) e a próxima ação. Nunca chama melhora o que é só calendário.
+ */
+export function assess_financial_performance(
+  ctx: EngineToolContext,
+  args: { mode?: string; materiality_floor?: number },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const today = todaySaoPaulo().slice(0, 10);
+    const [txs, names] = await Promise.all([
+      loadEngineTransactions(ctx, shiftDays(today, -420), today),
+      loadCategoryNames(ctx),
+    ]);
+    const perf = computeFinancialPerformance({
+      txs: txs as any,
+      categoryNames: new Map(Object.entries(names)),
+      as_of: today,
+      mode: (COMPARISON_MODES.has(String(args?.mode) as ComparisonMode)
+        ? String(args?.mode) : "MTD_EQUIVALENT") as ComparisonMode,
+      materialityFloor: Number(args?.materiality_floor ?? 50),
+    });
+    const affinity = await loadTopicAffinity(ctx);
+    const decision = computeAdvisorDecision({
+      highlights: perf.highlights,
+      affinity,
+      as_of: today,
+      channel: "app",
+      maxItems: 3,
+    });
+    const main = decision.items[0] ?? null;
+    const headline = decision.items.length
+      ? `${perf.headline} ${main ? main.body : ""}`.trim()
+      : perf.headline;
+    return {
+      engine: "financial_performance.v1",
+      facts: {
+        headline: perf.headline,
+        main_improvement: decision.main_improvement,
+        main_attention: decision.main_attention,
+        next_action: decision.next_action,
+      },
+      highlights: decision.items,
+      suppressed: decision.suppressed,
+      comparisons: perf.comparisons,
+      methodology: decision.methodology,
+      answer_format: {
+        version: "nino_answer_format.v1",
+        headline,
+        delta_line: main
+          ? `Natureza: ${main.nature ?? "não classificada"}${main.recommended_action ? ` · ${main.recommended_action}` : ""}`
+          : null,
+        evidence_line: decision.methodology,
+        confidence_label: main?.confidence ?? "insufficient_data",
+      },
+      formula_version: `${perf.formula_version}+${FINANCIAL_COMPARISON_VERSION}`,
+    };
+  });
+}
+
+/** Afinidade de tópicos aprendida — só ordena, nunca muda número. */
+async function loadTopicAffinity(ctx: EngineToolContext) {
+  const { data, error } = await ctx.sb.from("user_advisor_topic_affinity")
+    .select("topic_key,score,signals,last_seen_at")
+    .eq("user_id", ctx.user_id);
+  if (error) return [];
+  return (data ?? []).map((r: any) => ({
+    topic_key: String(r.topic_key),
+    score: Number(r.score ?? 0),
+    signals: Number(r.signals ?? 0),
+    last_seen: r.last_seen_at ? String(r.last_seen_at).slice(0, 10) : null,
+  }));
 }
 
 // -------------------------------------------------------------- evolution

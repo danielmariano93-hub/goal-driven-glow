@@ -5450,6 +5450,54 @@ export type Database = {
         }
         Relationships: []
       }
+      financial_performance_snapshots: {
+        Row: {
+          as_of: string
+          created_at: string
+          formula_version: string
+          headline: string
+          highlights: Json
+          id: string
+          invalidated_at: string | null
+          methodology: string | null
+          mode: string
+          next_action: string | null
+          suppressed: Json
+          user_id: string
+          valid_until: string | null
+        }
+        Insert: {
+          as_of: string
+          created_at?: string
+          formula_version: string
+          headline: string
+          highlights?: Json
+          id?: string
+          invalidated_at?: string | null
+          methodology?: string | null
+          mode: string
+          next_action?: string | null
+          suppressed?: Json
+          user_id: string
+          valid_until?: string | null
+        }
+        Update: {
+          as_of?: string
+          created_at?: string
+          formula_version?: string
+          headline?: string
+          highlights?: Json
+          id?: string
+          invalidated_at?: string | null
+          methodology?: string | null
+          mode?: string
+          next_action?: string | null
+          suppressed?: Json
+          user_id?: string
+          valid_until?: string | null
+        }
+        Relationships: []
+      }
       financial_reconciliation_audit: {
         Row: {
           actor_id: string | null
@@ -10314,6 +10362,42 @@ export type Database = {
           },
         ]
       }
+      user_advisor_topic_affinity: {
+        Row: {
+          created_at: string
+          id: string
+          last_seen_at: string | null
+          last_signal: string | null
+          score: number
+          signals: number
+          topic_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_seen_at?: string | null
+          last_signal?: string | null
+          score?: number
+          signals?: number
+          topic_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_seen_at?: string | null
+          last_signal?: string | null
+          score?: number
+          signals?: number
+          topic_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_ai_preferences: {
         Row: {
           example_style: string
@@ -11810,6 +11894,10 @@ export type Database = {
         Returns: Json
       }
       admin_whatsapp_inbound_health: { Args: never; Returns: Json }
+      advisor_register_topic_signal: {
+        Args: { _signal: string; _topic_key: string }
+        Returns: undefined
+      }
       agent_compile_prompt: { Args: { p_cfg: Json }; Returns: string }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }

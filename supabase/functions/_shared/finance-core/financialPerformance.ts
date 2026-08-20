@@ -18,7 +18,42 @@ import {
 import type { EngineConfidence } from "./engineEnvelope.ts";
 import { monthOf, monthPeriod, previousMonth } from "./ninoClock.ts";
 
-export const FINANCIAL_PERFORMANCE_VERSION = "financial_performance.v1";
+export const FINANCIAL_PERFORMANCE_VERSION = "financial_performance.v2";
+
+/**
+ * Decomposição determinística da variação: timing (calendário) x estrutura x
+ * comportamento. `normalized_change` é o observado MENOS o efeito calendário —
+ * é o único número que pode sustentar a frase "você melhorou de verdade".
+ */
+export function decomposeChange(
+  observed: number,
+  drivers: Array<{ delta_abs: number; nature: StructuralNature; [k: string]: unknown }>,
+): {
+  observed_change: number;
+  timing_effect: number;
+  structural_change: number;
+  behavioral_change: number;
+  normalized_change: number;
+  reconciles: boolean;
+} {
+  let timing = 0;
+  let structural = 0;
+  let behavioral = 0;
+  for (const d of drivers) {
+    if (d.nature === "timing") timing += d.delta_abs;
+    else if (d.nature === "structural") structural += d.delta_abs;
+    else if (d.nature === "behavioral") behavioral += d.delta_abs;
+  }
+  const explained = round2(timing + structural + behavioral);
+  return {
+    observed_change: round2(observed),
+    timing_effect: round2(timing),
+    structural_change: round2(structural),
+    behavioral_change: round2(behavioral),
+    normalized_change: round2(observed - timing),
+    reconciles: Math.abs(round2(observed) - explained) <= Math.max(1, Math.abs(observed) * 0.05),
+  };
+}
 
 export type HighlightType =
   | "expense_improvement" | "expense_deterioration"
@@ -69,8 +104,18 @@ export type FinancialPerformanceHighlight = {
   evidence: {
     current_period: { from: string; to: string };
     previous_period: { from: string; to: string };
+    /** Variação observada crua (atual - anterior). */
     observed_change: number;
+    /** Parte da variação explicada por CALENDÁRIO (desembolso que ainda não veio). */
+    timing_effect: number;
+    /** Parte explicada por mudança de custo fixo/estrutura. */
+    structural_change: number;
+    /** Parte explicada por mudança de hábito (gasto flexível). */
+    behavioral_change: number;
+    /** Variação já limpa do efeito calendário — a que responde "melhorei de verdade?". */
     normalized_change: number;
+    /** Soma das partes reconcilia o observado? Falso vira nota de limitação. */
+    reconciles: boolean;
     formula_version: string;
   };
   logical_topic_key: string;
@@ -196,8 +241,7 @@ export function computeFinancialPerformance(input: PerformanceInput): Performanc
       evidence: {
         current_period: expense.evidence.current_period,
         previous_period: expense.evidence.previous_period,
-        observed_change: expense.delta_abs,
-        normalized_change: normalized,
+        ...decomposeChange(expense.delta_abs, expenseDrivers.slice(0, 5)),
         formula_version: FINANCIAL_PERFORMANCE_VERSION,
       },
       logical_topic_key: "performance:expense:total",
@@ -235,8 +279,7 @@ export function computeFinancialPerformance(input: PerformanceInput): Performanc
       evidence: {
         current_period: income.evidence.current_period,
         previous_period: income.evidence.previous_period,
-        observed_change: income.delta_abs,
-        normalized_change: income.delta_abs,
+        ...decomposeChange(income.delta_abs, []),
         formula_version: FINANCIAL_PERFORMANCE_VERSION,
       },
       logical_topic_key: "performance:income:total",
@@ -280,8 +323,7 @@ export function computeFinancialPerformance(input: PerformanceInput): Performanc
       evidence: {
         current_period: net.evidence.current_period,
         previous_period: net.evidence.previous_period,
-        observed_change: net.delta_abs,
-        normalized_change: net.delta_abs,
+        ...decomposeChange(net.delta_abs, expenseDrivers.slice(0, 3)),
         formula_version: FINANCIAL_PERFORMANCE_VERSION,
       },
       logical_topic_key: "performance:net:total",
@@ -331,8 +373,7 @@ export function computeFinancialPerformance(input: PerformanceInput): Performanc
       evidence: {
         current_period: expense.evidence.current_period,
         previous_period: expense.evidence.previous_period,
-        observed_change: d.delta_abs,
-        normalized_change: nature === "timing" ? 0 : d.delta_abs,
+        ...decomposeChange(d.delta_abs, [{ label: d.label, delta_abs: d.delta_abs, nature, flexibility }]),
         formula_version: FINANCIAL_PERFORMANCE_VERSION,
       },
       logical_topic_key: `performance:category:${d.key}`,
@@ -370,8 +411,7 @@ export function computeFinancialPerformance(input: PerformanceInput): Performanc
       evidence: {
         current_period: freq.evidence.current_period,
         previous_period: freq.evidence.previous_period,
-        observed_change: freq.delta_abs,
-        normalized_change: freq.delta_abs,
+        ...decomposeChange(freq.delta_abs, []),
         formula_version: FINANCIAL_PERFORMANCE_VERSION,
       },
       logical_topic_key: "performance:behavior:frequency",
@@ -416,8 +456,7 @@ export function computeFinancialPerformance(input: PerformanceInput): Performanc
       evidence: {
         current_period: monthPeriod(monthlyNets[0].month),
         previous_period: monthPeriod(monthlyNets[monthlyNets.length - 1].month),
-        observed_change: round2(monthlyNets[0].value - monthlyNets[monthlyNets.length - 1].value),
-        normalized_change: round2(monthlyNets[0].value - monthlyNets[monthlyNets.length - 1].value),
+        ...decomposeChange(round2(monthlyNets[0].value - monthlyNets[monthlyNets.length - 1].value), []),
         formula_version: FINANCIAL_PERFORMANCE_VERSION,
       },
       logical_topic_key: "performance:stability:streak",

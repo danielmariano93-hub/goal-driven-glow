@@ -132,3 +132,32 @@ export function buildTemporalContext(opts?: {
 export function shift(date: string, days: number): string {
   return addDays(date, days);
 }
+
+/**
+ * Relógio do usuário a partir do que o produto sabe dele. Único caminho
+ * permitido para obter "hoje": nenhum motor, página, tool ou detector pode
+ * derivar data local com `new Date().toISOString().slice(0, 10)`.
+ */
+export function resolveUserClock(user?: {
+  timezone?: string | null;
+  calendar_profile?: Jurisdiction["calendar_profile"];
+  state_code?: string | null;
+  city_code?: string | null;
+} | null, now?: Date): UserTemporalContext {
+  return buildTemporalContext({
+    timezone: user?.timezone ?? DEFAULT_TIMEZONE,
+    now,
+    jurisdiction: {
+      country: "BR",
+      calendar_profile: user?.calendar_profile ?? DEFAULT_JURISDICTION.calendar_profile,
+      state_code: user?.state_code ?? null,
+      city_code: user?.city_code ?? null,
+    },
+  });
+}
+
+/** Atalho: data local do usuário (YYYY-MM-DD). Substitui todo `toISOString().slice(0,10)`. */
+export function today(user?: { timezone?: string | null } | null, now?: Date): string {
+  return localDate(user?.timezone ?? DEFAULT_TIMEZONE, now ?? new Date());
+}
+

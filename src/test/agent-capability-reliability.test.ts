@@ -17,8 +17,13 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     expect(capability("Quais são minhas metas cadastradas?")).toMatchObject({
       name: "goals_overview", execution: "deterministic", required_tool: "get_goals_overview",
     });
+    // "Como estou?" virou RESPOSTA EXECUTIVA (advisor_core.v1): precisa separar
+    // melhora real de efeito calendário, não só devolver o saldo.
     expect(capability("Como estou financeiramente?")).toMatchObject({
-      name: "financial_snapshot", execution: "deterministic", required_tool: "get_financial_snapshot",
+      name: "financial_performance", execution: "deterministic", required_tool: "assess_financial_performance",
+    });
+    expect(capability("Gastei mais que mês passado?")).toMatchObject({
+      name: "financial_comparison", execution: "deterministic", required_tool: "compare_financial_metric",
     });
     expect(capability("Se eu gastar R$ 100 na categoria lazer amanhã, qual o impacto?")).toMatchObject({
       name: "before_spending", execution: "deterministic", required_tool: "run_before_spending",
