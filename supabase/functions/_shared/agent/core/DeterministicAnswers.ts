@@ -6,6 +6,8 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import type { LLMTurn } from "../llm.ts";
 import { runTool } from "./ToolRuntime.ts";
 import type { CapabilityDecision } from "./CapabilityRouter.ts";
+import { classifyOutcome, isClarification } from "./ToolOutcome.ts";
+
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const PCT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
