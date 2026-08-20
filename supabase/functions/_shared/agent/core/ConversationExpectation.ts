@@ -33,9 +33,10 @@ const EMOTIONAL_QUESTION =
 
 /** Slots de lançamento que o Nino costuma perguntar. */
 const ENTRY_SLOT_QUESTION =
-  /(qual (?:o )?valor)|(qual (?:o )?cart[aã]o)|(qual (?:a )?conta)|(qual (?:a )?data)|(qual (?:foi )?o estabelecimento)|(em quantas parcelas)/i;
+  /(qual (?:foi )?(?:o )?valor)|(qual (?:foi )?(?:o )?cart[aã]o)|(em qual cart[aã]o)|(qual (?:foi )?(?:a )?conta)|(em qual conta)|(qual (?:foi )?(?:a )?data)|(qual (?:foi )?o estabelecimento)|(em quantas parcelas)|(foi um gasto ou um recebimento)|(à vista ou parcelado)/i;
 
-const CATEGORY_QUESTION = /(qual (?:a )?categoria)|(de qual categoria)|(categoria e (?:o )?per[ií]odo)/i;
+const CATEGORY_QUESTION = /(qual (?:a )?categoria)|(de qual categoria)|(categoria e (?:o )?per[ií]odo)|(qual categoria eu uso)/i;
+
 
 /** Deduz a expectativa a partir da última fala do Nino. */
 export function detectExpectation(replyText: string | null | undefined, now: Date = new Date()):
