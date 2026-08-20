@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { getState, patchState } from "./StateManager.ts";
 import type { ConversationExpectation } from "./ConversationExpectation.ts";
+import type { PendingConversationAction } from "./ContinuationContract.ts";
 
 export type ConversationMemory = {
   current_topic: string | null;
@@ -21,6 +22,8 @@ export type ConversationMemory = {
   pending_slots: string[];
   /** Pergunta que o Nino fez e ainda espera resposta (TTL próprio). */
   awaiting: ConversationExpectation | null;
+  /** Análise que o Nino OFERECEU fazer e aguarda um "ok" (nino_continuation.v1). */
+  pending_conversation_action: PendingConversationAction | null;
   last_tool_context: { tool: string; period?: { from: string; to: string } | null } | null;
   conversation_summary: string | null;
   updated_at: string;
@@ -33,7 +36,7 @@ export function emptyMemory(): ConversationMemory {
   return {
     current_topic: null, previous_intent: null, active_category: null, active_merchant: null,
     active_period: null, comparison_period: null, pending_action: null, pending_slots: [],
-    awaiting: null,
+    awaiting: null, pending_conversation_action: null,
     last_tool_context: null, conversation_summary: null, updated_at: new Date(0).toISOString(),
   };
 }
