@@ -433,18 +433,48 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     null,
   );
   const turnPlan = buildTurnPlan({ text: input.text, history });
-  const memoryText = applyMemoryToText(input.text, memory, { followup: turnPlan.followup });
+  // Rota determinística da mensagem CRUA é soberana: nenhuma herança de
+  // assunto pode transformar "estou me sentindo atento" em pergunta de gasto.
+  const rawDeterministic = capability.execution === "deterministic" && !!capability.required_tool;
+  const memoryText = rawDeterministic
+    ? { text: input.text, used: false }
+    : applyMemoryToText(input.text, memory, { followup: turnPlan.followup });
   if (memoryText.used) {
     turnPlan.effective_text = `${turnPlan.effective_text} (assunto: ${memory?.active_category ?? memory?.current_topic})`;
     turnPlan.followup = true;
   }
-  if (turnPlan.followup || turnPlan.composed) {
+  if ((turnPlan.followup || turnPlan.composed) && !rawDeterministic) {
     capability = classifyCapability(
       turnPlan.effective_text,
       routeIntent(turnPlan.effective_text).intent,
       interpretSemanticQuery(turnPlan.effective_text),
     );
   }
+  if (rawDeterministic) turnPlan.effective_text = input.text;
+
+  // Expectativa emocional pendente força a rota determinística de check-in:
+  // "cansado", "atento", "😌" ou "nota 4" são resposta, não assunto novo.
+  const awaiting = expectation
+    ?? (isExpectationFresh(memory?.awaiting) ? memory?.awaiting ?? null : null);
+  if (awaiting?.kind === "emotional_checkin"
+    && capability.name !== "emotional_checkin"
+    && capability.name !== "emotion_finance"
+    && (parseEmotionFromText(input.text) || moodFromShortAnswer(input.text))) {
+    capability = {
+      ...capability,
+      name: "emotional_checkin",
+      execution: "deterministic",
+      allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+      required_tool: "log_emotional_checkin",
+      tool_args: {},
+      context: {} as typeof capability.context,
+      clarification: null,
+      reason: "expectation_emotional_checkin",
+    };
+    turnPlan.effective_text = input.text;
+    turnPlan.followup = false;
+  }
+
 
   // Pergunta composta não é só detectada: ela é EXECUTADA. Roteamos cada
   // sub-pergunta, unimos o escopo de ferramentas e exigimos que todas as
