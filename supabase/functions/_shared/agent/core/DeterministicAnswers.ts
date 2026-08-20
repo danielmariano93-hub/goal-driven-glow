@@ -387,7 +387,24 @@ export async function executeDeterministicCapability(
 }
 
 
+/**
+ * Retorno útil do dia: gasto real de hoje (data comportamental) com um passo
+ * pequeno. Só usa o que o motor devolveu — nada estimado.
+ */
+function formatEmotionalDaySignal(result: any): string | null {
+  const count = Number(result?.transactions_count ?? 0);
+  if (count === 0) {
+    return "Hoje ainda não tem gasto registrado. Se aparecer algum, me conta que eu já ligo ao seu humor de hoje.";
+  }
+  const top = Array.isArray(result?.categories) && result.categories[0]
+    ? ` A maior foi ${result.categories[0].name}, com ${money(result.categories[0].value)}.`
+    : "";
+  return `Hoje você gastou ${money(result?.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}`
+    + `\nUm passo pequeno: escolha um gasto flexível de hoje e decida se ele valeu o que você está sentindo.`;
+}
+
 /** Recibo curto do check-in emocional (registro do dia ou histórico). */
+
 function formatEmotionalCheckin(result: any): string {
   if (result?.registered) {
     const base = String(result.card ?? "Registrei como você se sentiu hoje.");
