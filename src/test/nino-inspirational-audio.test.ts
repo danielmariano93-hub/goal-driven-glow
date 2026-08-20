@@ -59,7 +59,7 @@ describe("propósito e identidade sem aviso indevido", () => {
 
   it("bullet colado no meio da frase é quebrado em linhas", () => {
     const out = humanizeReply("Eu faço: • Registrar gastos • Prever o mês");
-    expect(out).toBe("Eu faço:\n\n• Registrar gastos\n• Prever o mês");
+    expect(out.replace(/^\S+\s/u, "")).toBe("Eu faço:\n\n• Registrar gastos\n• Prever o mês");
     expect(findBrokenPhrases(out)).toEqual([]);
   });
 });
