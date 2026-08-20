@@ -134,11 +134,55 @@ export function findBrokenPhrases(text: string): string[] {
   return issues;
 }
 
+/** Emoji por tema — determinístico, escolhido pelo conteúdo da resposta. */
+const ACCENT_RULES: ReadonlyArray<{ re: RegExp; emoji: string }> = [
+  { re: /\b(atras|venc|risco|cuidado|estourou|acima do teto|negativ)/i, emoji: "⚠️" },
+  { re: /\b(meta|objetivo|guardar|reserva|aporte)/i, emoji: "🎯" },
+  { re: /\b(fatura|cart[ãa]o|parcel)/i, emoji: "💳" },
+  { re: /\b(gast|despesa|registrei|lan[çc]|comprei)/i, emoji: "💸" },
+  { re: /\b(saldo|dispon[íi]vel|entrada|receb|sal[áa]rio|renda)/i, emoji: "💰" },
+  { re: /\b(gr[áa]fico|relat[óo]rio|compara|m[ée]dia|proje[çc])/i, emoji: "📊" },
+  { re: /\b(sentind|emo[çc]|humor|ansios|tranquil|cansad)/i, emoji: "💛" },
+  { re: /\b(parab[ée]ns|boa|conseguiu|ótimo|otimo|melhor)/i, emoji: "✨" },
+];
+
+const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/u;
+
+function countEmojis(text: string): number {
+  return (text.match(new RegExp(EMOJI_RE, "gu")) ?? []).length;
+}
+
+/**
+ * Dá um toque visual à resposta: garante 1 emoji quando não há nenhum e
+ * remove excesso quando há mais de 2. Nunca insere emoji em texto vazio.
+ */
+export function addEmojiAccent(text: string): string {
+  const raw = String(text ?? "");
+  if (!raw.trim()) return raw;
+  const total = countEmojis(raw);
+  if (total > 2) {
+    let kept = 0;
+    return raw
+      .replace(new RegExp(EMOJI_RE, "gu"), (m) => (++kept <= 2 ? m : ""))
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/[ \t]+([.,;!?])/g, "$1")
+      .trim();
+  }
+  if (total > 0) return raw;
+  const emoji = ACCENT_RULES.find((rule) => rule.re.test(raw))?.emoji ?? "💛";
+  const lines = raw.split("\n");
+  const index = lines.findIndex((line) => line.trim().length > 0);
+  if (index < 0) return raw;
+  lines[index] = `${emoji} ${lines[index].trimStart()}`;
+  return lines.join("\n");
+}
+
 export function humanizeReply(raw: string | null | undefined): string {
   const text = String(raw ?? "");
   if (!text.trim()) return text;
   let out = lightenLayout(stripInternalNames(text));
   // Guarda final: se a remoção ainda deixou frase quebrada, repara de novo.
   if (findBrokenPhrases(out).length) out = lightenLayout(repairGrammar(out));
-  return out;
+  return addEmojiAccent(out);
 }
+
