@@ -69,4 +69,5 @@ export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
   qk.sharedExpenses,
   qk.documentImports,
   qk.assessorDocuments,
+  qk.advisorPerformance,
 ];
