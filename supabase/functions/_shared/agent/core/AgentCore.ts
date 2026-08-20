@@ -152,7 +152,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     });
     if (cont.continue && cont.prompt) {
       input = { ...input, text: cont.prompt };
-      metrics.errors.push(cont.reason);
+      metrics.capability = metrics.capability ?? null;
       await guard(
         () => saveConversationMemory(sb, session_id ?? null, { pending_conversation_action: null }),
         (m) => metrics.errors.push("continuation_clear:" + m),
@@ -1056,6 +1056,10 @@ ${JSON.stringify(hints)}
     pending_action: draft_id ?? null,
     // Se o Nino terminou perguntando, ele guarda o que espera ouvir.
     awaiting: detectExpectation(reply) ?? (kind === "question" ? awaiting : null),
+    // Oferta analítica do Nino ("quer comparar…? me dá o ok") fica pendente
+    // como operação estruturada até o usuário responder.
+    pending_conversation_action: detectContinuationOffer(reply)
+      ?? (continuationMemory?.pending_conversation_action ?? null),
     last_tool_context: toolCallLog.length
       ? { tool: String(toolCallLog[toolCallLog.length - 1]?.tool_name ?? ""), period: turnPlan.previous_period }
       : (memory?.last_tool_context ?? null),
