@@ -43,7 +43,26 @@ const SYNONYMS: Record<string, string> = {
 
   culpado: "culpado", culpada: "culpado", culpa: "culpado", arrependido: "culpado",
   "me arrependi": "culpado", vergonha: "culpado",
+
+  // Frases naturais do dia a dia (pt-BR falado).
+  "dia pesado": "frustrado", "dia dificil": "frustrado", "dia corrido": "frustrado",
+  "na correria": "frustrado", "sem paciencia": "frustrado", "de cabeca cheia": "frustrado",
+  "dia bom": "celebrando", "dia otimo": "celebrando", "foi um bom dia": "celebrando",
+  "dia tranquilo": "tranquilo", "dia leve": "tranquilo", "bem tranquilo": "tranquilo",
+  "meio pra baixo": "preocupado", "meio triste": "preocupado", "sem animo": "preocupado",
+  "meio ansioso": "atento", "meio tenso": "atento", "no automatico": "impulsivo",
+  "gastei sem pensar": "impulsivo",
 };
+
+/** Emoji do catálogo: resposta de um toque também é resposta. */
+const EMOJI_MAP: Record<string, string> = {
+  "😌": "tranquilo", "🧐": "atento", "😟": "preocupado", "🙂": "confiante",
+  "⚡": "impulsivo", "😤": "frustrado", "🎉": "celebrando", "😞": "culpado",
+  "😀": "celebrando", "😃": "celebrando", "😄": "celebrando", "😊": "confiante",
+  "😢": "preocupado", "😭": "preocupado", "😡": "frustrado", "😠": "frustrado",
+  "😰": "atento", "😥": "preocupado", "😴": "frustrado", "🥲": "culpado",
+};
+
 
 function normalize(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
