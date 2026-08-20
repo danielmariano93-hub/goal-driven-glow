@@ -102,7 +102,12 @@ export function buildPerformanceSnapshot(input: {
   monthlyIncome?: number | null;
   maxItems?: number;
   affinity?: Parameters<typeof computeAdvisorDecision>[0]["affinity"];
-}): { snapshot: PerformanceSnapshot; decision: AdvisorDecision; highlights: FinancialPerformanceHighlight[] } {
+}): {
+  snapshot: PerformanceSnapshot;
+  decision: AdvisorDecision;
+  highlights: FinancialPerformanceHighlight[];
+  comparisons: ReturnType<typeof computeFinancialPerformance>["comparisons"];
+} {
   const mode: ComparisonMode = input.performance.mode ?? "MTD_EQUIVALENT";
   const perf = computeFinancialPerformance({ ...input.performance, mode });
   const decision = computeAdvisorDecision({
@@ -128,6 +133,7 @@ export function buildPerformanceSnapshot(input: {
     },
     decision,
     highlights: perf.highlights,
+    comparisons: perf.comparisons,
   };
 }
 
