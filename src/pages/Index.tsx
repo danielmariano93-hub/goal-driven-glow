@@ -112,6 +112,8 @@ export default function Index() {
         projectionAvailability={availability.projection}
       />
 
+      <AcompanhamentoCard snapshot={performance.data ?? null} loading={performance.isLoading} />
+
       <RitmoUnificadoCard
           rhythm={snap?.rhythm ?? null}
           projection={snap?.projection ?? null}
