@@ -365,7 +365,15 @@ async function generateForUser(
         status: "skipped", error_code: "no_active_whatsapp_link",
       }, { onConflict: "report_id,channel" });
     } else {
-      const body = whatsappMessage(report, reportLink(reportId));
+      // Link curto: URL longa com parâmetros parece spam no WhatsApp.
+      const longLink = reportLink(reportId);
+      const short = await buildShortLink(sb, {
+        user_id: userId,
+        path: `/app/relatorios-inteligentes/${reportId}?ref=wa_report`,
+        kind: "financial_report",
+        ttl_days: 90,
+      });
+      const body = whatsappMessage(report, short.shortened ? short.url : longLink);
       const { data: msg, error } = await sb.from("outbound_messages").insert({
         channel: "whatsapp",
         user_id: userId,
