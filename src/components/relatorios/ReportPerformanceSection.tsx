@@ -1,7 +1,12 @@
+import { useEffect, useRef } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ArrowRight } from "@phosphor-icons/react";
 import { usePerformanceDetail } from "@/lib/hooks/usePerformanceDetail";
 import { formatBRL } from "@/lib/engine/facts";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useAssessor } from "@/context/AssessorContext";
+import { registerTopicSignal } from "@/lib/nino/performanceSnapshots";
 
 /**
  * Seção acionável do relatório: o que mudou, por que mudou (drivers com
@@ -10,6 +15,19 @@ import { cn } from "@/lib/utils";
  */
 export default function ReportPerformanceSection() {
   const { data, loading } = usePerformanceDetail();
+  const { openAssessor } = useAssessor();
+  const seen = useRef<Set<string>>(new Set());
+
+  // Sinal de interesse por tópico (`advisor_learning.v1`): os highlights aqui
+  // são exibidos por inteiro, então a leitura equivale a "abrir" o tópico.
+  useEffect(() => {
+    for (const h of (data?.highlights ?? []).slice(0, 3)) {
+      const key = h.logical_topic_key;
+      if (!key || seen.current.has(key)) continue;
+      seen.current.add(key);
+      void registerTopicSignal(key, "opened").catch(() => undefined);
+    }
+  }, [data]);
 
   if (loading) return <div className="h-40 animate-pulse rounded-2xl bg-muted" aria-hidden />;
   if (!data || data.highlights.length === 0) return null;
@@ -101,7 +119,20 @@ export default function ReportPerformanceSection() {
               {h.evidence.reconciles ? "" : " · decomposição parcial"}
             </p>
             {h.recommended_action ? (
-              <p className="mt-2 text-xs font-semibold text-primary">{h.recommended_action}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2 min-h-10 px-1.5 text-xs font-semibold text-primary"
+                onClick={() => {
+                  if (h.logical_topic_key) {
+                    void registerTopicSignal(h.logical_topic_key, "acted").catch(() => undefined);
+                  }
+                  openAssessor("fab");
+                }}
+              >
+                {h.recommended_action} <ArrowRight />
+              </Button>
             ) : null}
           </li>
         ))}
