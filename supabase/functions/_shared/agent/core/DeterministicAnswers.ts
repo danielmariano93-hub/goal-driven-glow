@@ -356,7 +356,30 @@ export async function executeDeterministicCapability(
   // LLM: a resposta sai formatada direto do resultado do motor.
   else if (capability.name === "merchant_distribution") reply = formatMerchantDistribution(execution.result);
   else if (capability.name === "financial_evolution") reply = formatFinancialEvolution(execution.result);
-  else if (capability.name === "emotional_checkin") reply = formatEmotionalCheckin(execution.result);
+  else if (capability.name === "emotional_checkin") {
+    reply = formatEmotionalCheckin(execution.result);
+    // Registrar sentimento nunca devolve só recibo: quando o histórico ainda
+    // não sustenta a associação, o Nino traz o gasto de hoje comparado ao
+    // próprio padrão do mesmo dia da semana e um passo pequeno.
+    if ((execution.result as any)?.registered && !(execution.result as any)?.prospective_signal) {
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      const day = await runTool({
+        sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text,
+      }, "get_spending_for_date", { date: today }, { timeoutMs: 12_000, maxRetries: 0 });
+      if (day.ok) {
+        const extra = formatEmotionalDaySignal(day.result);
+        if (extra) reply = `${reply}\n\n${extra}`;
+        return {
+          reply, steps: 2, tokensIn: 0, tokensOut: 0, finish: "stop",
+          toolCalls: [call, {
+            step_index: 2, tool_name: day.tool_name, args: day.args, result: day.result,
+            ok: day.ok, duration_ms: day.duration_ms, error: day.error,
+          }],
+        };
+      }
+    }
+  }
+
   else if (capability.name === "emotion_finance") reply = formatEmotionFinance(execution.result);
   else return null;
 
