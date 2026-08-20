@@ -13,6 +13,8 @@ import IAInteligencia from "./IAInteligencia";
 import Assistente from "./operacao/Assistente";
 import IaOcr from "./operacao/IaOcr";
 import Simulador from "./AgenteSimulador";
+import AgenticObservabilityBoard from "./agente/AgenticObservabilityBoard";
+
 
 /**
  * Destino único da inteligência: qualidade, custo, configuração, documentos
