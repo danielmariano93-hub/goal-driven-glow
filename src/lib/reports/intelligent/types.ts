@@ -6,7 +6,8 @@ import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } f
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
 export const REPORT_TEMPLATE_VERSION = "report_template.v3";
 
-export type ReportType = "weekly" | "monthly";
+/** `monthly_partial` = mês corrente, ainda aberto (números reais + projeção). */
+export type ReportType = "weekly" | "monthly" | "monthly_partial";
 export type MetricUnit = "BRL" | "pct" | "count" | "days" | "score" | "text";
 export type Confidence = "low" | "medium" | "high";
 export type DataQualityStatus = "ok" | "attention" | "insufficient";
