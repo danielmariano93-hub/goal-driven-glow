@@ -10035,6 +10035,77 @@ export type Database = {
           },
         ]
       }
+      short_link_clicks: {
+        Row: {
+          actor_user_id: string | null
+          clicked_at: string
+          id: string
+          outcome: string
+          short_link_id: string
+          token: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          clicked_at?: string
+          id?: string
+          outcome?: string
+          short_link_id: string
+          token: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          clicked_at?: string
+          id?: string
+          outcome?: string
+          short_link_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "short_link_clicks_short_link_id_fkey"
+            columns: ["short_link_id"]
+            isOneToOne: false
+            referencedRelation: "short_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      short_links: {
+        Row: {
+          click_count: number
+          created_at: string
+          expires_at: string | null
+          id: string
+          kind: string
+          last_click_at: string | null
+          target_path: string
+          token: string
+          user_id: string | null
+        }
+        Insert: {
+          click_count?: number
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          last_click_at?: string | null
+          target_path: string
+          token: string
+          user_id?: string | null
+        }
+        Update: {
+          click_count?: number
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          kind?: string
+          last_click_at?: string | null
+          target_path?: string
+          token?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       split_link_audit: {
         Row: {
           created_at: string
@@ -11866,6 +11937,10 @@ export type Database = {
         Args: { _user_id: string }
         Returns: Json
       }
+      admin_v2_agent_autonomy: {
+        Args: { _days?: number; _user_id?: string }
+        Returns: Json
+      }
       admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
       admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
       admin_v2_client_profile: { Args: { _pseudo_id: string }; Returns: Json }
@@ -12331,6 +12406,15 @@ export type Database = {
       }
       confirm_pending_action: { Args: { p_id: string }; Returns: Json }
       create_phone_link_code: { Args: never; Returns: string }
+      create_short_link: {
+        Args: {
+          _kind?: string
+          _target_path: string
+          _ttl_days?: number
+          _user_id?: string
+        }
+        Returns: Json
+      }
       create_transfer: {
         Args: {
           p_amount: number
@@ -12991,6 +13075,7 @@ export type Database = {
         }
         Returns: Json
       }
+      resolve_short_link: { Args: { _token: string }; Returns: Json }
       resolve_transaction_behavior_date: {
         Args: { _row: Database["public"]["Tables"]["transactions"]["Row"] }
         Returns: {
