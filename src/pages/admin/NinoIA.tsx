@@ -30,7 +30,9 @@ export default function NinoIA() {
         { id: "modelos", label: "Modelos", render: () => <Models /> },
         { id: "conhecimento", label: "Conhecimento", render: () => <Knowledge /> },
         { id: "documentos", label: "Documentos", render: () => <IaOcr /> },
+        { id: "autonomia", label: "Autonomia do agente", render: () => <AgenticObservabilityBoard /> },
         { id: "simulador", label: "Simulador", render: () => <Simulador /> },
+
       ]} />
     </div>
   );
