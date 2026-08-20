@@ -89,30 +89,17 @@ const MUTATION_TOOLS = new Set([
  */
 export function entryFailureMessage(toolCalls: ToolCallEvidence[] = []): string {
   const failed = toolCalls.filter((c) => !c.ok && MUTATION_TOOLS.has(String(c.tool_name)));
-  const errors = failed.map((c) => String((c as any).error ?? (c as any).result?.error ?? ""));
-  const joined = errors.join(" ");
-  if (/needs_amount|invalid_amount/.test(joined)) {
-    return "Só me faltou o valor para registrar. Qual foi o valor?";
+  for (const call of failed) {
+    const outcome = classifyOutcome({
+      ok: false,
+      error: String((call as any).error ?? "") || null,
+      result: (call as any).result ?? null,
+    });
+    if (isClarification(outcome.kind) && outcome.ask) return outcome.ask;
   }
-  if (/needs_type|invalid_type/.test(joined)) {
-    return "Só me diga se isso foi um gasto ou um recebimento e eu registro.";
-  }
-  if (/needs_description/.test(joined)) {
-    return "Me diz em quê foi esse lançamento (o estabelecimento ou o item) e eu registro.";
-  }
-  if (/account_not_found/.test(joined)) {
-    const accounts = failed
-      .flatMap((c) => ((c as any).result?.accounts ?? []) as string[])
-      .filter((name) => typeof name === "string" && name.trim());
-    if (accounts.length) return `Em qual conta eu registro? (${[...new Set(accounts)].join(", ")})`;
-    return "Em qual conta eu registro esse lançamento?";
-  }
-  if (/card_not_found/.test(joined)) {
-    return "Não encontrei esse cartão. Em qual cartão foi?";
-  }
-
   return "Não registrei nada ainda. Me confirma o valor e em quê foi, que eu lanço na hora.";
 }
+
 
 export function validate(raw: string, ctx: ValidationContext = {}): ValidationResult {
   const reasons: string[] = [];
