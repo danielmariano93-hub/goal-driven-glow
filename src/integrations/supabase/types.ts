@@ -5502,6 +5502,8 @@ export type Database = {
           highlights: Json
           id: string
           invalidated_at: string | null
+          invalidation_domains: string[] | null
+          invalidation_reason: string | null
           methodology: string | null
           mode: string
           next_action: string | null
@@ -5518,6 +5520,8 @@ export type Database = {
           highlights?: Json
           id?: string
           invalidated_at?: string | null
+          invalidation_domains?: string[] | null
+          invalidation_reason?: string | null
           methodology?: string | null
           mode: string
           next_action?: string | null
@@ -5534,6 +5538,8 @@ export type Database = {
           highlights?: Json
           id?: string
           invalidated_at?: string | null
+          invalidation_domains?: string[] | null
+          invalidation_reason?: string | null
           methodology?: string | null
           mode?: string
           next_action?: string | null
