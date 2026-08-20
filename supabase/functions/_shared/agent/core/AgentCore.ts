@@ -331,12 +331,25 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     };
   }
 
+  // ---- EXPECTATIVA — o Nino lembra o que ele perguntou -------------------
+  // Se a última fala do Nino foi uma pergunta que espera resposta (lembrete de
+  // humor, slot de lançamento), a mensagem atual é lida como resposta a ela.
+  const expectationHistory = await guard(
+    () => tctx.history(4, input.channel === "app" ? input.inbound_message_id : null),
+    (m) => metrics.errors.push("expectation_history:" + m),
+    [] as Array<{ role: string; content: string }>,
+  );
+  const expectation = expectationFromHistory(expectationHistory ?? []);
+  const emotionalAnswerExpected = expectation?.kind === "emotional_checkin"
+    && !!(parseEmotionFromText(input.text) || String(input.text ?? "").trim().split(/\s+/).length <= 6);
+
   // ---- CONVERSAR — rota casual (sem motor financeiro) ---------------------
   // "o que você é?", "bom dia", "obrigado", "qual a capital da França": não há
   // número, período nem motor. Responde com persona + identidade canônica, em
   // um único passo, sem tocar no pipeline analítico.
   const conversational = classifyConversational(input.text);
-  if (conversational.kind && !(await tctx.pending())) {
+  if (conversational.kind && !emotionalAnswerExpected && !(await tctx.pending())) {
+
     const firstName = await guard(async () => {
       const { data } = await sb.from("profiles").select("full_name").eq("id", input.user_id).maybeSingle();
       const full = String((data as any)?.full_name ?? "").trim();
