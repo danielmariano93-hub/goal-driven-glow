@@ -8,6 +8,7 @@
 import { validateAnalyticalClaims } from "../../intelligence/claimValidator.ts";
 import type { ToolCallEvidence } from "../../intelligence/contracts.ts";
 import { classifyOutcome, isClarification } from "./ToolOutcome.ts";
+import { unprovenMessage } from "./PersistenceProof.ts";
 
 
 const MAX_REPLY_LEN = 4000;
@@ -98,6 +99,9 @@ export function entryFailureMessage(toolCalls: ToolCallEvidence[] = []): string 
       result: (call as any).result ?? null,
     });
     if (isClarification(outcome.kind) && outcome.ask) return outcome.ask;
+  }
+  if (failed.some((c) => /persistence_unproven/i.test(String((c as any).error ?? "")))) {
+    return unprovenMessage();
   }
   return "Não registrei nada ainda. Me confirma o valor e em quê foi, que eu lanço na hora.";
 }
