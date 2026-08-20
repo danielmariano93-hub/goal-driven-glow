@@ -28,7 +28,8 @@ export function isExpectationFresh(
 
 /** Pergunta de humor feita pelo Nino (chat ou lembrete proativo). */
 const EMOTIONAL_QUESTION =
-  /(como (?:você|vc|voce)\s+(?:est[aá]|ta|t[aá]|se sente|se sentiu|anda|foi)\b)|(como (?:est[aá]|ta) (?:o )?(?:seu )?(?:humor|dia)\b)|(check[- ]?in (?:emocional|de humor))|(me conta(?:r)? em uma palavra como)|(como (?:você|vc)\s+se sentiu hoje)/i;
+  /(se sentindo|se sentiu|como (?:voc[êe]|vc)\s+(?:est[aáà]|ta|t[aá]|anda|foi)\b)|(como (?:est[aá]|ta) (?:o )?(?:seu )?(?:humor|dia)\b)|(check[- ]?in (?:emocional|de humor))|(me conta(?:r)? em uma palavra como)|(como (?:foi|anda) (?:o )?seu dia)/i;
+
 
 /** Slots de lançamento que o Nino costuma perguntar. */
 const ENTRY_SLOT_QUESTION =
