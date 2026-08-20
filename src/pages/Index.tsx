@@ -60,6 +60,7 @@ export default function Index() {
   const snapshot = useFinancialSnapshot(periodRange);
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const diagnosis = useNinoDiagnosisContext();
+  const performance = useFinancialPerformance();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
   const hasAccount = (accounts ?? []).length > 0;
