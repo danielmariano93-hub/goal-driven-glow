@@ -932,10 +932,19 @@ ${JSON.stringify(hints)}
     } else if (truth.canonical_headline) {
       reply = truth.canonical_headline;
     } else {
-      reply = "Não vou te dar número que eu não consiga provar com os seus lançamentos. "
-        + "Não consegui fechar essa conta agora — me diga a categoria e o período (ex.: \"alimentação em agosto\") "
-        + "que eu calculo direto na sua base.";
+      // A recusa só pede categoria/período quando a pergunta era financeira.
+      // Numa conversa que não pedia número, isso saía completamente desconexo.
+      const financialAsk =
+        /\b(gast|gastei|receit|renda|saldo|categoria|fatura|cart[aã]o|d[ií]vida|meta|invest|or[cç]amento|quanto)\b/i
+          .test(String(input.text ?? ""));
+      reply = financialAsk
+        ? "Não vou te dar número que eu não consiga provar com os seus lançamentos. "
+          + "Não consegui fechar essa conta agora — me diga a categoria e o período (ex.: \"alimentação em agosto\") "
+          + "que eu calculo direto na sua base."
+        : "Me perdi aqui e preferi não responder com número que eu não consiga provar. "
+          + "Pode me dizer com outras palavras o que você quer, que eu sigo daí?";
     }
+
     truth = validateAgainstEvidence(reply, toolCallLog, turnPlan.effective_period);
   } else if (!truth.ok && truth.canonical_headline) {
     metrics.errors.push("truth_gate:" + truth.issues.map((i) => i.type).join(","));
