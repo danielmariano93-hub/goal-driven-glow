@@ -8,6 +8,15 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { adminToast } from "@/components/admin/adminToast";
 
 type Affinity = { topic_key: string; score: number | string; signals: number; last_seen_at: string | null };
+type LearningEvent = {
+  topic_key: string;
+  signal: string;
+  source: string;
+  delta: number | string;
+  score_before: number | string;
+  score_after: number | string;
+  created_at: string;
+};
 type Item = {
   id: string;
   topic_key?: string;
@@ -25,8 +34,11 @@ type Observability = {
   user_id: string;
   snapshot: Record<string, unknown> | null;
   affinity: Affinity[];
+  events: LearningEvent[];
+  preferred_comparison: { mode: string; confidence: number | string; use_count: number | null; updated_at: string } | null;
   generated_at: string;
 };
+
 type DryRun = {
   as_of: string;
   headline: string;
@@ -128,6 +140,49 @@ export function AdvisorObservabilityBoard({ userId }: { userId: string }) {
                   score {num(row.score).toFixed(2)} · {row.signals} sinal(is)
                   {row.last_seen_at ? ` · ${new Date(row.last_seen_at).toLocaleDateString("pt-BR")}` : ""}
                 </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="surface-card space-y-2 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Comparação preferida</h3>
+          {obs.data?.preferred_comparison ? (
+            <Badge variant="secondary">{obs.data.preferred_comparison.mode}</Badge>
+          ) : null}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {obs.data?.preferred_comparison
+            ? `Aprendida do texto do usuário · confiança ${num(obs.data.preferred_comparison.confidence).toFixed(2)} · atualizada em ${new Date(obs.data.preferred_comparison.updated_at).toLocaleDateString("pt-BR")}`
+            : "Nenhum recorte pedido explicitamente — o consultor usa o recorte padrão do período."}
+        </p>
+      </section>
+
+      <section className="surface-card space-y-2 p-4">
+        <h3 className="text-sm font-semibold">Últimos sinais de aprendizado</h3>
+        {(obs.data?.events ?? []).length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Nenhum sinal ainda — app, WhatsApp e simulador registram aqui assim que o usuário interagir.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {(obs.data?.events ?? []).map((event, index) => (
+              <li
+                key={`${event.created_at}-${event.topic_key}-${index}`}
+                className="rounded-xl border border-border bg-background p-2.5 text-xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono">{event.topic_key}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {new Date(event.created_at).toLocaleString("pt-BR")}
+                  </span>
+                </div>
+                <p className="mt-1 text-muted-foreground">
+                  {event.signal} · {event.source} · delta {num(event.delta) >= 0 ? "+" : ""}
+                  {num(event.delta).toFixed(2)} · {num(event.score_before).toFixed(2)} → {num(event.score_after).toFixed(2)}
+                </p>
               </li>
             ))}
           </ul>

@@ -25,6 +25,8 @@ import { createMetrics, estimateCost, timeStage, summarize, recordArtifact, reco
 import { buildRecord, logDecision } from "./DecisionLogger.ts";
 import { guard } from "./ErrorRecovery.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
+import { learnAdvisorInterest } from "./AdvisorInteractionLearning.ts";
+import { resolveAdvisorTopicKey } from "../../finance-core/advisorTopics.ts";
 import { isLLMConfigured } from "../llm.ts";
 import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
 import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.ts";
@@ -139,6 +141,8 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     (m) => metrics.errors.push("continuation_memory:" + m),
     null,
   );
+  // Aceite de continuação também é sinal de interesse pelo tópico (advisor).
+  let continuationAccepted = false;
   if (continuationMemory?.pending_conversation_action) {
     const hasPendingWrite = !!(await guard(
       () => findPending(sb, input.conversation_id, input.user_id),
@@ -152,6 +156,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     });
     if (cont.continue && cont.prompt) {
       input = { ...input, text: cont.prompt };
+      continuationAccepted = true;
       await guard(
         () => saveConversationMemory(sb, session_id ?? null, { pending_conversation_action: null }),
         (m) => metrics.errors.push("continuation_clear:" + m),
@@ -1124,6 +1129,27 @@ ${JSON.stringify(hints)}
     policy_decision: decision.label, reply_kind: kind,
     tool_calls: toolCallLog, user_text: input.text,
   }), (m) => metrics.errors.push("learn:" + m), undefined);
+
+  // ---- Aprendizado do consultor (`advisor_learning.v1`) ------------------
+  // Vale igualmente para App e WhatsApp: o tópico sai do que o turno de fato
+  // executou (tool/categoria/merchant), nunca de palpite sobre a pergunta.
+  await guard(() => learnAdvisorInterest(sb, {
+    user_id: input.user_id,
+    source: input.channel === "app" ? "app" : input.channel === "simulator" ? "simulator" : "whatsapp",
+    user_text: input.text,
+    capability: capability.name,
+    category: resolvedCategory,
+    merchant: (capability.tool_args?.merchant as string | undefined) ?? null,
+    previous_topic_key: resolveAdvisorTopicKey({
+      category: memory?.active_category ?? null,
+      capability: memory?.previous_intent ?? null,
+    }),
+    tool_calls: toolCallLog.map((c: any) => ({ tool_name: String(c.tool_name), ok: !!c.ok })),
+    continuation_accepted: continuationAccepted,
+    refs: { conversation_id: input.conversation_id, run_id: run_id ?? null },
+  }).then(() => undefined), (m) => metrics.errors.push("advisor_learn:" + m), undefined);
+
+
 
   const analyticalCall = toolCallLog.find((c: any) => c.ok && c.tool_name === "get_weekday_spending_pattern");
   const evidence = analyticalCall?.result ? asEvidence(analyticalCall.result as any) : null;

@@ -248,5 +248,27 @@ export function composeFinancialSituations(
     }));
   }
 
+  // 7) Performance (financial_performance.v1): mudança material do período.
+  //    Melhora vira reconhecimento; piora vira atenção. Nunca cria número.
+  for (const signal of signals) {
+    if (used.has(signal.key) || signal.domain !== "performance") continue;
+    used.add(signal.key);
+    const evidence = signal.evidence as any;
+    const positive = signal.direction === "achievement";
+    out.push(situation({
+      ctx,
+      type: String(evidence?.performance_signal_kind ?? "performance_change"),
+      communication_kind: positive ? "performance_improvement" : "performance_deterioration",
+      severity: positive ? "info" : (String(evidence?.severity ?? "info") === "critical" ? "critical" : "attention"),
+      title: signal.label,
+      body: String(evidence?.interpretation ?? signal.label),
+      primary_domain: "performance",
+      signals: [signal],
+      impact_amount: signal.amount,
+      route: signal.route,
+      anchor: String(evidence?.logical_topic_key ?? signal.key),
+    }));
+  }
+
   return out;
 }

@@ -16,6 +16,14 @@ function crossDomainBoost(situation: FinancialSituation): number {
   return Math.min(3, Math.max(0, situation.domains.length - 1)) * 6;
 }
 
+/** Afinidade do tópico da situação (-1..+1); 0 quando desconhecida. */
+function affinityFor(ctx: MultiFinanceProactiveContext, situation: FinancialSituation): number {
+  const map = ctx.affinity ?? {};
+  const topic = String((situation.evidence as any)?.logical_topic_key ?? situation.fingerprint);
+  const raw = map[topic] ?? map[situation.fingerprint] ?? 0;
+  return Math.max(-1, Math.min(1, Number(raw) || 0));
+}
+
 export function scoreSituations(
   situations: FinancialSituation[],
   ctx: MultiFinanceProactiveContext,
@@ -41,9 +49,18 @@ export function scoreSituations(
       const reasons = [...value.reasons];
       if (boost > 0) reasons.push(`cross_domain:${boost}`);
       if (value.muted) reasons.push("muted_by_learning");
+
+      // Preferência aprendida ordena o que é OPCIONAL (± 25%). Situação
+      // crítica ou vencendo em até 3 dias ignora gosto: risco não se negocia.
+      const optional = situation.severity === "info"
+        || (situation.severity === "attention" && (situation.days_until ?? 99) > 3);
+      const affinity = optional ? affinityFor(ctx, situation) : 0;
+      const scored = (value.score + boost) * (1 + affinity * 0.25);
+      if (affinity !== 0) reasons.push(`affinity:${affinity.toFixed(2)}`);
+
       return {
         ...situation,
-        priority_score: Math.round((value.score + boost) * 100) / 100,
+        priority_score: Math.round(scored * 100) / 100,
         score_reasons: reasons,
       };
     })

@@ -8,7 +8,8 @@ export type MemoryKind =
   | "preferred_card" | "favorite_investment" | "goal"
   | "spending_pattern" | "habit" | "language" | "alias"
   | "correction" | "response_preference" | "context"
-  | "behavior_hypothesis" | "decision_log" | "advisor_review";
+  | "behavior_hypothesis" | "decision_log" | "advisor_review"
+  | "advisor_preference";
 
 export type MemorySource = "user" | "inferred" | "correction";
 

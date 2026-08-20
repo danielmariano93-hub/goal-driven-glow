@@ -364,6 +364,48 @@ export type Database = {
           },
         ]
       }
+      advisor_interaction_events: {
+        Row: {
+          created_at: string
+          delta: number
+          id: string
+          metadata: Json
+          refs: Json
+          score_after: number | null
+          score_before: number | null
+          signal: string
+          source: string
+          topic_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta?: number
+          id?: string
+          metadata?: Json
+          refs?: Json
+          score_after?: number | null
+          score_before?: number | null
+          signal: string
+          source?: string
+          topic_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          delta?: number
+          id?: string
+          metadata?: Json
+          refs?: Json
+          score_after?: number | null
+          score_before?: number | null
+          signal?: string
+          source?: string
+          topic_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       advisor_reviews: {
         Row: {
           actions: Json
@@ -5452,6 +5494,7 @@ export type Database = {
       }
       financial_performance_snapshots: {
         Row: {
+          advisor_stale_at: string | null
           as_of: string
           created_at: string
           formula_version: string
@@ -5467,6 +5510,7 @@ export type Database = {
           valid_until: string | null
         }
         Insert: {
+          advisor_stale_at?: string | null
           as_of: string
           created_at?: string
           formula_version: string
@@ -5482,6 +5526,7 @@ export type Database = {
           valid_until?: string | null
         }
         Update: {
+          advisor_stale_at?: string | null
           as_of?: string
           created_at?: string
           formula_version?: string
@@ -11902,6 +11947,16 @@ export type Database = {
         Args: { _signal: string; _topic_key: string }
         Returns: undefined
       }
+      advisor_register_topic_signal_v2: {
+        Args: {
+          _refs?: Json
+          _signal: string
+          _source?: string
+          _topic_key: string
+          _user_id?: string
+        }
+        Returns: Json
+      }
       agent_compile_prompt: { Args: { p_cfg: Json }; Returns: string }
       agent_execute_confirmation: {
         Args: { p_confirmation_id: string; p_source_message_id?: string }
@@ -12333,6 +12388,10 @@ export type Database = {
         Returns: number
       }
       financial_reports_weekly_tick: { Args: never; Returns: number }
+      financial_truth_changed: {
+        Args: { _domains?: string[]; _reason?: string; _user_id: string }
+        Returns: undefined
+      }
       force_reconcile_credit_card_statement:
         | {
             Args: { p_justification: string; p_statement_id: string }

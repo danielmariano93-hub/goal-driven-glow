@@ -28,11 +28,13 @@ async function markPerformanceSnapshotsDirty(): Promise<void> {
     const { data } = await supabase.auth.getUser();
     const userId = data.user?.id;
     if (!userId) return;
-    await supabase
-      .from("financial_performance_snapshots")
-      .update({ invalidated_at: new Date().toISOString() })
-      .eq("user_id", userId)
-      .is("invalidated_at", null);
+    // Uma porta só: a MESMA função que os gatilhos do banco chamam quando a
+    // escrita vem do WhatsApp, do FastLog, de importação ou de rotina.
+    await supabase.rpc("financial_truth_changed", {
+      _user_id: userId,
+      _reason: "client_mutation",
+      _domains: ["client"],
+    });
   } catch {
     // Invalidação é best-effort: o snapshot também expira por `valid_until`.
   }

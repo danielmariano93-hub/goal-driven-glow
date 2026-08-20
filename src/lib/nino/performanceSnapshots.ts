@@ -4,6 +4,7 @@
 // `financial_performance_snapshots` e só dispara o cálculo quando o snapshot
 // está ausente, expirado ou invalidado por um evento financeiro.
 import { supabase } from "@/integrations/supabase/client";
+import { registerAdvisorSignal, type AdvisorSignal } from "@/lib/nino/advisorLearning";
 import {
   computeFinancialPerformance,
   type FinancialPerformanceHighlight,
@@ -178,5 +179,5 @@ export async function loadTopicAffinity(userId: string) {
 }
 
 export async function registerTopicSignal(topicKey: string, signal: string): Promise<void> {
-  await supabase.rpc("advisor_register_topic_signal", { _topic_key: topicKey, _signal: signal });
+  await registerAdvisorSignal({ topicKey, signal: signal as AdvisorSignal, source: "app" });
 }
