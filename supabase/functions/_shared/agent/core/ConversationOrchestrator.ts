@@ -25,6 +25,21 @@ export type TurnPlan = {
 
 const NOISE = /^(ok|okay|blz|beleza|obrigado|obrigada|valeu|isso|entendi|👍|✅)\W*$/i;
 
+/** Assuntos que, sozinhos, não formam pergunta (dependem do turno anterior). */
+const CONTEXT_ONLY = [
+  /^e\s+/i,
+  /^(e\s+)?(no|em|de|do|da)\s+/i,
+  /^(este|esse|neste|nesse|mes|m[eê]s|semana)\b/i,
+  /^(agosto|julho|junho|maio|abril|mar[cç]o|fevereiro|janeiro|setembro|outubro|novembro|dezembro)\b/i,
+  /^(e\s+)?(o\s+)?(mesmo|idem|igual)\b/i,
+  /^(quanto|qual)\??$/i,
+];
+
+const SUBJECT_RX =
+  /\b(gast|receit|renda|saldo|categoria|estabeleciment|fatura|cart[aã]o|d[ií]vida|meta|investiment|assinatur|previs[aã]o|fechamento|economi|padr[aã]o|compare|compara)/i;
+
+
+
 /**
  * Continuação NÃO é "mensagem curta". Só é continuação a mensagem que depende
  * explicitamente da anterior: conector inicial, período isolado, anáfora ou
