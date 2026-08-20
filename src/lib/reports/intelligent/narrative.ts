@@ -8,13 +8,20 @@ const PCT = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits:
 
 export function deterministicSummary(report: IntelligentReport): string {
   const t = report.payload.totals;
+  const partial = report.payload.partial;
   const periodWord = report.reportType === "weekly" ? "semana" : "mês";
   const parts: string[] = [];
+  if (partial) {
+    parts.push(`Este é o retrato do mês em andamento: ${partial.daysElapsed} de ${partial.daysInMonth} dias já registrados.`);
+  }
   parts.push(`No período de ${report.period.label} ${resultSentence(t.income, t.expense, periodWord)}.`);
 
   if (t.expenseDeltaPct !== null) {
+    const base = partial
+      ? `o mesmo intervalo de ${report.previousPeriod.label}`
+      : report.previousPeriod.label;
     parts.push(
-      `Comparando com ${report.previousPeriod.label}, as despesas ${t.expenseDeltaPct >= 0 ? "subiram" : "caíram"} ${PCT(Math.abs(t.expenseDeltaPct))}.`,
+      `Comparando com ${base}, as despesas ${t.expenseDeltaPct >= 0 ? "subiram" : "caíram"} ${PCT(Math.abs(t.expenseDeltaPct))}.`,
     );
   }
   const top = report.payload.categories[0];
@@ -24,9 +31,13 @@ export function deterministicSummary(report: IntelligentReport): string {
   if (t.daysWithExpense > 0) {
     parts.push(`Foram ${t.daysWithExpense} dias com gasto e média de ${BRL(t.dailyAvgExpense)} por dia ativo.`);
   }
+  if (partial) {
+    parts.push(`Mantido esse ritmo, o mês fecha perto de ${BRL(partial.projectedExpense)} de gasto — é projeção, não fato consumado.`);
+  }
   parts.push(`Sua nota de saúde financeira deste ${periodWord} é ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} de 10.`);
   return parts.join(" ");
 }
+
 
 export function deterministicClosing(report: IntelligentReport): string {
   const first = report.highlights[0];
@@ -41,7 +52,10 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
   const t = report.payload.totals;
   const titulo = report.reportType === "weekly"
     ? `📊 Seu relatório da semana (${report.period.label})`
-    : `📊 Seu relatório de ${report.period.label}`;
+    : report.reportType === "monthly_partial"
+      ? `📊 Seu mês até agora (${report.period.label})`
+      : `📊 Seu relatório de ${report.period.label}`;
+
   const lines = [
     titulo,
     "",

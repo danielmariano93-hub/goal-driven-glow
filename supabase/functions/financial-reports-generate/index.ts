@@ -13,6 +13,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { periodReviewKey } from "../_shared/intelligence/logicalDedup.ts";
 
 import { resolveAppPublicUrl } from "../_shared/messaging/appUrl.ts";
+import { buildShortLink } from "../_shared/agent/core/ShortLinks.ts";
 import type { TransactionRow } from "../_shared/finance-core/facts.ts";
 import { buildIntelligentReport } from "../_shared/reports-core/engine.ts";
 import { resolvePeriods } from "../_shared/reports-core/periods.ts";
@@ -101,7 +102,7 @@ async function synthesizeNarrative(report: IntelligentReport): Promise<{
   const facts = {
     periodo: report.period.label,
     periodo_anterior: report.previousPeriod.label,
-    tipo: report.reportType === "weekly" ? "semanal" : "mensal",
+    tipo: report.reportType === "weekly" ? "semanal" : report.reportType === "monthly_partial" ? "mensal parcial (mês aberto)" : "mensal",
     nota_saude: report.healthScore,
     totais: report.payload.totals,
     top_categorias: report.payload.categories.slice(0, 5),
@@ -212,9 +213,13 @@ async function generateForUser(
     .maybeSingle();
   // Relatório de template antigo é regenerado sozinho (auto-heal de destaques).
   const staleTemplate = !!existing && existing.template_version !== REPORT_TEMPLATE_VERSION;
-  if (existing && !opts.force && !staleTemplate) {
+  // Mês corrente nunca é reaproveitado: o período segue aberto e os números
+  // mudam a cada lançamento.
+  const isPartial = reportType === "monthly_partial";
+  if (existing && !opts.force && !staleTemplate && !isPartial) {
     return { report_id: existing.id as string, status: "exists" };
   }
+
 
   const transactions = await loadTransactions(sb, userId, previous.start);
   const ctx = await loadContext(sb, userId);
@@ -321,7 +326,11 @@ async function generateForUser(
     await sb.from("notifications").insert({
       user_id: userId,
       type: "financial_report",
-      title: reportType === "weekly" ? "Seu relatório da semana está pronto" : "Seu relatório do mês está pronto",
+      title: reportType === "weekly"
+        ? "Seu relatório da semana está pronto"
+        : reportType === "monthly_partial"
+          ? "Seu mês até agora está pronto"
+          : "Seu relatório do mês está pronto",
       body: `${period.label} • nota de saúde ${report.healthScore}/10`,
       action_url: `/app/relatorios-inteligentes/${reportId}`,
       dedup_key: `financial_report:${reportId}`,
@@ -357,7 +366,15 @@ async function generateForUser(
         status: "skipped", error_code: "no_active_whatsapp_link",
       }, { onConflict: "report_id,channel" });
     } else {
-      const body = whatsappMessage(report, reportLink(reportId));
+      // Link curto: URL longa com parâmetros parece spam no WhatsApp.
+      const longLink = reportLink(reportId);
+      const short = await buildShortLink(sb, {
+        user_id: userId,
+        path: `/app/relatorios-inteligentes/${reportId}?ref=wa_report`,
+        kind: "financial_report",
+        ttl_days: 90,
+      });
+      const body = whatsappMessage(report, short.shortened ? short.url : longLink);
       const { data: msg, error } = await sb.from("outbound_messages").insert({
         channel: "whatsapp",
         user_id: userId,
@@ -417,7 +434,12 @@ Deno.serve(async (req) => {
 
   let body: { report_type?: ReportType; user_id?: string; force?: boolean; mode?: string } = {};
   try { body = (await req.json()) ?? {}; } catch { /* empty ok */ }
-  const reportType: ReportType = body.report_type === "monthly" ? "monthly" : "weekly";
+  // `monthly_partial` = relatório do mês corrente (aberto), sempre sob demanda.
+  const reportType: ReportType = body.report_type === "monthly"
+    ? "monthly"
+    : body.report_type === "monthly_partial"
+      ? "monthly_partial"
+      : "weekly";
   const requestId = crypto.randomUUID();
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const started = Date.now();

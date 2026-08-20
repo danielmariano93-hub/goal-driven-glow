@@ -13,6 +13,8 @@ import IAInteligencia from "./IAInteligencia";
 import Assistente from "./operacao/Assistente";
 import IaOcr from "./operacao/IaOcr";
 import Simulador from "./AgenteSimulador";
+import AgenticObservabilityBoard from "./agente/AgenticObservabilityBoard";
+
 
 /**
  * Destino único da inteligência: qualidade, custo, configuração, documentos
@@ -28,7 +30,9 @@ export default function NinoIA() {
         { id: "modelos", label: "Modelos", render: () => <Models /> },
         { id: "conhecimento", label: "Conhecimento", render: () => <Knowledge /> },
         { id: "documentos", label: "Documentos", render: () => <IaOcr /> },
+        { id: "autonomia", label: "Autonomia do agente", render: () => <AgenticObservabilityBoard /> },
         { id: "simulador", label: "Simulador", render: () => <Simulador /> },
+
       ]} />
     </div>
   );

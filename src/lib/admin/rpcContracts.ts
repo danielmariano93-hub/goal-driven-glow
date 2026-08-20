@@ -38,6 +38,8 @@ export const ADMIN_RPC_ARGS = {
   admin_v2_product_opportunities: ["_from", "_to", "_tz"],
   admin_v2_revenue_summary: ["_from", "_to", "_tz"],
   admin_v2_governance_summary: [],
+  admin_v2_agent_autonomy: ["_days", "_user_id"],
+
   admin_v2_audit_list: ["_limit"],
   admin_v2_metrics_audit: [],
   admin_v2_retry_failed_outbound: ["_limit"],

@@ -53,6 +53,8 @@ import { findPending, executeConfirmation } from "./PendingConfirmations.ts";
 import { unprovenMessage } from "./PersistenceProof.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
+import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
+
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
 import {
   askForCategory, mentionsAnaphoricCategory, mentionsGoalAnchor, resolveGoalCategoryScope,
@@ -889,6 +891,44 @@ ${JSON.stringify(hints)}
     ?? prompt?.model ?? "unknown";
   metrics.estimated_cost_usd = estimateCost(effectiveModel, metrics.tokens_in, metrics.tokens_out);
 
+  // ---- GoalPlanner (plano do turno, auditável) ---------------------------
+  // Decompõe o pedido em passos ordenados (ler → calcular → confirmar →
+  // escrever) usando o registry de capacidades e a política de autonomia.
+  // Não executa nada: serve de contrato e de trilha de auditoria.
+  const plannedTool = (() => {
+    const writeCall = toolCallLog.find((c: any) => /_draft$/.test(String(c.tool_name)));
+    if (writeCall) return String(writeCall.tool_name);
+    if (capability.required_tool) return String(capability.required_tool);
+    const firstOk = toolCallLog.find((c: any) => c.ok);
+    return firstOk ? String(firstOk.tool_name) : "";
+  })();
+  const turnPlanSteps = (() => {
+    if (!plannedTool) return { steps: [] as Array<Record<string, unknown>>, requires_confirmation: false, autonomy_mode: null as string | null };
+    const plan = buildGoalPlan({
+      text: turnPlan.effective_text,
+      primary_tool: plannedTool,
+      prerequisite_tools: toolCallLog
+        .filter((c: any) => c.ok && !/_draft$/.test(String(c.tool_name)))
+        .map((c: any) => String(c.tool_name)),
+      complete: !!draft_id,
+      user_explicit: routed.intent.kind === "confirm" || hasEntryIntent(String(input.text ?? "")),
+      proactive: false,
+      amount: Number((toolCallLog.find((c: any) => /_draft$/.test(String(c.tool_name)))?.args as any)?.amount ?? 0) || null,
+    });
+    const writeStep = plan.steps.find((s) => s.kind === "write");
+    return {
+      steps: planToSteps(plan),
+      requires_confirmation: plan.requires_confirmation,
+      autonomy_mode: writeStep?.autonomy?.mode ?? null,
+    };
+  })();
+  metrics.formula_versions = {
+    ...(metrics.formula_versions ?? {}),
+    goal_plan: "nino_agent.v1",
+  } as any;
+
+
+
   // ---- ResponseValidator -------------------------------------------------
   const successfulMutation = toolCallLog.some(c => c.ok && (
     /_draft$/.test(String(c.tool_name)) || c.tool_name === "confirm_pending_action"
@@ -1098,7 +1138,9 @@ ${JSON.stringify(hints)}
     run_id: run_id ?? null,
     user_id: input.user_id, conversation_id: input.conversation_id,
     channel: input.channel, intent: routed.intent.kind,
-    policy_decision: decision.label,
+    policy_decision: turnPlanSteps.autonomy_mode ?? decision.label,
+    planned_steps: turnPlanSteps.steps,
+
     tool_calls: toolCallLog,
     validations: validated.reasons,
     metrics, error: errorSanitized,
