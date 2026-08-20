@@ -22,7 +22,7 @@ export type ContinuationActionType =
 
 export type ContinuationOperation = {
   metric?: string | null;
-  scope?: string | null
+  scope?: string | null;
   subject?: string | null;
   comparison_mode?: string | null;
   /** Texto determinístico que reexecuta a operação oferecida. */
