@@ -106,7 +106,22 @@ export interface ReportPayload {
   categories: CategorySlice[];
   series: SeriesPoint[];
   goals: Array<{ name: string; current: number; target: number; progress: number }>;
+  /**
+   * Presente apenas em relatórios do mês corrente (parciais). O mês ainda não
+   * fechou: os números são reais até `period.end` e a projeção é explícita.
+   */
+  partial?: {
+    daysElapsed: number;
+    daysInMonth: number;
+    /** Gasto projetado para o mês inteiro no ritmo atual. */
+    projectedExpense: number;
+    /** Receita projetada para o mês inteiro no ritmo atual. */
+    projectedIncome: number;
+    /** Comparação usa o mesmo número de dias do mês anterior. */
+    comparableWindow: true;
+  };
 }
+
 
 export interface IntelligentReport {
   reportType: ReportType;
