@@ -212,9 +212,13 @@ async function generateForUser(
     .maybeSingle();
   // Relatório de template antigo é regenerado sozinho (auto-heal de destaques).
   const staleTemplate = !!existing && existing.template_version !== REPORT_TEMPLATE_VERSION;
-  if (existing && !opts.force && !staleTemplate) {
+  // Mês corrente nunca é reaproveitado: o período segue aberto e os números
+  // mudam a cada lançamento.
+  const isPartial = reportType === "monthly_partial";
+  if (existing && !opts.force && !staleTemplate && !isPartial) {
     return { report_id: existing.id as string, status: "exists" };
   }
+
 
   const transactions = await loadTransactions(sb, userId, previous.start);
   const ctx = await loadContext(sb, userId);
