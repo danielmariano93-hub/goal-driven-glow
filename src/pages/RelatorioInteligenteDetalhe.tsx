@@ -5,6 +5,7 @@ import ReportHealthGauge from "@/components/relatorios/ReportHealthGauge";
 import ReportMetricsGrid from "@/components/relatorios/ReportMetricsGrid";
 import ReportHighlightList from "@/components/relatorios/ReportHighlightList";
 import ReportCharts from "@/components/relatorios/ReportCharts";
+import ReportPerformanceSection from "@/components/relatorios/ReportPerformanceSection";
 import { deleteReport, generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
