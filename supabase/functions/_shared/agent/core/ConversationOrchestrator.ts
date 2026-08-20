@@ -25,26 +25,48 @@ export type TurnPlan = {
 
 const NOISE = /^(ok|okay|blz|beleza|obrigado|obrigada|valeu|isso|entendi|👍|✅)\W*$/i;
 
-/** Assuntos que, sozinhos, não formam pergunta (dependem do turno anterior). */
-const CONTEXT_ONLY = [
-  /^e\s+/i,
-  /^(e\s+)?(no|em|de|do|da)\s+/i,
-  /^(este|esse|neste|nesse|mes|m[eê]s|semana|hoje|ontem)\b/i,
-  /^(agosto|julho|junho|maio|abril|mar[cç]o|fevereiro|janeiro|setembro|outubro|novembro|dezembro)\b/i,
-  /^(e\s+)?(o\s+)?(mesmo|idem|igual)\b/i,
-  /^(quanto|qual)\??$/i,
-];
+/**
+ * Continuação NÃO é "mensagem curta". Só é continuação a mensagem que depende
+ * explicitamente da anterior: conector inicial, período isolado, anáfora ou
+ * pergunta truncada. Frase autossuficiente ("estou me sentindo atento",
+ * "pode registrar", "no crédito") nunca herda o assunto anterior — era isso
+ * que fazia resposta curta sair colada numa pergunta financeira antiga.
+ */
+const MONTHS = /(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i;
 
-const SUBJECT_RX =
-  /\b(gast|receit|renda|saldo|categoria|estabeleciment|fatura|cart[aã]o|d[ií]vida|meta|investiment|assinatur|previs[aã]o|fechamento|economi|padr[aã]o|compare|compara)/i;
+/** Mensagem que é só período ("em agosto", "e no mês passado?", "esta semana"). */
+const PERIOD_ONLY = new RegExp(
+  String.raw`^(?:e\s+)?(?:no|na|em|de|do|da|durante)?\s*(?:${MONTHS.source}|m[eê]s passado|m[eê]s retrasado|este m[eê]s|esse m[eê]s|semana passada|esta semana|essa semana|[uú]ltimos?\s+\d+\s+(?:dias|semanas|meses)|hoje|ontem|anteontem|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s*\??$`,
+  "i",
+);
+
+/** Pergunta truncada que só faz sentido com o assunto anterior. */
+const TRUNCATED_QUESTION = /^(?:e\s+)?(?:quanto|quais|qual|onde|quando|como|por que|porque|e a[ií])\s*\??$/i;
+
+/** Referência anafórica ao assunto anterior. */
+const ANAPHORA =
+  /\b(nessa|nesta|naquela|dessa|desta|daquela|nesse|neste|naquele|desse|deste|daquele|no mesmo|na mesma|mesma coisa|o mesmo|idem|e o|e a)\b/i;
+
+/** Conector inicial que indica complemento da pergunta anterior. */
+const DEPENDENT_START = /^(?:e|mas|tamb[eé]m|al[eé]m disso|e ainda|comparado|comparando|idem|mesmo)\b/i;
+
+/** Verbo/afirmação própria: a mensagem se explica sozinha. */
+const SELF_CONTAINED =
+  /\b(estou|est[aá]|t[oôo]|me sinto|me senti|sinto|senti|sentindo|acho|quero|preciso|vou|posso|pode|podes|registra|registre|anota|anote|marca|confirma|confirmo|cancela|sim|n[aã]o|obrigado|valeu|bom dia|boa tarde|boa noite|oi|ol[aá])\b/i;
 
 function isContextOnly(text: string): boolean {
   const t = text.trim();
   if (!t) return true;
   if (SUBJECT_RX.test(t)) return false;
-  if (t.split(/\s+/).length <= 6) return true;
-  return CONTEXT_ONLY.some((rx) => rx.test(t));
+  if (TRUNCATED_QUESTION.test(t)) return true;
+  if (PERIOD_ONLY.test(t)) return true;
+  if (SELF_CONTAINED.test(t)) return false;
+  if (ANAPHORA.test(t)) return true;
+  // Conector inicial só herda quando a frase é realmente um complemento curto.
+  if (DEPENDENT_START.test(t) && t.split(/\s+/).length <= 8) return true;
+  return CONTEXT_ONLY.some((rx) => rx.test(t)) && t.split(/\s+/).length <= 6;
 }
+
 
 /**
  * Quebra perguntas compostas em sub-perguntas ("quanto gastei e onde mais
