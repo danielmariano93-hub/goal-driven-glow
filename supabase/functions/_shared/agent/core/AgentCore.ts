@@ -49,7 +49,8 @@ import {
 import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
-import { findPending, confirmationExecutor } from "./PendingConfirmations.ts";
+import { findPending, executeConfirmation } from "./PendingConfirmations.ts";
+import { unprovenMessage } from "./PersistenceProof.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
