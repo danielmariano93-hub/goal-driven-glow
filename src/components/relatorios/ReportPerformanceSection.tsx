@@ -119,7 +119,20 @@ export default function ReportPerformanceSection() {
               {h.evidence.reconciles ? "" : " · decomposição parcial"}
             </p>
             {h.recommended_action ? (
-              <p className="mt-2 text-xs font-semibold text-primary">{h.recommended_action}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2 min-h-10 px-1.5 text-xs font-semibold text-primary"
+                onClick={() => {
+                  if (h.logical_topic_key) {
+                    void registerTopicSignal(h.logical_topic_key, "acted").catch(() => undefined);
+                  }
+                  openAssessor("fab");
+                }}
+              >
+                {h.recommended_action} <ArrowRight />
+              </Button>
             ) : null}
           </li>
         ))}
