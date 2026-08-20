@@ -10,7 +10,7 @@ import {
   type TransactionRow,
 } from "@/lib/engine/facts";
 
-import { eachDay, resolvePeriods, shortDay, daysInPeriod } from "./periods";
+import { eachDay, resolvePeriods, shortDay, daysInPeriod, daysInMonthOf } from "./periods";
 import { detectHighlights, mergeHighlights } from "./highlights";
 import {
   REPORTS_CATALOG_VERSION,
