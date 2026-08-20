@@ -28,6 +28,8 @@ import { FinancialRealtimeSync } from "@/components/finance/FinancialRealtimeSyn
 const Privacidade = lazy(() => import("./pages/legal/Privacidade"));
 const Termos = lazy(() => import("./pages/legal/Termos"));
 const Plano = lazy(() => import("./pages/Plano"));
+const ShortLink = lazy(() => import("./pages/ShortLink"));
+
 
 // Financial user (lazy)
 const Onboarding = lazy(() => import("./pages/Onboarding"));
