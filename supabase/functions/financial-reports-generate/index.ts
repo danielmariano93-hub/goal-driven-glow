@@ -417,7 +417,12 @@ Deno.serve(async (req) => {
 
   let body: { report_type?: ReportType; user_id?: string; force?: boolean; mode?: string } = {};
   try { body = (await req.json()) ?? {}; } catch { /* empty ok */ }
-  const reportType: ReportType = body.report_type === "monthly" ? "monthly" : "weekly";
+  // `monthly_partial` = relatório do mês corrente (aberto), sempre sob demanda.
+  const reportType: ReportType = body.report_type === "monthly"
+    ? "monthly"
+    : body.report_type === "monthly_partial"
+      ? "monthly_partial"
+      : "weekly";
   const requestId = crypto.randomUUID();
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const started = Date.now();
