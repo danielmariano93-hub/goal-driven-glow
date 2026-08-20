@@ -215,6 +215,8 @@ export default function RelatorioInteligenteDetalhe() {
 
       {report.payload && <ReportCharts payload={report.payload} />}
 
+      <ReportPerformanceSection />
+
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">O que merece sua atenção</h2>
         <ReportHighlightList highlights={report.highlights} />
