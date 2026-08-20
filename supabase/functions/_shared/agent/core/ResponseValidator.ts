@@ -7,6 +7,8 @@
 // deno-lint-ignore-file no-explicit-any
 import { validateAnalyticalClaims } from "../../intelligence/claimValidator.ts";
 import type { ToolCallEvidence } from "../../intelligence/contracts.ts";
+import { classifyOutcome, isClarification } from "./ToolOutcome.ts";
+
 
 const MAX_REPLY_LEN = 4000;
 export const FRIENDLY_ORCHESTRATOR_ERROR =
