@@ -3,7 +3,7 @@
 // usando os motores canônicos (financial_performance.v1 + advisor_relevance.v1).
 // Nunca grava snapshot, nunca enfileira mensagem — leitura pura.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { corsHeaders, json } from "../_shared/cors.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { computeFinancialPerformance } from "../_shared/finance-core/financialPerformance.ts";
 import { computeAdvisorDecision } from "../_shared/finance-core/advisorRelevance.ts";
