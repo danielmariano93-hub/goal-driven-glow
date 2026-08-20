@@ -117,5 +117,7 @@ export function periodLabel(item: Pick<ReportListItem, "report_type" | "period_s
   if (item.report_type === "weekly") return `${short(item.period_start)} a ${short(item.period_end)}`;
   const months = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
   const month = Number(item.period_start.slice(5, 7)) - 1;
+  // Mês aberto: o rótulo precisa dizer que ainda não fechou.
+  if (item.report_type === "monthly_partial") return `${months[month]} até ${short(item.period_end)}`;
   return `${months[month]} de ${item.period_start.slice(0, 4)}`;
 }
