@@ -152,7 +152,6 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     });
     if (cont.continue && cont.prompt) {
       input = { ...input, text: cont.prompt };
-      metrics.capability = metrics.capability ?? null;
       await guard(
         () => saveConversationMemory(sb, session_id ?? null, { pending_conversation_action: null }),
         (m) => metrics.errors.push("continuation_clear:" + m),
