@@ -52,7 +52,10 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
   const t = report.payload.totals;
   const titulo = report.reportType === "weekly"
     ? `📊 Seu relatório da semana (${report.period.label})`
-    : `📊 Seu relatório de ${report.period.label}`;
+    : report.reportType === "monthly_partial"
+      ? `📊 Seu mês até agora (${report.period.label})`
+      : `📊 Seu relatório de ${report.period.label}`;
+
   const lines = [
     titulo,
     "",
