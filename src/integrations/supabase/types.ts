@@ -13267,6 +13267,10 @@ export type Database = {
         Args: { p_expected_version: number; p_id: string; p_scope?: string }
         Returns: Json
       }
+      transaction_needs_categorization: {
+        Args: { _transaction_id: string; _user_id: string }
+        Returns: boolean
+      }
       transaction_update_direct: {
         Args: {
           p_expected_version: number
