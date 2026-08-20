@@ -19,7 +19,7 @@ function scoreTone(score: number | null) {
 export default function RelatoriosInteligentes() {
   const navigate = useNavigate();
   const [items, setItems] = useState<ReportListItem[] | null>(null);
-  const [generating, setGenerating] = useState<"weekly" | "monthly" | null>(null);
+  const [generating, setGenerating] = useState<"weekly" | "monthly" | "monthly_partial" | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ReportListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
