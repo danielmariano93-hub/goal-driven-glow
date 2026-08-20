@@ -1020,10 +1020,13 @@ ${JSON.stringify(hints)}
     },
     comparison_period: turnPlan.previous_period,
     pending_action: draft_id ?? null,
+    // Se o Nino terminou perguntando, ele guarda o que espera ouvir.
+    awaiting: detectExpectation(reply) ?? (kind === "question" ? awaiting : null),
     last_tool_context: toolCallLog.length
       ? { tool: String(toolCallLog[toolCallLog.length - 1]?.tool_name ?? ""), period: turnPlan.previous_period }
       : (memory?.last_tool_context ?? null),
   }), (m) => metrics.errors.push("conv_memory_save:" + m), null);
+
 
   const body = humanizeReply(validateReply(reply));
   await timeStage(metrics, "persist", async () => {
