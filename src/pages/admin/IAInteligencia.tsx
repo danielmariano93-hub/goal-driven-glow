@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { AdvisorObservabilityBoard } from "@/components/admin/AdvisorObservabilityBoard";
 
 type InspectResult = {
   memory: Array<{ id: string; kind: string; key: string; value: unknown; confidence: number; source: string; use_count: number; updated_at: string }>;
@@ -177,16 +178,16 @@ export default function IAInteligencia() {
         />
       )}
 
-      {target && inspect.data && <InspectView data={inspect.data} />}
+      {target && inspect.data && <InspectView data={inspect.data} userId={target.userId} />}
     </div>
   );
 }
 
-function InspectView({ data }: { data: InspectResult }) {
+function InspectView({ data, userId }: { data: InspectResult; userId: string }) {
   const suggestionsCount = data.suggestions.length;
   return (
     <Tabs defaultValue="summary" className="space-y-4">
-      <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-grid md:grid-cols-5">
+      <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-grid md:grid-cols-6">
         <TabsTrigger value="summary">Resumo</TabsTrigger>
         <TabsTrigger value="memory">Memória</TabsTrigger>
         <TabsTrigger value="suggestions">
@@ -194,7 +195,12 @@ function InspectView({ data }: { data: InspectResult }) {
         </TabsTrigger>
         <TabsTrigger value="decisions">Decisões</TabsTrigger>
         <TabsTrigger value="runs">Runs</TabsTrigger>
+        <TabsTrigger value="advisor">Consultor</TabsTrigger>
       </TabsList>
+
+      <TabsContent value="advisor" className="space-y-4">
+        <AdvisorObservabilityBoard userId={userId} />
+      </TabsContent>
 
       <TabsContent value="summary" className="space-y-6">
         <SummaryPanel snap={data.profile_snapshot} prefs={data.preferences} />
