@@ -53,11 +53,24 @@ import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
 import {
   askForCategory, mentionsAnaphoricCategory, mentionsGoalAnchor, resolveGoalCategoryScope,
 } from "./MerchantScope.ts";
+import {
+  detectExpectation, expectationFromHistory, isExpectationFresh,
+} from "./ConversationExpectation.ts";
+import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
 
 
 /** Cartão de rascunho de lançamento na última fala do Nino. */
 const DRAFT_CARD_RX =
   /(?:•\s*\*?(?:Despesa|Receita|Transfer[êe]ncia)\*?:)|(?:deixa eu confirmar antes de salvar)|(?:pode salvar\?)|(?:rascunhei aqui)|(?:fecho assim\?)|(?:confere pra mim)/i;
+
+/** Resposta curta a uma pergunta do Nino, sem assunto financeiro próprio. */
+function moodFromShortAnswer(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/\b(gast|fatura|cart[aã]o|saldo|d[ií]vida|meta|receita|sal[aá]rio|parcela|conta|R\$|\d)/i.test(t)) return false;
+  return t.split(/\s+/).length <= 4;
+}
+
 
 
 export type HandleTurnInput = {
