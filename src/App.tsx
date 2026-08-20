@@ -118,6 +118,8 @@ const App = () => (
               <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
               <Route path="/privacidade" element={<Privacidade />} />
               <Route path="/termos" element={<Termos />} />
+              <Route path="/s/:token" element={<ShortLink />} />
+
 
 
               <Route
