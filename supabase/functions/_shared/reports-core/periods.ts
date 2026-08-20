@@ -46,6 +46,26 @@ export function lastClosedMonth(reference: Date): ReportPeriod {
   };
 }
 
+/**
+ * Mês corrente, do dia 1 até a data de referência (inclusive). O mês ainda não
+ * fechou: o rótulo diz isso em voz alta para nunca ser lido como fechamento.
+ */
+export function currentMonthPartial(reference: Date): ReportPeriod {
+  const ref = utcOf(reference);
+  const start = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
+  return {
+    start: iso(start),
+    end: iso(ref),
+    label: `${MONTH_NAMES[start.getUTCMonth()]} até ${SHORT(iso(ref))}`,
+  };
+}
+
+/** Dias do mês da referência (28–31). */
+export function daysInMonthOf(reference: Date): number {
+  const ref = utcOf(reference);
+  return new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0)).getUTCDate();
+}
+
 /** Período imediatamente anterior, de mesma duração/natureza. */
 export function previousOf(period: ReportPeriod, type: ReportType): ReportPeriod {
   const start = new Date(`${period.start}T00:00:00Z`);
@@ -53,6 +73,19 @@ export function previousOf(period: ReportPeriod, type: ReportType): ReportPeriod
     const prevStart = addDays(start, -7);
     const prevEnd = addDays(prevStart, 6);
     return { start: iso(prevStart), end: iso(prevEnd), label: `${SHORT(iso(prevStart))} a ${SHORT(iso(prevEnd))}` };
+  }
+  if (type === "monthly_partial") {
+    // Comparação honesta: mesmo número de dias corridos do mês anterior.
+    const end = new Date(`${period.end}T00:00:00Z`);
+    const prevStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
+    const prevMonthDays = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 0)).getUTCDate();
+    const day = Math.min(end.getUTCDate(), prevMonthDays);
+    const prevEnd = new Date(Date.UTC(prevStart.getUTCFullYear(), prevStart.getUTCMonth(), day));
+    return {
+      start: iso(prevStart),
+      end: iso(prevEnd),
+      label: `${MONTH_NAMES[prevStart.getUTCMonth()]} até ${SHORT(iso(prevEnd))}`,
+    };
   }
   const prevStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
   const prevEnd = addDays(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1)), -1);
@@ -64,9 +97,14 @@ export function previousOf(period: ReportPeriod, type: ReportType): ReportPeriod
 }
 
 export function resolvePeriods(type: ReportType, reference: Date): { period: ReportPeriod; previous: ReportPeriod } {
-  const period = type === "weekly" ? lastClosedWeek(reference) : lastClosedMonth(reference);
+  const period = type === "weekly"
+    ? lastClosedWeek(reference)
+    : type === "monthly_partial"
+      ? currentMonthPartial(reference)
+      : lastClosedMonth(reference);
   return { period, previous: previousOf(period, type) };
 }
+
 
 export function eachDay(period: ReportPeriod): string[] {
   const out: string[] = [];

@@ -8,7 +8,8 @@ import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } f
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
 export const REPORT_TEMPLATE_VERSION = "report_template.v3";
 
-export type ReportType = "weekly" | "monthly";
+/** `monthly_partial` = mês corrente, ainda aberto (números reais + projeção). */
+export type ReportType = "weekly" | "monthly" | "monthly_partial";
 export type MetricUnit = "BRL" | "pct" | "count" | "days" | "score" | "text";
 export type Confidence = "low" | "medium" | "high";
 export type DataQualityStatus = "ok" | "attention" | "insufficient";
@@ -108,7 +109,22 @@ export interface ReportPayload {
   categories: CategorySlice[];
   series: SeriesPoint[];
   goals: Array<{ name: string; current: number; target: number; progress: number }>;
+  /**
+   * Presente apenas em relatórios do mês corrente (parciais). O mês ainda não
+   * fechou: os números são reais até `period.end` e a projeção é explícita.
+   */
+  partial?: {
+    daysElapsed: number;
+    daysInMonth: number;
+    /** Gasto projetado para o mês inteiro no ritmo atual. */
+    projectedExpense: number;
+    /** Receita projetada para o mês inteiro no ritmo atual. */
+    projectedIncome: number;
+    /** Comparação usa o mesmo número de dias do mês anterior. */
+    comparableWindow: true;
+  };
 }
+
 
 export interface IntelligentReport {
   reportType: ReportType;

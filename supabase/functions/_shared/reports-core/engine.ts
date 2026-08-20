@@ -12,7 +12,7 @@ import {
   type TransactionRow,
 } from "../finance-core/facts.ts";
 
-import { eachDay, resolvePeriods, shortDay, daysInPeriod } from "./periods.ts";
+import { eachDay, resolvePeriods, shortDay, daysInPeriod, daysInMonthOf } from "./periods.ts";
 import { detectHighlights, mergeHighlights } from "./highlights.ts";
 import {
   REPORTS_CATALOG_VERSION,
@@ -382,6 +382,22 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     series,
     goals,
   };
+
+  // Mês corrente: os totais são reais até hoje e a projeção fica explícita,
+  // no ritmo de gasto por dia corrido (nunca apresentada como realizado).
+  if (input.reportType === "monthly_partial") {
+    const daysElapsed = daysInPeriod(period);
+    const daysMonth = daysInMonthOf(input.referenceDate);
+    const pace = daysElapsed > 0 ? daysMonth / daysElapsed : 0;
+    payload.partial = {
+      daysElapsed,
+      daysInMonth: daysMonth,
+      projectedExpense: round2(expense * pace),
+      projectedIncome: round2(income * pace),
+      comparableWindow: true,
+    };
+  }
+
 
   const quality = buildQualityFlags(payload, txCount);
   const health = buildHealth(payload, quality.flags);
