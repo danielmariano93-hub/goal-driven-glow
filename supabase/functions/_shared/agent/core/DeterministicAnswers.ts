@@ -310,12 +310,12 @@ export async function executeDeterministicCapability(
     result: execution.ok ? execution.result : null, ok: execution.ok,
     duration_ms: execution.duration_ms, error: execution.error,
   };
-  if (!execution.ok && execution.error === "emotion_not_recognized") {
-    // Não é falha técnica: falta só a palavra do sentimento.
-    const ask = (execution as any).result?.ask
-      ?? "Como você se sentiu hoje? Pode ser tranquilo, atento, preocupado, confiante, impulsivo, frustrado, celebrando ou culpado.";
-    return { reply: String(ask), steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
+  const outcome = classifyOutcome(execution);
+  if (isClarification(outcome.kind) && outcome.ask) {
+    // Não é falha técnica: falta um dado. O Nino pergunta.
+    return { reply: outcome.ask, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
   }
+
   if (!execution.ok) {
     // Degradação honesta: em vez de "problema técnico", o Nino entrega o que
     // o snapshot canônico consegue provar e diz explicitamente o que faltou.
