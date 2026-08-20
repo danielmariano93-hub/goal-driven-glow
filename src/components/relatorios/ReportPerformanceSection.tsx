@@ -1,7 +1,12 @@
+import { useEffect, useRef } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ArrowRight } from "@phosphor-icons/react";
 import { usePerformanceDetail } from "@/lib/hooks/usePerformanceDetail";
 import { formatBRL } from "@/lib/engine/facts";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useAssessor } from "@/context/AssessorContext";
+import { registerTopicSignal } from "@/lib/nino/performanceSnapshots";
 
 /**
  * Seção acionável do relatório: o que mudou, por que mudou (drivers com
