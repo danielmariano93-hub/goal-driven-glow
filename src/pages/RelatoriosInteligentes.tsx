@@ -34,7 +34,7 @@ export default function RelatoriosInteligentes() {
 
   useEffect(() => { void load(); }, []);
 
-  async function handleGenerate(type: "weekly" | "monthly") {
+  async function handleGenerate(type: "weekly" | "monthly" | "monthly_partial") {
     setGenerating(type);
     try {
       const res = await generateReportNow(type);
@@ -68,7 +68,7 @@ export default function RelatoriosInteligentes() {
       <header>
         <h1 className="font-display text-2xl font-bold tracking-tight">Relatórios inteligentes</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Fechamentos semanais e mensais com leitura do Nino, sempre sobre períodos já encerrados.
+          Fechamentos semanais e mensais com leitura do Nino — e o retrato do mês em andamento quando você quiser.
         </p>
       </header>
 
@@ -88,6 +88,17 @@ export default function RelatoriosInteligentes() {
         >
           {generating === "monthly" ? <Loader2 size={16} className="animate-spin text-primary" /> : <Sparkles size={16} className="text-primary" />}
           Gerar do último mês
+        </button>
+        <button
+          onClick={() => handleGenerate("monthly_partial")}
+          disabled={generating !== null}
+          className="col-span-2 flex items-center gap-2 rounded-2xl border border-border bg-card p-3 text-left text-xs font-semibold shadow-card transition-colors hover:border-primary/40 disabled:opacity-60"
+        >
+          {generating === "monthly_partial" ? <Loader2 size={16} className="animate-spin text-primary" /> : <Sparkles size={16} className="text-primary" />}
+          <span>
+            Gerar o mês em andamento
+            <span className="ml-1 font-normal text-muted-foreground">números reais até hoje, com projeção</span>
+          </span>
         </button>
       </div>
 
