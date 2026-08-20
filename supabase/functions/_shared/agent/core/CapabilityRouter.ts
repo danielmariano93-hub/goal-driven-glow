@@ -24,6 +24,8 @@ export type CapabilityName =
   | "visualization"
   | "merchant_distribution"
   | "financial_evolution"
+  | "financial_performance"
+  | "financial_comparison"
   | "financial_analysis"
   | "forecast_month_close"
   | "money_leaks"
@@ -67,6 +69,7 @@ const GROUPS = {
     "get_spending_highlights", "get_financial_snapshot", "get_weekday_spending_pattern",
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
+    "compare_financial_metric", "assess_financial_performance",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
   leaks: [
@@ -346,6 +349,28 @@ export function classifyCapability(
     return {
       name: "visualization", execution: "llm_scoped", allowed_tools: GROUPS.visualization,
       required_tool: "generate_chart_artifact", context: {}, reason: "artifact_requested",
+    };
+  }
+
+  // "Como estou?" / "melhorei?" é RESPOSTA EXECUTIVA: precisa separar melhora
+  // real de efeito calendário. Vem antes de evolução/comparação.
+  if (/\b(como (eu )?estou|como (eu )?vou|estou melhorando|melhorei|estou indo bem|minha performance|performance financeira|estou pior|piorei|estou evoluindo financeiramente|balanco geral|panorama geral)\b/.test(t)) {
+    return {
+      name: "financial_performance", execution: "deterministic",
+      allowed_tools: ["assess_financial_performance", "compare_financial_metric", "get_financial_snapshot"],
+      required_tool: "assess_financial_performance", context: { metrics: true },
+      reason: "canonical_financial_performance",
+    };
+  }
+
+  // Comparação explícita entre períodos passa pelo motor canônico, que deixa o
+  // recorte visível (mês corrente x mesmo trecho do mês anterior, etc.).
+  if (/\b(comparad[oa]|comparando|comparacao|versus|\bvs\b|(mais|menos) que (o )?(mes|semana|ano) passad[oa]|(que|do) mes passado|(que|da) semana passada|mesmo periodo)\b/.test(t)) {
+    return {
+      name: "financial_comparison", execution: "deterministic",
+      allowed_tools: ["compare_financial_metric", "assess_financial_performance", "analyze_spending"],
+      required_tool: "compare_financial_metric", context: { metrics: true },
+      reason: "canonical_financial_comparison",
     };
   }
 
