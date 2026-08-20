@@ -85,6 +85,24 @@ export function resolveEmotionTerm(value?: string | null): EmotionOption | null 
   return mapped ? emotionByKey(mapped) : null;
 }
 
+/** Emoji citado no texto ("😌", "hoje foi 🎉"). */
+export function parseEmotionFromEmoji(text?: string | null): EmotionOption | null {
+  const raw = String(text ?? "");
+  for (const [emoji, key] of Object.entries(EMOJI_MAP)) {
+    if (raw.includes(emoji)) return emotionByKey(key);
+  }
+  return null;
+}
+
+/** Nota de 1 a 5 dada como resposta ("4", "nota 4", "4 de 5", "3/5"). */
+export function parseMoodScale(text?: string | null): EmotionOption | null {
+  const raw = normalize(text ?? "");
+  const match = raw.match(/^(?:nota\s+)?([1-5])(?:\s*(?:de|\/)\s*5)?$/)
+    ?? raw.match(/\bnota\s+([1-5])\b/)
+    ?? raw.match(/\b([1-5])\s*(?:de|\/)\s*5\b/);
+  return match ? moodToEmotion(Number(match[1])) : null;
+}
+
 /** Resolve emoção dentro de uma frase livre ("hoje me senti bem ansioso"). */
 export function parseEmotionFromText(text?: string | null): EmotionOption | null {
   const normalized = normalize(text ?? "");
@@ -94,8 +112,9 @@ export function parseEmotionFromText(text?: string | null): EmotionOption | null
     const pattern = new RegExp(`(?:^|[^a-z])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z]|$)`);
     if (pattern.test(normalized)) return emotionByKey(SYNONYMS[term]);
   }
-  return null;
+  return parseEmotionFromEmoji(text) ?? parseMoodScale(text);
 }
+
 
 /** Escala 1..5 informada diretamente ("nota 4", "4 de 5"). */
 export function moodToEmotion(mood?: number | null): EmotionOption | null {
