@@ -1963,7 +1963,12 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
   const today = todaySaoPaulo();
   const dayStart = `${today}T00:00:00-03:00`;
   const dayEnd = `${today}T23:59:59-03:00`;
-  const notes = String(args?.notes ?? "").trim().slice(0, 500) || null;
+  // A fala original vira observação: preserva o que a pessoa contou sem
+  // inventar sentimento que ela não disse.
+  const rawText = String(ctx.user_text ?? "").trim().slice(0, 500);
+  const notes = String(args?.notes ?? "").trim().slice(0, 500)
+    || (rawText.split(/\s+/).length > 2 ? rawText : null);
+
 
   const { data: existing } = await ctx.sb.from("emotional_checkins")
     .select("id").eq("user_id", ctx.user_id)
