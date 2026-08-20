@@ -356,7 +356,30 @@ export async function executeDeterministicCapability(
   // LLM: a resposta sai formatada direto do resultado do motor.
   else if (capability.name === "merchant_distribution") reply = formatMerchantDistribution(execution.result);
   else if (capability.name === "financial_evolution") reply = formatFinancialEvolution(execution.result);
-  else if (capability.name === "emotional_checkin") reply = formatEmotionalCheckin(execution.result);
+  else if (capability.name === "emotional_checkin") {
+    reply = formatEmotionalCheckin(execution.result);
+    // Registrar sentimento nunca devolve só recibo: quando o histórico ainda
+    // não sustenta a associação, o Nino traz o gasto de hoje comparado ao
+    // próprio padrão do mesmo dia da semana e um passo pequeno.
+    if ((execution.result as any)?.registered && !(execution.result as any)?.prospective_signal) {
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      const day = await runTool({
+        sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text,
+      }, "get_spending_for_date", { date: today }, { timeoutMs: 12_000, maxRetries: 0 });
+      if (day.ok) {
+        const extra = formatEmotionalDaySignal(day.result);
+        if (extra) reply = `${reply}\n\n${extra}`;
+        return {
+          reply, steps: 2, tokensIn: 0, tokensOut: 0, finish: "stop",
+          toolCalls: [call, {
+            step_index: 2, tool_name: day.tool_name, args: day.args, result: day.result,
+            ok: day.ok, duration_ms: day.duration_ms, error: day.error,
+          }],
+        };
+      }
+    }
+  }
+
   else if (capability.name === "emotion_finance") reply = formatEmotionFinance(execution.result);
   else return null;
 
@@ -364,7 +387,24 @@ export async function executeDeterministicCapability(
 }
 
 
+/**
+ * Retorno útil do dia: gasto real de hoje (data comportamental) com um passo
+ * pequeno. Só usa o que o motor devolveu — nada estimado.
+ */
+function formatEmotionalDaySignal(result: any): string | null {
+  const count = Number(result?.transactions_count ?? 0);
+  if (count === 0) {
+    return "Hoje ainda não tem gasto registrado. Se aparecer algum, me conta que eu já ligo ao seu humor de hoje.";
+  }
+  const top = Array.isArray(result?.categories) && result.categories[0]
+    ? ` A maior foi ${result.categories[0].name}, com ${money(result.categories[0].value)}.`
+    : "";
+  return `Hoje você gastou ${money(result?.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}`
+    + `\nUm passo pequeno: escolha um gasto flexível de hoje e decida se ele valeu o que você está sentindo.`;
+}
+
 /** Recibo curto do check-in emocional (registro do dia ou histórico). */
+
 function formatEmotionalCheckin(result: any): string {
   if (result?.registered) {
     const base = String(result.card ?? "Registrei como você se sentiu hoje.");

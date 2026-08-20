@@ -53,11 +53,24 @@ import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
 import {
   askForCategory, mentionsAnaphoricCategory, mentionsGoalAnchor, resolveGoalCategoryScope,
 } from "./MerchantScope.ts";
+import {
+  detectExpectation, expectationFromHistory, isExpectationFresh,
+} from "./ConversationExpectation.ts";
+import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
 
 
 /** Cartão de rascunho de lançamento na última fala do Nino. */
 const DRAFT_CARD_RX =
   /(?:•\s*\*?(?:Despesa|Receita|Transfer[êe]ncia)\*?:)|(?:deixa eu confirmar antes de salvar)|(?:pode salvar\?)|(?:rascunhei aqui)|(?:fecho assim\?)|(?:confere pra mim)/i;
+
+/** Resposta curta a uma pergunta do Nino, sem assunto financeiro próprio. */
+function moodFromShortAnswer(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/\b(gast|fatura|cart[aã]o|saldo|d[ií]vida|meta|receita|sal[aá]rio|parcela|conta|R\$|\d)/i.test(t)) return false;
+  return t.split(/\s+/).length <= 4;
+}
+
 
 
 export type HandleTurnInput = {
@@ -331,12 +344,25 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     };
   }
 
+  // ---- EXPECTATIVA — o Nino lembra o que ele perguntou -------------------
+  // Se a última fala do Nino foi uma pergunta que espera resposta (lembrete de
+  // humor, slot de lançamento), a mensagem atual é lida como resposta a ela.
+  const expectationHistory = await guard(
+    () => tctx.history(4, input.channel === "app" ? input.inbound_message_id : null),
+    (m) => metrics.errors.push("expectation_history:" + m),
+    [] as Array<{ role: string; content: string }>,
+  );
+  const expectation = expectationFromHistory(expectationHistory ?? []);
+  const emotionalAnswerExpected = expectation?.kind === "emotional_checkin"
+    && !!(parseEmotionFromText(input.text) || String(input.text ?? "").trim().split(/\s+/).length <= 6);
+
   // ---- CONVERSAR — rota casual (sem motor financeiro) ---------------------
   // "o que você é?", "bom dia", "obrigado", "qual a capital da França": não há
   // número, período nem motor. Responde com persona + identidade canônica, em
   // um único passo, sem tocar no pipeline analítico.
   const conversational = classifyConversational(input.text);
-  if (conversational.kind && !(await tctx.pending())) {
+  if (conversational.kind && !emotionalAnswerExpected && !(await tctx.pending())) {
+
     const firstName = await guard(async () => {
       const { data } = await sb.from("profiles").select("full_name").eq("id", input.user_id).maybeSingle();
       const full = String((data as any)?.full_name ?? "").trim();
@@ -420,18 +446,48 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     null,
   );
   const turnPlan = buildTurnPlan({ text: input.text, history });
-  const memoryText = applyMemoryToText(input.text, memory, { followup: turnPlan.followup });
+  // Rota determinística da mensagem CRUA é soberana: nenhuma herança de
+  // assunto pode transformar "estou me sentindo atento" em pergunta de gasto.
+  const rawDeterministic = capability.execution === "deterministic" && !!capability.required_tool;
+  const memoryText = rawDeterministic
+    ? { text: input.text, used: false }
+    : applyMemoryToText(input.text, memory, { followup: turnPlan.followup });
   if (memoryText.used) {
     turnPlan.effective_text = `${turnPlan.effective_text} (assunto: ${memory?.active_category ?? memory?.current_topic})`;
     turnPlan.followup = true;
   }
-  if (turnPlan.followup || turnPlan.composed) {
+  if ((turnPlan.followup || turnPlan.composed) && !rawDeterministic) {
     capability = classifyCapability(
       turnPlan.effective_text,
       routeIntent(turnPlan.effective_text).intent,
       interpretSemanticQuery(turnPlan.effective_text),
     );
   }
+  if (rawDeterministic) turnPlan.effective_text = input.text;
+
+  // Expectativa emocional pendente força a rota determinística de check-in:
+  // "cansado", "atento", "😌" ou "nota 4" são resposta, não assunto novo.
+  const awaiting = expectation
+    ?? (isExpectationFresh(memory?.awaiting) ? memory?.awaiting ?? null : null);
+  if (awaiting?.kind === "emotional_checkin"
+    && capability.name !== "emotional_checkin"
+    && capability.name !== "emotion_finance"
+    && (parseEmotionFromText(input.text) || moodFromShortAnswer(input.text))) {
+    capability = {
+      ...capability,
+      name: "emotional_checkin",
+      execution: "deterministic",
+      allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+      required_tool: "log_emotional_checkin",
+      tool_args: {},
+      context: {} as typeof capability.context,
+      clarification: null,
+      reason: "expectation_emotional_checkin",
+    };
+    turnPlan.effective_text = input.text;
+    turnPlan.followup = false;
+  }
+
 
   // Pergunta composta não é só detectada: ela é EXECUTADA. Roteamos cada
   // sub-pergunta, unimos o escopo de ferramentas e exigimos que todas as
@@ -876,10 +932,19 @@ ${JSON.stringify(hints)}
     } else if (truth.canonical_headline) {
       reply = truth.canonical_headline;
     } else {
-      reply = "Não vou te dar número que eu não consiga provar com os seus lançamentos. "
-        + "Não consegui fechar essa conta agora — me diga a categoria e o período (ex.: \"alimentação em agosto\") "
-        + "que eu calculo direto na sua base.";
+      // A recusa só pede categoria/período quando a pergunta era financeira.
+      // Numa conversa que não pedia número, isso saía completamente desconexo.
+      const financialAsk =
+        /\b(gast|gastei|receit|renda|saldo|categoria|fatura|cart[aã]o|d[ií]vida|meta|invest|or[cç]amento|quanto)\b/i
+          .test(String(input.text ?? ""));
+      reply = financialAsk
+        ? "Não vou te dar número que eu não consiga provar com os seus lançamentos. "
+          + "Não consegui fechar essa conta agora — me diga a categoria e o período (ex.: \"alimentação em agosto\") "
+          + "que eu calculo direto na sua base."
+        : "Me perdi aqui e preferi não responder com número que eu não consiga provar. "
+          + "Pode me dizer com outras palavras o que você quer, que eu sigo daí?";
     }
+
     truth = validateAgainstEvidence(reply, toolCallLog, turnPlan.effective_period);
   } else if (!truth.ok && truth.canonical_headline) {
     metrics.errors.push("truth_gate:" + truth.issues.map((i) => i.type).join(","));
@@ -955,10 +1020,13 @@ ${JSON.stringify(hints)}
     },
     comparison_period: turnPlan.previous_period,
     pending_action: draft_id ?? null,
+    // Se o Nino terminou perguntando, ele guarda o que espera ouvir.
+    awaiting: detectExpectation(reply) ?? (kind === "question" ? awaiting : null),
     last_tool_context: toolCallLog.length
       ? { tool: String(toolCallLog[toolCallLog.length - 1]?.tool_name ?? ""), period: turnPlan.previous_period }
       : (memory?.last_tool_context ?? null),
   }), (m) => metrics.errors.push("conv_memory_save:" + m), null);
+
 
   const body = humanizeReply(validateReply(reply));
   await timeStage(metrics, "persist", async () => {

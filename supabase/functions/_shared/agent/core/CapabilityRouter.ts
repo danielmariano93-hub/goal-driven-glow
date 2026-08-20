@@ -395,9 +395,15 @@ export function classifyCapability(
 
   // Não captura frases financeiras ("preocupado com a fatura"), que seguem
   // para as rotas de dívida/caixa.
+  const financialWord = /\b(divida|fatura|cartao|saldo|meta|gasto|gastei|comprei|receita|salario|parcela|conta)\b/.test(t);
   const emotionalAsk = /\b(check ?in|checkin|humor|emocao|emocional|sentimento|me sinto|me senti|sentindo|estou|to|hoje fui|fui)\b/.test(t)
-    && !/\b(divida|fatura|cartao|saldo|meta|gasto|gastei|comprei|receita|salario|parcela|conta)\b/.test(t);
-  if ((emotionalAsk && parseEmotionFromText(t))
+    && !financialWord;
+  // Resposta curta ao lembrete de humor ("cansado", "atento", "😌", "nota 4")
+  // também é check-in: sem isso ela caía numa rota financeira.
+  const shortAnswer = String(text ?? "").trim().split(/\s+/).length <= 4 && !financialWord;
+  const emotionInText = parseEmotionFromText(String(text ?? "")) ?? parseEmotionFromText(t);
+  if ((emotionalAsk && emotionInText)
+    || (shortAnswer && emotionInText)
     || /\b(registr\w+|anot\w+|marc\w+)\b.*\b(humor|emocao|emocional|sentimento|check ?in)\b/.test(t)) {
     return {
       name: "emotional_checkin", execution: "deterministic",
@@ -406,6 +412,7 @@ export function classifyCapability(
       reason: "canonical_emotional_checkin",
     };
   }
+
 
   if (/\b(como (?:eu )?estive|meu humor|meus sentimentos|historico emocional|registros emocionais)\b/.test(t)) {
     return {
