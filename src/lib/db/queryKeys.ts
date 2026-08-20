@@ -32,6 +32,7 @@ export const qk = {
   documentImports: ["document_imports"] as const,
   assessorDocuments: ["assessor_documents"] as const,
   notifications: ["notifications"] as const,
+  advisorPerformance: ["advisor-performance"] as const,
 } as const;
 
 export type QueryKeyName = keyof typeof qk;
@@ -68,4 +69,5 @@ export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
   qk.sharedExpenses,
   qk.documentImports,
   qk.assessorDocuments,
+  qk.advisorPerformance,
 ];

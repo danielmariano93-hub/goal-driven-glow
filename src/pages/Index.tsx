@@ -13,6 +13,8 @@ import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
+import { AcompanhamentoCard } from "@/components/home/AcompanhamentoCard";
+import { useFinancialPerformance } from "@/lib/hooks/useFinancialPerformance";
 
 import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -58,6 +60,7 @@ export default function Index() {
   const snapshot = useFinancialSnapshot(periodRange);
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const diagnosis = useNinoDiagnosisContext();
+  const performance = useFinancialPerformance();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
   const hasAccount = (accounts ?? []).length > 0;
@@ -108,6 +111,8 @@ export default function Index() {
         onRetry={() => void diagnosis.refetch()}
         projectionAvailability={availability.projection}
       />
+
+      <AcompanhamentoCard snapshot={performance.data ?? null} loading={performance.isLoading} />
 
       <RitmoUnificadoCard
           rhythm={snap?.rhythm ?? null}

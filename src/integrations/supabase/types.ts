@@ -11811,6 +11811,10 @@ export type Database = {
           whatsapp_linked: boolean
         }[]
       }
+      admin_v2_advisor_observability: {
+        Args: { _user_id: string }
+        Returns: Json
+      }
       admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
       admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
       admin_v2_client_profile: { Args: { _pseudo_id: string }; Returns: Json }
