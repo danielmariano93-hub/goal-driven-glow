@@ -335,15 +335,22 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         const executed = await guard(async () => {
           const pending = await findPending(sb, input.conversation_id, input.user_id);
           if (!pending) return null;
-          const { error } = await sb.rpc(confirmationExecutor(pending.kind), {
-            p_pending_id: pending.id, p_user_id: input.user_id,
+          const exec = await executeConfirmation(sb, pending, {
+            source_message_id: input.inbound_message_id ?? null,
           });
-          if (error) throw new Error(error.message);
-          return pending;
+          if (!exec.ok) throw new Error(exec.error ?? "confirmation_failed");
+          return { pending, exec };
         }, (m) => metrics.errors.push("confirm_recover_exec:" + m), null as any);
         if (executed) {
-          finalReply = buildReceipt(String((executed as any).kind) as any, (executed as any).payload);
-          finalKind = "receipt";
+          const { pending, exec } = executed as any;
+          // Recibo só existe com prova de leitura pós-escrita.
+          if (exec.proof?.proven) {
+            finalReply = buildReceipt(String(pending.kind) as any, exec.result ?? pending.payload);
+            finalKind = "receipt";
+          } else {
+            metrics.errors.push("confirm_recover_unproven:" + String(exec.proof?.reason ?? "unknown"));
+            finalReply = unprovenMessage();
+          }
         }
         if (input.channel !== "app" && input.to_phone) {
           await enqueueReply(sb, {
