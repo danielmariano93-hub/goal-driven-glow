@@ -48,6 +48,7 @@ import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
 import { findPending, confirmationExecutor } from "./PendingConfirmations.ts";
+import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
 import {
@@ -127,6 +128,39 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   });
 
   const tctx = createTurnContext({ sb, user_id: input.user_id, conversation_id: input.conversation_id, session_id: session_id ?? null });
+
+  // ---- CONTINUIDADE (`nino_continuation.v1`) ------------------------------
+  // O Nino ofereceu uma análise ("quer comparar…? me dá o ok") e o usuário
+  // respondeu "Ok". Antes isso caía no PolicyEngine e virava "não encontrei
+  // nada pendente". Agora o "ok" é reescrito na operação que ELE ofereceu,
+  // salvo quando existe escrita financeira pendente (essa tem precedência).
+  const continuationMemory = await guard(
+    () => loadConversationMemory(sb, session_id ?? null),
+    (m) => metrics.errors.push("continuation_memory:" + m),
+    null,
+  );
+  if (continuationMemory?.pending_conversation_action) {
+    const hasPendingWrite = !!(await guard(
+      () => findPending(sb, input.conversation_id, input.user_id),
+      (m) => metrics.errors.push("continuation_pending:" + m),
+      null,
+    ));
+    const cont = resolveContinuation({
+      text: input.text,
+      action: continuationMemory.pending_conversation_action,
+      hasPendingWrite,
+    });
+    if (cont.continue && cont.prompt) {
+      input = { ...input, text: cont.prompt };
+      metrics.errors.push(cont.reason);
+      await guard(
+        () => saveConversationMemory(sb, session_id ?? null, { pending_conversation_action: null }),
+        (m) => metrics.errors.push("continuation_clear:" + m),
+        null,
+      );
+    }
+  }
+
 
   // ---- FastLog (palavra-mágica: registra sem confirmação) ---------------
   const fastLogToken = await loadFastLogToken(sb, input.user_id);
