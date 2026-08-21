@@ -83,5 +83,29 @@ export function buildNinoReadingQueue(
       queue.push({ situation, action, source: bucket.source });
     }
   }
-  return queue;
+  return interleaveByType(queue);
+}
+
+/**
+ * Intercala tipos de leitura sem reordenar por severidade: a primeira posição
+ * (conclusão principal) é preservada e, a partir dela, evitamos duas leituras
+ * seguidas do mesmo tipo de situação quando existe alternativa disponível.
+ */
+function interleaveByType(queue: NinoReading[]): NinoReading[] {
+  if (queue.length < 3) return queue;
+  const rest = queue.slice(1);
+  const ordered: NinoReading[] = [queue[0]];
+  let lastType = typeOf(queue[0]);
+  while (rest.length) {
+    let pick = rest.findIndex((reading) => typeOf(reading) !== lastType);
+    if (pick < 0) pick = 0;
+    const [next] = rest.splice(pick, 1);
+    ordered.push(next);
+    lastType = typeOf(next);
+  }
+  return ordered;
+}
+
+function typeOf(reading: NinoReading): string {
+  return reading.situation.situation_type || reading.source;
 }
