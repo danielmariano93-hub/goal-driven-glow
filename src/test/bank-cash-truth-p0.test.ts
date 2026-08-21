@@ -106,6 +106,12 @@ describe("confirmação de extrato é fail-closed", () => {
     expect(edge).toContain("Antes de salvar, escolha a conta bancária deste extrato");
   });
 
+  it("grava a origem no documento e inclui itens que falharam antes", () => {
+    expect(edge).toContain('source_context_method: "user_selected"');
+    expect(edge).toContain('["needs_review", "duplicate_suspect", "failed"]');
+    expect(edge).toContain('source_context_method: "selected_items_recovery"');
+  });
+
   it("detecta item confirmado sem transação e devolve para revisão", () => {
     expect(edge).toContain('.eq("status", "confirmed").is("transaction_id", null)');
     expect(edge).toContain("recovered_orphans");

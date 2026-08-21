@@ -585,7 +585,7 @@ export function ReviewSheet({
           });
           return;
         }
-        toast.error("A fatura não foi registrada", {
+        toast.error(docKind === "invoice" ? "A fatura não foi registrada" : "O extrato não foi registrado", {
           description: `${failureDescription(failure)} Suas edições foram preservadas.`,
         });
         return;
@@ -593,7 +593,7 @@ export function ReviewSheet({
 
       const payload = data ?? {};
       if (!payload.result) {
-        toast.error("A fatura não foi registrada", { description: "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
+        toast.error(docKind === "invoice" ? "A fatura não foi registrada" : "O extrato não foi registrado", { description: "Suas edições foram preservadas. Revise a conciliação e tente novamente." });
         return;
       }
       const r = payload.result;
