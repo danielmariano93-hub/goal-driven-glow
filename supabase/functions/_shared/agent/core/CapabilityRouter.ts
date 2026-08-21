@@ -92,6 +92,8 @@ const GROUPS = {
     "get_financial_snapshot", "list_recent_transactions", "search_transactions", "get_goals_overview",
     "get_daily_insights", "run_before_spending", "get_weekday_spending_pattern", "analyze_spending",
     "get_debt_status", "analyze_merchants", "find_savings_opportunities",
+    "get_net_worth", "list_investments", "get_future_installments",
+    "list_recurring_rules", "get_commitments_agenda",
   ],
 } as const;
 
