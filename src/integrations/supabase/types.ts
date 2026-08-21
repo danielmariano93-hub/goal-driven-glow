@@ -4179,6 +4179,7 @@ export type Database = {
           period_start: string | null
           provider_message_id: string | null
           raw_text: string | null
+          reading_coverage: Json | null
           reconciled_at: string | null
           reconciliation_contract: string | null
           reconciliation_delta: number | null
@@ -4244,6 +4245,7 @@ export type Database = {
           period_start?: string | null
           provider_message_id?: string | null
           raw_text?: string | null
+          reading_coverage?: Json | null
           reconciled_at?: string | null
           reconciliation_contract?: string | null
           reconciliation_delta?: number | null
@@ -4309,6 +4311,7 @@ export type Database = {
           period_start?: string | null
           provider_message_id?: string | null
           raw_text?: string | null
+          reading_coverage?: Json | null
           reconciled_at?: string | null
           reconciliation_contract?: string | null
           reconciliation_delta?: number | null

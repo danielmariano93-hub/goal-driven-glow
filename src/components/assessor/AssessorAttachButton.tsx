@@ -4,7 +4,27 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
 const MAX_BYTES = 20 * 1024 * 1024;
-const ALLOWED = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
+const ALLOWED_EXT = ["pdf", "jpg", "jpeg", "png", "webp", "heic", "heif"];
+
+/** iOS e alguns gerenciadores de arquivo entregam `type` vazio ou genérico.
+ *  Recusar por rótulo descartaria documento legítimo — a extensão decide,
+ *  e o servidor confirma pelo conteúdo real (magic bytes). */
+function resolveKind(file: File): { ok: boolean; mime: string; ext: string } {
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  const type = (file.type ?? "").toLowerCase();
+  if (ALLOWED.includes(type)) return { ok: true, mime: type, ext };
+  if (ALLOWED_EXT.includes(ext)) {
+    const mime = ext === "pdf" ? "application/pdf"
+      : ext === "png" ? "image/png"
+      : ext === "webp" ? "image/webp"
+      : ext === "heic" ? "image/heic"
+      : ext === "heif" ? "image/heif"
+      : "image/jpeg";
+    return { ok: true, mime, ext };
+  }
+  return { ok: false, mime: type, ext };
+}
 
 export type PreparedAttachment = {
   file: File;
@@ -128,9 +148,17 @@ export async function ingestDocument(
     throw new Error("Escolha uma conta ou um cartão, não os dois.");
   }
   onProgress?.({ stage: "preparing" });
-  const isPdf = file.type === "application/pdf";
-  const blob = isPdf ? file : await stripExifAndCompress(file).catch(() => file);
-  const mimeType = isPdf ? "application/pdf" : "image/jpeg";
+  const kind = resolveKind(file);
+  const isPdf = kind.mime === "application/pdf";
+  // Imagem: tenta normalizar para JPEG (remove EXIF e reduz tamanho). Quando o
+  // navegador não decodifica o formato (HEIC no Chrome, por exemplo), envia o
+  // arquivo original e deixa a leitura para o servidor.
+  let blob: Blob = file;
+  let mimeType = kind.mime;
+  if (!isPdf) {
+    const compressed = await stripExifAndCompress(file).catch(() => null);
+    if (compressed) { blob = compressed; mimeType = "image/jpeg"; }
+  }
   const bytes = new Uint8Array(await blob.arrayBuffer());
 
   const create = await supabase.functions.invoke("assistant-ingest-document", {
@@ -214,15 +242,17 @@ export function AssessorAttachButton({
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleFile(file: File) {
-    if (!ALLOWED.includes(file.type)) {
-      toast.error("Formato não suportado. Envie PDF, JPEG, PNG ou WebP.");
+    const kind = resolveKind(file);
+    if (!kind.ok) {
+      console.warn("[assessor-attach] rejeitado", { name: file.name, type: file.type, ext: kind.ext, size: file.size });
+      toast.error(`Não consigo ler arquivos ${kind.ext ? "." + kind.ext : "desse tipo"}. Envie PDF, JPEG, PNG, WebP ou foto do iPhone (HEIC).`);
       return;
     }
     if (file.size > MAX_BYTES) {
       toast.error("Arquivo muito grande (máximo 20 MB).");
       return;
     }
-    onSelected({ file, url: URL.createObjectURL(file), name: file.name, mimeType: file.type });
+    onSelected({ file, url: URL.createObjectURL(file), name: file.name, mimeType: kind.mime });
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -231,7 +261,7 @@ export function AssessorAttachButton({
       <input
         ref={fileRef}
         type="file"
-        accept="application/pdf,image/jpeg,image/png,image/webp,.pdf"
+        accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.heic,.heif"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
