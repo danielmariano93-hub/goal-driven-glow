@@ -630,6 +630,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+  // Observabilidade por bloco: quanto do prompt foi contexto financeiro.
+  let contextJson = "";
+  let contextChars = 0;
+
   systemPrompt = `${capabilityPrompt(capability)}\n\n${turnPlanPrompt(turnPlan)}\n\n${systemPrompt}`;
   if (prePlan && prePlan.steps.length > 0) {
     const writeStep = prePlan.steps.find((s) => s.kind === "write");
