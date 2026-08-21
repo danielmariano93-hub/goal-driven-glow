@@ -13,8 +13,9 @@ import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
+import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
 
-import { getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
+import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { toHomeDiagnosisView, useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
@@ -110,7 +111,15 @@ export default function Index() {
       />
 
 
+      <ResumoPeriodoCard
+        performance={snap?.periodPerformance ?? null}
+        periodStart={periodRange.start}
+        periodEnd={periodRange.end}
+        loading={loading}
+      />
+
       <RitmoUnificadoCard
+          periodLabel={formatPeriodLabel(periodRange.start, periodRange.end)}
           rhythm={snap?.rhythm ?? null}
           projection={snap?.projection ?? null}
           loading={loading}

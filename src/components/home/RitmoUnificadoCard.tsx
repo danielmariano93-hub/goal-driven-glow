@@ -10,7 +10,7 @@ import { RhythmMethodSheet } from "./RhythmMethodSheet";
 
 type Trend = "up" | "down" | "stable";
 type SeriesMode = "typical" | "all";
-type Props = { rhythm: RhythmComparison | null; projection: SpendingProjection | null; loading?: boolean; partial?: boolean; error?: unknown; onRetry?: () => void };
+type Props = { rhythm: RhythmComparison | null; projection: SpendingProjection | null; loading?: boolean; partial?: boolean; error?: unknown; onRetry?: () => void; periodLabel?: string };
 type ChartRow = {
   day: number;
   currentDate: string;
@@ -60,7 +60,7 @@ function ChartDetail({ active, payload, mode }: { active?: boolean; payload?: Ar
   );
 }
 
-export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error, onRetry }: Props) {
+export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error, onRetry, periodLabel }: Props) {
   const [methodOpen, setMethodOpen] = useState(false);
   const [mode, setMode] = useState<SeriesMode>("typical");
   const current = rhythm?.current;
@@ -115,6 +115,7 @@ export function RitmoUnificadoCard({ rhythm, projection, loading, partial, error
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-primary">Seu comportamento</p>
           <h2 className="mt-0.5 font-display text-[15px] font-bold leading-5 text-foreground">Seu ritmo de gastos</h2>
+          {periodLabel ? <p className="mt-0.5 text-[11px] text-muted-foreground">{periodLabel}</p> : null}
           <div className="mt-2 grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-2">
             <div>
               <p className="text-[10px] font-medium text-muted-foreground">{mode === "all" ? "Média com todos os gastos" : "Ritmo típico no período"}</p>
