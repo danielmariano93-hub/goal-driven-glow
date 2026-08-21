@@ -6,7 +6,7 @@ import {
   useContributions,
   useInvestments,
   useCategories,
-  useAllTransactions,
+  useLedgerWindow,
 } from "@/lib/db/finance";
 import { computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
@@ -18,7 +18,7 @@ export default function MetaDetalhe() {
   const { data: contribs } = useContributions();
   const { data: investments } = useInvestments();
   const { data: categories } = useCategories();
-  const { data: txs } = useAllTransactions();
+  const { data: txs } = useLedgerWindow();
 
   const goal = (goals ?? []).find((g) => g.id === id) ?? null;
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })), [txs]);

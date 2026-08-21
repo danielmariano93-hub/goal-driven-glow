@@ -5228,6 +5228,57 @@ export type Database = {
           },
         ]
       }
+      financial_derived_cache: {
+        Row: {
+          cache_key: string
+          compute_ms: number | null
+          computed_at: string
+          contract_version: string
+          ledger_version: number
+          payload: Json
+          user_id: string
+        }
+        Insert: {
+          cache_key: string
+          compute_ms?: number | null
+          computed_at?: string
+          contract_version?: string
+          ledger_version: number
+          payload: Json
+          user_id: string
+        }
+        Update: {
+          cache_key?: string
+          compute_ms?: number | null
+          computed_at?: string
+          contract_version?: string
+          ledger_version?: number
+          payload?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      financial_dirty_periods: {
+        Row: {
+          competence_month: string
+          marked_at: string
+          processed_at: string | null
+          user_id: string
+        }
+        Insert: {
+          competence_month: string
+          marked_at?: string
+          processed_at?: string | null
+          user_id: string
+        }
+        Update: {
+          competence_month?: string
+          marked_at?: string
+          processed_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       financial_feature_flags: {
         Row: {
           anticipation_dry_run: boolean
@@ -5375,6 +5426,24 @@ export type Database = {
           user_id?: string
           valid_from?: string
           valid_until?: string | null
+        }
+        Relationships: []
+      }
+      financial_ledger_versions: {
+        Row: {
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          updated_at?: string
+          user_id?: string
+          version?: number
         }
         Relationships: []
       }
@@ -12589,6 +12658,7 @@ export type Database = {
         Args: { p_months?: number }
         Returns: number
       }
+      finance_ledger_version: { Args: never; Returns: number }
       financial_reports_monthly_tick: { Args: never; Returns: number }
       financial_reports_tick: {
         Args: { p_report_type: string }

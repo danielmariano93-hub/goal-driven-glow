@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useCategories,
-  useAllTransactions,
+  useLedgerWindow,
   useCategorySpendingGoals,
   useSaveCategorySpendingGoal,
   useDeleteCategorySpendingGoal,
@@ -22,7 +22,7 @@ export default function MetaCategoriaDetalhe() {
   const navigate = useNavigate();
   const { data: catGoals, isLoading } = useCategorySpendingGoals();
   const { data: categories } = useCategories();
-  const { data: txs } = useAllTransactions();
+  const { data: txs } = useLedgerWindow();
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
   const { data: financialSnapshot } = useFinancialSnapshot({

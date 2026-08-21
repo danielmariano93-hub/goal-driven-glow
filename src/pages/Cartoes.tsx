@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText, ChevronRight, X, RotateCcw } from "lucide-react";
 import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
-import { useAccounts, useAllTransactions, useCategories } from "@/lib/db/finance";
+import { useAccounts, useLedgerWindow, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
 import { computeCardExposure, emptyExposure, isAuthoritativeCardStatement, type CardExposure, type ExposureSource } from "@/lib/engine/cardExposure";
@@ -47,7 +47,7 @@ export default function Cartoes() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const { data: cards, isLoading } = useCreditCards();
-  const { data: txs } = useAllTransactions();
+  const { data: txs } = useLedgerWindow();
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const qc = useQueryClient();
