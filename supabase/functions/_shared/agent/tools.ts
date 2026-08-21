@@ -1770,6 +1770,170 @@ export async function generate_report_from_template(ctx: ToolContext, args: {
   return await generate_chart_artifact(ctx, { kind: kind as any, ...(mappedArgs as any) });
 }
 
+// ---------- Patrimônio, investimentos, parcelas futuras, recorrências e agenda ----------
+// Leituras canônicas: todo número vem do snapshot financeiro único ou da tabela
+// dona do dado. Nenhuma dessas tools recalcula verdade por conta própria.
+
+export async function get_net_worth(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    const c = snap.net_worth_composition;
+    return {
+      ok: true,
+      result: {
+        net_worth: snap.net_worth,
+        composition: c,
+        explanation: `Patrimônio = dinheiro em conta (${BRL.format(c.cash)}) + investido (${BRL.format(c.invested)}) − cheque especial (${BRL.format(c.account_overdraft)}) − fatura de cartão em aberto (${BRL.format(c.cards_owed)}) − outras dívidas (${BRL.format(c.other_debts)}).`,
+        bridge: snap.net_worth_bridge,
+        provenance: makeProvenance({
+          from: snap.month_start, to: snap.today,
+          row_count: snap.source_transaction_count,
+          formula_version: snap.formula_version,
+          confidence: "high",
+        }),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+export async function list_investments(ctx: ToolContext): Promise<ToolResult> {
+  const { data, error } = await ctx.sb.from("investments")
+    .select("id,name,category,institution,invested_amount,current_value,reference_date,goal_id")
+    .eq("user_id", ctx.user_id).order("current_value", { ascending: false });
+  if (error) return { ok: false, error: `investments_query_failed:${error.message}` };
+  const rows = (data ?? []) as any[];
+  const invested = rows.reduce((a, r) => a + Number(r.invested_amount || 0), 0);
+  const current = rows.reduce((a, r) => a + Number(r.current_value || 0), 0);
+  const byCategory: Record<string, number> = {};
+  for (const r of rows) {
+    const key = String(r.category ?? "outros");
+    byCategory[key] = Math.round(((byCategory[key] ?? 0) + Number(r.current_value || 0)) * 100) / 100;
+  }
+  return {
+    ok: true,
+    result: {
+      items: rows.map((r) => ({
+        id: r.id, name: r.name, category: r.category, institution: r.institution,
+        invested_amount: Number(r.invested_amount || 0),
+        current_value: Number(r.current_value || 0),
+        result: Math.round((Number(r.current_value || 0) - Number(r.invested_amount || 0)) * 100) / 100,
+        reference_date: r.reference_date, goal_id: r.goal_id,
+      })),
+      count: rows.length,
+      total_invested: Math.round(invested * 100) / 100,
+      total_current_value: Math.round(current * 100) / 100,
+      total_result: Math.round((current - invested) * 100) / 100,
+      by_category: byCategory,
+    },
+  };
+}
+
+export async function get_future_installments(ctx: ToolContext, args?: { months?: number }): Promise<ToolResult> {
+  const months = Math.max(1, Math.min(24, Number(args?.months ?? 6)));
+  const today = todaySaoPaulo();
+  const [y, m] = today.slice(0, 7).split("-").map(Number);
+  const fromMonth = `${today.slice(0, 7)}-01`;
+  const endDate = new Date(Date.UTC(y, (m - 1) + months, 1));
+  const toMonthExclusive = `${endDate.getUTCFullYear()}-${String(endDate.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  const [instRes, cardsRes] = await Promise.all([
+    ctx.sb.from("credit_card_installments")
+      .select("id,credit_card_id,installment_number,amount,competence_month,due_date,status,purchase_id")
+      .eq("user_id", ctx.user_id)
+      .gte("competence_month", fromMonth).lt("competence_month", toMonthExclusive)
+      .order("competence_month"),
+    ctx.sb.from("credit_cards").select("id,name").eq("user_id", ctx.user_id),
+  ]);
+  if (instRes.error) return { ok: false, error: `installments_query_failed:${instRes.error.message}` };
+  if (cardsRes.error) return { ok: false, error: `cards_query_failed:${cardsRes.error.message}` };
+  const cardName = new Map(((cardsRes.data ?? []) as any[]).map((c) => [c.id, c.name]));
+  const rows = ((instRes.data ?? []) as any[]).filter((r) => String(r.status ?? "").toLowerCase() !== "cancelled");
+  const byMonth = new Map<string, { competence_month: string; total: number; count: number }>();
+  for (const r of rows) {
+    const key = String(r.competence_month).slice(0, 7);
+    const bucket = byMonth.get(key) ?? { competence_month: key, total: 0, count: 0 };
+    bucket.total = Math.round((bucket.total + Number(r.amount || 0)) * 100) / 100;
+    bucket.count += 1;
+    byMonth.set(key, bucket);
+  }
+  return {
+    ok: true,
+    result: {
+      horizon_months: months,
+      total: Math.round(rows.reduce((a, r) => a + Number(r.amount || 0), 0) * 100) / 100,
+      by_month: [...byMonth.values()].sort((a, b) => a.competence_month.localeCompare(b.competence_month)),
+      items: rows.slice(0, 60).map((r) => ({
+        card: cardName.get(r.credit_card_id) ?? "Cartão",
+        installment_number: r.installment_number,
+        amount: Number(r.amount || 0),
+        competence_month: String(r.competence_month).slice(0, 7),
+        due_date: r.due_date,
+        status: r.status,
+      })),
+      count: rows.length,
+      note: "Competência é o mês em que a parcela entra na fatura; o vencimento é a data de pagamento.",
+    },
+  };
+}
+
+export async function list_recurring_rules(ctx: ToolContext): Promise<ToolResult> {
+  const [rulesRes, catsRes, accountsRes] = await Promise.all([
+    ctx.sb.from("recurring_rules")
+      .select("id,name,kind,amount,frequency,day_of_month,weekday,start_date,end_date,status,account_id,category_id")
+      .eq("user_id", ctx.user_id).order("amount", { ascending: false }),
+    ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`),
+    ctx.sb.from("accounts").select("id,name").eq("user_id", ctx.user_id),
+  ]);
+  if (rulesRes.error) return { ok: false, error: `recurring_query_failed:${rulesRes.error.message}` };
+  const catName = new Map(((catsRes.data ?? []) as any[]).map((c) => [c.id, c.name]));
+  const accName = new Map(((accountsRes.data ?? []) as any[]).map((a) => [a.id, a.name]));
+  const rows = (rulesRes.data ?? []) as any[];
+  const active = rows.filter((r) => String(r.status) === "active");
+  const sum = (kind: string) =>
+    Math.round(active.filter((r) => String(r.kind) === kind).reduce((a, r) => a + Number(r.amount || 0), 0) * 100) / 100;
+  return {
+    ok: true,
+    result: {
+      items: active.map((r) => ({
+        id: r.id, name: r.name, kind: r.kind, amount: Number(r.amount || 0),
+        frequency: r.frequency, day_of_month: r.day_of_month, weekday: r.weekday,
+        start_date: r.start_date, end_date: r.end_date,
+        category: r.category_id ? catName.get(r.category_id) ?? null : null,
+        account: r.account_id ? accName.get(r.account_id) ?? null : null,
+      })),
+      active_count: active.length,
+      paused_count: rows.length - active.length,
+      monthly_expense_total: sum("expense"),
+      monthly_income_total: sum("income"),
+    },
+  };
+}
+
+export async function get_commitments_agenda(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    const agenda = snap.commitment_agenda;
+    return {
+      ok: true,
+      result: {
+        ...agenda,
+        net_expected: Math.round((agenda.total_income - agenda.total_expense) * 100) / 100,
+        available_today: snap.available_today,
+        provenance: makeProvenance({
+          from: agenda.horizon_start, to: agenda.horizon_end,
+          row_count: agenda.items.length,
+          formula_version: snap.formula_version,
+          confidence: agenda.has_estimates ? "medium" : "high",
+          notes: agenda.has_estimates ? ["Alguns compromissos são estimativas de recorrência."] : undefined,
+        }),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 // ---------- Registro ----------
 
 export type ToolSpec = {
