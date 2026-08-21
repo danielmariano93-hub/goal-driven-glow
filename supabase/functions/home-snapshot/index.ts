@@ -26,6 +26,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const CONTRACT = "home_snapshot.v2";
 
 
 // deno-lint-ignore no-explicit-any
@@ -36,23 +37,63 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+type SnapshotRequest = {
+  start?: string;
+  end?: string;
+  today?: string;
+  bootstrap?: boolean;
+  force_refresh?: boolean;
+  user_id?: string;
+};
+
+function isCurrentMtd(start: string, end: string, today: string): boolean {
+  return start === `${today.slice(0, 7)}-01` && end === today;
+}
+
+function scheduleRevalidate(auth: string, body: SnapshotRequest) {
+  const task = fetch(`${SUPABASE_URL}/functions/v1/${FN}`, {
+    method: "POST",
+    headers: {
+      Authorization: auth,
+      "Content-Type": "application/json",
+      "x-nino-revalidate": "1",
+    },
+    body: JSON.stringify({ ...body, force_refresh: true }),
+  }).then((response) => {
+    if (!response.ok) console.warn("[home-snapshot] background revalidate status", response.status);
+  });
+  const runtime = (globalThis as Any).EdgeRuntime as { waitUntil?: (promise: Promise<unknown>) => void } | undefined;
+  if (runtime?.waitUntil) runtime.waitUntil(task.catch((error) => console.warn("[home-snapshot] background revalidate", error)));
+  else void task.catch((error) => console.warn("[home-snapshot] background revalidate", error));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return fail("method_not_allowed", { status: 405, functionName: FN });
 
-  const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
-
-  const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
-    global: { headers: { Authorization: auth } },
-    auth: { persistSession: false },
-  });
-  const { data: userData, error: userError } = await sbAuth.auth.getUser();
-  const userId = userData?.user?.id;
-  if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
-
-  let body: { start?: string; end?: string; today?: string; bootstrap?: boolean } = {};
+  let body: SnapshotRequest = {};
   try { body = await req.json(); } catch { body = {}; }
+
+  const auth = req.headers.get("Authorization") ?? "";
+  const cronSecrets = [Deno.env.get("INTERNAL_CRON_SECRET") ?? "", Deno.env.get("CRON_SECRET") ?? ""].filter(Boolean);
+  const providedCronSecret = req.headers.get("x-cron-secret") ?? "";
+  const internalCall = Boolean(body.user_id && cronSecrets.length > 0 && cronSecrets.includes(providedCronSecret));
+
+  let userId: string | undefined;
+  if (internalCall) {
+    userId = String(body.user_id);
+  } else {
+    if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
+    const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
+      global: { headers: { Authorization: auth } },
+      auth: { persistSession: false },
+    });
+    const { data: userData, error: userError } = await sbAuth.auth.getUser();
+    userId = userData?.user?.id;
+    if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
+  }
+  if (!userId) return fail("unauthorized", { status: 401, functionName: FN });
+
   if (!ISO.test(String(body.start ?? "")) || !ISO.test(String(body.end ?? ""))) {
     return json({ error: "invalid_period", message: "Informe start e end no formato YYYY-MM-DD." }, 400);
   }
@@ -67,12 +108,12 @@ Deno.serve(async (req) => {
     // Memoização por versão do ledger: enquanto nada financeiro é escrito,
     // reabrir a Home não recalcula o snapshot (perf_derived.v1).
     const ledgerVersion = await getLedgerVersion(sb, userId);
-    const cacheKey = `home_snapshot|${start}|${end}|${today}`;
+    const cacheKey = `home_snapshot_v2|${start}|${end}|${today}`;
     const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
     if (cached) {
       return json({
         ok: true,
-        formula_version: "home_snapshot.v1",
+        formula_version: CONTRACT,
         period: { start, end },
         today,
         missing_sources: cached.payload?.missing_sources ?? [],
@@ -82,6 +123,58 @@ Deno.serve(async (req) => {
         cache_hit: true,
         snapshot: cached.payload?.snapshot ?? cached.payload,
       });
+    }
+
+    // `stale-while-revalidate`: para o MTD atual existe uma representação
+    // persistida por usuário. Se o ledger mudou, devolvemos o último snapshot
+    // imediatamente e recalculamos em background. Assim uma escrita financeira
+    // não transforma a próxima abertura da Home em 5s de skeleton.
+    if (!body.force_refresh && isCurrentMtd(start, end, today)) {
+      const { data: materialized } = await sb
+        .from("financial_current_snapshots")
+        .select("payload,as_of_date,computed_at,generated_at,completeness,missing_sources,contract_version,source_freshness")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const persistedPayload = (materialized?.payload ?? null) as Any;
+      const persistedSnapshot = persistedPayload?.snapshot ?? null;
+      const persistedVersion = Number(persistedPayload?.ledger_version ?? -1);
+      const persistedFreshness = String(persistedPayload?.freshness ?? "fresh");
+      const contractOk = materialized?.contract_version === CONTRACT;
+      if (persistedSnapshot && contractOk) {
+        const fresh = persistedVersion === ledgerVersion && materialized?.as_of_date === today && persistedFreshness === "fresh";
+        if (!fresh) {
+          const freshnessMeta = (materialized?.source_freshness ?? {}) as Record<string, unknown>;
+          const lastRequestedAt = Date.parse(String(freshnessMeta.refresh_requested_at ?? ""));
+          const canSchedule = !Number.isFinite(lastRequestedAt) || Date.now() - lastRequestedAt > 8000;
+          const { count: dirtyCount } = await sb.from("financial_dirty_periods")
+            .select("user_id", { count: "exact", head: true })
+            .eq("user_id", userId)
+            .is("processed_at", null);
+          // Se existe mês sujo, o worker de fatos precisa terminar antes. Para
+          // mudanças sem fatos (metas, conta, settings etc.), revalida já.
+          if (canSchedule && Number(dirtyCount ?? 0) === 0) {
+            const refreshRequestedAt = new Date().toISOString();
+            await sb.from("financial_current_snapshots").update({
+              source_freshness: { ...freshnessMeta, refresh_requested_at: refreshRequestedAt },
+            }).eq("user_id", userId);
+            scheduleRevalidate(auth, { start, end, today, bootstrap: false });
+          }
+        }
+        return json({
+          ok: true,
+          formula_version: CONTRACT,
+          period: { start, end },
+          today,
+          missing_sources: materialized?.missing_sources ?? persistedPayload?.missing_sources ?? [],
+          transactions_considered: persistedPayload?.transactions_considered ?? null,
+          ledger_version: ledgerVersion,
+          computed_at: materialized?.computed_at ?? materialized?.generated_at ?? null,
+          cache_hit: true,
+          persisted_cache: true,
+          freshness: fresh ? "fresh" : "stale_recomputing",
+          snapshot: persistedSnapshot,
+        });
+      }
     }
     const startedAt = Date.now();
 
@@ -124,7 +217,15 @@ Deno.serve(async (req) => {
     // fatos mensais consolidados. O ledger inteiro só entra em bootstrap ou
     // rebuild administrativo — nunca na abertura normal.
     const bootstrap = body.bootstrap === true;
-    const window = resolveWindow({ start, end }, today);
+    // A Home precisa de baseline recente + compromissos próximos. Parcelas
+    // futuras já vivem em `credit_card_installments` e recorrências em
+    // `recurring_rules`; ler 24 meses futuros do ledger bruto era redundante.
+    // Mantemos 6 meses de lookback (paridade dos baselines) e só 3 à frente.
+    const window = resolveWindow(
+      { start, end },
+      today,
+      { lookbackMonths: 6, aheadMonths: 3 },
+    );
     const factsReadStarted = Date.now();
     let compact: Awaited<ReturnType<typeof buildCompactLedger>> | null = null;
     let txs: Any[];
@@ -238,6 +339,53 @@ Deno.serve(async (req) => {
       snapshot,
     };
     const computeMs = Date.now() - startedAt;
+    const computedAt = new Date().toISOString();
+
+    // Materialização da visão corrente. Não é segunda verdade: payload guarda
+    // exatamente a saída do motor canônico + a versão do ledger que a produziu.
+    if (isCurrentMtd(start, end, today)) {
+      const dirtyMonthsPending = [...(compact?.missingMonths ?? []), ...(compact?.staleMonths ?? [])];
+      const materializedFreshness = dirtyMonthsPending.length > 0 ? "stale_recomputing" : "fresh";
+      const { error: materializedError } = await sb.from("financial_current_snapshots").upsert({
+        user_id: userId,
+        as_of_date: today,
+        period_start: start,
+        income: num((snapshot as Any)?.monthlyTotals?.income),
+        cash_outflow: num((snapshot as Any)?.cashBridge?.operationalAccountExpense)
+          + num((snapshot as Any)?.cashBridge?.investmentApplications)
+          + num((snapshot as Any)?.cashBridge?.externalTransfersOut)
+          + num((snapshot as Any)?.cashBridge?.debtPrincipalPayments)
+          + num((snapshot as Any)?.cashBridge?.debtInterestAndFees)
+          + num((snapshot as Any)?.cashBridge?.cardPayments),
+        behavioral_consumption: num((snapshot as Any)?.monthlyTotals?.expense),
+        account_consumption: num((snapshot as Any)?.cashBridge?.operationalAccountExpense),
+        card_consumption: num((snapshot as Any)?.currentCardSpend),
+        available_balance: num((snapshot as Any)?.availableToday),
+        confidence: missing.length === 0 ? "computed" : "partial",
+        formula_versions: { home_snapshot: CONTRACT },
+        computed_at: computedAt,
+        period_status: "open",
+        contract_version: CONTRACT,
+        completeness: missing.length === 0 ? "complete" : "partial",
+        missing_sources: missing,
+        source_freshness: {
+          ledger_version: ledgerVersion,
+          read_path: bootstrap ? "full_ledger_bootstrap" : "monthly_facts_window",
+          dirty_months_pending: dirtyMonthsPending,
+        },
+        payload: {
+          snapshot,
+          missing_sources: missing,
+          transactions_considered: ((txs ?? []) as Any[]).length,
+          ledger_version: ledgerVersion,
+          freshness: materializedFreshness,
+        },
+        generated_at: computedAt,
+      }, { onConflict: "user_id" });
+      if (materializedError) {
+        console.warn("[home-snapshot] materialized snapshot write", materializedError.message);
+      }
+    }
     // Só memoiza snapshot completo: parcial não vira verdade guardada.
     // Nem parcial nem desatualizado viram verdade guardada.
     if (missing.length === 0 && (compact?.staleMonths?.length ?? 0) === 0) {
@@ -246,14 +394,14 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
-      formula_version: "home_snapshot.v1",
+      formula_version: CONTRACT,
       period: { start, end },
       today,
       // A Home usa isto para degradar a superfície certa, e nunca para inventar.
       missing_sources: missing,
       transactions_considered: payload.transactions_considered,
       ledger_version: ledgerVersion,
-      computed_at: new Date().toISOString(),
+      computed_at: computedAt,
       cache_hit: false,
       compute_ms: computeMs,
       // Observabilidade do caminho de rebuild (`perf_facts.v1`).

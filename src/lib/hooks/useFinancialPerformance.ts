@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { qk } from "@/lib/db/queryKeys";
 import { today as localToday } from "@/lib/engine/ninoClock";
 import type { ComparisonMode } from "@/lib/engine/financialComparison";
-import { fetchDerivedPerformance, useLedgerVersion } from "@/lib/db/derivedViews";
+import { fetchDerivedPerformance } from "@/lib/db/derivedViews";
 import {
   loadOrComputePerformanceSnapshot,
   readPerformanceSnapshot,
@@ -21,13 +21,10 @@ export function useFinancialPerformance(options?: { mode?: ComparisonMode; enabl
   const { user } = useAuth();
   const mode: ComparisonMode = options?.mode ?? "MTD_EQUIVALENT";
   const asOf = localToday(user as { timezone?: string | null } | null);
-  const ledgerVersion = useLedgerVersion();
 
   return useQuery<PerformanceSnapshot | null>({
-    queryKey: [...qk.advisorPerformance, user?.id, mode, asOf, ledgerVersion.data ?? 0],
-    // Espera a versão do ledger: sem isso a tela dispara uma leitura com
-    // versão 0 e outra logo depois, dobrando requisição a cada abertura.
-    enabled: !!user?.id && options?.enabled !== false && !ledgerVersion.isLoading,
+    queryKey: [...qk.advisorPerformance, user?.id, mode, asOf],
+    enabled: !!user?.id && options?.enabled !== false,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       if (!user?.id) return null;

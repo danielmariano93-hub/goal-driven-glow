@@ -56,13 +56,12 @@ export default function Metas() {
   const delC = useDeleteContribution();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
-  const { data: txs } = useLedgerWindow();
+  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 1 });
   const { data: catGoals } = useCategorySpendingGoals();
   const currentMonth = todayISO().slice(0, 7);
-  const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
   const { data: financialSnapshot } = useFinancialSnapshot({
     start: `${currentMonth}-01`,
-    end: `${currentMonth}-${String(currentMonthEnd).padStart(2, "0")}`,
+    end: todayISO(),
   });
   const saveCatGoal = useSaveCategorySpendingGoal();
   const delCatGoal = useDeleteCategorySpendingGoal();

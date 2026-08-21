@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
   }
 
   const limit = Math.max(1, Math.min(Number(body.limit ?? 40), 200));
-  const { data: claimed, error: claimError } = await sb.rpc("finance_facts_claim", {
+  const { data: claimed, error: claimError } = await sb.rpc("finance_facts_claim_v2", {
     p_limit: limit,
     p_lease_seconds: 300,
   });
@@ -74,6 +74,7 @@ Deno.serve(async (req) => {
     const userId = String(item.user_id);
     const monthDate = String(item.competence_month).slice(0, 10);
     const month = monthDate.slice(0, 7);
+    const claimedMarkedAt = String(item.claimed_marked_at);
     const t0 = Date.now();
     try {
       const rows = await fetchMonthRows(sb, userId, month, TX_COLUMNS);
@@ -118,7 +119,11 @@ Deno.serve(async (req) => {
       }, { onConflict: "user_id,competence_month" });
       if (upsertError) throw new Error(upsertError.message);
 
-      await sb.rpc("finance_facts_mark_processed", { p_user: userId, p_month: monthDate });
+      await sb.rpc("finance_facts_mark_processed_v2", {
+        p_user: userId,
+        p_month: monthDate,
+        p_claimed_marked_at: claimedMarkedAt,
+      });
       results.push({ user_id: userId, month, ok: true, rows: rows.length, compute_ms: computeMs });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

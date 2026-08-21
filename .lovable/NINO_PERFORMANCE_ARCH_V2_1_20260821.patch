@@ -1,0 +1,1318 @@
+diff --git a/src/pages/Index.tsx b/src/pages/Index.tsx
+--- a/src/pages/Index.tsx
++++ b/src/pages/Index.tsx
+@@ -1,6 +1,2 @@
+ import { useEffect, useMemo, useRef, useState } from "react";
+-import { useQueryClient } from "@tanstack/react-query";
+-import { toast } from "sonner";
+ import { useAccounts } from "@/lib/db/finance";
+-import { useAuth } from "@/context/AuthContext";
+-import { processCategoryQueue } from "@/lib/categoryEngine";
+@@ -17,4 +13,3 @@
+ import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
+ import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
+-import { invalidateFinancialQueries, withBulkFinancialWrites } from "@/lib/db/invalidation";
+ import { toHomeDiagnosisView, useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
+@@ -21,7 +16,4 @@
+ export default function Index() {
+-  const { user } = useAuth();
+-  const queryClient = useQueryClient();
+-  const categorizationStarted = useRef(false);
+   const initial = useRef(getPeriod()).current;
+   const [period, setPeriod] = useState<Period>(initial.period);
+   const [customStart, setCustomStart] = useState(initial.customStart);
+@@ -34,20 +26,3 @@
+   const { data: accounts } = useAccounts();
+-
+-  useEffect(() => {
+-    if (!user?.id || categorizationStarted.current) return;
+-    categorizationStarted.current = true;
+-    void (async () => {
+-      const result = await withBulkFinancialWrites(queryClient, processCategoryQueue).catch((error) => {
+-        categorizationStarted.current = false;
+-        console.warn("[category-engine-bootstrap]", error);
+-        return null;
+-      });
+-      const updated = Number(result?.decisions.filter((item) => item.action === "auto_apply").length ?? 0);
+-      if (updated > 0) {
+-        await invalidateFinancialQueries(queryClient);
+-        toast.success(`${updated} lançamento${updated === 1 ? " foi organizado" : "s foram organizados"} com segurança.`);
+-      }
+-    })();
+-  }, [queryClient, user?.id]);
+ 
+   const periodRange = useMemo(() => {
+@@ -80,3 +80,7 @@
+       />
+ 
++      {snapshot.freshness === "stale_recomputing" ? (
++        <p className="-mt-2 text-[11px] font-medium text-muted-foreground" aria-live="polite">Atualizando seus números recentes…</p>
++      ) : null}
++
+       <HeroDisponivelCard
+diff --git a/src/lib/hooks/useFinancialSnapshot.ts b/src/lib/hooks/useFinancialSnapshot.ts
+--- a/src/lib/hooks/useFinancialSnapshot.ts
++++ b/src/lib/hooks/useFinancialSnapshot.ts
+@@ -5,4 +5,3 @@
+ import { todayISO } from "@/lib/engine/facts";
+ import type { DateRange } from "@/lib/engine/dailyAverage";
+-import { useLedgerVersion } from "@/lib/db/derivedViews";
+ import { qk } from "@/lib/db/queryKeys";
+@@ -39,3 +38,4 @@
+   computedAt: string | null;
+   fromCache: boolean;
++  freshness: "fresh" | "stale_recomputing" | "unavailable";
+   refetch: () => Promise<void>;
+@@ -51,15 +51,13 @@
+ } {
+   const { user } = useAuth();
+-  const ledgerVersion = useLedgerVersion();
+ 
+   const serverQuery = useQuery({
+-    // A versão do ledger entra na chave: qualquer escrita financeira invalida
+-    // a leitura derivada sem varredura de cache.
+-    queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO(), ledgerVersion.data ?? 0],
+-    // Espera a versão resolver (ou falhar) para não disparar duas leituras:
+-    // uma com versão 0 e outra com a versão real.
+-    enabled: !!user && !ledgerVersion.isLoading,
++    // A própria resposta traz a versão do ledger. A invalidação explícita + realtime
++    // derruba esta query quando existe escrita; não precisamos pagar um RTT antes dela.
++    queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO()],
++    enabled: !!user,
+ 
+-    staleTime: 5 * 60 * 1000,
++    staleTime: 60 * 1000,
+     gcTime: 30 * 60 * 1000,
+     retry: 1,
++    refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 3000 : false,
+@@ -70,3 +67,4 @@
+         computed_at?: string;
+         cache_hit?: boolean;
++        freshness?: "fresh" | "stale_recomputing";
+       } | null;
+@@ -78,3 +76,4 @@
+         computedAt: payload.computed_at ?? null,
+         fromCache: payload.cache_hit === true,
++        freshness: payload.freshness ?? "fresh" as const,
+       };
+@@ -125,3 +124,4 @@
+     computedAt: serverQuery.data?.computedAt ?? null,
+     fromCache: serverQuery.data?.fromCache ?? false,
++    freshness: criticalError ? "unavailable" : (serverQuery.data?.freshness ?? "fresh"),
+     refetch: refetchAll,
+diff --git a/src/lib/hooks/useFinancialPerformance.ts b/src/lib/hooks/useFinancialPerformance.ts
+--- a/src/lib/hooks/useFinancialPerformance.ts
++++ b/src/lib/hooks/useFinancialPerformance.ts
+@@ -5,3 +5,3 @@
+ import { today as localToday } from "@/lib/engine/ninoClock";
+ import type { ComparisonMode } from "@/lib/engine/financialComparison";
+-import { fetchDerivedPerformance, useLedgerVersion } from "@/lib/db/derivedViews";
++import { fetchDerivedPerformance } from "@/lib/db/derivedViews";
+@@ -23,10 +23,7 @@
+   const mode: ComparisonMode = options?.mode ?? "MTD_EQUIVALENT";
+   const asOf = localToday(user as { timezone?: string | null } | null);
+-  const ledgerVersion = useLedgerVersion();
+ 
+   return useQuery<PerformanceSnapshot | null>({
+-    queryKey: [...qk.advisorPerformance, user?.id, mode, asOf, ledgerVersion.data ?? 0],
+-    // Espera a versão do ledger: sem isso a tela dispara uma leitura com
+-    // versão 0 e outra logo depois, dobrando requisição a cada abertura.
+-    enabled: !!user?.id && options?.enabled !== false && !ledgerVersion.isLoading,
++    queryKey: [...qk.advisorPerformance, user?.id, mode, asOf],
++    enabled: !!user?.id && options?.enabled !== false,
+     staleTime: 5 * 60 * 1000,
+diff --git a/src/lib/hooks/usePerformanceDetail.ts b/src/lib/hooks/usePerformanceDetail.ts
+--- a/src/lib/hooks/usePerformanceDetail.ts
++++ b/src/lib/hooks/usePerformanceDetail.ts
+@@ -5,3 +5,3 @@
+ import type { ComparisonMode } from "@/lib/engine/financialComparison";
+ import { buildPerformanceSnapshot } from "@/lib/nino/performanceSnapshots";
+-import { fetchDerivedPerformance, useLedgerVersion } from "@/lib/db/derivedViews";
++import { fetchDerivedPerformance } from "@/lib/db/derivedViews";
+@@ -18,10 +18,7 @@
+   const mode: ComparisonMode = options?.mode ?? "MTD_EQUIVALENT";
+   const asOf = localToday(user as { timezone?: string | null } | null);
+-  const ledgerVersion = useLedgerVersion();
+ 
+   const query = useQuery({
+-    queryKey: [...qk.performanceDetail, user?.id, mode, asOf, ledgerVersion.data ?? 0],
+-    // Espera a versão do ledger: sem isso a tela dispara uma leitura com
+-    // versão 0 e outra logo depois, dobrando requisição a cada abertura.
+-    enabled: !!user?.id && !ledgerVersion.isLoading,
++    queryKey: [...qk.performanceDetail, user?.id, mode, asOf],
++    enabled: !!user?.id,
+     staleTime: 5 * 60 * 1000,
+diff --git a/src/lib/db/finance.ts b/src/lib/db/finance.ts
+--- a/src/lib/db/finance.ts
++++ b/src/lib/db/finance.ts
+@@ -286,9 +286,11 @@
+ export function useTransactions(filters: TxFilters = {}, options: { enabled?: boolean } = {}) {
+   const { user } = useAuth();
+   return useQuery({
+     queryKey: ["transactions", user?.id, filters],
+     // `enabled: false` permite que superfícies servidas por snapshot no servidor
+     // NÃO baixem o histórico inteiro para o dispositivo.
+     enabled: !!user && options.enabled !== false,
++    staleTime: 60 * 1000,
++    gcTime: 10 * 60 * 1000,
+     queryFn: async () => {
+       // Paginação obrigatória: o PostgREST corta em 1000 linhas silenciosamente,
+@@ -342,19 +344,18 @@
+ /**
+  * Janela limitada do ledger (`perf_derived.v1`).
+  *
+- * Telas que precisam de lançamentos (metas, cartões) usam uma janela fixa —
+- * `monthsBack` meses fechados + o horizonte futuro de parcelas/planejados — em
+- * vez do histórico inteiro. Assim o tempo de abertura deixa de crescer junto
+- * com a vida financeira. Não altera nenhum cálculo: os motores continuam
+- * recebendo os lançamentos do intervalo relevante.
++ * Guardrail de performance: o default cobre o mês atual + 3 meses de baseline
++ * e apenas 1 mês à frente. Horizontes longos de cartão vêm das tabelas de
++ * parcelas/faturas, não do ledger bruto. Chamadores podem ampliar de forma
++ * explícita, mas o teto evita reintroduzir downloads de dezenas de meses.
+  */
+ export function useLedgerWindow(
+   params: { monthsBack?: number; monthsAhead?: number } = {},
+   options: { enabled?: boolean } = {},
+ ) {
+-  const monthsBack = params.monthsBack ?? 13;
+-  const monthsAhead = params.monthsAhead ?? 24;
++  const monthsBack = Math.min(12, Math.max(0, params.monthsBack ?? 3));
++  const monthsAhead = Math.min(12, Math.max(0, params.monthsAhead ?? 1));
+   const now = new Date();
+   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1))
+     .toISOString()
+     .slice(0, 10);
+@@ -416,4 +421,5 @@
+   return useQuery({
+     queryKey: ["goals", user?.id],
+     enabled: !!user,
++    staleTime: 5 * 60 * 1000,
+     queryFn: async () => {
+@@ -486,4 +492,5 @@
+   return useQuery({
+     queryKey: ["contributions", user?.id],
+     enabled: !!user,
++    staleTime: 5 * 60 * 1000,
+     queryFn: async () => {
+@@ -526,4 +533,5 @@
+   return useQuery({
+     queryKey: ["investments", user?.id],
+     enabled: !!user,
++    staleTime: 5 * 60 * 1000,
+     queryFn: async () => {
+@@ -674,4 +682,5 @@
+   return useQuery({
+     queryKey: ["category_spending_goals", user?.id],
+     enabled: !!user,
++    staleTime: 5 * 60 * 1000,
+     queryFn: async () => {
+diff --git a/src/pages/Metas.tsx b/src/pages/Metas.tsx
+--- a/src/pages/Metas.tsx
++++ b/src/pages/Metas.tsx
+@@ -56,10 +56,9 @@
+   const { data: accounts } = useAccounts();
+   const { data: categories } = useCategories();
+-  const { data: txs } = useLedgerWindow();
++  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 1 });
+   const { data: catGoals } = useCategorySpendingGoals();
+   const currentMonth = todayISO().slice(0, 7);
+-  const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
+   const { data: financialSnapshot } = useFinancialSnapshot({
+     start: `${currentMonth}-01`,
+-    end: `${currentMonth}-${String(currentMonthEnd).padStart(2, "0")}`,
++    end: todayISO(),
+   });
+diff --git a/src/pages/MetaDetalhe.tsx b/src/pages/MetaDetalhe.tsx
+--- a/src/pages/MetaDetalhe.tsx
++++ b/src/pages/MetaDetalhe.tsx
+@@ -18,4 +18,4 @@
+   const { data: investments } = useInvestments();
+   const { data: categories } = useCategories();
+-  const { data: txs } = useLedgerWindow();
++  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 0 });
+ 
+diff --git a/src/pages/MetaCategoriaDetalhe.tsx b/src/pages/MetaCategoriaDetalhe.tsx
+--- a/src/pages/MetaCategoriaDetalhe.tsx
++++ b/src/pages/MetaCategoriaDetalhe.tsx
+@@ -14,3 +14,3 @@
+ import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
+ import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
+-import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement } from "@/lib/engine/facts";
++import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, todayISO } from "@/lib/engine/facts";
+@@ -22,10 +22,9 @@
+   const navigate = useNavigate();
+   const { data: catGoals, isLoading } = useCategorySpendingGoals();
+   const { data: categories } = useCategories();
+-  const { data: txs } = useLedgerWindow();
+-  const currentMonth = new Date().toISOString().slice(0, 7);
+-  const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
++  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 1 });
++  const currentMonth = todayISO().slice(0, 7);
+   const { data: financialSnapshot } = useFinancialSnapshot({
+     start: `${currentMonth}-01`,
+-    end: `${currentMonth}-${String(currentMonthEnd).padStart(2, "0")}`,
++    end: todayISO(),
+   });
+diff --git a/src/pages/Cartoes.tsx b/src/pages/Cartoes.tsx
+--- a/src/pages/Cartoes.tsx
++++ b/src/pages/Cartoes.tsx
+@@ -47,4 +47,4 @@
+   const [searchParams] = useSearchParams();
+   const { data: cards, isLoading } = useCreditCards();
+-  const { data: txs } = useLedgerWindow();
++  const { data: txs } = useLedgerWindow({ monthsBack: 2, monthsAhead: 2 });
+   const { data: accounts = [] } = useAccounts();
+diff --git a/src/components/finance/FinancialRealtimeSync.tsx b/src/components/finance/FinancialRealtimeSync.tsx
+--- a/src/components/finance/FinancialRealtimeSync.tsx
++++ b/src/components/finance/FinancialRealtimeSync.tsx
+@@ -13,33 +13,23 @@
+   useEffect(() => {
+     if (!user?.id) return;
+     let invalidation: ReturnType<typeof setTimeout> | null = null;
+-    let pending: "transactions" | "goals" | null = null;
+-    // Escopo granular: um lançamento novo não recarrega metas conjuntas,
+-    // documentos e recorrências — só o que depende de transações.
+-    const refresh = (scope: "transactions" | "goals") => () => {
+-      pending = pending && pending !== scope ? "transactions" : scope;
++    // A UI reage à VERSÃO SEMÂNTICA da verdade financeira, e não a todo
++    // UPDATE técnico de `transactions` (confiança, reason, review status etc.).
++    // O banco já decide o que realmente muda os números e incrementa esta versão.
++    const refresh = () => {
+       if (invalidation) clearTimeout(invalidation);
+       invalidation = setTimeout(() => {
+-        const s = pending ?? "transactions";
+-        pending = null;
+-        void invalidateFinancialQueries(queryClient, s);
+-        // 1,2s: escritas em rajada (categorização, importação) colapsam em UMA
+-        // invalidação — não em uma recomputação por linha.
++        void invalidateFinancialQueries(queryClient, "all", { serverAlreadyDirty: true });
++        // Escritas em rajada colapsam em UMA invalidação do cliente.
+       }, 1200);
+     };
+     const channel = supabase
+       .channel(`financial-sync:${user.id}`)
+       .on("postgres_changes", {
+         event: "*",
+         schema: "public",
+-        table: "transactions",
++        table: "financial_ledger_versions",
+         filter: `user_id=eq.${user.id}`,
+-      }, refresh("transactions"))
+-      .on("postgres_changes", {
+-        event: "*",
+-        schema: "public",
+-        table: "category_spending_goals",
+-        filter: `user_id=eq.${user.id}`,
+-      }, refresh("goals"))
++      }, refresh)
+       .subscribe();
+ 
+diff --git a/src/lib/db/invalidation.ts b/src/lib/db/invalidation.ts
+--- a/src/lib/db/invalidation.ts
++++ b/src/lib/db/invalidation.ts
+@@ -40,4 +40,5 @@
+ export function invalidateFinancialQueries(
+   qc: QueryClient,
+   scope: InvalidationScope = "all",
++  options: { serverAlreadyDirty?: boolean } = {},
+ ): Promise<void> {
+@@ -50,3 +51,3 @@
+   }
+-  void markPerformanceSnapshotsDirty();
++  if (!options.serverAlreadyDirty) void markPerformanceSnapshotsDirty();
+   const keys = scope === "all"
+diff --git a/src/components/BottomTabBar.tsx b/src/components/BottomTabBar.tsx
+--- a/src/components/BottomTabBar.tsx
++++ b/src/components/BottomTabBar.tsx
+@@ -1,2 +1,3 @@
++import { useEffect } from "react";
+ import { useLocation, useNavigate } from "react-router-dom";
+ import { House, ListBullets, Target, DotsThree, ChatCircle } from "@phosphor-icons/react";
+@@ -11,6 +12,28 @@
+ ];
+ 
++const routePreloaders: Record<string, () => Promise<unknown>> = {
++  "/app": () => import("@/pages/Index"),
++  "/app/lancamentos": () => import("@/pages/Lancamentos"),
++  "/app/metas": () => import("@/pages/Metas"),
++  "/app/mais": () => import("@/pages/MaisMenu"),
++};
++
++function preloadRoute(path: string) {
++  void routePreloaders[path]?.().catch(() => undefined);
++}
++
+ export function BottomTabBar() {
+   const location = useLocation();
+   const navigate = useNavigate();
+   const { openAssessor } = useAssessor();
++
++  useEffect(() => {
++    const preload = () => tabs.filter((tab) => tab.path !== location.pathname).forEach((tab) => preloadRoute(tab.path));
++    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
++    if (ric) {
++      const id = ric(preload, { timeout: 1800 });
++      return () => (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
++    }
++    const id = window.setTimeout(preload, 900);
++    return () => window.clearTimeout(id);
++  }, [location.pathname]);
+@@ -39,3 +61,5 @@
+              <Button
+               key={tab.path}
++              onPointerDown={() => preloadRoute(tab.path)}
++              onPointerEnter={() => preloadRoute(tab.path)}
+               onClick={() => navigate(tab.path)}
+@@ -57,4 +81,4 @@
+           const active = isActive(tab.path);
+           const Icon = tab.icon;
+-          return <Button key={tab.path} onClick={() => navigate(tab.path)} variant="ghost" className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`} aria-current={active ? "page" : undefined}><Icon size={20} weight={active ? "fill" : "regular"} /><span className="text-xs font-medium leading-4">{tab.label}</span></Button>;
++          return <Button key={tab.path} onPointerDown={() => preloadRoute(tab.path)} onPointerEnter={() => preloadRoute(tab.path)} onClick={() => navigate(tab.path)} variant="ghost" className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`} aria-current={active ? "page" : undefined}><Icon size={20} weight={active ? "fill" : "regular"} /><span className="text-xs font-medium leading-4">{tab.label}</span></Button>;
+         })}
+diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -92,7 +92,9 @@
+     queries: {
+       retry: 1,
+       staleTime: (query) =>
+-        STATIC_KEYS.has(String((query.queryKey as unknown[])?.[0])) ? 30 * 60_000 : 30_000,
++        STATIC_KEYS.has(String((query.queryKey as unknown[])?.[0])) ? 30 * 60_000 : 60_000,
++      gcTime: 30 * 60_000,
++      refetchOnReconnect: true,
+     },
+   },
+ });
+diff --git a/supabase/functions/home-snapshot/index.ts b/supabase/functions/home-snapshot/index.ts
+--- a/supabase/functions/home-snapshot/index.ts
++++ b/supabase/functions/home-snapshot/index.ts
+@@ -19,14 +19,15 @@
+ import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
+ import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
+ 
+ const FN = "home-snapshot";
+ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+ 
+ const ISO = /^\d{4}-\d{2}-\d{2}$/;
++const CONTRACT = "home_snapshot.v2";
+ 
+ 
+ // deno-lint-ignore no-explicit-any
+ type Any = any;
+ 
+ function num(v: unknown): number {
+@@ -28,4 +29,34 @@
+   return Number.isFinite(n) ? n : 0;
+ }
+ 
++type SnapshotRequest = {
++  start?: string;
++  end?: string;
++  today?: string;
++  bootstrap?: boolean;
++  force_refresh?: boolean;
++  user_id?: string;
++};
++
++function isCurrentMtd(start: string, end: string, today: string): boolean {
++  return start === `${today.slice(0, 7)}-01` && end === today;
++}
++
++function scheduleRevalidate(auth: string, body: SnapshotRequest) {
++  const task = fetch(`${SUPABASE_URL}/functions/v1/${FN}`, {
++    method: "POST",
++    headers: {
++      Authorization: auth,
++      "Content-Type": "application/json",
++      "x-nino-revalidate": "1",
++    },
++    body: JSON.stringify({ ...body, force_refresh: true }),
++  }).then((response) => {
++    if (!response.ok) console.warn("[home-snapshot] background revalidate status", response.status);
++  });
++  const runtime = (globalThis as Any).EdgeRuntime as { waitUntil?: (promise: Promise<unknown>) => void } | undefined;
++  if (runtime?.waitUntil) runtime.waitUntil(task.catch((error) => console.warn("[home-snapshot] background revalidate", error)));
++  else void task.catch((error) => console.warn("[home-snapshot] background revalidate", error));
++}
++
+ Deno.serve(async (req) => {
+@@ -35,20 +63,30 @@
+ Deno.serve(async (req) => {
+   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+   if (req.method !== "POST") return fail("method_not_allowed", { status: 405, functionName: FN });
+ 
++  let body: SnapshotRequest = {};
++  try { body = await req.json(); } catch { body = {}; }
++
+   const auth = req.headers.get("Authorization") ?? "";
+-  if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
+-
+-  const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
+-    global: { headers: { Authorization: auth } },
+-    auth: { persistSession: false },
+-  });
+-  const { data: userData, error: userError } = await sbAuth.auth.getUser();
+-  const userId = userData?.user?.id;
+-  if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
+-
+-  let body: { start?: string; end?: string; today?: string; bootstrap?: boolean } = {};
+-  try { body = await req.json(); } catch { body = {}; }
++  const cronSecrets = [Deno.env.get("INTERNAL_CRON_SECRET") ?? "", Deno.env.get("CRON_SECRET") ?? ""].filter(Boolean);
++  const providedCronSecret = req.headers.get("x-cron-secret") ?? "";
++  const internalCall = Boolean(body.user_id && cronSecrets.length > 0 && cronSecrets.includes(providedCronSecret));
++
++  let userId: string | undefined;
++  if (internalCall) {
++    userId = String(body.user_id);
++  } else {
++    if (!auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
++    const sbAuth = createClient(SUPABASE_URL, SERVICE_ROLE, {
++      global: { headers: { Authorization: auth } },
++      auth: { persistSession: false },
++    });
++    const { data: userData, error: userError } = await sbAuth.auth.getUser();
++    userId = userData?.user?.id;
++    if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
++  }
++  if (!userId) return fail("unauthorized", { status: 401, functionName: FN });
++
+   if (!ISO.test(String(body.start ?? "")) || !ISO.test(String(body.end ?? ""))) {
+     return json({ error: "invalid_period", message: "Informe start e end no formato YYYY-MM-DD." }, 400);
+   }
+@@ -62,5 +90,5 @@
+     // reabrir a Home não recalcula o snapshot (perf_derived.v1).
+     const ledgerVersion = await getLedgerVersion(sb, userId);
+-    const cacheKey = `home_snapshot|${start}|${end}|${today}`;
++    const cacheKey = `home_snapshot_v2|${start}|${end}|${today}`;
+     const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
+     if (cached) {
+@@ -68,3 +96,3 @@
+         ok: true,
+-        formula_version: "home_snapshot.v1",
++        formula_version: CONTRACT,
+         period: { start, end },
+@@ -79,4 +107,56 @@
+         snapshot: cached.payload?.snapshot ?? cached.payload,
+       });
+     }
++
++    // `stale-while-revalidate`: para o MTD atual existe uma representação
++    // persistida por usuário. Se o ledger mudou, devolvemos o último snapshot
++    // imediatamente e recalculamos em background. Assim uma escrita financeira
++    // não transforma a próxima abertura da Home em 5s de skeleton.
++    if (!body.force_refresh && isCurrentMtd(start, end, today)) {
++      const { data: materialized } = await sb
++        .from("financial_current_snapshots")
++        .select("payload,as_of_date,computed_at,generated_at,completeness,missing_sources,contract_version,source_freshness")
++        .eq("user_id", userId)
++        .maybeSingle();
++      const persistedPayload = (materialized?.payload ?? null) as Any;
++      const persistedSnapshot = persistedPayload?.snapshot ?? null;
++      const persistedVersion = Number(persistedPayload?.ledger_version ?? -1);
++      const persistedFreshness = String(persistedPayload?.freshness ?? "fresh");
++      const contractOk = materialized?.contract_version === CONTRACT;
++      if (persistedSnapshot && contractOk) {
++        const fresh = persistedVersion === ledgerVersion && materialized?.as_of_date === today && persistedFreshness === "fresh";
++        if (!fresh) {
++          const freshnessMeta = (materialized?.source_freshness ?? {}) as Record<string, unknown>;
++          const lastRequestedAt = Date.parse(String(freshnessMeta.refresh_requested_at ?? ""));
++          const canSchedule = !Number.isFinite(lastRequestedAt) || Date.now() - lastRequestedAt > 8000;
++          const { count: dirtyCount } = await sb.from("financial_dirty_periods")
++            .select("user_id", { count: "exact", head: true })
++            .eq("user_id", userId)
++            .is("processed_at", null);
++          // Se existe mês sujo, o worker de fatos precisa terminar antes. Para
++          // mudanças sem fatos (metas, conta, settings etc.), revalida já.
++          if (canSchedule && Number(dirtyCount ?? 0) === 0) {
++            const refreshRequestedAt = new Date().toISOString();
++            await sb.from("financial_current_snapshots").update({
++              source_freshness: { ...freshnessMeta, refresh_requested_at: refreshRequestedAt },
++            }).eq("user_id", userId);
++            scheduleRevalidate(auth, { start, end, today, bootstrap: false });
++          }
++        }
++        return json({
++          ok: true,
++          formula_version: CONTRACT,
++          period: { start, end },
++          today,
++          missing_sources: materialized?.missing_sources ?? persistedPayload?.missing_sources ?? [],
++          transactions_considered: persistedPayload?.transactions_considered ?? null,
++          ledger_version: ledgerVersion,
++          computed_at: materialized?.computed_at ?? materialized?.generated_at ?? null,
++          cache_hit: true,
++          persisted_cache: true,
++          freshness: fresh ? "fresh" : "stale_recomputing",
++          snapshot: persistedSnapshot,
++        });
++      }
++    }
+     const startedAt = Date.now();
+@@ -130,2 +195,10 @@
+     const bootstrap = body.bootstrap === true;
+-    const window = resolveWindow({ start, end }, today);
++    // A Home precisa de baseline recente + compromissos próximos. Parcelas
++    // futuras já vivem em `credit_card_installments` e recorrências em
++    // `recurring_rules`; ler 24 meses futuros do ledger bruto era redundante.
++    // Mantemos 6 meses de lookback (paridade dos baselines) e só 3 à frente.
++    const window = resolveWindow(
++      { start, end },
++      today,
++      { lookbackMonths: 6, aheadMonths: 3 },
++    );
+@@ -248,3 +320,50 @@
+     };
+     const computeMs = Date.now() - startedAt;
++    const computedAt = new Date().toISOString();
++
++    // Materialização da visão corrente. Não é segunda verdade: payload guarda
++    // exatamente a saída do motor canônico + a versão do ledger que a produziu.
++    if (isCurrentMtd(start, end, today)) {
++      const dirtyMonthsPending = [...(compact?.missingMonths ?? []), ...(compact?.staleMonths ?? [])];
++      const materializedFreshness = dirtyMonthsPending.length > 0 ? "stale_recomputing" : "fresh";
++      const { error: materializedError } = await sb.from("financial_current_snapshots").upsert({
++        user_id: userId,
++        as_of_date: today,
++        period_start: start,
++        income: num((snapshot as Any)?.monthlyTotals?.income),
++        cash_outflow: num((snapshot as Any)?.cashBridge?.operationalAccountExpense)
++          + num((snapshot as Any)?.cashBridge?.investmentApplications)
++          + num((snapshot as Any)?.cashBridge?.externalTransfersOut)
++          + num((snapshot as Any)?.cashBridge?.debtPrincipalPayments)
++          + num((snapshot as Any)?.cashBridge?.debtInterestAndFees)
++          + num((snapshot as Any)?.cashBridge?.cardPayments),
++        behavioral_consumption: num((snapshot as Any)?.monthlyTotals?.expense),
++        account_consumption: num((snapshot as Any)?.cashBridge?.operationalAccountExpense),
++        card_consumption: num((snapshot as Any)?.currentCardSpend),
++        available_balance: num((snapshot as Any)?.availableToday),
++        confidence: missing.length === 0 ? "computed" : "partial",
++        formula_versions: { home_snapshot: CONTRACT },
++        computed_at: computedAt,
++        period_status: "open",
++        contract_version: CONTRACT,
++        completeness: missing.length === 0 ? "complete" : "partial",
++        missing_sources: missing,
++        source_freshness: {
++          ledger_version: ledgerVersion,
++          read_path: bootstrap ? "full_ledger_bootstrap" : "monthly_facts_window",
++          dirty_months_pending: dirtyMonthsPending,
++        },
++        payload: {
++          snapshot,
++          missing_sources: missing,
++          transactions_considered: ((txs ?? []) as Any[]).length,
++          ledger_version: ledgerVersion,
++          freshness: materializedFreshness,
++        },
++        generated_at: computedAt,
++      }, { onConflict: "user_id" });
++      if (materializedError) {
++        console.warn("[home-snapshot] materialized snapshot write", materializedError.message);
++      }
++    }
+     // Só memoiza snapshot completo: parcial não vira verdade guardada.
+@@ -258,5 +357,5 @@
+     return json({
+       ok: true,
+-      formula_version: "home_snapshot.v1",
++      formula_version: CONTRACT,
+       period: { start, end },
+       today,
+@@ -267,2 +366,2 @@
+-      computed_at: new Date().toISOString(),
++      computed_at: computedAt,
+       cache_hit: false,
+diff --git a/supabase/functions/finance-facts-worker/index.ts b/supabase/functions/finance-facts-worker/index.ts
+--- a/supabase/functions/finance-facts-worker/index.ts
++++ b/supabase/functions/finance-facts-worker/index.ts
+@@ -48,3 +48,3 @@
+   const limit = Math.max(1, Math.min(Number(body.limit ?? 40), 200));
+-  const { data: claimed, error: claimError } = await sb.rpc("finance_facts_claim", {
++  const { data: claimed, error: claimError } = await sb.rpc("finance_facts_claim_v2", {
+     p_limit: limit,
+@@ -69,3 +69,4 @@
+     const monthDate = String(item.competence_month).slice(0, 10);
+     const month = monthDate.slice(0, 7);
++    const claimedMarkedAt = String(item.claimed_marked_at);
+     const t0 = Date.now();
+@@ -110,2 +111,6 @@
+-      await sb.rpc("finance_facts_mark_processed", { p_user: userId, p_month: monthDate });
++      await sb.rpc("finance_facts_mark_processed_v2", {
++        p_user: userId,
++        p_month: monthDate,
++        p_claimed_marked_at: claimedMarkedAt,
++      });
+       results.push({ user_id: userId, month, ok: true, rows: rows.length, compute_ms: computeMs });
+diff --git a/supabase/functions/finance-current-snapshot-worker/index.ts b/supabase/functions/finance-current-snapshot-worker/index.ts
+new file mode 100644
+--- /dev/null
++++ b/supabase/functions/finance-current-snapshot-worker/index.ts
+@@ -0,0 +1,97 @@
++// finance-current-snapshot-worker (`home_snapshot.v2`)
++// ====================================================
++// Recalcula o read model corrente FORA do caminho de navegação.
++// A fila é preenchida pelos triggers de verdade financeira; o claim só libera
++// o usuário quando os meses sujos já foram processados pelo finance-facts-worker.
++import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
++import { corsHeaders, json } from "../_shared/cors.ts";
++
++const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
++const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
++
++function todaySP(): string {
++  const parts = new Intl.DateTimeFormat("en-CA", {
++    timeZone: "America/Sao_Paulo",
++    year: "numeric",
++    month: "2-digit",
++    day: "2-digit",
++  }).formatToParts(new Date());
++  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
++  return `${get("year")}-${get("month")}-${get("day")}`;
++}
++
++Deno.serve(async (req) => {
++  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
++
++  const secrets = [Deno.env.get("INTERNAL_CRON_SECRET") ?? "", Deno.env.get("CRON_SECRET") ?? ""].filter(Boolean);
++  const provided = req.headers.get("x-cron-secret") ?? "";
++  if (!secrets.length || !secrets.includes(provided)) return json({ ok: false, error: "unauthorized" }, 401);
++
++  let body: { limit?: number } = {};
++  try { body = await req.json(); } catch { body = {}; }
++  const limit = Math.max(1, Math.min(Number(body.limit ?? 12), 30));
++
++  const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
++  const { data: claimed, error: claimError } = await sb.rpc("finance_snapshot_refresh_claim", {
++    p_limit: limit,
++    p_lease_seconds: 180,
++  });
++  if (claimError) return json({ ok: false, error: "claim_failed", message: claimError.message }, 500);
++
++  const today = todaySP();
++  const start = `${today.slice(0, 7)}-01`;
++  const rows = (claimed ?? []) as Array<{ user_id: string; claimed_marked_at: string }>;
++
++  const results: Array<{
++    user_id: string; ok: boolean; compute_ms?: number | null; cache_hit?: boolean; error?: string;
++  }> = [];
++  const concurrency = 3;
++  for (let offset = 0; offset < rows.length; offset += concurrency) {
++    const batch = rows.slice(offset, offset + concurrency);
++    const batchResults = await Promise.all(batch.map(async (row) => {
++      const userId = String(row.user_id);
++      try {
++        const response = await fetch(`${SUPABASE_URL}/functions/v1/home-snapshot`, {
++          method: "POST",
++          headers: {
++            "Content-Type": "application/json",
++            "x-cron-secret": provided,
++          },
++          body: JSON.stringify({
++            user_id: userId,
++            start,
++            end: today,
++            today,
++            force_refresh: true,
++          }),
++        });
++        const payload = await response.json().catch(() => ({}));
++        if (!response.ok || payload?.ok !== true) {
++          throw new Error(payload?.message ?? payload?.error ?? `home_snapshot_${response.status}`);
++        }
++        await sb.rpc("finance_snapshot_refresh_done", {
++          p_user: userId,
++          p_claimed_marked_at: row.claimed_marked_at,
++        });
++        return { user_id: userId, ok: true, compute_ms: payload?.compute_ms ?? null, cache_hit: payload?.cache_hit ?? false };
++      } catch (error) {
++        const message = error instanceof Error ? error.message : String(error);
++        await sb.rpc("finance_snapshot_refresh_failed", {
++          p_user: userId,
++          p_error: message.slice(0, 500),
++        });
++        return { user_id: userId, ok: false, error: message };
++      }
++    }));
++    results.push(...batchResults);
++  }
++
++  return json({
++    ok: true,
++    contract_version: "home_snapshot.v2",
++    claimed: rows.length,
++    processed: results.filter((row) => row.ok).length,
++    failed: results.filter((row) => !row.ok).length,
++    results,
++  });
++});
+diff --git a/scripts/check-performance-architecture.mjs b/scripts/check-performance-architecture.mjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/check-performance-architecture.mjs
+@@ -0,0 +1,55 @@
++import fs from "node:fs";
++import path from "node:path";
++
++const root = process.cwd();
++const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
++const failures = [];
++
++function assert(condition, message) {
++  if (!condition) failures.push(message);
++}
++
++const home = read("src/pages/Index.tsx");
++assert(!home.includes("processCategoryQueue"), "Home não pode processar fila de categorização na abertura.");
++
++const realtime = read("src/components/finance/FinancialRealtimeSync.tsx");
++assert(realtime.includes('table: "financial_ledger_versions"'), "Realtime deve reagir à versão financeira semântica.");
++assert(!realtime.includes('table: "transactions"'), "Realtime não deve invalidar a Home por todo UPDATE técnico de transactions.");
++
++const snapshotHook = read("src/lib/hooks/useFinancialSnapshot.ts");
++assert(!snapshotHook.includes("!ledgerVersion.isLoading"), "Snapshot não pode esperar RPC de ledger-version antes do request principal.");
++assert(snapshotHook.includes("stale_recomputing"), "Snapshot deve suportar stale-while-revalidate.");
++
++const homeSnapshot = read("supabase/functions/home-snapshot/index.ts");
++assert(homeSnapshot.includes("aheadMonths: 3"), "Home não pode reabrir a janela de 24 meses futuros do ledger.");
++assert(fs.existsSync(path.join(root, "supabase/functions/finance-current-snapshot-worker/index.ts")), "Worker proativo do snapshot precisa existir.");
++assert(read("supabase/functions/finance-facts-worker/index.ts").includes("finance_facts_claim_v2"), "Worker de fatos precisa usar claim versionado contra corrida de escrita.");
++assert(homeSnapshot.includes("financial_current_snapshots"), "Home deve usar a visão materializada corrente.");
++
++const pages = [
++  "src/pages/Metas.tsx",
++  "src/pages/MetaDetalhe.tsx",
++  "src/pages/MetaCategoriaDetalhe.tsx",
++  "src/pages/Cartoes.tsx",
++];
++
++for (const file of pages) {
++  const source = read(file);
++  assert(!/useLedgerWindow\(\s*\)/.test(source), `${file}: useLedgerWindow precisa declarar horizonte explícito.`);
++}
++
++const finance = read("src/lib/db/finance.ts");
++assert(finance.includes("params.monthsBack ?? 3"), "Default de ledger window deve permanecer limitado a 3 meses de lookback.");
++assert(finance.includes("params.monthsAhead ?? 1"), "Default de ledger window deve permanecer limitado a 1 mês futuro.");
++
++const migration = read("supabase/migrations/20260821160000_nino_performance_arch_v2.sql");
++assert(migration.includes("financial_snapshot_refresh_queue"), "Migration precisa criar a fila de refresh do snapshot.");
++assert(migration.includes("TG_TABLE_NAME = 'transactions' AND TG_OP = 'UPDATE'"), "Invalidação deve ignorar updates puramente técnicos de transactions.");
++
++if (failures.length) {
++  console.error("\\nPerformance architecture guard falhou:\\n");
++  for (const failure of failures) console.error(`- ${failure}`);
++  process.exit(1);
++}
++
++console.log("Performance architecture guard: OK");
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -11,3 +11,4 @@
+     "test:watch": "vitest",
++    "test:perf-arch": "node scripts/check-performance-architecture.mjs",
+     "cap:sync": "cap sync",
+     "cap:open:ios": "cap open ios",
+diff --git a/supabase/migrations/20260821160000_nino_performance_arch_v2.sql b/supabase/migrations/20260821160000_nino_performance_arch_v2.sql
+new file mode 100644
+--- /dev/null
++++ b/supabase/migrations/20260821160000_nino_performance_arch_v2.sql
+@@ -0,0 +1,388 @@
++-- Nino Performance Architecture v2
++-- Somente infraestrutura de leitura/invalidação. Não altera nenhuma fórmula
++-- financeira e não reescreve lançamentos do ledger.
++
++-- ─────────────────────────────────────────────────────────────────────────────
++-- 1) Read-model refresh queue: uma linha por usuário, coalescendo rajadas.
++-- ─────────────────────────────────────────────────────────────────────────────
++CREATE TABLE IF NOT EXISTS public.financial_snapshot_refresh_queue (
++  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
++  marked_at timestamptz NOT NULL DEFAULT now(),
++  locked_until timestamptz,
++  attempts integer NOT NULL DEFAULT 0,
++  last_error text
++);
++
++ALTER TABLE public.financial_snapshot_refresh_queue ENABLE ROW LEVEL SECURITY;
++
++CREATE INDEX IF NOT EXISTS financial_snapshot_refresh_queue_ready_idx
++  ON public.financial_snapshot_refresh_queue (marked_at)
++  WHERE locked_until IS NULL;
++
++-- A fila é operacional e só é consumida por service-role/worker.
++REVOKE ALL ON public.financial_snapshot_refresh_queue FROM anon, authenticated;
++
++-- Realtime passa a observar a versão semântica, não cada UPDATE técnico do ledger.
++DO $do$
++BEGIN
++  IF NOT EXISTS (
++    SELECT 1 FROM pg_publication_tables
++     WHERE pubname = 'supabase_realtime'
++       AND schemaname = 'public'
++       AND tablename = 'financial_ledger_versions'
++  ) THEN
++    ALTER PUBLICATION supabase_realtime ADD TABLE public.financial_ledger_versions;
++  END IF;
++END;
++$do$;
++
++-- Claim v2 dos fatos: carrega o `marked_at` que foi efetivamente reivindicado.
++-- Se uma nova escrita chegar durante o cálculo, o worker antigo NÃO pode
++-- marcar aquela versão mais nova como processada.
++CREATE OR REPLACE FUNCTION public.finance_facts_claim_v2(
++  p_limit integer DEFAULT 25,
++  p_lease_seconds integer DEFAULT 300
++)
++RETURNS TABLE(user_id uuid, competence_month date, domains text[], attempts integer, claimed_marked_at timestamptz)
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++BEGIN
++  RETURN QUERY
++  WITH candidates AS (
++    SELECT d.user_id, d.competence_month, d.marked_at
++      FROM public.financial_dirty_periods d
++     WHERE d.processed_at IS NULL
++       AND (d.locked_until IS NULL OR d.locked_until < now())
++       AND d.attempts < 6
++     ORDER BY d.marked_at
++     LIMIT greatest(1, least(coalesce(p_limit, 25), 200))
++     FOR UPDATE SKIP LOCKED
++  ), claimed AS (
++    UPDATE public.financial_dirty_periods t
++       SET locked_until = now() + make_interval(secs => greatest(30, coalesce(p_lease_seconds, 300))),
++           attempts = t.attempts + 1
++      FROM candidates c
++     WHERE t.user_id = c.user_id AND t.competence_month = c.competence_month
++    RETURNING t.user_id, t.competence_month, t.domains, t.attempts, c.marked_at
++  )
++  SELECT claimed.user_id, claimed.competence_month, claimed.domains, claimed.attempts, claimed.marked_at FROM claimed;
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.finance_facts_mark_processed_v2(
++  p_user uuid,
++  p_month date,
++  p_claimed_marked_at timestamptz
++)
++RETURNS void
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++BEGIN
++  UPDATE public.financial_dirty_periods
++     SET processed_at = now(), locked_until = NULL, last_error = NULL, attempts = 0
++   WHERE user_id = p_user AND competence_month = p_month
++     AND marked_at <= p_claimed_marked_at;
++  IF NOT FOUND THEN
++    UPDATE public.financial_dirty_periods
++       SET locked_until = NULL
++     WHERE user_id = p_user AND competence_month = p_month;
++  END IF;
++END;
++$function$;
++
++REVOKE ALL ON FUNCTION public.finance_facts_claim_v2(integer, integer) FROM PUBLIC;
++REVOKE ALL ON FUNCTION public.finance_facts_mark_processed_v2(uuid, date, timestamptz) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.finance_facts_claim_v2(integer, integer) TO service_role;
++GRANT EXECUTE ON FUNCTION public.finance_facts_mark_processed_v2(uuid, date, timestamptz) TO service_role;
++
++-- ─────────────────────────────────────────────────────────────────────────────
++-- 2) A função existente continua marcando fatos mensais, mas também agenda o
++--    refresh do snapshot. Upsert coalesce 100 updates em UMA linha de fila.
++-- ─────────────────────────────────────────────────────────────────────────────
++CREATE OR REPLACE FUNCTION public.mark_financial_ledger_dirty()
++RETURNS trigger
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  uid uuid;
++  ref date;
++  row_json jsonb;
++  domain text;
++BEGIN
++  row_json := CASE WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
++  uid := NULLIF(row_json ->> 'user_id', '')::uuid;
++  IF uid IS NULL THEN RETURN NULL; END IF;
++
++  -- UPDATEs puramente técnicos da categorização não alteram verdade financeira.
++  -- O trigger BEFORE também incrementa `version`/`updated_at`; removemos esses
++  -- campos junto da metadata para comparar somente o conteúdo semanticamente útil.
++  IF TG_TABLE_NAME = 'transactions' AND TG_OP = 'UPDATE' THEN
++    IF (to_jsonb(NEW) - ARRAY[
++      'updated_at','version','category_source','category_confidence','category_reason',
++      'category_engine_version','category_classified_at','category_decision_id',
++      'category_review_status'
++    ]::text[]) = (to_jsonb(OLD) - ARRAY[
++      'updated_at','version','category_source','category_confidence','category_reason',
++      'category_engine_version','category_classified_at','category_decision_id',
++      'category_review_status'
++    ]::text[]) THEN
++      RETURN NULL;
++    END IF;
++  END IF;
++
++  ref := COALESCE(
++    NULLIF(row_json ->> 'competence_date', '')::date,
++    NULLIF(row_json ->> 'competence_month', '')::date,
++    NULLIF(row_json ->> 'occurred_at', '')::date,
++    NULLIF(row_json ->> 'as_of', '')::date,
++    CURRENT_DATE
++  );
++
++  domain := CASE TG_TABLE_NAME
++    WHEN 'transactions' THEN 'ledger'
++    WHEN 'account_balance_snapshots' THEN 'cash'
++    WHEN 'goal_contributions' THEN 'goals'
++    ELSE 'card'
++  END;
++
++  INSERT INTO public.financial_ledger_versions AS v (user_id, version, updated_at)
++  VALUES (uid, 1, now())
++  ON CONFLICT (user_id) DO UPDATE
++    SET version = v.version + 1, updated_at = now();
++
++  INSERT INTO public.financial_dirty_periods AS d
++    (user_id, competence_month, marked_at, processed_at, domains)
++  VALUES (uid, date_trunc('month', ref)::date, now(), NULL, ARRAY[domain])
++  ON CONFLICT (user_id, competence_month) DO UPDATE
++    SET marked_at = now(),
++        processed_at = NULL,
++        attempts = 0,
++        last_error = NULL,
++        domains = (
++          SELECT array_agg(DISTINCT x) FROM unnest(d.domains || ARRAY[domain]) AS t(x)
++        );
++
++  INSERT INTO public.financial_snapshot_refresh_queue AS q (user_id, marked_at, locked_until, attempts, last_error)
++  VALUES (uid, now(), NULL, 0, NULL)
++  ON CONFLICT (user_id) DO UPDATE
++    SET marked_at = now(), last_error = NULL;
++
++  RETURN NULL;
++END;
++$function$;
++
++-- Mudanças que afetam a Home mas não exigem recomputar fatos mensais também
++-- precisam invalidar o read cache e agendar materialização.
++CREATE OR REPLACE FUNCTION public.bump_financial_read_version()
++RETURNS trigger
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  uid uuid;
++  row_json jsonb;
++BEGIN
++  row_json := CASE WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
++  uid := NULLIF(row_json ->> 'user_id', '')::uuid;
++  IF uid IS NULL THEN
++    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
++  END IF;
++
++  INSERT INTO public.financial_ledger_versions AS v (user_id, version, updated_at)
++  VALUES (uid, 1, now())
++  ON CONFLICT (user_id) DO UPDATE
++    SET version = v.version + 1, updated_at = now();
++
++  INSERT INTO public.financial_snapshot_refresh_queue AS q (user_id, marked_at, locked_until, attempts, last_error)
++  VALUES (uid, now(), NULL, 0, NULL)
++  ON CONFLICT (user_id) DO UPDATE
++    SET marked_at = now(), last_error = NULL;
++
++  IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
++END;
++$function$;
++
++DO $do$
++DECLARE table_name text;
++BEGIN
++  FOREACH table_name IN ARRAY ARRAY[
++    'goals','category_spending_goals','investments','investment_movements',
++    'debts','recurring_rules','user_financial_settings','credit_cards','accounts','categories'
++  ] LOOP
++    IF to_regclass('public.' || table_name) IS NOT NULL THEN
++      EXECUTE format('DROP TRIGGER IF EXISTS trg_perf_read_version_%I ON public.%I', table_name, table_name);
++      EXECUTE format(
++        'CREATE TRIGGER trg_perf_read_version_%I AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.bump_financial_read_version()',
++        table_name, table_name
++      );
++    END IF;
++  END LOOP;
++END;
++$do$;
++
++-- ─────────────────────────────────────────────────────────────────────────────
++-- 3) Claim seguro. Usuário só sai da fila quando os fatos mensais dele não têm
++--    mais período pendente; isso evita materializar Home sobre carry velho.
++-- ─────────────────────────────────────────────────────────────────────────────
++CREATE OR REPLACE FUNCTION public.finance_snapshot_refresh_claim(
++  p_limit integer DEFAULT 12,
++  p_lease_seconds integer DEFAULT 180
++)
++RETURNS TABLE(user_id uuid, claimed_marked_at timestamptz)
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++BEGIN
++  RETURN QUERY
++  WITH candidates AS (
++    SELECT q.user_id, q.marked_at
++    FROM public.financial_snapshot_refresh_queue q
++    WHERE (q.locked_until IS NULL OR q.locked_until < now())
++      AND NOT EXISTS (
++        SELECT 1 FROM public.financial_dirty_periods d
++        WHERE d.user_id = q.user_id AND d.processed_at IS NULL
++      )
++    ORDER BY q.marked_at
++    LIMIT greatest(1, least(coalesce(p_limit, 12), 30))
++    FOR UPDATE SKIP LOCKED
++  ), claimed AS (
++    UPDATE public.financial_snapshot_refresh_queue q
++       SET locked_until = now() + make_interval(secs => greatest(30, coalesce(p_lease_seconds, 180))),
++           attempts = q.attempts + 1
++      FROM candidates c
++     WHERE q.user_id = c.user_id
++    RETURNING q.user_id, q.marked_at
++  )
++  SELECT claimed.user_id, claimed.marked_at FROM claimed;
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.finance_snapshot_refresh_done(
++  p_user uuid,
++  p_claimed_marked_at timestamptz
++)
++RETURNS void
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++BEGIN
++  DELETE FROM public.financial_snapshot_refresh_queue
++   WHERE user_id = p_user AND marked_at <= p_claimed_marked_at;
++  UPDATE public.financial_snapshot_refresh_queue
++     SET locked_until = NULL
++   WHERE user_id = p_user;
++END;
++$function$;
++
++CREATE OR REPLACE FUNCTION public.finance_snapshot_refresh_failed(p_user uuid, p_error text)
++RETURNS void
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++BEGIN
++  UPDATE public.financial_snapshot_refresh_queue
++     SET locked_until = NULL, last_error = left(coalesce(p_error, 'unknown'), 500)
++   WHERE user_id = p_user;
++END;
++$function$;
++
++REVOKE ALL ON FUNCTION public.finance_snapshot_refresh_claim(integer, integer) FROM PUBLIC;
++REVOKE ALL ON FUNCTION public.finance_snapshot_refresh_done(uuid, timestamptz) FROM PUBLIC;
++REVOKE ALL ON FUNCTION public.finance_snapshot_refresh_failed(uuid, text) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.finance_snapshot_refresh_claim(integer, integer) TO service_role;
++GRANT EXECUTE ON FUNCTION public.finance_snapshot_refresh_done(uuid, timestamptz) TO service_role;
++GRANT EXECUTE ON FUNCTION public.finance_snapshot_refresh_failed(uuid, text) TO service_role;
++
++CREATE OR REPLACE FUNCTION public.finance_snapshot_refresh_enqueue_all()
++RETURNS integer
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE affected integer;
++BEGIN
++  INSERT INTO public.financial_snapshot_refresh_queue AS q (user_id, marked_at, attempts, last_error)
++  SELECT id, now(), 0, NULL FROM auth.users
++  ON CONFLICT (user_id) DO UPDATE SET marked_at = excluded.marked_at, last_error = NULL;
++  GET DIAGNOSTICS affected = ROW_COUNT;
++  RETURN affected;
++END;
++$function$;
++REVOKE ALL ON FUNCTION public.finance_snapshot_refresh_enqueue_all() FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.finance_snapshot_refresh_enqueue_all() TO service_role;
++
++-- ─────────────────────────────────────────────────────────────────────────────
++-- 4) Índices das leituras que ainda são listas reais.
++-- ─────────────────────────────────────────────────────────────────────────────
++CREATE INDEX IF NOT EXISTS goal_contributions_user_goal_date_idx
++  ON public.goal_contributions (user_id, goal_id, occurred_at DESC);
++
++CREATE INDEX IF NOT EXISTS credit_card_statements_user_month_idx
++  ON public.credit_card_statements (user_id, competence_month DESC);
++
++CREATE INDEX IF NOT EXISTS credit_card_installments_user_month_idx
++  ON public.credit_card_installments (user_id, competence_month DESC)
++  WHERE status NOT IN ('paid', 'refunded', 'cancelled', 'reversed', 'anticipated');
++
++COMMENT ON TABLE public.financial_current_snapshots IS
++  'Read model materializado da verdade financeira canônica. Payload versionado; nunca é fonte de escrita do ledger.';
++COMMENT ON TABLE public.financial_monthly_facts IS
++  'Fatos mensais derivados do ledger canônico para leituras O(janela), nunca O(histórico total).';
++
++-- Pré-aquece os usuários existentes de forma limitada pelo worker (12/min).
++INSERT INTO public.financial_snapshot_refresh_queue (user_id, marked_at)
++SELECT id, now() FROM auth.users
++ON CONFLICT (user_id) DO UPDATE SET marked_at = excluded.marked_at;
++
++-- ─────────────────────────────────────────────────────────────────────────────
++-- 5) Worker de snapshot. Usa o mesmo segredo/host já utilizado pelos workers
++--    existentes do projeto; nada exige acesso manual ao painel Supabase.
++--    Um enqueue diário após a virada de data evita que projeções dependentes de
++--    `today` só sejam atualizadas quando o primeiro usuário abrir o app.
++-- ─────────────────────────────────────────────────────────────────────────────
++DO $do$
++DECLARE existing_job bigint;
++BEGIN
++  SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'finance-current-snapshot-worker-1m' LIMIT 1;
++  IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
++  SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'finance-current-snapshot-prewarm-daily' LIMIT 1;
++  IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
++END;
++$do$;
++
++SELECT cron.schedule(
++  'finance-current-snapshot-prewarm-daily',
++  '5 3 * * *',
++  $cron$ SELECT public.finance_snapshot_refresh_enqueue_all(); $cron$
++);
++
++SELECT cron.schedule(
++  'finance-current-snapshot-worker-1m',
++  '* * * * *',
++  $cron$
++    SELECT net.http_post(
++      url := 'https://wesjjdjmlnfjihkkgzfp.supabase.co/functions/v1/finance-current-snapshot-worker',
++      headers := jsonb_build_object(
++        'Content-Type','application/json',
++        'x-cron-secret',coalesce((
++          SELECT decrypted_secret FROM vault.decrypted_secrets
++          WHERE name IN ('INTERNAL_CRON_SECRET','meunino_cron_secret','nocontrole_cron_secret')
++          ORDER BY CASE name WHEN 'INTERNAL_CRON_SECRET' THEN 0 WHEN 'meunino_cron_secret' THEN 1 ELSE 2 END,
++                   created_at DESC
++          LIMIT 1
++        ),'')
++      ),
++      body := jsonb_build_object('limit',12)
++    );
++  $cron$
++);
+diff --git a/.lovable/NINO_PERFORMANCE_ARCH_V2_ROLLBACK.sql b/.lovable/NINO_PERFORMANCE_ARCH_V2_ROLLBACK.sql
+new file mode 100644
+--- /dev/null
++++ b/.lovable/NINO_PERFORMANCE_ARCH_V2_ROLLBACK.sql
+@@ -0,0 +1,103 @@
++-- ROLLBACK DE REFERÊNCIA — NINO PERFORMANCE ARCHITECTURE V2
++-- NÃO É MIGRATION e NÃO deve ser executado junto do patch principal.
++-- Se um rollback for necessário, reverta primeiro o código da aplicação e
++-- transforme este conteúdo em uma NOVA migration forward-only pelo mesmo fluxo
++-- GitHub/Lovable. Nenhum acesso manual ao painel Supabase é necessário.
++
++DO $do$
++DECLARE existing_job bigint;
++BEGIN
++  SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'finance-current-snapshot-worker-1m' LIMIT 1;
++  IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
++  SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'finance-current-snapshot-prewarm-daily' LIMIT 1;
++  IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
++END;
++$do$;
++
++DO $do$
++DECLARE table_name text;
++BEGIN
++  FOREACH table_name IN ARRAY ARRAY[
++    'goals','category_spending_goals','investments','investment_movements',
++    'debts','recurring_rules','user_financial_settings','credit_cards','accounts','categories'
++  ] LOOP
++    IF to_regclass('public.' || table_name) IS NOT NULL THEN
++      EXECUTE format('DROP TRIGGER IF EXISTS trg_perf_read_version_%I ON public.%I', table_name, table_name);
++    END IF;
++  END LOOP;
++END;
++$do$;
++
++-- Restaura a implementação anterior do dirty marking.
++CREATE OR REPLACE FUNCTION public.mark_financial_ledger_dirty()
++RETURNS trigger
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path TO 'public'
++AS $function$
++DECLARE
++  uid uuid;
++  ref date;
++  row_json jsonb;
++  domain text;
++BEGIN
++  row_json := CASE WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
++  uid := NULLIF(row_json ->> 'user_id', '')::uuid;
++  IF uid IS NULL THEN RETURN NULL; END IF;
++
++  ref := COALESCE(
++    NULLIF(row_json ->> 'competence_date', '')::date,
++    NULLIF(row_json ->> 'competence_month', '')::date,
++    NULLIF(row_json ->> 'occurred_at', '')::date,
++    NULLIF(row_json ->> 'as_of', '')::date,
++    CURRENT_DATE
++  );
++
++  domain := CASE TG_TABLE_NAME
++    WHEN 'transactions' THEN 'ledger'
++    WHEN 'account_balance_snapshots' THEN 'cash'
++    WHEN 'goal_contributions' THEN 'goals'
++    ELSE 'card'
++  END;
++
++  INSERT INTO public.financial_ledger_versions AS v (user_id, version, updated_at)
++  VALUES (uid, 1, now())
++  ON CONFLICT (user_id) DO UPDATE
++    SET version = v.version + 1, updated_at = now();
++
++  INSERT INTO public.financial_dirty_periods AS d
++    (user_id, competence_month, marked_at, processed_at, domains)
++  VALUES (uid, date_trunc('month', ref)::date, now(), NULL, ARRAY[domain])
++  ON CONFLICT (user_id, competence_month) DO UPDATE
++    SET marked_at = now(),
++        processed_at = NULL,
++        locked_until = NULL,
++        domains = (
++          SELECT array_agg(DISTINCT x) FROM unnest(d.domains || ARRAY[domain]) AS t(x)
++        );
++  RETURN NULL;
++END;
++$function$;
++
++DO $do$
++BEGIN
++  IF EXISTS (
++    SELECT 1 FROM pg_publication_tables
++     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'financial_ledger_versions'
++  ) THEN
++    ALTER PUBLICATION supabase_realtime DROP TABLE public.financial_ledger_versions;
++  END IF;
++END;
++$do$;
++
++DROP FUNCTION IF EXISTS public.finance_snapshot_refresh_claim(integer, integer);
++DROP FUNCTION IF EXISTS public.finance_snapshot_refresh_done(uuid, timestamptz);
++DROP FUNCTION IF EXISTS public.finance_snapshot_refresh_failed(uuid, text);
++DROP FUNCTION IF EXISTS public.finance_snapshot_refresh_enqueue_all();
++DROP FUNCTION IF EXISTS public.bump_financial_read_version();
++DROP FUNCTION IF EXISTS public.finance_facts_claim_v2(integer, integer);
++DROP FUNCTION IF EXISTS public.finance_facts_mark_processed_v2(uuid, date, timestamptz);
++DROP TABLE IF EXISTS public.financial_snapshot_refresh_queue;
++
++-- Índices adicionados pelo patch podem permanecer: são não destrutivos e não
++-- alteram semântica. `financial_current_snapshots` também é preservada.

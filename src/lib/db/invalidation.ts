@@ -45,13 +45,14 @@ export async function withBulkFinancialWrites<T>(
 export function invalidateFinancialQueries(
   qc: QueryClient,
   scope: InvalidationScope = "all",
+  options: { serverAlreadyDirty?: boolean } = {},
 ): Promise<void> {
   if (bulkDepth > 0) {
     // Durante o lote, guarda a intenção: o estado é atualizado no fim, uma vez.
     bulkPending = true;
     return Promise.resolve();
   }
-  void markPerformanceSnapshotsDirty();
+  if (!options.serverAlreadyDirty) void markPerformanceSnapshotsDirty();
   const keys = scope === "all"
     ? FINANCIAL_QUERY_KEYS
     : INVALIDATION_SCOPES[scope];

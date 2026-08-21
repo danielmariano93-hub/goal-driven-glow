@@ -47,7 +47,7 @@ export default function Cartoes() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const { data: cards, isLoading } = useCreditCards();
-  const { data: txs } = useLedgerWindow();
+  const { data: txs } = useLedgerWindow({ monthsBack: 2, monthsAhead: 2 });
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const qc = useQueryClient();

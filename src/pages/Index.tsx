@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { useAccounts } from "@/lib/db/finance";
-import { useAuth } from "@/context/AuthContext";
-import { processCategoryQueue } from "@/lib/categoryEngine";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
@@ -17,13 +13,9 @@ import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
 
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
-import { invalidateFinancialQueries, withBulkFinancialWrites } from "@/lib/db/invalidation";
 import { toHomeDiagnosisView, useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
 
 export default function Index() {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const categorizationStarted = useRef(false);
   const initial = useRef(getPeriod()).current;
   const [period, setPeriod] = useState<Period>(initial.period);
   const [customStart, setCustomStart] = useState(initial.customStart);
@@ -34,23 +26,6 @@ export default function Index() {
   }, [period, customStart, customEnd]);
 
   const { data: accounts } = useAccounts();
-
-  useEffect(() => {
-    if (!user?.id || categorizationStarted.current) return;
-    categorizationStarted.current = true;
-    void (async () => {
-      const result = await withBulkFinancialWrites(queryClient, processCategoryQueue).catch((error) => {
-        categorizationStarted.current = false;
-        console.warn("[category-engine-bootstrap]", error);
-        return null;
-      });
-      const updated = Number(result?.decisions.filter((item) => item.action === "auto_apply").length ?? 0);
-      if (updated > 0) {
-        await invalidateFinancialQueries(queryClient);
-        toast.success(`${updated} lançamento${updated === 1 ? " foi organizado" : "s foram organizados"} com segurança.`);
-      }
-    })();
-  }, [queryClient, user?.id]);
 
   const periodRange = useMemo(() => {
     return resolvePeriodRange({ period, customStart, customEnd });
@@ -79,6 +54,10 @@ export default function Index() {
         rangeStart={periodRange.start}
         rangeEnd={periodRange.end}
       />
+
+      {snapshot.freshness === "stale_recomputing" ? (
+        <p className="-mt-2 text-[11px] font-medium text-muted-foreground" aria-live="polite">Atualizando seus números recentes…</p>
+      ) : null}
 
       <HeroDisponivelCard
         available={snap?.availableToday ?? 0}

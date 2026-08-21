@@ -16,18 +16,14 @@ export function FinancialRealtimeSync() {
   useEffect(() => {
     if (!user?.id) return;
     let invalidation: ReturnType<typeof setTimeout> | null = null;
-    let pending: "transactions" | "goals" | null = null;
-    // Escopo granular: um lançamento novo não recarrega metas conjuntas,
-    // documentos e recorrências — só o que depende de transações.
-    const refresh = (scope: "transactions" | "goals") => () => {
-      pending = pending && pending !== scope ? "transactions" : scope;
+    // A UI reage à VERSÃO SEMÂNTICA da verdade financeira, e não a todo
+    // UPDATE técnico de `transactions` (confiança, reason, review status etc.).
+    // O banco já decide o que realmente muda os números e incrementa esta versão.
+    const refresh = () => {
       if (invalidation) clearTimeout(invalidation);
       invalidation = setTimeout(() => {
-        const s = pending ?? "transactions";
-        pending = null;
-        void invalidateFinancialQueries(queryClient, s);
-        // 1,2s: escritas em rajada (categorização, importação) colapsam em UMA
-        // invalidação — não em uma recomputação por linha.
+        void invalidateFinancialQueries(queryClient, "all", { serverAlreadyDirty: true });
+        // Escritas em rajada colapsam em UMA invalidação do cliente.
       }, 1200);
     };
     const channel = supabase
@@ -35,15 +31,9 @@ export function FinancialRealtimeSync() {
       .on("postgres_changes", {
         event: "*",
         schema: "public",
-        table: "transactions",
+        table: "financial_ledger_versions",
         filter: `user_id=eq.${user.id}`,
-      }, refresh("transactions"))
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "category_spending_goals",
-        filter: `user_id=eq.${user.id}`,
-      }, refresh("goals"))
+      }, refresh)
       .subscribe();
 
 

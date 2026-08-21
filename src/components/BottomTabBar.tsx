@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { House, ListBullets, Target, DotsThree, ChatCircle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -10,10 +11,32 @@ const tabs = [
   { path: "/app/mais", label: "Mais", icon: DotsThree },
 ];
 
+const routePreloaders: Record<string, () => Promise<unknown>> = {
+  "/app": () => import("@/pages/Index"),
+  "/app/lancamentos": () => import("@/pages/Lancamentos"),
+  "/app/metas": () => import("@/pages/Metas"),
+  "/app/mais": () => import("@/pages/MaisMenu"),
+};
+
+function preloadRoute(path: string) {
+  void routePreloaders[path]?.().catch(() => undefined);
+}
+
 export function BottomTabBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { openAssessor } = useAssessor();
+
+  useEffect(() => {
+    const preload = () => tabs.filter((tab) => tab.path !== location.pathname).forEach((tab) => preloadRoute(tab.path));
+    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+    if (ric) {
+      const id = ric(preload, { timeout: 1800 });
+      return () => (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(preload, 900);
+    return () => window.clearTimeout(id);
+  }, [location.pathname]);
 
   const isActive = (path: string) => {
     if (path === "/app/mais") {
@@ -48,6 +71,8 @@ export function BottomTabBar() {
           return (
              <Button
               key={tab.path}
+              onPointerDown={() => preloadRoute(tab.path)}
+              onPointerEnter={() => preloadRoute(tab.path)}
               onClick={() => navigate(tab.path)}
                variant="ghost"
                className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`}
@@ -64,7 +89,7 @@ export function BottomTabBar() {
         {tabs.slice(2).map((tab) => {
           const active = isActive(tab.path);
           const Icon = tab.icon;
-          return <Button key={tab.path} onClick={() => navigate(tab.path)} variant="ghost" className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`} aria-current={active ? "page" : undefined}><Icon size={20} weight={active ? "fill" : "regular"} /><span className="text-xs font-medium leading-4">{tab.label}</span></Button>;
+          return <Button key={tab.path} onPointerDown={() => preloadRoute(tab.path)} onPointerEnter={() => preloadRoute(tab.path)} onClick={() => navigate(tab.path)} variant="ghost" className={`h-14 flex-col gap-0.5 rounded-xl px-1 text-xs ${active ? "text-primary" : "text-muted-foreground"}`} aria-current={active ? "page" : undefined}><Icon size={20} weight={active ? "fill" : "regular"} /><span className="text-xs font-medium leading-4">{tab.label}</span></Button>;
         })}
       </div>
       <div className="h-[env(safe-area-inset-bottom)]" />

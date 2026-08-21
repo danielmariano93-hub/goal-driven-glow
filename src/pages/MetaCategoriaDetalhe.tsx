@@ -15,19 +15,18 @@ import { buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
-import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement } from "@/lib/engine/facts";
+import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, todayISO } from "@/lib/engine/facts";
 
 export default function MetaCategoriaDetalhe() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: catGoals, isLoading } = useCategorySpendingGoals();
   const { data: categories } = useCategories();
-  const { data: txs } = useLedgerWindow();
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();
+  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 1 });
+  const currentMonth = todayISO().slice(0, 7);
   const { data: financialSnapshot } = useFinancialSnapshot({
     start: `${currentMonth}-01`,
-    end: `${currentMonth}-${String(currentMonthEnd).padStart(2, "0")}`,
+    end: todayISO(),
   });
   const saveCatGoal = useSaveCategorySpendingGoal();
   const delCatGoal = useDeleteCategorySpendingGoal();

@@ -301,6 +301,8 @@ export function useTransactions(filters: TxFilters = {}, options: { enabled?: bo
     // `enabled: false` permite que superfícies servidas por snapshot no servidor
     // NÃO baixem o histórico inteiro para o dispositivo.
     enabled: !!user && options.enabled !== false,
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     queryFn: async () => {
       // Paginação obrigatória: o PostgREST corta em 1000 linhas silenciosamente,
       // e os KPIs brutos da Home (computeAccountStatementTotals) exigem a amostra
@@ -348,18 +350,17 @@ export function useAllTransactions(options: { enabled?: boolean } = {}) {
 /**
  * Janela limitada do ledger (`perf_derived.v1`).
  *
- * Telas que precisam de lançamentos (metas, cartões) usam uma janela fixa —
- * `monthsBack` meses fechados + o horizonte futuro de parcelas/planejados — em
- * vez do histórico inteiro. Assim o tempo de abertura deixa de crescer junto
- * com a vida financeira. Não altera nenhum cálculo: os motores continuam
- * recebendo os lançamentos do intervalo relevante.
+ * Guardrail de performance: o default cobre o mês atual + 3 meses de baseline
+ * e apenas 1 mês à frente. Horizontes longos de cartão vêm das tabelas de
+ * parcelas/faturas, não do ledger bruto. Chamadores podem ampliar de forma
+ * explícita, mas o teto evita reintroduzir downloads de dezenas de meses.
  */
 export function useLedgerWindow(
   params: { monthsBack?: number; monthsAhead?: number } = {},
   options: { enabled?: boolean } = {},
 ) {
-  const monthsBack = params.monthsBack ?? 13;
-  const monthsAhead = params.monthsAhead ?? 24;
+  const monthsBack = Math.min(12, Math.max(0, params.monthsBack ?? 3));
+  const monthsAhead = Math.min(12, Math.max(0, params.monthsAhead ?? 1));
   const now = new Date();
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1))
     .toISOString()
@@ -510,6 +511,7 @@ export function useGoals() {
   return useQuery({
     queryKey: ["goals", user?.id],
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from("goals").select("*").order("priority", { ascending: true });
       if (error) throw error;
@@ -571,6 +573,7 @@ export function useContributions() {
   return useQuery({
     queryKey: ["contributions", user?.id],
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from("goal_contributions").select("*").order("occurred_at", { ascending: false });
       if (error) throw error;
@@ -621,6 +624,7 @@ export function useInvestments() {
   return useQuery({
     queryKey: ["investments", user?.id],
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from("investments").select("*").order("created_at", { ascending: false });
       if (error) throw error;
@@ -731,6 +735,7 @@ export function useAllDebtPayments() {
   return useQuery({
     queryKey: ["debt_payments", user?.id, "all"],
     enabled: !!user,
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("debt_payments")

@@ -99,7 +99,9 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       staleTime: (query) =>
-        STATIC_KEYS.has(String((query.queryKey as unknown[])?.[0])) ? 30 * 60_000 : 30_000,
+        STATIC_KEYS.has(String((query.queryKey as unknown[])?.[0])) ? 30 * 60_000 : 60_000,
+      gcTime: 30 * 60_000,
+      refetchOnReconnect: true,
     },
   },
 });

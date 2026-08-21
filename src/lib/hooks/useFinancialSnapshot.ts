@@ -4,7 +4,6 @@ import { useAuth } from "@/context/AuthContext";
 import type { FinancialSnapshot } from "@/lib/engine/metrics";
 import { todayISO } from "@/lib/engine/facts";
 import type { DateRange } from "@/lib/engine/dailyAverage";
-import { useLedgerVersion } from "@/lib/db/derivedViews";
 import { qk } from "@/lib/db/queryKeys";
 
 export type SnapshotSource = "accounts" | "accountSnapshots" | "transactions" | "recurringRules" | "financialSettings" | "creditCards" | "cardStatements" | "cardInstallments" | "categories" | "investments" | "investmentMovements" | "debts" | "categoryGoals" | "goals" | "goalContributions";
@@ -42,25 +41,24 @@ export function useFinancialSnapshot(period: DateRange): {
   availability: SnapshotAvailability;
   computedAt: string | null;
   fromCache: boolean;
+  freshness: "fresh" | "stale_recomputing" | "unavailable";
   refetch: () => Promise<void>;
   refetchCritical: () => Promise<void>;
   refetchMissing: () => Promise<void>;
   refetchAll: () => Promise<void>;
 } {
   const { user } = useAuth();
-  const ledgerVersion = useLedgerVersion();
 
   const serverQuery = useQuery({
-    // A versão do ledger entra na chave: qualquer escrita financeira invalida
-    // a leitura derivada sem varredura de cache.
-    queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO(), ledgerVersion.data ?? 0],
-    // Espera a versão resolver (ou falhar) para não disparar duas leituras:
-    // uma com versão 0 e outra com a versão real.
-    enabled: !!user && !ledgerVersion.isLoading,
+    // A própria resposta traz a versão do ledger. A invalidação explícita + realtime
+    // derruba esta query quando existe escrita; não precisamos pagar um RTT antes dela.
+    queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO()],
+    enabled: !!user,
 
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
+    refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 3000 : false,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke("home-snapshot", {
         body: { start: period.start, end: period.end, today: todayISO() },
@@ -72,6 +70,7 @@ export function useFinancialSnapshot(period: DateRange): {
         missing_sources?: string[];
         computed_at?: string;
         cache_hit?: boolean;
+        freshness?: "fresh" | "stale_recomputing";
       } | null;
       if (!payload?.ok || !payload.snapshot) throw new Error("snapshot_unavailable");
       return {
@@ -79,6 +78,7 @@ export function useFinancialSnapshot(period: DateRange): {
         missing: (payload.missing_sources ?? []) as SnapshotSource[],
         computedAt: payload.computed_at ?? null,
         fromCache: payload.cache_hit === true,
+        freshness: payload.freshness ?? "fresh" as const,
       };
     },
   });
@@ -123,6 +123,7 @@ export function useFinancialSnapshot(period: DateRange): {
     availability,
     computedAt: serverQuery.data?.computedAt ?? null,
     fromCache: serverQuery.data?.fromCache ?? false,
+    freshness: criticalError ? "unavailable" : (serverQuery.data?.freshness ?? "fresh"),
     refetch: refetchAll,
     refetchCritical: refetchAll,
     refetchMissing: refetchAll,

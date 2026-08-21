@@ -18,7 +18,7 @@ export default function MetaDetalhe() {
   const { data: contribs } = useContributions();
   const { data: investments } = useInvestments();
   const { data: categories } = useCategories();
-  const { data: txs } = useLedgerWindow();
+  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 0 });
 
   const goal = (goals ?? []).find((g) => g.id === id) ?? null;
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })), [txs]);
