@@ -328,7 +328,8 @@ export function useTransactions(filters: TxFilters = {}) {
         }
         const { data, error } = await q;
         if (error) throw error;
-        const chunk = (data ?? []) as TransactionRow[];
+        const chunk = (data ?? []) as unknown as TransactionRow[];
+
         rows.push(...chunk);
         if (chunk.length < PAGE) break;
         offset += PAGE;
