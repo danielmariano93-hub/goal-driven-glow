@@ -48,6 +48,7 @@ export const FINANCE_CORE_MODULES = [
   "categoryGoalStrategy",
   "longitudinal",
   "wealthOpportunity",
+  "recurringSchedule",
 ];
 
 export const REPORT_MODULES = [

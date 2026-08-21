@@ -1,3 +1,5 @@
+// GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
+// Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 /** Cálculo determinístico das próximas ocorrências de uma regra recorrente. */
 
 export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
