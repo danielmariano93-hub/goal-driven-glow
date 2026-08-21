@@ -53,7 +53,7 @@ import { findPending } from "./PendingConfirmations.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
-import { serializeWithinBudget } from "./ContextBudget.ts";
+import { serializeWithinBudget, estimateTokens } from "./ContextBudget.ts";
 
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
@@ -652,6 +652,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // previously decorative FinancialContext360 facade into actual grounding
   // while keeping prompts bounded and identical across App and WhatsApp.
   if (capability.execution === "llm_scoped" && Object.values(capability.context).some(Boolean)) {
+    // Medição do bloco de contexto (observabilidade por bloco do prompt).
     const financialContext = await guard(
       () => tctx.snapshot(capability.context),
       (m) => metrics.errors.push("context360:" + m),
@@ -660,7 +661,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     if (financialContext && Object.keys(financialContext).length) {
       // Orçamento de contexto: campos vazios saem, listas são limitadas e o
       // JSON respeita 4k chars. Nada de corte cego no meio de uma chave.
-      const { json: serialized, truncated } = serializeWithinBudget(financialContext);
+      const { json: serialized, truncated, chars } = serializeWithinBudget(financialContext);
+      contextJson = serialized;
+      contextChars = chars;
       metrics.formula_versions = {
         ...(metrics.formula_versions ?? {}),
         context_budget: "context_budget.v1",
@@ -1102,7 +1105,7 @@ ${JSON.stringify(hints)}
   };
   const tokenSplit = {
     prompt_system: estimateTokens(String(prompt?.system ?? "")),
-    context: estimateTokens(String((prompt as any)?.context_json ?? "")),
+    context: estimateTokens(contextJson),
     history: (history ?? []).reduce((acc, h) => acc + estimateTokens(String(h.content ?? "")), 0),
     user_text: estimateTokens(String(input.text ?? "")),
     completion: metrics.tokens_out ?? 0,
@@ -1128,7 +1131,7 @@ ${JSON.stringify(hints)}
         channel: metrics.channel ?? null,
         stage_ms: stageMs,
         token_breakdown: tokenSplit,
-        context_chars: Number((prompt as any)?.context_chars ?? 0) || null,
+        context_chars: contextChars || null,
         routing_ms: Math.round(metrics.stages.intent ?? 0) || null,
         history_ms: Math.round(metrics.stages.session ?? 0) || null,
         context_ms: Math.round(metrics.stages.plan ?? 0) || null,
