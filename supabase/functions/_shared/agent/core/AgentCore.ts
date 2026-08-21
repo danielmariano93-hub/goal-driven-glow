@@ -765,7 +765,8 @@ ${JSON.stringify(hints)}
     };
     systemPrompt =
       `[DIAGNÓSTICO FINANCEIRO CANÔNICO DO NINO]\n` +
-      `${JSON.stringify(compactDiagnosis)}\n` +
+      `${serializeWithinBudget(compactDiagnosis, { maxChars: 2_500, maxArray: 3, maxDepth: 4 }).json}\n` +
+
       `Use este diagnóstico para manter a mesma história financeira entre App e WhatsApp. ` +
       `Não recalcule valores, não invente causas e não contradiga as evidências. ` +
       `Quando a pergunta pedir valor, período, lista ou gráfico exato, consulte a tool correspondente.\n\n` +
