@@ -239,7 +239,8 @@ Deno.serve(async (req) => {
     };
     const computeMs = Date.now() - startedAt;
     // Só memoiza snapshot completo: parcial não vira verdade guardada.
-    if (missing.length === 0) {
+    // Nem parcial nem desatualizado viram verdade guardada.
+    if (missing.length === 0 && (compact?.staleMonths?.length ?? 0) === 0) {
       await writeDerivedCache(sb, userId, cacheKey, ledgerVersion, payload, computeMs).catch(() => undefined);
     }
 
