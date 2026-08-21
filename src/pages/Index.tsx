@@ -17,7 +17,7 @@ import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
 
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
-import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { invalidateFinancialQueries, withBulkFinancialWrites } from "@/lib/db/invalidation";
 import { toHomeDiagnosisView, useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
 
 export default function Index() {
@@ -39,7 +39,7 @@ export default function Index() {
     if (!user?.id || categorizationStarted.current) return;
     categorizationStarted.current = true;
     void (async () => {
-      const result = await processCategoryQueue().catch((error) => {
+      const result = await withBulkFinancialWrites(queryClient, processCategoryQueue).catch((error) => {
         categorizationStarted.current = false;
         console.warn("[category-engine-bootstrap]", error);
         return null;

@@ -17,6 +17,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialSnapshot } from "../_shared/finance-core/metrics.ts";
 import { nextOccurrenceFor } from "../_shared/finance-core/index.ts";
+import { fetchAllTransactions } from "../_shared/derived/txColumns.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "home-snapshot";
@@ -25,9 +26,6 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-// Mesmas colunas usadas pelo app (TX_COLUMNS) — payload mínimo, sem `select *`.
-const TX_COLUMNS =
-  "id,account_id,type,status,amount,occurred_at,posted_at,competence_date,category_id,description,credit_card_id,payment_method,settles_card_id,transfer_group_id,transfer_direction,movement_kind,refund_of_transaction_id,superseded_by,installment_total,installment_number,origin";
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -101,7 +99,8 @@ Deno.serve(async (req) => {
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
-      q(sb.from("transactions").select(TX_COLUMNS).eq("user_id", userId), "transactions", true),
+      // Paginado: PostgREST corta em 1.000 linhas e o motor exige a amostra completa.
+      fetchAllTransactions(sb, userId),
       q(sb.from("account_balance_snapshots").select("account_id,balance,as_of").eq("user_id", userId), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
       q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day").eq("user_id", userId), "debts", false),
@@ -195,7 +194,9 @@ Deno.serve(async (req) => {
           income_day: (settings as Any).income_day == null ? null : num((settings as Any).income_day),
         }
         : null,
-      today,
+      // O motor exige `Date` aqui (ele mesmo converte para a âncora America/Sao_Paulo).
+      today: new Date(`${today}T12:00:00-03:00`),
+
     } as Any);
 
     const payload = {
@@ -226,6 +227,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const source = (error as Any)?.source ?? null;
+    console.error("[home-snapshot] falha", message, error instanceof Error ? error.stack : null);
     // Fonte crítica indisponível: a Home mostra erro e oferece "tentar de novo".
     return json({ ok: false, error: "snapshot_unavailable", source, message }, 502);
   }
