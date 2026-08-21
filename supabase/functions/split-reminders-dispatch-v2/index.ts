@@ -9,6 +9,7 @@ import { httpContext } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
+import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -215,7 +216,11 @@ Deno.serve(async (req) => {
         }
 
         const envDigest = { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") ?? null };
-        const ownerLink = buildSharedExpenseUrl(envDigest, String(job.shared_expense_id), { ref: "owner_digest" });
+        const ownerLink = await shortenAppUrl(sb, {
+          user_id: expenseRow.owner_user_id,
+          url: buildSharedExpenseUrl(envDigest, String(job.shared_expense_id), { ref: "owner_digest" }),
+          kind: "split_owner_digest",
+        });
         const ownerLinkSentence = buildLinkSentence({ isRegistered: true, appLink: ownerLink, signupLink: null });
         const digest = ownerDigestMessage(String(expenseRow.title ?? "seu rolê"), pending, persona, ownerLinkSentence);
 
@@ -319,11 +324,20 @@ Deno.serve(async (req) => {
       const phone = String(participant.phone_e164 ?? "");
       const registered = await isRegisteredPhone(sb, phone);
       const env = { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") ?? null };
-      const appLink = buildSharedExpenseUrl(env, String(job.shared_expense_id), { ref: "wa_split" });
-      const signupLink = buildSignupUrl(env, {
-        ref: "wa_split",
-        phone,
-        next: `/app/divisao-do-role/${String(job.shared_expense_id)}`,
+      const linkOwner = expense?.owner_user_id ?? null;
+      const appLink = await shortenAppUrl(sb, {
+        user_id: linkOwner,
+        url: buildSharedExpenseUrl(env, String(job.shared_expense_id), { ref: "wa_split" }),
+        kind: "split_participant",
+      });
+      const signupLink = await shortenAppUrl(sb, {
+        user_id: linkOwner,
+        url: buildSignupUrl(env, {
+          ref: "wa_split",
+          phone,
+          next: `/app/divisao-do-role/${String(job.shared_expense_id)}`,
+        }),
+        kind: "split_signup",
       });
       const linkSentence = buildLinkSentence({ isRegistered: registered, appLink, signupLink });
       const message = messageFor(kind, participant, expense, remaining, persona, linkSentence, await splitContext(String(job.shared_expense_id)));
