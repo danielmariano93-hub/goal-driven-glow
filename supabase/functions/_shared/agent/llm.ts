@@ -94,9 +94,28 @@ export async function runAgentTurn(
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25_000);
   const tools = openAIToolDefinitions(opts.allowedTools);
 
-  const history = (opts.history ?? []).slice(-20).map((m) => ({
-    role: m.role, content: String(m.content ?? "").slice(0, 2000),
+  // Histórico híbrido (`context_budget.v1`): os 4 turnos recentes vão crus
+  // (800 chars) porque é neles que a continuidade vive; o restante entra
+  // resumido. Antes, 20 turnos × 2.000 chars respondiam por 2–6k tokens de
+  // prompt por passo do loop — e cada passo reenvia tudo.
+  const raw = (opts.history ?? []).slice(-20);
+  const recent = raw.slice(-4).map((m) => ({
+    role: m.role, content: String(m.content ?? "").slice(0, 800),
   }));
+  const older = raw.slice(0, Math.max(0, raw.length - 4)).map((m) => ({
+    role: m.role, content: String(m.content ?? "").replace(/\s+/g, " ").slice(0, 180),
+  }));
+  const history = older.length
+    ? [
+      {
+        role: "system" as const,
+        content: "[RESUMO DA CONVERSA ANTERIOR]\n" +
+          older.map((m) => `${m.role === "user" ? "Usuário" : "Nino"}: ${m.content}`).join("\n"),
+      },
+      ...recent,
+    ]
+    : recent;
+
   const messages: ChatMessage[] = [
     { role: "system", content: opts.systemPrompt },
     { role: "system", content: temporalSystemContext() },
