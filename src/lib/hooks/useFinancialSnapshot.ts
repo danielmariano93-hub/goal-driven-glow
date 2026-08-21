@@ -347,9 +347,9 @@ export function useFinancialSnapshot(period: DateRange): {
   const refetchSources = async (selected: typeof sources) => {
     await Promise.all(selected.map((item) => item.query.refetch()));
   };
-  const refetchAll = async () => refetchSources(sources);
-  const refetchCritical = async () => refetchSources(criticalSources);
-  const refetchMissing = async () => refetchSources(sources.filter((item) => item.query.isError));
+  const refetchAll = async () => { await serverQuery.refetch(); await refetchSources(sources); };
+  const refetchCritical = async () => { await serverQuery.refetch(); if (useLocalFallback) await refetchSources(criticalSources); };
+  const refetchMissing = async () => { await serverQuery.refetch(); if (useLocalFallback) await refetchSources(sources.filter((item) => item.query.isError)); };
 
   return {
     data: snapshot,
