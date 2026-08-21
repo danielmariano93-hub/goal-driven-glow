@@ -4,6 +4,7 @@ import { today as localToday } from "@/lib/engine/ninoClock";
 import type { ComparisonMode } from "@/lib/engine/financialComparison";
 import { buildPerformanceSnapshot } from "@/lib/nino/performanceSnapshots";
 import { fetchDerivedPerformance, useLedgerVersion } from "@/lib/db/derivedViews";
+import { qk } from "@/lib/db/queryKeys";
 
 /**
  * Detalhe completo do acompanhamento para telas analíticas (relatórios):
@@ -17,7 +18,7 @@ export function usePerformanceDetail(options?: { mode?: ComparisonMode }) {
   const ledgerVersion = useLedgerVersion();
 
   const query = useQuery({
-    queryKey: ["performance-detail", user?.id, mode, asOf, ledgerVersion.data ?? 0],
+    queryKey: [...qk.performanceDetail, user?.id, mode, asOf, ledgerVersion.data ?? 0],
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {

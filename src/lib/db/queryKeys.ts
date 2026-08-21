@@ -33,6 +33,10 @@ export const qk = {
   assessorDocuments: ["assessor_documents"] as const,
   notifications: ["notifications"] as const,
   advisorPerformance: ["advisor-performance"] as const,
+  // Leitura derivada servida (`perf_derived.v1`).
+  ledgerVersion: ["ledger-version"] as const,
+  homeSnapshot: ["home-snapshot"] as const,
+  performanceDetail: ["performance-detail"] as const,
 } as const;
 
 export type QueryKeyName = keyof typeof qk;
@@ -41,6 +45,9 @@ export type QueryKeyName = keyof typeof qk;
 const DERIVED_KEYS: readonly (readonly string[])[] = [
   qk.dashboard, qk.home, qk.pulse, qk.assistantTip, qk.insights,
   qk.financialSnapshot, qk.advisorPerformance,
+  // A versão do ledger é a chave-mestra das leituras derivadas: invalidá-la
+  // derruba snapshot da Home e acompanhamento sem varredura manual.
+  qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail,
 ];
 
 /**
@@ -103,4 +110,7 @@ export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
   qk.documentImports,
   qk.assessorDocuments,
   qk.advisorPerformance,
+  qk.ledgerVersion,
+  qk.homeSnapshot,
+  qk.performanceDetail,
 ];

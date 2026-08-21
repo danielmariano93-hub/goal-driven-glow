@@ -7,6 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import { qk } from "@/lib/db/queryKeys";
 import type { PerformanceResult } from "@/lib/engine/financialPerformance";
 import type { ComparisonMode } from "@/lib/engine/financialComparison";
 
@@ -14,7 +15,7 @@ import type { ComparisonMode } from "@/lib/engine/financialComparison";
 export function useLedgerVersion() {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ["ledger-version", user?.id],
+    queryKey: [...qk.ledgerVersion, user?.id],
     enabled: !!user,
     staleTime: 30 * 1000,
     queryFn: async () => {

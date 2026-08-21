@@ -5,6 +5,7 @@ import type { FinancialSnapshot } from "@/lib/engine/metrics";
 import { todayISO } from "@/lib/engine/facts";
 import type { DateRange } from "@/lib/engine/dailyAverage";
 import { useLedgerVersion } from "@/lib/db/derivedViews";
+import { qk } from "@/lib/db/queryKeys";
 
 export type SnapshotSource = "accounts" | "accountSnapshots" | "transactions" | "recurringRules" | "financialSettings" | "creditCards" | "cardStatements" | "cardInstallments" | "categories" | "investments" | "investmentMovements" | "debts" | "categoryGoals" | "goals" | "goalContributions";
 export type SnapshotErrorKind = "permission" | "schema" | "network" | "timeout" | "unknown";
@@ -52,7 +53,7 @@ export function useFinancialSnapshot(period: DateRange): {
   const serverQuery = useQuery({
     // A versão do ledger entra na chave: qualquer escrita financeira invalida
     // a leitura derivada sem varredura de cache.
-    queryKey: ["home-snapshot", user?.id, period.start, period.end, todayISO(), ledgerVersion.data ?? 0],
+    queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO(), ledgerVersion.data ?? 0],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
