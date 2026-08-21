@@ -8,8 +8,11 @@ import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } f
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
 export const REPORT_TEMPLATE_VERSION = "report_template.v3";
 
-/** `monthly_partial` = mês corrente, ainda aberto (números reais + projeção). */
-export type ReportType = "weekly" | "monthly" | "monthly_partial";
+/**
+ * `monthly_partial` = mês corrente, ainda aberto (números reais + projeção).
+ * `custom` = intervalo livre escolhido pelo usuário (fechado e arbitrário).
+ */
+export type ReportType = "weekly" | "monthly" | "monthly_partial" | "custom";
 export type MetricUnit = "BRL" | "pct" | "count" | "days" | "score" | "text";
 export type Confidence = "low" | "medium" | "high";
 export type DataQualityStatus = "ok" | "attention" | "insufficient";
@@ -145,6 +148,8 @@ export interface ReportEngineInput {
   reportType: ReportType;
   /** Data de referência (dia da geração) no fuso do usuário. */
   referenceDate: Date;
+  /** Intervalo explícito — obrigatório quando `reportType === "custom"`. */
+  customPeriod?: { start: string; end: string };
   transactions: TransactionRow[];
   categoryNames?: Record<string, string>;
   accounts?: AccountRow[];

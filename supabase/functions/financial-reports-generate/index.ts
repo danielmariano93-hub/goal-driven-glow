@@ -202,9 +202,20 @@ async function generateForUser(
 
   const reference = new Date();
   const { period, previous } = resolvePeriods(reportType, reference, opts.customPeriod);
+  // Guarda de contrato: se o motor de períodos ignorar o intervalo pedido
+  // (espelho fora de sincronia), falhamos alto em vez de gravar outro período.
+  if (reportType === "custom") {
+    const asked = opts.customPeriod;
+    if (!asked || period.start !== asked.start || period.end !== asked.end) {
+      throw new Error(
+        `custom_period_mismatch: pedido ${asked?.start ?? "-"}..${asked?.end ?? "-"} resolvido ${period.start}..${period.end}`,
+      );
+    }
+  }
   const idempotencyKey = reportType === "custom"
     ? `custom:${userId}:${period.start}:${period.end}`
     : `${reportType}:${userId}:${period.start}`;
+
 
   // Período livre pode repetir o dia de início com fins diferentes: a chave
   // única inclui o fim do intervalo.
