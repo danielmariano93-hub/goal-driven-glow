@@ -54,7 +54,10 @@ export function useFinancialSnapshot(period: DateRange): {
     // A versão do ledger entra na chave: qualquer escrita financeira invalida
     // a leitura derivada sem varredura de cache.
     queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO(), ledgerVersion.data ?? 0],
-    enabled: !!user,
+    // Espera a versão resolver (ou falhar) para não disparar duas leituras:
+    // uma com versão 0 e outra com a versão real.
+    enabled: !!user && !ledgerVersion.isLoading,
+
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
