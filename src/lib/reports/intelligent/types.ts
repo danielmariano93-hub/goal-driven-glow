@@ -146,6 +146,8 @@ export interface ReportEngineInput {
   reportType: ReportType;
   /** Data de referência (dia da geração) no fuso do usuário. */
   referenceDate: Date;
+  /** Intervalo explícito — obrigatório quando `reportType === "custom"`. */
+  customPeriod?: { start: string; end: string };
   transactions: TransactionRow[];
   categoryNames?: Record<string, string>;
   accounts?: AccountRow[];
