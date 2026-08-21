@@ -17,10 +17,40 @@ import { supabase } from "@/integrations/supabase/client";
  * Retorna uma Promise resolvida quando todas as invalidações terminaram, de
  * modo que a UI possa aguardar (read-after-write) antes de renderizar números.
  */
+let bulkDepth = 0;
+let bulkPending = false;
+
+/**
+ * Rodadas em lote (categorização automática, importação) escrevem dezenas de
+ * lançamentos em sequência. Sem supressão, cada escrita bumpava a versão do
+ * ledger e recalculava o snapshot da Home — N recomputações para um resultado
+ * só. Aqui a invalidação é acumulada e disparada UMA vez no fim.
+ */
+export async function withBulkFinancialWrites<T>(
+  qc: QueryClient,
+  run: () => Promise<T>,
+): Promise<T> {
+  bulkDepth += 1;
+  try {
+    return await run();
+  } finally {
+    bulkDepth -= 1;
+    if (bulkDepth === 0 && bulkPending) {
+      bulkPending = false;
+      await invalidateFinancialQueries(qc);
+    }
+  }
+}
+
 export function invalidateFinancialQueries(
   qc: QueryClient,
   scope: InvalidationScope = "all",
 ): Promise<void> {
+  if (bulkDepth > 0) {
+    // Durante o lote, guarda a intenção: o estado é atualizado no fim, uma vez.
+    bulkPending = true;
+    return Promise.resolve();
+  }
   void markPerformanceSnapshotsDirty();
   const keys = scope === "all"
     ? FINANCIAL_QUERY_KEYS
@@ -31,6 +61,7 @@ export function invalidateFinancialQueries(
     ),
   ).then(() => undefined);
 }
+
 
 
 async function markPerformanceSnapshotsDirty(): Promise<void> {
