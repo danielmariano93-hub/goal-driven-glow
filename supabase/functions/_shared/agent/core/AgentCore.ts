@@ -241,25 +241,6 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
-  // ---- GoalPlanner ANTES da execução -------------------------------------
-  // O plano deixa de ser só trilha de auditoria: ele é montado com a rota do
-  // turno e entra no prompt como contrato. Quando a política de autonomia
-  // exige confirmação, o próprio prompt proíbe executar a escrita direto.
-  const userExplicitTurn = routed.intent.kind === "confirm" || hasEntryIntent(String(input.text ?? ""));
-  const prePlan = capability.required_tool
-    ? buildGoalPlan({
-      text: turnPlan.effective_text,
-      primary_tool: String(capability.required_tool),
-      complete: false,
-      user_explicit: userExplicitTurn,
-      proactive: false,
-      amount: null,
-    })
-    : null;
-  if (prePlan && prePlan.steps.length > 0) {
-    metrics.formula_versions = { ...(metrics.formula_versions ?? {}), goal_plan: "nino_agent.v1" } as any;
-  }
-
   if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
     const bulkPending = await guard(
       () => findBulkPending(sb, input.conversation_id, input.user_id),
@@ -624,6 +605,25 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
+
+  // ---- GoalPlanner ANTES da execução -------------------------------------
+  // O plano deixa de ser só trilha de auditoria: ele é montado com a rota do
+  // turno e entra no prompt como contrato. Quando a política de autonomia
+  // exige confirmação, o próprio prompt proíbe executar a escrita direto.
+  const userExplicitTurn = routed.intent.kind === "confirm" || hasEntryIntent(String(input.text ?? ""));
+  const prePlan = capability.required_tool
+    ? buildGoalPlan({
+      text: turnPlan.effective_text,
+      primary_tool: String(capability.required_tool),
+      complete: false,
+      user_explicit: userExplicitTurn,
+      proactive: false,
+      amount: null,
+    })
+    : null;
+  if (prePlan && prePlan.steps.length > 0) {
+    metrics.formula_versions = { ...(metrics.formula_versions ?? {}), goal_plan: "nino_agent.v1" } as any;
+  }
 
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
