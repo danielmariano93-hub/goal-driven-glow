@@ -27,10 +27,14 @@ type Any = any;
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
+  // Aceita o mesmo segredo usado pelos outros workers do projeto (o cron manda
+  // `x-cron-secret`) ou uma chamada autenticada (bootstrap administrativo).
+  const secrets = ["CRON_SECRET", "INTERNAL_CRON_SECRET"]
+    .map((k) => Deno.env.get(k) ?? "")
+    .filter((v) => v.length > 0);
   const provided = req.headers.get("x-cron-secret") ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
-  if (cronSecret && provided !== cronSecret && !authHeader) {
+  if (secrets.length > 0 && !secrets.includes(provided) && !authHeader) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 

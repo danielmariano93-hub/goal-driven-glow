@@ -25,7 +25,9 @@ export function useFinancialPerformance(options?: { mode?: ComparisonMode; enabl
 
   return useQuery<PerformanceSnapshot | null>({
     queryKey: [...qk.advisorPerformance, user?.id, mode, asOf, ledgerVersion.data ?? 0],
-    enabled: !!user?.id && options?.enabled !== false,
+    // Espera a versão do ledger: sem isso a tela dispara uma leitura com
+    // versão 0 e outra logo depois, dobrando requisição a cada abertura.
+    enabled: !!user?.id && options?.enabled !== false && !ledgerVersion.isLoading,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       if (!user?.id) return null;

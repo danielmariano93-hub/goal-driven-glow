@@ -9,7 +9,7 @@
 // O motor continua sendo o mesmo (`finance-core`): aqui só trocamos o que
 // entra nele. Cada linha é contada exatamente uma vez — ou está na janela, ou
 // está consolidada nos fatos anteriores.
-import { cashDateOf, txOrigin } from "../finance-core/facts.ts";
+import { txOrigin } from "../finance-core/facts.ts";
 import { factMonthOf } from "./monthlyFacts.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -24,6 +24,7 @@ export type CompactLedger = {
   transactionsRead: number;
   carryApplied: boolean;
   missingMonths: string[];
+  staleMonths: string[];
 };
 
 const monthStart = (iso: string) => `${iso.slice(0, 7)}-01`;
@@ -74,8 +75,24 @@ export async function buildCompactLedger(
   columns: string,
   window: { start: string; end: string },
   accounts: Any[],
-  opts?: { includeCardCarry?: boolean },
+  opts?: { includeCardCarry?: boolean; hardAnchors?: Array<{ account_id: string; balance_date: string }> },
 ): Promise<CompactLedger> {
+  // Âncora bancária REAL manda mais que qualquer fato derivado. Se a conta tem
+  // âncora conferida ANTES da janela, a janela é estendida até o mês dela: só
+  // assim o motor vê a âncora + todos os lançamentos posteriores, e nenhuma
+  // âncora sintética precisa (nem pode) sobrescrevê-la.
+  const anchorsBefore = (opts?.hardAnchors ?? []).filter((a) => a.balance_date < window.start);
+  const latestByAccount = new Map<string, string>();
+  for (const a of anchorsBefore) {
+    const cur = latestByAccount.get(a.account_id);
+    if (!cur || a.balance_date > cur) latestByAccount.set(a.account_id, a.balance_date);
+  }
+  let effectiveStart = window.start;
+  for (const date of latestByAccount.values()) {
+    const candidate = monthStart(date);
+    if (candidate < effectiveStart) effectiveStart = candidate;
+  }
+  window = { start: effectiveStart, end: window.end };
   const windowMonth = window.start.slice(0, 7);
 
   const [{ data: factRows, error: factError }, txs] = await Promise.all([
@@ -97,7 +114,15 @@ export async function buildCompactLedger(
     .is("processed_at", null)
     .lt("competence_month", `${windowMonth}-01`);
 
-  const missingMonths = ((pendingRows ?? []) as Any[]).map((r) => String(r.competence_month).slice(0, 7));
+  const pendingMonths = ((pendingRows ?? []) as Any[]).map((r) => String(r.competence_month).slice(0, 7));
+  const materializedMonths = new Set(
+    ((factRows ?? []) as Any[]).map((r) => String(r.competence_month).slice(0, 7)),
+  );
+  // Mês sujo COM fato: número existe, só pode estar alguns segundos atrás do
+  // ledger -> `stale_recomputing`. Mês sujo SEM fato: não há carry confiável
+  // -> fonte ausente, a superfície degrada em vez de mentir.
+  const staleMonths = pendingMonths.filter((m) => materializedMonths.has(m));
+  const missingMonths = pendingMonths.filter((m) => !materializedMonths.has(m));
 
   const accountCarry: Record<string, number> = {};
   const cardCarry: Record<string, number> = {};
@@ -119,11 +144,9 @@ export async function buildCompactLedger(
   // janela vêm na leitura por posted_at/competência: descontamos do carry para
   // não contar duas vezes.
   for (const t of txs) {
-    const cash = cashDateOf(t);
-    if (cash <= anchorDate && t.status === "confirmed" && t.type !== "transfer" && txOrigin(t) === "account" && t.account_id) {
-      const signed = t.type === "income" ? Number(t.amount ?? 0) : -Number(t.amount ?? 0);
-      accountCarry[String(t.account_id)] = (accountCarry[String(t.account_id)] ?? 0) + signed;
-    }
+    // Conta: NADA a ajustar. `account_deltas` do fato é indexado pela data de
+    // CAIXA, então toda linha com caixa anterior à janela já está no carry — e
+    // o motor a descarta pelo corte da âncora. Somar aqui contaria duas vezes.
     if (t.occurred_at < window.start) {
       if (t.status === "confirmed" && t.type === "expense" && txOrigin(t) === "credit_card" && t.credit_card_id) {
         cardCarry[String(t.credit_card_id)] = (cardCarry[String(t.credit_card_id)] ?? 0) - Number(t.amount ?? 0);
@@ -135,6 +158,10 @@ export async function buildCompactLedger(
   }
 
   // Âncora sintética por conta: saldo de abertura + deltas consolidados.
+  // Emitida para TODA conta: ela é a base de qualquer leitura anterior à
+  // âncora bancária real (ex.: saldo de abertura do período). Como está datada
+  // antes da janela, qualquer âncora conferida real — sempre dentro da janela
+  // após a extensão acima — continua prevalecendo.
   const syntheticAnchors = (accounts ?? []).map((a: Any) => ({
     account_id: String(a.id),
     balance_date: anchorDate,
@@ -179,6 +206,7 @@ export async function buildCompactLedger(
     transactionsRead: txs.length,
     carryApplied: missingMonths.length === 0,
     missingMonths,
+    staleMonths,
   };
 }
 

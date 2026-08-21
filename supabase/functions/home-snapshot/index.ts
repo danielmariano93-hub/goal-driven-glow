@@ -100,7 +100,12 @@ Deno.serve(async (req) => {
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
-      q(sb.from("account_balance_snapshots").select("account_id,balance,as_of").eq("user_id", userId), "accountSnapshots", true),
+      // Mesmo contrato do app (`bank_cash_truth.v1`): só snapshot CONFIRMADO
+      // ancora, e `balance_date` é a data de corte.
+      q(sb.from("account_balance_snapshots")
+        .select("account_id,balance_date,balance,status,anchor_kind,source_document_id,reconciliation_delta")
+        .eq("user_id", userId).eq("status", "confirmed")
+        .order("balance_date", { ascending: true }), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
       q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day").eq("user_id", userId), "debts", false),
       q(sb.from("categories").select("id,name,type").eq("user_id", userId), "categories", false),
@@ -126,7 +131,11 @@ Deno.serve(async (req) => {
     if (bootstrap) {
       txs = await fetchAllTransactions(sb, userId);
     } else {
-      compact = await buildCompactLedger(sb, userId, TX_COLUMNS, window, (accounts ?? []) as Any[]);
+      compact = await buildCompactLedger(sb, userId, TX_COLUMNS, window, (accounts ?? []) as Any[], {
+        hardAnchors: ((snapshots ?? []) as Any[])
+          .filter((s) => s.anchor_kind === "bank_confirmed" && s.status === "confirmed")
+          .map((s) => ({ account_id: String(s.account_id), balance_date: String(s.balance_date) })),
+      });
       txs = compact.txs;
       // Materialização pendente: a superfície degrada honestamente em vez de
       // servir número velho ou baixar a vida inteira.
@@ -230,7 +239,8 @@ Deno.serve(async (req) => {
     };
     const computeMs = Date.now() - startedAt;
     // Só memoiza snapshot completo: parcial não vira verdade guardada.
-    if (missing.length === 0) {
+    // Nem parcial nem desatualizado viram verdade guardada.
+    if (missing.length === 0 && (compact?.staleMonths?.length ?? 0) === 0) {
       await writeDerivedCache(sb, userId, cacheKey, ledgerVersion, payload, computeMs).catch(() => undefined);
     }
 
@@ -252,7 +262,8 @@ Deno.serve(async (req) => {
       months_materialized: compact?.monthsMaterialized ?? null,
       transactions_read: compact?.transactionsRead ?? payload.transactions_considered,
       derived_fact_read_ms: derivedFactReadMs,
-      dirty_months_pending: compact?.missingMonths ?? [],
+      dirty_months_pending: [...(compact?.missingMonths ?? []), ...(compact?.staleMonths ?? [])],
+      freshness: (compact?.staleMonths?.length ?? 0) > 0 ? "stale_recomputing" : "fresh",
       snapshot,
     });
   } catch (error) {
