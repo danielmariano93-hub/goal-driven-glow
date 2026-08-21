@@ -70,6 +70,7 @@ const GROUPS = {
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "compare_financial_metric", "assess_financial_performance",
+    "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
   leaks: [
