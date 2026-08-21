@@ -5260,19 +5260,31 @@ export type Database = {
       }
       financial_dirty_periods: {
         Row: {
+          attempts: number
           competence_month: string
+          domains: string[]
+          last_error: string | null
+          locked_until: string | null
           marked_at: string
           processed_at: string | null
           user_id: string
         }
         Insert: {
+          attempts?: number
           competence_month: string
+          domains?: string[]
+          last_error?: string | null
+          locked_until?: string | null
           marked_at?: string
           processed_at?: string | null
           user_id: string
         }
         Update: {
+          attempts?: number
           competence_month?: string
+          domains?: string[]
+          last_error?: string | null
+          locked_until?: string | null
           marked_at?: string
           processed_at?: string | null
           user_id?: string
@@ -5512,6 +5524,105 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      financial_monthly_facts: {
+        Row: {
+          account_balances: Json
+          account_deltas: Json
+          account_in: number
+          account_out: number
+          behavioral_expense: number
+          card_deltas: Json
+          card_out: number
+          card_outstanding: Json
+          card_payments: number
+          category_breakdown: Json
+          competence_month: string
+          completeness: string
+          compute_ms: number | null
+          computed_at: string
+          days_with_expense: number
+          debt_payments: number
+          external_transfers_in: number
+          external_transfers_out: number
+          formula_version: string
+          income: number
+          internal_transfers: number
+          investment_applications: number
+          investment_redemptions: number
+          ledger_version: number
+          loan_proceeds: number
+          merchant_breakdown: Json
+          refunds: number
+          transaction_count: number
+          transactions_read: number | null
+          user_id: string
+        }
+        Insert: {
+          account_balances?: Json
+          account_deltas?: Json
+          account_in?: number
+          account_out?: number
+          behavioral_expense?: number
+          card_deltas?: Json
+          card_out?: number
+          card_outstanding?: Json
+          card_payments?: number
+          category_breakdown?: Json
+          competence_month: string
+          completeness?: string
+          compute_ms?: number | null
+          computed_at?: string
+          days_with_expense?: number
+          debt_payments?: number
+          external_transfers_in?: number
+          external_transfers_out?: number
+          formula_version?: string
+          income?: number
+          internal_transfers?: number
+          investment_applications?: number
+          investment_redemptions?: number
+          ledger_version?: number
+          loan_proceeds?: number
+          merchant_breakdown?: Json
+          refunds?: number
+          transaction_count?: number
+          transactions_read?: number | null
+          user_id: string
+        }
+        Update: {
+          account_balances?: Json
+          account_deltas?: Json
+          account_in?: number
+          account_out?: number
+          behavioral_expense?: number
+          card_deltas?: Json
+          card_out?: number
+          card_outstanding?: Json
+          card_payments?: number
+          category_breakdown?: Json
+          competence_month?: string
+          completeness?: string
+          compute_ms?: number | null
+          computed_at?: string
+          days_with_expense?: number
+          debt_payments?: number
+          external_transfers_in?: number
+          external_transfers_out?: number
+          formula_version?: string
+          income?: number
+          internal_transfers?: number
+          investment_applications?: number
+          investment_redemptions?: number
+          ledger_version?: number
+          loan_proceeds?: number
+          merchant_breakdown?: Json
+          refunds?: number
+          transaction_count?: number
+          transactions_read?: number | null
+          user_id?: string
+        }
+        Relationships: []
       }
       financial_net_worth_bridges: {
         Row: {
@@ -7037,6 +7148,7 @@ export type Database = {
       }
       investment_movements: {
         Row: {
+          accounting_state: string
           amount: number
           applied: boolean
           created_at: string
@@ -7046,11 +7158,13 @@ export type Database = {
           notes: string | null
           occurred_at: string
           principal_amount: number | null
+          provenance: string
           transaction_id: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          accounting_state?: string
           amount: number
           applied?: boolean
           created_at?: string
@@ -7060,11 +7174,13 @@ export type Database = {
           notes?: string | null
           occurred_at: string
           principal_amount?: number | null
+          provenance?: string
           transaction_id: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          accounting_state?: string
           amount?: number
           applied?: boolean
           created_at?: string
@@ -7074,6 +7190,7 @@ export type Database = {
           notes?: string | null
           occurred_at?: string
           principal_amount?: number | null
+          provenance?: string
           transaction_id?: string
           updated_at?: string
           user_id?: string
@@ -12658,6 +12775,27 @@ export type Database = {
         Args: { p_months?: number }
         Returns: number
       }
+      finance_facts_claim: {
+        Args: { p_lease_seconds?: number; p_limit?: number }
+        Returns: {
+          attempts: number
+          competence_month: string
+          domains: string[]
+          user_id: string
+        }[]
+      }
+      finance_facts_enqueue_history: {
+        Args: { p_user: string }
+        Returns: number
+      }
+      finance_facts_mark_failed: {
+        Args: { p_error: string; p_month: string; p_user: string }
+        Returns: undefined
+      }
+      finance_facts_mark_processed: {
+        Args: { p_month: string; p_user: string }
+        Returns: undefined
+      }
       finance_ledger_version: { Args: never; Returns: number }
       financial_reports_monthly_tick: { Args: never; Returns: number }
       financial_reports_tick: {
@@ -12732,6 +12870,23 @@ export type Database = {
         Returns: undefined
       }
       insights_generate_tick: { Args: never; Returns: number }
+      investment_position_reconciliation: {
+        Args: never
+        Returns: {
+          anchor_date: string
+          anchor_value: number
+          applications_after_anchor: number
+          confidence: string
+          difference: number
+          expected_position: number
+          incorporated_movements: number
+          investment_id: string
+          name: string
+          pending_movements: number
+          redemptions_after_anchor: number
+          registered_position: number
+        }[]
+      }
       is_behavioral_consumption: {
         Args: {
           p_movement_kind: string

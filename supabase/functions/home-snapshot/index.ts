@@ -17,7 +17,8 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialSnapshot } from "../_shared/finance-core/metrics.ts";
 import { nextOccurrenceFor } from "../_shared/finance-core/index.ts";
-import { fetchAllTransactions } from "../_shared/derived/txColumns.ts";
+import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.ts";
+import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "home-snapshot";
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
   const userId = userData?.user?.id;
   if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
 
-  let body: { start?: string; end?: string; today?: string } = {};
+  let body: { start?: string; end?: string; today?: string; bootstrap?: boolean } = {};
   try { body = await req.json(); } catch { body = {}; }
   if (!ISO.test(String(body.start ?? "")) || !ISO.test(String(body.end ?? ""))) {
     return json({ error: "invalid_period", message: "Informe start e end no formato YYYY-MM-DD." }, 400);
@@ -95,12 +96,10 @@ Deno.serve(async (req) => {
       });
 
     const [
-      accounts, txs, snapshots, investments, debts, categories, categoryGoals,
+      accounts, snapshots, investments, debts, categories, categoryGoals,
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
-      // Paginado: PostgREST corta em 1.000 linhas e o motor exige a amostra completa.
-      fetchAllTransactions(sb, userId),
       q(sb.from("account_balance_snapshots").select("account_id,balance,as_of").eq("user_id", userId), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
       q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day").eq("user_id", userId), "debts", false),
@@ -116,6 +115,25 @@ Deno.serve(async (req) => {
       q(sb.from("investment_movements").select("kind,amount,occurred_at").eq("user_id", userId), "investmentMovements", false),
     ]);
 
+    // CAMINHO NORMAL (`perf_facts.v1`): a Home lê a JANELA do período + os
+    // fatos mensais consolidados. O ledger inteiro só entra em bootstrap ou
+    // rebuild administrativo — nunca na abertura normal.
+    const bootstrap = body.bootstrap === true;
+    const window = resolveWindow({ start, end }, today);
+    const factsReadStarted = Date.now();
+    let compact: Awaited<ReturnType<typeof buildCompactLedger>> | null = null;
+    let txs: Any[];
+    if (bootstrap) {
+      txs = await fetchAllTransactions(sb, userId);
+    } else {
+      compact = await buildCompactLedger(sb, userId, TX_COLUMNS, window, (accounts ?? []) as Any[]);
+      txs = compact.txs;
+      // Materialização pendente: a superfície degrada honestamente em vez de
+      // servir número velho ou baixar a vida inteira.
+      if (!compact.carryApplied) missing.push("monthlyFactsPending");
+    }
+    const derivedFactReadMs = Date.now() - factsReadStarted;
+
     const categoryNameById: Record<string, string> = {};
     for (const c of (categories ?? []) as Any[]) categoryNameById[c.id] = c.name;
 
@@ -124,7 +142,13 @@ Deno.serve(async (req) => {
         id: a.id, name: a.name, type: a.type, opening_balance: num(a.opening_balance), active: a.active,
       })),
       txs: ((txs ?? []) as Any[]).map((t) => ({ ...t, amount: num(t.amount) })) as Any,
-      snapshots: ((snapshots ?? []) as Any[]).map((s) => ({ ...s, balance: num(s.balance) })) as Any,
+      // Âncora de caixa sintética (`perf_facts.v1`): substitui o histórico
+      // anterior à janela por um saldo consolidado por conta, sem mudar
+      // fórmula nenhuma — o motor já sabe ancorar.
+      snapshots: [
+        ...((snapshots ?? []) as Any[]).map((s) => ({ ...s, balance: num(s.balance) })),
+        ...(compact?.syntheticAnchors ?? []),
+      ] as Any,
       recurring: ((recurring ?? []) as Any[])
         .filter((r) => r.status === "active")
         .map((r) => ({
@@ -222,6 +246,13 @@ Deno.serve(async (req) => {
       computed_at: new Date().toISOString(),
       cache_hit: false,
       compute_ms: computeMs,
+      // Observabilidade do caminho de rebuild (`perf_facts.v1`).
+      read_path: bootstrap ? "full_ledger_bootstrap" : "monthly_facts_window",
+      window: compact ? { start: compact.windowStart, end: compact.windowEnd } : null,
+      months_materialized: compact?.monthsMaterialized ?? null,
+      transactions_read: compact?.transactionsRead ?? payload.transactions_considered,
+      derived_fact_read_ms: derivedFactReadMs,
+      dirty_months_pending: compact?.missingMonths ?? [],
       snapshot,
     });
   } catch (error) {
