@@ -229,6 +229,12 @@ export function ReviewSheet({
       setFragments(d.fragments ?? []);
       setRejections(d.rejections ?? []);
       setDocumentInfo(d.document);
+      const sourceTarget = d.document?.source_account_id
+        ? `account:${d.document.source_account_id}`
+        : d.document?.source_credit_card_id
+          ? `credit_card:${d.document.source_credit_card_id}`
+          : "";
+      setBulkTarget(sourceTarget);
       setInvoiceTotalInput(d.document?.invoice_total == null ? "" : Number(d.document.invoice_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoicePreviousBalanceInput(d.document?.invoice_previous_balance == null ? "" : Number(d.document.invoice_previous_balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
       setInvoiceDueDateInput(d.document?.invoice_due_date ? String(d.document.invoice_due_date).slice(0, 10) : "");
@@ -441,13 +447,24 @@ export function ReviewSheet({
       : { payment_method: "credit_card", credit_card_id: resourceId, account_id: null };
     setBulkSaving(true);
     try {
-      const ids = [...selected];
-      const results = await Promise.all(ids.map((id) => supabase.functions.invoke("assistant-review-actions", {
-        body: { action: "update", item_id: id, patch },
-      })));
-      const failed = results.some((result) => result.error);
-      if (failed) throw new Error("bulk_update_failed");
+      const { error } = await supabase.functions.invoke("assistant-review-actions", {
+        body: {
+          action: "set-source-context",
+          document_id: documentId,
+          account_id: method === "account" ? resourceId : null,
+          credit_card_id: method === "credit_card" ? resourceId : null,
+          item_ids: [...selected],
+          propagate: true,
+        },
+      });
+      if (error) throw error;
       setItems((xs) => xs.map((x) => selected.has(x.id) ? { ...x, ...patch } : x));
+      setDocumentInfo((current) => current ? {
+        ...current,
+        source_account_id: method === "account" ? resourceId : null,
+        source_credit_card_id: method === "credit_card" ? resourceId : null,
+        source_context_method: "user_selected",
+      } : current);
       const label = method === "account"
         ? accounts.find((a) => a.id === resourceId)?.name
         : cards.find((c: { id: string; name: string }) => c.id === resourceId)?.name;
