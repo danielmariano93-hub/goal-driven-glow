@@ -346,10 +346,11 @@ Deno.serve(async (req) => {
         : credit_card_id
         ? { credit_card_id, account_id: null, payment_method: "credit_card" }
         : { account_id: null, credit_card_id: null };
-      const { data: updated, error: upErr } = await sb.from("extracted_items").update(itemPatch)
+      let updateQuery = sb.from("extracted_items").update(itemPatch)
         .eq("document_id", document_id).eq("user_id", user.id)
-        .in("status", ["needs_review", "duplicate_suspect"])
-        ...(item_ids.length > 0 ? ["in", "id", item_ids] : [])
+        .in("status", ["needs_review", "duplicate_suspect"]);
+      if (item_ids.length > 0) updateQuery = updateQuery.in("id", item_ids);
+      const { data: updated, error: upErr } = await updateQuery
         // Guarda anti-destrutiva: nunca sobrescrever itens já editados
         // manualmente. Se o usuário fixou conta/cartão em uma linha,
         // essa escolha vence a propagação em lote.
