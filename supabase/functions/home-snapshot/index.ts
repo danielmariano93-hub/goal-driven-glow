@@ -17,7 +17,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialSnapshot } from "../_shared/finance-core/metrics.ts";
 import { nextOccurrenceFor } from "../_shared/finance-core/index.ts";
-import { TX_COLUMNS } from "../_shared/derived/txColumns.ts";
+import { fetchAllTransactions } from "../_shared/derived/txColumns.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "home-snapshot";
@@ -99,7 +99,8 @@ Deno.serve(async (req) => {
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
-      q(sb.from("transactions").select(TX_COLUMNS).eq("user_id", userId), "transactions", true),
+      // Paginado: PostgREST corta em 1.000 linhas e o motor exige a amostra completa.
+      fetchAllTransactions(sb, userId),
       q(sb.from("account_balance_snapshots").select("account_id,balance,as_of").eq("user_id", userId), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
       q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day").eq("user_id", userId), "debts", false),

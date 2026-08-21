@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialPerformance } from "../_shared/finance-core/financialPerformance.ts";
-import { TX_COLUMNS } from "../_shared/derived/txColumns.ts";
+import { fetchAllTransactions } from "../_shared/derived/txColumns.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "finance-derived";
@@ -73,11 +73,10 @@ Deno.serve(async (req) => {
     }
 
     const started = Date.now();
-    const [{ data: txs, error: txError }, { data: categories }] = await Promise.all([
-      sb.from("transactions").select(TX_COLUMNS).eq("user_id", userId),
+    const [txs, { data: categories }] = await Promise.all([
+      fetchAllTransactions(sb, userId),
       sb.from("categories").select("id,name").eq("user_id", userId),
     ]);
-    if (txError) throw Object.assign(new Error(txError.message), { source: "transactions" });
 
     const categoryNames = new Map<string, string>(
       ((categories ?? []) as Any[]).map((c) => [String(c.id), String(c.name)]),
