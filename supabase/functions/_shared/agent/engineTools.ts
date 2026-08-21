@@ -18,7 +18,10 @@ import { computeFinancialEvolution } from "../finance-core/financialEvolution.ts
 import { computeDebtStatus } from "../finance-core/debtStatus.ts";
 import { computeLongitudinal } from "../finance-core/longitudinal.ts";
 import { computeWealthOpportunity } from "../finance-core/wealthOpportunity.ts";
-import { computeNetWorth } from "../finance-core/facts.ts";
+import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { buildGoalStrategy, type GoalStrategy } from "../engine/goalStrategy.ts";
+import { computeGoalStrategy } from "./goalStrategyTool.ts";
+
 import {
   computeFinancialComparison,
   FINANCIAL_COMPARISON_VERSION,
