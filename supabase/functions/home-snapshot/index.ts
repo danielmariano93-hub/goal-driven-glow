@@ -225,6 +225,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const source = (error as Any)?.source ?? null;
+    console.error("[home-snapshot] falha", message, error instanceof Error ? error.stack : null);
     // Fonte crítica indisponível: a Home mostra erro e oferece "tentar de novo".
     return json({ ok: false, error: "snapshot_unavailable", source, message }, 502);
   }
