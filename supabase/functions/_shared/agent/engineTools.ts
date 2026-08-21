@@ -19,6 +19,7 @@ import { computeDebtStatus } from "../finance-core/debtStatus.ts";
 import { computeLongitudinal } from "../finance-core/longitudinal.ts";
 import { computeWealthOpportunity } from "../finance-core/wealthOpportunity.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { historyFingerprint, persistFinancialProfile } from "./financialProfile.ts";
 import { buildGoalStrategy, type GoalStrategy } from "../engine/goalStrategy.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 
@@ -774,6 +775,20 @@ export function analyze_wealth_opportunity(
     const sourceText = sources.length
       ? ` As fontes são ${sources.map((s: any) => `${s.label} (${brl(s.recoverable_monthly)}/mês)`).join(", ")}.`
       : "";
+    // Financial Profile Learning: o perfil longitudinal fica gravado com o hash
+    // do histórico — histórico novo recalcula, nada de perfil velho silencioso.
+    await persistFinancialProfile(ctx.sb, {
+      userId: ctx.user_id,
+      asOf: todaySaoPaulo().slice(0, 10),
+      period: { from: period.from, to: period.to },
+      longitudinal: longitudinal.facts,
+      wealth: f,
+      sources: (env.drivers ?? []) as any,
+      netWorth: netWorth.net,
+      confidence: String(env.confidence ?? ""),
+      transactionsHash: historyFingerprint(txs as any),
+    }).catch(() => ({ ok: false }));
+
     const headline = f.recoverable_excess <= 0
       ? `Nos últimos ${f.months_analyzed} meses fechados seu consumo flexível ficou dentro da sua própria média (${brl(f.baseline_spending)}): não há excesso relevante para recuperar. Seu patrimônio hoje é ${brl(f.actual_net_worth)}.`
       : `Nos últimos ${f.months_analyzed} meses fechados você gastou ${brl(f.observed_spending)} em consumo flexível, ${brl(f.recoverable_excess)} acima da sua própria média. No cenário realista (metade desse excesso, ${brl(realistic.monthly_saving)} por mês), você teria ${brl(realistic.potential_net_worth)} em vez de ${brl(f.actual_net_worth)}. Dá para guardar ${brl(f.sustainable_monthly_saving)} por mês de forma sustentável.${sourceText}`;
@@ -851,6 +866,18 @@ export function build_financial_plan(
       plan = strategy.plans[0] ?? null;
       goalName = plan?.goalName ?? "";
     }
+
+    await persistFinancialProfile(ctx.sb, {
+      userId: ctx.user_id,
+      asOf: today,
+      period: { from: period.from, to: period.to },
+      longitudinal: longitudinal.facts,
+      wealth: wealth.facts,
+      sources: (wealth.drivers ?? []) as any,
+      netWorth: netWorth.net,
+      confidence: String(wealth.confidence ?? ""),
+      transactionsHash: historyFingerprint(txs as any),
+    }).catch(() => ({ ok: false }));
 
     const headlineParts = [
       `Sua trajetória de ${longitudinal.facts.closed_months_analyzed} meses fechados mostra resultado ${longitudinal.facts.result_trend.direction} e consumo flexível ${longitudinal.facts.behavior_trend.direction}.`,
