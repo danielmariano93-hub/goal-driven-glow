@@ -16,6 +16,9 @@ import { detectAnomalies } from "../finance-core/anomalies.ts";
 import { computeSavingsOpportunities } from "../finance-core/savingsOpportunities.ts";
 import { computeFinancialEvolution } from "../finance-core/financialEvolution.ts";
 import { computeDebtStatus } from "../finance-core/debtStatus.ts";
+import { computeLongitudinal } from "../finance-core/longitudinal.ts";
+import { computeWealthOpportunity } from "../finance-core/wealthOpportunity.ts";
+import { computeNetWorth } from "../finance-core/facts.ts";
 import {
   computeFinancialComparison,
   FINANCIAL_COMPARISON_VERSION,
@@ -643,6 +646,100 @@ export function get_debt_status(ctx: EngineToolContext, args: { due_soon_days?: 
         ? `Dívidas em dia. Próxima parcela: ${f.next_due.name}, ${brl(f.next_due.installment_amount ?? 0)} em ${formatDatePt(f.next_due.next_due_date)}.`
         : "Dívidas em dia.";
     }
+    return withAnswerFormat(env, headline);
+  });
+}
+
+// --------------------------------------------------- longitudinal / wealth
+
+function monthsAgo(months: number, to?: string): EnginePeriod {
+  const end = (to ?? todaySaoPaulo()).slice(0, 10);
+  const [y, m] = end.split("-").map(Number);
+  const startMonthIndex = (y * 12 + (m - 1)) - Math.max(1, months - 1);
+  const sy = Math.floor(startMonthIndex / 12);
+  const sm = (startMonthIndex % 12) + 1;
+  return { from: `${sy}-${String(sm).padStart(2, "0")}-01`, to: end };
+}
+
+/**
+ * Trajetória longitudinal (`longitudinal_intelligence.v1`).
+ * Responde "estou melhor que no início do ano?", "quando comecei a piorar?" e
+ * "que comportamento explica isso?" — com série mensal, tendência e virada
+ * calculadas pelo motor, nunca pela LLM.
+ */
+export function analyze_longitudinal_trajectory(
+  ctx: EngineToolContext,
+  args: { months?: number; from?: string; to?: string },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const months = Math.max(3, Math.min(36, Number(args?.months ?? 12)));
+    const period = /^\d{4}-\d{2}-\d{2}$/.test(String(args?.from ?? ""))
+      ? periodFromArgs(args as any, months * 30)
+      : monthsAgo(months);
+    const [txs, categoryNames] = await Promise.all([
+      loadEngineTransactions(ctx, period.from, period.to),
+      loadCategoryNames(ctx),
+    ]);
+    const env = computeLongitudinal({ txs: txs as any, period, categoryNames });
+    const f = env.facts;
+    const cp = f.change_point;
+    const parts = [
+      `Analisei ${f.months_analyzed} meses (${period.from} a ${period.to}).`,
+      `O resultado médio recente é ${brl(f.result_trend.recent_average)} contra ${brl(f.result_trend.previous_average)} antes — tendência ${f.result_trend.direction}.`,
+      `O consumo flexível está ${f.behavior_trend.direction} (mediana de ${brl(f.flexible_median)} por mês).`,
+    ];
+    if (cp) {
+      parts.push(`A virada aconteceu em ${cp.month}: de ${brl(cp.before_average)} para ${brl(cp.after_average)} (${cp.direction}), há ${cp.duration_months} mês(es).`);
+    }
+    if (f.result_driven_by_income) {
+      parts.push(`Atenção: a melhora vem de renda maior, não de mudança de comportamento.`);
+    }
+    return withAnswerFormat(env, parts.join(" "));
+  });
+}
+
+/**
+ * Oportunidade patrimonial (`wealth_opportunity.v1`).
+ * Responde "quanto eu poderia ter acumulado?" e "quanto consigo guardar por
+ * mês?" usando a baseline do próprio usuário e capitalização por aporte.
+ */
+export function analyze_wealth_opportunity(
+  ctx: EngineToolContext,
+  args: { months?: number; annual_yield_pct?: number },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const months = Math.max(3, Math.min(36, Number(args?.months ?? 12)));
+    const period = monthsAgo(months);
+    const [txs, categoryNames, accounts, investments, debts, snapshots] = await Promise.all([
+      loadEngineTransactions(ctx, period.from, period.to),
+      loadCategoryNames(ctx),
+      ctx.sb.from("accounts").select("id,name,type,initial_balance,active,archived_at").eq("user_id", ctx.user_id),
+      ctx.sb.from("investments").select("id,current_value").eq("user_id", ctx.user_id),
+      loadDebts(ctx),
+      ctx.sb.from("account_balance_snapshots").select("*").eq("user_id", ctx.user_id),
+    ]);
+    const longitudinal = computeLongitudinal({ txs: txs as any, period, categoryNames });
+    const netWorth = computeNetWorth(
+      ((accounts as any)?.data ?? []) as any,
+      txs as any,
+      (((investments as any)?.data ?? []) as any).map((i: any) => ({ ...i, current_value: Number(i.current_value ?? 0) })),
+      debts as any,
+      (((snapshots as any)?.data ?? []) as any),
+    );
+    const commitments = (debts as any[]).filter((d: any) => d.status === "active")
+      .reduce((acc: number, d: any) => acc + Number(d.installment_amount ?? 0), 0);
+    const env = computeWealthOpportunity({
+      longitudinal: longitudinal.facts,
+      actualNetWorth: netWorth.net,
+      period,
+      monthlyCommitments: commitments,
+      annualYieldPct: Number(args?.annual_yield_pct ?? 0),
+    });
+    const f = env.facts;
+    const realistic = f.scenarios.find((s) => s.key === "realista")!;
+    const headline = f.recoverable_excess <= 0
+      ? `Nos últimos ${f.months_analyzed} meses seu consumo flexível ficou dentro da sua própria média (${brl(f.baseline_spending)}): não há excesso relevante para recuperar. Seu patrimônio hoje é ${brl(f.actual_net_worth)}.`
+      : `Nos últimos ${f.months_analyzed} meses você gastou ${brl(f.observed_spending)} em consumo flexível, ${brl(f.recoverable_excess)} acima da sua própria média. No cenário realista (metade desse excesso, ${brl(realistic.monthly_saving)} por mês), você teria ${brl(realistic.potential_net_worth)} em vez de ${brl(f.actual_net_worth)}. Dá para guardar ${brl(f.sustainable_monthly_saving)} por mês de forma sustentável.`;
     return withAnswerFormat(env, headline);
   });
 }
