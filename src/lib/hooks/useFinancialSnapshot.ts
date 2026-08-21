@@ -73,9 +73,32 @@ export function useFinancialSnapshot(period: DateRange): {
   refetchAll: () => Promise<void>;
 } {
   const { user } = useAuth();
+
+  // ---- Snapshot materializado no servidor (`home_snapshot.v1`) -----------
+  // Enquanto o servidor responde, o dispositivo NÃO baixa o histórico inteiro.
+  // Só se o servidor falhar o cálculo local entra como rede de segurança.
+  const serverQuery = useQuery({
+    queryKey: ["home-snapshot", user?.id, period.start, period.end, todayISO()],
+    enabled: !!user,
+    staleTime: 60 * 1000,
+    retry: 1,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("home-snapshot", {
+        body: { start: period.start, end: period.end, today: todayISO() },
+      });
+      if (error) throw error;
+      const payload = data as { ok?: boolean; snapshot?: FinancialSnapshot; missing_sources?: string[] } | null;
+      if (!payload?.ok || !payload.snapshot) throw new Error("snapshot_unavailable");
+      return { snapshot: payload.snapshot, missing: payload.missing_sources ?? [] };
+    },
+  });
+  const serverSnapshot = serverQuery.data?.snapshot ?? null;
+  // Fallback local só quando o servidor realmente falhou.
+  const useLocalFallback = serverQuery.isError;
+
   const accountsQuery = useAccounts();
   const snapshotsQuery = useAccountBalanceSnapshots();
-  const txsQuery = useAllTransactions();
+  const txsQuery = useAllTransactions({ enabled: useLocalFallback });
   const investmentsQuery = useInvestments();
   const debtsQuery = useDebts();
   const categoriesQuery = useCategories();
@@ -210,6 +233,10 @@ export function useFinancialSnapshot(period: DateRange): {
   const todayKey = todayISO();
 
   const snapshot = useMemo<FinancialSnapshot | null>(() => {
+    // O servidor é a fonte preferencial: nada é recalculado no cliente quando
+    // o snapshot canônico chegou pronto.
+    if (serverSnapshot) return serverSnapshot;
+    if (!useLocalFallback) return null;
     if (loading || criticalError) return null;
     const numericAccounts = (accounts ?? []).map((a) => ({
       id: a.id, name: a.name, type: a.type, opening_balance: Number(a.opening_balance), active: a.active,
@@ -302,7 +329,7 @@ export function useFinancialSnapshot(period: DateRange): {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, financialSettings, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, criticalError, completeness, missingSources.join("|")]);
+  }, [serverSnapshot, useLocalFallback, accounts, snapshots, txs, investments, debts, categories, categoryGoals, goals, goalContributions, recurring, financialSettings, cardStatements, cardInstallments, cards, investmentMovements, period.start, period.end, todayKey, loading, criticalError, completeness, missingSources.join("|")]);
 
   const refetchSources = async (selected: typeof sources) => {
     await Promise.all(selected.map((item) => item.query.refetch()));
