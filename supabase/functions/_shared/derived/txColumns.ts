@@ -12,3 +12,31 @@ export const TX_COLUMNS = [
   "source_document_id", "behavioral_day", "investment_id", "superseded_by",
   "supersede_reason", "refund_of_transaction_id", "merchant_name",
 ].join(",");
+
+// deno-lint-ignore no-explicit-any
+type Any = any;
+
+/**
+ * Lê TODOS os lançamentos do usuário com paginação obrigatória.
+ * O PostgREST corta em 1.000 linhas em silêncio — sem paginar, o motor
+ * receberia uma amostra parcial e devolveria números errados.
+ */
+export async function fetchAllTransactions(sb: Any, userId: string): Promise<Any[]> {
+  const PAGE = 1000;
+  const rows: Any[] = [];
+  for (let i = 0; i < 100; i++) {
+    const offset = i * PAGE;
+    const { data, error } = await sb
+      .from("transactions")
+      .select(TX_COLUMNS)
+      .eq("user_id", userId)
+      .order("occurred_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw Object.assign(new Error(error.message), { source: "transactions" });
+    const chunk = (data ?? []) as Any[];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+  }
+  return rows;
+}
