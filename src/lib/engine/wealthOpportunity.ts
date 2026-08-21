@@ -166,13 +166,16 @@ export function computeWealthOpportunity(
     "baseline é a mediana do SEU próprio consumo flexível no período — não uma régua externa",
     "estrutura de vida (moradia, saúde, dívida, educação, contas de casa) não entra como corte",
     "cenários consideram 25%, 50% e 70% do excesso acima da baseline",
+    "só meses fechados entram: o mês em curso não conta como economia",
+    "valores atípicos (13º, PLR, férias, viagem) foram isolados da baseline",
     yieldPct > 0
-      ? `rendimento explícito de ${yieldPct}% ao ano, capitalizado por aporte mensal`
+      ? `rendimento explícito de ${yieldPct}% ao ano, com cada aporte rendendo só a partir do mês em que existiria`
       : "sem rendimento: apenas o dinheiro que teria ficado em caixa",
   ];
   if (input.longitudinal.result_driven_by_income) {
     assumptions.push("a melhora recente do resultado vem de renda maior, não de mudança de consumo");
   }
+
 
   const realistic = scenarios.find((s) => s.key === "realista")!;
 
