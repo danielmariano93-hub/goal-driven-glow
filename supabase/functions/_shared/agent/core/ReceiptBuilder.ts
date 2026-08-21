@@ -24,8 +24,27 @@ export function buildReceipt(kind: ReceiptKind, result: any): string {
   if (kind === "shared_goal_contribution") return `Contribuição registrada em meta conjunta: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
   if (kind === "shared_expense") return `Rolê criado: ${result?.title ?? ""}, total de ${NUM_BR.format(Number(result?.total ?? 0))}. ✅`;
   if (kind === "debt") return `Dívida registrada: ${result?.name}. ✅`;
-  return "Pronto, registrei. ✅";
-
+  if (kind === "credit_card_payment") return `Pagamento de fatura registrado: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
+  if (kind === "emotional_checkin") return "Registro emocional salvo. ✅";
+  if (kind === "bulk_transactions") {
+    const n = Number(result?.count ?? (Array.isArray(result?.ids) ? result.ids.length : 0));
+    return n > 0 ? `${n} lançamentos registrados. ✅` : "Lançamentos registrados. ✅";
+  }
+  if (kind === "transaction_update") return "Lançamento corrigido, com histórico preservado. ✅";
+  if (kind === "transaction_delete") return "Lançamento cancelado, com auditoria preservada. ✅";
+  if (kind === "investment") return `Investimento registrado: ${result?.name ?? ""}. ✅`;
+  if (kind === "investment_movement") {
+    const kindMov = String(result?.movement_kind ?? result?.kind ?? "");
+    const label = kindMov === "withdrawal" || kindMov === "resgate" ? "Resgate" : "Movimento de investimento";
+    return `${label} registrado: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
+  }
+  if (kind === "recurring_rule") return `Recorrência registrada: ${result?.description ?? result?.name ?? ""}. ✅`;
+  if (kind === "debt_payment") return `Pagamento de dívida registrado: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
+  // Nenhum kind cai em frase genérica: valor sempre aparece quando existe.
+  const amount = Number(result?.amount ?? NaN);
+  return Number.isFinite(amount) && amount > 0
+    ? `Operação registrada: ${NUM_BR.format(amount)}. ✅`
+    : "Operação registrada no seu histórico. ✅";
 }
 
 function dateBR(iso: unknown): string | null {
