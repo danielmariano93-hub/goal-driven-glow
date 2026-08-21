@@ -26,6 +26,8 @@ export type CapabilityName =
   | "financial_evolution"
   | "longitudinal_trajectory"
   | "wealth_opportunity"
+  | "financial_plan"
+
   | "financial_performance"
   | "financial_comparison"
   | "financial_analysis"
