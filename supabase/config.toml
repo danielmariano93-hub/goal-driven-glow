@@ -50,4 +50,11 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.home-snapshot]
-verify_jwt = true
+# A função valida o JWT em código (`auth.getUser`) e também aceita a chamada
+# interna do worker de materialização via `x-cron-secret`. O gate do gateway
+# barrava essa chamada interna com "Missing authorization header".
+verify_jwt = false
+
+[functions.finance-current-snapshot-worker]
+verify_jwt = false
+
