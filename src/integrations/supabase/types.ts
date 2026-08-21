@@ -13345,6 +13345,10 @@ export type Database = {
         Args: { _kind: string; _text: string }
         Returns: string
       }
+      nino_situation_cooldown_ids: {
+        Args: { _user_id: string }
+        Returns: string[]
+      }
       nino_topic_key: {
         Args: {
           _action: Json
