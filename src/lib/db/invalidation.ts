@@ -1,11 +1,14 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { FINANCIAL_QUERY_KEYS } from "./queryKeys";
+import { FINANCIAL_QUERY_KEYS, INVALIDATION_SCOPES, type InvalidationScope } from "./queryKeys";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Porta de entrada ÚNICA para invalidar o estado financeiro do usuário.
  * Nenhuma tela ou hook deve chamar `qc.invalidateQueries` para domínio
  * financeiro: a lista de chaves vive em `queryKeys.ts`.
+ *
+ * `scope` limita a cascata ao domínio realmente afetado (`invalidation_scope.v1`);
+ * sem escopo, o comportamento antigo (tudo) é preservado.
  *
  * Além do cache do React Query, marca os snapshots de acompanhamento
  * (`financial_performance_snapshots`) como sujos — assim o próximo acesso
@@ -14,14 +17,21 @@ import { supabase } from "@/integrations/supabase/client";
  * Retorna uma Promise resolvida quando todas as invalidações terminaram, de
  * modo que a UI possa aguardar (read-after-write) antes de renderizar números.
  */
-export function invalidateFinancialQueries(qc: QueryClient): Promise<void> {
+export function invalidateFinancialQueries(
+  qc: QueryClient,
+  scope: InvalidationScope = "all",
+): Promise<void> {
   void markPerformanceSnapshotsDirty();
+  const keys = scope === "all"
+    ? FINANCIAL_QUERY_KEYS
+    : INVALIDATION_SCOPES[scope];
   return Promise.all(
-    FINANCIAL_QUERY_KEYS.map((key) =>
+    keys.map((key) =>
       qc.invalidateQueries({ queryKey: key as unknown as readonly unknown[] }),
     ),
   ).then(() => undefined);
 }
+
 
 async function markPerformanceSnapshotsDirty(): Promise<void> {
   try {

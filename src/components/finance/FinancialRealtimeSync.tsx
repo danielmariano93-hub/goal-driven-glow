@@ -16,10 +16,16 @@ export function FinancialRealtimeSync() {
   useEffect(() => {
     if (!user?.id) return;
     let invalidation: ReturnType<typeof setTimeout> | null = null;
-    const refresh = () => {
+    let pending: "transactions" | "goals" | null = null;
+    // Escopo granular: um lançamento novo não recarrega metas conjuntas,
+    // documentos e recorrências — só o que depende de transações.
+    const refresh = (scope: "transactions" | "goals") => () => {
+      pending = pending && pending !== scope ? "transactions" : scope;
       if (invalidation) clearTimeout(invalidation);
       invalidation = setTimeout(() => {
-        void invalidateFinancialQueries(queryClient);
+        const s = pending ?? "transactions";
+        pending = null;
+        void invalidateFinancialQueries(queryClient, s);
       }, 150);
     };
     const channel = supabase
@@ -29,14 +35,15 @@ export function FinancialRealtimeSync() {
         schema: "public",
         table: "transactions",
         filter: `user_id=eq.${user.id}`,
-      }, refresh)
+      }, refresh("transactions"))
       .on("postgres_changes", {
         event: "*",
         schema: "public",
         table: "category_spending_goals",
         filter: `user_id=eq.${user.id}`,
-      }, refresh)
+      }, refresh("goals"))
       .subscribe();
+
 
     return () => {
       if (invalidation) clearTimeout(invalidation);

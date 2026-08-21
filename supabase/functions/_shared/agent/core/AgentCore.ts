@@ -53,6 +53,8 @@ import { findPending } from "./PendingConfirmations.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
+import { serializeWithinBudget } from "./ContextBudget.ts";
+
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
 import {
@@ -656,13 +658,21 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       null,
     );
     if (financialContext && Object.keys(financialContext).length) {
-      const serialized = JSON.stringify(financialContext).slice(0, 14_000);
+      // Orçamento de contexto: campos vazios saem, listas são limitadas e o
+      // JSON respeita 4k chars. Nada de corte cego no meio de uma chave.
+      const { json: serialized, truncated } = serializeWithinBudget(financialContext);
+      metrics.formula_versions = {
+        ...(metrics.formula_versions ?? {}),
+        context_budget: "context_budget.v1",
+      } as any;
       systemPrompt =
         `[CONTEXTO FINANCEIRO CANÔNICO — ${capability.name}]\n${serialized}\n` +
+        (truncated ? `(contexto resumido: listas longas foram limitadas — use uma ferramenta para detalhar)\n` : ``) +
         `Os valores acima vieram das mesmas ferramentas canônicas usadas pela Home. ` +
         `Não recalcule nem substitua esses números. Para listas, períodos ou operações não presentes, use uma ferramenta permitida.\n\n` +
         systemPrompt;
     }
+
   }
 
   const corrections = await guard(() => tctx.memory("correction", 8),
@@ -755,7 +765,8 @@ ${JSON.stringify(hints)}
     };
     systemPrompt =
       `[DIAGNÓSTICO FINANCEIRO CANÔNICO DO NINO]\n` +
-      `${JSON.stringify(compactDiagnosis)}\n` +
+      `${serializeWithinBudget(compactDiagnosis, { maxChars: 2_500, maxArray: 3, maxDepth: 4 }).json}\n` +
+
       `Use este diagnóstico para manter a mesma história financeira entre App e WhatsApp. ` +
       `Não recalcule valores, não invente causas e não contradiga as evidências. ` +
       `Quando a pergunta pedir valor, período, lista ou gráfico exato, consulte a tool correspondente.\n\n` +
