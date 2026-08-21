@@ -3026,6 +3026,40 @@ export const AGENT_TOOLS: ToolSpec[] = [
     },
     execute: get_emotion_finance_patterns,
   },
+  {
+    name: "get_net_worth",
+    description: "Patrimônio líquido com composição: dinheiro em conta, investido, cheque especial, fatura de cartão em aberto e outras dívidas. Use para 'qual meu patrimônio', 'quanto eu tenho no total'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_net_worth,
+  },
+  {
+    name: "list_investments",
+    description: "Carteira de investimentos do usuário: itens, valor investido, valor atual, resultado e distribuição por categoria.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_investments,
+  },
+  {
+    name: "get_future_installments",
+    description: "Parcelas de cartão que ainda vão cair, por mês de competência. Use para 'quanto ainda tenho parcelado', 'o que já está comprometido nos próximos meses'.",
+    parameters: {
+      type: "object",
+      properties: { months: { type: "integer", minimum: 1, maximum: 24 } },
+      additionalProperties: false,
+    },
+    execute: get_future_installments,
+  },
+  {
+    name: "list_recurring_rules",
+    description: "Recorrências ativas do usuário (assinaturas e contas fixas), com total mensal de entradas e saídas.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_recurring_rules,
+  },
+  {
+    name: "get_commitments_agenda",
+    description: "Agenda canônica de compromissos dos próximos dias: faturas, parcelas, dívidas e recorrências com data e valor. Use para 'o que vence agora', 'quais contas estão chegando'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_commitments_agenda,
+  },
 
 ];
 
