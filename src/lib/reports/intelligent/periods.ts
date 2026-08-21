@@ -109,7 +109,16 @@ export function previousOf(period: ReportPeriod, type: ReportType): ReportPeriod
   };
 }
 
-export function resolvePeriods(type: ReportType, reference: Date): { period: ReportPeriod; previous: ReportPeriod } {
+export function resolvePeriods(
+  type: ReportType,
+  reference: Date,
+  custom?: { start: string; end: string },
+): { period: ReportPeriod; previous: ReportPeriod } {
+  if (type === "custom") {
+    if (!custom) throw new Error("custom_period_required");
+    const period = customPeriodOf(custom);
+    return { period, previous: previousOf(period, type) };
+  }
   const period = type === "weekly"
     ? lastClosedWeek(reference)
     : type === "monthly_partial"
