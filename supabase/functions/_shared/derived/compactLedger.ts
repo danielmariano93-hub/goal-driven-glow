@@ -86,7 +86,6 @@ export async function buildCompactLedger(
     const cur = latestByAccount.get(a.account_id);
     if (!cur || a.balance_date > cur) latestByAccount.set(a.account_id, a.balance_date);
   }
-  const anchoredAccounts = new Set<string>((opts?.hardAnchors ?? []).map((a) => a.account_id));
   let effectiveStart = window.start;
   for (const date of latestByAccount.values()) {
     const candidate = monthStart(date);
@@ -150,7 +149,11 @@ export async function buildCompactLedger(
   }
 
   // Âncora sintética por conta: saldo de abertura + deltas consolidados.
-  const syntheticAnchors = (accounts ?? []).filter((a: Any) => !anchoredAccounts.has(String(a.id))).map((a: Any) => ({
+  // Emitida para TODA conta: ela é a base de qualquer leitura anterior à
+  // âncora bancária real (ex.: saldo de abertura do período). Como está datada
+  // antes da janela, qualquer âncora conferida real — sempre dentro da janela
+  // após a extensão acima — continua prevalecendo.
+  const syntheticAnchors = (accounts ?? []).map((a: Any) => ({
     account_id: String(a.id),
     balance_date: anchorDate,
     balance: Math.round(((Number(a.opening_balance ?? 0) + (accountCarry[String(a.id)] ?? 0)) + Number.EPSILON) * 100) / 100,
