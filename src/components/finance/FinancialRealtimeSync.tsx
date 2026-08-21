@@ -26,7 +26,9 @@ export function FinancialRealtimeSync() {
         const s = pending ?? "transactions";
         pending = null;
         void invalidateFinancialQueries(queryClient, s);
-      }, 150);
+        // 1,2s: escritas em rajada (categorização, importação) colapsam em UMA
+        // invalidação — não em uma recomputação por linha.
+      }, 1200);
     };
     const channel = supabase
       .channel(`financial-sync:${user.id}`)
