@@ -125,11 +125,38 @@ Deno.serve(async (req) => {
       .eq("id", document_id).eq("user_id", user.id).maybeSingle();
     if (!docRow) return fail("not_found", { status: 404, functionName: FN });
     const isStatement = String(docRow.document_kind ?? "") === "statement";
+    // Recupera revisões criadas pelo fluxo antigo: ele aplicava a conta em cada
+    // item, mas esquecia o contexto do próprio extrato. Só aceitamos uma conta
+    // unânime entre TODOS os itens selecionados e pertencente ao usuário.
     if (isStatement && !docRow.source_account_id) {
-      return fail("needs_account_selection", {
-        status: 409, functionName: FN, details: { document_id },
-        message: "Antes de salvar, escolha a conta bancária deste extrato. Nada foi gravado.",
-      });
+      const { data: selectedTargets } = await sb.from("extracted_items")
+        .select("account_id, payment_method")
+        .eq("document_id", document_id).eq("user_id", user.id).in("id", item_ids);
+      const targetRows = selectedTargets ?? [];
+      const accountIds = [...new Set(targetRows.map((row) => row.account_id).filter(Boolean))];
+      const unanimousAccount = targetRows.length === item_ids.length
+        && targetRows.every((row) => row.payment_method === "account" && row.account_id === accountIds[0]);
+      if (unanimousAccount && accountIds.length === 1) {
+        const { data: ownedAccount } = await sb.from("accounts").select("id")
+          .eq("id", accountIds[0]).eq("user_id", user.id).eq("active", true).maybeSingle();
+        if (ownedAccount) {
+          const { data: repaired } = await sb.from("document_imports").update({
+            source_account_id: ownedAccount.id,
+            source_credit_card_id: null,
+            source_context_method: "selected_items_recovery",
+            source_context_confidence: 1,
+            source_context_reason: "unanimous_selected_items",
+          }).eq("id", document_id).eq("user_id", user.id).is("source_account_id", null)
+            .select("source_account_id").maybeSingle();
+          docRow.source_account_id = repaired?.source_account_id ?? null;
+        }
+      }
+      if (!docRow.source_account_id) {
+        return fail("needs_account_selection", {
+          status: 409, functionName: FN, details: { document_id },
+          message: "Antes de salvar, escolha a conta bancária deste extrato. Nada foi gravado.",
+        });
+      }
     }
 
     const idempotencyKey = String(body.idempotency_key ?? `${isStatement ? "statement" : "invoice"}:${document_id}:${[...item_ids].sort().join(",")}`);
@@ -290,6 +317,19 @@ Deno.serve(async (req) => {
     const credit_card_id = body.credit_card_id ? String(body.credit_card_id) : null;
     if (account_id && credit_card_id) return fail("conflicting_source", { status: 400, functionName: FN });
     const propagate = body.propagate !== false;
+    const item_ids = Array.isArray(body.item_ids)
+      ? (body.item_ids as unknown[]).map(String).filter(Boolean)
+      : [];
+    if (account_id) {
+      const { data: account } = await sb.from("accounts").select("id")
+        .eq("id", account_id).eq("user_id", user.id).eq("active", true).maybeSingle();
+      if (!account) return fail("invalid_account", { status: 400, functionName: FN });
+    }
+    if (credit_card_id) {
+      const { data: card } = await sb.from("credit_cards").select("id")
+        .eq("id", credit_card_id).eq("user_id", user.id).eq("active", true).maybeSingle();
+      if (!card) return fail("invalid_credit_card", { status: 400, functionName: FN });
+    }
     const patch = {
       source_account_id: account_id,
       source_credit_card_id: credit_card_id,
@@ -309,6 +349,7 @@ Deno.serve(async (req) => {
       const { data: updated, error: upErr } = await sb.from("extracted_items").update(itemPatch)
         .eq("document_id", document_id).eq("user_id", user.id)
         .in("status", ["needs_review", "duplicate_suspect"])
+        ...(item_ids.length > 0 ? ["in", "id", item_ids] : [])
         // Guarda anti-destrutiva: nunca sobrescrever itens já editados
         // manualmente. Se o usuário fixou conta/cartão em uma linha,
         // essa escolha vence a propagação em lote.
