@@ -24,6 +24,8 @@ export type CapabilityName =
   | "visualization"
   | "merchant_distribution"
   | "financial_evolution"
+  | "longitudinal_trajectory"
+  | "wealth_opportunity"
   | "financial_performance"
   | "financial_comparison"
   | "financial_analysis"
