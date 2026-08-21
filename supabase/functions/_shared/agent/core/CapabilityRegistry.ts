@@ -13,6 +13,7 @@ export type CapabilityDomain =
   | "goals"
   | "debts"
   | "recurring"
+  | "investments"
   | "analysis"
   | "advisor"
   | "emotions"
