@@ -43,7 +43,7 @@ const MetaCategoriaDetalhe = lazy(() => import("./pages/MetaCategoriaDetalhe"));
 const MetaDetalhe = lazy(() => import("./pages/MetaDetalhe"));
 const Dividas = lazy(() => import("./pages/Dividas"));
 const Planejamento = lazy(() => import("./pages/Planejamento"));
-const RelatoriosHub = lazy(() => import("./pages/RelatoriosHub"));
+const Relatorios = lazy(() => import("./pages/RelatoriosInteligentes"));
 const RelatorioInteligenteDetalhe = lazy(() => import("./pages/RelatorioInteligenteDetalhe"));
 const Nino = lazy(() => import("./pages/Nino"));
 const Emocoes = lazy(() => import("./pages/Emocoes"));
@@ -144,9 +144,9 @@ const App = () => (
                 <Route path="planejamento" element={<Planejamento />} />
                 <Route path="metas-conjuntas" element={<MetasConjuntas />} />
                 <Route path="metas-conjuntas/:id" element={<MetaConjuntaDetalhe />} />
-                <Route path="relatorios" element={<RelatoriosHub />} />
+                <Route path="relatorios" element={<Relatorios />} />
                 <Route path="relatorios/:id" element={<RelatorioInteligenteDetalhe />} />
-                <Route path="relatorios-inteligentes" element={<Navigate to="/app/relatorios?tab=fechamentos" replace />} />
+                <Route path="relatorios-inteligentes" element={<Navigate to="/app/relatorios" replace />} />
                 <Route path="relatorios-inteligentes/:id" element={<RelatorioInteligenteDetalhe />} />
                 <Route path="emocoes" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />

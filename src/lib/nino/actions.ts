@@ -52,7 +52,7 @@ export function diagnosisRouteForSituation(
   }
 
   if (situation.situation_type === "anticipation") return "/app/planejamento";
-  if (situation.situation_type === "cash_flow_imbalance") return "/app/relatorios?foco=categorias&periodo=atual";
+  if (situation.situation_type === "cash_flow_imbalance") return "/app/relatorios";
   if (situation.situation_type === "spending_pace_change") return "/app/relatorios";
   return diagnosisRoute(action, "/app/relatorios");
 }

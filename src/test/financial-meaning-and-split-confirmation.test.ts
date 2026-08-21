@@ -22,14 +22,11 @@ describe("financial concepts shown to the user", () => {
     expect(result.net).toBe(5715.43);
   });
 
-  it("does not call period result an account balance", () => {
-    const reports = read("src/pages/Relatorios.tsx");
-    // v4: a tela usa os blocos canônicos — posição de hoje, rotina e ponte de caixa.
-    expect(reports).toContain("PositionBlock");
-    expect(reports).toContain("RoutineBlock");
-    expect(reports).toContain("CashBridgeBlock");
-    expect(reports).toContain("Saldo inicial");
-    expect(reports).toContain("Saldo final");
+  it("keeps a single reports screen with a free period option", () => {
+    const reports = read("src/pages/RelatoriosInteligentes.tsx");
+    expect(reports).toContain("Escolher período");
+    expect(reports).toContain("Gerar relatório do período");
+    expect(reports).toContain('generateReportNow("custom"');
     expect(reports).not.toContain(">Saldo</p>");
   });
 
