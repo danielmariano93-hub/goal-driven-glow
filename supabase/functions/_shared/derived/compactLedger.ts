@@ -24,6 +24,7 @@ export type CompactLedger = {
   transactionsRead: number;
   carryApplied: boolean;
   missingMonths: string[];
+  staleMonths: string[];
 };
 
 const monthStart = (iso: string) => `${iso.slice(0, 7)}-01`;
@@ -113,7 +114,15 @@ export async function buildCompactLedger(
     .is("processed_at", null)
     .lt("competence_month", `${windowMonth}-01`);
 
-  const missingMonths = ((pendingRows ?? []) as Any[]).map((r) => String(r.competence_month).slice(0, 7));
+  const pendingMonths = ((pendingRows ?? []) as Any[]).map((r) => String(r.competence_month).slice(0, 7));
+  const materializedMonths = new Set(
+    ((factRows ?? []) as Any[]).map((r) => String(r.competence_month).slice(0, 7)),
+  );
+  // Mês sujo COM fato: número existe, só pode estar alguns segundos atrás do
+  // ledger -> `stale_recomputing`. Mês sujo SEM fato: não há carry confiável
+  // -> fonte ausente, a superfície degrada em vez de mentir.
+  const staleMonths = pendingMonths.filter((m) => materializedMonths.has(m));
+  const missingMonths = pendingMonths.filter((m) => !materializedMonths.has(m));
 
   const accountCarry: Record<string, number> = {};
   const cardCarry: Record<string, number> = {};
@@ -197,6 +206,7 @@ export async function buildCompactLedger(
     transactionsRead: txs.length,
     carryApplied: missingMonths.length === 0,
     missingMonths,
+    staleMonths,
   };
 }
 

@@ -261,7 +261,8 @@ Deno.serve(async (req) => {
       months_materialized: compact?.monthsMaterialized ?? null,
       transactions_read: compact?.transactionsRead ?? payload.transactions_considered,
       derived_fact_read_ms: derivedFactReadMs,
-      dirty_months_pending: compact?.missingMonths ?? [],
+      dirty_months_pending: [...(compact?.missingMonths ?? []), ...(compact?.staleMonths ?? [])],
+      freshness: (compact?.staleMonths?.length ?? 0) > 0 ? "stale_recomputing" : "fresh",
       snapshot,
     });
   } catch (error) {
