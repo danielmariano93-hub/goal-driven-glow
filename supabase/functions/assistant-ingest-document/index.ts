@@ -13,7 +13,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 
 const FN = "assistant-ingest-document";
-import { ALLOWED_MIME, MAX_BYTES, detectMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
+import { ALLOWED_MIME, MAX_BYTES, detectMime, reconcileMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
 import { normalizeDescription, extractBankReference, computeFingerprint } from "../_shared/documents/normalize.ts";
 import { bytesToDataUrl, splitPdfIntoFragments } from "../_shared/documents/pdfFragments.ts";
 import { extractPdfText } from "../_shared/documents/pdfText.ts";
@@ -41,21 +41,55 @@ const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
-const DEFAULT_MAX_ITEMS_PER_DOCUMENT = 240;
-const MAX_ITEMS_HARD_CAP = 800;
+// Documentos financeiros grandes (fatura anual, extrato de vários meses) chegam
+// com centenas de linhas. O teto existe apenas como trava de segurança: cortar
+// em 240 truncava documento real em silêncio.
+const DEFAULT_MAX_ITEMS_PER_DOCUMENT = 1500;
+const MAX_ITEMS_HARD_CAP = 4000;
 const BATCH_ITEMS_LIMIT = 80;
 const PDF_PAGES_PER_FRAGMENT = 4;
 const IMAGE_BATCHES = 1;
 const BATCH_MAX_TOKENS = 3600;
+// Orçamento de tempo por invocação. Ao estourar, o job encadeia a próxima
+// invocação a partir do primeiro fragmento pendente (checkpoint), em vez de
+// morrer por wall-clock da edge function.
+const INVOCATION_BUDGET_MS = 200 * 1000;
 
 async function resolveDocMaxItems(sb: ReturnType<typeof createClient>, userId: string): Promise<number> {
   try {
     const { data } = await sb.from("user_financial_settings").select("doc_max_items").eq("user_id", userId).maybeSingle();
     const n = Number((data as { doc_max_items?: number } | null)?.doc_max_items ?? DEFAULT_MAX_ITEMS_PER_DOCUMENT);
-    if (!Number.isFinite(n) || n < 40) return DEFAULT_MAX_ITEMS_PER_DOCUMENT;
-    return Math.min(MAX_ITEMS_HARD_CAP, Math.max(40, Math.floor(n)));
+    if (!Number.isFinite(n) || n < 240) return DEFAULT_MAX_ITEMS_PER_DOCUMENT;
+    return Math.min(MAX_ITEMS_HARD_CAP, Math.max(240, Math.floor(n)));
   } catch { return DEFAULT_MAX_ITEMS_PER_DOCUMENT; }
 }
+
+/** Fragmentos que ainda têm trabalho real a fazer. `partial` só pode ser
+ *  retomado quando existe fragmento pendente — senão o watchdog entraria em
+ *  laço infinito sobre um documento já lido por completo. */
+async function countResumableFragments(sb: ReturnType<typeof createClient>, documentId: string): Promise<number> {
+  const { data } = await sb.from("document_fragments")
+    .select("status,attempts,error_code").eq("document_id", documentId);
+  let n = 0;
+  for (const f of data ?? []) {
+    const status = String(f.status);
+    const attempts = Number(f.attempts ?? 0);
+    if (status === "pending" || status === "processing") n++;
+    else if (status === "failed" && attempts < 3) n++;
+    else if (status === "skipped" && String(f.error_code ?? "") === "max_items_reached") n++;
+  }
+  return n;
+}
+
+/** Encadeia a próxima invocação do próprio job (checkpoint por fragmento). */
+function chainContinuation(documentId: string, userId: string, guidance: string) {
+  fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+    body: JSON.stringify({ mode: "continue-fragments", document_id: documentId, user_id: userId, guidance: guidance.slice(0, 500) }),
+  }).catch(() => {});
+}
+
 
 async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification"): Promise<string> {
   const { data } = await sb.from("ai_model_routes")
@@ -720,7 +754,10 @@ function pdfHasPasswordEncryption(bytes: Uint8Array): boolean {
   return false;
 }
 
-const TERMINAL_STATUSES = new Set(["needs_review", "partial", "confirmed", "partially_confirmed", "canceled"]);
+// `partial` NÃO é terminal: significa "resultado parcial já disponível, leitura
+// em andamento". Sem isso o documento truncado nunca voltava a ser processado.
+const TERMINAL_STATUSES = new Set(["needs_review", "confirmed", "partially_confirmed", "canceled"]);
+
 const TRANSIENT_ERROR_PREFIXES = ["gateway:", "fetch_error", "timeout:", "download:", "items_insert:", "extraction:"];
 
 function isTransientErrorTag(tag: string | null): boolean {
@@ -769,10 +806,17 @@ async function notifyDocumentTransition(
  * won the race and must run the heavy work; false if another worker already
  * owns it or the document is in a terminal state.
  */
-async function acquireProcessingLock(sb: ReturnType<typeof createClient>, documentId: string, userId: string): Promise<{ acquired: boolean; doc: any | null }> {
+async function acquireProcessingLock(
+  sb: ReturnType<typeof createClient>,
+  documentId: string,
+  userId: string,
+  opts: { countAttempt?: boolean; ignoreStaleness?: boolean } = {},
+): Promise<{ acquired: boolean; doc: any | null }> {
+  const countAttempt = opts.countAttempt !== false;
   const { data: doc } = await sb.from("document_imports").select("*").eq("id", documentId).eq("user_id", userId).maybeSingle();
   if (!doc) return { acquired: false, doc: null };
   if (TERMINAL_STATUSES.has(doc.status)) return { acquired: false, doc };
+
 
   const now = Date.now();
   const updatedAt = doc.updated_at ? new Date(doc.updated_at).getTime() : 0;
@@ -784,10 +828,12 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   // Terminal after 3 attempts — panel must offer explicit "reprocessar" that resets attempt_count.
   if (attemptCount >= 3 && doc.status === "failed") return { acquired: false, doc };
   const canResume = doc.status === "uploaded"
-    || (doc.status === "processing" && stale)
+    || (doc.status === "processing" && (stale || opts.ignoreStaleness === true))
+    || (doc.status === "partial" && (await countResumableFragments(sb, documentId)) > 0)
     || (doc.status === "failed" && isTransientErrorTag(prevErrTag) && failureCount < 3 && attemptCount < 3);
 
   if (!canResume) return { acquired: false, doc };
+
 
   // Clear orphaned draft items only when there are no usable checkpoints to preserve.
   if (doc.status !== "uploaded") {
@@ -802,7 +848,8 @@ async function acquireProcessingLock(sb: ReturnType<typeof createClient>, docume
   }
 
   const { data: updated, error: upErr } = await sb.from("document_imports")
-    .update({ status: "processing", error: null, attempt_count: attemptCount + 1 })
+    .update({ status: "processing", error: null, attempt_count: countAttempt ? attemptCount + 1 : attemptCount })
+
     .eq("id", documentId)
     .eq("user_id", userId)
     .eq("status", doc.status) // optimistic lock on previous status
@@ -840,11 +887,21 @@ async function processDocument(documentId: string, userId: string, guidance: str
       await finish({ status: "failed", error: encodeError("size_exceeds:", correlationId) });
       return;
     }
+    // Rótulo errado (HEIC do iPhone, upload sem extensão) não invalida o
+    // documento: corrige o MIME e segue. Só recusa o que realmente não é
+    // documento suportado.
     const magic = detectMime(bytes);
-    if (!magic || magic !== doc.mime_type) {
+    const effectiveMime = reconcileMime(doc.mime_type ?? null, magic);
+    if (!effectiveMime) {
       await finish({ status: "failed", error: encodeError(`mime_mismatch:${magic ?? "unknown"}`, correlationId) });
       return;
     }
+    if (effectiveMime !== doc.mime_type) {
+      doc.mime_type = effectiveMime;
+      await sb.from("document_imports").update({ mime_type: effectiveMime })
+        .eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+    }
+
     if (doc.mime_type === "application/pdf" && pdfHasPasswordEncryption(bytes)) {
       await finish({ status: "failed", error: encodeError("pdf_encrypted:", correlationId) });
       return;
@@ -932,7 +989,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
       return;
     }
 
-    // Configurável por usuário (default 240, hard cap 800).
+    // Teto de segurança configurável (default 1500, hard cap 4000).
     const MAX_ITEMS_PER_DOCUMENT = await resolveDocMaxItems(sb, userId);
 
     // Persiste/idempotência de fragmentos. Fragmentos completed nunca são refeitos.
@@ -946,12 +1003,19 @@ async function processDocument(documentId: string, userId: string, guidance: str
       status: "pending" as const,
     }));
     await sb.from("document_fragments").upsert(fragmentRows, { onConflict: "document_id,fragment_index", ignoreDuplicates: true }).then(() => {}, () => {});
+    // Fragmentos abandonados por teto antigo voltam à fila: o corte silencioso
+    // de 240 itens deixou documentos reais pela metade.
+    await sb.from("document_fragments")
+      .update({ status: "pending", error_code: null })
+      .eq("document_id", documentId).eq("user_id", userId)
+      .eq("status", "skipped").eq("error_code", "max_items_reached").then(() => {}, () => {});
     const { data: fragmentState } = await sb.from("document_fragments")
       .select("fragment_index,status,attempts").eq("document_id", documentId).eq("user_id", userId);
     const fragmentByIdx = new Map<number, { status: string; attempts: number }>();
     for (const r of fragmentState ?? []) {
       fragmentByIdx.set(Number(r.fragment_index), { status: String(r.status), attempts: Number(r.attempts ?? 0) });
     }
+
 
     // Contexto inicial respeita seleção explícita/guidance; após o metadata do
     // extrato ele é recalculado para considerar o banco realmente detectado.
@@ -974,6 +1038,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
     const seenInDocument = new Map<string, number>();
     let idxOffset = 0;
     const maxBatches = fragments.length;
+    const invocationStart = Date.now();
+    let continuationRequested = false;
+
 
     const { data: existingItems } = await sb.from("extracted_items")
       .select("idx,type,amount,occurred_at,description,normalized_description,status,category_id")
@@ -1003,11 +1070,20 @@ async function processDocument(documentId: string, userId: string, guidance: str
       if (counters.total_items >= MAX_ITEMS_PER_DOCUMENT) {
         await sb.from("document_fragments").update({ status: "skipped", error_code: "max_items_reached" })
           .eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
+        notes.push(`Documento acima do teto de ${MAX_ITEMS_PER_DOCUMENT} lançamentos: parei nesta parte.`);
+        counters.partial = true;
         continue;
       }
       // Attempt cap por fragmento (3 tentativas).
       if (fState.attempts >= 3 && fState.status === "failed") continue;
+      // Orçamento de tempo: encadeia a próxima invocação a partir daqui em vez
+      // de morrer por wall-clock e deixar o documento pela metade.
+      if (Date.now() - invocationStart > INVOCATION_BUDGET_MS) {
+        continuationRequested = true;
+        break;
+      }
       const fragmentStart = Date.now();
+
       // These counters belong to the fragment, not to the optional insertion
       // branch below. Keeping them in fragment scope is important because an
       // empty/fully-deduplicated fragment is still finalized and persisted.
@@ -1461,6 +1537,46 @@ async function processDocument(documentId: string, userId: string, guidance: str
       }).eq("document_id", documentId).eq("fragment_index", batchIndex).then(() => {}, () => {});
     }
 
+    // Cobertura de leitura: o que foi realmente lido do documento.
+    const { data: fragFinal } = await sb.from("document_fragments")
+      .select("status,page_start,page_end").eq("document_id", documentId).eq("user_id", userId);
+    const fragTotal = (fragFinal ?? []).length || maxBatches;
+    const fragDone = (fragFinal ?? []).filter((f) => String(f.status) === "completed").length;
+    const fragPendingRows = (fragFinal ?? []).filter((f) => ["pending", "processing"].includes(String(f.status)));
+    const pagesRead = (fragFinal ?? [])
+      .filter((f) => String(f.status) === "completed")
+      .reduce((acc, f) => acc + Math.max(0, Number(f.page_end ?? 0) - Number(f.page_start ?? 0) + 1), 0);
+    const pagesTotal = (fragFinal ?? [])
+      .reduce((acc, f) => acc + Math.max(0, Number(f.page_end ?? 0) - Number(f.page_start ?? 0) + 1), 0);
+    const readingCoverage = {
+      fragments_total: fragTotal,
+      fragments_completed: fragDone,
+      fragments_pending: fragPendingRows.length,
+      pages_read: pagesRead,
+      pages_total: pagesTotal,
+      items_extracted: counters.total_items,
+      truncated: notes.some((n) => n.includes("acima do teto")),
+    };
+    await sb.from("document_imports").update({ reading_coverage: readingCoverage })
+      .eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
+
+    // Leitura interrompida por orçamento de tempo: mantém em andamento e
+    // encadeia a próxima invocação a partir do fragmento pendente.
+    if (continuationRequested && fragPendingRows.length > 0) {
+      await finish({
+        status: "partial",
+        document_kind: documentKind,
+        model: visionModel,
+        tokens_in,
+        tokens_out,
+        extraction_ms: ms,
+        counters: { ...counters, partial: true, notes: notes.slice(0, 6), continuation: true },
+        error: null,
+      });
+      chainContinuation(documentId, userId, guidance ?? "");
+      console.log(`[assistant-ingest cid=${correlationId}] continuation document=${documentId} pending=${fragPendingRows.length}`);
+      return;
+    }
 
     if (deterministicCoverage) {
       const gapMessage = coverageMessage(deterministicCoverage);
@@ -1473,9 +1589,12 @@ async function processDocument(documentId: string, userId: string, guidance: str
         .eq("id", documentId).eq("user_id", userId).then(() => {}, () => {});
     }
 
+    if (fragPendingRows.length > 0) counters.partial = true;
+
     const finalStatus = counters.total_items === 0
       ? (lastErrorTag ? "failed" : "needs_review")
       : (counters.partial ? "partial" : "needs_review");
+
 
     // Período: metadata quando existe, senão inferido pelas datas dos itens
     // (evita o "Período — a —" na revisão).
@@ -1621,6 +1740,33 @@ Deno.serve(async (req) => {
     return json({ ok: true, status: "processing", document_id, correlation_id: correlationId }, 202);
   }
 
+  // === INTERNAL: continuação encadeada e retomada pelo watchdog ===
+  // `continue-fragments` ignora a janela de staleness (a invocação anterior já
+  // terminou de propósito) e NÃO consome tentativa do documento: cada fragmento
+  // tem seu próprio limite de 3 tentativas.
+  if (mode === "continue-fragments" || mode === "resume-internal") {
+    const auth = req.headers.get("Authorization") ?? "";
+    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return fail("forbidden", { status: 403, functionName: FN });
+    const document_id = String(body.document_id ?? "");
+    const user_id = String(body.user_id ?? "");
+    const guidance = String(body.guidance ?? "").slice(0, 500);
+    if (!document_id || !user_id) return fail("missing_fields", { status: 400, functionName: FN });
+    const { acquired, doc } = await acquireProcessingLock(sb, document_id, user_id, {
+      countAttempt: mode !== "continue-fragments",
+      ignoreStaleness: mode === "continue-fragments",
+    });
+    if (!doc) return fail("not_found", { status: 404, functionName: FN });
+    if (!acquired) return json({ ok: true, status: doc.status, document_id }, 200);
+    const correlationId = makeCorrelationId();
+    console.log(`[assistant-ingest cid=${correlationId}] ${mode} document=${document_id}`);
+    const work = processDocument(document_id, user_id, guidance, correlationId);
+    if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") EdgeRuntime.waitUntil(work);
+    else work.catch((err) => console.error(`[assistant-ingest cid=${correlationId}] bg`, err));
+    return json({ ok: true, status: "processing", document_id, correlation_id: correlationId }, 202);
+  }
+
+
+
   const user = await getUser(req);
   if (!user) return fail("unauthorized", { status: 401, functionName: FN });
 
@@ -1635,7 +1781,13 @@ Deno.serve(async (req) => {
     if (!Number.isFinite(size_bytes) || size_bytes <= 0 || size_bytes > MAX_BYTES) return fail("size_out_of_range", { status: 400, functionName: FN, details: { max: MAX_BYTES} });
 
     const doc_id = crypto.randomUUID();
-    const ext = mime_type === "application/pdf" ? "pdf" : mime_type === "image/png" ? "png" : mime_type === "image/webp" ? "webp" : "jpg";
+    const ext = mime_type === "application/pdf" ? "pdf"
+      : mime_type === "image/png" ? "png"
+      : mime_type === "image/webp" ? "webp"
+      : mime_type === "image/heic" ? "heic"
+      : mime_type === "image/heif" ? "heif"
+      : "jpg";
+
     const storage_path = `${user.id}/${doc_id}.${ext}`;
 
     const { data: signed, error: signErr } = await sb.storage.from(BUCKET).createSignedUploadUrl(storage_path);
@@ -1788,6 +1940,10 @@ Deno.serve(async (req) => {
     const { data: doc } = await sb.from("document_imports").select("*").eq("id", document_id).eq("user_id", user.id).maybeSingle();
     if (!doc) return fail("not_found", { status: 404, functionName: FN });
     const { data: items } = await sb.from("extracted_items").select("*").eq("document_id", document_id).eq("user_id", user.id).order("idx");
+    const { data: frags } = await sb.from("document_fragments")
+      .select("fragment_index,total_fragments,status,page_start,page_end,items_found")
+      .eq("document_id", document_id).eq("user_id", user.id).order("fragment_index");
+    const fragList = frags ?? [];
     const { tag, correlation_id } = parseErrorTag(doc.error);
     return json({
       ok: true,
@@ -1797,10 +1953,21 @@ Deno.serve(async (req) => {
       document_kind: doc.document_kind ?? null,
       items: items ?? [],
       items_count: (items ?? []).length,
+      reading_coverage: doc.reading_coverage ?? null,
+      fragments: {
+        total: fragList.length,
+        completed: fragList.filter((f) => String(f.status) === "completed").length,
+        pending: fragList.filter((f) => ["pending", "processing"].includes(String(f.status))).length,
+        failed: fragList.filter((f) => String(f.status) === "failed").length,
+        pages_read: fragList.filter((f) => String(f.status) === "completed")
+          .reduce((a, f) => a + Math.max(0, Number(f.page_end ?? 0) - Number(f.page_start ?? 0) + 1), 0),
+        pages_total: fragList.reduce((a, f) => a + Math.max(0, Number(f.page_end ?? 0) - Number(f.page_start ?? 0) + 1), 0),
+      },
       error: tag,
       correlation_id,
       user_message: tag ? userMessageFor(tag) : null,
     });
+
   }
 
   return fail("unknown_mode", { status: 400, functionName: FN });

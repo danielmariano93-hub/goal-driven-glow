@@ -52,10 +52,19 @@ type CompactRow = [
   (string | null)?,
 ];
 
-export const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+export const ALLOWED_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+]);
 export const MAX_BYTES = 20 * 1024 * 1024;
 
-// Magic bytes: PNG, JPEG, WebP, PDF
+// Magic bytes: PNG, JPEG, WebP, PDF, HEIC/HEIF.
+// HEIC/HEIF chegam da câmera do iPhone e não podem ser recusados às cegas:
+// o documento é legítimo, apenas o container é diferente.
 export function detectMime(bytes: Uint8Array): string | null {
   if (bytes.length < 12) return null;
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
@@ -65,8 +74,24 @@ export function detectMime(bytes: Uint8Array): string | null {
     bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
   ) return "image/webp";
   if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return "application/pdf";
+  // ISO-BMFF: "....ftyp" + brand
+  if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]).toLowerCase();
+    if (["heic", "heix", "heim", "heis", "hevc", "hevx"].includes(brand)) return "image/heic";
+    if (["mif1", "msf1", "mif2"].includes(brand)) return "image/heif";
+  }
   return null;
 }
+
+/** Um rótulo de MIME diferente do conteúdo real não invalida o documento.
+ *  Retorna o MIME que deve ser usado, ou null quando o conteúdo não é um
+ *  documento suportado de verdade. */
+export function reconcileMime(declared: string | null, magic: string | null): string | null {
+  if (magic && ALLOWED_MIME.has(magic)) return magic;
+  if (!magic && declared && ALLOWED_MIME.has(declared)) return declared;
+  return null;
+}
+
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;

@@ -111,7 +111,8 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
       body: JSON.stringify({
-        mode: d.source === "whatsapp" ? "process-inbound-media" : "resume",
+        // `resume` exige JWT de usuário: chamada de servidor precisa da rota interna.
+        mode: d.source === "whatsapp" ? "process-inbound-media" : "resume-internal",
         document_id: d.id,
         user_id: d.user_id,
         guidance: String(d.user_instructions ?? "").slice(0, 500),
@@ -119,6 +120,35 @@ Deno.serve(async (req) => {
     }).catch(() => {});
     resumed++;
   }
+
+  // 5) Documentos com resultado parcial e fragmentos pendentes: retomar a
+  //    leitura do checkpoint. Sem isso o documento grande fica truncado para
+  //    sempre — era exatamente o caso do PDF de 9 partes.
+  const { data: partials } = await sb.from("document_imports")
+    .select("id, user_id, status, user_instructions, source")
+    .in("status", ["partial", "processing"])
+    .lt("updated_at", new Date(Date.now() - 60_000).toISOString())
+    .limit(20);
+  for (const d of partials ?? []) {
+    // Pendente = nunca lido, ou cortado pelo teto antigo de itens.
+    const { data: pend } = await sb.from("document_fragments")
+      .select("id,status,error_code").eq("document_id", d.id)
+      .or("status.in.(pending,processing),and(status.eq.skipped,error_code.eq.max_items_reached)")
+      .limit(1);
+    if (!(pend ?? []).length) continue;
+    fetch(`${SUPABASE_URL}/functions/v1/assistant-ingest-document`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_ROLE}` },
+      body: JSON.stringify({
+        mode: "continue-fragments",
+        document_id: d.id,
+        user_id: d.user_id,
+        guidance: String(d.user_instructions ?? "").slice(0, 500),
+      }),
+    }).catch(() => {});
+    resumed++;
+  }
+
 
   const nextRun = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
   await writeJobHeartbeat({
