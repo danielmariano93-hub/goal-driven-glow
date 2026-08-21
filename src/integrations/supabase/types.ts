@@ -11643,6 +11643,14 @@ export type Database = {
           passed: boolean
         }[]
       }
+      _tmp_import_nino_s1: {
+        Args: { payload: Json }
+        Returns: {
+          inserted_count: number
+          needed_count: number
+          source_count: number
+        }[]
+      }
       _vault_upsert: {
         Args: { p_description: string; p_name: string; p_value: string }
         Returns: string

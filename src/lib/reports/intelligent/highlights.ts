@@ -11,7 +11,7 @@ const PCT = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits:
 export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
   const t = payload.totals;
   const out: ReportHighlight[] = [];
-  const periodWord = payload.reportType === "weekly" ? "semana" : "mês";
+  const periodWord = payload.reportType === "weekly" ? "semana" : payload.reportType === "custom" ? "período" : "mês";
   const prefix = `${payload.reportType}:${payload.period.start}`;
 
   if (t.net < 0) {

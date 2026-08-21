@@ -98,9 +98,14 @@ export async function markReportViewed(id: string): Promise<void> {
   await supabase.rpc("mark_financial_report_viewed" as never, { p_report_id: id } as never);
 }
 
-export async function generateReportNow(reportType: ReportType): Promise<{ report_id?: string | null }> {
+export async function generateReportNow(
+  reportType: ReportType,
+  period?: { start: string; end: string },
+): Promise<{ report_id?: string | null }> {
   const { data, error } = await supabase.functions.invoke("financial-reports-generate", {
-    body: { report_type: reportType, force: true },
+    body: reportType === "custom"
+      ? { report_type: "custom", force: true, period_start: period?.start, period_end: period?.end }
+      : { report_type: reportType, force: true },
   });
   if (error) throw error;
   return (data ?? {}) as { report_id?: string | null };
@@ -114,7 +119,9 @@ export async function deleteReport(id: string): Promise<void> {
 
 export function periodLabel(item: Pick<ReportListItem, "report_type" | "period_start" | "period_end">): string {
   const short = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
-  if (item.report_type === "weekly") return `${short(item.period_start)} a ${short(item.period_end)}`;
+  if (item.report_type === "weekly" || item.report_type === "custom") {
+    return `${short(item.period_start)} a ${short(item.period_end)}`;
+  }
   const months = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
   const month = Number(item.period_start.slice(5, 7)) - 1;
   // Mês aberto: o rótulo precisa dizer que ainda não fechou.

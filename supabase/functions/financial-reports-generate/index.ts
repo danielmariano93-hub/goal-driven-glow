@@ -192,7 +192,7 @@ async function generateForUser(
   sb: Sb,
   userId: string,
   reportType: ReportType,
-  opts: { force?: boolean; requestId: string },
+  opts: { force?: boolean; requestId: string; customPeriod?: { start: string; end: string } },
 ): Promise<{ report_id: string | null; status: string; skipped?: string }> {
   const prefs = await loadPrefs(sb, userId);
   if (!opts.force) {
@@ -201,16 +201,21 @@ async function generateForUser(
   }
 
   const reference = new Date();
-  const { period, previous } = resolvePeriods(reportType, reference);
-  const idempotencyKey = `${reportType}:${userId}:${period.start}`;
+  const { period, previous } = resolvePeriods(reportType, reference, opts.customPeriod);
+  const idempotencyKey = reportType === "custom"
+    ? `custom:${userId}:${period.start}:${period.end}`
+    : `${reportType}:${userId}:${period.start}`;
 
-  const { data: existing } = await sb
+  // Período livre pode repetir o dia de início com fins diferentes: a chave
+  // única inclui o fim do intervalo.
+  let existingQuery = sb
     .from("financial_reports")
     .select("id,status,template_version")
     .eq("user_id", userId)
     .eq("report_type", reportType)
-    .eq("period_start", period.start)
-    .maybeSingle();
+    .eq("period_start", period.start);
+  if (reportType === "custom") existingQuery = existingQuery.eq("period_end", period.end);
+  const { data: existing } = await existingQuery.maybeSingle();
   // Relatório de template antigo é regenerado sozinho (auto-heal de destaques).
   const staleTemplate = !!existing && existing.template_version !== REPORT_TEMPLATE_VERSION;
   // Mês corrente nunca é reaproveitado: o período segue aberto e os números
@@ -226,6 +231,7 @@ async function generateForUser(
   const baseInput = {
     reportType,
     referenceDate: reference,
+    customPeriod: opts.customPeriod,
     transactions,
     categoryNames: ctx.categoryNames,
     accounts: ctx.accounts,
@@ -330,7 +336,9 @@ async function generateForUser(
         ? "Seu relatório da semana está pronto"
         : reportType === "monthly_partial"
           ? "Seu mês até agora está pronto"
-          : "Seu relatório do mês está pronto",
+          : reportType === "custom"
+            ? "Seu relatório do período está pronto"
+            : "Seu relatório do mês está pronto",
       body: `${period.label} • nota de saúde ${report.healthScore}/10`,
       action_url: `/app/relatorios-inteligentes/${reportId}`,
       dedup_key: `financial_report:${reportId}`,
@@ -432,14 +440,45 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") ?? "";
   if (!isCron && !auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
 
-  let body: { report_type?: ReportType; user_id?: string; force?: boolean; mode?: string } = {};
+  let body: {
+    report_type?: ReportType; user_id?: string; force?: boolean; mode?: string;
+    period_start?: string; period_end?: string;
+  } = {};
   try { body = (await req.json()) ?? {}; } catch { /* empty ok */ }
   // `monthly_partial` = relatório do mês corrente (aberto), sempre sob demanda.
+  // `custom` = intervalo livre pedido pelo usuário (nunca vem do cron).
   const reportType: ReportType = body.report_type === "monthly"
     ? "monthly"
     : body.report_type === "monthly_partial"
       ? "monthly_partial"
-      : "weekly";
+      : body.report_type === "custom"
+        ? "custom"
+        : "weekly";
+
+  let customPeriod: { start: string; end: string } | undefined;
+  if (reportType === "custom") {
+    if (isCron) return fail("custom_requires_user", { status: 400, functionName: FN });
+    const start = String(body.period_start ?? "");
+    const end = String(body.period_end ?? "");
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (!ymd.test(start) || !ymd.test(end)) {
+      return fail("invalid_period", { status: 400, functionName: FN, message: "Informe as datas de início e fim do período." });
+    }
+    if (end < start) {
+      return fail("invalid_period", { status: 400, functionName: FN, message: "A data final não pode ser anterior à inicial." });
+    }
+    const todayYmd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    if (end > todayYmd) {
+      return fail("invalid_period", { status: 400, functionName: FN, message: "Ainda não é possível fechar um período no futuro." });
+    }
+    const spanDays = Math.round(
+      (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000,
+    ) + 1;
+    if (spanDays > 366) {
+      return fail("invalid_period", { status: 400, functionName: FN, message: "Escolha um período de até 366 dias." });
+    }
+    customPeriod = { start, end };
+  }
   const requestId = crypto.randomUUID();
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const started = Date.now();
@@ -487,6 +526,7 @@ Deno.serve(async (req) => {
     const result = await generateForUser(sb, userData.user.id, reportType, {
       force: body.force === true,
       requestId,
+      customPeriod,
     });
     return respond(result);
   } catch (e) {

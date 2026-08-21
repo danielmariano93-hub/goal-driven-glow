@@ -113,7 +113,7 @@ export default function MaisMenu() {
           </button>
 
           <button
-            onClick={() => navigate("/app/relatorios?tab=fechamentos")}
+            onClick={() => navigate("/app/relatorios")}
             className="rounded-2xl border border-border bg-gradient-to-br from-card to-secondary/30 p-4 text-left shadow-card transition-colors hover:border-primary/40"
           >
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">

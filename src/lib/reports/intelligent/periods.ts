@@ -64,9 +64,24 @@ export function daysInMonthOf(reference: Date): number {
   return new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0)).getUTCDate();
 }
 
+/** Intervalo livre escolhido pelo usuário, já normalizado e rotulado. */
+export function customPeriodOf(range: { start: string; end: string }): ReportPeriod {
+  const [start, end] = range.start <= range.end
+    ? [range.start, range.end]
+    : [range.end, range.start];
+  return { start, end, label: `${SHORT(start)} a ${SHORT(end)}` };
+}
+
 /** Período imediatamente anterior, de mesma duração/natureza. */
 export function previousOf(period: ReportPeriod, type: ReportType): ReportPeriod {
   const start = new Date(`${period.start}T00:00:00Z`);
+  if (type === "custom") {
+    // Comparação honesta: mesma quantidade de dias, imediatamente antes.
+    const days = daysInPeriod(period);
+    const prevEnd = addDays(start, -1);
+    const prevStart = addDays(prevEnd, -(days - 1));
+    return { start: iso(prevStart), end: iso(prevEnd), label: `${SHORT(iso(prevStart))} a ${SHORT(iso(prevEnd))}` };
+  }
   if (type === "weekly") {
     const prevStart = addDays(start, -7);
     const prevEnd = addDays(prevStart, 6);
@@ -94,7 +109,16 @@ export function previousOf(period: ReportPeriod, type: ReportType): ReportPeriod
   };
 }
 
-export function resolvePeriods(type: ReportType, reference: Date): { period: ReportPeriod; previous: ReportPeriod } {
+export function resolvePeriods(
+  type: ReportType,
+  reference: Date,
+  custom?: { start: string; end: string },
+): { period: ReportPeriod; previous: ReportPeriod } {
+  if (type === "custom") {
+    if (!custom) throw new Error("custom_period_required");
+    const period = customPeriodOf(custom);
+    return { period, previous: previousOf(period, type) };
+  }
   const period = type === "weekly"
     ? lastClosedWeek(reference)
     : type === "monthly_partial"

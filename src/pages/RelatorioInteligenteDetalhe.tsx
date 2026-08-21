@@ -59,7 +59,7 @@ export default function RelatorioInteligenteDetalhe() {
     if (!id || report === null || report === "missing" || refreshing) return;
     setRefreshing(true);
     try {
-      await generateReportNow(report.report_type);
+      await generateReportNow(report.report_type, { start: report.period_start, end: report.period_end });
       const data = await getReport(id);
       if (data) setReport(data);
       notifySuccess("Relatório recalculado com os dados atuais.");
@@ -101,7 +101,7 @@ export default function RelatorioInteligenteDetalhe() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="font-display text-xl font-bold tracking-tight">
-              Relatório {report.report_type === "weekly" ? "semanal" : "mensal"}
+              Relatório {report.report_type === "weekly" ? "semanal" : report.report_type === "custom" ? "do período" : "mensal"}
             </h1>
             <p className="text-xs text-muted-foreground">{periodLabel(report)} · período fechado</p>
           </div>
