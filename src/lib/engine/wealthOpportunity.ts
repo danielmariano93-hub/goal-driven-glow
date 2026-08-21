@@ -80,13 +80,16 @@ const SCENARIO_SHARES: Array<{ key: WealthScenario["key"]; label: string; share:
   { key: "forte", label: "Forte", share: 0.7 },
 ];
 
-/** Acúmulo mês a mês por aporte (nunca `economia × meses` com rendimento embutido). */
-function accumulate(monthly: number, months: number, annualYieldPct: number): number {
-  if (monthly <= 0 || months <= 0) return 0;
+/**
+ * Contrafactual temporal real: cada mês tem o SEU excesso e cada aporte rende
+ * apenas pelo tempo em que teria ficado investido. R$ 600 sobrando em janeiro
+ * não valem o mesmo que R$ 600 sobrando em julho.
+ */
+function accumulateSeries(monthlyContributions: number[], annualYieldPct: number): number {
   const rate = annualYieldPct > 0 ? Math.pow(1 + annualYieldPct / 100, 1 / 12) - 1 : 0;
   let total = 0;
-  for (let i = 0; i < months; i++) {
-    total = total * (1 + rate) + monthly;
+  for (const contribution of monthlyContributions) {
+    total = total * (1 + rate) + Math.max(0, contribution);
   }
   return round2(total);
 }
@@ -94,23 +97,27 @@ function accumulate(monthly: number, months: number, annualYieldPct: number): nu
 export function computeWealthOpportunity(
   input: WealthOpportunityInput,
 ): EngineEnvelope<WealthOpportunityFacts, LongitudinalMonth, WealthSource> {
-  const months = input.longitudinal.months;
+  // Só meses FECHADOS: mês em curso não gera "excesso recuperável".
+  const months = input.longitudinal.closed_months ?? input.longitudinal.months;
   const monthsAnalyzed = months.length;
-  const flexSeries = months.map((m) => m.flexible_expense);
+  // Consumo flexível já normalizado (sem 13º/PLR/viagem) — baseline honesta.
+  const flexSeries = months.map((m) => m.flexible_expense_normalized ?? m.flexible_expense);
   const baselineMonthly = round2(medianOf(flexSeries));
   const observed = round2(flexSeries.reduce((a, b) => a + b, 0));
   const baselineTotal = round2(baselineMonthly * monthsAnalyzed);
   // Só o que ficou ACIMA da própria mediana conta como excesso: meses abaixo da
   // baseline não geram "crédito" — isso evitaria prometer economia inexistente.
-  const recoverableExcess = round2(
-    flexSeries.reduce((acc, v) => acc + Math.max(0, v - baselineMonthly), 0),
-  );
+  const monthlyExcess = flexSeries.map((v) => round2(Math.max(0, v - baselineMonthly)));
+  const recoverableExcess = round2(monthlyExcess.reduce((a, b) => a + b, 0));
   const recoverableMonthly = monthsAnalyzed > 0 ? round2(recoverableExcess / monthsAnalyzed) : 0;
   const yieldPct = input.annualYieldPct ?? 0;
 
   const scenarios: WealthScenario[] = SCENARIO_SHARES.map((s) => {
-    const monthly = round2(recoverableMonthly * s.share);
-    const total = accumulate(monthly, monthsAnalyzed, yieldPct);
+    const contributions = monthlyExcess.map((v) => round2(v * s.share));
+    const total = accumulateSeries(contributions, yieldPct);
+    const monthly = monthsAnalyzed > 0
+      ? round2(contributions.reduce((a, b) => a + b, 0) / monthsAnalyzed)
+      : 0;
     return {
       key: s.key,
       label: s.label,
@@ -118,6 +125,7 @@ export function computeWealthOpportunity(
       monthly_saving: monthly,
       total_saved: total,
       potential_net_worth: round2(input.actualNetWorth + total),
+      monthly_contributions: contributions,
     };
   });
 
@@ -130,7 +138,8 @@ export function computeWealthOpportunity(
   const headroom = round2(Math.max(0, avgNet - commitments));
   const sustainable = round2(Math.max(0, Math.min(round2(recoverableMonthly * 0.5), headroom)));
 
-  const sources: WealthSource[] = (input.flexibleByCategory ?? [])
+  const categorySources = input.flexibleByCategory ?? input.longitudinal.flexible_by_category ?? [];
+  const sources: WealthSource[] = categorySources
     .map((c) => {
       const median = round2(medianOf(c.monthly));
       const observedMonthly = c.monthly.length
@@ -145,8 +154,10 @@ export function computeWealthOpportunity(
         ),
       };
     })
+    .filter((s) => s.recoverable_monthly > 0)
     .sort((a, b) => b.recoverable_monthly - a.recoverable_monthly)
     .slice(0, 5);
+
 
   const assumptions = [
     "baseline é a mediana do SEU próprio consumo flexível no período — não uma régua externa",
