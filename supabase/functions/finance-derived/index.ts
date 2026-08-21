@@ -13,6 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialPerformance } from "../_shared/finance-core/financialPerformance.ts";
+import { TX_COLUMNS } from "../_shared/derived/txColumns.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "finance-derived";
@@ -20,8 +21,6 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-const TX_COLUMNS =
-  "id,account_id,type,status,amount,occurred_at,posted_at,competence_date,category_id,description,credit_card_id,payment_method,settles_card_id,transfer_group_id,transfer_direction,movement_kind,refund_of_transaction_id,superseded_by,installment_total,installment_number,origin";
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
