@@ -1108,7 +1108,7 @@ ${JSON.stringify(hints)}
     tools_measured: toolMs,
   };
   const tokenSplit = {
-    prompt_system: estimateTokens(String(prompt?.system ?? "")),
+    prompt_system: estimateTokens(systemPrompt),
     context: estimateTokens(contextJson),
     history: (history ?? []).reduce((acc, h) => acc + estimateTokens(String(h.content ?? "")), 0),
     user_text: estimateTokens(String(input.text ?? "")),
