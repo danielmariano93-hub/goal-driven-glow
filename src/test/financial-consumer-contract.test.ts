@@ -31,7 +31,11 @@ describe("verdade financeira única — consumidores críticos", () => {
     const sync = source("src/components/finance/FinancialRealtimeSync.tsx");
     expect(sync).toContain('table: "transactions"');
     expect(sync).toContain('table: "category_spending_goals"');
-    expect(sync).toContain("invalidateFinancialQueries(queryClient)");
+    // Invalidação granular (`invalidation_scope.v1`): cada tabela invalida
+    // apenas o escopo que ela realmente afeta.
+    expect(sync).toContain("invalidateFinancialQueries(queryClient");
+    expect(sync).toContain('refresh("transactions")');
+    expect(sync).toContain('refresh("goals")');
     expect(sync).toContain("filter: `user_id=eq.${user.id}`");
   });
 });
