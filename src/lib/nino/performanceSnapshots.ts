@@ -98,8 +98,16 @@ async function persistSnapshot(
   });
 }
 
-export function buildPerformanceSnapshot(input: {
-  performance: PerformanceInput;
+/** Entrada do acompanhamento: ou os insumos brutos, ou o resultado que o
+ *  servidor já calculou com o MESMO motor canônico (`perf_derived.v1`). */
+export type PerformanceSource =
+  | { performance: PerformanceInput; precomputed?: undefined }
+  | {
+    precomputed: ReturnType<typeof computeFinancialPerformance>;
+    performance: Pick<PerformanceInput, "as_of" | "mode">;
+  };
+
+export function buildPerformanceSnapshot(input: PerformanceSource & {
   monthlyIncome?: number | null;
   maxItems?: number;
   affinity?: Parameters<typeof computeAdvisorDecision>[0]["affinity"];
@@ -110,7 +118,10 @@ export function buildPerformanceSnapshot(input: {
   comparisons: ReturnType<typeof computeFinancialPerformance>["comparisons"];
 } {
   const mode: ComparisonMode = input.performance.mode ?? "MTD_EQUIVALENT";
-  const perf = computeFinancialPerformance({ ...input.performance, mode });
+  // Mesmo motor, um único lugar de decisão: se o servidor já calculou o
+  // resultado canônico, o cliente só rankeia — não recalcula.
+  const perf = input.precomputed
+    ?? computeFinancialPerformance({ ...(input as { performance: PerformanceInput }).performance, mode });
   const decision = computeAdvisorDecision({
     highlights: perf.highlights,
     affinity: input.affinity,
@@ -139,9 +150,8 @@ export function buildPerformanceSnapshot(input: {
 }
 
 /** Lê o snapshot válido ou calcula, grava e devolve. Nunca recalcula em vão. */
-export async function loadOrComputePerformanceSnapshot(params: {
+export async function loadOrComputePerformanceSnapshot(params: PerformanceSource & {
   userId: string;
-  performance: PerformanceInput;
   monthlyIncome?: number | null;
   affinity?: Parameters<typeof computeAdvisorDecision>[0]["affinity"];
   force?: boolean;

@@ -12,7 +12,7 @@ import {
   useAccounts,
   useInvestments,
   useCategories,
-  useAllTransactions,
+  useLedgerWindow,
   useCategorySpendingGoals,
   useSaveCategorySpendingGoal,
   useDeleteCategorySpendingGoal,
@@ -56,7 +56,7 @@ export default function Metas() {
   const delC = useDeleteContribution();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
-  const { data: txs } = useAllTransactions();
+  const { data: txs } = useLedgerWindow();
   const { data: catGoals } = useCategorySpendingGoals();
   const currentMonth = todayISO().slice(0, 7);
   const currentMonthEnd = new Date(Number(currentMonth.slice(0, 4)), Number(currentMonth.slice(5, 7)), 0).getDate();

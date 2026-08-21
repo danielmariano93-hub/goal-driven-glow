@@ -17,6 +17,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialSnapshot } from "../_shared/finance-core/metrics.ts";
 import { nextOccurrenceFor } from "../_shared/finance-core/index.ts";
+import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "home-snapshot";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -64,6 +65,27 @@ Deno.serve(async (req) => {
   const missing: string[] = [];
 
   try {
+    // Memoização por versão do ledger: enquanto nada financeiro é escrito,
+    // reabrir a Home não recalcula o snapshot (perf_derived.v1).
+    const ledgerVersion = await getLedgerVersion(sb, userId);
+    const cacheKey = `home_snapshot|${start}|${end}|${today}`;
+    const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
+    if (cached) {
+      return json({
+        ok: true,
+        formula_version: "home_snapshot.v1",
+        period: { start, end },
+        today,
+        missing_sources: cached.payload?.missing_sources ?? [],
+        transactions_considered: cached.payload?.transactions_considered ?? null,
+        ledger_version: ledgerVersion,
+        computed_at: cached.computed_at,
+        cache_hit: true,
+        snapshot: cached.payload?.snapshot ?? cached.payload,
+      });
+    }
+    const startedAt = Date.now();
+
     const q = <T,>(p: PromiseLike<{ data: T | null; error: Any }>, source: string, critical: boolean) =>
       Promise.resolve(p).then((r) => {
         if (r.error) {
@@ -176,6 +198,17 @@ Deno.serve(async (req) => {
       today,
     } as Any);
 
+    const payload = {
+      missing_sources: missing,
+      transactions_considered: ((txs ?? []) as Any[]).length,
+      snapshot,
+    };
+    const computeMs = Date.now() - startedAt;
+    // Só memoiza snapshot completo: parcial não vira verdade guardada.
+    if (missing.length === 0) {
+      await writeDerivedCache(sb, userId, cacheKey, ledgerVersion, payload, computeMs).catch(() => undefined);
+    }
+
     return json({
       ok: true,
       formula_version: "home_snapshot.v1",
@@ -183,7 +216,11 @@ Deno.serve(async (req) => {
       today,
       // A Home usa isto para degradar a superfície certa, e nunca para inventar.
       missing_sources: missing,
-      transactions_considered: ((txs ?? []) as Any[]).length,
+      transactions_considered: payload.transactions_considered,
+      ledger_version: ledgerVersion,
+      computed_at: new Date().toISOString(),
+      cache_hit: false,
+      compute_ms: computeMs,
       snapshot,
     });
   } catch (error) {

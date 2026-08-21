@@ -345,6 +345,31 @@ export function useAllTransactions(options: { enabled?: boolean } = {}) {
   return useTransactions({}, options);
 }
 
+/**
+ * Janela limitada do ledger (`perf_derived.v1`).
+ *
+ * Telas que precisam de lançamentos (metas, cartões) usam uma janela fixa —
+ * `monthsBack` meses fechados + o horizonte futuro de parcelas/planejados — em
+ * vez do histórico inteiro. Assim o tempo de abertura deixa de crescer junto
+ * com a vida financeira. Não altera nenhum cálculo: os motores continuam
+ * recebendo os lançamentos do intervalo relevante.
+ */
+export function useLedgerWindow(
+  params: { monthsBack?: number; monthsAhead?: number } = {},
+  options: { enabled?: boolean } = {},
+) {
+  const monthsBack = params.monthsBack ?? 13;
+  const monthsAhead = params.monthsAhead ?? 24;
+  const now = new Date();
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1))
+    .toISOString()
+    .slice(0, 10);
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthsAhead + 1, 0))
+    .toISOString()
+    .slice(0, 10);
+  return useTransactions({ from, to }, options);
+}
+
 export function useSaveTransaction() {
   const { user } = useAuth();
   const qc = useQueryClient();
