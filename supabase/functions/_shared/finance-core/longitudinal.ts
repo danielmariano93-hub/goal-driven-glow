@@ -50,7 +50,24 @@ export interface LongitudinalMonth {
   /** Taxa de poupança do mês (net/renda) — null quando não houve renda. */
   savings_rate: number | null;
   transactions: number;
+  /** Mês ainda em curso na data de referência: NUNCA entra em tendência. */
+  is_open_month: boolean;
+  /** Dias já decorridos do mês na data de referência. */
+  days_elapsed: number;
+  /** Dias totais do mês. */
+  days_in_month: number;
+  /** Consumo flexível equivalente ao mês inteiro (só informativo, mês aberto). */
+  flexible_expense_mtd_equivalent: number;
+  /** Renda atípica isolada da baseline (13º, PLR, férias, venda pontual). */
+  extraordinary_income: number;
+  /** Gasto flexível atípico isolado da baseline (viagem, compra única). */
+  extraordinary_expense: number;
+  /** Consumo flexível já normalizado (sem o atípico) — base das tendências. */
+  flexible_expense_normalized: number;
+  /** Renda já normalizada (sem o atípico). */
+  income_normalized: number;
 }
+
 
 export type TrendDirection = "melhorando" | "piorando" | "estavel" | "indefinido";
 
@@ -80,9 +97,21 @@ export interface ChangePoint {
   confidence: EngineConfidence;
 }
 
+export interface FlexibleCategorySeries {
+  label: string;
+  /** Série mensal (alinhada a `closed_months`) de gasto flexível da categoria. */
+  monthly: number[];
+}
+
 export interface LongitudinalFacts {
+  /** Série completa com movimento (inclui o mês aberto, marcado como tal). */
   months: LongitudinalMonth[];
+  /** Só meses FECHADOS — única base de tendência, baseline e change-point. */
+  closed_months: LongitudinalMonth[];
   months_analyzed: number;
+  closed_months_analyzed: number;
+  /** Mês em curso (informativo, com equivalente MTD) ou null. */
+  open_month: LongitudinalMonth | null;
   /** Tendência do RESULTADO financeiro. */
   result_trend: LongitudinalTrend;
   /** Tendência do COMPORTAMENTO de consumo flexível. */
@@ -92,12 +121,16 @@ export interface LongitudinalFacts {
   change_point: ChangePoint | null;
   /** Volatilidade do resultado (desvio padrão mensal). */
   net_volatility: number;
-  /** Mediana robusta do consumo flexível — baseline pessoal. */
+  /** Mediana robusta do consumo flexível normalizado — baseline pessoal. */
   flexible_median: number;
-  /** Resultado acumulado no período. */
+  /** Resultado acumulado no período (meses fechados). */
   cumulative_net: number;
   /** O resultado melhorou por renda extraordinária, não por comportamento? */
   result_driven_by_income: boolean;
+  /** Meses com renda/gasto atípico isolado da baseline. */
+  extraordinary_months: Array<{ month: string; extraordinary_income: number; extraordinary_expense: number }>;
+  /** Fontes flexíveis por categoria (série mensal dos meses fechados). */
+  flexible_by_category: FlexibleCategorySeries[];
 }
 
 export interface LongitudinalInput {
@@ -106,7 +139,10 @@ export interface LongitudinalInput {
   categoryNames?: Record<string, string>;
   /** Meses recentes considerados "agora" na comparação (default 3). */
   recentMonths?: number;
+  /** Data de referência (YYYY-MM-DD) que define qual mês está aberto. */
+  asOf?: string;
 }
+
 
 const EMPTY_TREND = (metric: LongitudinalTrend["metric"]): LongitudinalTrend => ({
   metric,
@@ -238,6 +274,45 @@ function monthsBetween(period: EnginePeriod): string[] {
   return out;
 }
 
+function daysInMonth(month: string): number {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/** Desvio absoluto mediano — robusto a outliers (ao contrário do desvio padrão). */
+function madOf(values: number[]): number {
+  if (values.length === 0) return 0;
+  const median = medianOf(values);
+  return medianOf(values.map((v) => Math.abs(v - median)));
+}
+
+/**
+ * Normalização de extraordinários (`longitudinal_intelligence.v1`).
+ * Winsoriza a série pela mediana ± 2,5 MAD: o que passa do teto é ATÍPICO
+ * (13º, PLR, férias, viagem, compra única) e sai da baseline e das tendências,
+ * mas continua visível como anotação. Sem MAD utilizável, nada é normalizado.
+ */
+function normalizeExtraordinary(values: number[]): { normalized: number[]; excess: number[] } {
+  if (values.length < 4) return { normalized: values.slice(), excess: values.map(() => 0) };
+  const median = medianOf(values);
+  const mad = madOf(values);
+  const spread = mad > 0 ? mad * 2.5 : Math.abs(median) * 0.6;
+  if (spread <= 0) return { normalized: values.slice(), excess: values.map(() => 0) };
+  const cap = median + spread;
+  const normalized: number[] = [];
+  const excess: number[] = [];
+  for (const v of values) {
+    if (v > cap) {
+      normalized.push(round2(cap));
+      excess.push(round2(v - cap));
+    } else {
+      normalized.push(round2(v));
+      excess.push(0);
+    }
+  }
+  return { normalized, excess };
+}
+
 export function computeLongitudinal(
   input: LongitudinalInput,
 ): EngineEnvelope<LongitudinalFacts, LongitudinalMonth, ChangePoint> {
@@ -245,12 +320,26 @@ export function computeLongitudinal(
   const recentMonths = Math.max(1, input.recentMonths ?? 3);
   const attribution = buildRefundAttribution(input.txs);
   const keys = monthsBetween(input.period);
+  const asOf = String(input.asOf ?? input.period.to).slice(0, 10);
+  const openKey = asOf.slice(0, 7);
   const byMonth = new Map<string, LongitudinalMonth>();
+  // Gasto flexível por categoria e por mês — fonte dos "de onde vem" do wealth.
+  const flexByCategory = new Map<string, Map<string, number>>();
   for (const month of keys) {
+    const total = daysInMonth(month);
+    const open = month === openKey && Number(asOf.slice(8, 10)) < total;
     byMonth.set(month, {
       month, income: 0, expense: 0, net: 0,
       flexible_expense: 0, structural_expense: 0, undefined_expense: 0,
       savings_rate: null, transactions: 0,
+      is_open_month: open,
+      days_elapsed: open ? Number(asOf.slice(8, 10)) : total,
+      days_in_month: total,
+      flexible_expense_mtd_equivalent: 0,
+      extraordinary_income: 0,
+      extraordinary_expense: 0,
+      flexible_expense_normalized: 0,
+      income_normalized: 0,
     });
   }
 
@@ -258,7 +347,8 @@ export function computeLongitudinal(
   for (const t of input.txs) {
     const day = String(t.occurred_at ?? "").slice(0, 10);
     if (!day || day < input.period.from || day > input.period.to) continue;
-    const row = byMonth.get(day.slice(0, 7));
+    const monthKey = day.slice(0, 7);
+    const row = byMonth.get(monthKey);
     if (!row) continue;
     const income = behavioralMetricAmount(t, "income");
     if (income !== 0) {
@@ -274,9 +364,17 @@ export function computeLongitudinal(
       const categoryId = effectiveCategoryId(t, attribution);
       const name = categoryId ? (names[categoryId] ?? "") : "";
       const flex = classifyFlexibility(name);
-      if (flex === "flexivel") row.flexible_expense = round2(row.flexible_expense + expense);
-      else if (flex === "estrutural") row.structural_expense = round2(row.structural_expense + expense);
-      else row.undefined_expense = round2(row.undefined_expense + expense);
+      if (flex === "flexivel") {
+        row.flexible_expense = round2(row.flexible_expense + expense);
+        const label = name || "Sem categoria";
+        const series = flexByCategory.get(label) ?? new Map<string, number>();
+        series.set(monthKey, round2((series.get(monthKey) ?? 0) + expense));
+        flexByCategory.set(label, series);
+      } else if (flex === "estrutural") {
+        row.structural_expense = round2(row.structural_expense + expense);
+      } else {
+        row.undefined_expense = round2(row.undefined_expense + expense);
+      }
     }
   }
 
@@ -284,23 +382,46 @@ export function computeLongitudinal(
     const row = byMonth.get(k)!;
     row.net = round2(row.income - row.expense);
     row.savings_rate = row.income > 0 ? Math.round((row.net / row.income) * 10000) / 100 : null;
+    row.flexible_expense_mtd_equivalent = row.is_open_month && row.days_elapsed > 0
+      ? round2((row.flexible_expense / row.days_elapsed) * row.days_in_month)
+      : row.flexible_expense;
     return row;
   });
   // Só meses com movimento entram na série — mês sem dado não é mês de melhora.
   const active = months.filter((m) => m.transactions > 0);
+  // MÊS ABERTO NUNCA ENTRA EM TENDÊNCIA: agosto até o dia 21 não é "gasto menor".
+  const closed = active.filter((m) => !m.is_open_month);
+  const openMonth = active.find((m) => m.is_open_month) ?? null;
 
-  const netSeries = active.map((m) => m.net);
-  const flexSeries = active.map((m) => m.flexible_expense);
-  const incomeSeries = active.map((m) => m.income);
-  const expenseSeries = active.map((m) => m.expense);
+  const flexRaw = closed.map((m) => m.flexible_expense);
+  const incomeRaw = closed.map((m) => m.income);
+  const flexNorm = normalizeExtraordinary(flexRaw);
+  const incomeNorm = normalizeExtraordinary(incomeRaw);
+  closed.forEach((m, i) => {
+    m.extraordinary_expense = flexNorm.excess[i] ?? 0;
+    m.extraordinary_income = incomeNorm.excess[i] ?? 0;
+    m.flexible_expense_normalized = flexNorm.normalized[i] ?? m.flexible_expense;
+    m.income_normalized = incomeNorm.normalized[i] ?? m.income;
+  });
+  if (openMonth) {
+    openMonth.flexible_expense_normalized = openMonth.flexible_expense;
+    openMonth.income_normalized = openMonth.income;
+  }
+
+  // Resultado normalizado: renda e gasto flexível já sem o atípico do mês.
+  const netSeries = closed.map((m) => round2(m.income_normalized - (m.expense - m.extraordinary_expense)));
+
+  const flexSeries = closed.map((m) => m.flexible_expense_normalized);
+  const incomeSeries = closed.map((m) => m.income_normalized);
+  const expenseSeries = closed.map((m) => round2(m.expense - m.extraordinary_expense));
 
   const resultTrend = buildTrend("net", netSeries, true, recentMonths);
   const behaviorTrend = buildTrend("flexible_expense", flexSeries, false, recentMonths);
   const incomeTrend = buildTrend("income", incomeSeries, true, recentMonths);
   const expenseTrend = buildTrend("expense", expenseSeries, false, recentMonths);
 
-  const netChange = detectChangePoint(active, "net", netSeries, true);
-  const behaviorChange = detectChangePoint(active, "flexible_expense", flexSeries, false);
+  const netChange = detectChangePoint(closed, "net", netSeries, true);
+  const behaviorChange = detectChangePoint(closed, "flexible_expense", flexSeries, false);
   const changePoint = !netChange ? behaviorChange
     : !behaviorChange ? netChange
     : Math.abs(netChange.after_average - netChange.before_average)
@@ -313,17 +434,47 @@ export function computeLongitudinal(
     && behaviorTrend.direction !== "melhorando"
     && incomeTrend.direction === "melhorando";
 
+  const extraordinaryMonths = closed
+    .filter((m) => m.extraordinary_income > 0 || m.extraordinary_expense > 0)
+    .map((m) => ({
+      month: m.month,
+      extraordinary_income: m.extraordinary_income,
+      extraordinary_expense: m.extraordinary_expense,
+    }));
+
+  const flexibleByCategory: FlexibleCategorySeries[] = [...flexByCategory.entries()]
+    .map(([label, series]) => ({
+      label,
+      monthly: closed.map((m) => round2(series.get(m.month) ?? 0)),
+    }))
+    .filter((c) => c.monthly.some((v) => v > 0))
+    .sort((a, b) => b.monthly.reduce((x, y) => x + y, 0) - a.monthly.reduce((x, y) => x + y, 0));
+
   const notes: string[] = [
     "resultado (sobra) e comportamento (consumo flexível) são medidos separadamente",
+    "tendência e ponto de virada usam apenas meses FECHADOS",
   ];
+  if (openMonth) {
+    notes.push(
+      `${openMonth.month} ainda está em curso (${openMonth.days_elapsed}/${openMonth.days_in_month} dias): fica fora da tendência`,
+    );
+  }
   if (resultDrivenByIncome) {
     notes.push("a melhora do resultado é explicada por renda maior, não por mudança de consumo");
   }
-  if (active.length < 4) notes.push("série curta: tendência ainda não é conclusiva");
+  if (extraordinaryMonths.length > 0) {
+    notes.push(
+      `valores atípicos isolados da baseline em ${extraordinaryMonths.map((m) => m.month).join(", ")}`,
+    );
+  }
+  if (closed.length < 4) notes.push("série curta: tendência ainda não é conclusiva");
 
   const facts: LongitudinalFacts = {
     months: active,
+    closed_months: closed,
     months_analyzed: active.length,
+    closed_months_analyzed: closed.length,
+    open_month: openMonth,
     result_trend: resultTrend,
     behavior_trend: behaviorTrend,
     income_trend: incomeTrend,
@@ -332,6 +483,8 @@ export function computeLongitudinal(
     flexible_median: round2(medianOf(flexSeries)),
     cumulative_net: round2(netSeries.reduce((a, b) => a + b, 0)),
     result_driven_by_income: resultDrivenByIncome,
+    extraordinary_months: extraordinaryMonths,
+    flexible_by_category: flexibleByCategory,
   };
 
   return makeEnvelope<LongitudinalFacts, LongitudinalMonth, ChangePoint>({
@@ -345,6 +498,7 @@ export function computeLongitudinal(
       formulaVersion: LONGITUDINAL_VERSION,
       notes: [...notes, `tendência de gasto: ${expenseTrend.direction}`],
     }),
-    confidence: confidenceFromSample(active.length, { minSample: 3, goodSample: 8 }),
+    confidence: confidenceFromSample(closed.length, { minSample: 3, goodSample: 8 }),
   });
 }
+
