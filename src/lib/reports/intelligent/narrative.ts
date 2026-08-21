@@ -9,7 +9,7 @@ const PCT = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits:
 export function deterministicSummary(report: IntelligentReport): string {
   const t = report.payload.totals;
   const partial = report.payload.partial;
-  const periodWord = report.reportType === "weekly" ? "semana" : "mês";
+  const periodWord = report.reportType === "weekly" ? "semana" : report.reportType === "custom" ? "período" : "mês";
   const parts: string[] = [];
   if (partial) {
     parts.push(`Este é o retrato do mês em andamento: ${partial.daysElapsed} de ${partial.daysInMonth} dias já registrados.`);
@@ -54,7 +54,9 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
     ? `📊 Seu relatório da semana (${report.period.label})`
     : report.reportType === "monthly_partial"
       ? `📊 Seu mês até agora (${report.period.label})`
-      : `📊 Seu relatório de ${report.period.label}`;
+      : report.reportType === "custom"
+        ? `📊 Seu relatório do período ${report.period.label}`
+        : `📊 Seu relatório de ${report.period.label}`;
 
   const lines = [
     titulo,

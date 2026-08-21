@@ -289,7 +289,7 @@ function buildMetrics(payload: ReportPayload): ReportMetric[] {
 }
 
 export function buildIntelligentReport(input: ReportEngineInput): IntelligentReport {
-  const { period, previous } = resolvePeriods(input.reportType, input.referenceDate);
+  const { period, previous } = resolvePeriods(input.reportType, input.referenceDate, input.customPeriod);
   const names = input.categoryNames ?? {};
   const all = input.transactions ?? [];
   const current = all.filter((t) => inRange(t.occurred_at, period));
