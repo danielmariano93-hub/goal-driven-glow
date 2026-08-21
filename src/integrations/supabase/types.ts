@@ -13070,6 +13070,10 @@ export type Database = {
         Args: { _delivery_id: string; _feedback: string }
         Returns: Json
       }
+      my_financial_home_snapshot: {
+        Args: { _end: string; _start: string; _today: string }
+        Returns: Json
+      }
       my_financial_snapshot_v6: {
         Args: { _period_end?: string; _period_start?: string }
         Returns: Json
@@ -13085,6 +13089,7 @@ export type Database = {
         Args: { _decision: string; _pair_key: string }
         Returns: Json
       }
+      my_nino_home_context: { Args: never; Returns: Json }
       my_nino_home_item: { Args: never; Returns: Json }
       my_nino_intelligence_context: { Args: never; Returns: Json }
       my_nino_item_act: {
@@ -13282,6 +13287,7 @@ export type Database = {
       }
       nino_fix_money_text: { Args: { _t: string }; Returns: string }
       nino_group_duplicates: { Args: { _user_id: string }; Returns: number }
+      nino_home_context_for_user: { Args: { _user_id: string }; Returns: Json }
       nino_intelligence_tick: { Args: never; Returns: Json }
       nino_item_category: {
         Args: { _kind: string; _topic: string }
@@ -13338,6 +13344,10 @@ export type Database = {
       nino_semantic_gate: {
         Args: { _kind: string; _text: string }
         Returns: string
+      }
+      nino_situation_cooldown_ids: {
+        Args: { _user_id: string }
+        Returns: string[]
       }
       nino_topic_key: {
         Args: {

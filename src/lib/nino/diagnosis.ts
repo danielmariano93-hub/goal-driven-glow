@@ -89,6 +89,8 @@ export const ninoDiagnosisContextSchema = z.object({
   patterns: z.array(financialSituationSchema),
   anticipations: z.array(financialSituationSchema),
   operational_tasks: z.array(financialSituationSchema),
+  /** Leituras em cooldown (já respondidas). O servidor é a memória: vale entre dias e aparelhos. */
+  suppressed_situation_ids: z.array(z.string()).default([]),
   timeline: z.array(timelineEntrySchema).default([]),
   closings: z.array(closingSchema).default([]),
   narrative: z.record(z.unknown()).default({}),
