@@ -194,7 +194,9 @@ Deno.serve(async (req) => {
           income_day: (settings as Any).income_day == null ? null : num((settings as Any).income_day),
         }
         : null,
-      today,
+      // O motor exige `Date` aqui (ele mesmo converte para a âncora America/Sao_Paulo).
+      today: new Date(`${today}T12:00:00-03:00`),
+
     } as Any);
 
     const payload = {
