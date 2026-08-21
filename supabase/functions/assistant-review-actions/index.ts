@@ -348,7 +348,7 @@ Deno.serve(async (req) => {
         : { account_id: null, credit_card_id: null };
       let updateQuery = sb.from("extracted_items").update(itemPatch)
         .eq("document_id", document_id).eq("user_id", user.id)
-        .in("status", ["needs_review", "duplicate_suspect"]);
+        .in("status", ["needs_review", "duplicate_suspect", "failed"]);
       if (item_ids.length > 0) {
         // Seleção explícita do usuário: a origem escolhida agora vence até uma
         // edição anterior desses mesmos itens.
