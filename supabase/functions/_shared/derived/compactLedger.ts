@@ -74,8 +74,25 @@ export async function buildCompactLedger(
   columns: string,
   window: { start: string; end: string },
   accounts: Any[],
-  opts?: { includeCardCarry?: boolean },
+  opts?: { includeCardCarry?: boolean; hardAnchors?: Array<{ account_id: string; balance_date: string }> },
 ): Promise<CompactLedger> {
+  // Âncora bancária REAL manda mais que qualquer fato derivado. Se a conta tem
+  // âncora conferida ANTES da janela, a janela é estendida até o mês dela: só
+  // assim o motor vê a âncora + todos os lançamentos posteriores, e nenhuma
+  // âncora sintética precisa (nem pode) sobrescrevê-la.
+  const anchorsBefore = (opts?.hardAnchors ?? []).filter((a) => a.balance_date < window.start);
+  const latestByAccount = new Map<string, string>();
+  for (const a of anchorsBefore) {
+    const cur = latestByAccount.get(a.account_id);
+    if (!cur || a.balance_date > cur) latestByAccount.set(a.account_id, a.balance_date);
+  }
+  const anchoredAccounts = new Set<string>((opts?.hardAnchors ?? []).map((a) => a.account_id));
+  let effectiveStart = window.start;
+  for (const date of latestByAccount.values()) {
+    const candidate = monthStart(date);
+    if (candidate < effectiveStart) effectiveStart = candidate;
+  }
+  window = { start: effectiveStart, end: window.end };
   const windowMonth = window.start.slice(0, 7);
 
   const [{ data: factRows, error: factError }, txs] = await Promise.all([
@@ -135,7 +152,7 @@ export async function buildCompactLedger(
   }
 
   // Âncora sintética por conta: saldo de abertura + deltas consolidados.
-  const syntheticAnchors = (accounts ?? []).map((a: Any) => ({
+  const syntheticAnchors = (accounts ?? []).filter((a: Any) => !anchoredAccounts.has(String(a.id))).map((a: Any) => ({
     account_id: String(a.id),
     balance_date: anchorDate,
     balance: Math.round(((Number(a.opening_balance ?? 0) + (accountCarry[String(a.id)] ?? 0)) + Number.EPSILON) * 100) / 100,
