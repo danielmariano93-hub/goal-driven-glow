@@ -76,10 +76,12 @@ const GROUPS = {
   leaks: [
     "analyze_merchants", "merchant_profile", "discover_recurring", "analyze_cost_structure",
     "find_savings_opportunities", "detect_spending_anomalies", "explain_behavior_change",
+    "list_recurring_rules",
   ],
   advisor: [
     "plan_installment_decision", "find_savings_opportunities", "get_financial_snapshot",
     "forecast_month_close", "analyze_cost_structure", "get_debt_status", "run_before_spending",
+    "get_future_installments", "get_commitments_agenda", "get_net_worth",
   ],
   debts: ["get_debt_status", "list_recent_transactions", "get_financial_snapshot"],
   sharedGoals: [
