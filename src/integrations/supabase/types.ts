@@ -6651,6 +6651,45 @@ export type Database = {
           },
         ]
       }
+      financial_snapshot_refresh_queue: {
+        Row: {
+          attempts: number
+          last_error: string | null
+          locked_until: string | null
+          marked_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          last_error?: string | null
+          locked_until?: string | null
+          marked_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          last_error?: string | null
+          locked_until?: string | null
+          marked_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_snapshot_refresh_queue_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "financial_snapshot_refresh_queue_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       goal_contributions: {
         Row: {
           account_id: string | null
@@ -12784,6 +12823,16 @@ export type Database = {
           user_id: string
         }[]
       }
+      finance_facts_claim_v2: {
+        Args: { p_lease_seconds?: number; p_limit?: number }
+        Returns: {
+          attempts: number
+          claimed_marked_at: string
+          competence_month: string
+          domains: string[]
+          user_id: string
+        }[]
+      }
       finance_facts_enqueue_history: {
         Args: { p_user: string }
         Returns: number
@@ -12796,7 +12845,27 @@ export type Database = {
         Args: { p_month: string; p_user: string }
         Returns: undefined
       }
+      finance_facts_mark_processed_v2: {
+        Args: { p_claimed_marked_at: string; p_month: string; p_user: string }
+        Returns: undefined
+      }
       finance_ledger_version: { Args: never; Returns: number }
+      finance_snapshot_refresh_claim: {
+        Args: { p_lease_seconds?: number; p_limit?: number }
+        Returns: {
+          claimed_marked_at: string
+          user_id: string
+        }[]
+      }
+      finance_snapshot_refresh_done: {
+        Args: { p_claimed_marked_at: string; p_user: string }
+        Returns: undefined
+      }
+      finance_snapshot_refresh_enqueue_all: { Args: never; Returns: number }
+      finance_snapshot_refresh_failed: {
+        Args: { p_error: string; p_user: string }
+        Returns: undefined
+      }
       financial_reports_monthly_tick: { Args: never; Returns: number }
       financial_reports_tick: {
         Args: { p_report_type: string }
