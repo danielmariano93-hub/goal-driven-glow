@@ -1361,6 +1361,7 @@ import {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
   compare_financial_metric, assess_financial_performance,
+  analyze_longitudinal_trajectory, analyze_wealth_opportunity,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 
@@ -1369,6 +1370,7 @@ export {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
   compare_financial_metric, assess_financial_performance,
+  analyze_longitudinal_trajectory, analyze_wealth_opportunity,
 };
 
 /**
@@ -2963,6 +2965,33 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Evolução financeira longitudinal (30/90/180 dias): renda, gasto, resultado, taxa de poupança, tendência, volatilidade e melhor/pior mês. Use para 'estou melhorando?', 'como evoluí', 'minha vida financeira está mais estável?'.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: analyze_financial_evolution,
+  },
+  {
+    name: "analyze_longitudinal_trajectory",
+    description: "TRAJETÓRIA LONGITUDINAL (vários meses): série mês a mês de renda, gasto, consumo flexível e resultado, tendência, volatilidade e PONTO DE VIRADA (quando o padrão mudou, e se a mudança veio de comportamento ou de renda). Use para 'estou melhor que no começo do ano', 'quando comecei a piorar', 'minha trajetória', 'nos últimos 12 meses'.",
+    parameters: {
+      type: "object",
+      properties: {
+        months: { type: "integer", minimum: 3, maximum: 36 },
+        from: optionalStr,
+        to: optionalStr,
+      },
+      additionalProperties: false,
+    },
+    execute: analyze_longitudinal_trajectory,
+  },
+  {
+    name: "analyze_wealth_opportunity",
+    description: "OPORTUNIDADE PATRIMONIAL: quanto o usuário poderia ter acumulado se tivesse mantido o próprio consumo flexível na mediana pessoal, em cenários de 25%/50%/70%, e quanto ele consegue guardar por mês de forma sustentável. Use para 'quanto eu poderia ter guardado', 'quanto consigo poupar por mês', 'quanto perdi gastando à mais', 'plano de patrimônio'. Nunca estime esses números fora desta tool.",
+    parameters: {
+      type: "object",
+      properties: {
+        months: { type: "integer", minimum: 3, maximum: 36 },
+        annual_yield_pct: num,
+      },
+      additionalProperties: false,
+    },
+    execute: analyze_wealth_opportunity,
   },
   {
     name: "get_debt_status",

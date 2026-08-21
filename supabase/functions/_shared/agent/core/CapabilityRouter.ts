@@ -69,6 +69,7 @@ const GROUPS = {
     "get_spending_highlights", "get_financial_snapshot", "get_weekday_spending_pattern",
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
+    "analyze_longitudinal_trajectory", "analyze_wealth_opportunity",
     "compare_financial_metric", "assess_financial_performance",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
@@ -376,6 +377,26 @@ export function classifyCapability(
       allowed_tools: ["compare_financial_metric", "assess_financial_performance", "analyze_spending"],
       required_tool: "compare_financial_metric", context: { metrics: true },
       reason: "canonical_financial_comparison",
+    };
+  }
+
+  // Trajetória de vários meses e patrimônio contrafactual têm motor próprio:
+  // não podem cair na evolução de 30/90/180 dias nem em estimativa da LLM.
+  if (/\b(poderia ter (guardado|acumulado|investido)|quanto (eu )?perdi gastando|quanto consigo (guardar|poupar)|patrimonio (possivel|potencial)|se eu tivesse (guardado|economizado))\b/.test(t)) {
+    return {
+      name: "wealth_opportunity", execution: "deterministic",
+      allowed_tools: ["analyze_wealth_opportunity", "analyze_longitudinal_trajectory", "get_net_worth"],
+      required_tool: "analyze_wealth_opportunity", context: { metrics: true },
+      reason: "canonical_wealth_opportunity",
+    };
+  }
+
+  if (/\b(ultimos? (6|8|9|10|11|12|18|24) meses|desde (janeiro|o come[cç]o|o inicio) do ano|ao longo (do ano|dos meses)|minha trajetoria|historico longo|virada|quando (eu )?comecei a (piorar|melhorar))\b/.test(t)) {
+    return {
+      name: "longitudinal_trajectory", execution: "deterministic",
+      allowed_tools: ["analyze_longitudinal_trajectory", "analyze_financial_evolution", "compare_financial_metric"],
+      required_tool: "analyze_longitudinal_trajectory", context: { metrics: true },
+      reason: "canonical_longitudinal_trajectory",
     };
   }
 
