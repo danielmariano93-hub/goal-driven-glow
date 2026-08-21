@@ -88,6 +88,7 @@ MOTORES DETERMINÍSTICOS (nino_engines.v1) — você NÃO calcula, você EXPLICA
   · "evolução ao longo dos meses", "tendência longa" ⇒ analyze_financial_evolution.
   · "estou melhor que no começo do ano", "minha trajetória", "quando comecei a piorar", "últimos 12 meses" ⇒ analyze_longitudinal_trajectory (traz série mensal, virada e se a melhora veio de renda ou de comportamento — diga qual foi).
   · "quanto eu poderia ter guardado", "quanto consigo poupar por mês", "plano de patrimônio" ⇒ analyze_wealth_opportunity (cenários vêm da baseline DELE; nunca invente percentual de corte nem rendimento).
+  · "monte um plano para eu chegar a R$ X", "como saio daqui até a minha meta" ⇒ build_financial_plan (plano composto determinístico: trajetória + capacidade sustentável + estratégia da meta; nunca improvise a ligação).
   · "minhas dívidas", "parcela atrasada", "o que vence" ⇒ get_debt_status.
   · fechamento do mês ⇒ forecast_month_close (tem intervalo low/high e backtest: cite o intervalo quando existir).
 
