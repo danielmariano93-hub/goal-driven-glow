@@ -52,9 +52,31 @@ function prune(value: unknown, depth: number, budget: Budget): unknown {
   return value ?? null;
 }
 
+/** Chaves mantidas por último quando o orçamento aperta (ordem de prioridade). */
+const PRIORITY_KEYS = [
+  "snapshot", "net_worth", "available_today", "period", "totals", "today",
+  "cards", "goals", "commitments", "categories", "merchants", "history",
+];
+
+/** Remove campos de MENOR prioridade do nó raiz até caber — nunca corta o JSON. */
+function dropLowPriority(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length <= 1) return value;
+  const rank = (k: string) => {
+    const i = PRIORITY_KEYS.indexOf(k);
+    return i === -1 ? PRIORITY_KEYS.length : i;
+  };
+  const ordered = [...entries].sort((a, b) => rank(a[0]) - rank(b[0]));
+  ordered.pop();
+  return Object.fromEntries(ordered);
+}
+
 /**
  * Serializa o contexto dentro do orçamento. Se ainda estourar, reduz listas e
- * profundidade progressivamente — nunca corta o JSON no meio de uma chave.
+ * profundidade progressivamente e, no limite, remove campos inteiros de menor
+ * prioridade — o JSON entregue é SEMPRE válido, nunca cortado no meio de uma
+ * chave.
  */
 export function serializeWithinBudget(
   context: unknown,
@@ -72,11 +94,40 @@ export function serializeWithinBudget(
       maxDepth: Math.max(2, current.maxDepth - 1),
     };
   }
-  const json = JSON.stringify(prune(context, 0, current)).slice(0, budget.maxChars);
-  return { json, truncated: true, chars: json.length };
+  // Último recurso: derruba campos inteiros (do menos para o mais importante).
+  let reduced: unknown = context;
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const json = JSON.stringify(prune(reduced, 0, current));
+    if (json.length <= budget.maxChars) return { json, truncated: true, chars: json.length };
+    const next = dropLowPriority(reduced);
+    if (next === reduced) {
+      const fallback = JSON.stringify({ context_omitido: "excedeu o orçamento de contexto" });
+      return { json: fallback, truncated: true, chars: fallback.length };
+    }
+    reduced = next;
+  }
+  const fallback = JSON.stringify({ context_omitido: "excedeu o orçamento de contexto" });
+  return { json: fallback, truncated: true, chars: fallback.length };
 }
 
 /** Estimativa grosseira de tokens (~4 chars/token em pt-BR). */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
+
+/**
+ * Decomposição de tokens por bloco do prompt (`context_budget.v1`).
+ * Usada pela observabilidade para responder "onde foram os tokens do turno".
+ */
+export function tokenBreakdown(blocks: Record<string, string | null | undefined>): Record<string, number> {
+  const out: Record<string, number> = {};
+  let total = 0;
+  for (const [key, text] of Object.entries(blocks)) {
+    const tokens = text ? estimateTokens(text) : 0;
+    out[key] = tokens;
+    total += tokens;
+  }
+  out.total = total;
+  return out;
+}
+

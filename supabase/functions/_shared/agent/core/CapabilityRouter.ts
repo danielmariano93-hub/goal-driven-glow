@@ -26,6 +26,8 @@ export type CapabilityName =
   | "financial_evolution"
   | "longitudinal_trajectory"
   | "wealth_opportunity"
+  | "financial_plan"
+
   | "financial_performance"
   | "financial_comparison"
   | "financial_analysis"
@@ -71,7 +73,7 @@ const GROUPS = {
     "get_spending_highlights", "get_financial_snapshot", "get_weekday_spending_pattern",
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
-    "analyze_longitudinal_trajectory", "analyze_wealth_opportunity",
+    "analyze_longitudinal_trajectory", "analyze_wealth_opportunity", "build_financial_plan",
     "compare_financial_metric", "assess_financial_performance",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
@@ -390,6 +392,16 @@ export function classifyCapability(
       allowed_tools: ["analyze_wealth_opportunity", "analyze_longitudinal_trajectory", "get_net_worth"],
       required_tool: "analyze_wealth_opportunity", context: { metrics: true },
       reason: "canonical_wealth_opportunity",
+    };
+  }
+
+  // "monte um plano para eu chegar a X" tem fluxo composto determinístico.
+  if (/\b(monte?|montar|faz|fazer|cria[r]?|elabora[r]?) (um )?plano\b|\bplano (para|pra) (eu )?(chegar|juntar|alcancar|ter)\b|\bcomo (eu )?(chego|fa[cç]o para chegar|junto) (a|em|nos?) r?\$?\s?\d/.test(t)) {
+    return {
+      name: "financial_plan", execution: "deterministic",
+      allowed_tools: ["build_financial_plan", "analyze_wealth_opportunity", "analyze_longitudinal_trajectory", "get_goal_strategy"],
+      required_tool: "build_financial_plan", context: { metrics: true },
+      reason: "canonical_financial_plan",
     };
   }
 

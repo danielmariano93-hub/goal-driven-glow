@@ -30,5 +30,6 @@ export * from "./metrics.ts";
 export * from "./categoryGoalStrategy.ts";
 export * from "./longitudinal.ts";
 export * from "./wealthOpportunity.ts";
+export * from "./recurringSchedule.ts";
 export type { DateRange, Trend } from "./spendingRhythm.ts";
 export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";

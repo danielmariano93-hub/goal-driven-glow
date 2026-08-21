@@ -48,3 +48,6 @@ verify_jwt = false
 
 [functions.category-engine]
 verify_jwt = false
+
+[functions.home-snapshot]
+verify_jwt = true

@@ -53,7 +53,7 @@ import { findPending } from "./PendingConfirmations.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
-import { serializeWithinBudget } from "./ContextBudget.ts";
+import { serializeWithinBudget, estimateTokens } from "./ContextBudget.ts";
 
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
@@ -630,6 +630,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+  // Observabilidade por bloco: quanto do prompt foi contexto financeiro.
+  let contextJson = "";
+  let contextChars = 0;
+
   systemPrompt = `${capabilityPrompt(capability)}\n\n${turnPlanPrompt(turnPlan)}\n\n${systemPrompt}`;
   if (prePlan && prePlan.steps.length > 0) {
     const writeStep = prePlan.steps.find((s) => s.kind === "write");
@@ -652,6 +656,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // previously decorative FinancialContext360 facade into actual grounding
   // while keeping prompts bounded and identical across App and WhatsApp.
   if (capability.execution === "llm_scoped" && Object.values(capability.context).some(Boolean)) {
+    // Medição do bloco de contexto (observabilidade por bloco do prompt).
     const financialContext = await guard(
       () => tctx.snapshot(capability.context),
       (m) => metrics.errors.push("context360:" + m),
@@ -660,7 +665,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     if (financialContext && Object.keys(financialContext).length) {
       // Orçamento de contexto: campos vazios saem, listas são limitadas e o
       // JSON respeita 4k chars. Nada de corte cego no meio de uma chave.
-      const { json: serialized, truncated } = serializeWithinBudget(financialContext);
+      const { json: serialized, truncated, chars } = serializeWithinBudget(financialContext);
+      contextJson = serialized;
+      contextChars = chars;
       metrics.formula_versions = {
         ...(metrics.formula_versions ?? {}),
         context_budget: "context_budget.v1",
@@ -1092,6 +1099,23 @@ ${JSON.stringify(hints)}
 
   // ---- Persist run + tool calls -----------------------------------------
   const latency = Date.now() - startedAt;
+  // Observabilidade real do turno: cada estágio tem o seu tempo, e o tempo de
+  // ferramenta é a soma medida das chamadas (não um resto de subtração).
+  const toolMs = toolCallLog.reduce((acc: number, c: any) => acc + Number(c.duration_ms ?? 0), 0);
+  const stageMs = {
+    ...metrics.stages,
+    total: latency,
+    tools_measured: toolMs,
+  };
+  const tokenSplit = {
+    prompt_system: estimateTokens(systemPrompt),
+    context: estimateTokens(contextJson),
+    history: (history ?? []).reduce((acc, h) => acc + estimateTokens(String(h.content ?? "")), 0),
+    user_text: estimateTokens(String(input.text ?? "")),
+    completion: metrics.tokens_out ?? 0,
+    reported_in: metrics.tokens_in ?? 0,
+    reported_out: metrics.tokens_out ?? 0,
+  };
   if (run_id) {
     await guard(async () => {
       const { error: runError } = await sb.from("agent_runs").update({
@@ -1108,7 +1132,19 @@ ${JSON.stringify(hints)}
         capability: capability.name,
         tool_scope: capability.allowed_tools,
         model_attempts: planner.modelAttempts,
+        channel: metrics.channel ?? null,
+        stage_ms: stageMs,
+        token_breakdown: tokenSplit,
+        context_chars: contextChars || null,
+        routing_ms: Math.round(metrics.stages.intent ?? 0) || null,
+        history_ms: Math.round(metrics.stages.session ?? 0) || null,
+        context_ms: Math.round(metrics.stages.plan ?? 0) || null,
+        tool_ms: toolMs || null,
+        llm_ms: Math.round(Math.max(0, (metrics.stages.tools ?? 0) - toolMs)) || null,
+        persist_ms: Math.round(metrics.stages.persist ?? 0) || null,
+        estimated_cost_usd: metrics.estimated_cost_usd ?? null,
       }).eq("id", run_id);
+
       if (runError) throw runError;
       if (toolCallLog.length > 0) {
         const { error: callsError } = await sb.from("agent_tool_calls").insert(toolCallLog.map(c => ({

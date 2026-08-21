@@ -18,7 +18,11 @@ import { computeFinancialEvolution } from "../finance-core/financialEvolution.ts
 import { computeDebtStatus } from "../finance-core/debtStatus.ts";
 import { computeLongitudinal } from "../finance-core/longitudinal.ts";
 import { computeWealthOpportunity } from "../finance-core/wealthOpportunity.ts";
-import { computeNetWorth } from "../finance-core/facts.ts";
+import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { historyFingerprint, persistFinancialProfile } from "./financialProfile.ts";
+import { buildGoalStrategy, type GoalStrategy } from "../engine/goalStrategy.ts";
+import { computeGoalStrategy } from "./goalStrategyTool.ts";
+
 import {
   computeFinancialComparison,
   FINANCIAL_COMPARISON_VERSION,
@@ -680,16 +684,27 @@ export function analyze_longitudinal_trajectory(
       loadEngineTransactions(ctx, period.from, period.to),
       loadCategoryNames(ctx),
     ]);
-    const env = computeLongitudinal({ txs: txs as any, period, categoryNames });
+    const env = computeLongitudinal({
+      txs: txs as any,
+      period,
+      categoryNames,
+      asOf: todaySaoPaulo().slice(0, 10),
+    });
     const f = env.facts;
     const cp = f.change_point;
     const parts = [
-      `Analisei ${f.months_analyzed} meses (${period.from} a ${period.to}).`,
+      `Analisei ${f.closed_months_analyzed} meses fechados (${period.from} a ${period.to}).`,
       `O resultado médio recente é ${brl(f.result_trend.recent_average)} contra ${brl(f.result_trend.previous_average)} antes — tendência ${f.result_trend.direction}.`,
       `O consumo flexível está ${f.behavior_trend.direction} (mediana de ${brl(f.flexible_median)} por mês).`,
     ];
+    if (f.open_month) {
+      parts.push(`${f.open_month.month} ainda está em curso (${f.open_month.days_elapsed} de ${f.open_month.days_in_month} dias), então não conta como melhora: no ritmo atual fecharia em ${brl(f.open_month.flexible_expense_mtd_equivalent)} de consumo flexível.`);
+    }
     if (cp) {
       parts.push(`A virada aconteceu em ${cp.month}: de ${brl(cp.before_average)} para ${brl(cp.after_average)} (${cp.direction}), há ${cp.duration_months} mês(es).`);
+    }
+    if (f.extraordinary_months.length > 0) {
+      parts.push(`Isolei valores atípicos em ${f.extraordinary_months.map((m) => m.month).join(", ")} para não distorcer a média.`);
     }
     if (f.result_driven_by_income) {
       parts.push(`Atenção: a melhora vem de renda maior, não de mudança de comportamento.`);
@@ -699,9 +714,29 @@ export function analyze_longitudinal_trajectory(
 }
 
 /**
+ * Patrimônio canônico (`finance_truth.v1`). Fonte ÚNICA: o snapshot financeiro
+ * do agente — o mesmo que alimenta `get_net_worth`. Nenhuma capability
+ * reconstrói patrimônio por conta própria, e falha de leitura NUNCA vira
+ * patrimônio parcial: ela interrompe com erro explícito.
+ */
+async function resolveCanonicalNetWorth(
+  ctx: EngineToolContext,
+): Promise<{ net: number; composition: unknown; formula_version: string }> {
+  const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+  const net = Number((snap as any)?.net_worth);
+  if (!Number.isFinite(net)) throw new Error("net_worth_unavailable");
+  return {
+    net,
+    composition: (snap as any).net_worth_composition ?? null,
+    formula_version: String((snap as any).formula_version ?? "finance_contract"),
+  };
+}
+
+/**
  * Oportunidade patrimonial (`wealth_opportunity.v1`).
  * Responde "quanto eu poderia ter acumulado?" e "quanto consigo guardar por
- * mês?" usando a baseline do próprio usuário e capitalização por aporte.
+ * mês?" usando a baseline do próprio usuário e capitalização por aporte, sempre
+ * sobre o patrimônio CANÔNICO.
  */
 export function analyze_wealth_opportunity(
   ctx: EngineToolContext,
@@ -710,22 +745,18 @@ export function analyze_wealth_opportunity(
   return guard(async () => {
     const months = Math.max(3, Math.min(36, Number(args?.months ?? 12)));
     const period = monthsAgo(months);
-    const [txs, categoryNames, accounts, investments, debts, snapshots] = await Promise.all([
+    const [txs, categoryNames, netWorth, debts] = await Promise.all([
       loadEngineTransactions(ctx, period.from, period.to),
       loadCategoryNames(ctx),
-      ctx.sb.from("accounts").select("id,name,type,initial_balance,active,archived_at").eq("user_id", ctx.user_id),
-      ctx.sb.from("investments").select("id,current_value").eq("user_id", ctx.user_id),
+      resolveCanonicalNetWorth(ctx),
       loadDebts(ctx),
-      ctx.sb.from("account_balance_snapshots").select("*").eq("user_id", ctx.user_id),
     ]);
-    const longitudinal = computeLongitudinal({ txs: txs as any, period, categoryNames });
-    const netWorth = computeNetWorth(
-      ((accounts as any)?.data ?? []) as any,
-      txs as any,
-      (((investments as any)?.data ?? []) as any).map((i: any) => ({ ...i, current_value: Number(i.current_value ?? 0) })),
-      debts as any,
-      (((snapshots as any)?.data ?? []) as any),
-    );
+    const longitudinal = computeLongitudinal({
+      txs: txs as any,
+      period,
+      categoryNames,
+      asOf: todaySaoPaulo().slice(0, 10),
+    });
     const commitments = (debts as any[]).filter((d: any) => d.status === "active")
       .reduce((acc: number, d: any) => acc + Number(d.installment_amount ?? 0), 0);
     const env = computeWealthOpportunity({
@@ -734,12 +765,169 @@ export function analyze_wealth_opportunity(
       period,
       monthlyCommitments: commitments,
       annualYieldPct: Number(args?.annual_yield_pct ?? 0),
+      // Fontes do potencial: séries mensais por categoria flexível vindas do
+      // próprio motor longitudinal (E2E — nada de drivers vazios).
+      flexibleByCategory: longitudinal.facts.flexible_by_category,
     });
     const f = env.facts;
     const realistic = f.scenarios.find((s) => s.key === "realista")!;
+    const sources = env.drivers ?? [];
+    const sourceText = sources.length
+      ? ` As fontes são ${sources.map((s: any) => `${s.label} (${brl(s.recoverable_monthly)}/mês)`).join(", ")}.`
+      : "";
+    // Financial Profile Learning: o perfil longitudinal fica gravado com o hash
+    // do histórico — histórico novo recalcula, nada de perfil velho silencioso.
+    await persistFinancialProfile(ctx.sb, {
+      userId: ctx.user_id,
+      asOf: todaySaoPaulo().slice(0, 10),
+      period: { from: period.from, to: period.to },
+      longitudinal: longitudinal.facts,
+      wealth: f,
+      sources: (env.drivers ?? []) as any,
+      netWorth: netWorth.net,
+      confidence: String(env.confidence ?? ""),
+      transactionsHash: historyFingerprint(txs as any),
+    }).catch(() => ({ ok: false }));
+
     const headline = f.recoverable_excess <= 0
-      ? `Nos últimos ${f.months_analyzed} meses seu consumo flexível ficou dentro da sua própria média (${brl(f.baseline_spending)}): não há excesso relevante para recuperar. Seu patrimônio hoje é ${brl(f.actual_net_worth)}.`
-      : `Nos últimos ${f.months_analyzed} meses você gastou ${brl(f.observed_spending)} em consumo flexível, ${brl(f.recoverable_excess)} acima da sua própria média. No cenário realista (metade desse excesso, ${brl(realistic.monthly_saving)} por mês), você teria ${brl(realistic.potential_net_worth)} em vez de ${brl(f.actual_net_worth)}. Dá para guardar ${brl(f.sustainable_monthly_saving)} por mês de forma sustentável.`;
+      ? `Nos últimos ${f.months_analyzed} meses fechados seu consumo flexível ficou dentro da sua própria média (${brl(f.baseline_spending)}): não há excesso relevante para recuperar. Seu patrimônio hoje é ${brl(f.actual_net_worth)}.`
+      : `Nos últimos ${f.months_analyzed} meses fechados você gastou ${brl(f.observed_spending)} em consumo flexível, ${brl(f.recoverable_excess)} acima da sua própria média. No cenário realista (metade desse excesso, ${brl(realistic.monthly_saving)} por mês), você teria ${brl(realistic.potential_net_worth)} em vez de ${brl(f.actual_net_worth)}. Dá para guardar ${brl(f.sustainable_monthly_saving)} por mês de forma sustentável.${sourceText}`;
     return withAnswerFormat(env, headline);
   });
 }
+
+/**
+ * Plano financeiro composto (`financial_plan.v1`).
+ * Fluxo determinístico completo, sem improviso da LLM:
+ *  histórico → trajetória → capacidade sustentável de poupança →
+ *  oportunidade patrimonial → meta desejada → `goal_strategy.v1` → passos.
+ */
+export function build_financial_plan(
+  ctx: EngineToolContext,
+  args: { target_amount?: number; target_date?: string; goal?: string; months?: number; annual_yield_pct?: number },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const months = Math.max(3, Math.min(36, Number(args?.months ?? 12)));
+    const period = monthsAgo(months);
+    const today = todaySaoPaulo().slice(0, 10);
+    const [txs, categoryNames, netWorth, debts] = await Promise.all([
+      loadEngineTransactions(ctx, period.from, period.to),
+      loadCategoryNames(ctx),
+      resolveCanonicalNetWorth(ctx),
+      loadDebts(ctx),
+    ]);
+    const longitudinal = computeLongitudinal({ txs: txs as any, period, categoryNames, asOf: today });
+    const commitments = (debts as any[]).filter((d: any) => d.status === "active")
+      .reduce((acc: number, d: any) => acc + Number(d.installment_amount ?? 0), 0);
+    const wealth = computeWealthOpportunity({
+      longitudinal: longitudinal.facts,
+      actualNetWorth: netWorth.net,
+      period,
+      monthlyCommitments: commitments,
+      annualYieldPct: Number(args?.annual_yield_pct ?? 0),
+      flexibleByCategory: longitudinal.facts.flexible_by_category,
+    });
+
+    const sustainable = wealth.facts.sustainable_monthly_saving;
+    const closed = longitudinal.facts.closed_months;
+    const monthlyIncome = closed.length
+      ? Math.round((closed.reduce((a, m) => a + m.income_normalized, 0) / closed.length) * 100) / 100
+      : 0;
+    const monthlySurplus = closed.length
+      ? Math.round((closed.reduce((a, m) => a + m.net, 0) / closed.length) * 100) / 100
+      : 0;
+
+    const target = Number(args?.target_amount ?? 0);
+    let plan: GoalStrategy | null = null;
+    let goalName = String(args?.goal ?? "").trim();
+
+    if (target > 0) {
+      plan = buildGoalStrategy({
+        goalName: goalName || `Objetivo de ${brl(target)}`,
+        targetAmount: target,
+        // O patrimônio canônico já acumulado conta como ponto de partida.
+        achievedAmount: Math.max(0, netWorth.net),
+        targetDate: /^\d{4}-\d{2}-\d{2}$/.test(String(args?.target_date ?? "")) ? String(args?.target_date) : null,
+        today,
+        monthlyIncome,
+        monthlySurplus,
+        // Ritmo realista: o que o próprio histórico sustenta.
+        currentMonthlyPace: sustainable,
+        overspendCategories: (wealth.drivers ?? []).map((s: any) => ({
+          name: s.label,
+          monthlyAvg: s.observed_monthly,
+          baseline: s.baseline_monthly,
+        })),
+      });
+      goalName = plan.goalName;
+    } else {
+      // Sem meta informada, o plano é montado para as metas ativas do usuário.
+      const strategy = await computeGoalStrategy(ctx.sb, ctx.user_id, { goal: goalName || undefined });
+      plan = strategy.plans[0] ?? null;
+      goalName = plan?.goalName ?? "";
+    }
+
+    await persistFinancialProfile(ctx.sb, {
+      userId: ctx.user_id,
+      asOf: today,
+      period: { from: period.from, to: period.to },
+      longitudinal: longitudinal.facts,
+      wealth: wealth.facts,
+      sources: (wealth.drivers ?? []) as any,
+      netWorth: netWorth.net,
+      confidence: String(wealth.confidence ?? ""),
+      transactionsHash: historyFingerprint(txs as any),
+    }).catch(() => ({ ok: false }));
+
+    const headlineParts = [
+      `Sua trajetória de ${longitudinal.facts.closed_months_analyzed} meses fechados mostra resultado ${longitudinal.facts.result_trend.direction} e consumo flexível ${longitudinal.facts.behavior_trend.direction}.`,
+      `Pelo seu próprio histórico, a capacidade sustentável de poupança é ${brl(sustainable)} por mês.`,
+    ];
+    if (plan) {
+      headlineParts.push(
+        `Para ${plan.goalName}, faltam ${brl(plan.remaining)}${plan.requiredMonthly !== null ? ` e o plano pede ${brl(plan.requiredMonthly)} por mês` : " (sem prazo definido)"}.`,
+      );
+      if (plan.requiredMonthly !== null && plan.requiredMonthly > sustainable) {
+        headlineParts.push(`Isso está acima da sua capacidade atual: ${plan.alternatives[0]?.detail ?? "vale rever prazo ou valor"}.`);
+      }
+      headlineParts.push(`Próximo passo: ${plan.nextAction}`);
+    } else {
+      headlineParts.push("Me diga o valor e o prazo do objetivo que eu fecho o plano com passos concretos.");
+    }
+
+    const env = {
+      engine: "financial_plan.v1",
+      facts: {
+        period,
+        net_worth: netWorth.net,
+        net_worth_source: netWorth.formula_version,
+        sustainable_monthly_saving: sustainable,
+        monthly_income_normalized: monthlyIncome,
+        monthly_surplus: monthlySurplus,
+        trajectory: {
+          closed_months_analyzed: longitudinal.facts.closed_months_analyzed,
+          result_trend: longitudinal.facts.result_trend,
+          behavior_trend: longitudinal.facts.behavior_trend,
+          change_point: longitudinal.facts.change_point,
+          open_month: longitudinal.facts.open_month,
+        },
+        wealth: {
+          recoverable_monthly: wealth.facts.recoverable_monthly,
+          scenarios: wealth.facts.scenarios,
+          opportunity_gap: wealth.facts.opportunity_gap,
+        },
+        plan,
+        assumptions: wealth.facts.assumptions,
+      },
+      breakdown: longitudinal.facts.closed_months,
+      drivers: wealth.drivers ?? [],
+      evidence: {
+        ...wealth.evidence,
+        formula_version: "financial_plan.v1",
+      },
+      confidence: wealth.confidence,
+    };
+    return withAnswerFormat(env as any, headlineParts.join(" "));
+  });
+}
+

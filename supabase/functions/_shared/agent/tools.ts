@@ -1361,7 +1361,7 @@ import {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
   compare_financial_metric, assess_financial_performance,
-  analyze_longitudinal_trajectory, analyze_wealth_opportunity,
+  analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 
@@ -1370,7 +1370,7 @@ export {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
   compare_financial_metric, assess_financial_performance,
-  analyze_longitudinal_trajectory, analyze_wealth_opportunity,
+  analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
 };
 
 /**
@@ -2992,6 +2992,22 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: analyze_wealth_opportunity,
+  },
+  {
+    name: "build_financial_plan",
+    description: "PLANO FINANCEIRO COMPLETO (financial_plan.v1): liga trajetória longitudinal + capacidade sustentável de poupança + oportunidade patrimonial + estratégia da meta em um plano com passos e alternativas. Use para 'monte um plano para eu chegar a X', 'como saio de onde estou para a minha meta', 'plano para juntar R$ 20 mil'. Nunca monte esse plano de cabeça.",
+    parameters: {
+      type: "object",
+      properties: {
+        target_amount: num,
+        target_date: optionalStr,
+        goal: optionalStr,
+        months: { type: "integer", minimum: 3, maximum: 36 },
+        annual_yield_pct: num,
+      },
+      additionalProperties: false,
+    },
+    execute: build_financial_plan,
   },
   {
     name: "get_debt_status",

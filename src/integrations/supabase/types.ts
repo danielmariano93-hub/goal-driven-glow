@@ -865,75 +865,108 @@ export type Database = {
       agent_runs: {
         Row: {
           capability: string | null
+          channel: string | null
+          context_chars: number | null
+          context_ms: number | null
           conversation_id: string | null
           cost_cents: number
           ended_at: string | null
           error_masked: string | null
           error_sanitized: string | null
+          estimated_cost_usd: number | null
           formula_versions: Json | null
+          history_ms: number | null
           id: string
           intent_requested: string | null
           intent_served: string | null
           latency_ms: number | null
+          llm_ms: number | null
           model: string | null
           model_attempts: Json
           path: string | null
+          persist_ms: number | null
           prompt_version_id: string | null
+          routing_ms: number | null
+          stage_ms: Json
           started_at: string
           status: Database["public"]["Enums"]["run_status"]
           steps: number
+          token_breakdown: Json
           tokens_in: number
           tokens_out: number
+          tool_ms: number | null
           tool_scope: string[]
           tools_used: string[] | null
           user_id: string
         }
         Insert: {
           capability?: string | null
+          channel?: string | null
+          context_chars?: number | null
+          context_ms?: number | null
           conversation_id?: string | null
           cost_cents?: number
           ended_at?: string | null
           error_masked?: string | null
           error_sanitized?: string | null
+          estimated_cost_usd?: number | null
           formula_versions?: Json | null
+          history_ms?: number | null
           id?: string
           intent_requested?: string | null
           intent_served?: string | null
           latency_ms?: number | null
+          llm_ms?: number | null
           model?: string | null
           model_attempts?: Json
           path?: string | null
+          persist_ms?: number | null
           prompt_version_id?: string | null
+          routing_ms?: number | null
+          stage_ms?: Json
           started_at?: string
           status?: Database["public"]["Enums"]["run_status"]
           steps?: number
+          token_breakdown?: Json
           tokens_in?: number
           tokens_out?: number
+          tool_ms?: number | null
           tool_scope?: string[]
           tools_used?: string[] | null
           user_id: string
         }
         Update: {
           capability?: string | null
+          channel?: string | null
+          context_chars?: number | null
+          context_ms?: number | null
           conversation_id?: string | null
           cost_cents?: number
           ended_at?: string | null
           error_masked?: string | null
           error_sanitized?: string | null
+          estimated_cost_usd?: number | null
           formula_versions?: Json | null
+          history_ms?: number | null
           id?: string
           intent_requested?: string | null
           intent_served?: string | null
           latency_ms?: number | null
+          llm_ms?: number | null
           model?: string | null
           model_attempts?: Json
           path?: string | null
+          persist_ms?: number | null
           prompt_version_id?: string | null
+          routing_ms?: number | null
+          stage_ms?: Json
           started_at?: string
           status?: Database["public"]["Enums"]["run_status"]
           steps?: number
+          token_breakdown?: Json
           tokens_in?: number
           tokens_out?: number
+          tool_ms?: number | null
           tool_scope?: string[]
           tools_used?: string[] | null
           user_id?: string
@@ -5549,6 +5582,87 @@ export type Database = {
           suppressed?: Json
           user_id?: string
           valid_until?: string | null
+        }
+        Relationships: []
+      }
+      financial_profile_snapshots: {
+        Row: {
+          as_of: string
+          behavior_trend: string | null
+          change_point: Json | null
+          closed_months_analyzed: number
+          confidence: string | null
+          created_at: string
+          extraordinary_months: Json
+          flexible_baseline: number
+          flexible_sources: Json
+          formula_version: string
+          id: string
+          income_baseline: number
+          months: Json
+          net_worth: number
+          period_from: string
+          period_to: string
+          recoverable_monthly: number
+          result_trend: string | null
+          savings_rate_median: number | null
+          structural_baseline: number
+          sustainable_monthly_saving: number
+          transactions_hash: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          as_of: string
+          behavior_trend?: string | null
+          change_point?: Json | null
+          closed_months_analyzed?: number
+          confidence?: string | null
+          created_at?: string
+          extraordinary_months?: Json
+          flexible_baseline?: number
+          flexible_sources?: Json
+          formula_version?: string
+          id?: string
+          income_baseline?: number
+          months?: Json
+          net_worth?: number
+          period_from: string
+          period_to: string
+          recoverable_monthly?: number
+          result_trend?: string | null
+          savings_rate_median?: number | null
+          structural_baseline?: number
+          sustainable_monthly_saving?: number
+          transactions_hash?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          as_of?: string
+          behavior_trend?: string | null
+          change_point?: Json | null
+          closed_months_analyzed?: number
+          confidence?: string | null
+          created_at?: string
+          extraordinary_months?: Json
+          flexible_baseline?: number
+          flexible_sources?: Json
+          formula_version?: string
+          id?: string
+          income_baseline?: number
+          months?: Json
+          net_worth?: number
+          period_from?: string
+          period_to?: string
+          recoverable_monthly?: number
+          result_trend?: string | null
+          savings_rate_median?: number | null
+          structural_baseline?: number
+          sustainable_monthly_saving?: number
+          transactions_hash?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }

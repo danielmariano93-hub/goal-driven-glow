@@ -294,11 +294,13 @@ export type TxFilters = {
   search?: string;
 };
 
-export function useTransactions(filters: TxFilters = {}) {
+export function useTransactions(filters: TxFilters = {}, options: { enabled?: boolean } = {}) {
   const { user } = useAuth();
   return useQuery({
     queryKey: ["transactions", user?.id, filters],
-    enabled: !!user,
+    // `enabled: false` permite que superfícies servidas por snapshot no servidor
+    // NÃO baixem o histórico inteiro para o dispositivo.
+    enabled: !!user && options.enabled !== false,
     queryFn: async () => {
       // Paginação obrigatória: o PostgREST corta em 1000 linhas silenciosamente,
       // e os KPIs brutos da Home (computeAccountStatementTotals) exigem a amostra
@@ -339,8 +341,8 @@ export function useTransactions(filters: TxFilters = {}) {
   });
 }
 
-export function useAllTransactions() {
-  return useTransactions({});
+export function useAllTransactions(options: { enabled?: boolean } = {}) {
+  return useTransactions({}, options);
 }
 
 export function useSaveTransaction() {
