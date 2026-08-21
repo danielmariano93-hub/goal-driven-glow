@@ -1092,6 +1092,23 @@ ${JSON.stringify(hints)}
 
   // ---- Persist run + tool calls -----------------------------------------
   const latency = Date.now() - startedAt;
+  // Observabilidade real do turno: cada estágio tem o seu tempo, e o tempo de
+  // ferramenta é a soma medida das chamadas (não um resto de subtração).
+  const toolMs = toolCallLog.reduce((acc: number, c: any) => acc + Number(c.duration_ms ?? 0), 0);
+  const stageMs = {
+    ...metrics.stages,
+    total: latency,
+    tools_measured: toolMs,
+  };
+  const tokenSplit = {
+    prompt_system: estimateTokens(String(prompt?.system ?? "")),
+    context: estimateTokens(String((prompt as any)?.context_json ?? "")),
+    history: (history ?? []).reduce((acc, h) => acc + estimateTokens(String(h.content ?? "")), 0),
+    user_text: estimateTokens(String(input.text ?? "")),
+    completion: metrics.tokens_out ?? 0,
+    reported_in: metrics.tokens_in ?? 0,
+    reported_out: metrics.tokens_out ?? 0,
+  };
   if (run_id) {
     await guard(async () => {
       const { error: runError } = await sb.from("agent_runs").update({
@@ -1108,7 +1125,19 @@ ${JSON.stringify(hints)}
         capability: capability.name,
         tool_scope: capability.allowed_tools,
         model_attempts: planner.modelAttempts,
+        channel: metrics.channel ?? null,
+        stage_ms: stageMs,
+        token_breakdown: tokenSplit,
+        context_chars: Number((prompt as any)?.context_chars ?? 0) || null,
+        routing_ms: Math.round(metrics.stages.intent ?? 0) || null,
+        history_ms: Math.round(metrics.stages.session ?? 0) || null,
+        context_ms: Math.round(metrics.stages.plan ?? 0) || null,
+        tool_ms: toolMs || null,
+        llm_ms: Math.round(Math.max(0, (metrics.stages.tools ?? 0) - toolMs)) || null,
+        persist_ms: Math.round(metrics.stages.persist ?? 0) || null,
+        estimated_cost_usd: metrics.estimated_cost_usd ?? null,
       }).eq("id", run_id);
+
       if (runError) throw runError;
       if (toolCallLog.length > 0) {
         const { error: callsError } = await sb.from("agent_tool_calls").insert(toolCallLog.map(c => ({
