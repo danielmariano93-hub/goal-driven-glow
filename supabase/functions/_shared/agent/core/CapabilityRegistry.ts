@@ -13,6 +13,7 @@ export type CapabilityDomain =
   | "goals"
   | "debts"
   | "recurring"
+  | "investments"
   | "analysis"
   | "advisor"
   | "emotions"
@@ -86,6 +87,48 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   // --- Relatórios ---
   { key: "reports.chart", label: "Gráfico", domain: "reports", tool: "generate_chart_artifact", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "gerar um gráfico do período" },
   { key: "reports.template", label: "Relatório", domain: "reports", tool: "generate_report_from_template", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "montar um relatório do período" },
+  // --- Patrimônio e investimentos ---
+  { key: "patrimony.net_worth", label: "Patrimônio", domain: "investments", tool: "get_net_worth", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar seu patrimônio (contas, investimentos e dívidas)" },
+  { key: "investments.list", label: "Carteira de investimentos", domain: "investments", tool: "list_investments", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "consultar sua carteira de investimentos" },
+
+  // --- Cartões (compromissos futuros) ---
+  { key: "cards.future_installments", label: "Parcelas futuras", domain: "cards", tool: "get_future_installments", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar as parcelas que ainda vão cair" },
+
+  // --- Recorrências e agenda ---
+  { key: "recurring.list", label: "Recorrências ativas", domain: "recurring", tool: "list_recurring_rules", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "listar suas recorrências ativas" },
+  { key: "agenda.commitments", label: "Agenda de compromissos", domain: "recurring", tool: "get_commitments_agenda", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar os compromissos que vencem em seguida" },
+
+  // --- Leituras canônicas restantes ---
+  { key: "accounts.list", label: "Contas", domain: "ledger", tool: "list_accounts", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "consultar suas contas" },
+  { key: "categories.list", label: "Categorias", domain: "ledger", tool: "list_categories", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "consultar suas categorias" },
+  { key: "ledger.summary", label: "Resumo do mês", domain: "analysis", tool: "get_financial_summary", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "resumir entradas e saídas do mês" },
+  { key: "ledger.detail", label: "Detalhe do lançamento", domain: "ledger", tool: "get_transaction", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "abrir o detalhe de um lançamento" },
+  { key: "analysis.spending", label: "Onde gastou", domain: "analysis", tool: "analyze_spending", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "resumir onde você gastou" },
+  { key: "analysis.day", label: "Gasto do dia", domain: "analysis", tool: "get_spending_for_date", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "somar o gasto de um dia específico" },
+  { key: "analysis.insights", label: "Insights do dia", domain: "analysis", tool: "get_daily_insights", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "trazer o insight do dia" },
+  { key: "analysis.highlights", label: "Destaques de gasto", domain: "analysis", tool: "get_spending_highlights", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "destacar o que puxou seu gasto" },
+  { key: "analysis.anomalies", label: "Gastos fora do padrão", domain: "analysis", tool: "detect_spending_anomalies", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "apontar gastos fora do seu padrão" },
+  { key: "analysis.change", label: "Por que mudou", domain: "analysis", tool: "explain_spending_change", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "explicar por que seu gasto mudou" },
+  { key: "analysis.behavior_change", label: "Mudança de comportamento", domain: "analysis", tool: "explain_behavior_change", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "explicar mudanças no seu comportamento" },
+  { key: "analysis.metric", label: "Comparar indicador", domain: "analysis", tool: "compare_financial_metric", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "comparar um indicador seu no tempo" },
+  { key: "analysis.evolution", label: "Evolução financeira", domain: "analysis", tool: "analyze_financial_evolution", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar sua evolução financeira" },
+  { key: "analysis.series", label: "Série diária", domain: "analysis", tool: "spending_timeseries_daily", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar o gasto dia a dia" },
+  { key: "analysis.trend", label: "Tendência da média diária", domain: "analysis", tool: "spending_average_daily_trend", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar a tendência da sua média diária" },
+  { key: "analysis.merchant_distribution", label: "Distribuição por estabelecimento", domain: "analysis", tool: "merchant_distribution", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "distribuir o gasto por estabelecimento" },
+  { key: "analysis.merchant_profile", label: "Perfil do estabelecimento", domain: "analysis", tool: "merchant_profile", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "abrir o perfil de um estabelecimento" },
+  { key: "goals.category_list", label: "Metas por categoria", domain: "goals", tool: "list_category_spending_goals", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "acompanhar seus tetos por categoria" },
+  { key: "goals.projection", label: "Projeção da meta", domain: "goals", tool: "project_goal_completion", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "projetar quando a meta fecha" },
+  { key: "goals.pace", label: "Ritmo da meta", domain: "goals", tool: "simulate_goal_pace", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "simular o ritmo de uma meta" },
+  { key: "sharing.goal_progress", label: "Progresso da meta conjunta", domain: "sharing", tool: "get_shared_goal_progress", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "ver o progresso de uma meta conjunta" },
+  { key: "sharing.goal_pace", label: "Ritmo da meta conjunta", domain: "sharing", tool: "simulate_shared_goal_pace", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "simular o ritmo de uma meta conjunta" },
+  { key: "sharing.goal_ranking", label: "Ranking da meta conjunta", domain: "sharing", tool: "explain_shared_goal_ranking", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "explicar o ranking de uma meta conjunta" },
+  { key: "sharing.goal_create", label: "Criar meta conjunta", domain: "sharing", tool: "create_shared_goal_draft", writes: true, risk: "low", surfaces: ["app", "whatsapp"], says: "criar uma meta conjunta" },
+  { key: "sharing.goal_contribute", label: "Aportar em meta conjunta", domain: "sharing", tool: "add_shared_goal_contribution_draft", writes: true, risk: "medium", surfaces: ["app", "whatsapp"], says: "registrar aporte em meta conjunta" },
+  { key: "emotions.history", label: "Histórico emocional", domain: "emotions", tool: "get_emotional_checkins", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "revisitar seus check-ins emocionais" },
+
+  // --- Meta (confirmação de rascunhos) ---
+  { key: "meta.confirm", label: "Confirmar pendência", domain: "meta", tool: "confirm_pending_action", writes: true, risk: "medium", surfaces: ["app", "whatsapp"], says: "confirmar um rascunho pendente" },
+  { key: "meta.cancel", label: "Cancelar pendência", domain: "meta", tool: "cancel_pending_action", writes: false, risk: "low", surfaces: ["app", "whatsapp"], says: "cancelar um rascunho pendente" },
 ];
 
 const BY_TOOL = new Map(CAPABILITIES.map((c) => [c.tool, c]));

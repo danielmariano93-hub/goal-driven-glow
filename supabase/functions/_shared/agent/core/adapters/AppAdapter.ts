@@ -10,8 +10,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { handleTurn, type HandleTurnResult } from "../AgentCore.ts";
 import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
-import { buildReceipt } from "../ReceiptBuilder.ts";
-import { confirmationExecutor } from "../PendingConfirmations.ts";
+import { confirmAndBuildReceipt } from "../ConfirmAndReceipt.ts";
 import { findBulkPending, executeBulkPending } from "../BulkEntry.ts";
 
 import { hasExplicitChartIntent } from "../../../intelligence/chartIntent.ts";
@@ -93,21 +92,16 @@ export async function handleAppAction(args: {
     reply = "Combinado, cancelei este pedido.";
   } else {
 
-    const { data: exec, error: execErr } = await sb.rpc(confirmationExecutor(pending.kind), {
-      p_confirmation_id: pending.id, p_source_message_id: null,
+    const outcome = await confirmAndBuildReceipt(sb, {
+      id: pending.id, kind: pending.kind, user_id: args.user_id, payload: (pending as any).payload,
     });
-    const okExec = exec as { ok: boolean; result?: any; error?: string; idempotent?: boolean } | null;
-    if (execErr || !okExec?.ok) {
-      reply = okExec?.error === "expired"
-        ? "Este pedido expirou. Envie de novo, por favor."
-        : okExec?.error === "card_not_owned"
-        ? "Não consegui encontrar esse cartão. Confira e tente de novo."
-        : "Não consegui concluir a operação. NÃO foi registrada. Quer tentar novamente?";
+    if (outcome.ok) {
+      executed = outcome.execution?.result ?? null;
+      reply = outcome.reply;
     } else {
-      executed = okExec.result;
-      reply = okExec.idempotent
-        ? "Essa operação já havia sido confirmada. ✅"
-        : buildReceipt(pending.kind, okExec.result);
+      reply = outcome.error === "confirmation_failed:card_not_owned" || String(outcome.error ?? "").includes("card_not_owned")
+        ? "Não consegui encontrar esse cartão. Confira e tente de novo."
+        : outcome.reply;
     }
   }
 

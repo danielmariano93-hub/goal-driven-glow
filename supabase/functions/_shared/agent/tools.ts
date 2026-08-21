@@ -33,9 +33,8 @@ import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
 import { parseSpelledMoney } from "./amountWords.ts";
-import { buildReceipt } from "./core/ReceiptBuilder.ts";
 import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, draftCardDateBR } from "./core/DraftCard.ts";
-import { executeConfirmation } from "./core/PendingConfirmations.ts";
+import { confirmAndBuildReceipt } from "./core/ConfirmAndReceipt.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
 import {
@@ -844,21 +843,17 @@ export async function confirm_pending_action(ctx: ToolContext, args: { id?: stri
     if (expireError) return { ok: false, error: `pending_confirmation_expire_failed:${expireError.message}` };
     return { ok: false, error: "expired" };
   }
-  const execution = await executeConfirmation(ctx.sb, {
+  const outcome = await confirmAndBuildReceipt(ctx.sb, {
     id: (pending as any).id, kind: (pending as any).kind, user_id: ctx.user_id,
+    payload: (pending as any).payload,
   });
-  if (!execution.ok) return { ok: false, error: execution.error ?? "confirmation_failed" };
-  // Prova de escrita: sem ler de volta a linha, não existe recibo.
-  if (!execution.proof.proven) {
-    return { ok: false, error: `persistence_unproven:${execution.proof.reason ?? "unknown"}` };
-  }
+  if (!outcome.ok) return { ok: false, error: outcome.error ?? "confirmation_failed" };
+  const execution = outcome.execution!;
   const result = { ok: true, result: execution.result, idempotent: execution.idempotent };
 
-  // Recibo determinístico: ecoa o que ficou salvo (valor, descrição, data),
-  // nunca uma frase genérica igual a todas as outras.
-  let receipt = result.idempotent
-    ? "Essa operação já havia sido confirmada. Está tudo certo por aqui. ✅"
-    : buildReceipt((pending as any).kind, result.result);
+  // Recibo canônico (buildActionReceipt): valor, categoria, conta/cartão,
+  // competência e como corrigir — nunca uma frase genérica.
+  let receipt = outcome.reply;
   if (!result.idempotent && (pending as any).kind === "transaction") {
     const payload = ((pending as any).payload ?? {}) as any;
     const catName = payload.category_id ? await categoryNameById(ctx, String(payload.category_id)) : null;
