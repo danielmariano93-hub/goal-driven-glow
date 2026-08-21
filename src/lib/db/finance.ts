@@ -308,7 +308,8 @@ export function useTransactions(filters: TxFilters = {}) {
       let offset = 0;
       // Guarda de segurança: até 100k linhas por conta (100 páginas).
       for (let i = 0; i < 100; i++) {
-        let q = supabase.from("transactions").select("*")
+        let q = supabase.from("transactions").select(TX_COLUMNS)
+
           .order("occurred_at", { ascending: false })
           .order("created_at", { ascending: false })
           .range(offset, offset + PAGE - 1);
