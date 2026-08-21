@@ -55,7 +55,14 @@ export function NinoGuidanceCard({ diagnosis, context, projection, loading, erro
   const [noMoreReadings, setNoMoreReadings] = useState(false);
 
   const queue = useMemo(
-    () => (context ? buildNinoReadingQueue(context, { suppressedIds: answered }) : []),
+    () =>
+      context
+        ? buildNinoReadingQueue(context, {
+            // O servidor já é a memória do que foi respondido (vale entre dias e
+            // aparelhos); o storage local segue como supressão otimista da sessão.
+            suppressedIds: [...answered, ...(context.suppressed_situation_ids ?? [])],
+          })
+        : [],
     [context, answered],
   );
 
