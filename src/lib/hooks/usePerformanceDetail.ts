@@ -19,7 +19,9 @@ export function usePerformanceDetail(options?: { mode?: ComparisonMode }) {
 
   const query = useQuery({
     queryKey: [...qk.performanceDetail, user?.id, mode, asOf, ledgerVersion.data ?? 0],
-    enabled: !!user?.id,
+    // Espera a versão do ledger: sem isso a tela dispara uma leitura com
+    // versão 0 e outra logo depois, dobrando requisição a cada abertura.
+    enabled: !!user?.id && !ledgerVersion.isLoading,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const derived = await fetchDerivedPerformance({ asOf, mode });
