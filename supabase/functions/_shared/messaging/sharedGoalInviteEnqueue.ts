@@ -3,6 +3,7 @@
 // Reused by the shared-goal-notify-invite edge function and by tests.
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../agent/messageTemplates.ts";
 import { buildSharedGoalUrl, buildSignupUrl } from "./appUrl.ts";
+import { shortenAppUrl } from "../agent/core/ShortLinks.ts";
 
 const FOLLOWUP_HOURS = 72;
 
@@ -48,11 +49,19 @@ export async function enqueueGoalInvite(deps: EnqueueDeps, input: EnqueueInput):
     .maybeSingle();
   const isRegistered = !!link?.user_id;
 
-  const appLink = buildSharedGoalUrl(deps.env, input.goal_id, { ref: "wa_goal" });
-  const signupLink = buildSignupUrl(deps.env, {
-    ref: "wa_goal",
-    phone,
-    next: `/app/metas-conjuntas/${input.goal_id}`,
+  const appLink = await shortenAppUrl(deps.sb, {
+    user_id: input.owner_user_id,
+    url: buildSharedGoalUrl(deps.env, input.goal_id, { ref: "wa_goal" }),
+    kind: "goal_invite",
+  });
+  const signupLink = await shortenAppUrl(deps.sb, {
+    user_id: input.owner_user_id,
+    url: buildSignupUrl(deps.env, {
+      ref: "wa_goal",
+      phone,
+      next: `/app/metas-conjuntas/${input.goal_id}`,
+    }),
+    kind: "goal_invite_signup",
   });
   const linkSentence = buildLinkSentence({ isRegistered, appLink, signupLink });
 

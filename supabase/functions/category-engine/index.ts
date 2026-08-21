@@ -16,7 +16,7 @@ const CRON_SECRET=Deno.env.get("INTERNAL_CRON_SECRET")??Deno.env.get("CRON_SECRE
 const MODEL="google/gemini-3.6-flash";
 
 const InputSchema=z.object({transaction_id:z.string().nullish(),type:z.enum(["income","expense","transfer"]),description:z.string().nullish(),explicit_category:z.string().nullish(),movement_kind:z.string().nullish(),transfer_group_id:z.string().nullish(),settles_card_id:z.string().nullish(),shared_expense_id:z.string().nullish()});
-const BodySchema=z.object({operation:z.enum(["classify","classify_batch","learn","review_status","process_queue","process_queue_global"]),input:InputSchema.optional(),inputs:z.array(InputSchema).optional(),transaction_id:z.string().optional(),category_id:z.string().optional(),limit:z.number().int().min(1).max(500).optional()});
+const BodySchema=z.object({operation:z.enum(["classify","classify_batch","learn","review_status","process_queue","process_queue_global","backfill","backfill_global"]),input:InputSchema.optional(),inputs:z.array(InputSchema).optional(),transaction_id:z.string().optional(),category_id:z.string().optional(),limit:z.number().int().min(1).max(500).optional()});
 const LlmSchema=z.object({items:z.array(z.object({index:z.number(),category_id:z.string().nullable(),confidence:z.number()}))});
 function response(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{...corsHeaders,"Content-Type":"application/json"}});}
 
@@ -129,9 +129,48 @@ Deno.serve(async(req)=>{
       const {data,error}=await admin.rpc("claim_category_classification_batch",{p_limit:body.limit??100,p_user_id:null}); if(error)throw error;
       const result=await processClaimed(admin,(data??[]) as ClaimedRow[]); return response({ok:true,engine_version:CATEGORY_ENGINE_VERSION,claimed:(data??[]).length,...result});
     }
+    if(body.operation==="backfill_global"){
+      // Backfill operacional (cron/admin): reenfileira lançamentos elegíveis
+      // sem categoria de todos os usuários, com teto por execução.
+      if(!isCron)return response({error:"Não autorizado"},401);
+      const limit=Math.min(body.limit??300,500);
+      const {data:pending,error:pendingError}=await admin.from("transactions")
+        .select("id,user_id").eq("status","confirmed").in("type",["income","expense"])
+        .is("category_id",null).is("transfer_group_id",null).is("settles_card_id",null)
+        .order("occurred_at",{ascending:false}).limit(limit);
+      if(pendingError)throw pendingError;
+      const rows=(pending??[]) as Array<{id:string;user_id:string}>;
+      if(!rows.length)return response({ok:true,enqueued:0,engine_version:CATEGORY_ENGINE_VERSION});
+      const {error:upsertError}=await admin.from("category_classification_queue")
+        .upsert(rows.map((r)=>({user_id:r.user_id,transaction_id:r.id,status:"queued",locked_at:null,processed_at:null,last_error:null,available_at:new Date().toISOString()})),{onConflict:"transaction_id"});
+      if(upsertError)throw upsertError;
+      const {data:claimed,error:claimError}=await admin.rpc("claim_category_classification_batch",{p_limit:Math.min(rows.length,100),p_user_id:null});
+      if(claimError)throw claimError;
+      const result=await processClaimed(admin,(claimed??[]) as ClaimedRow[]);
+      return response({ok:true,enqueued:rows.length,claimed:(claimed??[]).length,...result,engine_version:CATEGORY_ENGINE_VERSION});
+    }
     if(!userId)return response({error:"Não autenticado"},401);
     if(body.operation==="review_status"){const {count}=await admin.from("transactions").select("id",{count:"exact",head:true}).eq("user_id",userId).in("category_review_status",["suggested","needs_review"]);return response({pending:count??0,engine_version:CATEGORY_ENGINE_VERSION});}
     if(body.operation==="learn"){if(!body.transaction_id||!body.category_id)return response({error:"transaction_id e category_id obrigatórios"},400);const userClient=createClient(SUPABASE_URL,ANON_KEY,{global:{headers:{Authorization:req.headers.get("Authorization")??""}}});const {error}=await userClient.rpc("learn_transaction_category",{p_transaction_id:body.transaction_id,p_category_id:body.category_id});if(error)throw error;return response({learned:true});}
+    if(body.operation==="backfill"){
+      // Backfill limitado: reenfileira lançamentos elegíveis que seguem sem
+      // categoria. Idempotente pela unicidade de transaction_id na fila.
+      const limit=Math.min(body.limit??200,500);
+      const {data:pending,error:pendingError}=await admin.from("transactions")
+        .select("id").eq("user_id",userId).eq("status","confirmed").in("type",["income","expense"])
+        .is("category_id",null).is("transfer_group_id",null).is("settles_card_id",null)
+        .order("occurred_at",{ascending:false}).limit(limit);
+      if(pendingError)throw pendingError;
+      const ids=(pending??[]).map((r:{id:string})=>r.id);
+      if(!ids.length)return response({ok:true,enqueued:0,pending:0,engine_version:CATEGORY_ENGINE_VERSION});
+      const {error:upsertError}=await admin.from("category_classification_queue")
+        .upsert(ids.map((id)=>({user_id:userId,transaction_id:id,status:"queued",locked_at:null,processed_at:null,last_error:null,available_at:new Date().toISOString()})),{onConflict:"transaction_id"});
+      if(upsertError)throw upsertError;
+      const {data:claimed,error:claimError}=await admin.rpc("claim_category_classification_batch",{p_limit:Math.min(ids.length,80),p_user_id:userId});
+      if(claimError)throw claimError;
+      const result=await processClaimed(admin,(claimed??[]) as ClaimedRow[]);
+      return response({ok:true,enqueued:ids.length,claimed:(claimed??[]).length,...result,engine_version:CATEGORY_ENGINE_VERSION});
+    }
     if(body.operation==="process_queue"){
       const {data,error}=await admin.rpc("claim_category_classification_batch",{p_limit:body.limit??80,p_user_id:userId});if(error)throw error;const result=await processClaimed(admin,(data??[]) as ClaimedRow[]);return response({engine_version:CATEGORY_ENGINE_VERSION,claimed:(data??[]).length,...result});
     }

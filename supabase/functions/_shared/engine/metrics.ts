@@ -138,6 +138,17 @@ export interface AgentFinancialSnapshot {
   known_future_commitments: number;
   projected_month_end_available: number;
   net_worth: number;
+  /** Composição do patrimônio (mesma fonte do número acima, nunca recalculada fora). */
+  net_worth_composition: {
+    cash: number;
+    invested: number;
+    assets: number;
+    account_overdraft: number;
+    cards_owed: number;
+    other_debts: number;
+    owed: number;
+    net: number;
+  };
   active_debts: Array<{ id: string; name: string; outstanding_balance: number; installment_amount: number | null; due_day: number | null }>;
   /** Quantidade integral de transações lidas após paginação; usada na proveniência. */
   source_transaction_count: number;
@@ -399,6 +410,16 @@ export async function computeAgentSnapshot(
     known_future_commitments: snap.knownFutureCommitments,
     projected_month_end_available: snap.projectedMonthEndAvailable,
     net_worth: snap.netWorth?.net ?? 0,
+    net_worth_composition: {
+      cash: round2(snap.netWorth?.cash ?? 0),
+      invested: round2(snap.netWorth?.invested ?? 0),
+      assets: round2(snap.netWorth?.assets ?? 0),
+      account_overdraft: round2(snap.netWorth?.accountOverdraft ?? 0),
+      cards_owed: round2(snap.netWorth?.cardsOwed ?? 0),
+      other_debts: round2(snap.netWorth?.otherDebts ?? 0),
+      owed: round2(snap.netWorth?.owed ?? 0),
+      net: round2(snap.netWorth?.net ?? 0),
+    },
     active_debts: snap.activeDebts.map((debt) => ({
       id: debt.id, name: debt.name, outstanding_balance: debt.outstandingBalance,
       installment_amount: debt.installmentAmount, due_day: debt.dueDay,

@@ -45,7 +45,7 @@ describe("Category Truth V2 — source contracts", () => {
   });
 
   it("fila global é autenticada por cron e category-engine faz auth interna", () => {
-    expect(src(CATEGORY_EDGE)).toContain('operation:z.enum(["classify","classify_batch","learn","review_status","process_queue","process_queue_global"])');
+    expect(src(CATEGORY_EDGE)).toContain('"process_queue_global"');
     expect(src(CATEGORY_EDGE)).toContain('if(!isCron)return response({error:"Não autorizado"},401)');
     const config = src(CONFIG);
     expect(config).toMatch(/\[functions\.category-engine\][\s\S]*verify_jwt\s*=\s*false/);

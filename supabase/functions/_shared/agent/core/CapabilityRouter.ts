@@ -70,15 +70,18 @@ const GROUPS = {
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "compare_financial_metric", "assess_financial_performance",
+    "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
   leaks: [
     "analyze_merchants", "merchant_profile", "discover_recurring", "analyze_cost_structure",
     "find_savings_opportunities", "detect_spending_anomalies", "explain_behavior_change",
+    "list_recurring_rules",
   ],
   advisor: [
     "plan_installment_decision", "find_savings_opportunities", "get_financial_snapshot",
     "forecast_month_close", "analyze_cost_structure", "get_debt_status", "run_before_spending",
+    "get_future_installments", "get_commitments_agenda", "get_net_worth",
   ],
   debts: ["get_debt_status", "list_recent_transactions", "get_financial_snapshot"],
   sharedGoals: [
@@ -89,6 +92,8 @@ const GROUPS = {
     "get_financial_snapshot", "list_recent_transactions", "search_transactions", "get_goals_overview",
     "get_daily_insights", "run_before_spending", "get_weekday_spending_pattern", "analyze_spending",
     "get_debt_status", "analyze_merchants", "find_savings_opportunities",
+    "get_net_worth", "list_investments", "get_future_installments",
+    "list_recurring_rules", "get_commitments_agenda",
   ],
 } as const;
 

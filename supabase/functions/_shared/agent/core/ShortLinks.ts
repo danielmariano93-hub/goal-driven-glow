@@ -41,3 +41,28 @@ export async function buildShortLink(
     return { url: longUrl, token: null, shortened: false };
   }
 }
+
+/**
+ * Encurta uma URL absoluta do app (mantendo caminho + query) usando o mesmo
+ * serviço central. Qualquer falha devolve a URL original: nenhuma comunicação
+ * deixa de sair por causa do encurtador.
+ */
+export async function shortenAppUrl(
+  sb: any,
+  params: { user_id: string | null | undefined; url: string | null | undefined; kind?: string; ttl_days?: number },
+): Promise<string | null> {
+  const raw = String(params.url ?? "").trim();
+  if (!raw || !params.user_id) return params.url ?? null;
+  let parsed: URL;
+  try { parsed = new URL(raw); } catch { return raw; }
+  const path = `${parsed.pathname}${parsed.search}`;
+  if (!path.startsWith("/")) return raw;
+  const { url } = await buildShortLink(sb, {
+    user_id: String(params.user_id),
+    path,
+    kind: params.kind ?? "generic",
+    ttl_days: params.ttl_days,
+    site_url: parsed.origin,
+  });
+  return url;
+}

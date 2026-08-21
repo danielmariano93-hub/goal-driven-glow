@@ -13,9 +13,9 @@ const migration = fs.readFileSync(
 describe("workspace de Comunicações P2+P3", () => {
   it("expõe evolução diária com contexto de período, canal e fonte", () => {
     expect(page).toContain('title="Evolução das comunicações"');
-    expect(page).toContain('label: "Tentativas"');
+    expect(page).toContain('label: "Candidatas geradas"');
     expect(page).toContain('label: "Entregues"');
-    expect(page).toContain('label: "Falhas"');
+    expect(page).toContain('label: "Falhas de envio"');
     expect(page).toContain("dados de entrega reais");
   });
 
