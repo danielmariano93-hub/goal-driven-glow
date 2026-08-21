@@ -19,6 +19,73 @@ export type SnapshotAvailability = {
   goals: "available" | "unavailable";
 };
 
+type ServedSnapshotPayload = {
+  ok?: boolean;
+  snapshot?: FinancialSnapshot;
+  missing_sources?: string[];
+  computed_at?: string;
+  cache_hit?: boolean;
+  freshness?: "fresh" | "stale_recomputing";
+};
+
+type SnapshotQueryResult = {
+  snapshot: FinancialSnapshot;
+  missing: SnapshotSource[];
+  computedAt: string | null;
+  fromCache: boolean;
+  freshness: "fresh" | "stale_recomputing";
+};
+
+function normalizePayload(payload: ServedSnapshotPayload | null): SnapshotQueryResult | null {
+  if (!payload?.ok || !payload.snapshot) return null;
+  return {
+    snapshot: payload.snapshot,
+    missing: (payload.missing_sources ?? []) as SnapshotSource[],
+    computedAt: payload.computed_at ?? null,
+    fromCache: payload.cache_hit === true,
+    freshness: payload.freshness ?? "fresh",
+  };
+}
+
+async function invokeHomeSnapshot(period: DateRange, today: string): Promise<SnapshotQueryResult> {
+  const { data, error } = await supabase.functions.invoke("home-snapshot", {
+    body: { start: period.start, end: period.end, today },
+  });
+  if (error) throw error;
+  const normalized = normalizePayload(data as ServedSnapshotPayload | null);
+  if (!normalized) throw new Error("snapshot_unavailable");
+  return normalized;
+}
+
+async function fetchServedSnapshot(period: DateRange): Promise<SnapshotQueryResult> {
+  const today = todayISO();
+
+  // Hot path SQL: MTD vem do read model materializado; D3/D7/custom quente vem
+  // do cache derivado versionado. Só um cache miss/stale sem read model cai na
+  // Edge Function canônica para recomputação.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.rpc as any).call(supabase, "my_financial_home_snapshot", {
+    _start: period.start,
+    _end: period.end,
+    _today: today,
+  });
+  if (!error) {
+    const normalized = normalizePayload(data as ServedSnapshotPayload | null);
+    if (normalized) {
+      if (normalized.freshness === "stale_recomputing") {
+        // Não bloqueia a renderização: serve o último snapshot e acelera a
+        // recomputação que já é protegida por fila/anti-stampede no backend.
+        void supabase.functions.invoke("home-snapshot", {
+          body: { start: period.start, end: period.end, today },
+        }).catch(() => undefined);
+      }
+      return normalized;
+    }
+  }
+
+  return invokeHomeSnapshot(period, today);
+}
+
 /**
  * Fonte única de verdade para a Home / Metas / Assessor — SERVIDA.
  *
@@ -58,29 +125,8 @@ export function useFinancialSnapshot(period: DateRange): {
     staleTime: 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
-    refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 3000 : false,
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke("home-snapshot", {
-        body: { start: period.start, end: period.end, today: todayISO() },
-      });
-      if (error) throw error;
-      const payload = data as {
-        ok?: boolean;
-        snapshot?: FinancialSnapshot;
-        missing_sources?: string[];
-        computed_at?: string;
-        cache_hit?: boolean;
-        freshness?: "fresh" | "stale_recomputing";
-      } | null;
-      if (!payload?.ok || !payload.snapshot) throw new Error("snapshot_unavailable");
-      return {
-        snapshot: payload.snapshot,
-        missing: (payload.missing_sources ?? []) as SnapshotSource[],
-        computedAt: payload.computed_at ?? null,
-        fromCache: payload.cache_hit === true,
-        freshness: payload.freshness ?? "fresh" as const,
-      };
-    },
+    refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 5000 : false,
+    queryFn: () => fetchServedSnapshot(period),
   });
 
   const snapshot = serverQuery.data?.snapshot ?? null;

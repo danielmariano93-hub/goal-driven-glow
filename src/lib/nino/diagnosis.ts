@@ -99,6 +99,21 @@ export const ninoDiagnosisContextSchema = z.object({
   snapshot_payload: z.record(z.unknown()).default({}),
 });
 
+/**
+ * Contrato enxuto da Home. O endpoint não transporta timeline, fechamentos nem
+ * snapshot_payload: no usuário medido esses campos respondiam por ~99% dos 6 MB
+ * baixados pela Home sem qualquer consumidor visual.
+ */
+const ninoHomeContextWireSchema = ninoDiagnosisContextSchema
+  .omit({
+    timeline: true,
+    closings: true,
+    narrative: true,
+    forecast: true,
+    snapshot_payload: true,
+  })
+  .extend({ surface_contract: z.literal("nino_home_context.v1") });
+
 export type FinancialSituation = z.infer<typeof financialSituationSchema>;
 export type FinancialSituationAction = z.infer<typeof financialSituationActionSchema>;
 export type FinancialSituationEvent = z.infer<typeof financialSituationEventSchema>;
@@ -163,7 +178,7 @@ export class NinoDiagnosisContractError extends NinoRpcError {
   }
 }
 
-function diagnosisRpcError(error: unknown): NinoRpcError {
+function diagnosisRpcError(error: unknown, fn = "my_nino_diagnosis_context"): NinoRpcError {
   const value = error as { message?: string; code?: string } | null;
   const message = value?.message ?? (error instanceof Error ? error.message : "Não foi possível carregar o diagnóstico do Nino.");
   const lower = message.toLowerCase();
@@ -172,7 +187,7 @@ function diagnosisRpcError(error: unknown): NinoRpcError {
     : lower.includes("fetch") || lower.includes("network") || lower.includes("timeout")
       ? "network"
       : "rpc";
-  return new NinoRpcError(message, kind, "my_nino_diagnosis_context", value?.code);
+  return new NinoRpcError(message, kind, fn, value?.code);
 }
 
 async function fetchDiagnosis(): Promise<NinoDiagnosisContext> {
@@ -193,13 +208,56 @@ async function fetchDiagnosis(): Promise<NinoDiagnosisContext> {
   }
 }
 
+async function fetchHomeDiagnosis(): Promise<NinoDiagnosisContext> {
+  const fn = "my_nino_home_context";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any).call(supabase, fn, {});
+    if (error) throw error;
+    const parsed = ninoHomeContextWireSchema.safeParse(data);
+    if (!parsed.success) {
+      throw new NinoRpcError("O contexto enxuto da Home retornou um contrato inválido.", "contract", fn);
+    }
+
+    // Mantemos a mesma forma consumida pelos componentes da Home, preenchendo
+    // apenas os blocos deliberadamente ausentes do wire contract.
+    return {
+      ...parsed.data,
+      timeline: [],
+      closings: [],
+      narrative: {},
+      forecast: {},
+      snapshot_payload: {},
+    };
+  } catch (error) {
+    if (error instanceof NinoRpcError) throw error;
+    throw diagnosisRpcError(error, fn);
+  }
+}
+
+/** Hot path da Home: somente os campos realmente renderizados. */
+export function useNinoHomeContext() {
+  const { user } = useAuth();
+  return useQuery<NinoDiagnosisContext>({
+    queryKey: ["nino-diagnosis", "home", user?.id],
+    enabled: !!user,
+    staleTime: 2 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: (count, error) => error instanceof NinoRpcError && error.kind === "network" && count < 2,
+    queryFn: fetchHomeDiagnosis,
+  });
+}
+
 /** Fonte canônica para superfícies que precisam do diagnóstico completo. */
 export function useNinoDiagnosisContext() {
   const { user } = useAuth();
   return useQuery<NinoDiagnosisContext>({
     queryKey: ["nino-diagnosis", user?.id],
     enabled: !!user,
-    staleTime: 30_000,
+    staleTime: 2 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
     retry: (count, error) => error instanceof NinoRpcError && error.kind === "network" && count < 2,
     queryFn: fetchDiagnosis,
   });

@@ -13,7 +13,7 @@ import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
 
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
-import { toHomeDiagnosisView, useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
+import { toHomeDiagnosisView, useNinoHomeContext } from "@/lib/nino/diagnosis";
 
 export default function Index() {
   const initial = useRef(getPeriod()).current;
@@ -33,7 +33,7 @@ export default function Index() {
 
   const snapshot = useFinancialSnapshot(periodRange);
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
-  const diagnosis = useNinoDiagnosisContext();
+  const diagnosis = useNinoHomeContext();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
 
   const hasAccount = (accounts ?? []).length > 0;

@@ -23,10 +23,11 @@ describe("composição narrativa da Home", () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
-  it("usa o diagnóstico completo, não o item editorial legado", () => {
+  it("usa o contexto enxuto do diagnóstico na Home, não o contrato completo nem o item editorial legado", () => {
     const source = read("src/pages/Index.tsx");
-    expect(source).toContain("useNinoDiagnosisContext");
+    expect(source).toContain("useNinoHomeContext");
     expect(source).toContain("toHomeDiagnosisView");
+    expect(source).not.toContain("useNinoDiagnosisContext");
     expect(source).not.toContain("useNinoHomeItem");
   });
 

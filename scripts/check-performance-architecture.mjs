@@ -11,6 +11,8 @@ function assert(condition, message) {
 
 const home = read("src/pages/Index.tsx");
 assert(!home.includes("processCategoryQueue"), "Home não pode processar fila de categorização na abertura.");
+assert(home.includes("useNinoHomeContext"), "Home deve usar o contrato enxuto do Nino.");
+assert(!home.includes("useNinoDiagnosisContext"), "Home não pode baixar o diagnóstico completo com histórico.");
 
 const realtime = read("src/components/finance/FinancialRealtimeSync.tsx");
 assert(realtime.includes('table: "financial_ledger_versions"'), "Realtime deve reagir à versão financeira semântica.");
@@ -19,6 +21,7 @@ assert(!realtime.includes('table: "transactions"'), "Realtime não deve invalida
 const snapshotHook = read("src/lib/hooks/useFinancialSnapshot.ts");
 assert(!snapshotHook.includes("!ledgerVersion.isLoading"), "Snapshot não pode esperar RPC de ledger-version antes do request principal.");
 assert(snapshotHook.includes("stale_recomputing"), "Snapshot deve suportar stale-while-revalidate.");
+assert(snapshotHook.includes("my_financial_home_snapshot"), "MTD corrente deve ler o snapshot materializado por RPC SQL.");
 
 const homeSnapshot = read("supabase/functions/home-snapshot/index.ts");
 assert(homeSnapshot.includes("aheadMonths: 3"), "Home não pode reabrir a janela de 24 meses futuros do ledger.");
@@ -45,6 +48,16 @@ assert(finance.includes("params.monthsAhead ?? 1"), "Default de ledger window de
 const migration = read("supabase/migrations/20260821160000_nino_performance_arch_v2.sql");
 assert(migration.includes("financial_snapshot_refresh_queue"), "Migration precisa criar a fila de refresh do snapshot.");
 assert(migration.includes("TG_TABLE_NAME = 'transactions' AND TG_OP = 'UPDATE'"), "Invalidação deve ignorar updates puramente técnicos de transactions.");
+
+const diagnosis = read("src/lib/nino/diagnosis.ts");
+assert(diagnosis.includes("my_nino_home_context"), "A Home precisa de RPC próprio sem timeline pesada.");
+assert(diagnosis.includes('queryKey: ["nino-diagnosis", "home"'), "Cache do contexto da Home deve ser isolado do diagnóstico completo.");
+
+const hotpathMigration = read("supabase/migrations/20260821205200_nino_home_hotpath_v3.sql");
+assert(hotpathMigration.includes("nino_home_context_for_user"), "Migration V3 deve criar o contexto enxuto da Home.");
+assert(hotpathMigration.includes("e.user_id = _user_id"), "Timeline completa deve filtrar eventos por usuário para usar o índice existente.");
+assert(hotpathMigration.includes("LIMIT 1"), "Timeline deve limitar eventos por situação ao que a UI realmente consome.");
+assert(hotpathMigration.includes("my_financial_home_snapshot"), "Migration V3 deve expor o read model financeiro O(1).");
 
 if (failures.length) {
   console.error("\\nPerformance architecture guard falhou:\\n");

@@ -16,7 +16,8 @@ describe("motor único de dicas + ajuste restrito + crons observáveis", () => {
   it("o card da Home consome a inteligência unificada do Nino", () => {
     const card = read("src/components/home/NinoGuidanceCard.tsx");
     const page = read("src/pages/Index.tsx");
-    expect(page).toContain("useNinoDiagnosisContext");
+    expect(page).toContain("useNinoHomeContext");
+    expect(page).not.toContain("useNinoDiagnosisContext");
     expect(page).toContain("toHomeDiagnosisView");
     expect(card).toContain("HomeDiagnosisView");
   });
