@@ -9,7 +9,7 @@
 // O motor continua sendo o mesmo (`finance-core`): aqui só trocamos o que
 // entra nele. Cada linha é contada exatamente uma vez — ou está na janela, ou
 // está consolidada nos fatos anteriores.
-import { cashDateOf, txOrigin } from "../finance-core/facts.ts";
+import { txOrigin } from "../finance-core/facts.ts";
 import { factMonthOf } from "./monthlyFacts.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -136,11 +136,9 @@ export async function buildCompactLedger(
   // janela vêm na leitura por posted_at/competência: descontamos do carry para
   // não contar duas vezes.
   for (const t of txs) {
-    const cash = cashDateOf(t);
-    if (cash <= anchorDate && t.status === "confirmed" && t.type !== "transfer" && txOrigin(t) === "account" && t.account_id) {
-      const signed = t.type === "income" ? Number(t.amount ?? 0) : -Number(t.amount ?? 0);
-      accountCarry[String(t.account_id)] = (accountCarry[String(t.account_id)] ?? 0) + signed;
-    }
+    // Conta: NADA a ajustar. `account_deltas` do fato é indexado pela data de
+    // CAIXA, então toda linha com caixa anterior à janela já está no carry — e
+    // o motor a descarta pelo corte da âncora. Somar aqui contaria duas vezes.
     if (t.occurred_at < window.start) {
       if (t.status === "confirmed" && t.type === "expense" && txOrigin(t) === "credit_card" && t.credit_card_id) {
         cardCarry[String(t.credit_card_id)] = (cardCarry[String(t.credit_card_id)] ?? 0) - Number(t.amount ?? 0);
