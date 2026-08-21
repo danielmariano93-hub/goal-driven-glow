@@ -36,7 +36,7 @@ export function HeroDisponivelCard(p: Props) {
           <div className="min-w-0">
              <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">Disponível hoje</p>
                {p.loading ? <div className="mt-2 h-8 w-44 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-base font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-2 break-words font-display text-[28px] font-bold leading-8 tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
-               <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">Posição atual · análise de {p.periodLabel}</p>
+               <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">Posição de hoje · não muda com o período escolhido</p>
           </div>
           <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
         </div>

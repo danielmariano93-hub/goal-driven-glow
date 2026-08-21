@@ -22,6 +22,7 @@ export function PrevisaoFechamentoCard({ projection, availability, loading }: Pr
         <div>
           <p className="text-[11px] font-bold text-primary">O que vem pela frente</p>
           <h2 id="projection-title" className="mt-0.5 text-base font-bold text-foreground">Previsão de fechamento</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Do mês corrente · não muda com o período escolhido</p>
         </div>
         <CalendarBlank className="h-5 w-5 shrink-0 text-muted-foreground" weight="duotone" />
       </div>
