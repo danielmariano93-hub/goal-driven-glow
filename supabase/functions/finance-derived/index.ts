@@ -13,7 +13,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialPerformance } from "../_shared/finance-core/financialPerformance.ts";
-import { fetchAllTransactions } from "../_shared/derived/txColumns.ts";
+import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.ts";
+import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 
 const FN = "finance-derived";
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
   const userId = userData?.user?.id;
   if (userError || !userId) return fail("unauthorized", { status: 401, functionName: FN });
 
-  let body: { view?: string; as_of?: string; mode?: string; materiality_floor?: number } = {};
+  let body: { view?: string; as_of?: string; mode?: string; materiality_floor?: number; bootstrap?: boolean } = {};
   try { body = await req.json(); } catch { body = {}; }
 
   const view = String(body.view ?? "performance");
@@ -73,8 +74,19 @@ Deno.serve(async (req) => {
     }
 
     const started = Date.now();
+    // `perf_facts.v1`: acompanhamento compara o período com meses recentes —
+    // 14 meses de lookback cobrem mês anterior, média móvel e o mesmo mês do
+    // ano passado. Nunca a vida inteira (bootstrap é o único caminho bruto).
+    const bootstrap = body.bootstrap === true;
+    const window = resolveWindow(
+      { start: `${asOf.slice(0, 7)}-01`, end: asOf },
+      asOf,
+      { lookbackMonths: 14, aheadMonths: 1 },
+    );
     const [txs, { data: categories }] = await Promise.all([
-      fetchAllTransactions(sb, userId),
+      bootstrap
+        ? fetchAllTransactions(sb, userId)
+        : buildCompactLedger(sb, userId, TX_COLUMNS, window, [], { includeCardCarry: false }).then((c) => c.txs),
       sb.from("categories").select("id,name").eq("user_id", userId),
     ]);
 
