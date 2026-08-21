@@ -84,9 +84,26 @@ const AdminNinoIA = lazy(() => import("./pages/admin/NinoIA"));
 
 
 
+/**
+ * Cache por natureza do dado (`cache_by_nature.v1`): catálogos quase estáticos
+ * (categorias, contas, cartões, ajustes) ficam frescos por 30 min; o resto
+ * segue os 30s dinâmicos. Invalidação explícita continua sendo a porta única
+ * para verdade nova (`invalidateFinancialQueries`).
+ */
+const STATIC_KEYS = new Set([
+  "categories", "accounts", "credit_cards", "user_financial_settings",
+]);
+
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: (query) =>
+        STATIC_KEYS.has(String((query.queryKey as unknown[])?.[0])) ? 30 * 60_000 : 30_000,
+    },
+  },
 });
+
 
 const Fallback = () => (
   <div className="min-h-[40vh] grid place-items-center">
