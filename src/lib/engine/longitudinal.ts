@@ -48,7 +48,24 @@ export interface LongitudinalMonth {
   /** Taxa de poupança do mês (net/renda) — null quando não houve renda. */
   savings_rate: number | null;
   transactions: number;
+  /** Mês ainda em curso na data de referência: NUNCA entra em tendência. */
+  is_open_month: boolean;
+  /** Dias já decorridos do mês na data de referência. */
+  days_elapsed: number;
+  /** Dias totais do mês. */
+  days_in_month: number;
+  /** Consumo flexível equivalente ao mês inteiro (só informativo, mês aberto). */
+  flexible_expense_mtd_equivalent: number;
+  /** Renda atípica isolada da baseline (13º, PLR, férias, venda pontual). */
+  extraordinary_income: number;
+  /** Gasto flexível atípico isolado da baseline (viagem, compra única). */
+  extraordinary_expense: number;
+  /** Consumo flexível já normalizado (sem o atípico) — base das tendências. */
+  flexible_expense_normalized: number;
+  /** Renda já normalizada (sem o atípico). */
+  income_normalized: number;
 }
+
 
 export type TrendDirection = "melhorando" | "piorando" | "estavel" | "indefinido";
 
