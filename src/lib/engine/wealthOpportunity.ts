@@ -32,7 +32,10 @@ export interface WealthScenario {
   monthly_saving: number;
   total_saved: number;
   potential_net_worth: number;
+  /** Aporte potencial mês a mês (mesma ordem dos meses fechados analisados). */
+  monthly_contributions: number[];
 }
+
 
 export interface WealthSource {
   label: string;
