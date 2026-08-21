@@ -95,9 +95,21 @@ export interface ChangePoint {
   confidence: EngineConfidence;
 }
 
+export interface FlexibleCategorySeries {
+  label: string;
+  /** Série mensal (alinhada a `closed_months`) de gasto flexível da categoria. */
+  monthly: number[];
+}
+
 export interface LongitudinalFacts {
+  /** Série completa com movimento (inclui o mês aberto, marcado como tal). */
   months: LongitudinalMonth[];
+  /** Só meses FECHADOS — única base de tendência, baseline e change-point. */
+  closed_months: LongitudinalMonth[];
   months_analyzed: number;
+  closed_months_analyzed: number;
+  /** Mês em curso (informativo, com equivalente MTD) ou null. */
+  open_month: LongitudinalMonth | null;
   /** Tendência do RESULTADO financeiro. */
   result_trend: LongitudinalTrend;
   /** Tendência do COMPORTAMENTO de consumo flexível. */
@@ -107,12 +119,16 @@ export interface LongitudinalFacts {
   change_point: ChangePoint | null;
   /** Volatilidade do resultado (desvio padrão mensal). */
   net_volatility: number;
-  /** Mediana robusta do consumo flexível — baseline pessoal. */
+  /** Mediana robusta do consumo flexível normalizado — baseline pessoal. */
   flexible_median: number;
-  /** Resultado acumulado no período. */
+  /** Resultado acumulado no período (meses fechados). */
   cumulative_net: number;
   /** O resultado melhorou por renda extraordinária, não por comportamento? */
   result_driven_by_income: boolean;
+  /** Meses com renda/gasto atípico isolado da baseline. */
+  extraordinary_months: Array<{ month: string; extraordinary_income: number; extraordinary_expense: number }>;
+  /** Fontes flexíveis por categoria (série mensal dos meses fechados). */
+  flexible_by_category: FlexibleCategorySeries[];
 }
 
 export interface LongitudinalInput {
@@ -121,7 +137,10 @@ export interface LongitudinalInput {
   categoryNames?: Record<string, string>;
   /** Meses recentes considerados "agora" na comparação (default 3). */
   recentMonths?: number;
+  /** Data de referência (YYYY-MM-DD) que define qual mês está aberto. */
+  asOf?: string;
 }
+
 
 const EMPTY_TREND = (metric: LongitudinalTrend["metric"]): LongitudinalTrend => ({
   metric,
