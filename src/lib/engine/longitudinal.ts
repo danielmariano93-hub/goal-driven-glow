@@ -406,7 +406,9 @@ export function computeLongitudinal(
     openMonth.income_normalized = openMonth.income;
   }
 
-  const netSeries = closed.map((m) => round2(m.income_normalized - m.expense + m.extraordinary_expense * 0));
+  // Resultado normalizado: renda e gasto flexível já sem o atípico do mês.
+  const netSeries = closed.map((m) => round2(m.income_normalized - (m.expense - m.extraordinary_expense)));
+
   const flexSeries = closed.map((m) => m.flexible_expense_normalized);
   const incomeSeries = closed.map((m) => m.income_normalized);
   const expenseSeries = closed.map((m) => round2(m.expense - m.extraordinary_expense));
