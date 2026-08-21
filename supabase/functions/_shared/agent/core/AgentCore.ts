@@ -241,6 +241,25 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
 
+  // ---- GoalPlanner ANTES da execução -------------------------------------
+  // O plano deixa de ser só trilha de auditoria: ele é montado com a rota do
+  // turno e entra no prompt como contrato. Quando a política de autonomia
+  // exige confirmação, o próprio prompt proíbe executar a escrita direto.
+  const userExplicitTurn = routed.intent.kind === "confirm" || hasEntryIntent(String(input.text ?? ""));
+  const prePlan = capability.required_tool
+    ? buildGoalPlan({
+      text: turnPlan.effective_text,
+      primary_tool: String(capability.required_tool),
+      complete: false,
+      user_explicit: userExplicitTurn,
+      proactive: false,
+      amount: null,
+    })
+    : null;
+  if (prePlan && prePlan.steps.length > 0) {
+    metrics.formula_versions = { ...(metrics.formula_versions ?? {}), goal_plan: "nino_agent.v1" } as any;
+  }
+
   if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
     const bulkPending = await guard(
       () => findBulkPending(sb, input.conversation_id, input.user_id),
@@ -610,6 +629,16 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
   let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
   systemPrompt = `${capabilityPrompt(capability)}\n\n${turnPlanPrompt(turnPlan)}\n\n${systemPrompt}`;
+  if (prePlan && prePlan.steps.length > 0) {
+    const writeStep = prePlan.steps.find((s) => s.kind === "write");
+    systemPrompt =
+      `[PLANO DO TURNO]\n` +
+      `Sequência acordada: ${prePlan.narration}.\n` +
+      (writeStep && !writeStep.ready
+        ? `A escrita NÃO pode ser executada direto neste turno: monte o rascunho e peça a confirmação do usuário antes.\n`
+        : ``) +
+      `\n${systemPrompt}`;
+  }
   if (mandatoryTools.length > 1) {
     systemPrompt = `[EXECUÇÃO OBRIGATÓRIA DAS SUB-PERGUNTAS]\n`
       + `Chame TODAS estas ferramentas neste turno antes de responder: ${mandatoryTools.join(", ")}.\n`
@@ -901,7 +930,13 @@ ${JSON.stringify(hints)}
     return firstOk ? String(firstOk.tool_name) : "";
   })();
   const turnPlanSteps = (() => {
-    if (!plannedTool) return { steps: [] as Array<Record<string, unknown>>, requires_confirmation: false, autonomy_mode: null as string | null };
+    if (!plannedTool) {
+      // Sem ferramenta executada, o plano registrado é o que foi acordado antes
+      // da execução — nunca um plano vazio que apagaria a trilha.
+      return prePlan
+        ? { steps: planToSteps(prePlan), requires_confirmation: prePlan.requires_confirmation, autonomy_mode: prePlan.steps.find((s) => s.kind === "write")?.autonomy?.mode ?? null }
+        : { steps: [] as Array<Record<string, unknown>>, requires_confirmation: false, autonomy_mode: null as string | null };
+    }
     const plan = buildGoalPlan({
       text: turnPlan.effective_text,
       primary_tool: plannedTool,
@@ -909,7 +944,7 @@ ${JSON.stringify(hints)}
         .filter((c: any) => c.ok && !/_draft$/.test(String(c.tool_name)))
         .map((c: any) => String(c.tool_name)),
       complete: !!draft_id,
-      user_explicit: routed.intent.kind === "confirm" || hasEntryIntent(String(input.text ?? "")),
+      user_explicit: userExplicitTurn,
       proactive: false,
       amount: Number((toolCallLog.find((c: any) => /_draft$/.test(String(c.tool_name)))?.args as any)?.amount ?? 0) || null,
     });
