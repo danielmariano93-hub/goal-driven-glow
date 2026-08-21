@@ -12,8 +12,8 @@
 //     logic lives in one place instead of leaking into adapters.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { confirmationExecutor, findLatestPendingOrExpired, findPending, type PendingRow } from "./PendingConfirmations.ts";
-import { buildReceipt } from "./ReceiptBuilder.ts";
+import { findLatestPendingOrExpired, findPending, type PendingRow } from "./PendingConfirmations.ts";
+import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
 import type { ParsedIntent } from "../parser.ts";
 
 // ---------------------------------------------------------------------------
@@ -40,20 +40,17 @@ export async function evaluate(
       return { kind: "reply", replyKind: "info",
         body: "Não encontrei nada pendente para confirmar. Me conte a operação primeiro (ex.: “gastei 42,90 no almoço hoje”)." };
     }
-    const { data: exec } = await sb.rpc(confirmationExecutor(pending.kind), {
-      p_confirmation_id: pending.id, p_source_message_id: args.inbound_message_id,
+    // Caminho único: executa, prova a escrita e monta o recibo canônico.
+    const outcome = await confirmAndBuildReceipt(sb, pending, {
+      source_message_id: args.inbound_message_id,
     });
-    const okExec = exec as { ok: boolean; result?: any; error?: string; idempotent?: boolean } | null;
-    if (okExec?.ok) {
-      const body = okExec.idempotent
-        ? "Essa operação já havia sido confirmada. Está tudo certo por aqui. ✅"
-        : buildReceipt(pending.kind as string, okExec.result);
-      return { kind: "reply", replyKind: "receipt", body, draft_id: pending.id, result: okExec.result };
+    if (outcome.ok) {
+      return {
+        kind: "reply", replyKind: "receipt", body: outcome.reply,
+        draft_id: pending.id, result: outcome.execution?.result ?? null,
+      };
     }
-    const body = okExec?.error === "expired"
-      ? "Este pedido expirou. Envie de novo, por favor."
-      : "Não consegui concluir a operação. Vamos tentar de novo?";
-    return { kind: "reply", replyKind: okExec?.error === "expired" ? "expired" : "info", body };
+    return { kind: "reply", replyKind: outcome.reply_kind === "expired" ? "expired" : "info", body: outcome.reply };
   }
 
   // cancel

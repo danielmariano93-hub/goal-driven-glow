@@ -54,6 +54,7 @@ import { unprovenMessage } from "./PersistenceProof.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildReceipt } from "./ReceiptBuilder.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
+import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
 import {
@@ -338,21 +339,20 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         const executed = await guard(async () => {
           const pending = await findPending(sb, input.conversation_id, input.user_id);
           if (!pending) return null;
-          const exec = await executeConfirmation(sb, pending, {
+          const outcome = await confirmAndBuildReceipt(sb, pending, {
             source_message_id: input.inbound_message_id ?? null,
           });
-          if (!exec.ok) throw new Error(exec.error ?? "confirmation_failed");
-          return { pending, exec };
+          return { pending, outcome };
         }, (m) => metrics.errors.push("confirm_recover_exec:" + m), null as any);
         if (executed) {
-          const { pending, exec } = executed as any;
+          const { outcome } = executed as any;
           // Recibo só existe com prova de leitura pós-escrita.
-          if (exec.proof?.proven) {
-            finalReply = buildReceipt(String(pending.kind) as any, exec.result ?? pending.payload);
+          if (outcome.ok && outcome.proven) {
+            finalReply = outcome.reply;
             finalKind = "receipt";
           } else {
-            metrics.errors.push("confirm_recover_unproven:" + String(exec.proof?.reason ?? "unknown"));
-            finalReply = unprovenMessage();
+            metrics.errors.push("confirm_recover_unproven:" + String(outcome.error ?? "unknown"));
+            finalReply = outcome.reply;
           }
         }
         if (input.channel !== "app" && input.to_phone) {
