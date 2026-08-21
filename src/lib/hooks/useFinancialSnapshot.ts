@@ -214,12 +214,25 @@ export function useFinancialSnapshot(period: DateRange): {
     { source: "investmentMovements" as const, critical: false, query: investmentMovementsQuery },
   ];
   const criticalSources = sources.filter((item) => item.critical);
-  const loading = criticalSources.some((item) => item.query.isLoading);
-  const criticalError = criticalSources.find((item) => item.query.isError)?.query.error ?? null;
-  const missingSources = sources.filter((item) => item.query.isError).map((item) => item.source);
-  const partialErrors = sources.filter((item) => item.query.isError && !item.critical).map((item) => ({ source: item.source, critical: false, kind: errorKind(item.query.error) }));
-  const partial = !criticalError && (partialErrors.length > 0 || sources.some((item) => !item.critical && item.query.isLoading));
+  // Estado do caminho servido: enquanto o servidor calcula, a Home está
+  // carregando — não "vazia". Só depois de falha do servidor as fontes locais
+  // definem o estado.
+  const localLoading = criticalSources.some((item) => item.query.isLoading);
+  const localCriticalError = criticalSources.find((item) => item.query.isError)?.query.error ?? null;
+  const loading = useLocalFallback ? localLoading : serverQuery.isLoading;
+  const criticalError = useLocalFallback ? localCriticalError : null;
+  const serverMissing = serverQuery.data?.missing ?? [];
+  const missingSources = useLocalFallback
+    ? sources.filter((item) => item.query.isError).map((item) => item.source)
+    : (serverMissing as SnapshotSource[]);
+  const partialErrors = useLocalFallback
+    ? sources.filter((item) => item.query.isError && !item.critical).map((item) => ({ source: item.source, critical: false, kind: errorKind(item.query.error) }))
+    : (serverMissing as SnapshotSource[]).map((source) => ({ source, critical: false, kind: "unknown" as SnapshotErrorKind }));
+  const partial = !criticalError && (useLocalFallback
+    ? (partialErrors.length > 0 || sources.some((item) => !item.critical && item.query.isLoading))
+    : partialErrors.length > 0);
   const completeness = criticalError ? "unavailable" as const : partial ? "partial" as const : "complete" as const;
+
   const failed = (source: SnapshotSource) => missingSources.includes(source);
   const availability: SnapshotAvailability = {
     balance: criticalError ? "unavailable" : "available",
