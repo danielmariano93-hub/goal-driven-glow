@@ -138,6 +138,17 @@ export interface AgentFinancialSnapshot {
   known_future_commitments: number;
   projected_month_end_available: number;
   net_worth: number;
+  /** Composição do patrimônio (mesma fonte do número acima, nunca recalculada fora). */
+  net_worth_composition: {
+    cash: number;
+    invested: number;
+    assets: number;
+    account_overdraft: number;
+    cards_owed: number;
+    other_debts: number;
+    owed: number;
+    net: number;
+  };
   active_debts: Array<{ id: string; name: string; outstanding_balance: number; installment_amount: number | null; due_day: number | null }>;
   /** Quantidade integral de transações lidas após paginação; usada na proveniência. */
   source_transaction_count: number;
