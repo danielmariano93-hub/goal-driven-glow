@@ -37,8 +37,41 @@ export const qk = {
 
 export type QueryKeyName = keyof typeof qk;
 
+/** Chaves derivadas: dependem de qualquer verdade financeira. */
+const DERIVED_KEYS: readonly (readonly string[])[] = [
+  qk.dashboard, qk.home, qk.pulse, qk.assistantTip, qk.insights,
+  qk.financialSnapshot, qk.advisorPerformance,
+];
+
+/**
+ * Escopos de invalidação (`invalidation_scope.v1`). Uma escrita de lançamento
+ * não precisa recarregar metas conjuntas, documentos e recorrências: cada
+ * escopo lista apenas as chaves que dependem daquele domínio, mais os
+ * derivados (Home, pulso, snapshot, acompanhamento).
+ */
+export const INVALIDATION_SCOPES = {
+  transactions: [
+    qk.transactions, qk.accounts, qk.accountBalanceSnapshots,
+    qk.categorySpendingGoals, qk.categories, ...DERIVED_KEYS,
+  ],
+  cards: [
+    qk.transactions, qk.creditCards, qk.creditCardStatements,
+    qk.creditCardInstallments, qk.creditCardPayments, qk.statementDetail,
+    qk.accounts, ...DERIVED_KEYS,
+  ],
+  goals: [
+    qk.goals, qk.contributions, qk.categorySpendingGoals, qk.sharedGoals,
+    ...DERIVED_KEYS,
+  ],
+  debts: [qk.debts, qk.debtPayments, qk.transactions, ...DERIVED_KEYS],
+  investments: [qk.investments, qk.investmentMovements, qk.accounts, ...DERIVED_KEYS],
+} as const;
+
+export type InvalidationScope = keyof typeof INVALIDATION_SCOPES | "all";
+
 /** Chaves que TODA mutação financeira precisa invalidar (fonte única). */
 export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
+
   qk.transactions,
   qk.accounts,
   qk.accountBalanceSnapshots,
