@@ -2,6 +2,8 @@
 // Ordem prioritária para imagens: base64 inline -> mediaUrl HTTPS autenticada -> endpoint WAHA -> fallbacks.
 
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { getAiBlock, pauseAiCircuit } from "../aiCircuit.ts";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
@@ -393,6 +395,7 @@ export type AudioTranscriptionCode =
   | "download_failed"
   | "unsupported_format"
   | "empty_audio"
+  | "ai_blocked"
   | "transcription_failed";
 
 export type AudioTranscriptionResult =
@@ -517,6 +520,8 @@ export function audioFailureReply(code: AudioTranscriptionCode, firstName?: stri
       return `${hi}não consegui abrir esse formato de áudio. Grava direto aqui no WhatsApp ou me escreve que eu já cuido.`;
     case "download_failed":
       return `${hi}não consegui baixar seu áudio agora 🙏 Manda de novo em alguns segundos ou me escreve em texto que eu já resolvo.`;
+    case "ai_blocked":
+      return `${hi}minha inteligência de áudio está temporariamente indisponível porque o app precisa reativar os créditos. Seu áudio não foi processado nem gerou qualquer alteração.`;
 
     default:
       return `${hi}não consegui entender o áudio dessa vez 🙏 Pode repetir gravando de novo ou me escrever em texto?`;
@@ -528,6 +533,7 @@ export function audioFailureReply(code: AudioTranscriptionCode, firstName?: stri
  * textual do agente. Nunca lança: falhas viram código tratável.
  */
 export async function transcribeInboundAudio(args: {
+  sb?: SupabaseClient;
   media: AudioHint;
   messageId?: string;
   waha?: { apiUrl?: string; apiKey?: string; session?: string };
@@ -570,6 +576,10 @@ export async function transcribeInboundAudio(args: {
 
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
+  if (args.sb) {
+    const existingBlock = await getAiBlock(args.sb);
+    if (existingBlock) return { ok: false, code: "ai_blocked", detail: `status_${existingBlock.status}` };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
@@ -600,6 +610,10 @@ export async function transcribeInboundAudio(args: {
     if (!resp.ok) {
       const detail = (await resp.text().catch(() => "")).slice(0, 200);
       console.error("[audio] transcription_http", resp.status, detail);
+      if (resp.status === 402 || resp.status === 403) {
+        if (args.sb) await pauseAiCircuit(args.sb, resp.status, detail);
+        return { ok: false, code: "ai_blocked", detail: `status_${resp.status}` };
+      }
       return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
     }
     const text = await readTranscriptionStream(resp);

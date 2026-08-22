@@ -33,6 +33,7 @@ import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { insightLogicalKey } from "../_shared/intelligence/logicalDedup.ts";
+import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 
 
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
@@ -162,6 +163,7 @@ async function activeUserIds(supa: SupabaseClient, only: string | null): Promise
 }
 
 async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Promise<RunResult> {
+  const aiBlocked = await getAiBlock(supa);
   const nowIso = new Date().toISOString();
 
   // Dicas ativas (cache e controle de janela mínima).
@@ -523,7 +525,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     let payload = { ...chosen.candidate };
     let fallbackReason: string | null = null;
     // A IA só reescreve a dica principal do lote (custo e latência controlados).
-    const allowAi = !!LOVABLE_API_KEY && chosen.family !== "categorizacao" && slot === 0;
+    const allowAi = !!LOVABLE_API_KEY && !aiBlocked && chosen.family !== "categorizacao" && slot === 0;
 
     if (allowAi) {
       const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
@@ -553,6 +555,8 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
           }),
         });
         if (!resp.ok) {
+          const raw = await resp.text().catch(() => "");
+          if (resp.status === 402 || resp.status === 403) await pauseAiCircuit(supa, resp.status, raw);
           fallbackReason = `ai_status_${resp.status}`;
         } else {
           const j = await resp.json();

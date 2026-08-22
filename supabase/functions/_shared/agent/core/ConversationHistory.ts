@@ -38,10 +38,12 @@ export async function loadHistory(
 
   const outboundPromise = conv
     ? sb.from("outbound_messages")
-      .select("id, body, created_at, channel, to_phone")
+      .select("id, body, created_at, channel, to_phone, kind, metadata")
       .eq("user_id", (conv as any).user_id)
       .eq("to_phone", (conv as any).phone_e164)
       .neq("channel", "inapp")
+      .eq("kind", "agent")
+      .contains("metadata", { conversation_id })
       .order("created_at", { ascending: false })
       .limit(limit + 1)
     : Promise.resolve({ data: [] as any[] });

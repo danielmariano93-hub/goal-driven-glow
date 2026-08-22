@@ -3,6 +3,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { streamText, Output, NoObjectGeneratedError } from "npm:ai";
 import { z } from "npm:zod";
 import { createLovableAiGatewayProvider } from "../_shared/ai-gateway.ts";
+import { getAiBlock } from "../_shared/aiCircuit.ts";
 import {
   CATEGORY_ENGINE_VERSION, classifyWithContext, loadCategorizationContext, resultFromLlm,
   type ClassificationInput, type ClassificationResult,
@@ -35,6 +36,7 @@ async function classifyBatchDeterministic(admin:ReturnType<typeof createClient>,
 
 async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,inputs:ClassificationInput[],results:ClassificationResult[]){
   if(!LOVABLE_API_KEY)return results;
+  if(await getAiBlock(admin))return results;
   const unresolved=results.map((result,index)=>({result,input:inputs[index],index})).filter(x=>x.result.action==="leave_unresolved"&&x.result.category_id===null);
   if(!unresolved.length)return results;
   const types=[...new Set(unresolved.map(x=>x.input.type).filter(t=>t==="income"||t==="expense"))] as Array<"income"|"expense">;

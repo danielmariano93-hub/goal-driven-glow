@@ -135,6 +135,10 @@ function extractAmount(text: string): number | null {
   if (scaled?.[1]) {
     return parseBrAmountWithScale(scaled[1], t.slice((scaled.index ?? 0) + scaled[1].length));
   }
+  // Resposta isolada a uma pergunta de valor (a retomada da capability valida
+  // o contexto antes de usar este número; aqui ele não vira lançamento sozinho).
+  const standalone = t.match(/^\s*(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*$/);
+  if (standalone?.[1]) return parseBrAmountWithScale(standalone[1], "");
   return null;
 }
 
@@ -172,7 +176,8 @@ function extractPlannedDate(text: string): string | undefined {
 
 function beforeSpendingArgs(text: string): Record<string, unknown> | undefined {
   const amount = extractAmount(text);
-  if (!amount) return undefined;
+  const plannedDate = extractPlannedDate(text);
+  if (!amount && !plannedDate) return undefined;
   const t = normalize(text);
   const explicitCategory = t.match(/\bcategoria\s+([a-z0-9 _-]{2,40}?)(?=\s+(?:no|na|dia|hoje|amanha|pelo|com|cartao|credito|parcel|$)|$)/)?.[1]?.trim();
   const naturalCategory = t.match(/\b(?:em|para)\s+([a-z][a-z _-]{1,30}?)(?=\s+(?:hoje|amanha|dia|no|na|pelo|com|cartao|credito|parcel|pix|dinheiro|$)|$)/)?.[1]?.trim();
@@ -180,9 +185,9 @@ function beforeSpendingArgs(text: string): Record<string, unknown> | undefined {
   const cardMatch = t.match(/\b(?:cartao|credito)\s+(?:do|da|de)?\s*([a-z0-9 _-]{2,30}?)(?=\s+(?:em|dia|hoje|amanha|parcel|$)|$)/)?.[1]?.trim();
   const installments = Number(t.match(/\b(\d{1,2})\s*x\b/)?.[1] ?? 1);
   return {
-    amount,
+    ...(amount ? { amount } : {}),
     ...(category ? { category } : {}),
-    ...(extractPlannedDate(text) ? { planned_date: extractPlannedDate(text) } : {}),
+    ...(plannedDate ? { planned_date: plannedDate } : {}),
     ...(/\b(cartao|credito|parcelad)/.test(t)
       ? { method: "card" }
       : /\b(pix|dinheiro|debito|conta|a vista)\b/.test(t)
@@ -319,8 +324,10 @@ export function classifyCapability(
 
   if (/\b(posso gastar|antes de gastar|antes de comprar|se eu .{0,18}(?:gastar|comprar|fizer? (?:um )?gasto)|caso eu .{0,18}(?:gaste|compre)|simul(?:ar|e|acao).*(?:gasto|compra)|impacto.*(?:compra|gasto))\b/.test(t)) {
     const args = beforeSpendingArgs(text);
-    const clarification = !args
-      ? "Qual valor você quer simular e em qual data pretende gastar?"
+    const clarification = !args?.amount
+      ? args?.planned_date
+        ? "Qual valor você quer simular?"
+        : "Qual valor você quer simular e em qual data pretende gastar?"
       : !args.planned_date
         ? "Em qual data você pretende fazer esse gasto? Pode dizer hoje, amanhã, dia 15 ou uma data completa."
         : undefined;
@@ -598,7 +605,8 @@ export function resumeDeterministicCapability(
     }
   }
 
-  const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot);
+  const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot)
+    || /^\s*(?:r\$\s*)?\d[\d.]*?(?:,\d{1,2})?\s*$/i.test(text);
   if (!looksLikeSlot) return null;
   const previous = classifyCapability(previousUserText, parsed, null);
 
@@ -623,9 +631,16 @@ export function resumeDeterministicCapability(
   }
 
   if (previous.name !== "before_spending" || !previous.clarification) return null;
-  const resumed = classifyCapability(`${previousUserText} ${text}`, parsed, null);
-  if (resumed.name !== "before_spending" || resumed.clarification || !resumed.required_tool) return null;
-  return { ...resumed, reason: "canonical_spending_simulation_resumed" };
+  const currentArgs = beforeSpendingArgs(text) ?? {};
+  const mergedArgs = { ...(previous.tool_args ?? {}), ...currentArgs } as Record<string, unknown>;
+  if (!mergedArgs.amount || !mergedArgs.planned_date) return null;
+  return {
+    ...previous,
+    required_tool: "run_before_spending",
+    tool_args: mergedArgs,
+    clarification: null,
+    reason: "canonical_spending_simulation_resumed",
+  };
 }
 
 export function capabilityPrompt(decision: CapabilityDecision): string {

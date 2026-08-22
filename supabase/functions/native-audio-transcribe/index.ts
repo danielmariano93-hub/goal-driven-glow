@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { z } from "npm:zod@3.23.8";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 
 const ALLOWED_MIME = ["audio/aac", "audio/m4a", "audio/x-m4a", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/webm", "audio/wav"];
 
@@ -38,6 +39,13 @@ Deno.serve(async (req) => {
   );
   const { data: userData } = await client.auth.getUser();
   if (!userData.user) return response({ error: "Não autenticado" }, 401);
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    { auth: { persistSession: false } },
+  );
+  const existingBlock = await getAiBlock(admin);
+  if (existingBlock) return response({ error: aiBlockReply(existingBlock), code: `ai_blocked_${existingBlock.status}` }, existingBlock.status);
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return response({ error: parsed.error.flatten().fieldErrors }, 400);
   const bytes = decode(parsed.data.audio);
@@ -51,7 +59,14 @@ Deno.serve(async (req) => {
   const upstream = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
     method: "POST", headers: { Authorization: `Bearer ${key}`, "X-Lovable-AIG-SDK": "edge-function" }, body: form,
   });
-  if (!upstream.ok) return response({ error: "Não foi possível entender o áudio" }, 502);
+  if (!upstream.ok) {
+    const raw = await upstream.text().catch(() => "");
+    if (upstream.status === 402 || upstream.status === 403) {
+      const block = await pauseAiCircuit(admin, upstream.status, raw);
+      return response({ error: aiBlockReply(block ?? { status: upstream.status, requires: null, message: "" }), code: `ai_blocked_${upstream.status}` }, upstream.status);
+    }
+    return response({ error: raw ? raw.slice(0, 500) : "Não foi possível entender o áudio" }, upstream.status);
+  }
   const result = await upstream.json().catch(() => null) as { text?: string } | null;
   const text = result?.text?.trim();
   return text ? response({ text: text.slice(0, 1500) }) : response({ error: "Áudio sem fala" }, 422);

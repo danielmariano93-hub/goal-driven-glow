@@ -86,7 +86,7 @@ export default function Emocoes() {
               <li key={h.id} className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
                 <div className="min-w-0">
                   <p className="text-sm">
-                    {emotionLabel(h.emotion_key ?? h.trigger_label, Number(h.mood))}
+                    {emotionLabel(h.declared_emotion_key ?? h.emotion_key ?? h.trigger_label, Number(h.mood))}
                   </p>
                   {h.notes && <p className="mt-0.5 truncate text-xs text-muted-foreground">{h.notes}</p>}
                 </div>

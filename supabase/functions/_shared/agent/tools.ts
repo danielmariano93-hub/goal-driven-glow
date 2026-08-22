@@ -2130,6 +2130,7 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
   // A fala original vira observação: preserva o que a pessoa contou sem
   // inventar sentimento que ela não disse.
   const rawText = String(ctx.user_text ?? "").trim().slice(0, 500);
+  const declared = resolveEmotionTerm(args?.emotion) ?? parseEmotionFromText(rawText) ?? option;
   const notes = String(args?.notes ?? "").trim().slice(0, 500)
     || (rawText.split(/\s+/).length > 2 ? rawText : null);
 
@@ -2144,6 +2145,8 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
     mood: option.mood,
     emotion_key: option.key,
     trigger_label: option.label,
+    declared_text: rawText || null,
+    declared_emotion_key: declared.key,
     notes,
   };
 
@@ -2167,11 +2170,11 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
       registered: true,
       updated: Boolean(existing?.id),
       emotion_key: option.key,
-      emotion_label: option.label,
-      emoji: option.emoji,
+      emotion_label: declared.label,
+      emoji: declared.emoji,
       mood: option.mood,
       local_date: today,
-      card: `${option.emoji} Registrei: hoje você se sentiu ${option.label.toLowerCase()}.`,
+      card: `${declared.emoji} Registrei: hoje você se sentiu ${declared.label.toLowerCase()}.`,
       prospective_signal: signal,
     },
   };

@@ -534,6 +534,7 @@ Deno.serve(async (req) => {
       session: access.session, metadata: { mime: String(descriptor.mime ?? "") },
     });
     const transcription = await transcribeInboundAudio({
+      sb,
       media: evt.media as AudioHint,
       messageId: evt.provider_message_id,
       waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },

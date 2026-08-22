@@ -4,11 +4,12 @@
 // deno-lint-ignore-file no-explicit-any
 import { FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 
-export type ErrorClass = "transient" | "validation" | "permission" | "not_found" | "unknown";
+export type ErrorClass = "transient" | "ai_blocked" | "validation" | "permission" | "not_found" | "unknown";
 
 export function classifyError(e: unknown): ErrorClass {
   const s = String((e as any)?.message ?? e ?? "").toLowerCase();
   if (!s) return "unknown";
+  if (/gateway_40[23]|\b402\b|\b403\b/.test(s)) return "ai_blocked";
   if (/timeout|abort|fetch failed|econnreset|econnrefused|gateway_5\d\d|429|rate limit/.test(s)) return "transient";
   if (/invalid|missing|schema|required|malformed|bad_json/.test(s)) return "validation";
   if (/forbidden|unauthorized|not allowed|permission|rls/.test(s)) return "permission";
@@ -22,6 +23,7 @@ export function isRetryable(e: unknown): boolean {
 
 export function friendlyFor(e: unknown): string {
   switch (classifyError(e)) {
+    case "ai_blocked": return "Minha inteligência está temporariamente indisponível. O responsável pelo app precisa reativá-la; nenhum dado seu foi alterado.";
     case "permission": return "Não consegui autorizar essa operação. Verifique se sua conta está ativa e tente de novo.";
     case "not_found":  return "Não encontrei os dados necessários para responder. Pode me dar mais contexto?";
     case "validation": return "Faltou alguma informação para completar. Pode me repetir com mais detalhes?";

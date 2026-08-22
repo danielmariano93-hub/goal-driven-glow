@@ -2,7 +2,7 @@
 // ================================================
 // Fonte ÚNICA das emoções do Meu Nino. Toda superfície (Home, Emoções,
 // WhatsApp, Nino) grava `emotion_key` deste catálogo e o `mood` derivado.
-export const EMOTION_CATALOG_VERSION = "emotion_catalog.v1";
+export const EMOTION_CATALOG_VERSION = "emotion_catalog.v2";
 
 export interface EmotionOption {
   key: string;
@@ -18,6 +18,7 @@ export const EMOTION_CATALOG: readonly EmotionOption[] = [
   { key: "tranquilo", label: "Tranquilo", mood: 5, emoji: "😌", primary: true },
   { key: "atento", label: "Atento", mood: 3, emoji: "🧐", primary: true },
   { key: "preocupado", label: "Preocupado", mood: 1, emoji: "😟", primary: true },
+  { key: "triste", label: "Triste", mood: 1, emoji: "😢", primary: true },
   { key: "confiante", label: "Confiante", mood: 4, emoji: "🙂", primary: false },
   { key: "impulsivo", label: "Impulsivo", mood: 2, emoji: "⚡", primary: false },
   { key: "frustrado", label: "Frustrado", mood: 1, emoji: "😤", primary: false },
@@ -41,6 +42,8 @@ const ALIASES: Record<string, string> = {
   seguranca: "confiante",
   culpa: "culpado",
   tranquilidade: "tranquilo",
+  tristeza: "triste",
+  desanimado: "triste",
 };
 
 export function resolveEmotion(value?: string | null): EmotionOption | null {

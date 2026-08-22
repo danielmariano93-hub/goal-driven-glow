@@ -1336,6 +1336,39 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_runtime_circuit: {
+        Row: {
+          blocked_status: number | null
+          circuit_key: string
+          last_probe_at: string | null
+          paused_at: string | null
+          requires: string | null
+          status: string
+          updated_at: string
+          user_message: string | null
+        }
+        Insert: {
+          blocked_status?: number | null
+          circuit_key: string
+          last_probe_at?: string | null
+          paused_at?: string | null
+          requires?: string | null
+          status?: string
+          updated_at?: string
+          user_message?: string | null
+        }
+        Update: {
+          blocked_status?: number | null
+          circuit_key?: string
+          last_probe_at?: string | null
+          paused_at?: string | null
+          requires?: string | null
+          status?: string
+          updated_at?: string
+          user_message?: string | null
+        }
+        Relationships: []
+      }
       anticipation_detector_config: {
         Row: {
           active: boolean
@@ -4604,6 +4637,8 @@ export type Database = {
       emotional_checkins: {
         Row: {
           created_at: string
+          declared_emotion_key: string | null
+          declared_text: string | null
           emotion_key: string | null
           id: string
           mood: number
@@ -4615,6 +4650,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          declared_emotion_key?: string | null
+          declared_text?: string | null
           emotion_key?: string | null
           id?: string
           mood: number
@@ -4626,6 +4663,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          declared_emotion_key?: string | null
+          declared_text?: string | null
           emotion_key?: string | null
           id?: string
           mood?: number
