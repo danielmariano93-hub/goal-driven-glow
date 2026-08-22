@@ -1130,13 +1130,17 @@ async function processDocument(documentId: string, userId: string, guidance: str
         if (deterministicOutcomes) {
           out = deterministicOutcomes[batchIndex - 1];
         } else {
-        const dataUrl = bytesToDataUrl(fragment.bytes, doc.mime_type);
+        const chunkText = textChunks ? textChunks[batchIndex - 1] : null;
+        const dataUrl = chunkText ? "" : bytesToDataUrl(fragment.bytes, doc.mime_type);
         const filename = doc.storage_path?.split("/").pop() ?? "documento";
         const guide = (guidance ?? "").slice(0, 500);
+        // Camada de texto usa o tier textual; escaneado continua no de visão.
+        const extractionModel = chunkText ? documentTextModel : visionModel;
         out = await callMultimodal(
           dataUrl, doc.mime_type, filename, guide, ac.signal,
           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
-          visionModel,
+          extractionModel,
+          chunkText,
         );
         // Retry estrito: documento financeiro que volta sem nenhum item e sem
         // erro quase sempre significa que o modelo pegou o atalho "sem novos
@@ -1149,7 +1153,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
           const retry = await callMultimodal(
             dataUrl, doc.mime_type, filename, guide, ac.signal,
             { index: batchIndex, max: maxBatches, exclude: [], strict: true },
-            visionModel,
+            extractionModel,
+            chunkText,
           );
           if (retry.result.items.length > 0) {
             out = {
