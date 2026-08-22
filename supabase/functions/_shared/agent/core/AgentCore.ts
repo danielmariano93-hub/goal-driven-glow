@@ -1180,6 +1180,25 @@ ${episodic}
         tool_result_llm_chars: metrics.tool_result_llm_chars ?? 0,
         route_reason: metrics.route_reason,
         model_tier: metrics.model_tier,
+        // Telemetria completa (`nino_efficiency.v2`). `provider_cost_usd` fica
+        // NULL de propósito: o gateway não reporta custo real, e custo estimado
+        // nunca é apresentado como custo do provedor.
+        provider: planner.provider ?? (metrics.model ? String(metrics.model).split("/")[0] : null),
+        fallback_attempts: planner.fallbackAttempts ?? 0,
+        provider_cost_usd: null,
+        compression_ratio: (metrics.tool_result_full_chars ?? 0) > 0
+          ? Math.round(((metrics.tool_result_llm_chars ?? 0) / metrics.tool_result_full_chars) * 1000) / 1000
+          : null,
+        context_layers: { ...layerMeasures, flags: planner.flags ?? null },
+        system_prompt_chars: systemPrompt.length,
+        history_chars: historyText.length,
+        working_memory_chars: layerMeasures.layers.working_memory?.chars ?? 0,
+        semantic_memory_chars: layerMeasures.layers.semantic_memory?.chars ?? 0,
+        financial_context_chars: contextChars || 0,
+        tool_schema_chars: toolSchemaChars,
+        evidence_chars: evidenceChars,
+        truth_validation_failed: metrics.errors.some((e) => e.startsWith("truth_")),
+        clarification_asked: Boolean(capability.clarification),
       }).eq("id", run_id);
 
       if (runError) throw runError;
