@@ -202,7 +202,7 @@ export async function plan(
     let turn = await runToolLoop(sb, args, primaryOpts);
     // Progressive tool disclosure: o núcleo enxuto não concluiu (loop esgotado
     // ou resposta vazia). Só então o escopo ampliado entra, uma única vez.
-    const expanded = expandedToolsFor(args.capability.name);
+    const expanded = flags.progressive_tools_v1 ? expandedToolsFor(args.capability.name) : null;
     if (expanded && (turn.finish === "length" || turn.finish === "empty")) {
       turn = await runToolLoop(sb, args, {
         ...primaryOpts,
@@ -216,12 +216,14 @@ export async function plan(
           { model: route.primary, ok: true },
         ],
         routeReason: `${route.reason}+scope_expanded`, modelTier: tier,
+        provider, fallbackAttempts: 0, flags,
       };
     }
     return {
       path: "llm", turn, errorSanitized: null,
       modelAttempts: [{ model: route.primary, ok: true }],
       routeReason: route.reason, modelTier: tier,
+      provider, fallbackAttempts: 0, flags,
     };
   } catch (primaryError) {
     const primarySanitized = sanitizeError(primaryError);
@@ -232,6 +234,8 @@ export async function plan(
         path: "llm", errorSanitized: primarySanitized,
         modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
         turn: { reply: aiBlockReply(block ?? { status: primaryStatus, requires: null, message: "" }), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
+        routeReason: `${route.reason}+gateway_${primaryStatus}`, modelTier: tier,
+        provider, fallbackAttempts: 0, flags,
       };
     }
     if (route.fallback && route.fallback !== route.primary) {
@@ -243,6 +247,9 @@ export async function plan(
             { model: route.primary, ok: false, error: primarySanitized },
             { model: route.fallback, ok: true },
           ],
+          routeReason: `${route.reason}+fallback`, modelTier: tier,
+          provider: String(route.fallback).split("/")[0] || null,
+          fallbackAttempts: 1, flags,
         };
       } catch (fallbackError) {
         return {
@@ -251,12 +258,16 @@ export async function plan(
             { model: route.primary, ok: false, error: primarySanitized },
             { model: route.fallback, ok: false, error: sanitizeError(fallbackError) },
           ],
+          routeReason: `${route.reason}+fallback_failed`, modelTier: tier,
+          provider, fallbackAttempts: 2, flags,
         };
       }
     }
     return {
       path: "deterministic_fallback", errorSanitized: primarySanitized,
       modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
+      routeReason: `${route.reason}+primary_failed`, modelTier: tier,
+      provider, fallbackAttempts: 1, flags,
     };
   }
 }
