@@ -91,7 +91,7 @@ function chainContinuation(documentId: string, userId: string, guidance: string)
 }
 
 
-async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification"): Promise<string> {
+async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification" | "document_text"): Promise<string> {
   const { data } = await sb.from("ai_model_routes")
     .select("primary_model")
     .eq("task", task)
