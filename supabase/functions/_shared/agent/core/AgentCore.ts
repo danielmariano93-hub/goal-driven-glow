@@ -56,6 +56,7 @@ import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
 import {
   serializeWithinBudget, estimateTokens, measureLayers, fitWorkingMemory, LAYER_BUDGET_CHARS,
 } from "./ContextBudget.ts";
+import { isEnabled } from "./FeatureFlags.ts";
 
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
