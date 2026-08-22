@@ -172,7 +172,8 @@ function extractPlannedDate(text: string): string | undefined {
 
 function beforeSpendingArgs(text: string): Record<string, unknown> | undefined {
   const amount = extractAmount(text);
-  if (!amount) return undefined;
+  const plannedDate = extractPlannedDate(text);
+  if (!amount && !plannedDate) return undefined;
   const t = normalize(text);
   const explicitCategory = t.match(/\bcategoria\s+([a-z0-9 _-]{2,40}?)(?=\s+(?:no|na|dia|hoje|amanha|pelo|com|cartao|credito|parcel|$)|$)/)?.[1]?.trim();
   const naturalCategory = t.match(/\b(?:em|para)\s+([a-z][a-z _-]{1,30}?)(?=\s+(?:hoje|amanha|dia|no|na|pelo|com|cartao|credito|parcel|pix|dinheiro|$)|$)/)?.[1]?.trim();
@@ -180,9 +181,9 @@ function beforeSpendingArgs(text: string): Record<string, unknown> | undefined {
   const cardMatch = t.match(/\b(?:cartao|credito)\s+(?:do|da|de)?\s*([a-z0-9 _-]{2,30}?)(?=\s+(?:em|dia|hoje|amanha|parcel|$)|$)/)?.[1]?.trim();
   const installments = Number(t.match(/\b(\d{1,2})\s*x\b/)?.[1] ?? 1);
   return {
-    amount,
+    ...(amount ? { amount } : {}),
     ...(category ? { category } : {}),
-    ...(extractPlannedDate(text) ? { planned_date: extractPlannedDate(text) } : {}),
+    ...(plannedDate ? { planned_date: plannedDate } : {}),
     ...(/\b(cartao|credito|parcelad)/.test(t)
       ? { method: "card" }
       : /\b(pix|dinheiro|debito|conta|a vista)\b/.test(t)
@@ -319,8 +320,11 @@ export function classifyCapability(
 
   if (/\b(posso gastar|antes de gastar|antes de comprar|se eu .{0,18}(?:gastar|comprar|fizer? (?:um )?gasto)|caso eu .{0,18}(?:gaste|compre)|simul(?:ar|e|acao).*(?:gasto|compra)|impacto.*(?:compra|gasto))\b/.test(t)) {
     const args = beforeSpendingArgs(text);
-    const clarification = !args
+    const clarification = !args?.amount
+      ? args?.planned_date
+        ? "Qual valor você quer simular?"
       ? "Qual valor você quer simular e em qual data pretende gastar?"
+        : "Qual valor você quer simular e em qual data pretende gastar?"
       : !args.planned_date
         ? "Em qual data você pretende fazer esse gasto? Pode dizer hoje, amanhã, dia 15 ou uma data completa."
         : undefined;
@@ -598,7 +602,8 @@ export function resumeDeterministicCapability(
     }
   }
 
-  const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot);
+  const looksLikeSlot = /\b(hoje|amanha|depois de amanha|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|20\d{2}-\d{2}-\d{2}|pix|dinheiro|debito|conta|cartao|credito|\d{1,2}\s*x)\b/.test(slot)
+    || /^\s*(?:r\$\s*)?\d[\d.]*?(?:,\d{1,2})?\s*$/i.test(text);
   if (!looksLikeSlot) return null;
   const previous = classifyCapability(previousUserText, parsed, null);
 

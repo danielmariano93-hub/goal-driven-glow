@@ -8,6 +8,7 @@ export const EMOTION_CATALOG: readonly EmotionOption[] = [
   { key: "tranquilo", label: "Tranquilo", mood: 5, emoji: "😌" },
   { key: "atento", label: "Atento", mood: 3, emoji: "🧐" },
   { key: "preocupado", label: "Preocupado", mood: 1, emoji: "😟" },
+  { key: "triste", label: "Triste", mood: 1, emoji: "😢" },
   { key: "confiante", label: "Confiante", mood: 4, emoji: "🙂" },
   { key: "impulsivo", label: "Impulsivo", mood: 2, emoji: "⚡" },
   { key: "frustrado", label: "Frustrado", mood: 1, emoji: "😤" },
@@ -25,8 +26,9 @@ const SYNONYMS: Record<string, string> = {
   nervoso: "atento", nervosa: "atento", apreensivo: "atento", tenso: "atento", agitado: "atento",
 
   preocupado: "preocupado", preocupada: "preocupado", aflito: "preocupado", angustiado: "preocupado",
-  triste: "preocupado", "pra baixo": "preocupado", "para baixo": "preocupado", desanimado: "preocupado",
   "com medo": "preocupado", inseguro: "preocupado",
+
+  triste: "triste", tristeza: "triste", "pra baixo": "triste", "para baixo": "triste", desanimado: "triste",
 
   confiante: "confiante", seguro: "confiante", otimista: "confiante", esperancoso: "confiante",
   animado: "confiante", motivado: "confiante",
@@ -49,7 +51,7 @@ const SYNONYMS: Record<string, string> = {
   "na correria": "frustrado", "sem paciencia": "frustrado", "de cabeca cheia": "frustrado",
   "dia bom": "celebrando", "dia otimo": "celebrando", "foi um bom dia": "celebrando",
   "dia tranquilo": "tranquilo", "dia leve": "tranquilo", "bem tranquilo": "tranquilo",
-  "meio pra baixo": "preocupado", "meio triste": "preocupado", "sem animo": "preocupado",
+  "meio pra baixo": "triste", "meio triste": "triste", "sem animo": "triste",
   "meio ansioso": "atento", "meio tenso": "atento", "no automatico": "impulsivo",
   "gastei sem pensar": "impulsivo",
 };
@@ -59,7 +61,7 @@ const EMOJI_MAP: Record<string, string> = {
   "😌": "tranquilo", "🧐": "atento", "😟": "preocupado", "🙂": "confiante",
   "⚡": "impulsivo", "😤": "frustrado", "🎉": "celebrando", "😞": "culpado",
   "😀": "celebrando", "😃": "celebrando", "😄": "celebrando", "😊": "confiante",
-  "😢": "preocupado", "😭": "preocupado", "😡": "frustrado", "😠": "frustrado",
+  "😢": "triste", "😭": "triste", "😡": "frustrado", "😠": "frustrado",
   "😰": "atento", "😥": "preocupado", "😴": "frustrado", "🥲": "culpado",
 };
 

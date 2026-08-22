@@ -46,7 +46,7 @@ export function EmotionalCheckinCard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("emotional_checkins")
-        .select("id, mood, notes, trigger_label, emotion_key, transaction_id, occurred_at")
+        .select("id, mood, notes, trigger_label, emotion_key, declared_emotion_key, transaction_id, occurred_at")
         .order("occurred_at", { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -72,7 +72,7 @@ export function EmotionalCheckinCard() {
 
   useEffect(() => {
     if (today) {
-      setSelectedKey(resolveEmotion(today.emotion_key ?? today.trigger_label)?.key ?? null);
+      setSelectedKey(resolveEmotion(today.declared_emotion_key ?? today.emotion_key ?? today.trigger_label)?.key ?? null);
       setNote(today.notes ?? "");
       setTxId((today.transaction_id as string | null) ?? "");
       setCollapsedAfterSave(true);
@@ -94,6 +94,8 @@ export function EmotionalCheckinCard() {
             mood: selected.v,
             emotion_key: selected.key,
             trigger_label: selected.key,
+            declared_emotion_key: selected.key,
+            declared_text: selected.label,
             notes: note || null,
             transaction_id: txId || null,
           })
@@ -109,6 +111,8 @@ export function EmotionalCheckinCard() {
           mood: selected.v,
           emotion_key: selected.key,
           trigger_label: selected.key,
+          declared_emotion_key: selected.key,
+          declared_text: selected.label,
           notes: note || null,
           transaction_id: txId || null,
         });

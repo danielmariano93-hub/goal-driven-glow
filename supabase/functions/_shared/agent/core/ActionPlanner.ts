@@ -14,6 +14,7 @@ import { executeWeekdayPattern } from "../../intelligence/weekdayTool.ts";
 import { classifyModelTask, loadModelRoute } from "../../intelligence/modelGateway.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import type { CapabilityDecision } from "./CapabilityRouter.ts";
+import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 
 export type PlannerResult = {
   path: "llm" | "deterministic_tool" | "deterministic_fallback";
@@ -113,6 +114,16 @@ export async function plan(
     return { path: "deterministic_fallback", errorSanitized: null, modelAttempts: [] };
   }
 
+  const existingBlock = await getAiBlock(sb);
+  if (existingBlock) {
+    return {
+      path: "llm",
+      errorSanitized: `gateway_${existingBlock.status}`,
+      modelAttempts: [],
+      turn: { reply: aiBlockReply(existingBlock), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
+    };
+  }
+
   const task = classifyModelTask(args.user_text, semantic);
   const route = await loadModelRoute(sb, task, opts.model, opts.maxSteps);
   const primaryOpts: ToolRuntimeOptions = {
@@ -129,6 +140,15 @@ export async function plan(
     return { path: "llm", turn, errorSanitized: null, modelAttempts: [{ model: route.primary, ok: true }] };
   } catch (primaryError) {
     const primarySanitized = sanitizeError(primaryError);
+    const primaryStatus = Number((primaryError as { status?: number })?.status ?? 0);
+    if (primaryStatus === 402 || primaryStatus === 403) {
+      const block = await pauseAiCircuit(sb, primaryStatus, String((primaryError as { body?: string })?.body ?? ""));
+      return {
+        path: "llm", errorSanitized: primarySanitized,
+        modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
+        turn: { reply: aiBlockReply(block ?? { status: primaryStatus, requires: null, message: "" }), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
+      };
+    }
     if (route.fallback && route.fallback !== route.primary) {
       try {
         const turn = await runToolLoop(sb, args, { ...primaryOpts, model: route.fallback });
