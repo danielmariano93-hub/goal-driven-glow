@@ -866,7 +866,10 @@ export type Database = {
         Row: {
           capability: string | null
           channel: string | null
+          clarification_asked: boolean | null
+          compression_ratio: number | null
           context_chars: number | null
+          context_layers: Json | null
           context_ms: number | null
           conversation_id: string | null
           cost_cents: number
@@ -874,7 +877,11 @@ export type Database = {
           error_masked: string | null
           error_sanitized: string | null
           estimated_cost_usd: number | null
+          evidence_chars: number | null
+          fallback_attempts: number | null
+          financial_context_chars: number | null
           formula_versions: Json | null
+          history_chars: number | null
           history_ms: number | null
           id: string
           intent_requested: string | null
@@ -888,26 +895,36 @@ export type Database = {
           path: string | null
           persist_ms: number | null
           prompt_version_id: string | null
+          provider: string | null
+          provider_cost_usd: number | null
           route_reason: string | null
           routing_ms: number | null
+          semantic_memory_chars: number | null
           stage_ms: Json
           started_at: string
           status: Database["public"]["Enums"]["run_status"]
           steps: number
+          system_prompt_chars: number | null
           token_breakdown: Json
           tokens_in: number
           tokens_out: number
           tool_ms: number | null
           tool_result_full_chars: number
           tool_result_llm_chars: number
+          tool_schema_chars: number | null
           tool_scope: string[]
           tools_used: string[] | null
+          truth_validation_failed: boolean | null
           user_id: string
+          working_memory_chars: number | null
         }
         Insert: {
           capability?: string | null
           channel?: string | null
+          clarification_asked?: boolean | null
+          compression_ratio?: number | null
           context_chars?: number | null
+          context_layers?: Json | null
           context_ms?: number | null
           conversation_id?: string | null
           cost_cents?: number
@@ -915,7 +932,11 @@ export type Database = {
           error_masked?: string | null
           error_sanitized?: string | null
           estimated_cost_usd?: number | null
+          evidence_chars?: number | null
+          fallback_attempts?: number | null
+          financial_context_chars?: number | null
           formula_versions?: Json | null
+          history_chars?: number | null
           history_ms?: number | null
           id?: string
           intent_requested?: string | null
@@ -929,26 +950,36 @@ export type Database = {
           path?: string | null
           persist_ms?: number | null
           prompt_version_id?: string | null
+          provider?: string | null
+          provider_cost_usd?: number | null
           route_reason?: string | null
           routing_ms?: number | null
+          semantic_memory_chars?: number | null
           stage_ms?: Json
           started_at?: string
           status?: Database["public"]["Enums"]["run_status"]
           steps?: number
+          system_prompt_chars?: number | null
           token_breakdown?: Json
           tokens_in?: number
           tokens_out?: number
           tool_ms?: number | null
           tool_result_full_chars?: number
           tool_result_llm_chars?: number
+          tool_schema_chars?: number | null
           tool_scope?: string[]
           tools_used?: string[] | null
+          truth_validation_failed?: boolean | null
           user_id: string
+          working_memory_chars?: number | null
         }
         Update: {
           capability?: string | null
           channel?: string | null
+          clarification_asked?: boolean | null
+          compression_ratio?: number | null
           context_chars?: number | null
+          context_layers?: Json | null
           context_ms?: number | null
           conversation_id?: string | null
           cost_cents?: number
@@ -956,7 +987,11 @@ export type Database = {
           error_masked?: string | null
           error_sanitized?: string | null
           estimated_cost_usd?: number | null
+          evidence_chars?: number | null
+          fallback_attempts?: number | null
+          financial_context_chars?: number | null
           formula_versions?: Json | null
+          history_chars?: number | null
           history_ms?: number | null
           id?: string
           intent_requested?: string | null
@@ -970,21 +1005,28 @@ export type Database = {
           path?: string | null
           persist_ms?: number | null
           prompt_version_id?: string | null
+          provider?: string | null
+          provider_cost_usd?: number | null
           route_reason?: string | null
           routing_ms?: number | null
+          semantic_memory_chars?: number | null
           stage_ms?: Json
           started_at?: string
           status?: Database["public"]["Enums"]["run_status"]
           steps?: number
+          system_prompt_chars?: number | null
           token_breakdown?: Json
           tokens_in?: number
           tokens_out?: number
           tool_ms?: number | null
           tool_result_full_chars?: number
           tool_result_llm_chars?: number
+          tool_schema_chars?: number | null
           tool_scope?: string[]
           tools_used?: string[] | null
+          truth_validation_failed?: boolean | null
           user_id?: string
+          working_memory_chars?: number | null
         }
         Relationships: [
           {
@@ -1016,6 +1058,27 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      agent_runtime_flags: {
+        Row: {
+          description: string | null
+          enabled: boolean
+          flag_name: string
+          updated_at: string
+        }
+        Insert: {
+          description?: string | null
+          enabled?: boolean
+          flag_name: string
+          updated_at?: string
+        }
+        Update: {
+          description?: string | null
+          enabled?: boolean
+          flag_name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       agent_sessions: {
         Row: {
@@ -1327,6 +1390,7 @@ export type Database = {
           fallback_model: string | null
           max_latency_ms: number
           max_steps: number
+          model_tier: string | null
           primary_model: string
           task: string
           updated_at: string
@@ -1336,6 +1400,7 @@ export type Database = {
           fallback_model?: string | null
           max_latency_ms?: number
           max_steps?: number
+          model_tier?: string | null
           primary_model: string
           task: string
           updated_at?: string
@@ -1345,6 +1410,7 @@ export type Database = {
           fallback_model?: string | null
           max_latency_ms?: number
           max_steps?: number
+          model_tier?: string | null
           primary_model?: string
           task?: string
           updated_at?: string
@@ -11822,6 +11888,60 @@ export type Database = {
           },
         ]
       }
+      v_agent_cost_by_user: {
+        Row: {
+          day: string | null
+          estimated_cost_usd: number | null
+          provider_cost_usd: number | null
+          tokens_total: number | null
+          turns: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "agent_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      v_agent_efficiency_daily: {
+        Row: {
+          avg_latency_ms: number | null
+          avg_llm_calls: number | null
+          avg_tools: number | null
+          capability: string | null
+          channel: string | null
+          clarifications: number | null
+          day: string | null
+          deterministic_turns: number | null
+          estimated_cost_usd: number | null
+          failed_turns: number | null
+          fallback_turns: number | null
+          llm_turns: number | null
+          model: string | null
+          model_tier: string | null
+          p50_latency_ms: number | null
+          p95_latency_ms: number | null
+          provider_cost_usd: number | null
+          tokens_in: number | null
+          tokens_out: number | null
+          tool_result_full_chars: number | null
+          tool_result_llm_chars: number | null
+          truth_validation_failures: number | null
+          turns: number | null
+        }
+        Relationships: []
+      }
       v_card_double_counting: {
         Row: {
           adjustments_total: number | null
@@ -12340,6 +12460,7 @@ export type Database = {
         Args: { _days?: number; _user_id?: string }
         Returns: Json
       }
+      admin_v2_ai_efficiency: { Args: { p_days?: number }; Returns: Json }
       admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
       admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
       admin_v2_client_profile: { Args: { _pseudo_id: string }; Returns: Json }
