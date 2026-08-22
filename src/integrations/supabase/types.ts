@@ -880,12 +880,15 @@ export type Database = {
           intent_requested: string | null
           intent_served: string | null
           latency_ms: number | null
+          llm_calls: number
           llm_ms: number | null
           model: string | null
           model_attempts: Json
+          model_tier: string | null
           path: string | null
           persist_ms: number | null
           prompt_version_id: string | null
+          route_reason: string | null
           routing_ms: number | null
           stage_ms: Json
           started_at: string
@@ -895,6 +898,8 @@ export type Database = {
           tokens_in: number
           tokens_out: number
           tool_ms: number | null
+          tool_result_full_chars: number
+          tool_result_llm_chars: number
           tool_scope: string[]
           tools_used: string[] | null
           user_id: string
@@ -916,12 +921,15 @@ export type Database = {
           intent_requested?: string | null
           intent_served?: string | null
           latency_ms?: number | null
+          llm_calls?: number
           llm_ms?: number | null
           model?: string | null
           model_attempts?: Json
+          model_tier?: string | null
           path?: string | null
           persist_ms?: number | null
           prompt_version_id?: string | null
+          route_reason?: string | null
           routing_ms?: number | null
           stage_ms?: Json
           started_at?: string
@@ -931,6 +939,8 @@ export type Database = {
           tokens_in?: number
           tokens_out?: number
           tool_ms?: number | null
+          tool_result_full_chars?: number
+          tool_result_llm_chars?: number
           tool_scope?: string[]
           tools_used?: string[] | null
           user_id: string
@@ -952,12 +962,15 @@ export type Database = {
           intent_requested?: string | null
           intent_served?: string | null
           latency_ms?: number | null
+          llm_calls?: number
           llm_ms?: number | null
           model?: string | null
           model_attempts?: Json
+          model_tier?: string | null
           path?: string | null
           persist_ms?: number | null
           prompt_version_id?: string | null
+          route_reason?: string | null
           routing_ms?: number | null
           stage_ms?: Json
           started_at?: string
@@ -967,6 +980,8 @@ export type Database = {
           tokens_in?: number
           tokens_out?: number
           tool_ms?: number | null
+          tool_result_full_chars?: number
+          tool_result_llm_chars?: number
           tool_scope?: string[]
           tools_used?: string[] | null
           user_id?: string
@@ -5341,6 +5356,7 @@ export type Database = {
           use_commit_movement_rpc: boolean
           use_daily_financial_facts: boolean
           use_more_menu_v2: boolean
+          use_nino_efficiency_v1: boolean
           use_nino_home_orchestrator: boolean
           use_nino_unified_intelligence: boolean
           use_report_templates: boolean
@@ -5359,6 +5375,7 @@ export type Database = {
           use_commit_movement_rpc?: boolean
           use_daily_financial_facts?: boolean
           use_more_menu_v2?: boolean
+          use_nino_efficiency_v1?: boolean
           use_nino_home_orchestrator?: boolean
           use_nino_unified_intelligence?: boolean
           use_report_templates?: boolean
@@ -5377,6 +5394,7 @@ export type Database = {
           use_commit_movement_rpc?: boolean
           use_daily_financial_facts?: boolean
           use_more_menu_v2?: boolean
+          use_nino_efficiency_v1?: boolean
           use_nino_home_orchestrator?: boolean
           use_nino_unified_intelligence?: boolean
           use_report_templates?: boolean
