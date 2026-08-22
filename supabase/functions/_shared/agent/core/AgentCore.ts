@@ -53,7 +53,7 @@ import { findPending } from "./PendingConfirmations.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
-import { serializeWithinBudget, estimateTokens } from "./ContextBudget.ts";
+import { serializeWithinBudget, estimateTokens, measureLayers, fitWorkingMemory } from "./ContextBudget.ts";
 
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
