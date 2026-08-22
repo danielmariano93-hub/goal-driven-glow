@@ -13,7 +13,7 @@ import { interpretSemanticQuery, isInterpretationCorrection } from "../../intell
 import { executeWeekdayPattern } from "../../intelligence/weekdayTool.ts";
 import { classifyModelTask, loadModelRoute } from "../../intelligence/modelGateway.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
-import type { CapabilityDecision } from "./CapabilityRouter.ts";
+import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts";
 import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 import { runTool } from "./ToolRuntime.ts";
 
@@ -169,7 +169,24 @@ export async function plan(
   };
 
   try {
-    const turn = await runToolLoop(sb, args, primaryOpts);
+    let turn = await runToolLoop(sb, args, primaryOpts);
+    // Progressive tool disclosure: o núcleo enxuto não concluiu (loop esgotado
+    // ou resposta vazia). Só então o escopo ampliado entra, uma única vez.
+    const expanded = expandedToolsFor(args.capability.name);
+    if (expanded && (turn.finish === "length" || turn.finish === "empty")) {
+      turn = await runToolLoop(sb, args, {
+        ...primaryOpts,
+        allowedTools: expanded,
+        maxSteps: Math.min(3, route.max_steps + 1),
+      });
+      return {
+        path: "llm", turn, errorSanitized: null,
+        modelAttempts: [
+          { model: route.primary, ok: false, error: `scope_expanded:${turn.finish}` },
+          { model: route.primary, ok: true },
+        ],
+      };
+    }
     return { path: "llm", turn, errorSanitized: null, modelAttempts: [{ model: route.primary, ok: true }] };
   } catch (primaryError) {
     const primarySanitized = sanitizeError(primaryError);
