@@ -16,6 +16,12 @@ import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts";
 import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 import { runTool } from "./ToolRuntime.ts";
+import { flagSnapshot } from "./FeatureFlags.ts";
+
+/** Flags de eficiência consultadas por turno (`nino_efficiency.v2`). */
+const EFFICIENCY_FLAGS = [
+  "evidence_pack_v1", "deterministic_first_v2", "progressive_tools_v1", "model_routing_v2",
+] as const;
 
 /**
  * Leituras canônicas seguras de pré-executar sem argumentos do modelo
