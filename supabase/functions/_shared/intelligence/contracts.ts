@@ -97,6 +97,8 @@ export type ModelTask =
   | "financial_analysis"
   | "complex_reasoning"
   | "vision"
+  /** Documento COM camada de texto: extração sem visão (`nino_efficiency.v2`). */
+  | "document_text"
   | "fallback";
 
 export type ModelRoute = {

@@ -91,7 +91,7 @@ function chainContinuation(documentId: string, userId: string, guidance: string)
 }
 
 
-async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification"): Promise<string> {
+async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification" | "document_text"): Promise<string> {
   const { data } = await sb.from("ai_model_routes")
     .select("primary_model")
     .eq("task", task)
@@ -372,6 +372,12 @@ async function callMultimodal(
   signal: AbortSignal,
   batch: { index: number; max: number; exclude: string[]; strict?: boolean },
   model: string,
+  /**
+   * `nino_efficiency.v2` — quando o PDF TEM camada de texto, mandamos o TEXTO
+   * do trecho em vez do arquivo inteiro por página: mesma cobertura, sem visão
+   * e com uma fração dos tokens de entrada.
+   */
+  textContent?: string | null,
 ): Promise<MultimodalOutcome> {
   const start = Date.now();
   // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
@@ -381,6 +387,16 @@ async function callMultimodal(
     ? `\nNão repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.join("; ")}.\nSe TODOS os lançamentos do documento já estiverem nessa lista, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.`
     : `\nNenhum lançamento foi extraído ainda: devolva TODOS os lançamentos deste trecho, sem omitir nenhum.`;
   try {
+    const instruction = `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
+Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}`;
+    const content = textContent
+      ? [{ type: "text", text: `${instruction}\n\nTEXTO DO DOCUMENTO (trecho ${batch.index}/${batch.max}):\n${textContent}` }]
+      : [
+        { type: "text", text: instruction },
+        mimeType === "application/pdf"
+          ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
+          : { type: "image_url", image_url: { url: publicBase64Url } },
+      ];
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -391,16 +407,7 @@ async function callMultimodal(
         model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
-Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}` },
-              mimeType === "application/pdf"
-                ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
-                : { type: "image_url", image_url: { url: publicBase64Url } },
-            ],
-          },
+          { role: "user", content },
         ],
         response_format: { type: "json_object" },
         max_tokens: BATCH_MAX_TOKENS,
@@ -862,6 +869,8 @@ async function acquireProcessingLock(
 async function processDocument(documentId: string, userId: string, guidance: string, correlationId: string) {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const visionModel = await resolveConfiguredModel(sb, "vision");
+  // Tier textual (`nino_efficiency.v2`): PDF com camada de texto não precisa de visão.
+  const documentTextModel = await resolveConfiguredModel(sb, "document_text");
   const finish = async (patch: Record<string, unknown>) => {
     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
   };
@@ -927,6 +936,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
     let deterministicOutcomes: MultimodalOutcome[] | null = null;
     let deterministicCoverage: InvoiceCoverage | null = null;
     let officialSummaryPatch: Record<string, unknown> | null = null;
+    // `nino_efficiency.v2` — trechos de TEXTO do PDF quando o parser oficial não
+    // reconhece o layout: sai do tier de visão sem perder cobertura.
+    let textChunks: string[] | null = null;
     if (doc.mime_type === "application/pdf") {
       const pdfText = await extractPdfText(bytes);
       if (pdfText.hasTextLayer) {
@@ -973,6 +985,17 @@ async function processDocument(documentId: string, userId: string, guidance: str
             partial: false,
           }));
           console.log(`[assistant-ingest] deterministic_invoice document=${documentId} lines=${result.items.length} gap=${deterministicCoverage.gap_section ?? "none"}`);
+        } else if (pdfText.text.trim().length > 400) {
+          // Layout desconhecido, mas há texto: fatiamos o texto em trechos de
+          // ~12k caracteres e cada trecho vira um fragmento textual.
+          const raw = pdfText.text.replace(/[ \t]+\n/g, "\n").trim();
+          const size = 12_000;
+          const chunks: string[] = [];
+          for (let i = 0; i < raw.length && chunks.length < 40; i += size) chunks.push(raw.slice(i, i + size));
+          if (chunks.length > 0) {
+            textChunks = chunks;
+            console.log(`[assistant-ingest] text_layer_mode document=${documentId} chunks=${chunks.length}`);
+          }
         }
       }
     }
@@ -981,6 +1004,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
       ? deterministicOutcomes.map((_, i) => ({
           index: i + 1, total: deterministicOutcomes!.length, page_start: 1, page_end: 1, bytes: new Uint8Array(),
         }))
+      : textChunks
+        ? textChunks.map((_, i) => ({
+            index: i + 1, total: textChunks!.length, page_start: 1, page_end: 1, bytes: new Uint8Array(),
+          }))
       : doc.mime_type === "application/pdf"
         ? await splitPdfIntoFragments(bytes, PDF_PAGES_PER_FRAGMENT)
         : [{ index: 1, total: 1, page_start: 1, page_end: 1, bytes }];
@@ -1105,13 +1132,17 @@ async function processDocument(documentId: string, userId: string, guidance: str
         if (deterministicOutcomes) {
           out = deterministicOutcomes[batchIndex - 1];
         } else {
-        const dataUrl = bytesToDataUrl(fragment.bytes, doc.mime_type);
+        const chunkText = textChunks ? textChunks[batchIndex - 1] : null;
+        const dataUrl = chunkText ? "" : bytesToDataUrl(fragment.bytes, doc.mime_type);
         const filename = doc.storage_path?.split("/").pop() ?? "documento";
         const guide = (guidance ?? "").slice(0, 500);
+        // Camada de texto usa o tier textual; escaneado continua no de visão.
+        const extractionModel = chunkText ? documentTextModel : visionModel;
         out = await callMultimodal(
           dataUrl, doc.mime_type, filename, guide, ac.signal,
           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
-          visionModel,
+          extractionModel,
+          chunkText,
         );
         // Retry estrito: documento financeiro que volta sem nenhum item e sem
         // erro quase sempre significa que o modelo pegou o atalho "sem novos
@@ -1124,7 +1155,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
           const retry = await callMultimodal(
             dataUrl, doc.mime_type, filename, guide, ac.signal,
             { index: batchIndex, max: maxBatches, exclude: [], strict: true },
-            visionModel,
+            extractionModel,
+            chunkText,
           );
           if (retry.result.items.length > 0) {
             out = {

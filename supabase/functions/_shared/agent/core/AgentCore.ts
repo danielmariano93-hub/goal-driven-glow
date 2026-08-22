@@ -53,7 +53,10 @@ import { findPending } from "./PendingConfirmations.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
-import { serializeWithinBudget, estimateTokens } from "./ContextBudget.ts";
+import {
+  serializeWithinBudget, estimateTokens, measureLayers, fitWorkingMemory, LAYER_BUDGET_CHARS,
+} from "./ContextBudget.ts";
+import { isEnabled } from "./FeatureFlags.ts";
 
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
@@ -682,14 +685,20 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
 
   }
 
+  // Camadas de memória medidas separadamente (`context_budget.v2`).
+  const memoryPromptChars: { semantic: string; episodic: string } = { semantic: "", episodic: "" };
+
   const corrections = await guard(() => tctx.memory("correction", 8),
     (m) => metrics.errors.push("corrections:" + m), []);
   if (corrections?.length) {
     const hints = corrections.map((fact: any) => fact.value).filter(Boolean).slice(0, 8);
+    // Memória episódica: correções explícitas do usuário, dentro do orçamento.
+    const episodic = JSON.stringify(hints).slice(0, LAYER_BUDGET_CHARS.episodic_memory);
+    memoryPromptChars.episodic = episodic;
     systemPrompt += `
 
 [CORREÇÕES APRENDIDAS DO PRÓPRIO USUÁRIO]
-${JSON.stringify(hints)}
+${episodic}
 ` +
       `Use essas correções para não repetir uma interpretação rejeitada. Correção explícita do usuário prevalece sobre inferências anteriores.`;
   }
@@ -821,9 +830,10 @@ ${JSON.stringify(hints)}
         toolCalls: composite.toolCalls, finish: "stop" as const,
       },
     }
-    : await timeStage(metrics, "plan", () => planAction(sb, {
+    : await timeStage(metrics, "plan", async () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: turnPlan.followup ? turnPlan.effective_text : input.text, hasPrompt: !!prompt,
+    // Resolução de continuidade continua com o histórico completo do turno.
     history, capability,
   }, {
     model: prompt?.model ?? "google/gemini-2.5-flash",
@@ -831,7 +841,9 @@ ${JSON.stringify(hints)}
     temperature: prompt?.temperature ?? 0.2,
     systemPrompt,
     timeoutMs: 25_000,
-    history,
+    // Working memory (`context_budget.v2`): só os últimos turnos relevantes vão
+    // ao prompt. Histórico completo nunca é despejado no modelo.
+    history: (await isEnabled("context_budget_v2")) ? fitWorkingMemory(history) : history,
   }));
 
   let path: "llm" | "deterministic_tool" | "deterministic_fallback" = planner.path;
@@ -1113,14 +1125,30 @@ ${JSON.stringify(hints)}
     total: latency,
     tools_measured: toolMs,
   };
+  const historyText = (history ?? []).map((h) => String(h.content ?? "")).join("\n");
+  const evidenceChars = metrics.tool_result_llm_chars ?? 0;
+  const toolSchemaChars = (capability.allowed_tools ?? []).join(",").length;
+  // Context Budget V2: cada camada do prompt é medida e reportada.
+  const layerMeasures = measureLayers({
+    system_policy: systemPrompt.slice(0, Math.max(0, systemPrompt.length - contextJson.length)),
+    user_turn: String(input.text ?? ""),
+    working_memory: historyText,
+    semantic_memory: memoryPromptChars.semantic,
+    episodic_memory: memoryPromptChars.episodic,
+    financial_evidence: contextJson,
+    tool_schemas: (capability.allowed_tools ?? []).join(","),
+  });
   const tokenSplit = {
     prompt_system: estimateTokens(systemPrompt),
     context: estimateTokens(contextJson),
     history: (history ?? []).reduce((acc, h) => acc + estimateTokens(String(h.content ?? "")), 0),
     user_text: estimateTokens(String(input.text ?? "")),
+    evidence: estimateTokens("x".repeat(Math.min(evidenceChars, 200_000))),
+    tool_schemas: estimateTokens((capability.allowed_tools ?? []).join(",")),
     completion: metrics.tokens_out ?? 0,
     reported_in: metrics.tokens_in ?? 0,
     reported_out: metrics.tokens_out ?? 0,
+    layers_total: layerMeasures.total_tokens,
   };
   if (run_id) {
     await guard(async () => {
@@ -1156,6 +1184,25 @@ ${JSON.stringify(hints)}
         tool_result_llm_chars: metrics.tool_result_llm_chars ?? 0,
         route_reason: metrics.route_reason,
         model_tier: metrics.model_tier,
+        // Telemetria completa (`nino_efficiency.v2`). `provider_cost_usd` fica
+        // NULL de propósito: o gateway não reporta custo real, e custo estimado
+        // nunca é apresentado como custo do provedor.
+        provider: planner.provider ?? (metrics.model ? String(metrics.model).split("/")[0] : null),
+        fallback_attempts: planner.fallbackAttempts ?? 0,
+        provider_cost_usd: null,
+        compression_ratio: (metrics.tool_result_full_chars ?? 0) > 0
+          ? Math.round(((metrics.tool_result_llm_chars ?? 0) / metrics.tool_result_full_chars) * 1000) / 1000
+          : null,
+        context_layers: { ...layerMeasures, flags: planner.flags ?? null },
+        system_prompt_chars: systemPrompt.length,
+        history_chars: historyText.length,
+        working_memory_chars: layerMeasures.layers.working_memory?.chars ?? 0,
+        semantic_memory_chars: layerMeasures.layers.semantic_memory?.chars ?? 0,
+        financial_context_chars: contextChars || 0,
+        tool_schema_chars: toolSchemaChars,
+        evidence_chars: evidenceChars,
+        truth_validation_failed: metrics.errors.some((e) => e.startsWith("truth_")),
+        clarification_asked: Boolean(capability.clarification),
       }).eq("id", run_id);
 
       if (runError) throw runError;

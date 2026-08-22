@@ -97,7 +97,12 @@ export async function executeComposite(
 
   const tasks: CompositeTask[] = [];
   const toolCalls: any[] = [];
-  const seen = new Map<string, CompositeTask>();
+
+  // ---- Planejamento das subtarefas (dedupe antes de executar) -------------
+  type Pending = { index: number; text: string; capability: CapabilityDecision; tool: string; args: Record<string, unknown>; key: string };
+  const pending: Pending[] = [];
+  const duplicates: Array<{ index: number; text: string; capability: CapabilityDecision; tool: string; args: Record<string, unknown>; key: string }> = [];
+  const plannedKeys = new Set<string>();
 
   for (let i = 0; i < decisions.length; i++) {
     const { text, capability } = decisions[i];
@@ -115,40 +120,62 @@ export async function executeComposite(
       toolArgs.to = plan.effective_period.to;
     }
     const key = keyOf(tool, toolArgs);
-    const previous = seen.get(key);
-    if (previous) {
-      // Chamada redundante: reaproveita a evidência já obtida, sem repetir custo.
-      tasks.push({
-        index: i, text, capability: capability.name, tool, args: toolArgs,
-        status: "skipped_duplicate", block: null, result: previous.result,
-      });
+    if (plannedKeys.has(key)) {
+      duplicates.push({ index: i, text, capability, tool, args: toolArgs, key });
       continue;
     }
-
-    const execution = await runTool(
-      { sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: text },
-      tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 },
-    );
-    toolCalls.push({
-      step_index: toolCalls.length + 1, tool_name: execution.tool_name, args: execution.args,
-      result: execution.ok ? execution.result : null, ok: execution.ok,
-      duration_ms: execution.duration_ms, error: execution.error,
-    });
-    if (!execution.ok) {
-      const task: CompositeTask = {
-        index: i, text, capability: capability.name, tool, args: toolArgs,
-        status: "failed", block: null,
-      };
-      tasks.push(task); seen.set(key, task);
-      continue;
-    }
-    const block = formatBlock(capability.name, execution.result);
-    const task: CompositeTask = {
-      index: i, text, capability: capability.name, tool, args: toolArgs,
-      status: block ? "ok" : "empty", block, result: execution.result,
-    };
-    tasks.push(task); seen.set(key, task);
+    plannedKeys.add(key);
+    pending.push({ index: i, text, capability, tool, args: toolArgs, key });
   }
+
+  // ---- Execução PARALELA das leituras independentes -----------------------
+  // Subtarefas de um turno composto são leituras sem dependência causal entre
+  // si (snapshot, merchants, metas). Executá-las em série somava a latência de
+  // todas. Concorrência limitada a 3, timeout por tool e isolamento de falha:
+  // uma subtarefa que falha não derruba as outras (resultado parcial).
+  const CONCURRENCY = 3;
+  const results = new Map<string, CompositeTask>();
+  for (let start = 0; start < pending.length; start += CONCURRENCY) {
+    const slice = pending.slice(start, start + CONCURRENCY);
+    const executions = await Promise.all(slice.map(async (item) => {
+      const execution = await runTool(
+        { sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: item.text },
+        item.tool, item.args, { timeoutMs: 12_000, maxRetries: 1 },
+      );
+      return { item, execution };
+    }));
+    for (const { item, execution } of executions) {
+      toolCalls.push({
+        step_index: toolCalls.length + 1, tool_name: execution.tool_name, args: execution.args,
+        result: execution.ok ? execution.result : null, ok: execution.ok,
+        duration_ms: execution.duration_ms, error: execution.error,
+      });
+      if (!execution.ok) {
+        results.set(item.key, {
+          index: item.index, text: item.text, capability: item.capability.name,
+          tool: item.tool, args: item.args, status: "failed", block: null,
+        });
+        continue;
+      }
+      const block = formatBlock(item.capability.name, execution.result);
+      results.set(item.key, {
+        index: item.index, text: item.text, capability: item.capability.name,
+        tool: item.tool, args: item.args,
+        status: block ? "ok" : "empty", block, result: execution.result,
+      });
+    }
+  }
+
+  for (const task of results.values()) tasks.push(task);
+  for (const dup of duplicates) {
+    // Chamada redundante: reaproveita a evidência já obtida, sem repetir custo.
+    tasks.push({
+      index: dup.index, text: dup.text, capability: dup.capability.name,
+      tool: dup.tool, args: dup.args, status: "skipped_duplicate", block: null,
+      result: results.get(dup.key)?.result,
+    });
+  }
+  tasks.sort((a, b) => a.index - b.index);
 
   const blocks: string[] = [];
   const unanswered: string[] = [];

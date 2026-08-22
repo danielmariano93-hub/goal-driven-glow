@@ -16,6 +16,12 @@ import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts";
 import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 import { runTool } from "./ToolRuntime.ts";
+import { flagSnapshot } from "./FeatureFlags.ts";
+
+/** Flags de eficiência consultadas por turno (`nino_efficiency.v2`). */
+const EFFICIENCY_FLAGS = [
+  "evidence_pack_v1", "deterministic_first_v2", "progressive_tools_v1", "model_routing_v2",
+] as const;
 
 /**
  * Leituras canônicas seguras de pré-executar sem argumentos do modelo
@@ -38,6 +44,10 @@ export type PlannerResult = {
   /** Eficiência (`nino_efficiency.v1`) — por que esta rota e qual tier. */
   routeReason?: string | null;
   modelTier?: string | null;
+  /** Telemetria completa (`nino_efficiency.v2`). */
+  provider?: string | null;
+  fallbackAttempts?: number;
+  flags?: Record<string, boolean>;
 };
 
 export async function plan(
@@ -108,7 +118,11 @@ export async function plan(
     }
   }
 
-  if (args.capability.execution === "deterministic") {
+  // Flags granulares: cada otimização pode ser desligada isoladamente sem
+  // derrubar as outras (`nino_efficiency.v2`).
+  const flags = await flagSnapshot(EFFICIENCY_FLAGS);
+
+  if (args.capability.execution === "deterministic" && flags.deterministic_first_v2) {
     const turn = await executeDeterministicCapability(sb, {
       user_id: args.user_id,
       conversation_id: args.conversation_id,
@@ -123,12 +137,14 @@ export async function plan(
           ? turn.toolCalls.find((call) => !call.ok)?.error ?? "deterministic_tool_error"
           : null,
         modelAttempts: [],
+        routeReason: "deterministic_first_v2",
+        flags,
       };
     }
   }
 
   if (!args.hasPrompt || !isLLMConfigured()) {
-    return { path: "deterministic_fallback", errorSanitized: null, modelAttempts: [] };
+    return { path: "deterministic_fallback", errorSanitized: null, modelAttempts: [], flags };
   }
 
   const existingBlock = await getAiBlock(sb);
@@ -138,12 +154,21 @@ export async function plan(
       errorSanitized: `gateway_${existingBlock.status}`,
       modelAttempts: [],
       turn: { reply: aiBlockReply(existingBlock), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
+      flags,
     };
   }
 
   const task = classifyModelTask(args.user_text, semantic);
-  const route = await loadModelRoute(sb, task, opts.model, opts.maxSteps);
-  const tier = tierForTask(task);
+  // `model_routing_v2` off → rota legada do prompt configurado, sem tiers.
+  const route = flags.model_routing_v2
+    ? await loadModelRoute(sb, task, opts.model, opts.maxSteps)
+    : {
+      task, primary: opts.model, fallback: null,
+      max_latency_ms: opts.timeoutMs, max_steps: opts.maxSteps,
+      reason: "model_routing_v2:off",
+    };
+  const tier = flags.model_routing_v2 ? tierForTask(task) : null;
+  const provider = String(route.primary).split("/")[0] || null;
   // Pré-execução determinística da ferramenta canônica.
   const requiredTool = args.capability.required_tool;
   const toolArgs = args.capability.tool_args;
@@ -168,15 +193,16 @@ export async function plan(
     timeoutMs: route.max_latency_ms,
     allowedTools: args.capability.allowed_tools,
     requiredTool: args.capability.required_tool,
-    evidencePack: true,
+    evidencePack: flags.evidence_pack_v1,
     preExecuted,
   };
+
 
   try {
     let turn = await runToolLoop(sb, args, primaryOpts);
     // Progressive tool disclosure: o núcleo enxuto não concluiu (loop esgotado
     // ou resposta vazia). Só então o escopo ampliado entra, uma única vez.
-    const expanded = expandedToolsFor(args.capability.name);
+    const expanded = flags.progressive_tools_v1 ? expandedToolsFor(args.capability.name) : null;
     if (expanded && (turn.finish === "length" || turn.finish === "empty")) {
       turn = await runToolLoop(sb, args, {
         ...primaryOpts,
@@ -190,12 +216,14 @@ export async function plan(
           { model: route.primary, ok: true },
         ],
         routeReason: `${route.reason}+scope_expanded`, modelTier: tier,
+        provider, fallbackAttempts: 0, flags,
       };
     }
     return {
       path: "llm", turn, errorSanitized: null,
       modelAttempts: [{ model: route.primary, ok: true }],
       routeReason: route.reason, modelTier: tier,
+      provider, fallbackAttempts: 0, flags,
     };
   } catch (primaryError) {
     const primarySanitized = sanitizeError(primaryError);
@@ -206,6 +234,8 @@ export async function plan(
         path: "llm", errorSanitized: primarySanitized,
         modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
         turn: { reply: aiBlockReply(block ?? { status: primaryStatus, requires: null, message: "" }), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
+        routeReason: `${route.reason}+gateway_${primaryStatus}`, modelTier: tier,
+        provider, fallbackAttempts: 0, flags,
       };
     }
     if (route.fallback && route.fallback !== route.primary) {
@@ -217,6 +247,9 @@ export async function plan(
             { model: route.primary, ok: false, error: primarySanitized },
             { model: route.fallback, ok: true },
           ],
+          routeReason: `${route.reason}+fallback`, modelTier: tier,
+          provider: String(route.fallback).split("/")[0] || null,
+          fallbackAttempts: 1, flags,
         };
       } catch (fallbackError) {
         return {
@@ -225,12 +258,16 @@ export async function plan(
             { model: route.primary, ok: false, error: primarySanitized },
             { model: route.fallback, ok: false, error: sanitizeError(fallbackError) },
           ],
+          routeReason: `${route.reason}+fallback_failed`, modelTier: tier,
+          provider, fallbackAttempts: 2, flags,
         };
       }
     }
     return {
       path: "deterministic_fallback", errorSanitized: primarySanitized,
       modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
+      routeReason: `${route.reason}+primary_failed`, modelTier: tier,
+      provider, fallbackAttempts: 1, flags,
     };
   }
 }

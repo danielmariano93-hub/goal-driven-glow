@@ -69,8 +69,8 @@ describe("Nino Intelligence Core", () => {
 
   it("usa fallback independente quando não há override", () => {
     const route = selectModelRoute("financial_analysis", "google/gemini-2.5-flash", 8);
-    expect(route.primary).toBe("google/gemini-2.5-flash");
-    expect(route.fallback).toBe("openai/gpt-5-mini");
+    expect(route.primary).toBe("google/gemini-3.7-flash");
+    expect(route.fallback).toBe("openai/gpt-5.4-mini");
     expect(route.fallback).not.toBe(route.primary);
   });
 
