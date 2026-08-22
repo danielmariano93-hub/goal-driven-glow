@@ -131,3 +131,112 @@ export function tokenBreakdown(blocks: Record<string, string | null | undefined>
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Context Budget V2 (`context_budget.v2`) — contrato formal POR CAMADA.
+//
+// O orçamento deixa de ser "um número para o JSON financeiro" e passa a ser um
+// contrato por camada do prompt. A camada `user_turn` NUNCA é cortada; as outras
+// têm teto próprio em caracteres, medido e reportado na telemetria do turno.
+// ---------------------------------------------------------------------------
+
+export type ContextLayer =
+  | "system_policy"       // A. system/policy
+  | "user_turn"           // B. mensagem atual (integral, nunca cortada)
+  | "working_memory"      // C. últimos turnos relevantes
+  | "semantic_memory"     // D. preferências/fatos estáveis
+  | "episodic_memory"     // E. acontecimentos relevantes da relação
+  | "financial_evidence"  // F. contexto financeiro canônico
+  | "tool_schemas"        // G. schemas das ferramentas
+  | "evidence_pack";      // H. Evidence Packs das tools
+
+/** Teto de caracteres por camada. ~4 chars/token → alvo total ≈ 4–5k tokens. */
+export const LAYER_BUDGET_CHARS: Readonly<Record<ContextLayer, number>> = {
+  system_policy: 6_000,
+  user_turn: Number.POSITIVE_INFINITY,
+  working_memory: 3_000,
+  semantic_memory: 900,
+  episodic_memory: 700,
+  financial_evidence: 4_000,
+  tool_schemas: 3_000,
+  evidence_pack: 2_400,
+};
+
+/** Turnos de working memory mantidos por padrão (2–4 interações recentes). */
+export const WORKING_MEMORY_TURNS = 4;
+
+export type LayerMeasure = { chars: number; tokens: number; over_budget: boolean };
+
+/** Mede uma camada contra o seu orçamento (não altera o conteúdo). */
+export function measureLayer(layer: ContextLayer, text: string | null | undefined): LayerMeasure {
+  const chars = text ? text.length : 0;
+  const budget = LAYER_BUDGET_CHARS[layer];
+  return { chars, tokens: estimateTokens(text ?? ""), over_budget: chars > budget };
+}
+
+/**
+ * Telemetria por camada do turno: `{ layers: {...}, total_tokens, over_budget[] }`.
+ * A camada `user_turn` entra na conta mas nunca é marcada como excedida.
+ */
+export function measureLayers(
+  blocks: Partial<Record<ContextLayer, string | null | undefined>>,
+): { layers: Record<string, LayerMeasure>; total_chars: number; total_tokens: number; over_budget: string[] } {
+  const layers: Record<string, LayerMeasure> = {};
+  const over: string[] = [];
+  let total_chars = 0;
+  let total_tokens = 0;
+  for (const [key, text] of Object.entries(blocks)) {
+    const layer = key as ContextLayer;
+    const measure = measureLayer(layer, text);
+    layers[layer] = measure;
+    total_chars += measure.chars;
+    total_tokens += measure.tokens;
+    if (measure.over_budget && layer !== "user_turn") over.push(layer);
+  }
+  return { layers, total_chars, total_tokens, over_budget: over };
+}
+
+/**
+ * Aplica o orçamento de uma camada de TEXTO (não-JSON): corta por parágrafo,
+ * nunca no meio de uma palavra, e sinaliza o corte.
+ */
+export function fitLayer(layer: ContextLayer, text: string): string {
+  const budget = LAYER_BUDGET_CHARS[layer];
+  if (!Number.isFinite(budget) || text.length <= budget) return text;
+  const parts = text.split(/\n{2,}/);
+  const kept: string[] = [];
+  let used = 0;
+  for (const part of parts) {
+    if (used + part.length > budget) break;
+    kept.push(part);
+    used += part.length + 2;
+  }
+  if (kept.length === 0) {
+    const hard = text.slice(0, Math.max(0, budget - 1));
+    return hard.slice(0, hard.lastIndexOf(" ") > 0 ? hard.lastIndexOf(" ") : hard.length);
+  }
+  return kept.join("\n\n");
+}
+
+/**
+ * Working memory: mantém apenas os últimos turnos relevantes dentro do
+ * orçamento da camada. Histórico completo nunca vai ao prompt.
+ */
+export function fitWorkingMemory<T extends { role?: string; content?: unknown }>(
+  history: readonly T[],
+  opts: { turns?: number; maxChars?: number } = {},
+): T[] {
+  const turns = Math.max(1, opts.turns ?? WORKING_MEMORY_TURNS);
+  const maxChars = opts.maxChars ?? LAYER_BUDGET_CHARS.working_memory;
+  const recent = history.slice(-turns * 2);
+  const kept: T[] = [];
+  let used = 0;
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const size = String(recent[i]?.content ?? "").length;
+    if (kept.length > 0 && used + size > maxChars) break;
+    kept.unshift(recent[i]);
+    used += size;
+  }
+  return kept;
+}
+
+
