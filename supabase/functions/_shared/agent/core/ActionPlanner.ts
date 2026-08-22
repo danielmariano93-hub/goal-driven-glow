@@ -15,6 +15,20 @@ import { classifyModelTask, loadModelRoute } from "../../intelligence/modelGatew
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import type { CapabilityDecision } from "./CapabilityRouter.ts";
 import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
+import { runTool } from "./ToolRuntime.ts";
+
+/**
+ * Leituras canônicas seguras de pré-executar sem argumentos do modelo
+ * (`nino_efficiency.v1`). Rodando a tool ANTES da primeira chamada, o loop
+ * economiza uma ida ao modelo só para escolher a ferramenta e a evidência
+ * chega comprimida.
+ */
+const PREEXECUTABLE_READS = new Set([
+  "get_financial_snapshot", "get_debt_status", "get_net_worth", "get_goals_overview",
+  "get_commitments_agenda", "list_recent_transactions", "get_daily_insights",
+  "get_future_installments", "list_investments", "get_spending_highlights",
+  "forecast_month_close",
+]);
 
 export type PlannerResult = {
   path: "llm" | "deterministic_tool" | "deterministic_fallback";
@@ -126,6 +140,23 @@ export async function plan(
 
   const task = classifyModelTask(args.user_text, semantic);
   const route = await loadModelRoute(sb, task, opts.model, opts.maxSteps);
+  // Pré-execução determinística da ferramenta canônica.
+  const requiredTool = args.capability.required_tool;
+  const toolArgs = args.capability.tool_args;
+  let preExecuted: ToolRuntimeOptions["preExecuted"];
+  if (requiredTool && (toolArgs || PREEXECUTABLE_READS.has(requiredTool))) {
+    const exec = await runTool(
+      { sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text } as any,
+      requiredTool,
+      toolArgs ?? {},
+      { timeoutMs: Math.min(10_000, route.max_latency_ms), maxRetries: 1 },
+    );
+    preExecuted = [{
+      tool_name: exec.tool_name, args: exec.args, result: exec.result,
+      ok: exec.ok, duration_ms: exec.duration_ms, error: exec.error,
+    }];
+  }
+
   const primaryOpts: ToolRuntimeOptions = {
     ...opts,
     model: route.primary,
@@ -133,6 +164,8 @@ export async function plan(
     timeoutMs: route.max_latency_ms,
     allowedTools: args.capability.allowed_tools,
     requiredTool: args.capability.required_tool,
+    evidencePack: true,
+    preExecuted,
   };
 
   try {
