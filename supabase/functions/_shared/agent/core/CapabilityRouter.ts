@@ -631,9 +631,16 @@ export function resumeDeterministicCapability(
   }
 
   if (previous.name !== "before_spending" || !previous.clarification) return null;
-  const resumed = classifyCapability(`${previousUserText} ${text}`, parsed, null);
-  if (resumed.name !== "before_spending" || resumed.clarification || !resumed.required_tool) return null;
-  return { ...resumed, reason: "canonical_spending_simulation_resumed" };
+  const currentArgs = beforeSpendingArgs(text) ?? {};
+  const mergedArgs = { ...(previous.tool_args ?? {}), ...currentArgs } as Record<string, unknown>;
+  if (!mergedArgs.amount || !mergedArgs.planned_date) return null;
+  return {
+    ...previous,
+    required_tool: "run_before_spending",
+    tool_args: mergedArgs,
+    clarification: null,
+    reason: "canonical_spending_simulation_resumed",
+  };
 }
 
 export function capabilityPrompt(decision: CapabilityDecision): string {
