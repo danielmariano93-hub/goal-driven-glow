@@ -934,6 +934,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
     let deterministicOutcomes: MultimodalOutcome[] | null = null;
     let deterministicCoverage: InvoiceCoverage | null = null;
     let officialSummaryPatch: Record<string, unknown> | null = null;
+    // `nino_efficiency.v2` — trechos de TEXTO do PDF quando o parser oficial não
+    // reconhece o layout: sai do tier de visão sem perder cobertura.
+    let textChunks: string[] | null = null;
     if (doc.mime_type === "application/pdf") {
       const pdfText = await extractPdfText(bytes);
       if (pdfText.hasTextLayer) {
