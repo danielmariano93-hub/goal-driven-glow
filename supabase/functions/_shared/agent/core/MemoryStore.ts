@@ -40,6 +40,114 @@ export function normalizeKey(k: string): string {
   return String(k ?? "").trim().toLowerCase().slice(0, 120);
 }
 
+// ---------------------------------------------------------------------------
+// Memória estruturada (`nino_memory.v2`)
+//
+// Três camadas explícitas. Estado financeiro NÃO é memória: saldo, fatura,
+// patrimônio, gastos, receita, metas, dívidas e previsões são sempre relidos
+// das fontes canônicas (motores/read models) no turno.
+// ---------------------------------------------------------------------------
+
+export type MemoryScope = "semantic" | "episodic";
+
+/** Preferências e fatos estáveis sobre o usuário. */
+const SEMANTIC_KINDS: readonly MemoryKind[] = [
+  "favorite_category", "frequent_merchant", "preferred_card", "favorite_investment",
+  "language", "alias", "response_preference", "advisor_preference", "habit",
+  "spending_pattern", "recurring_bill",
+];
+
+/** Acontecimentos relevantes da relação/conversa. */
+const EPISODIC_KINDS: readonly MemoryKind[] = [
+  "correction", "decision_log", "advisor_review", "behavior_hypothesis", "context", "goal",
+];
+
+export function scopeOf(kind: MemoryKind): MemoryScope {
+  return EPISODIC_KINDS.includes(kind) ? "episodic" : "semantic";
+}
+
+export function kindsForScope(scope: MemoryScope): MemoryKind[] {
+  return [...(scope === "episodic" ? EPISODIC_KINDS : SEMANTIC_KINDS)];
+}
+
+/**
+ * Números financeiros nunca viram memória permanente. Se um valor desses
+ * aparecer no payload, ele é descartado (o fato fica sem o número e o turno
+ * relê a fonte canônica).
+ */
+const FINANCIAL_VOLATILE_KEYS = new Set([
+  "saldo", "balance", "available", "available_today", "net_worth", "patrimonio",
+  "patrimônio", "fatura", "invoice_total", "spent", "gasto", "gastos", "income",
+  "receita", "revenue", "goal_amount", "debt", "divida", "dívida", "forecast",
+  "projection", "previsao", "previsão", "total", "amount_cents", "amount",
+]);
+
+export function stripVolatileFinancialState(
+  value: Record<string, unknown>,
+): { value: Record<string, unknown>; dropped: string[] } {
+  const out: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [k, v] of Object.entries(value ?? {})) {
+    const key = k.toLowerCase();
+    const looksFinancial = FINANCIAL_VOLATILE_KEYS.has(key)
+      || /(^|_)(saldo|balance|patrimonio|fatura|amount|valor|total)(_|$)/.test(key);
+    if (looksFinancial && (typeof v === "number" || typeof v === "bigint")) {
+      dropped.push(k);
+      continue;
+    }
+    out[k] = v;
+  }
+  return { value: out, dropped };
+}
+
+export type StructuredFact = {
+  user_id: string;
+  /** Tipo estruturado: `preference`, `event`, `alias`… */
+  type: string;
+  topic: string;
+  value: unknown;
+  kind?: MemoryKind;
+  confidence?: number;
+  source?: MemorySource;
+  visibility?: "user" | "internal";
+  expires_at?: string | null;
+};
+
+/**
+ * Grava um fato ESTRUTURADO (não a conversa inteira). Deduplicação por
+ * `kind+key`: o mesmo tópico atualiza o fato existente em vez de criar linhas
+ * novas — é isso que impede o crescimento infinito da memória.
+ */
+export async function rememberStructured(
+  sb: SupabaseClient,
+  fact: StructuredFact,
+): Promise<MemoryFact | null> {
+  const kind: MemoryKind = fact.kind
+    ?? (fact.type === "preference" ? "response_preference" : "context");
+  const payload = stripVolatileFinancialState({
+    type: fact.type,
+    topic: fact.topic,
+    value: fact.value as never,
+  } as Record<string, unknown>);
+  // O `value` interno também é saneado quando for objeto.
+  if (payload.value.value && typeof payload.value.value === "object" && !Array.isArray(payload.value.value)) {
+    payload.value.value = stripVolatileFinancialState(
+      payload.value.value as Record<string, unknown>,
+    ).value;
+  }
+  return await remember(sb, {
+    user_id: fact.user_id,
+    kind,
+    key: `${fact.type}:${fact.topic}`,
+    value: { ...payload.value, scope: scopeOf(kind) },
+    confidence: fact.confidence,
+    source: fact.source,
+    visibility: fact.visibility,
+    expires_at: fact.expires_at ?? null,
+  });
+}
+
+
 export async function remember(sb: SupabaseClient, rec: MemoryRecord): Promise<MemoryFact | null> {
   const key = normalizeKey(rec.key);
   if (!key || !rec.user_id || !rec.kind) return null;
