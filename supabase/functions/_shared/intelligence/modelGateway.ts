@@ -10,6 +10,9 @@ import type { ModelRoute, ModelTask, SemanticQuery } from "./contracts.ts";
  */
 export type ModelTier = "tier1_light" | "tier2_analysis" | "tier3_reasoning" | "vision";
 
+// Modelos verificados contra a lista de permitidos do gateway (`nino_efficiency.v2`).
+// Fallback SEMPRE em provider distinto do primário: fallback no mesmo provider
+// não é resiliência.
 export const MODEL_TIERS: Readonly<Record<ModelTier, { primary: string; fallback: string }>> = {
   // Classificação ambígua, humanização e extração simples.
   tier1_light: { primary: "google/gemini-3.1-flash-lite", fallback: "openai/gpt-5.4-nano" },
@@ -17,8 +20,8 @@ export const MODEL_TIERS: Readonly<Record<ModelTier, { primary: string; fallback
   tier2_analysis: { primary: "google/gemini-3.7-flash", fallback: "openai/gpt-5.4-mini" },
   // Raciocínio complexo, raro por definição.
   tier3_reasoning: { primary: "google/gemini-3.1-pro-preview", fallback: "openai/gpt-5.6-terra" },
-  // Documentos difíceis.
-  vision: { primary: "google/gemini-3.7-flash", fallback: "google/gemini-2.5-pro" },
+  // Documentos difíceis (imagem/escaneado).
+  vision: { primary: "google/gemini-3.7-flash", fallback: "openai/gpt-5.4" },
 };
 
 export function tierForTask(task: ModelTask): ModelTier {
@@ -27,6 +30,7 @@ export function tierForTask(task: ModelTask): ModelTier {
   if (task === "fast_operation" || task === "semantic_classification" || task === "fallback") {
     return "tier1_light";
   }
+  // `document_text` e `financial_analysis` compartilham o tier de análise.
   return "tier2_analysis";
 }
 
@@ -41,6 +45,7 @@ export function maxStepsForTier(tier: ModelTier): number {
 export function latencyForTier(tier: ModelTier): number {
   if (tier === "tier1_light") return 12_000;
   if (tier === "tier3_reasoning") return 30_000;
+  if (tier === "vision") return 30_000;
   return 20_000;
 }
 
@@ -54,12 +59,34 @@ function env(name: string): string | null {
   }
 }
 
+/**
+ * Classificação da tarefa por COMPLEXIDADE real, não por palavra-chave solta.
+ *
+ * "análise" sozinha não paga tier 3: raciocínio caro exige pedido explícito de
+ * plano/cenário/estratégia OU pergunta composta longa com causalidade. Perguntas
+ * factuais e de registro ficam no tier leve.
+ */
 export function classifyModelTask(text: string, semantic: SemanticQuery | null): ModelTask {
   if (semantic?.intent === "weekday_pattern") return "semantic_classification";
-  const t = String(text ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-  if (/\b(analise completa|cenario|simul|estrateg|por que|explique|planej)\b/.test(t)) return "complex_reasoning";
-  if (/\b(foto|imagem|print|nota fiscal|extrato|pdf|boleto)\b/.test(t)) return "vision";
-  if (/\b(registre|gastei|recebi|transferi|saldo|ultimos)\b/.test(t)) return "fast_operation";
+  const raw = String(text ?? "");
+  const t = raw.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+  if (/\b(foto|imagem|print|nota fiscal|comprovante|pdf|boleto)\b/.test(t)) return "vision";
+
+  // Registro/leitura curta e direta: tier leve.
+  if (/\b(registre|registra|anota|gastei|recebi|transferi|paguei|saldo|ultimos|ultimas)\b/.test(t)) {
+    return "fast_operation";
+  }
+
+  // Reasoning real: planejamento, cenário, estratégia, simulação de trade-off,
+  // ou causalidade encadeada em pergunta longa.
+  const asksPlan = /\b(planej|estrateg|cenario|simul|trade-?off|como (eu )?(faco|posso|consigo) para|monta(r)? um plano|quanto preciso guardar)\b/.test(t);
+  const asksCausality = /\b(por que|porque|o que (mudou|explica)|qual a causa|o que esta (me )?atrapalhando)\b/.test(t);
+  const composed = (raw.match(/[?]/g)?.length ?? 0) > 1 || /\b e (tambem|ainda)\b/.test(t);
+  const long = raw.trim().length > 160;
+  if (asksPlan && (long || composed)) return "complex_reasoning";
+  if (asksCausality && composed) return "complex_reasoning";
+
   return "financial_analysis";
 }
 
