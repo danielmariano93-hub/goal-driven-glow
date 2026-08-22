@@ -44,6 +44,10 @@ export type PlannerResult = {
   /** Eficiência (`nino_efficiency.v1`) — por que esta rota e qual tier. */
   routeReason?: string | null;
   modelTier?: string | null;
+  /** Telemetria completa (`nino_efficiency.v2`). */
+  provider?: string | null;
+  fallbackAttempts?: number;
+  flags?: Record<string, boolean>;
 };
 
 export async function plan(
