@@ -323,7 +323,6 @@ export function classifyCapability(
     const clarification = !args?.amount
       ? args?.planned_date
         ? "Qual valor você quer simular?"
-      ? "Qual valor você quer simular e em qual data pretende gastar?"
         : "Qual valor você quer simular e em qual data pretende gastar?"
       : !args.planned_date
         ? "Em qual data você pretende fazer esse gasto? Pode dizer hoje, amanhã, dia 15 ou uma data completa."

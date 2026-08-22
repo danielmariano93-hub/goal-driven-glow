@@ -63,7 +63,7 @@ export function isLLMConfigured(): boolean {
   return !!Deno.env.get("LOVABLE_API_KEY");
 }
 
-async function chatCompletion(body: unknown, sb: SupabaseClient, signal?: AbortSignal) {
+async function chatCompletion(body: unknown, signal?: AbortSignal) {
   const key = Deno.env.get("LOVABLE_API_KEY")!;
   const resp = await fetch(LOVABLE_GATEWAY, {
     method: "POST",
@@ -142,7 +142,7 @@ export async function runAgentTurn(
       // GPT-5.6 family requires reasoning_effort=none when using function tools
       if (/^openai\/gpt-5\.6/.test(opts.model)) body.reasoning_effort = "none";
 
-      const resp = await chatCompletion(body, toolCtx.sb, controller.signal);
+      const resp = await chatCompletion(body, controller.signal);
       const choice = resp.choices?.[0];
       const usage = resp.usage ?? {};
       tokensIn += Number(usage.prompt_tokens ?? 0);

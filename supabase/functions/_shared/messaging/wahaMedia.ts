@@ -393,6 +393,7 @@ export type AudioTranscriptionCode =
   | "download_failed"
   | "unsupported_format"
   | "empty_audio"
+  | "ai_blocked"
   | "transcription_failed";
 
 export type AudioTranscriptionResult =
@@ -517,6 +518,8 @@ export function audioFailureReply(code: AudioTranscriptionCode, firstName?: stri
       return `${hi}não consegui abrir esse formato de áudio. Grava direto aqui no WhatsApp ou me escreve que eu já cuido.`;
     case "download_failed":
       return `${hi}não consegui baixar seu áudio agora 🙏 Manda de novo em alguns segundos ou me escreve em texto que eu já resolvo.`;
+    case "ai_blocked":
+      return `${hi}minha inteligência de áudio está temporariamente indisponível porque o app precisa reativar os créditos. Seu áudio não foi processado nem gerou qualquer alteração.`;
 
     default:
       return `${hi}não consegui entender o áudio dessa vez 🙏 Pode repetir gravando de novo ou me escrever em texto?`;
@@ -600,6 +603,7 @@ export async function transcribeInboundAudio(args: {
     if (!resp.ok) {
       const detail = (await resp.text().catch(() => "")).slice(0, 200);
       console.error("[audio] transcription_http", resp.status, detail);
+      if (resp.status === 402 || resp.status === 403) return { ok: false, code: "ai_blocked", detail: `status_${resp.status}` };
       return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
     }
     const text = await readTranscriptionStream(resp);
