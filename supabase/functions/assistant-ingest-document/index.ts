@@ -983,6 +983,17 @@ async function processDocument(documentId: string, userId: string, guidance: str
             partial: false,
           }));
           console.log(`[assistant-ingest] deterministic_invoice document=${documentId} lines=${result.items.length} gap=${deterministicCoverage.gap_section ?? "none"}`);
+        } else if (pdfText.text.trim().length > 400) {
+          // Layout desconhecido, mas há texto: fatiamos o texto em trechos de
+          // ~12k caracteres e cada trecho vira um fragmento textual.
+          const raw = pdfText.text.replace(/[ \t]+\n/g, "\n").trim();
+          const size = 12_000;
+          const chunks: string[] = [];
+          for (let i = 0; i < raw.length && chunks.length < 40; i += size) chunks.push(raw.slice(i, i + size));
+          if (chunks.length > 0) {
+            textChunks = chunks;
+            console.log(`[assistant-ingest] text_layer_mode document=${documentId} chunks=${chunks.length}`);
+          }
         }
       }
     }
@@ -991,6 +1002,10 @@ async function processDocument(documentId: string, userId: string, guidance: str
       ? deterministicOutcomes.map((_, i) => ({
           index: i + 1, total: deterministicOutcomes!.length, page_start: 1, page_end: 1, bytes: new Uint8Array(),
         }))
+      : textChunks
+        ? textChunks.map((_, i) => ({
+            index: i + 1, total: textChunks!.length, page_start: 1, page_end: 1, bytes: new Uint8Array(),
+          }))
       : doc.mime_type === "application/pdf"
         ? await splitPdfIntoFragments(bytes, PDF_PAGES_PER_FRAGMENT)
         : [{ index: 1, total: 1, page_start: 1, page_end: 1, bytes }];
