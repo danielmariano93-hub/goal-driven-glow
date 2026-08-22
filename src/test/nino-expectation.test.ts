@@ -8,6 +8,8 @@ import {
   detectExpectation,
   isExpectationFresh,
 } from "../../supabase/functions/_shared/agent/core/ConversationExpectation.ts";
+import { classifyCapability, resumeDeterministicCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter.ts";
+import { interpret } from "../../supabase/functions/_shared/agent/parser.ts";
 
 describe("emotionParse — respostas curtas de humor", () => {
   it("entende frase natural", () => {
@@ -19,6 +21,11 @@ describe("emotionParse — respostas curtas de humor", () => {
     expect(resolveEmotionTerm("ansioso")?.key).toBe("atento");
   });
 
+  it("preserva tristeza sem converter em preocupação", () => {
+    expect(parseEmotionFromText("estou triste")?.key).toBe("triste");
+    expect(resolveEmotionTerm("preocupado")?.key).toBe("preocupado");
+  });
+
   it("entende escala 1..5", () => {
     expect(moodToEmotion(4)?.key).toBe("confiante");
     expect(moodToEmotion(1)?.mood).toBe(1);
@@ -26,6 +33,21 @@ describe("emotionParse — respostas curtas de humor", () => {
 
   it("não inventa emoção em texto financeiro", () => {
     expect(parseEmotionFromText("quanto gastei em agosto")).toBeNull();
+  });
+});
+
+describe("continuidade da simulação", () => {
+  it("preserva hoje quando o valor chega no turno seguinte", () => {
+    const previous = "quanto posso gastar hoje sem sair das minhas metas?";
+    const initial = classifyCapability(previous, interpret(previous), null);
+    expect(initial.name).toBe("before_spending");
+    expect(initial.tool_args).toMatchObject({ planned_date: expect.any(String) });
+    const resumed = resumeDeterministicCapability("200", interpret("200"), previous);
+    expect(resumed).toMatchObject({
+      name: "before_spending",
+      required_tool: "run_before_spending",
+      tool_args: { amount: 200, planned_date: expect.any(String) },
+    });
   });
 });
 

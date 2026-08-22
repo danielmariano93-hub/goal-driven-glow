@@ -79,5 +79,6 @@ describe("áudio no WhatsApp", () => {
     expect(audioFailureReply("empty_audio")).toMatch(/vazio/i);
     expect(audioFailureReply("unsupported_format")).toMatch(/formato/i);
     expect(audioFailureReply("transcription_failed")).toMatch(/repetir|texto/i);
+    expect(audioFailureReply("ai_blocked")).toMatch(/créditos|reativar/i);
   });
 });

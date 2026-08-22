@@ -26,6 +26,7 @@ import {
 import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
 import { buildCatalogHighlights } from "./catalogHighlights.ts";
+import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 
 
 const FN = "financial-reports-generate";
@@ -79,7 +80,7 @@ async function loadContext(sb: Sb, userId: string) {
 }
 
 /** Texto do relatório via Lovable AI Gateway, validado pelo guardrail. */
-async function synthesizeNarrative(report: IntelligentReport): Promise<{
+async function synthesizeNarrative(sb: Sb, report: IntelligentReport): Promise<{
   summary: string; closing: string; source: "ai" | "deterministic"; fallbackReason: string | null;
 }> {
   const deterministic = {
@@ -89,6 +90,7 @@ async function synthesizeNarrative(report: IntelligentReport): Promise<{
     fallbackReason: null as string | null,
   };
   if (!LOVABLE_API_KEY) return { ...deterministic, fallbackReason: "missing_api_key" };
+  if (await getAiBlock(sb)) return { ...deterministic, fallbackReason: "ai_circuit_paused" };
 
   const allowed = collectAllowedNumbers({
     metrics: report.metrics,
@@ -138,6 +140,7 @@ async function synthesizeNarrative(report: IntelligentReport): Promise<{
     });
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 200);
+      if (res.status === 402 || res.status === 403) await pauseAiCircuit(sb, res.status, detail);
       logEvent({ event: "ai_error", status: res.status, detail });
       return { ...deterministic, fallbackReason: `gateway_${res.status}` };
     }
@@ -260,7 +263,7 @@ async function generateForUser(
     : base;
 
 
-  const narrative = await synthesizeNarrative(report);
+  const narrative = await synthesizeNarrative(sb, report);
 
   const row = {
     user_id: userId,
