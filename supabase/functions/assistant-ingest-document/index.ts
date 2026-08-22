@@ -869,6 +869,8 @@ async function acquireProcessingLock(
 async function processDocument(documentId: string, userId: string, guidance: string, correlationId: string) {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const visionModel = await resolveConfiguredModel(sb, "vision");
+  // Tier textual (`nino_efficiency.v2`): PDF com camada de texto não precisa de visão.
+  const documentTextModel = await resolveConfiguredModel(sb, "document_text");
   const finish = async (patch: Record<string, unknown>) => {
     await sb.from("document_imports").update(patch).eq("id", documentId).eq("user_id", userId);
   };
