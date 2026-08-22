@@ -20,6 +20,13 @@ export type ToolRuntimeOptions = {
   history: HistoryTurn[];
   allowedTools?: readonly string[];
   requiredTool?: string | null;
+  /** `nino_efficiency.v1` — compressão de resultado de tool no prompt. */
+  evidencePack?: boolean;
+  /** Ferramenta canônica já executada pelo planner (evidência pronta). */
+  preExecuted?: Array<{
+    tool_name: string; args: unknown; result: unknown; ok: boolean;
+    duration_ms: number; error?: string | null;
+  }>;
 };
 
 export async function runToolLoop(

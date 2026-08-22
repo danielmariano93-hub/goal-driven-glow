@@ -9,7 +9,7 @@ import {
   PROACTIVE_MULTIFINANCE_VERSION,
   type MultiFinanceProactiveContext,
 } from "./contracts.ts";
-import { buildCashHorizon } from "./cashHorizon.ts";
+import { buildCashHorizon, round2 } from "./cashHorizon.ts";
 
 export { buildCashHorizon };
 

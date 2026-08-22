@@ -295,6 +295,61 @@ function failureReply(capability: CapabilityDecision, error: string | null): str
 }
 
 
+/**
+ * Renderizador genérico de envelope de motor (`nino_efficiency.v1`).
+ *
+ * Deterministic-first v2: quando existe motor determinístico, mas não existe
+ * formatter específico para a capability, a resposta ainda NÃO precisa de LLM —
+ * os motores já devolvem frases prontas (`facts.headline`, `main_attention`,
+ * `main_improvement`, `next_action`, `sentence`). Antes disso, esses turnos
+ * caíam no loop de modelo e custavam 21–26k tokens de entrada cada
+ * (financial_performance, financial_evolution, debt_status, merchant_*).
+ *
+ * Regra: só STRINGS produzidas pelo motor são usadas. Nada é recalculado,
+ * nenhum número é reformatado, nenhuma conclusão é criada aqui.
+ */
+export function formatEngineNarrative(result: any): string | null {
+  if (!result || typeof result !== "object") return null;
+  const facts = (result.facts ?? result) as any;
+  const lines: string[] = [];
+  const push = (value: unknown) => {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text && !lines.includes(text)) lines.push(text);
+  };
+
+  push(facts.headline ?? facts.summary ?? facts.sentence ?? result.headline ?? result.summary);
+
+  const highlight = (node: any, prefix: string) => {
+    if (!node || typeof node !== "object") return;
+    const title = typeof node.title === "string" ? node.title.trim() : "";
+    const body = typeof node.body === "string" ? node.body.trim() : "";
+    if (!title && !body) return;
+    push(`${prefix} ${[title, body].filter(Boolean).join(" — ")}`);
+  };
+  highlight(facts.main_attention, "• Atenção:");
+  highlight(facts.main_improvement, "• Avanço:");
+
+  const sentences = Array.isArray(facts.sentences) ? facts.sentences
+    : Array.isArray(result.sentences) ? result.sentences
+    : [];
+  for (const sentence of sentences.slice(0, 3)) push(typeof sentence === "string" ? `• ${sentence}` : "");
+
+  const drivers = Array.isArray(result.drivers) ? result.drivers : [];
+  for (const driver of drivers.slice(0, 3)) {
+    if (driver && typeof driver === "object" && typeof (driver as any).sentence === "string") {
+      push(`• ${(driver as any).sentence}`);
+    }
+  }
+
+  const next = facts.next_action ?? result.next_action;
+  if (typeof next === "string" && next.trim()) push(`Próximo passo: ${next.trim()}`);
+
+  // Sem frase do motor não há resposta honesta determinística: o turno segue
+  // para o modelo (agora com a evidência já apurada e comprimida).
+  if (lines.length < 2) return null;
+  return lines.join("\n");
+}
+
 export async function executeDeterministicCapability(
   sb: SupabaseClient,
   args: { user_id: string; conversation_id: string; user_text: string; capability: CapabilityDecision },
@@ -383,7 +438,13 @@ export async function executeDeterministicCapability(
   }
 
   else if (capability.name === "emotion_finance") reply = formatEmotionFinance(execution.result);
-  else return null;
+  else {
+    // Deterministic-first v2: tenta o renderizador genérico do envelope antes
+    // de escalar para o modelo.
+    const narrative = formatEngineNarrative(execution.result);
+    if (!narrative) return null;
+    reply = narrative;
+  }
 
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }

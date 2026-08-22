@@ -1,5 +1,50 @@
 import type { ModelRoute, ModelTask, SemanticQuery } from "./contracts.ts";
 
+/**
+ * Tiers de modelo (`nino_efficiency.v1`).
+ *
+ * Antes, as 5 rotas de `ai_model_routes` apontavam para o MESMO modelo
+ * (`google/gemini-2.5-flash`, geração anterior) com fallback único: não havia
+ * tier barato para classificação nem tier de raciocínio para consultoria. O
+ * tier 0 (determinístico, zero token) é decidido antes daqui, no planner.
+ */
+export type ModelTier = "tier1_light" | "tier2_analysis" | "tier3_reasoning" | "vision";
+
+export const MODEL_TIERS: Readonly<Record<ModelTier, { primary: string; fallback: string }>> = {
+  // Classificação ambígua, humanização e extração simples.
+  tier1_light: { primary: "google/gemini-3.1-flash-lite", fallback: "openai/gpt-5.4-nano" },
+  // Análise financeira e perguntas compostas — o caminho mais comum com LLM.
+  tier2_analysis: { primary: "google/gemini-3.7-flash", fallback: "openai/gpt-5.4-mini" },
+  // Raciocínio complexo, raro por definição.
+  tier3_reasoning: { primary: "google/gemini-3.1-pro-preview", fallback: "openai/gpt-5.6-terra" },
+  // Documentos difíceis.
+  vision: { primary: "google/gemini-3.7-flash", fallback: "google/gemini-2.5-pro" },
+};
+
+export function tierForTask(task: ModelTask): ModelTier {
+  if (task === "vision") return "vision";
+  if (task === "complex_reasoning") return "tier3_reasoning";
+  if (task === "fast_operation" || task === "semantic_classification" || task === "fallback") {
+    return "tier1_light";
+  }
+  return "tier2_analysis";
+}
+
+/** Passos máximos por tier: loop curto é o que corta custo e latência. */
+export function maxStepsForTier(tier: ModelTier): number {
+  if (tier === "tier1_light") return 2;
+  if (tier === "tier3_reasoning") return 3;
+  if (tier === "vision") return 3;
+  return 3;
+}
+
+export function latencyForTier(tier: ModelTier): number {
+  if (tier === "tier1_light") return 12_000;
+  if (tier === "tier3_reasoning") return 30_000;
+  return 20_000;
+}
+
+
 function env(name: string): string | null {
   try {
     const value = (globalThis as any)?.Deno?.env?.get?.(name);
@@ -19,28 +64,28 @@ export function classifyModelTask(text: string, semantic: SemanticQuery | null):
 }
 
 export function selectModelRoute(task: ModelTask, configuredModel: string, configuredMaxSteps = 6): ModelRoute {
-  const fast = env("AI_MODEL_FAST") ?? configuredModel;
-  const reasoning = env("AI_MODEL_REASONING") ?? configuredModel;
-  const vision = env("AI_MODEL_VISION") ?? reasoning;
-  // A fallback to the same model/provider is not resilience. Keep an
-  // independent default while still allowing Operations to override it.
-  const independentFallback = configuredModel.startsWith("google/")
-    ? "openai/gpt-5-mini"
-    : "google/gemini-2.5-flash";
-  const fallback = env("AI_MODEL_FALLBACK") ?? independentFallback;
-
-  if (task === "vision") {
-    return { task, primary: vision, fallback, max_latency_ms: 30_000, max_steps: Math.max(6, configuredMaxSteps), reason: "multimodal_input" };
-  }
-  if (task === "complex_reasoning") {
-    return { task, primary: reasoning, fallback, max_latency_ms: 30_000, max_steps: Math.max(8, configuredMaxSteps), reason: "complex_financial_reasoning" };
-  }
-  if (task === "fast_operation" || task === "semantic_classification") {
-    return { task, primary: fast, fallback, max_latency_ms: 15_000, max_steps: Math.min(6, configuredMaxSteps), reason: "low_latency_deterministic_task" };
-  }
-  return { task, primary: reasoning, fallback, max_latency_ms: 25_000, max_steps: configuredMaxSteps, reason: "financial_analysis" };
+  const tier = tierForTask(task);
+  const defaults = MODEL_TIERS[tier];
+  const envPrimary = tier === "vision"
+    ? env("AI_MODEL_VISION")
+    : tier === "tier3_reasoning"
+    ? env("AI_MODEL_REASONING")
+    : tier === "tier1_light"
+    ? env("AI_MODEL_FAST")
+    : env("AI_MODEL_REASONING");
+  const primary = envPrimary ?? defaults.primary;
+  // Fallback no MESMO provider não é resiliência: mantemos provider distinto.
+  const configuredFallback = env("AI_MODEL_FALLBACK") ?? defaults.fallback;
+  const fallback = configuredFallback && configuredFallback !== primary ? configuredFallback : null;
+  return {
+    task,
+    primary,
+    fallback,
+    max_latency_ms: latencyForTier(tier),
+    max_steps: Math.min(maxStepsForTier(tier), Math.max(1, configuredMaxSteps || maxStepsForTier(tier))),
+    reason: `tier:${tier}`,
+  };
 }
-
 
 // Database routes are optional. Environment overrides still win, which lets
 // operations roll back a provider without redeploying the application.
@@ -71,7 +116,9 @@ export async function loadModelRoute(
       primary,
       fallback: independentFallback,
       max_latency_ms: Number(data.max_latency_ms || fallback.max_latency_ms),
-      max_steps: Number(data.max_steps || fallback.max_steps),
+      // A rota do banco pode reduzir os passos, nunca inflá-los: `max_steps` 8
+      // era o que fazia o loop reenviar contexto 8 vezes.
+      max_steps: Math.min(fallback.max_steps, Number(data.max_steps || fallback.max_steps)),
       reason: `database_route:${task}`,
     };
   } catch {
