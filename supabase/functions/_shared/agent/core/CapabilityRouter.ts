@@ -397,7 +397,7 @@ export function classifyCapability(
 
   // "Como estou?" / "melhorei?" é RESPOSTA EXECUTIVA: precisa separar melhora
   // real de efeito calendário. Vem antes de evolução/comparação.
-  if (/\b(como (eu )?estou|como (eu )?vou|estou melhorando|melhorei|estou indo bem|minha performance|performance financeira|estou pior|piorei|estou evoluindo financeiramente|balanco geral|panorama geral)\b/.test(t)) {
+  if (/\b(como (eu )?estou|como (eu )?vou|estou melhorando|melhorei|estou indo bem|minha performance|performance financeira|meu desempenho|desempenho financeiro|como (foi|esta|anda) (o )?meu (mes|desempenho)|resumo do meu desempenho|estou pior|piorei|estou evoluindo financeiramente|balanco geral|panorama geral)\b/.test(t)) {
     return {
       name: "financial_performance", execution: "deterministic",
       allowed_tools: ["assess_financial_performance", "compare_financial_metric", "get_financial_snapshot"],
