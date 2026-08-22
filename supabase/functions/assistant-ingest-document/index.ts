@@ -372,6 +372,12 @@ async function callMultimodal(
   signal: AbortSignal,
   batch: { index: number; max: number; exclude: string[]; strict?: boolean },
   model: string,
+  /**
+   * `nino_efficiency.v2` — quando o PDF TEM camada de texto, mandamos o TEXTO
+   * do trecho em vez do arquivo inteiro por página: mesma cobertura, sem visão
+   * e com uma fração dos tokens de entrada.
+   */
+  textContent?: string | null,
 ): Promise<MultimodalOutcome> {
   const start = Date.now();
   // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
@@ -381,6 +387,16 @@ async function callMultimodal(
     ? `\nNão repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.join("; ")}.\nSe TODOS os lançamentos do documento já estiverem nessa lista, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.`
     : `\nNenhum lançamento foi extraído ainda: devolva TODOS os lançamentos deste trecho, sem omitir nenhum.`;
   try {
+    const instruction = `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
+Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}`;
+    const content = textContent
+      ? [{ type: "text", text: `${instruction}\n\nTEXTO DO DOCUMENTO (trecho ${batch.index}/${batch.max}):\n${textContent}` }]
+      : [
+        { type: "text", text: instruction },
+        mimeType === "application/pdf"
+          ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
+          : { type: "image_url", image_url: { url: publicBase64Url } },
+      ];
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -391,16 +407,7 @@ async function callMultimodal(
         model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
-Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}` },
-              mimeType === "application/pdf"
-                ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
-                : { type: "image_url", image_url: { url: publicBase64Url } },
-            ],
-          },
+          { role: "user", content },
         ],
         response_format: { type: "json_object" },
         max_tokens: BATCH_MAX_TOKENS,
