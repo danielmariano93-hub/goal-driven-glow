@@ -80,7 +80,7 @@ describe("nino_efficiency.v1 — custo e tiers", () => {
 });
 
 // Rota determinística: perguntas de desempenho não podem cair no modelo.
-import { routeCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter.ts";
+import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter.ts";
 
 describe("nino_efficiency.v1 — rota determinística de desempenho", () => {
   for (const text of [
@@ -89,7 +89,7 @@ describe("nino_efficiency.v1 — rota determinística de desempenho", () => {
     "como estou?",
   ]) {
     it(`não usa modelo para: ${text}`, () => {
-      const decision = routeCapability(text) as any;
+      const decision = classifyCapability(text, {} as any, null) as any;
       expect(decision.execution).toBe("deterministic");
       expect(decision.required_tool).toBe("assess_financial_performance");
     });
