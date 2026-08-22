@@ -682,14 +682,20 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
 
   }
 
+  // Camadas de memória medidas separadamente (`context_budget.v2`).
+  const memoryPromptChars: { semantic: string; episodic: string } = { semantic: "", episodic: "" };
+
   const corrections = await guard(() => tctx.memory("correction", 8),
     (m) => metrics.errors.push("corrections:" + m), []);
   if (corrections?.length) {
     const hints = corrections.map((fact: any) => fact.value).filter(Boolean).slice(0, 8);
+    // Memória episódica: correções explícitas do usuário, dentro do orçamento.
+    const episodic = JSON.stringify(hints).slice(0, LAYER_BUDGET_CHARS.episodic_memory);
+    memoryPromptChars.episodic = episodic;
     systemPrompt += `
 
 [CORREÇÕES APRENDIDAS DO PRÓPRIO USUÁRIO]
-${JSON.stringify(hints)}
+${episodic}
 ` +
       `Use essas correções para não repetir uma interpretação rejeitada. Correção explícita do usuário prevalece sobre inferências anteriores.`;
   }
