@@ -11,7 +11,7 @@ import { isLLMConfigured, sanitizeError, type LLMTurn } from "../llm.ts";
 import { runToolLoop, type ToolRuntimeOptions } from "./ToolRuntime.ts";
 import { interpretSemanticQuery, isInterpretationCorrection } from "../../intelligence/semanticQuery.ts";
 import { executeWeekdayPattern } from "../../intelligence/weekdayTool.ts";
-import { classifyModelTask, loadModelRoute } from "../../intelligence/modelGateway.ts";
+import { classifyModelTask, loadModelRoute, tierForTask } from "../../intelligence/modelGateway.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts";
 import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
@@ -35,6 +35,9 @@ export type PlannerResult = {
   turn?: LLMTurn;
   errorSanitized?: string | null;
   modelAttempts: Array<{ model: string; ok: boolean; error?: string | null }>;
+  /** Eficiência (`nino_efficiency.v1`) — por que esta rota e qual tier. */
+  routeReason?: string | null;
+  modelTier?: string | null;
 };
 
 export async function plan(
@@ -140,6 +143,7 @@ export async function plan(
 
   const task = classifyModelTask(args.user_text, semantic);
   const route = await loadModelRoute(sb, task, opts.model, opts.maxSteps);
+  const tier = tierForTask(task);
   // Pré-execução determinística da ferramenta canônica.
   const requiredTool = args.capability.required_tool;
   const toolArgs = args.capability.tool_args;
@@ -185,9 +189,14 @@ export async function plan(
           { model: route.primary, ok: false, error: `scope_expanded:${turn.finish}` },
           { model: route.primary, ok: true },
         ],
+        routeReason: `${route.reason}+scope_expanded`, modelTier: tier,
       };
     }
-    return { path: "llm", turn, errorSanitized: null, modelAttempts: [{ model: route.primary, ok: true }] };
+    return {
+      path: "llm", turn, errorSanitized: null,
+      modelAttempts: [{ model: route.primary, ok: true }],
+      routeReason: route.reason, modelTier: tier,
+    };
   } catch (primaryError) {
     const primarySanitized = sanitizeError(primaryError);
     const primaryStatus = Number((primaryError as { status?: number })?.status ?? 0);
