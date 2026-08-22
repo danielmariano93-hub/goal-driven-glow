@@ -2,8 +2,8 @@
 // compressão de evidência, orçamento por ferramenta, renderização sem LLM e
 // custo estimado por tier de modelo.
 import { describe, expect, it } from "vitest";
-import { compressToolResult } from "../../supabase/functions/_shared/agent/core/EvidencePack.ts";
-import { budgetFor } from "../../supabase/functions/_shared/agent/core/ToolBudget.ts";
+import { buildEvidencePack } from "../../supabase/functions/_shared/agent/core/EvidencePack.ts";
+import { budgetForTool } from "../../supabase/functions/_shared/agent/core/ToolBudget.ts";
 import { formatEngineNarrative } from "../../supabase/functions/_shared/agent/core/DeterministicAnswers.ts";
 import { estimateCost } from "../../supabase/functions/_shared/agent/core/Observability.ts";
 import { tierForTask, MODEL_TIERS } from "../../supabase/functions/_shared/intelligence/modelGateway.ts";
@@ -32,13 +32,13 @@ const performanceEnvelope = {
 describe("nino_efficiency.v1 — compressão de evidência", () => {
   it("reduz drasticamente o resultado enviado ao modelo", () => {
     const full = JSON.stringify(performanceEnvelope);
-    const packed = compressToolResult("assess_financial_performance", performanceEnvelope);
+    const packed = buildEvidencePack("assess_financial_performance", { ok: true, result: performanceEnvelope }).json;
     expect(packed.length).toBeLessThan(full.length / 2);
-    expect(packed.length).toBeLessThanOrEqual(budgetFor("assess_financial_performance"));
+    expect(packed.length).toBeLessThanOrEqual(budgetForTool("assess_financial_performance"));
   });
 
   it("preserva as chaves de verdade (fatos, confiança e evidência)", () => {
-    const packed = compressToolResult("assess_financial_performance", performanceEnvelope);
+    const packed = buildEvidencePack("assess_financial_performance", { ok: true, result: performanceEnvelope }).json;
     expect(packed).toContain("headline");
     expect(packed).toContain("confidence");
     expect(packed).toContain("2026-08-21");
@@ -46,8 +46,8 @@ describe("nino_efficiency.v1 — compressão de evidência", () => {
 
   it("nunca ultrapassa o orçamento, mesmo com resultado gigante", () => {
     const huge = { rows: Array.from({ length: 5000 }, (_, i) => ({ i, note: "x".repeat(40) })) };
-    const packed = compressToolResult("list_transactions", huge);
-    expect(packed.length).toBeLessThanOrEqual(budgetFor("list_transactions"));
+    const packed = buildEvidencePack("list_transactions", { ok: true, result: huge }).json;
+    expect(packed.length).toBeLessThanOrEqual(budgetForTool("list_transactions"));
   });
 });
 
