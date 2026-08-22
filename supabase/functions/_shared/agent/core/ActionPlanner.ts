@@ -118,7 +118,11 @@ export async function plan(
     }
   }
 
-  if (args.capability.execution === "deterministic") {
+  // Flags granulares: cada otimização pode ser desligada isoladamente sem
+  // derrubar as outras (`nino_efficiency.v2`).
+  const flags = await flagSnapshot(EFFICIENCY_FLAGS);
+
+  if (args.capability.execution === "deterministic" && flags.deterministic_first_v2) {
     const turn = await executeDeterministicCapability(sb, {
       user_id: args.user_id,
       conversation_id: args.conversation_id,
@@ -133,12 +137,14 @@ export async function plan(
           ? turn.toolCalls.find((call) => !call.ok)?.error ?? "deterministic_tool_error"
           : null,
         modelAttempts: [],
+        routeReason: "deterministic_first_v2",
+        flags,
       };
     }
   }
 
   if (!args.hasPrompt || !isLLMConfigured()) {
-    return { path: "deterministic_fallback", errorSanitized: null, modelAttempts: [] };
+    return { path: "deterministic_fallback", errorSanitized: null, modelAttempts: [], flags };
   }
 
   const existingBlock = await getAiBlock(sb);
@@ -148,12 +154,21 @@ export async function plan(
       errorSanitized: `gateway_${existingBlock.status}`,
       modelAttempts: [],
       turn: { reply: aiBlockReply(existingBlock), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
+      flags,
     };
   }
 
   const task = classifyModelTask(args.user_text, semantic);
-  const route = await loadModelRoute(sb, task, opts.model, opts.maxSteps);
-  const tier = tierForTask(task);
+  // `model_routing_v2` off → rota legada do prompt configurado, sem tiers.
+  const route = flags.model_routing_v2
+    ? await loadModelRoute(sb, task, opts.model, opts.maxSteps)
+    : {
+      task, primary: opts.model, fallback: null,
+      max_latency_ms: opts.timeoutMs, max_steps: opts.maxSteps,
+      reason: "model_routing_v2:off",
+    };
+  const tier = flags.model_routing_v2 ? tierForTask(task) : null;
+  const provider = String(route.primary).split("/")[0] || null;
   // Pré-execução determinística da ferramenta canônica.
   const requiredTool = args.capability.required_tool;
   const toolArgs = args.capability.tool_args;
@@ -178,9 +193,10 @@ export async function plan(
     timeoutMs: route.max_latency_ms,
     allowedTools: args.capability.allowed_tools,
     requiredTool: args.capability.required_tool,
-    evidencePack: true,
+    evidencePack: flags.evidence_pack_v1,
     preExecuted,
   };
+
 
   try {
     let turn = await runToolLoop(sb, args, primaryOpts);
