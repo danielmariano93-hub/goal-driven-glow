@@ -829,9 +829,10 @@ ${episodic}
         toolCalls: composite.toolCalls, finish: "stop" as const,
       },
     }
-    : await timeStage(metrics, "plan", () => planAction(sb, {
+    : await timeStage(metrics, "plan", async () => planAction(sb, {
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: turnPlan.followup ? turnPlan.effective_text : input.text, hasPrompt: !!prompt,
+    // Resolução de continuidade continua com o histórico completo do turno.
     history, capability,
   }, {
     model: prompt?.model ?? "google/gemini-2.5-flash",
@@ -839,7 +840,9 @@ ${episodic}
     temperature: prompt?.temperature ?? 0.2,
     systemPrompt,
     timeoutMs: 25_000,
-    history,
+    // Working memory (`context_budget.v2`): só os últimos turnos relevantes vão
+    // ao prompt. Histórico completo nunca é despejado no modelo.
+    history: (await isEnabled("context_budget_v2")) ? fitWorkingMemory(history) : history,
   }));
 
   let path: "llm" | "deterministic_tool" | "deterministic_fallback" = planner.path;
