@@ -846,6 +846,9 @@ ${JSON.stringify(hints)}
     reply = turn.reply;
     metrics.tokens_in = turn.tokensIn;
     metrics.tokens_out = turn.tokensOut;
+    metrics.llm_calls = turn.llmCalls ?? 0;
+    metrics.tool_result_full_chars = turn.toolResultFullChars ?? 0;
+    metrics.tool_result_llm_chars = turn.toolResultLlmChars ?? 0;
     metrics.tool_call_count = turn.toolCalls.length;
     toolCallLog.push(...turn.toolCalls);
     for (const c of turn.toolCalls) metrics.tools.push({ name: c.tool_name, duration_ms: c.duration_ms, ok: c.ok });
@@ -935,6 +938,9 @@ ${JSON.stringify(hints)}
   const effectiveModel = [...planner.modelAttempts].reverse().find((attempt) => attempt.ok)?.model
     ?? prompt?.model ?? "unknown";
   metrics.estimated_cost_usd = estimateCost(effectiveModel, metrics.tokens_in, metrics.tokens_out);
+  metrics.model = effectiveModel;
+  metrics.route_reason = planner.routeReason ?? null;
+  metrics.model_tier = planner.modelTier ?? null;
 
   // ---- GoalPlanner (plano do turno, auditável) ---------------------------
   // Decompõe o pedido em passos ordenados (ler → calcular → confirmar →
@@ -1143,6 +1149,13 @@ ${JSON.stringify(hints)}
         llm_ms: Math.round(Math.max(0, (metrics.stages.tools ?? 0) - toolMs)) || null,
         persist_ms: Math.round(metrics.stages.persist ?? 0) || null,
         estimated_cost_usd: metrics.estimated_cost_usd ?? null,
+        // Eficiência (`nino_efficiency.v1`): responde "quantas chamadas de
+        // modelo, quanto resultado de tool foi comprimido e por qual rota".
+        llm_calls: metrics.llm_calls ?? 0,
+        tool_result_full_chars: metrics.tool_result_full_chars ?? 0,
+        tool_result_llm_chars: metrics.tool_result_llm_chars ?? 0,
+        route_reason: metrics.route_reason,
+        model_tier: metrics.model_tier,
       }).eq("id", run_id);
 
       if (runError) throw runError;

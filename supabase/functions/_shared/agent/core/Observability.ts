@@ -27,6 +27,12 @@ export type TurnMetrics = {
   capability: string | null;
   tool_scope: string[];
   model_attempts: Array<{ model: string; ok: boolean; error?: string | null }>;
+  /** Eficiência (`nino_efficiency.v1`). */
+  llm_calls: number;
+  tool_result_full_chars: number;
+  tool_result_llm_chars: number;
+  route_reason: string | null;
+  model_tier: string | null;
 };
 
 export function createMetrics(channel: string): TurnMetrics {
@@ -49,6 +55,11 @@ export function createMetrics(channel: string): TurnMetrics {
     capability: null,
     tool_scope: [],
     model_attempts: [],
+    llm_calls: 0,
+    tool_result_full_chars: 0,
+    tool_result_llm_chars: 0,
+    route_reason: null,
+    model_tier: null,
   };
 }
 
@@ -72,10 +83,15 @@ export async function timeStage<T>(
 /** Very rough token→USD estimate. Only used when we can't join ai_model_prices.
  *  Numbers are order-of-magnitude only; keep them permissive. */
 export function estimateCost(model: string, tokensIn: number, tokensOut: number): number {
-  const per1K_in = model.includes("gpt-5") ? 0.005
-    : model.includes("gemini") ? 0.0005
-    : 0.001;
-  const per1K_out = per1K_in * 3;
+  const m = String(model ?? "");
+  // Ordem importa: variantes mais específicas primeiro.
+  const [per1K_in, per1K_out] =
+      /flash-lite|gpt-5(\.\d)?-nano|gpt-5\.4-nano/.test(m) ? [0.0001, 0.0004]
+    : /gemini-3(\.\d)?-flash|gemini-2\.5-flash/.test(m) ? [0.0003, 0.0012]
+    : /gpt-5(\.\d)?-mini|gpt-5\.4-mini/.test(m) ? [0.0004, 0.0016]
+    : /pro-preview|gemini-2\.5-pro/.test(m) ? [0.0013, 0.0100]
+    : /gpt-5\.6|gpt-5\.5|gpt-5\.4|gpt-5\b/.test(m) ? [0.0013, 0.0100]
+    : [0.0010, 0.0040];
   return +(tokensIn / 1000 * per1K_in + tokensOut / 1000 * per1K_out).toFixed(6);
 }
 
@@ -96,5 +112,13 @@ export function summarize(m: TurnMetrics): Record<string, unknown> {
     capability: m.capability,
     tool_scope: m.tool_scope,
     model_attempts: m.model_attempts,
+    llm_calls: m.llm_calls,
+    tool_result_full_chars: m.tool_result_full_chars,
+    tool_result_llm_chars: m.tool_result_llm_chars,
+    compression_ratio: m.tool_result_full_chars > 0
+      ? Math.round((m.tool_result_llm_chars / m.tool_result_full_chars) * 1000) / 1000
+      : null,
+    route_reason: m.route_reason,
+    model_tier: m.model_tier,
   };
 }
