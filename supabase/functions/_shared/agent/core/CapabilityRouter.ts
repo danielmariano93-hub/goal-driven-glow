@@ -93,14 +93,40 @@ const GROUPS = {
     "list_shared_goals", "get_shared_goal_progress", "simulate_shared_goal_pace",
     "create_shared_goal_draft", "add_shared_goal_contribution_draft", "explain_shared_goal_ranking",
   ],
+  // `nino_efficiency.v1` — progressive tool disclosure.
+  // Medição real: a capability `general` com 16 ferramentas expostas gastava
+  // 18.972 tokens de entrada em média (máx. 30.711) e 7,9 s por turno — o pior
+  // par custo/latência do sistema. O primeiro passo agora vê só o núcleo; o
+  // escopo ampliado entra apenas quando o núcleo não conclui.
   general: [
+    "get_financial_snapshot", "list_recent_transactions", "search_transactions",
+  ],
+  generalExtended: [
     "get_financial_snapshot", "list_recent_transactions", "search_transactions", "get_goals_overview",
     "get_daily_insights", "run_before_spending", "get_weekday_spending_pattern", "analyze_spending",
     "get_debt_status", "analyze_merchants", "find_savings_opportunities",
     "get_net_worth", "list_investments", "get_future_installments",
     "list_recurring_rules", "get_commitments_agenda",
   ],
+  // Núcleo de análise: cobre comparação, tendência, fechamento e explicação.
+  analysisCore: [
+    "analyze_spending", "compare_periods", "forecast_month_close",
+    "explain_spending_change", "get_financial_snapshot",
+  ],
 } as const;
+
+/**
+ * Escopo ampliado por capability. Usado UMA vez, quando o passo com o núcleo
+ * não conclui — nunca no primeiro passo.
+ */
+const EXPANDED_SCOPES: Partial<Record<CapabilityName, readonly string[]>> = {
+  general: GROUPS.generalExtended,
+  financial_analysis: GROUPS.analysis,
+};
+
+export function expandedToolsFor(name: CapabilityName): readonly string[] | null {
+  return EXPANDED_SCOPES[name] ?? null;
+}
 
 function normalize(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
@@ -522,7 +548,7 @@ export function classifyCapability(
 
   if (/\b(compare|comparar|comparacao|previsao|projecao|fechamento|por que|porque|mudou|aumentou|diminuiu|onde gasto mais)\b/.test(t)) {
     return {
-      name: "financial_analysis", execution: "llm_scoped", allowed_tools: GROUPS.analysis,
+      name: "financial_analysis", execution: "llm_scoped", allowed_tools: GROUPS.analysisCore,
       required_tool: null, context: { metrics: true }, reason: "financial_analysis_scoped",
     };
   }
