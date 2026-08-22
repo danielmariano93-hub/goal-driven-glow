@@ -135,6 +135,10 @@ function extractAmount(text: string): number | null {
   if (scaled?.[1]) {
     return parseBrAmountWithScale(scaled[1], t.slice((scaled.index ?? 0) + scaled[1].length));
   }
+  // Resposta isolada a uma pergunta de valor (a retomada da capability valida
+  // o contexto antes de usar este número; aqui ele não vira lançamento sozinho).
+  const standalone = t.match(/^\s*(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*$/);
+  if (standalone?.[1]) return parseBrAmountWithScale(standalone[1], "");
   return null;
 }
 
