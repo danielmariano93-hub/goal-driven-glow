@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { openAIToolDefinitions, toolByName, type ToolContext, type ToolResult } from "./tools.ts";
 import { todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
+import { buildEvidencePack } from "./core/EvidencePack.ts";
 
 /** Builds a deterministic temporal system message. The LLM MUST use these
  *  values as "now" — never dates from examples, history, or its training. */
@@ -39,6 +40,21 @@ export type LLMOptions = {
   allowedTools?: readonly string[];
   /** Force the first factual lookup when a capability has one canonical tool. */
   requiredTool?: string | null;
+  /**
+   * `nino_efficiency.v1` — quando ligado, o resultado da tool entra no prompt
+   * comprimido semanticamente (EvidencePack) e dentro do orçamento por tool.
+   * O resultado completo continua indo para `agent_tool_calls`.
+   */
+  evidencePack?: boolean;
+  /**
+   * Ferramenta canônica já executada deterministicamente pelo planner. A
+   * evidência entra no prompt pronta e o loop começa sem gastar uma chamada
+   * de modelo só para escolher a tool.
+   */
+  preExecuted?: Array<{
+    tool_name: string; args: any; result: any; ok: boolean;
+    duration_ms: number; error?: string | null;
+  }>;
 };
 
 export type LLMTurn = {
@@ -51,6 +67,10 @@ export type LLMTurn = {
     ok: boolean; duration_ms: number; error?: string | null;
   }>;
   finish: "stop" | "length" | "tool_error" | "empty";
+  /** Telemetria de eficiência (`nino_efficiency.v1`). */
+  llmCalls?: number;
+  toolResultFullChars?: number;
+  toolResultLlmChars?: number;
 };
 
 type ChatMessage =
@@ -116,16 +136,44 @@ export async function runAgentTurn(
     ]
     : recent;
 
+  const toolCalls: LLMTurn["toolCalls"] = [];
+  let fullChars = 0, llmChars = 0, llmCalls = 0;
+  let stepIndex = 0;
+
+  // Evidência pré-apurada: a tool canônica já rodou deterministicamente, então
+  // o modelo recebe os fatos prontos e não gasta um passo para pedi-los.
+  const preBlocks: string[] = [];
+  for (const pre of opts.preExecuted ?? []) {
+    stepIndex++;
+    toolCalls.push({
+      step_index: stepIndex, tool_name: pre.tool_name, args: pre.args,
+      result: pre.ok ? pre.result : null, ok: pre.ok,
+      duration_ms: pre.duration_ms, error: pre.error ?? null,
+    });
+    const pack = buildEvidencePack(
+      pre.tool_name,
+      pre.ok ? { ok: true, result: pre.result } : { ok: false, error: pre.error ?? "tool_error" },
+    );
+    fullChars += pack.full_chars;
+    llmChars += pack.llm_chars;
+    preBlocks.push(`${pre.tool_name}: ${pack.json}`);
+  }
+
   const messages: ChatMessage[] = [
     { role: "system", content: opts.systemPrompt },
     { role: "system", content: temporalSystemContext() },
     ...history,
+    ...(preBlocks.length
+      ? [{
+        role: "system" as const,
+        content: "EVIDÊNCIA JÁ APURADA (motor determinístico — use exatamente estes números, "
+          + "não recalcule e não chame a mesma ferramenta de novo):\n" + preBlocks.join("\n"),
+      }]
+      : []),
     { role: "user", content: userText },
   ];
 
-  const toolCalls: LLMTurn["toolCalls"] = [];
   let tokensIn = 0, tokensOut = 0;
-  let stepIndex = 0;
   const maxSteps = Math.max(1, Math.min(8, opts.maxSteps || 6));
 
   try {
@@ -134,7 +182,7 @@ export async function runAgentTurn(
         model: opts.model,
         messages,
         tools,
-        tool_choice: step === 0 && opts.requiredTool
+        tool_choice: step === 0 && opts.requiredTool && preBlocks.length === 0
           ? { type: "function", function: { name: opts.requiredTool } }
           : "auto",
         temperature: opts.temperature ?? 0.2,
@@ -142,6 +190,7 @@ export async function runAgentTurn(
       // GPT-5.6 family requires reasoning_effort=none when using function tools
       if (/^openai\/gpt-5\.6/.test(opts.model)) body.reasoning_effort = "none";
 
+      llmCalls++;
       const resp = await chatCompletion(body, controller.signal);
       const choice = resp.choices?.[0];
       const usage = resp.usage ?? {};
@@ -158,6 +207,9 @@ export async function runAgentTurn(
           tokensIn, tokensOut,
           toolCalls,
           finish: content ? "stop" : "empty",
+          llmCalls,
+          toolResultFullChars: fullChars,
+          toolResultLlmChars: llmChars,
         };
       }
 
@@ -190,16 +242,33 @@ export async function runAgentTurn(
           duration_ms,
           error: toolResult.ok ? null : (toolResult as { error?: string }).error,
         });
+        // Orçamento de resultado (`nino_efficiency.v1`): o completo vai para
+        // auditoria; o modelo recebe só a evidência comprimida.
+        const fullSerialized = JSON.stringify(toolResult);
+        let contentForModel = fullSerialized;
+        if (opts.evidencePack !== false) {
+          const pack = buildEvidencePack(name, toolResult);
+          contentForModel = pack.json;
+          fullChars += pack.full_chars;
+          llmChars += pack.llm_chars;
+        } else {
+          fullChars += fullSerialized.length;
+          llmChars += fullSerialized.length;
+        }
         messages.push({
           role: "tool",
           tool_call_id: c.id,
           name,
-          content: JSON.stringify(toolResult),
+          content: contentForModel,
         });
       }
     }
 
-    return { reply: "Estou processando ainda… Pode me contar de novo, de forma direta?", steps: maxSteps, tokensIn, tokensOut, toolCalls, finish: "length" };
+    return {
+      reply: "Estou processando ainda… Pode me contar de novo, de forma direta?",
+      steps: maxSteps, tokensIn, tokensOut, toolCalls, finish: "length",
+      llmCalls, toolResultFullChars: fullChars, toolResultLlmChars: llmChars,
+    };
   } finally {
     clearTimeout(timeout);
   }
