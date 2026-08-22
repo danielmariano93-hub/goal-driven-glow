@@ -78,3 +78,20 @@ describe("nino_efficiency.v1 — custo e tiers", () => {
     expect(tierForTask("semantic_classification")).not.toBe(tierForTask("complex_reasoning"));
   });
 });
+
+// Rota determinística: perguntas de desempenho não podem cair no modelo.
+import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter.ts";
+
+describe("nino_efficiency.v1 — rota determinística de desempenho", () => {
+  for (const text of [
+    "como foi meu desempenho financeiro nos ultimos 30 dias?",
+    "qual meu desempenho financeiro?",
+    "como estou?",
+  ]) {
+    it(`não usa modelo para: ${text}`, () => {
+      const decision = classifyCapability(text, {} as any, null) as any;
+      expect(decision.execution).toBe("deterministic");
+      expect(decision.required_tool).toBe("assess_financial_performance");
+    });
+  }
+});
