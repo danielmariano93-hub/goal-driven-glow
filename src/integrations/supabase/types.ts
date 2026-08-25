@@ -1450,6 +1450,183 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_usage_ledger: {
+        Row: {
+          batch_size: number
+          cached_tokens: number
+          created_at: string
+          error_code: string | null
+          estimated_cost_usd: number | null
+          function_name: string
+          http_status: number | null
+          id: string
+          idempotency_key: string | null
+          input_tokens: number
+          latency_ms: number | null
+          metadata: Json
+          model: string | null
+          occurred_at: string
+          operation: string
+          operation_type: string
+          output_tokens: number
+          payload_bytes: number | null
+          prompt_hash: string | null
+          provider: string
+          provider_cost_usd: number | null
+          reason_for_ai_call: string | null
+          retry_number: number
+          run_id: string | null
+          success: boolean
+          unique_items: number
+          user_id: string | null
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }
+        Insert: {
+          batch_size?: number
+          cached_tokens?: number
+          created_at?: string
+          error_code?: string | null
+          estimated_cost_usd?: number | null
+          function_name: string
+          http_status?: number | null
+          id?: string
+          idempotency_key?: string | null
+          input_tokens?: number
+          latency_ms?: number | null
+          metadata?: Json
+          model?: string | null
+          occurred_at?: string
+          operation?: string
+          operation_type?: string
+          output_tokens?: number
+          payload_bytes?: number | null
+          prompt_hash?: string | null
+          provider?: string
+          provider_cost_usd?: number | null
+          reason_for_ai_call?: string | null
+          retry_number?: number
+          run_id?: string | null
+          success?: boolean
+          unique_items?: number
+          user_id?: string | null
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }
+        Update: {
+          batch_size?: number
+          cached_tokens?: number
+          created_at?: string
+          error_code?: string | null
+          estimated_cost_usd?: number | null
+          function_name?: string
+          http_status?: number | null
+          id?: string
+          idempotency_key?: string | null
+          input_tokens?: number
+          latency_ms?: number | null
+          metadata?: Json
+          model?: string | null
+          occurred_at?: string
+          operation?: string
+          operation_type?: string
+          output_tokens?: number
+          payload_bytes?: number | null
+          prompt_hash?: string | null
+          provider?: string
+          provider_cost_usd?: number | null
+          reason_for_ai_call?: string | null
+          retry_number?: number
+          run_id?: string | null
+          success?: boolean
+          unique_items?: number
+          user_id?: string | null
+          workload?: Database["public"]["Enums"]["ai_workload"]
+        }
+        Relationships: []
+      }
+      ai_workload_budgets: {
+        Row: {
+          enabled: boolean
+          max_ai_calls_per_day: number
+          max_ai_calls_per_hour: number
+          max_estimated_cost_per_day: number
+          max_estimated_cost_per_hour: number
+          max_items_per_run: number
+          max_retries_per_evidence: number
+          priority: number
+          updated_at: string
+          updated_by: string | null
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }
+        Insert: {
+          enabled?: boolean
+          max_ai_calls_per_day?: number
+          max_ai_calls_per_hour?: number
+          max_estimated_cost_per_day?: number
+          max_estimated_cost_per_hour?: number
+          max_items_per_run?: number
+          max_retries_per_evidence?: number
+          priority?: number
+          updated_at?: string
+          updated_by?: string | null
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }
+        Update: {
+          enabled?: boolean
+          max_ai_calls_per_day?: number
+          max_ai_calls_per_hour?: number
+          max_estimated_cost_per_day?: number
+          max_estimated_cost_per_hour?: number
+          max_items_per_run?: number
+          max_retries_per_evidence?: number
+          priority?: number
+          updated_at?: string
+          updated_by?: string | null
+          workload?: Database["public"]["Enums"]["ai_workload"]
+        }
+        Relationships: []
+      }
+      ai_workload_circuits: {
+        Row: {
+          blocked_status: number | null
+          consecutive_failures: number
+          last_probe_at: string | null
+          paused_at: string | null
+          reason: string | null
+          requires: string | null
+          resume_after: string | null
+          status: string
+          updated_at: string
+          user_message: string | null
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }
+        Insert: {
+          blocked_status?: number | null
+          consecutive_failures?: number
+          last_probe_at?: string | null
+          paused_at?: string | null
+          reason?: string | null
+          requires?: string | null
+          resume_after?: string | null
+          status?: string
+          updated_at?: string
+          user_message?: string | null
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }
+        Update: {
+          blocked_status?: number | null
+          consecutive_failures?: number
+          last_probe_at?: string | null
+          paused_at?: string | null
+          reason?: string | null
+          requires?: string | null
+          resume_after?: string | null
+          status?: string
+          updated_at?: string
+          user_message?: string | null
+          workload?: Database["public"]["Enums"]["ai_workload"]
+        }
+        Relationships: []
+      }
       anticipation_detector_config: {
         Row: {
           active: boolean
@@ -2382,16 +2559,179 @@ export type Database = {
         }
         Relationships: []
       }
+      category_ai_inference_cache: {
+        Row: {
+          category_id: string | null
+          confidence: number
+          created_at: string
+          engine_version: string
+          estimated_cost_usd: number | null
+          expires_at: string
+          id: string
+          input_tokens: number
+          merchant_key: string
+          metadata: Json
+          model: string | null
+          output_tokens: number
+          prompt_hash: string | null
+          reason: string | null
+          semantic_context_hash: string
+          status: string
+          transaction_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category_id?: string | null
+          confidence?: number
+          created_at?: string
+          engine_version: string
+          estimated_cost_usd?: number | null
+          expires_at: string
+          id?: string
+          input_tokens?: number
+          merchant_key: string
+          metadata?: Json
+          model?: string | null
+          output_tokens?: number
+          prompt_hash?: string | null
+          reason?: string | null
+          semantic_context_hash: string
+          status: string
+          transaction_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category_id?: string | null
+          confidence?: number
+          created_at?: string
+          engine_version?: string
+          estimated_cost_usd?: number | null
+          expires_at?: string
+          id?: string
+          input_tokens?: number
+          merchant_key?: string
+          metadata?: Json
+          model?: string | null
+          output_tokens?: number
+          prompt_hash?: string | null
+          reason?: string | null
+          semantic_context_hash?: string
+          status?: string
+          transaction_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_ai_inference_cache_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      category_classification_attempts: {
+        Row: {
+          action: string
+          ai_attempted: boolean
+          attempt_count: number
+          confidence: number
+          created_at: string
+          decision_id: string | null
+          engine_version: string
+          evidence_hash: string
+          first_attempted_at: string
+          id: string
+          last_attempted_at: string
+          metadata: Json
+          prompt_hash: string | null
+          retryable: boolean
+          source: string
+          status: string
+          terminal_reason: string | null
+          transaction_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          ai_attempted?: boolean
+          attempt_count?: number
+          confidence?: number
+          created_at?: string
+          decision_id?: string | null
+          engine_version: string
+          evidence_hash: string
+          first_attempted_at?: string
+          id?: string
+          last_attempted_at?: string
+          metadata?: Json
+          prompt_hash?: string | null
+          retryable?: boolean
+          source?: string
+          status: string
+          terminal_reason?: string | null
+          transaction_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          ai_attempted?: boolean
+          attempt_count?: number
+          confidence?: number
+          created_at?: string
+          decision_id?: string | null
+          engine_version?: string
+          evidence_hash?: string
+          first_attempted_at?: string
+          id?: string
+          last_attempted_at?: string
+          metadata?: Json
+          prompt_hash?: string | null
+          retryable?: boolean
+          source?: string
+          status?: string
+          terminal_reason?: string | null
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "category_classification_attempts_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "category_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "category_classification_attempts_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       category_classification_queue: {
         Row: {
           attempts: number
           available_at: string
           created_at: string
+          evidence_hash: string | null
           id: string
           last_error: string | null
+          last_semantic_attempt_at: string | null
           locked_at: string | null
+          next_retry_reason: string | null
           processed_at: string | null
+          semantic_attempt_count: number
           status: string
+          terminal_reason: string | null
           transaction_id: string
           updated_at: string
           user_id: string
@@ -2400,11 +2740,16 @@ export type Database = {
           attempts?: number
           available_at?: string
           created_at?: string
+          evidence_hash?: string | null
           id?: string
           last_error?: string | null
+          last_semantic_attempt_at?: string | null
           locked_at?: string | null
+          next_retry_reason?: string | null
           processed_at?: string | null
+          semantic_attempt_count?: number
           status?: string
+          terminal_reason?: string | null
           transaction_id: string
           updated_at?: string
           user_id: string
@@ -2413,11 +2758,16 @@ export type Database = {
           attempts?: number
           available_at?: string
           created_at?: string
+          evidence_hash?: string | null
           id?: string
           last_error?: string | null
+          last_semantic_attempt_at?: string | null
           locked_at?: string | null
+          next_retry_reason?: string | null
           processed_at?: string | null
+          semantic_attempt_count?: number
           status?: string
+          terminal_reason?: string | null
           transaction_id?: string
           updated_at?: string
           user_id?: string
@@ -2436,16 +2786,19 @@ export type Database = {
         Row: {
           action: string
           actor: string
+          ai_attempted: boolean
           alternatives: Json
           applied_at: string | null
           confidence: number
           created_at: string
           decided_category_id: string | null
           engine_version: string
+          evidence_hash: string | null
           id: string
           input_fingerprint: string | null
           mode: string
           previous_category_id: string | null
+          prompt_hash: string | null
           reason: string | null
           reason_code: string
           run_id: string | null
@@ -2456,16 +2809,19 @@ export type Database = {
         Insert: {
           action: string
           actor?: string
+          ai_attempted?: boolean
           alternatives?: Json
           applied_at?: string | null
           confidence?: number
           created_at?: string
           decided_category_id?: string | null
           engine_version?: string
+          evidence_hash?: string | null
           id?: string
           input_fingerprint?: string | null
           mode?: string
           previous_category_id?: string | null
+          prompt_hash?: string | null
           reason?: string | null
           reason_code: string
           run_id?: string | null
@@ -2476,16 +2832,19 @@ export type Database = {
         Update: {
           action?: string
           actor?: string
+          ai_attempted?: boolean
           alternatives?: Json
           applied_at?: string | null
           confidence?: number
           created_at?: string
           decided_category_id?: string | null
           engine_version?: string
+          evidence_hash?: string | null
           id?: string
           input_fingerprint?: string | null
           mode?: string
           previous_category_id?: string | null
+          prompt_hash?: string | null
           reason?: string | null
           reason_code?: string
           run_id?: string | null
@@ -12244,6 +12603,20 @@ export type Database = {
         Returns: Json
       }
       admin_ai_model_routes: { Args: never; Returns: Json }
+      admin_ai_usage_summary: {
+        Args: { _days?: number }
+        Returns: {
+          avg_latency_ms: number
+          calls: number
+          day: string
+          estimated_cost_usd: number
+          input_tokens: number
+          output_tokens: number
+          p95_latency_ms: number
+          successful_calls: number
+          workload: string
+        }[]
+      }
       admin_approve_deletion_request: {
         Args: { p_grace_days?: number; p_id: string; p_notes: string }
         Returns: undefined
@@ -12658,6 +13031,27 @@ export type Database = {
         }
         Returns: string
       }
+      ai_workload_budget_snapshot: {
+        Args: { _workload: Database["public"]["Enums"]["ai_workload"] }
+        Returns: {
+          allowed: boolean
+          block_reason: string
+          calls_last_hour: number
+          calls_today: number
+          circuit_status: string
+          enabled: boolean
+          estimated_cost_last_hour: number
+          estimated_cost_today: number
+          max_ai_calls_per_day: number
+          max_ai_calls_per_hour: number
+          max_estimated_cost_per_day: number
+          max_estimated_cost_per_hour: number
+          max_items_per_run: number
+          max_retries_per_evidence: number
+          paused_reason: string
+          workload: Database["public"]["Enums"]["ai_workload"]
+        }[]
+      }
       amount_to_bucket: {
         Args: { _amount: number }
         Returns: Database["public"]["Enums"]["value_bucket"]
@@ -12751,6 +13145,10 @@ export type Database = {
       }
       category_alias_key: { Args: { p_text: string }; Returns: string }
       category_merchant_key: { Args: { p_text: string }; Returns: string }
+      category_transaction_evidence_hash: {
+        Args: { _transaction_id: string; _user_id: string }
+        Returns: string
+      }
       challenge_progress_add: {
         Args: {
           p_delta: number
@@ -12765,6 +13163,7 @@ export type Database = {
         Args: { p_limit?: number; p_user_id?: string }
         Returns: {
           description: string
+          evidence_hash: string
           movement_kind: string
           queue_id: string
           settles_card_id: string
@@ -14023,6 +14422,18 @@ export type Database = {
     }
     Enums: {
       account_type: "checking" | "savings" | "cash" | "investment" | "other"
+      ai_workload:
+        | "AGENT_CONVERSATION"
+        | "CATEGORY_BACKGROUND"
+        | "CATEGORY_ONDEMAND"
+        | "DOCUMENT_INGEST"
+        | "PROACTIVE"
+        | "INSIGHTS"
+        | "ADVISOR_REPORTS"
+        | "AUDIO_TRANSCRIPTION_APP"
+        | "AUDIO_TRANSCRIPTION_WHATSAPP"
+        | "ANTICIPATION"
+        | "OTHER_AI"
       app_role: "admin" | "user"
       category_type: "income" | "expense"
       challenge_kind:
@@ -14247,6 +14658,19 @@ export const Constants = {
   public: {
     Enums: {
       account_type: ["checking", "savings", "cash", "investment", "other"],
+      ai_workload: [
+        "AGENT_CONVERSATION",
+        "CATEGORY_BACKGROUND",
+        "CATEGORY_ONDEMAND",
+        "DOCUMENT_INGEST",
+        "PROACTIVE",
+        "INSIGHTS",
+        "ADVISOR_REPORTS",
+        "AUDIO_TRANSCRIPTION_APP",
+        "AUDIO_TRANSCRIPTION_WHATSAPP",
+        "ANTICIPATION",
+        "OTHER_AI",
+      ],
       app_role: ["admin", "user"],
       category_type: ["income", "expense"],
       challenge_kind: [
