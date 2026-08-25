@@ -56,6 +56,8 @@ const EMOTION_TOKENS = new Set([
   "animado", "animada", "culpado", "culpada", "culpa", "estressado", "estressada",
   "medo", "aliviado", "aliviada", "orgulhoso", "orgulhosa", "frustrado", "frustrada",
   "empolgado", "empolgada", "desanimado", "desanimada", "sozinho", "sozinha",
+]);
+
 
 
 const stripAccents = (s: string) =>
