@@ -12461,6 +12461,27 @@ export type Database = {
         Returns: Json
       }
       admin_v2_ai_efficiency: { Args: { p_days?: number }; Returns: Json }
+      admin_v2_ai_history: {
+        Args: {
+          p_capability?: string
+          p_channel?: string
+          p_from?: string
+          p_model?: string
+          p_model_tier?: string
+          p_path?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      admin_v2_ai_milestone_compare: {
+        Args: {
+          p_channel?: string
+          p_milestone: string
+          p_path?: string
+          p_window_days?: number
+        }
+        Returns: Json
+      }
       admin_v2_assistant_health: { Args: { _days?: number }; Returns: Json }
       admin_v2_audit_list: { Args: { _limit?: number }; Returns: Json }
       admin_v2_client_profile: { Args: { _pseudo_id: string }; Returns: Json }

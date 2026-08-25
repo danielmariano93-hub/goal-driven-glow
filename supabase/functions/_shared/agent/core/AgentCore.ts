@@ -11,7 +11,7 @@
 // Observability) are additive and best-effort.
 // deno-lint-ignore-file no-explicit-any
 import { service } from "./service.ts";
-import { loadActivePrompt } from "../prompt.ts";
+import { loadActivePrompt, blocksForTools, composeSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "../prompt.ts";
 import { createTurnContext } from "./ContextPipeline.ts";
 import { resolveSession, type Channel } from "./SessionManager.ts";
 import { routeIntent } from "./IntentRouter.ts";
@@ -700,7 +700,17 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
 
   // Fase 3 — personalize the system prompt with user preferences (best-effort).
   const prefs = await guard(() => tctx.preferences(), (m) => metrics.errors.push("prefs:" + m), null);
-  let systemPrompt = personalizeSystemPrompt(prompt?.system_prompt ?? "", prefs);
+  // `nino_efficiency.v2` — prompt por competência: quando o prompt ativo é o
+  // canônico (sem override administrativo), monte só os blocos que o escopo de
+  // ferramentas do turno pode usar. Havendo override, mantemos o prompt inteiro:
+  // regra escrita pelo time não é podada por heurística.
+  const activePrompt = prompt?.system_prompt ?? "";
+  const scopedBase = activePrompt.startsWith(DEFAULT_SYSTEM_PROMPT)
+    ? composeSystemPrompt(blocksForTools(capability.allowed_tools))
+      + activePrompt.slice(DEFAULT_SYSTEM_PROMPT.length)
+    : activePrompt;
+  let systemPrompt = personalizeSystemPrompt(scopedBase, prefs);
+
   // Observabilidade por bloco: quanto do prompt foi contexto financeiro.
   let contextJson = "";
   let contextChars = 0;
@@ -1024,12 +1034,18 @@ ${episodic}
 
   metrics.path = path;
   metrics.model_attempts = planner.modelAttempts;
-  const effectiveModel = [...planner.modelAttempts].reverse().find((attempt) => attempt.ok)?.model
-    ?? prompt?.model ?? "unknown";
-  metrics.estimated_cost_usd = estimateCost(effectiveModel, metrics.tokens_in, metrics.tokens_out);
-  metrics.model = effectiveModel;
+  // Verdade de telemetria: `model` é o modelo EFETIVAMENTE usado. Turno sem
+  // chamada de LLM (caminho determinístico) não tem modelo — reportar o modelo
+  // configurado ali inflaria custo e mascararia a taxa determinística.
+  const succeededModel = [...planner.modelAttempts].reverse().find((attempt) => attempt.ok)?.model ?? null;
+  const usedLlm = metrics.llm_calls > 0 || planner.modelAttempts.length > 0;
+  const effectiveModel = succeededModel ?? (usedLlm ? (prompt?.model ?? "unknown") : "unknown");
+  metrics.estimated_cost_usd = usedLlm
+    ? estimateCost(effectiveModel, metrics.tokens_in, metrics.tokens_out)
+    : 0;
+  metrics.model = usedLlm ? effectiveModel : null;
   metrics.route_reason = planner.routeReason ?? null;
-  metrics.model_tier = planner.modelTier ?? null;
+  metrics.model_tier = usedLlm ? (planner.modelTier ?? null) : null;
 
   // ---- GoalPlanner (plano do turno, auditável) ---------------------------
   // Decompõe o pedido em passos ordenados (ler → calcular → confirmar →
@@ -1350,7 +1366,7 @@ ${episodic}
 
   // ---- Decision log (best-effort) ---------------------------------------
   metrics.intent = routed.intent.kind;
-  metrics.model = effectiveModel === "unknown" ? null : effectiveModel;
+  metrics.model = usedLlm && effectiveModel !== "unknown" ? effectiveModel : null;
   await logDecision(sb, buildRecord({
     run_id: run_id ?? null,
     user_id: input.user_id, conversation_id: input.conversation_id,

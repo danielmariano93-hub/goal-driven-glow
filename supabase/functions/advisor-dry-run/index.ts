@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
         .gte("occurred_at", shiftDays(asOf, -420))
         .lte("occurred_at", asOf)
         .limit(20000),
-      sb.from("categories").select("id,name").eq("user_id", target),
+      sb.from("categories").select("id,name").or(`user_id.eq.${target},user_id.is.null`),
       sb.from("user_advisor_topic_affinity")
         .select("topic_key,score,signals,last_seen_at").eq("user_id", target),
     ]);

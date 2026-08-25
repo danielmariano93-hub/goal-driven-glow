@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
 
   try {
     const ledgerVersion = await getLedgerVersion(sb, userId);
-    const cacheKey = `performance|${mode}|${asOf}|${floor}`;
+    const cacheKey = `performance.v2|${mode}|${asOf}|${floor}`;
     const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
     if (cached) {
       return json({
@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
       bootstrap
         ? fetchAllTransactions(sb, userId)
         : buildCompactLedger(sb, userId, TX_COLUMNS, window, [], { includeCardCarry: false }).then((c) => c.txs),
-      sb.from("categories").select("id,name").eq("user_id", userId),
+      sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
     ]);
 
     const categoryNames = new Map<string, string>(
