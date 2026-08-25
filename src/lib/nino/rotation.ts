@@ -87,24 +87,29 @@ export function buildNinoReadingQueue(
 }
 
 /**
- * Intercala tipos de leitura sem reordenar por severidade: a primeira posição
- * (conclusão principal) é preservada e, a partir dela, evitamos duas leituras
- * seguidas do mesmo tipo de situação quando existe alternativa disponível.
+ * Intercala tipos de leitura SEM quebrar a hierarquia narrativa: a ordem dos
+ * grupos (principal → apoio → antecipação → padrão → operacional) é
+ * preservada, e a intercalação acontece apenas dentro de cada grupo, evitando
+ * duas leituras seguidas do mesmo tipo de situação quando há alternativa.
  */
 function interleaveByType(queue: NinoReading[]): NinoReading[] {
   if (queue.length < 3) return queue;
-  const rest = queue.slice(1);
-  const ordered: NinoReading[] = [queue[0]];
-  let lastType = typeOf(queue[0]);
-  while (rest.length) {
-    let pick = rest.findIndex((reading) => typeOf(reading) !== lastType);
-    if (pick < 0) pick = 0;
-    const [next] = rest.splice(pick, 1);
-    ordered.push(next);
-    lastType = typeOf(next);
+  const ordered: NinoReading[] = [];
+  let lastType = "";
+  const sources: NinoReadingSource[] = ["primary", "support", "anticipation", "pattern", "operational"];
+  for (const source of sources) {
+    const rest = queue.filter((reading) => reading.source === source);
+    while (rest.length) {
+      let pick = rest.findIndex((reading) => typeOf(reading) !== lastType);
+      if (pick < 0) pick = 0;
+      const [next] = rest.splice(pick, 1);
+      ordered.push(next);
+      lastType = typeOf(next);
+    }
   }
   return ordered;
 }
+
 
 function typeOf(reading: NinoReading): string {
   return reading.situation.situation_type || reading.source;

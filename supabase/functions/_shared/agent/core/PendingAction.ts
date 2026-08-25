@@ -56,7 +56,8 @@ const ASSIGN_RX =
   /^(?:nino[,\s]+)?(?:pode\s+)?(?:coloca(?:r)?|coloque|p[oõ]e|ponha|joga|jogue|muda(?:r)?|mude|troca(?:r)?|categoriza(?:r)?|categorize|classifica(?:r)?|classifique|marca(?:r)?|marque)\s+(?:isso|esse|essa|este|esta|ele|ela|o\s+lan[çc]amento|a\s+despesa|o\s+gasto)?\s*(?:como|em|na|no|para|pra|categoria)\s+(?:a\s+|o\s+)?(?:categoria\s+)?["“']?([\p{L}][\p{L}\s&/-]{1,40})["”']?\s*[.!]?$/iu;
 
 const CREATE_RX =
-  /^(?:nino[,\s]+)?(?:pode\s+)?(?:cria(?:r)?|crie|adiciona(?:r)?|adicione|cadastra(?:r)?|cadastre)\s+(?:a\s+|uma\s+|o\s+)?categoria\s+["“']?([\p{L}][\p{L}\s&/-]{1,40})["”']?(?:\s+e\s+.{0,60})?\s*[.!]?$/iu;
+  /^(?:nino[,\s]+)?(?:pode\s+)?(?:cria(?:r)?|crie|adiciona(?:r)?|adicione|cadastra(?:r)?|cadastre)\s+(?:a\s+|uma\s+|o\s+)?categoria\s+["“']?([\p{L}][\p{L}\s&/-]{1,40}?)["”']?(?:\s+e\s+.{0,60})?\s*[.!]?$/iu;
+
 
 /**
  * Lê a mensagem como resposta de categoria.
