@@ -3,6 +3,8 @@
 // era a query do snapshot filtrar só por user_id, deixando `categoryName`
 // vazio para Alimentação/Lazer/Transporte.
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { evaluateCategoryGoal, type CategorySpendingGoalRow } from "@/lib/engine/metrics";
 
 const today = new Date("2026-08-25T12:00:00");
@@ -42,5 +44,14 @@ describe("meta por categoria — rótulo da categoria", () => {
     const map: Record<string, string> = { "cat-global": "Lazer", "cat-user": "Padaria da Ana" };
     expect(evaluateCategoryGoal(goalFor("cat-global"), [], today, map["cat-global"]).categoryName).toBe("Lazer");
     expect(evaluateCategoryGoal(goalFor("cat-user"), [], today, map["cat-user"]).categoryName).toBe("Padaria da Ana");
+  });
+
+  it("hot path e Edge usam a chave v3 para não servir cache antigo sem nome", () => {
+    const edge = readFileSync(resolve(process.cwd(), "supabase/functions/home-snapshot/index.ts"), "utf8");
+    const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260825135056_ec732c02-6e43-4c20-bdb2-41f65d7c262f.sql"), "utf8");
+    expect(edge).toContain("home_snapshot_v3|");
+    expect(edge).not.toContain("home_snapshot_v2|");
+    expect(migration).toContain("contract_version = v_contract");
+    expect(migration).toContain("home_snapshot_v3|%s|%s|%s");
   });
 });

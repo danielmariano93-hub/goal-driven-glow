@@ -627,11 +627,11 @@ export function get_debt_status(ctx: EngineToolContext, args: { due_soon_days?: 
     const today = todaySaoPaulo();
     const debts = await loadDebts(ctx);
     const { data: payments } = await ctx.sb.from("debt_payments")
-      .select("debt_id,paid_at,amount,installments_covered")
+      .select("debt_id,paid_at,amount,amount_applied,installments_covered")
       .eq("user_id", ctx.user_id);
     const env = computeDebtStatus({
       debts: debts as any,
-      payments: (payments ?? []).map((p: any) => ({ ...p, amount: Number(p.amount ?? 0) })),
+      payments: (payments ?? []).map((p: any) => ({ ...p, amount: Number(p.amount ?? 0), amount_applied: p.amount_applied == null ? null : Number(p.amount_applied) })),
       today,
       dueSoonDays: Math.max(1, Math.min(15, Number(args?.due_soon_days ?? 5))),
     });

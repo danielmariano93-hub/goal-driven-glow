@@ -39,4 +39,23 @@ describe("debt_status — agenda derivada por due_day", () => {
     expect(schedule.overdue_count).toBeGreaterThan(0);
     expect(schedule.milestones).toContain(50);
   });
+
+  it("pagamento do ciclo atual sem contador explícito deixa de manter a dívida em atraso", () => {
+    const payments = [{
+      debt_id: "pan",
+      paid_at: "2026-08-11",
+      amount: 74.54,
+      amount_applied: 74.54,
+      installments_covered: 0,
+    }];
+    const env = computeDebtStatus({ debts: [pan], payments, today: "2026-08-12" });
+    const item = env.breakdown[0];
+    expect(item.situation).toBe("em_dia");
+    expect(item.next_due_date).toBe("2026-09-10");
+
+    const schedule = buildDebtSchedule(pan, payments, "2026-08-12");
+    expect(schedule.installments.filter((i) => i.state === "paga")).toHaveLength(19);
+    expect(schedule.overdue_count).toBe(0);
+    expect(schedule.next_due_date).toBe("2026-09-10");
+  });
 });

@@ -49,10 +49,35 @@ type History = {
   series: Series[];
   by_path: Array<{ path: string; runs: number; tokens_per_run: number; p50_latency_ms: number | null; p95_latency_ms: number | null }>;
   by_model: Array<{ model: string; model_tier: string | null; runs: number; tokens_in: number; tokens_out: number; estimated_cost_usd: number }>;
+  latency_drilldown?: LatencyDrilldown;
   coverage: Record<string, string | null>;
   available_filters: {
     channels: string[]; paths: string[]; model_tiers: string[]; models: string[]; capabilities: string[];
   };
+};
+
+type LatencyRun = {
+  run_id: string;
+  started_at: string;
+  day: string;
+  status: string | null;
+  channel: string | null;
+  path: string | null;
+  capability: string | null;
+  model_tier: string | null;
+  model: string | null;
+  latency_ms: number | null;
+  tokens_total: number;
+  llm_calls: number;
+  estimated_cost_usd: number;
+  error_summary: string | null;
+};
+
+type LatencyDrilldown = {
+  thresholds?: { p50_latency_ms: number | null; p95_latency_ms: number | null };
+  p50_runs?: LatencyRun[];
+  p95_runs?: LatencyRun[];
+  outlier_runs?: LatencyRun[];
 };
 
 type Compare = {
@@ -99,8 +124,10 @@ export function AiEfficiencyHistoryBoard() {
   const [path, setPath] = useState<string>(ANY);
   const [capability, setCapability] = useState<string>(ANY);
   const [tier, setTier] = useState<string>(ANY);
+  const [model, setModel] = useState<string>(ANY);
   const [milestone, setMilestone] = useState<string>(MILESTONES[1].date);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedLatencyDay, setSelectedLatencyDay] = useState<string | null>(null);
 
   const range = useMemo(() => {
     if (preset === "custom") return { from, to };
@@ -112,12 +139,30 @@ export function AiEfficiencyHistoryBoard() {
   const clean = (v: string) => (v === ANY ? null : v);
 
   const history = useQuery({
-    queryKey: ["admin_ai_history", range, channel, path, capability, tier],
+    queryKey: ["admin_ai_history", range, channel, path, capability, tier, model],
     queryFn: async (): Promise<History> => {
       const { data, error } = await supabase.rpc("admin_v2_ai_history", {
         p_from: range.from, p_to: range.to,
         p_channel: clean(channel), p_path: clean(path),
         p_capability: clean(capability), p_model_tier: clean(tier),
+        p_model: clean(model),
+      });
+      if (error) throw error;
+      return data as unknown as History;
+    },
+  });
+
+  const latencyDay = useQuery({
+    queryKey: ["admin_ai_latency_day", selectedLatencyDay, channel, path, capability, tier, model],
+    enabled: !!selectedLatencyDay,
+    queryFn: async (): Promise<History> => {
+      const day = selectedLatencyDay;
+      if (!day) throw new Error("latency_day_required");
+      const { data, error } = await supabase.rpc("admin_v2_ai_history", {
+        p_from: day, p_to: day,
+        p_channel: clean(channel), p_path: clean(path),
+        p_capability: clean(capability), p_model_tier: clean(tier),
+        p_model: clean(model),
       });
       if (error) throw error;
       return data as unknown as History;
@@ -158,6 +203,17 @@ export function AiEfficiencyHistoryBoard() {
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
   const num = (v: number | null | undefined) => (v == null ? "—" : Number(v).toLocaleString("pt-BR"));
   const marks = MILESTONES.filter((m) => m.date >= h.period.from && m.date <= h.period.to);
+  const drill = (selectedLatencyDay ? latencyDay.data?.latency_drilldown : h.latency_drilldown) ?? {};
+  const drillTitle = selectedLatencyDay ? `Runs de ${selectedLatencyDay}` : "Runs do recorte";
+  const selectLatencyDay = (state: unknown) => {
+    const day = (state as { activeLabel?: unknown } | null)?.activeLabel;
+    if (typeof day === "string") setSelectedLatencyDay(day);
+  };
+  const drillRows = [
+    { title: "Próximos da mediana", rows: drill.p50_runs ?? [] },
+    { title: "Cauda P95", rows: drill.p95_runs ?? [] },
+    { title: "Maiores latências", rows: drill.outlier_runs ?? [] },
+  ];
 
   return (
     <section className="space-y-4">
@@ -229,6 +285,13 @@ export function AiEfficiencyHistoryBoard() {
                 {filters.model_tiers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Select value={model} onValueChange={setModel}>
+              <SelectTrigger className="h-9 w-[220px]"><SelectValue placeholder="Modelo" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>Todos os modelos</SelectItem>
+                {filters.models.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </>
         )}
       </div>
@@ -274,10 +337,10 @@ export function AiEfficiencyHistoryBoard() {
               <Tooltip formatter={(v: number) => Number(v).toLocaleString("pt-BR")} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Area type="monotone" dataKey="tokens_in" name="Entrada" stackId="1" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} />
-              <Area type="monotone" dataKey="tokens_out" name="Saída" stackId="1" stroke="#FF6B5F" fill="#FF6B5F" fillOpacity={0.25} />
+              <Area type="monotone" dataKey="tokens_out" name="Saída" stackId="1" stroke="hsl(var(--brand-coral))" fill="hsl(var(--brand-coral))" fillOpacity={0.25} />
               {marks.map((m) => (
-                <ReferenceLine key={m.date} x={m.date} stroke="#2FC99A" strokeDasharray="4 4"
-                  label={{ value: m.label, position: "insideTopRight", fontSize: 10, fill: "#2FC99A" }} />
+                <ReferenceLine key={m.date} x={m.date} stroke="hsl(var(--success))" strokeDasharray="4 4"
+                  label={{ value: m.label, position: "insideTopRight", fontSize: 10, fill: "hsl(var(--success))" }} />
               ))}
             </AreaChart>
           </ResponsiveContainer>
@@ -290,7 +353,7 @@ export function AiEfficiencyHistoryBoard() {
         </figcaption>
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={h.series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+            <LineChart data={h.series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} onClick={selectLatencyDay}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false}
@@ -298,15 +361,62 @@ export function AiEfficiencyHistoryBoard() {
               <Tooltip formatter={(v: number) => `${(Number(v) / 1000).toFixed(1)}s`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="p50_latency_ms" name="Mediana" stroke="hsl(var(--primary))" dot={false} strokeWidth={2} />
-              <Line type="monotone" dataKey="p95_latency_ms" name="P95" stroke="#FF6B5F" dot={false} strokeWidth={2} />
-              <Line type="monotone" dataKey="avg_latency_ms" name="Média" stroke="#2FC99A" dot={false} strokeWidth={1} />
+              <Line type="monotone" dataKey="p95_latency_ms" name="P95" stroke="hsl(var(--brand-coral))" dot={false} strokeWidth={2} />
+              <Line type="monotone" dataKey="avg_latency_ms" name="Média" stroke="hsl(var(--success))" dot={false} strokeWidth={1} />
               {marks.map((m) => (
-                <ReferenceLine key={m.date} x={m.date} stroke="#2FC99A" strokeDasharray="4 4" />
+                <ReferenceLine key={m.date} x={m.date} stroke="hsl(var(--success))" strokeDasharray="4 4" />
               ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
       </figure>
+
+      <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <Gauge size={14} className="text-primary" aria-hidden /> Drill-down de latência
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {drillTitle} · P50 {ms(drill.thresholds?.p50_latency_ms)} · P95 {ms(drill.thresholds?.p95_latency_ms)}
+            </p>
+          </div>
+          {selectedLatencyDay ? (
+            <Button size="sm" variant="outline" onClick={() => setSelectedLatencyDay(null)}>Ver recorte completo</Button>
+          ) : null}
+        </header>
+        {latencyDay.isLoading ? (
+          <p className="text-xs text-muted-foreground">Carregando runs do dia…</p>
+        ) : latencyDay.error ? (
+          <p className="text-xs text-muted-foreground">Não foi possível carregar o drill-down agora.</p>
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-3">
+            {drillRows.map((group) => (
+              <div key={group.title} className="rounded-2xl border border-border/70 p-3">
+                <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{group.title}</h4>
+                <ul className="space-y-2">
+                  {group.rows.map((run) => (
+                    <li key={`${group.title}-${run.run_id}`} className="rounded-xl bg-muted/40 p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold tabular-nums">{ms(run.latency_ms)}</span>
+                        <span className="text-muted-foreground tabular-nums">{num(run.tokens_total)} tokens</span>
+                      </div>
+                      <p className="mt-1 truncate font-medium">{run.capability ?? run.path ?? "sem capacidade"}</p>
+                      <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-muted-foreground">
+                        {run.model_tier ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">{run.model_tier}</span> : null}
+                        {run.model ? <span className="rounded-full bg-secondary px-2 py-0.5">{run.model}</span> : null}
+                        {run.channel ? <span className="rounded-full bg-secondary px-2 py-0.5">{run.channel}</span> : null}
+                      </div>
+                      {run.error_summary ? <p className="mt-1 truncate text-destructive">{run.error_summary}</p> : null}
+                    </li>
+                  ))}
+                  {!group.rows.length && <li className="text-xs text-muted-foreground">Sem runs neste recorte.</li>}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
         <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
