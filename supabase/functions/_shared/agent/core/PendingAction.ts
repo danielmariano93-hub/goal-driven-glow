@@ -33,6 +33,33 @@ const NOT_A_CATEGORY = new Set([
   "pode", "pronto", "top", "show", "legal", "entendi", "certeza", "nada",
 ]);
 
+/**
+ * Tokens que revelam FRASE (relato, pedido, conversa) em vez de nome de
+ * categoria. Se qualquer palavra da resposta seca cair aqui, a mensagem volta
+ * para o roteamento normal do Nino.
+ */
+const SENTENCE_TOKENS = new Set([
+  "eu", "me", "meu", "minha", "mim", "voce", "vc", "nino",
+  "estou", "esto", "to", "ta", "tou", "sinto", "sinta", "fiquei", "fico", "sou", "era", "foi",
+  "quero", "queria", "preciso", "podia", "vamos", "vou", "acho", "sei", "tenho", "tive",
+  "hoje", "ontem", "amanha", "agora", "depois", "ainda", "muito", "pouco", "mais", "menos",
+  "gastei", "paguei", "comprei", "recebi", "registra", "registre", "registrar", "anota", "anote",
+  "mostra", "mostre", "quanto", "quando", "porque", "como", "qual", "por",
+  "ajuda", "ajude", "explica", "explique", "esqueci", "tudo", "bem", "mal",
+]);
+
+/** Estados emocionais: assunto do registro de emoção, nunca categoria. */
+const EMOTION_TOKENS = new Set([
+  "triste", "tristeza", "feliz", "felicidade", "ansioso", "ansiosa", "ansiedade",
+  "preocupado", "preocupada", "preocupacao", "cansado", "cansada", "cansaco",
+  "irritado", "irritada", "raiva", "calmo", "calma", "tranquilo", "tranquila",
+  "animado", "animada", "culpado", "culpada", "culpa", "estressado", "estressada",
+  "medo", "aliviado", "aliviada", "orgulhoso", "orgulhosa", "frustrado", "frustrada",
+  "empolgado", "empolgada", "desanimado", "desanimada", "sozinho", "sozinha",
+]);
+
+
+
 const stripAccents = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -92,9 +119,13 @@ export function readCategoryAnswer(
   if (words.length > 3) return null;
   const norm = normalizeCategoryName(t);
   if (!norm || NOT_A_CATEGORY.has(norm)) return null;
+  // Frase (mesmo curta) NÃO é nome de categoria: "estou triste hoje",
+  // "me sinto mal", "tô cansado" são relato emocional/conversa, não slot.
+  if (norm.split(" ").some((w) => SENTENCE_TOKENS.has(w) || EMOTION_TOKENS.has(w))) return null;
   if (norm.split(" ").some((w) => NOT_A_CATEGORY.has(w) && words.length === 1)) return null;
   return { name: words.join(" "), explicit: false, create: false };
 }
+
 
 export type PendingEntry = {
   transaction_id: string;
