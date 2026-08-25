@@ -53,7 +53,7 @@ import { findPending } from "./PendingConfirmations.ts";
 import {
   assignCategoryToEntry, findRecentUncategorized, readCategoryAnswer,
 } from "./PendingAction.ts";
-import { sanitizeUserFacingText } from "./UserSafeError.ts";
+import { sanitizeUserFacingText, USER_SAFE_MESSAGES } from "./UserSafeError.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
@@ -972,6 +972,15 @@ ${episodic}
       const fb = await timeStage(metrics, "tools", () => deterministicFallback(sb, input));
       reply = fb.reply; draft_id = fb.draft_id;
       kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
+      // Inteligência indisponível + pergunta que exigia modelo: texto neutro,
+      // nunca "não consegui identificar" (que soa como culpa do usuário) e
+      // nunca detalhe de infraestrutura.
+      if (/^gateway_(?:402|403)$/.test(String(errorSanitized ?? ""))
+        && fb.kind === "info"
+        && /^N[aã]o consegui identificar com seguran[çc]a/.test(fb.reply)) {
+        reply = USER_SAFE_MESSAGES.AI_TEMPORARY_UNAVAILABLE;
+        kind = "info";
+      }
     } catch (e) {
       errorSanitized = errorSanitized ?? String((e as Error).message ?? "fallback_error").slice(0, 200);
       metrics.errors.push("fallback:" + errorSanitized);
