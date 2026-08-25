@@ -21,7 +21,7 @@ import { fail, respondPartial } from "../_shared/http.ts";
 
 const FN = "whatsapp-webhook";
 import { getProvider, getSessionName, loadWahaConfig } from "../_shared/messaging/waha.ts";
-import { classifyInbound } from "../_shared/messaging/wahaInbound.ts";
+import { amountFromQuotedBody, classifyInbound } from "../_shared/messaging/wahaInbound.ts";
 import { maskLid, resolveLidToPhone } from "../_shared/messaging/lidResolver.ts";
 import { buildAssessorLink } from "../_shared/messaging/appUrl.ts";
 import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/mediaFallback.ts";
@@ -314,6 +314,7 @@ Deno.serve(async (req) => {
     body: classified.body,
     received_at: classified.received_at,
     media: classified.media,
+    quoted: classified.quoted,
   };
 
   const raw_hash = await sha256Hex(raw);
@@ -717,6 +718,14 @@ Deno.serve(async (req) => {
       const orchestrated = await runOrchestrator({
         user_id: link.user_id, conversation_id: conversationId,
         inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
+        // Resposta citada: só sinais estruturados (id + valor citado), nunca o
+        // conteúdo bruto da mensagem citada no prompt.
+        reply_context: evt.quoted
+          ? {
+              quoted_message_id: evt.quoted.message_id,
+              amount_hint: amountFromQuotedBody(evt.quoted.body),
+            }
+          : null,
       });
       stopHints();
       await recordWhatsappPipelineEvent(sb, {

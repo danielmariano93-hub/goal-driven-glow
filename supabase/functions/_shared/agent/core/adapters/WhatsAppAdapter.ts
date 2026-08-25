@@ -11,6 +11,7 @@ export type WhatsAppTurn = {
   text: string;
   to_phone: string;
   source?: "whatsapp" | "simulator";
+  reply_context?: { quoted_message_id?: string | null; amount_hint?: number | null } | null;
 };
 
 export async function handleWhatsAppTurn(input: WhatsAppTurn): Promise<HandleTurnResult> {
@@ -21,5 +22,6 @@ export async function handleWhatsAppTurn(input: WhatsAppTurn): Promise<HandleTur
     text: input.text,
     channel: input.source === "simulator" ? "simulator" : "whatsapp",
     to_phone: input.to_phone,
+    reply_context: input.reply_context ?? null,
   });
 }
