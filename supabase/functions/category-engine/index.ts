@@ -38,7 +38,9 @@ async function classifyBatchDeterministic(admin:ReturnType<typeof createClient>,
   }
   return inputs.map(input=>{
     if(input.type!=="income"&&input.type!=="expense") return {category_id:null,category_source:"none",category_confidence:0,category_reason:"movimento contábil excluído da categorização de consumo",action:"exclude",reason_code:"non_consumption_movement",engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
-    return classifyWithContext(input,contexts.get(input.type)!);
+    const context=contexts.get(input.type);
+    if(!context)return {category_id:null,category_source:"none",category_confidence:0,category_reason:"contexto de categorias indisponível",action:"leave_unresolved",reason_code:"context_unavailable",engine_version:CATEGORY_ENGINE_VERSION,alternatives:[]};
+    return classifyWithContext(input,context);
   });
 }
 
@@ -82,6 +84,11 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
   const workload=workloadFor(mode);
   const unresolvedRaw=results.map((result,index)=>({result,input:inputs[index],index})).filter(x=>x.result.action==="leave_unresolved"&&x.result.category_id===null);
   if(!unresolvedRaw.length)return results;
+  const deferEntries=(items: Array<{index:number;result:ClassificationResult}>, reason: string) => {
+    for(const item of items){
+      results[item.index]={...item.result,action:"preserve",reason_code:reason,category_reason:"adiado para a próxima janela de categorização"};
+    }
+  };
 
   const entries: Array<{result:ClassificationResult;input:ClassificationInput;index:number;evidence_hash:string;merchant_key:string;semantic_hash:string;prompt_hash?:string|null}> = [];
   for(const item of unresolvedRaw){
@@ -102,10 +109,10 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
     entries.push({...item,evidence_hash:hash,merchant_key:merchantKey,semantic_hash:semanticHash});
   }
   if(!entries.length)return results;
-  if(!LOVABLE_API_KEY)return results;
-  if(await getAiBlock(admin))return results;
+  if(!LOVABLE_API_KEY){deferEntries(entries,"ai_unconfigured");return results;}
+  if(await getAiBlock(admin)){deferEntries(entries,"ai_circuit_blocked");return results;}
   const budget=await ensureWorkloadAllowed(admin,workload);
-  if(!budget.allowed)return results;
+  if(!budget.allowed){deferEntries(entries,"workload_budget_blocked");return results;}
 
   const deduped=new Map<string,typeof entries[number]>();
   for(const entry of entries){
@@ -113,6 +120,9 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
     if(!deduped.has(key))deduped.set(key,entry);
   }
   const selected=[...deduped.values()].slice(0,Math.max(1,Math.min(budget.max_items_per_run,25)));
+  const selectedByKey=new Map(selected.map((entry)=>[`${entry.input.type}:${entry.merchant_key}:${entry.semantic_hash}`,entry]));
+  const deferred=entries.filter((entry)=>!selectedByKey.has(`${entry.input.type}:${entry.merchant_key}:${entry.semantic_hash}`));
+  deferEntries(deferred,"budget_deferred");
   const types=[...new Set(selected.map(x=>x.input.type).filter(t=>t==="income"||t==="expense"))] as Array<"income"|"expense">;
   const contexts=await Promise.all(types.map(async type=>[type,await loadCategorizationContext(admin,userId,type,selected.filter(x=>x.input.type===type).map(x=>String(x.input.description??"")))] as const));
   const byType=new Map(contexts);
@@ -141,6 +151,12 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
       }else{
         await upsertCachedInference(admin,userId,entry.input,entry.semantic_hash,{category_id:null,confidence:0,status:"needs_review_until_new_evidence",reason:"sem evidência suficiente",prompt_hash:phash,model:MODEL,input_tokens:tokensIn,output_tokens:tokensOut,estimated_cost_usd:estimateAiCostUsd(MODEL,tokensIn,tokensOut)});
       }
+      const key=`${entry.input.type}:${entry.merchant_key}:${entry.semantic_hash}`;
+      for(const duplicate of entries){
+        if(duplicate.index!==entry.index&&`${duplicate.input.type}:${duplicate.merchant_key}:${duplicate.semantic_hash}`===key){
+          results[duplicate.index]=results[entry.index];
+        }
+      }
     }
   }catch(error){
     const maybe=error as {status?:number;body?:string;message?:string;text?:string};
@@ -164,6 +180,10 @@ async function persistDecision(admin:ReturnType<typeof createClient>,userId:stri
     .eq("id",input.transaction_id).eq("user_id",userId).maybeSingle();
   if(txError)throw txError;
   if(!tx)return{...result,action:"preserve"};
+  if(result.action==="preserve"){
+    await admin.from("category_classification_queue").update({status:"queued",locked_at:null,last_error:result.reason_code,available_at:new Date(Date.now()+10*60_000).toISOString(),next_retry_reason:result.reason_code}).eq("transaction_id",tx.id);
+    return result;
+  }
   const currentSource=String(tx.category_source??"");
   // Race guard: an explicit/manual or already trusted decision always wins over a queued worker.
   if(tx.category_id&&TRUSTED_APPLIED_SOURCES.has(currentSource)){
