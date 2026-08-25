@@ -198,6 +198,12 @@ function effectiveCoveredInstallments(debt: DebtScheduleRow, payments: DebtPayme
   return expected > base ? Math.min(cappedTotal, base + 1) : base;
 }
 
+function anchorCoveredInstallments(debt: DebtScheduleRow, covered: number, payments: DebtPaymentRow[], today: string): number {
+  if (debt.first_due_date || debt.start_date) return covered;
+  if (!currentCycleCovered(debt, payments, today)) return covered;
+  return Math.max(0, covered - 1);
+}
+
 function evaluateDebt(
   debt: DebtScheduleRow,
   payments: DebtPaymentRow[],
@@ -237,7 +243,7 @@ function evaluateDebt(
     return { ...base, situation: "quitada", reason: "dívida encerrada ou saldo zerado" };
   }
 
-  const anchor = anchorFor(debt, covered, today);
+  const anchor = anchorFor(debt, anchorCoveredInstallments(debt, covered, payments, today), today);
   if (!anchor || !installment || installment <= 0) {
     return base;
   }
@@ -420,7 +426,7 @@ export function buildDebtSchedule(
     : total && total > 0
       ? Math.min(100, (covered / total) * 100)
       : 0;
-  const anchor = installment && installment > 0 ? anchorFor(debt, covered, day) : null;
+  const anchor = installment && installment > 0 ? anchorFor(debt, anchorCoveredInstallments(debt, covered, payments, day), day) : null;
 
   const rows: DebtInstallmentRow[] = [];
   if (anchor && installment) {
