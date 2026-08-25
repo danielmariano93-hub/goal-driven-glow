@@ -153,3 +153,16 @@ describe("P0 — nenhum texto ao usuário expõe infraestrutura", () => {
     expect(classifyUserSafe(new Error("missing required field"))).toBe("VALIDATION_ERROR");
   });
 });
+
+describe("P0 — relato emocional não é nome de categoria", () => {
+  it("frases de emoção voltam para o roteamento normal, mesmo com lançamento pendente", () => {
+    for (const t of ["estou triste hoje", "tô cansado", "me sinto mal", "estou ansioso", "quero ajuda"]) {
+      expect(readCategoryAnswer(t, true), t).toBeNull();
+    }
+  });
+
+  it("nome real de categoria continua sendo aceito", () => {
+    expect(readCategoryAnswer("Bebidas", true)?.name).toBe("Bebidas");
+    expect(readCategoryAnswer("Cuidados Pessoais", true)?.name).toBe("Cuidados Pessoais");
+  });
+});
