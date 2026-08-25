@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { openAIToolDefinitions, toolByName, type ToolContext, type ToolResult } from "./tools.ts";
 import { todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
 import { buildEvidencePack } from "./core/EvidencePack.ts";
+import { recordAiUsage } from "../aiUsageLedger.ts";
 
 /** Builds a deterministic temporal system message. The LLM MUST use these
  *  values as "now" — never dates from examples, history, or its training. */
@@ -191,11 +192,22 @@ export async function runAgentTurn(
       if (/^openai\/gpt-5\.6/.test(opts.model)) body.reasoning_effort = "none";
 
       llmCalls++;
-      const resp = await chatCompletion(body, controller.signal);
+      const callStarted=Date.now();
+      let resp: any;
+      try {
+        resp = await chatCompletion(body, controller.signal);
+      } catch (error) {
+        const status=Number((error as any)?.status ?? 0) || null;
+        await recordAiUsage(toolCtx.sb,{workload:"AGENT_CONVERSATION",function_name:"agent-run",operation:"chat_step",user_id:toolCtx.user_id,model:opts.model,operation_type:"chat",success:false,http_status:status,error_code:status?`gateway_${status}`:"gateway_error",latency_ms:Date.now()-callStarted,batch_size:1,unique_items:1,metadata:{conversation_id:toolCtx.conversation_id,step}});
+        throw error;
+      }
       const choice = resp.choices?.[0];
       const usage = resp.usage ?? {};
-      tokensIn += Number(usage.prompt_tokens ?? 0);
-      tokensOut += Number(usage.completion_tokens ?? 0);
+      const stepTokensIn=Number(usage.prompt_tokens ?? 0);
+      const stepTokensOut=Number(usage.completion_tokens ?? 0);
+      tokensIn += stepTokensIn;
+      tokensOut += stepTokensOut;
+      await recordAiUsage(toolCtx.sb,{workload:"AGENT_CONVERSATION",function_name:"agent-run",operation:"chat_step",user_id:toolCtx.user_id,model:opts.model,operation_type:"chat",input_tokens:stepTokensIn,output_tokens:stepTokensOut,success:true,latency_ms:Date.now()-callStarted,batch_size:1,unique_items:1,metadata:{conversation_id:toolCtx.conversation_id,step,tool_count:(resp.choices?.[0]?.message?.tool_calls??[]).length}});
       const msg = choice?.message ?? {};
       const calls = msg.tool_calls ?? [];
 
