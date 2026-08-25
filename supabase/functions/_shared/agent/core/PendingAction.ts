@@ -92,9 +92,13 @@ export function readCategoryAnswer(
   if (words.length > 3) return null;
   const norm = normalizeCategoryName(t);
   if (!norm || NOT_A_CATEGORY.has(norm)) return null;
+  // Frase (mesmo curta) NÃO é nome de categoria: "estou triste hoje",
+  // "me sinto mal", "tô cansado" são relato emocional/conversa, não slot.
+  if (norm.split(" ").some((w) => SENTENCE_TOKENS.has(w) || EMOTION_TOKENS.has(w))) return null;
   if (norm.split(" ").some((w) => NOT_A_CATEGORY.has(w) && words.length === 1)) return null;
   return { name: words.join(" "), explicit: false, create: false };
 }
+
 
 export type PendingEntry = {
   transaction_id: string;
