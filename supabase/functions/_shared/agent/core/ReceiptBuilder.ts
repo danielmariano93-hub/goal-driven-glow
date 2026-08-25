@@ -69,9 +69,18 @@ export type ActionReceipt = {
   text: string;
 };
 
+function todayISO(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
 /**
  * Recibo estruturado + texto final. `context` traz nomes já resolvidos
  * (conta, cartão, categoria) — o builder nunca vai ao banco.
+ *
+ * `nino_comm.v1`: lançamento simples fecha em UMA linha ("Anotado: R$ 5,40 na
+ * Autopass, hoje. ✅"). Linhas extras só aparecem quando existe ambiguidade
+ * real — cartão, parcelamento, competência diferente de hoje ou vencimento
+ * distinto. Valores de recibo são SEMPRE exatos, nunca compactados.
  */
 export function buildActionReceipt(
   kind: string,
@@ -83,30 +92,44 @@ export function buildActionReceipt(
     competence_date?: string | null;
     due_date?: string | null;
   } = {},
+  now = new Date(),
 ): ActionReceipt {
-  const headline = buildReceipt(kind, result);
+  const description = String(result?.friendly_description ?? result?.description ?? "").trim();
+  const isEntry = kind === "transaction" || kind === "transfer";
+  const amount = Number(result?.amount ?? NaN);
+
+  const competenceISO = String(context.competence_date ?? result?.competence_date ?? result?.occurred_at ?? "").slice(0, 10);
+  const competence = dateBR(competenceISO);
+  const isToday = competenceISO === todayISO(now);
+
+  const headline = isEntry && description && Number.isFinite(amount) && amount > 0
+    ? `Anotado: ${NUM_BR.format(amount)} em ${description}${isToday ? ", hoje" : competence ? `, ${competence}` : ""}. ✅`
+    : buildReceipt(kind, result);
   const lines: string[] = [headline];
 
-  const description = String(result?.friendly_description ?? result?.description ?? "").trim();
-  if (description) lines.push(`Descrição: ${description}`);
-
-  const category = String(context.category_name ?? result?.category?.name ?? "").trim();
-  if (category) lines.push(`Categoria: ${category}`);
+  if (!isEntry && description) lines.push(`Descrição: ${description}`);
 
   const card = String(context.card_name ?? result?.card_name ?? "").trim();
   const account = String(context.account_name ?? result?.account_name ?? "").trim();
-  if (card) lines.push(`Cartão: ${card}`);
-  else if (account) lines.push(`Conta: ${account}`);
+  const installments = Number(result?.installments ?? 0);
+  const parcelado = Number.isFinite(installments) && installments > 1;
 
-  // Competência é a data que define o mês do lançamento (fechamento, no cartão).
-  const competence = dateBR(context.competence_date ?? result?.competence_date ?? result?.occurred_at);
-  if (competence) lines.push(`Competência: ${competence}`);
+  // Cartão muda a competência do gasto: é ambiguidade real, sempre explicitada.
+  if (card) {
+    const suffix = parcelado ? ` · ${installments}x` : "";
+    lines.push(`Cartão: ${card}${suffix}${competence ? ` · competência ${competence}` : ""}`);
+  } else if (parcelado) {
+    lines.push(`Parcelas: ${installments}x`);
+  } else if (account && !isEntry) {
+    lines.push(`Conta: ${account}`);
+  }
+
   const due = dateBR(context.due_date ?? result?.due_date);
   if (due && due !== competence) lines.push(`Vencimento: ${due}`);
 
-  const installments = Number(result?.installments ?? 0);
-  if (Number.isFinite(installments) && installments > 1) lines.push(`Parcelas: ${installments}x`);
+  if (!card && !parcelado && !isToday && competence && !isEntry) lines.push(`Competência: ${competence}`);
 
-  lines.push(howToFix(kind));
+  // Não explicamos "como corrigir" em lançamento simples: a pessoa já sabe.
+  if (!isEntry || lines.length > 1) lines.push(howToFix(kind));
   return { kind, lines, text: lines.join("\n") };
 }

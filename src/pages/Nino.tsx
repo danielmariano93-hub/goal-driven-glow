@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
+import { NinoSupportingSignalRow } from "@/components/nino/NinoSupportingSignalRow";
 import { NinoRefreshButton } from "@/components/nino/NinoRefreshButton";
 import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock } from "@/components/nino/NinoStateBlocks";
 import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
@@ -124,13 +125,23 @@ export default function Nino() {
           )}
 
           {data.supporting_situations.length > 0 && (
-            <section className="space-y-2">
+            <section className="space-y-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Também vale saber
               </p>
-              {data.supporting_situations.slice(0, 3).map((item) => (
-                <NinoSituationCard key={item.id} situation={item} surface="nino:agora" compact />
+              {data.supporting_situations.slice(0, 2).map((item) => (
+                <NinoSupportingSignalRow key={item.id} situation={item} />
               ))}
+              {data.supporting_situations.length > 2 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-0 text-[11px] text-muted-foreground"
+                  onClick={() => setParams({ section: "mudancas" }, { replace: true })}
+                >
+                  Ver todos os sinais ({data.supporting_situations.length})
+                </Button>
+              )}
             </section>
           )}
 

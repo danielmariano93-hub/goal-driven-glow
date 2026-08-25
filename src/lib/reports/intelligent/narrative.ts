@@ -1,41 +1,76 @@
 // Narrativa determinística: usada como base e como fallback quando a IA falha
 // no guardrail numérico. Nunca cria número novo.
-import { resultLineLabel, resultLineValue, resultSentence } from "@/lib/copy/resultWording";
+//
+// `nino_comm.v1`: o nível 1 é uma CONCLUSÃO executiva de no máximo 3 frases e
+// 3 números. Tudo que era enfileirado no parágrafo denso (dias com gasto,
+// média por dia, projeção, nota) virou nível 2 em `deterministicDetails`.
+import { resultLineLabel, resultLineValue, resultShape } from "@/lib/copy/resultWording";
+import { humanizeJargon } from "@/lib/copy/ninoVoice";
 import type { IntelligentReport } from "./types";
 
 const BRL = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
-const PCT = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+/** Leitura: percentual sem casa decimal (nunca "60,47%" em headline). */
+const PCT = (n: number) => `${Math.round(n).toLocaleString("pt-BR")}%`;
+/** Prova/detalhe: mantém uma casa quando ela existe de fato. */
+const PCT_EXACT = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 
 export function deterministicSummary(report: IntelligentReport): string {
   const t = report.payload.totals;
   const partial = report.payload.partial;
   const periodWord = report.reportType === "weekly" ? "semana" : report.reportType === "custom" ? "período" : "mês";
   const parts: string[] = [];
-  if (partial) {
-    parts.push(`Este é o retrato do mês em andamento: ${partial.daysElapsed} de ${partial.daysInMonth} dias já registrados.`);
-  }
-  parts.push(`No período de ${report.period.label} ${resultSentence(t.income, t.expense, periodWord)}.`);
 
+  // 1) Conclusão — o usuário precisa saber se está bem ou mal, com 1 número.
+  const shape = resultShape(t.income, t.expense);
+  const value = resultLineValue(t.income, t.expense);
+  parts.push(
+    shape === "gap"
+      ? `Você gastou ${value} acima do que recebeu neste ${periodWord}.`
+      : shape === "surplus"
+        ? `Sobraram ${value} neste ${periodWord}.`
+        : `Receitas e gastos empataram neste ${periodWord}.`,
+  );
+
+  // 2) Contexto — o que mudou em relação ao período anterior.
   if (t.expenseDeltaPct !== null) {
-    const base = partial
-      ? `o mesmo intervalo de ${report.previousPeriod.label}`
-      : report.previousPeriod.label;
+    const base = partial ? `o mesmo intervalo de ${report.previousPeriod.label}` : report.previousPeriod.label;
     parts.push(
-      `Comparando com ${base}, as despesas ${t.expenseDeltaPct >= 0 ? "subiram" : "caíram"} ${PCT(Math.abs(t.expenseDeltaPct))}.`,
+      `Seus gastos ${t.expenseDeltaPct >= 0 ? "subiram" : "caíram"} ${PCT(Math.abs(t.expenseDeltaPct))} em relação a ${base}.`,
     );
   }
+
+  // 3) Onde agir — o maior espaço de ajuste.
   const top = report.payload.categories[0];
   if (top) {
-    parts.push(`A maior categoria foi ${top.category}, com ${BRL(top.total)} (${PCT(top.share * 100)} do total).`);
+    parts.push(`O maior peso do período está em ${top.category}, com ${BRL(top.total)}.`);
   }
+
+  return humanizeJargon(parts.slice(0, 3).join(" "));
+}
+
+/**
+ * Nível 2 do relatório: fatos de apoio, um por linha, sob demanda.
+ * Nenhum número novo — todos já existem no payload.
+ */
+export function deterministicDetails(report: IntelligentReport): string[] {
+  const t = report.payload.totals;
+  const partial = report.payload.partial;
+  const periodWord = report.reportType === "weekly" ? "semana" : report.reportType === "custom" ? "período" : "mês";
+  const lines: string[] = [];
+  if (partial) lines.push(`Retrato do mês em andamento: ${partial.daysElapsed} de ${partial.daysInMonth} dias registrados.`);
+  lines.push(`Recebido no período: ${BRL(t.income)}.`);
+  lines.push(`Gasto no período: ${BRL(t.expense)}.`);
+  lines.push(`${resultLineLabel(t.income, t.expense)}: ${resultLineValue(t.income, t.expense)}.`);
+  const top = report.payload.categories[0];
+  if (top) lines.push(`${top.category} representa ${PCT_EXACT(top.share * 100)} do total gasto.`);
   if (t.daysWithExpense > 0) {
-    parts.push(`Foram ${t.daysWithExpense} dias com gasto e média de ${BRL(t.dailyAvgExpense)} por dia ativo.`);
+    lines.push(`Foram ${t.daysWithExpense} dias com gasto, média de ${BRL(t.dailyAvgExpense)} por dia ativo.`);
   }
   if (partial) {
-    parts.push(`Mantido esse ritmo, o mês fecha perto de ${BRL(partial.projectedExpense)} de gasto — é projeção, não fato consumado.`);
+    lines.push(`Mantido esse ritmo, o ${periodWord} fecha perto de ${BRL(partial.projectedExpense)} de gasto — é projeção, não fato.`);
   }
-  parts.push(`Sua nota de saúde financeira deste ${periodWord} é ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} de 10.`);
-  return parts.join(" ");
+  lines.push(`Nota de saúde financeira deste ${periodWord}: ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} de 10.`);
+  return lines;
 }
 
 
@@ -44,7 +79,7 @@ export function deterministicClosing(report: IntelligentReport): string {
   if (!first) {
     return "Continue registrando os lançamentos para o próximo relatório trazer leituras mais precisas.";
   }
-  return `Próximo passo sugerido: ${first.title.toLowerCase()}. ${first.body}`;
+  return humanizeJargon(`Próximo passo: ${first.title.toLowerCase()}.`);
 }
 
 /** Mensagem curta de WhatsApp — sem parágrafos longos, com link do app. */

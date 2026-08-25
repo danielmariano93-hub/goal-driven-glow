@@ -61,7 +61,7 @@ export const REPORT_MODULES = [
   "index",
 ];
 
-export const COPY_MODULES = ["resultWording"];
+export const COPY_MODULES = ["resultWording", "numbers", "ninoVoice", "commIntent"];
 
 
 export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
@@ -91,7 +91,8 @@ export function toEdgeReportSource(source) {
 }
 
 export function toEdgeCopySource(source) {
-  return HEADER + source;
+  const relative = new RegExp(`from "\\./(${COPY_MODULES.join("|")})"`, "g");
+  return HEADER + source.replace(relative, 'from "./$1.ts"');
 }
 
 export function readCopySource(mod) {
