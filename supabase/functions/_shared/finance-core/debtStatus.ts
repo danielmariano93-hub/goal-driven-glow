@@ -39,6 +39,7 @@ export interface DebtPaymentRow {
   debt_id: string;
   paid_at: string;
   amount: number;
+  amount_applied?: number | null;
   installments_covered?: number | null;
 }
 
@@ -141,8 +142,16 @@ function anchorFor(debt: DebtScheduleRow, covered: number, today: string): strin
 
 function coveredInstallments(debt: DebtScheduleRow, payments: DebtPaymentRow[]): number {
   const declared = Math.max(0, Number(debt.installments_paid ?? 0));
-  const fromPayments = payments.reduce((s, p) => s + Math.max(0, Number(p.installments_covered ?? 0)), 0);
-  return Math.max(declared, fromPayments);
+  const installment = Math.max(0, Number(debt.installment_amount ?? 0));
+  const total = debt.installments_total == null ? Number.POSITIVE_INFINITY : Math.max(0, Number(debt.installments_total));
+  const explicitFromPayments = payments.reduce((s, p) => s + Math.max(0, Number(p.installments_covered ?? 0)), 0);
+  const inferredUncountedPayments = payments.reduce((s, p) => {
+    if (Number(p.installments_covered ?? 0) > 0 || installment <= 0) return s;
+    const applied = Number(p.amount_applied ?? p.amount ?? 0);
+    if (!Number.isFinite(applied) || applied < installment * 0.95) return s;
+    return s + Math.max(1, Math.floor(applied / installment));
+  }, 0);
+  return Math.min(total, Math.max(declared, explicitFromPayments) + inferredUncountedPayments);
 }
 
 function evaluateDebt(

@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     // Memoização por versão do ledger: enquanto nada financeiro é escrito,
     // reabrir a Home não recalcula o snapshot (perf_derived.v1).
     const ledgerVersion = await getLedgerVersion(sb, userId);
-    const cacheKey = `home_snapshot_v2|${start}|${end}|${today}`;
+    const cacheKey = `home_snapshot_v3|${start}|${end}|${today}`;
     const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
     if (cached) {
       return json({

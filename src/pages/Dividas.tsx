@@ -56,6 +56,7 @@ export default function Dividas() {
       debt_id: p.debt_id,
       paid_at: String(p.paid_at ?? "").slice(0, 10),
       amount: Number(p.amount ?? 0),
+      amount_applied: Number(p.amount_applied ?? p.amount ?? 0),
       installments_covered: p.installments_covered ?? null,
     })),
     today: todayIso,
@@ -253,7 +254,7 @@ function DebtScheduleBlock({
   onPay,
 }: {
   debt: DebtRow;
-  payments: Array<{ debt_id: string; paid_at: string | null; amount: number | null; installments_covered?: number | null }>;
+  payments: Array<{ debt_id: string; paid_at: string | null; amount: number | null; amount_applied?: number | null; installments_covered?: number | null }>;
   today: string;
   expanded: boolean;
   onToggle: () => void;
@@ -267,6 +268,7 @@ function DebtScheduleBlock({
         debt_id: p.debt_id,
         paid_at: String(p.paid_at ?? "").slice(0, 10),
         amount: Number(p.amount ?? 0),
+        amount_applied: Number(p.amount_applied ?? p.amount ?? 0),
         installments_covered: p.installments_covered ?? null,
       })),
     today,
