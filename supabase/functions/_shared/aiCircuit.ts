@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { USER_SAFE_MESSAGES } from "./agent/core/UserSafeError.ts";
 
 export type AiBlock = {
   status: 402 | 403;
@@ -15,19 +16,19 @@ export async function getAiBlock(sb: SupabaseClient): Promise<AiBlock | null> {
   return {
     status: data.blocked_status,
     requires: data.requires === "top_up" || data.requires === "admin_action" ? data.requires : null,
-    message: String(data.user_message ?? "A inteligência do Nino está temporariamente indisponível."),
+    message: USER_SAFE_MESSAGES.AI_TEMPORARY_UNAVAILABLE,
   };
 }
 
 export async function pauseAiCircuit(sb: SupabaseClient, status: number, rawBody: string): Promise<AiBlock | null> {
   if (status !== 402 && status !== 403) return null;
-  let message = status === 402
-    ? "A inteligência do Nino está temporariamente sem créditos. O responsável pelo app precisa adicionar créditos para reativá-la."
-    : "A inteligência do Nino foi bloqueada por uma configuração administrativa. O responsável pelo app precisa reativá-la.";
+  // `user_message` é lido por caminhos que respondem ao usuário: ele nunca
+  // pode carregar detalhe de infraestrutura (ver UserSafeError.ts). O motivo
+  // técnico fica em `blocked_status`/`requires` para o painel admin.
+  let message = USER_SAFE_MESSAGES.AI_TEMPORARY_UNAVAILABLE;
   let requires: AiBlock["requires"] = status === 402 ? "top_up" : "admin_action";
   try {
     const parsed = JSON.parse(rawBody) as { message?: string; props?: { requires?: string } };
-    if (parsed.message) message = String(parsed.message).slice(0, 500);
     if (parsed.props?.requires === "top_up" || parsed.props?.requires === "admin_action") requires = parsed.props.requires;
   } catch { /* resposta upstream sem JSON */ }
   await sb.from("ai_runtime_circuit").upsert({
@@ -37,8 +38,7 @@ export async function pauseAiCircuit(sb: SupabaseClient, status: number, rawBody
   return { status, requires, message };
 }
 
-export function aiBlockReply(block: AiBlock): string {
-  return block.status === 402
-    ? "Minha inteligência está temporariamente indisponível porque os créditos do app acabaram. O responsável já pode reativar adicionando créditos. Seus dados continuam seguros e nada foi alterado."
-    : "Minha inteligência está temporariamente bloqueada por uma configuração administrativa. O responsável pelo app precisa reativá-la. Seus dados continuam seguros e nada foi alterado.";
+/** Texto para o usuário: neutro, igual para 402 e 403 (ver UserSafeError.ts). */
+export function aiBlockReply(_block: AiBlock): string {
+  return USER_SAFE_MESSAGES.AI_TEMPORARY_UNAVAILABLE;
 }

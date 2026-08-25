@@ -521,7 +521,7 @@ export function audioFailureReply(code: AudioTranscriptionCode, firstName?: stri
     case "download_failed":
       return `${hi}não consegui baixar seu áudio agora 🙏 Manda de novo em alguns segundos ou me escreve em texto que eu já resolvo.`;
     case "ai_blocked":
-      return `${hi}minha inteligência de áudio está temporariamente indisponível porque o app precisa reativar os créditos. Seu áudio não foi processado nem gerou qualquer alteração.`;
+      return `${hi}não consegui ouvir seu áudio agora por uma limitação temporária. Seu áudio não foi processado nem gerou qualquer alteração. Pode tentar de novo em alguns minutos, ou me contar em texto.`;
 
     default:
       return `${hi}não consegui entender o áudio dessa vez 🙏 Pode repetir gravando de novo ou me escrever em texto?`;
