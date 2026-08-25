@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AdvisorObservabilityBoard } from "@/components/admin/AdvisorObservabilityBoard";
+import { AiEfficiencyHistoryBoard } from "@/components/admin/AiEfficiencyHistoryBoard";
+
 
 type InspectResult = {
   memory: Array<{ id: string; kind: string; key: string; value: unknown; confidence: number; source: string; use_count: number; updated_at: string }>;
@@ -106,6 +108,9 @@ export default function IAInteligencia() {
         description="Memória, perfil, decisões e sugestões proativas do assistente por usuário."
         status={<Badge variant="secondary" className="gap-1"><Sparkles size={12} /> Assistente</Badge>}
       />
+
+      <AiEfficiencyHistoryBoard />
+
 
       <section className="surface-card p-4">
         <form

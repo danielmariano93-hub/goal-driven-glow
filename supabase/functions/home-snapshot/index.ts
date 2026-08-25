@@ -26,7 +26,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-const CONTRACT = "home_snapshot.v2";
+const CONTRACT = "home_snapshot.v3";
 
 
 // deno-lint-ignore no-explicit-any
@@ -201,7 +201,9 @@ Deno.serve(async (req) => {
         .order("balance_date", { ascending: true }), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
       q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day").eq("user_id", userId), "debts", false),
-      q(sb.from("categories").select("id,name,type").eq("user_id", userId), "categories", false),
+      // Categorias globais (`user_id IS NULL`) + do usuário — mesmo contrato do app.
+      // Filtrar só por user_id deixava metas de categoria padrão sem nome.
+      q(sb.from("categories").select("id,name,type").or(`user_id.eq.${userId},user_id.is.null`), "categories", false),
       q(sb.from("category_spending_goals").select("*").eq("user_id", userId), "categoryGoals", false),
       q(sb.from("goals").select("*").eq("user_id", userId), "goals", false),
       q(sb.from("goal_contributions").select("goal_id,amount,occurred_at").eq("user_id", userId), "goalContributions", false),
