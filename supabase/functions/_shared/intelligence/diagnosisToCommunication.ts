@@ -96,11 +96,44 @@ export function daysUntil(dateIso: string | null, now = new Date()): number | nu
   return Math.round((target - now.getTime()) / 86400000);
 }
 
+/** Pergunta de fechamento derivada do assunto — nunca convite genérico. */
+export function followUpQuestionFor(kind: string): string {
+  if (kind === "categorize_transaction" || kind === "duplicate_expense") return "Quer revisar comigo agora?";
+  if (kind === "goal_feasibility" || kind === "goal_progress") return "Quer que eu ajuste o plano da meta?";
+  if (kind === "card_bill_pressure" || kind === "recurring_commitment_pressure") return "Quer que eu acompanhe esse limite este mês?";
+  if (kind === "upcoming_cash_pressure") return "Quer que eu te avise antes dessa data?";
+  return "Quer que eu mostre onde dá pra ajustar?";
+}
+
+/**
+ * Corpo conversacional: conclusão + no máximo um contexto + pergunta.
+ * Usa o texto já produzido pelo diagnóstico — nenhum número novo entra aqui.
+ */
+export function conversationalBody(
+  item: Pick<ItemRow, "title" | "summary" | "explanation">,
+  kind: string,
+): string {
+  const sentence = (text: string | null | undefined): string => {
+    const clean = String(text ?? "").replace(/\s{2,}/g, " ").trim();
+    if (!clean) return "";
+    const first = clean.split(/(?<=[.!?])\s+/)[0] ?? clean;
+    return first.trim();
+  };
+  const conclusion = sentence(item.summary) || sentence(item.title);
+  const context = sentence(item.explanation);
+  const lines = [conclusion];
+  if (context && context !== conclusion) lines.push(context);
+  lines.push(followUpQuestionFor(kind));
+  return lines.filter(Boolean).join(" ").trim() || item.title;
+}
+
 export function toCandidate(userId: string, item: ItemRow, now = new Date()): DiagnosisCandidate {
   const situationType = situationTypeFromTopic(item.logical_topic_key);
   const kind = communicationKindFor(situationType, item.kind);
   const eventDate = firstDate([item.facts, item.evidence]);
-  const body = [item.summary, item.explanation].filter(Boolean).join(" ").trim() || item.title;
+  // `nino_comm.v1`: conversa curta com pergunta específica — nunca parágrafo
+  // analítico. A intenção é derivada do MESMO item que o app exibe.
+  const body = conversationalBody(item, kind);
   const route = `/app/alertas/${encodeURIComponent(item.dedup_key)}`;
   return {
     user_id: userId,
