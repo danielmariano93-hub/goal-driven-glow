@@ -54,7 +54,8 @@ export type CommunicationIntent = {
 function firstSentence(text: string | null | undefined): string {
   const clean = humanizeJargon(text);
   if (!clean) return "";
-  return limitSentences(clean, "card").trim();
+  const first = clean.split(/(?<=[.!?])\s+/).find((part) => part.trim().length > 0) ?? clean;
+  return limitSentences(first.trim(), "card").trim();
 }
 
 function normalizeSeverity(value: string | null | undefined): CommSeverity {

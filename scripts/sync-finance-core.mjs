@@ -85,7 +85,7 @@ export function toEdgeSource(source) {
 export function toEdgeReportSource(source) {
   const out = source
     .replace(new RegExp(`from "@/lib/engine/(${FINANCE_CORE_MODULES.join("|")})"`, "g"), 'from "../finance-core/$1.ts"')
-    .replace(/from "@\/lib\/copy\/(resultWording)"/g, 'from "../copy/$1.ts"')
+    .replace(new RegExp(`from "@/lib/copy/(${COPY_MODULES.join("|")})"`, "g"), 'from "../copy/$1.ts"')
     .replace(/from "\.\/(types|periods|engine|highlights|numericGuard|narrative)"/g, 'from "./$1.ts"');
   return HEADER + out;
 }

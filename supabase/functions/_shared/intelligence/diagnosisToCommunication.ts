@@ -7,6 +7,8 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { isAppTaskKind } from "./insightValue.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { communicationTopicKey } from "./logicalDedup.ts";
+import { humanizeJargon } from "../copy/ninoVoice.ts";
+import { compactBRL, pct } from "../copy/numbers.ts";
 
 export type DiagnosisCandidate = {
   user_id: string;
@@ -110,11 +112,52 @@ export function followUpQuestionFor(kind: string): string {
  * Usa o texto já produzido pelo diagnóstico — nenhum número novo entra aqui.
  */
 export function conversationalBody(
-  item: Pick<ItemRow, "title" | "summary" | "explanation">,
+  item: Pick<ItemRow, "title" | "summary" | "explanation" | "facts" | "evidence" | "impact_amount">,
   kind: string,
 ): string {
+  const numberFrom = (key: string): number | null => {
+    const value = item.evidence?.[key] ?? item.facts?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const stringFrom = (key: string): string | null => {
+    const value = item.evidence?.[key] ?? item.facts?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  const total = numberFrom("total") ?? numberFrom("current") ?? (typeof item.impact_amount === "number" ? item.impact_amount : null);
+  const previous = numberFrom("previous");
+  const deltaPct = numberFrom("delta_pct");
+  const category = stringFrom("category") ?? stringFrom("category_name");
+
+  if (kind === "categorize_transaction" || /sem categoria/i.test(`${item.title} ${item.summary ?? ""}`)) {
+    const lines = [
+      "Seus gastos aumentaram principalmente por lançamentos sem categoria.",
+      total !== null && previous !== null
+        ? `Foram ${compactBRL(total)} neste período, contra ${compactBRL(previous)} no anterior.`
+        : total !== null
+          ? `São ${compactBRL(total)} ainda sem classificação.`
+          : null,
+      "Antes de concluir que você gastou mais, vale organizar esses lançamentos.",
+      followUpQuestionFor(kind),
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
+  if (kind === "growing_category" && category) {
+    const lines = [
+      `${category} foi o gasto que mais mudou no período.`,
+      total !== null && previous !== null
+        ? `Saiu de ${compactBRL(previous)} para ${compactBRL(total)}.`
+        : deltaPct !== null
+          ? `A alta foi de ${pct(Math.abs(deltaPct), "alert")} em relação ao período anterior.`
+          : null,
+      "Vale conferir se foi pontual ou se virou parte da rotina.",
+      followUpQuestionFor(kind),
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
   const sentence = (text: string | null | undefined): string => {
-    const clean = String(text ?? "").replace(/\s{2,}/g, " ").trim();
+    const clean = humanizeJargon(text).replace(/\s{2,}/g, " ").trim();
     if (!clean) return "";
     const first = clean.split(/(?<=[.!?])\s+/)[0] ?? clean;
     return first.trim();
@@ -124,7 +167,7 @@ export function conversationalBody(
   const lines = [conclusion];
   if (context && context !== conclusion) lines.push(context);
   lines.push(followUpQuestionFor(kind));
-  return lines.filter(Boolean).join(" ").trim() || item.title;
+  return lines.filter(Boolean).slice(0, 4).join("\n").trim() || item.title;
 }
 
 export function toCandidate(userId: string, item: ItemRow, now = new Date()): DiagnosisCandidate {

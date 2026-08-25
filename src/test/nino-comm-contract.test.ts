@@ -45,6 +45,8 @@ describe("nino_comm.v1 — voz do Nino", () => {
   it("traduz jargão financeiro", () => {
     expect(humanizeJargon("Seus gastos flexíveis subiram")).toBe("Seus gastos que dão pra ajustar subiram");
     expect(humanizeJargon("projeção de caixa do mês")).toContain("como seu mês deve fechar");
+    expect(humanizeJargon("Sem categoria explicou 73,15% do aumento dos seus gastos")).toBe("Seus gastos aumentaram principalmente por Sem categoria");
+    expect(humanizeJargon("composição e taxa de sobra")).toBe("de onde veio e quanto sobrou");
   });
 
   it("confiança nunca aparece como número", () => {
