@@ -149,11 +149,13 @@ export async function plan(
 
   const existingBlock = await getAiBlock(sb);
   if (existingBlock) {
+    // Degradação real: o turno NÃO aborta. Cai no caminho determinístico
+    // (registro, saldo, fatura, metas…) e só usa texto neutro quando a
+    // resposta exigir de fato o modelo (ver AgentCore).
     return {
-      path: "llm",
+      path: "deterministic_fallback",
       errorSanitized: `gateway_${existingBlock.status}`,
       modelAttempts: [],
-      turn: { reply: aiBlockReply(existingBlock), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
       flags,
     };
   }
