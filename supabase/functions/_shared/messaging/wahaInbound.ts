@@ -54,6 +54,8 @@ export type ClassifiedInbound =
       body: string;
       received_at: string;
       media?: MediaHint;
+      /** Mensagem citada (reply) — contexto conversacional, nunca conteúdo bruto no prompt. */
+      quoted?: { message_id: string | null; body: string | null };
     }
   | {
       ok: false;
@@ -189,6 +191,61 @@ function resolveBody(pl: unknown): string {
   );
   const v = firstDefined<string>(...(chain as (string | undefined)[]));
   return typeof v === "string" ? v.trim() : "";
+}
+
+/**
+ * Mensagem citada (reply). Cobre as variantes WAHA/NOWEB (`quotedMsg`,
+ * `_data.quotedMsg`, `contextInfo.quotedMessage`) e Meta Cloud (`context`).
+ */
+export function resolveQuoted(pl: unknown): { message_id: string | null; body: string | null } | undefined {
+  const ctxInfos = [
+    get(get(pl, "message"), "extendedTextMessage"),
+    get(get(get(pl, "_data"), "message"), "extendedTextMessage"),
+    pl,
+    get(pl, "_data"),
+  ].map((n) => get(n, "contextInfo")).filter(Boolean);
+
+  const idCandidates: unknown[] = [
+    get(get(pl, "context"), "id"),
+    get(get(pl, "context"), "message_id"),
+    get(get(pl, "quotedMsg"), "id"),
+    get(get(get(pl, "_data"), "quotedMsg"), "id"),
+    get(pl, "quotedStanzaID"),
+    get(get(pl, "_data"), "quotedStanzaID"),
+    get(pl, "replyTo"),
+    ...ctxInfos.map((c) => get(c, "stanzaId")),
+  ];
+  const quotedBodies: unknown[] = [
+    get(get(pl, "quotedMsg"), "body"),
+    get(get(get(pl, "_data"), "quotedMsg"), "body"),
+    ...ctxInfos.map((c) => get(get(get(c, "quotedMessage"), "extendedTextMessage"), "text")),
+    ...ctxInfos.map((c) => get(get(c, "quotedMessage"), "conversation")),
+  ];
+
+  const message_id = firstDefined<string>(
+    ...(idCandidates.map((v) => {
+      if (typeof v === "string" && v.trim()) return v.trim();
+      const ser = get(v, "_serialized") ?? get(v, "serialized");
+      return typeof ser === "string" && ser.trim() ? ser.trim() : undefined;
+    }) as (string | undefined)[]),
+  ) ?? null;
+  const body = firstDefined<string>(
+    ...(quotedBodies.map((v) => (typeof v === "string" && v.trim() ? v.trim() : undefined)) as (string | undefined)[]),
+  ) ?? null;
+
+  if (!message_id && !body) return undefined;
+  return { message_id, body };
+}
+
+/** Valor em reais citado no recibo respondido (desambigua o lançamento). */
+export function amountFromQuotedBody(body: string | null | undefined): number | null {
+  const t = String(body ?? "");
+  if (!t) return null;
+  const m = /R\$\s*([\d.]+,\d{2}|\d+(?:[.,]\d{1,2})?)/i.exec(t);
+  if (!m) return null;
+  const raw = m[1].includes(",") ? m[1].replace(/\./g, "").replace(",", ".") : m[1];
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 ? v : null;
 }
 
 function resolveFromMe(pl: unknown): boolean {
@@ -418,5 +475,6 @@ export function classifyInbound(
     body,
     received_at,
     media,
+    quoted: resolveQuoted(pl),
   };
 }

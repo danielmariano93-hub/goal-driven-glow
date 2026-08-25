@@ -14,7 +14,7 @@ import { executeWeekdayPattern } from "../../intelligence/weekdayTool.ts";
 import { classifyModelTask, loadModelRoute, tierForTask } from "../../intelligence/modelGateway.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts";
-import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
+import { getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 import { runTool } from "./ToolRuntime.ts";
 import { flagSnapshot } from "./FeatureFlags.ts";
 
@@ -149,11 +149,13 @@ export async function plan(
 
   const existingBlock = await getAiBlock(sb);
   if (existingBlock) {
+    // Degradação real: o turno NÃO aborta. Cai no caminho determinístico
+    // (registro, saldo, fatura, metas…) e só usa texto neutro quando a
+    // resposta exigir de fato o modelo (ver AgentCore).
     return {
-      path: "llm",
+      path: "deterministic_fallback",
       errorSanitized: `gateway_${existingBlock.status}`,
       modelAttempts: [],
-      turn: { reply: aiBlockReply(existingBlock), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
       flags,
     };
   }
@@ -229,11 +231,12 @@ export async function plan(
     const primarySanitized = sanitizeError(primaryError);
     const primaryStatus = Number((primaryError as { status?: number })?.status ?? 0);
     if (primaryStatus === 402 || primaryStatus === 403) {
-      const block = await pauseAiCircuit(sb, primaryStatus, String((primaryError as { body?: string })?.body ?? ""));
+      await pauseAiCircuit(sb, primaryStatus, String((primaryError as { body?: string })?.body ?? ""));
+      // Mesmo contrato de degradação: determinístico primeiro, texto neutro só
+      // quando a resposta exigir modelo.
       return {
-        path: "llm", errorSanitized: primarySanitized,
+        path: "deterministic_fallback", errorSanitized: `gateway_${primaryStatus}`,
         modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
-        turn: { reply: aiBlockReply(block ?? { status: primaryStatus, requires: null, message: "" }), steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "tool_error" },
         routeReason: `${route.reason}+gateway_${primaryStatus}`, modelTier: tier,
         provider, fallbackAttempts: 0, flags,
       };

@@ -21,6 +21,8 @@ export type OrchestratorInput = {
   text: string;
   source: "whatsapp" | "simulator";
   to_phone: string;
+  /** Contexto de resposta citada (WhatsApp reply) — sinais estruturados. */
+  reply_context?: { quoted_message_id?: string | null; amount_hint?: number | null } | null;
 };
 
 export type OrchestratorResult = {
@@ -40,6 +42,7 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
     text: input.text,
     channel: input.source === "simulator" ? "simulator" : "whatsapp",
     to_phone: input.to_phone,
+    reply_context: input.reply_context ?? null,
   });
   return {
     reply: r.reply,

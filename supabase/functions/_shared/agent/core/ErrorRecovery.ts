@@ -3,6 +3,7 @@
 // retryable so ToolRuntime and higher layers can decide what to do.
 // deno-lint-ignore-file no-explicit-any
 import { FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
+import { USER_SAFE_MESSAGES } from "./UserSafeError.ts";
 
 export type ErrorClass = "transient" | "ai_blocked" | "validation" | "permission" | "not_found" | "unknown";
 
@@ -23,7 +24,7 @@ export function isRetryable(e: unknown): boolean {
 
 export function friendlyFor(e: unknown): string {
   switch (classifyError(e)) {
-    case "ai_blocked": return "Minha inteligência está temporariamente indisponível. O responsável pelo app precisa reativá-la; nenhum dado seu foi alterado.";
+    case "ai_blocked": return USER_SAFE_MESSAGES.AI_TEMPORARY_UNAVAILABLE;
     case "permission": return "Não consegui autorizar essa operação. Verifique se sua conta está ativa e tente de novo.";
     case "not_found":  return "Não encontrei os dados necessários para responder. Pode me dar mais contexto?";
     case "validation": return "Faltou alguma informação para completar. Pode me repetir com mais detalhes?";

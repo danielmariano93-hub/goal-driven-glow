@@ -50,6 +50,10 @@ import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
 import { findPending } from "./PendingConfirmations.ts";
+import {
+  assignCategoryToEntry, findRecentUncategorized, readCategoryAnswer,
+} from "./PendingAction.ts";
+import { sanitizeUserFacingText, USER_SAFE_MESSAGES } from "./UserSafeError.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
@@ -90,6 +94,12 @@ export type HandleTurnInput = {
   text: string;
   channel: Channel;
   to_phone?: string;
+  /** Contexto de resposta citada no WhatsApp (`nino_context.v1`). */
+  reply_context?: {
+    quoted_message_id?: string | null;
+    /** Valor citado no recibo respondido — desambigua qual lançamento é. */
+    amount_hint?: number | null;
+  } | null;
 };
 
 export type HandleTurnResult = {
@@ -107,7 +117,9 @@ export type HandleTurnResult = {
  *  única camada autorizada a tocar no texto final (remove nomes internos). */
 export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const result = await runTurn(input);
-  return { ...result, reply: humanizeReply(result.reply) };
+  // Guarda de saída única: humaniza e, se algo tentou vazar infraestrutura
+  // (créditos, provedor, status HTTP), substitui por texto neutro.
+  return { ...result, reply: sanitizeUserFacingText(humanizeReply(result.reply)) };
 }
 
 async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
@@ -171,6 +183,62 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       );
     }
   }
+
+  // ---- PENDING ACTION (`nino_context.v1`) ---------------------------------
+  // O Nino acabou de registrar um lançamento sem categoria. A próxima mensagem
+  // curta ("Beleza") é a CATEGORIA — não um acknowledgement nem assunto novo.
+  // Também cobre o pedido explícito ("cria a categoria beleza e categoriza").
+  // 100% determinístico: nenhuma chamada de modelo.
+  {
+    const pendingWrite = await guard(
+      () => findPending(sb, input.conversation_id, input.user_id),
+      (m) => metrics.errors.push("pending_action_write:" + m),
+      null,
+    );
+    // Rascunho aguardando confirmação tem precedência absoluta.
+    if (!pendingWrite) {
+      const entry = await guard(
+        () => findRecentUncategorized(sb, input.user_id, {
+          amountHint: input.reply_context?.amount_hint ?? null,
+        }),
+        (m) => metrics.errors.push("pending_action_entry:" + m),
+        null,
+      );
+      const answer = readCategoryAnswer(input.text, !!entry);
+      if (answer && entry) {
+        const outcome = await assignCategoryToEntry(sb, {
+          user_id: input.user_id, conversation_id: input.conversation_id,
+          entry, answer, user_text: input.text,
+        });
+        if (outcome.handled) {
+          metrics.path = "deterministic_tool" as any;
+          metrics.capability = "assign_category";
+          if (input.channel !== "app" && input.to_phone) {
+            await enqueueReply(sb, {
+              user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+              body: outcome.reply, idempotency_key: idem,
+              inbound_message_id: input.inbound_message_id,
+              source: input.channel === "simulator" ? "simulator" : "whatsapp",
+            });
+          }
+          metrics.stages.total = Date.now() - t0;
+          await logDecision(sb, buildRecord({
+            run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+            channel: input.channel, intent: "assign_category",
+            policy_decision: outcome.reply_kind, metrics, validations: [],
+          }));
+          return {
+            reply: outcome.reply,
+            reply_kind: outcome.reply_kind === "receipt" ? "receipt"
+              : outcome.reply_kind === "question" ? "question" : "info",
+            path: "deterministic_tool", session_id,
+          };
+        }
+      }
+    }
+  }
+
+
 
 
   // ---- FastLog (palavra-mágica: registra sem confirmação) ---------------
@@ -904,6 +972,15 @@ ${episodic}
       const fb = await timeStage(metrics, "tools", () => deterministicFallback(sb, input));
       reply = fb.reply; draft_id = fb.draft_id;
       kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
+      // Inteligência indisponível + pergunta que exigia modelo: texto neutro,
+      // nunca "não consegui identificar" (que soa como culpa do usuário) e
+      // nunca detalhe de infraestrutura.
+      if (/^gateway_(?:402|403)$/.test(String(errorSanitized ?? ""))
+        && fb.kind === "info"
+        && /^N[aã]o consegui identificar com seguran[çc]a/.test(fb.reply)) {
+        reply = USER_SAFE_MESSAGES.AI_TEMPORARY_UNAVAILABLE;
+        kind = "info";
+      }
     } catch (e) {
       errorSanitized = errorSanitized ?? String((e as Error).message ?? "fallback_error").slice(0, 200);
       metrics.errors.push("fallback:" + errorSanitized);
