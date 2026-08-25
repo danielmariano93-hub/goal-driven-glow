@@ -48,7 +48,7 @@ describe("nino_comm.v1 — relatório com conclusão executiva", () => {
     const joined = details.join(" ");
     expect(joined).toContain("Nota de saúde");
     expect(joined).toContain("dias com gasto");
-    expect(joined).toContain("R$ 8.965,00");
+    expect(joined).toMatch(/R\$\s?8\.965,00/);
   });
 
   it("fechamento é um próximo passo curto", () => {
