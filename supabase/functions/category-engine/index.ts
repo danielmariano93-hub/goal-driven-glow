@@ -163,6 +163,7 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
     httpStatus=typeof maybe.status==="number"?maybe.status:null; errorCode=httpStatus?`gateway_${httpStatus}`:"ai_error";
     if(httpStatus===402||httpStatus===403){await pauseAiCircuit(admin,httpStatus,String(maybe.body??""));await pauseWorkloadCircuit(admin,workload,errorCode,{status:httpStatus,requires:httpStatus===402?"top_up":"admin_action"});}
     else if(httpStatus===429){await pauseWorkloadCircuit(admin,workload,"rate_limited",{status:429,requires:"rate_limit",resumeAfter:new Date(Date.now()+15*60_000).toISOString()});}
+    deferEntries(selected,errorCode??"ai_error");
     if(NoObjectGeneratedError.isInstance(error))console.warn("[category-engine] invalid structured output",error.text?.slice(0,300));else console.warn("[category-engine] ai fallback",String(error).slice(0,300));
   }finally{
     await recordAiUsage(admin,{workload,function_name:"category-engine",operation:mode==="background"?"process_queue_global":"classify",user_id:userId,model:MODEL,operation_type:"structured_classification",input_tokens:tokensIn,output_tokens:tokensOut,success,http_status:httpStatus,error_code:errorCode,latency_ms:Date.now()-started,batch_size:unresolvedRaw.length,unique_items:selected.length,idempotency_key:phash,reason_for_ai_call:"unresolved_category_semantic_fallback",prompt_hash:phash,payload_bytes:JSON.stringify(payload).length,metadata:{engine_version:CATEGORY_ENGINE_VERSION}});
