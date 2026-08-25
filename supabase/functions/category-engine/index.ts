@@ -25,7 +25,15 @@ const LlmSchema=z.object({items:z.array(z.object({index:z.number(),category_id:z
 function response(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{...corsHeaders,"Content-Type":"application/json"}});}
 async function sha256Hex(value:string):Promise<string>{const data=new TextEncoder().encode(value);const hash=await crypto.subtle.digest("SHA-256",data);return Array.from(new Uint8Array(hash)).map((b)=>b.toString(16).padStart(2,"0")).join("");}
 function compactEvidence(input:ClassificationInput){return {type:input.type,merchant_key:normalizedPattern(input.description),description:String(input.description??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().slice(0,160),movement_kind:input.movement_kind??"transaction",transfer_group_id:input.transfer_group_id??null,settles_card_id:input.settles_card_id??null,shared_expense_id:input.shared_expense_id??null,engine_version:CATEGORY_ENGINE_VERSION};}
-async function evidenceHash(userId:string,input:ClassificationInput):Promise<string>{return sha256Hex(JSON.stringify({user_id:userId,transaction_id:input.transaction_id??null,...compactEvidence(input)}));}
+async function evidenceHash(admin:ReturnType<typeof createClient>,userId:string,input:ClassificationInput):Promise<string>{
+  if(input.transaction_id){
+    try{
+      const {data,error}=await admin.rpc("category_transaction_evidence_hash",{_transaction_id:input.transaction_id,_user_id:userId});
+      if(!error&&typeof data==="string"&&data)return data;
+    }catch{ /* fallback local apenas para input sem linha persistida */ }
+  }
+  return sha256Hex(JSON.stringify({user_id:userId,transaction_id:input.transaction_id??null,...compactEvidence(input)}));
+}
 async function promptHash(payload:unknown):Promise<string>{return sha256Hex(JSON.stringify(payload));}
 function workloadFor(mode:string):AiWorkload{return mode==="background"?"CATEGORY_BACKGROUND":"CATEGORY_ONDEMAND";}
 
@@ -93,7 +101,7 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
   const entries: Array<{result:ClassificationResult;input:ClassificationInput;index:number;evidence_hash:string;merchant_key:string;semantic_hash:string;prompt_hash?:string|null}> = [];
   for(const item of unresolvedRaw){
     const merchantKey=normalizedPattern(item.input.description);
-    const hash=await evidenceHash(userId,item.input);
+    const hash=await evidenceHash(admin,userId,item.input);
     if(!merchantKey||merchantKey.length<3)continue;
     if(await hasTerminalAttempt(admin,userId,item.input,hash))continue;
     const semanticHash=await sha256Hex(JSON.stringify({user_id:userId,type:item.input.type,merchant_key:merchantKey,engine_version:CATEGORY_ENGINE_VERSION}));
@@ -193,7 +201,7 @@ async function persistDecision(admin:ReturnType<typeof createClient>,userId:stri
   }
   if((tx.type==="income"||tx.type==="expense")&&tx.type!==input.type)throw new Error("transaction_type_mismatch");
   const apply=result.action==="auto_apply";
-  const semanticHash=meta.evidence_hash??await evidenceHash(userId,input);
+  const semanticHash=meta.evidence_hash??await evidenceHash(admin,userId,input);
   const {data:existingAttempt,error:attemptLookupError}=await admin.from("category_classification_attempts")
     .select("id,status,decision_id")
     .eq("user_id",userId).eq("transaction_id",tx.id).eq("evidence_hash",semanticHash).eq("engine_version",CATEGORY_ENGINE_VERSION)
