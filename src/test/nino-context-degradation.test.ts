@@ -127,12 +127,23 @@ describe("P0 — nenhum texto ao usuário expõe infraestrutura", () => {
       "Sua fatura fecha dia 28 e vence dia 5.",
       "Você tem R$ 300,00 de crédito disponível na conta.",
       "Foram 3 parcelas de R$ 100,00 no crédito.",
+      "Você gastou R$ 500,00 em Mercado neste mês.",
+      "Sobraram R$ 402,00 até o fechamento.",
+      "Sua meta subiu 429 reais em agosto.",
+      "Total de 503 lançamentos no período.",
     ];
     for (const text of ok) {
       expect(leaksInfrastructure(text), text).toBe(false);
       expect(sanitizeUserFacingText(text)).toBe(text);
     }
   });
+
+  it("número com contexto HTTP ainda é bloqueado", () => {
+    for (const text of ["Falhou com status 402", "erro 503 ao processar", "retornou HTTP 500"]) {
+      expect(leaksInfrastructure(text), text).toBe(true);
+    }
+  });
+
 
   it("classificação segura cobre as famílias de erro", () => {
     expect(classifyUserSafe(new Error("gateway_402"))).toBe("AI_TEMPORARY_UNAVAILABLE");
