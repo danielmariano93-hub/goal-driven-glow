@@ -172,6 +172,62 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     }
   }
 
+  // ---- PENDING ACTION (`nino_context.v1`) ---------------------------------
+  // O Nino acabou de registrar um lançamento sem categoria. A próxima mensagem
+  // curta ("Beleza") é a CATEGORIA — não um acknowledgement nem assunto novo.
+  // Também cobre o pedido explícito ("cria a categoria beleza e categoriza").
+  // 100% determinístico: nenhuma chamada de modelo.
+  {
+    const pendingWrite = await guard(
+      () => findPending(sb, input.conversation_id, input.user_id),
+      (m) => metrics.errors.push("pending_action_write:" + m),
+      null,
+    );
+    // Rascunho aguardando confirmação tem precedência absoluta.
+    if (!pendingWrite) {
+      const entry = await guard(
+        () => findRecentUncategorized(sb, input.user_id, {
+          amountHint: input.reply_context?.amount_hint ?? null,
+        }),
+        (m) => metrics.errors.push("pending_action_entry:" + m),
+        null,
+      );
+      const answer = readCategoryAnswer(input.text, !!entry);
+      if (answer && entry) {
+        const outcome = await assignCategoryToEntry(sb, {
+          user_id: input.user_id, conversation_id: input.conversation_id,
+          entry, answer, user_text: input.text,
+        });
+        if (outcome.handled) {
+          metrics.path = "deterministic_tool" as any;
+          metrics.capability = "assign_category";
+          if (input.channel !== "app" && input.to_phone) {
+            await enqueueReply(sb, {
+              user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+              body: outcome.reply, idempotency_key: idem,
+              inbound_message_id: input.inbound_message_id,
+              source: input.channel === "simulator" ? "simulator" : "whatsapp",
+            });
+          }
+          metrics.stages.total = Date.now() - t0;
+          await logDecision(sb, buildRecord({
+            run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+            channel: input.channel, intent: "assign_category",
+            policy_decision: outcome.reply_kind, metrics, validations: [],
+          }));
+          return {
+            reply: outcome.reply,
+            reply_kind: outcome.reply_kind === "receipt" ? "receipt"
+              : outcome.reply_kind === "question" ? "question" : "info",
+            path: "deterministic_tool", session_id,
+          };
+        }
+      }
+    }
+  }
+
+
+
 
   // ---- FastLog (palavra-mágica: registra sem confirmação) ---------------
   const fastLogToken = await loadFastLogToken(sb, input.user_id);
