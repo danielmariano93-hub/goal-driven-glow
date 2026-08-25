@@ -50,6 +50,10 @@ import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
 import { findPending } from "./PendingConfirmations.ts";
+import {
+  assignCategoryToEntry, findRecentUncategorized, readCategoryAnswer,
+} from "./PendingAction.ts";
+import { sanitizeUserFacingText } from "./UserSafeError.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
 import { buildGoalPlan, planToSteps } from "./GoalPlanner.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
@@ -90,6 +94,12 @@ export type HandleTurnInput = {
   text: string;
   channel: Channel;
   to_phone?: string;
+  /** Contexto de resposta citada no WhatsApp (`nino_context.v1`). */
+  reply_context?: {
+    quoted_message_id?: string | null;
+    /** Valor citado no recibo respondido — desambigua qual lançamento é. */
+    amount_hint?: number | null;
+  } | null;
 };
 
 export type HandleTurnResult = {
@@ -107,7 +117,9 @@ export type HandleTurnResult = {
  *  única camada autorizada a tocar no texto final (remove nomes internos). */
 export async function handleTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const result = await runTurn(input);
-  return { ...result, reply: humanizeReply(result.reply) };
+  // Guarda de saída única: humaniza e, se algo tentou vazar infraestrutura
+  // (créditos, provedor, status HTTP), substitui por texto neutro.
+  return { ...result, reply: sanitizeUserFacingText(humanizeReply(result.reply)) };
 }
 
 async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
