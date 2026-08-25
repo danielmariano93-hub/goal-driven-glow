@@ -14,6 +14,10 @@ import type { Anomaly } from "./anomalies";
 
 export const SAVINGS_OPPORTUNITIES_VERSION = "savings_opportunities.v1";
 
+const BRL = (value: number): string =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(Number(value || 0));
+const PCT = (value: number | null | undefined): string => `${Math.round(Number(value || 0)).toLocaleString("pt-BR")}%`;
+
 export type LeakKind =
   | "assinatura_esquecida"
   | "assinatura_aumentou"
@@ -83,7 +87,7 @@ export function computeSavingsOpportunities(
         kind: "assinatura_aumentou",
         label: s.label,
         monthly_saving: round2(Math.max(0, s.current_amount - s.previous_amount)),
-        basis: `${s.label} passou de ${s.previous_amount.toFixed(2)} para ${s.current_amount.toFixed(2)} (${s.price_change_pct?.toFixed(1)}%).`,
+        basis: `${s.label} ficou mais caro: saiu de ${BRL(s.previous_amount)} para ${BRL(s.current_amount)}${s.price_change_pct !== null && s.price_change_pct !== undefined ? ` (${PCT(s.price_change_pct)})` : ""}.`,
         action_hint: "Revisar plano ou renegociar para voltar ao valor anterior.",
         effort: "baixo",
         confidence: s.confidence,
@@ -95,7 +99,7 @@ export function computeSavingsOpportunities(
         kind: "assinatura_esquecida",
         label: s.label,
         monthly_saving: s.monthly_equivalent,
-        basis: `${s.label} é cobrada todo mês (${s.occurrences} cobranças, valor típico ${s.typical_amount.toFixed(2)}).`,
+        basis: `${s.label} aparece todo mês. O valor típico é ${BRL(s.typical_amount)}.`,
         action_hint: "Confirmar se ainda usa; se não usa, cancelar libera esse valor todo mês.",
         effort: "baixo",
         confidence: s.confidence,
@@ -117,8 +121,8 @@ export function computeSavingsOpportunities(
       label: m.label,
       // Conservador: recuperar metade do excesso já volta ao patamar anterior.
       monthly_saving: round2(excess * 0.5),
-      basis: `${m.label} passou de ${prev.net_total.toFixed(2)} para ${m.net_total.toFixed(2)} (${prev.count} → ${m.count} vezes).`,
-      action_hint: `Voltar ao ritmo anterior em ${m.label} devolve cerca de ${round2(excess * 0.5).toFixed(2)} por mês.`,
+      basis: `${m.label} saiu de ${BRL(prev.net_total)} para ${BRL(m.net_total)} neste período.`,
+      action_hint: `Voltar mais perto do ritmo anterior pode liberar cerca de ${BRL(round2(excess * 0.5))} por mês.`,
       effort: "medio",
       confidence: m.count >= 4 ? "high" : "medium",
       evidence_ref: null,
@@ -138,8 +142,8 @@ export function computeSavingsOpportunities(
       kind: "pequenos_valores",
       label: m.label,
       monthly_saving: round2(m.net_total * 0.3),
-      basis: `${m.count} compras pequenas em ${m.label} (ticket médio ${m.avg_ticket.toFixed(2)}) somaram ${m.net_total.toFixed(2)}.`,
-      action_hint: `Cortar cerca de 1 em cada 3 dessas compras economiza ${round2(m.net_total * 0.3).toFixed(2)}.`,
+      basis: `${m.count} compras pequenas em ${m.label} somaram ${BRL(m.net_total)}.`,
+      action_hint: `Cortar cerca de 1 em cada 3 dessas compras economiza ${BRL(round2(m.net_total * 0.3))}.`,
       effort: "medio",
       confidence: m.count >= 8 ? "high" : "medium",
       evidence_ref: m.top_weekday ? `concentra em ${m.top_weekday.label}` : null,
@@ -154,7 +158,7 @@ export function computeSavingsOpportunities(
       label: a.label,
       monthly_saving: a.deviation_abs,
       basis: a.detail,
-      action_hint: `Voltar à faixa habitual (até ${a.usual_high.toFixed(2)}) devolve ${a.deviation_abs.toFixed(2)}.`,
+      action_hint: `Voltar ao seu padrão habitual pode liberar ${BRL(a.deviation_abs)}.`,
       effort: "baixo",
       confidence: a.sample_size >= 8 ? "high" : "medium",
       evidence_ref: a.reference,

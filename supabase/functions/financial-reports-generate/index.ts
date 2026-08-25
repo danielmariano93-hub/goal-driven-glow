@@ -118,7 +118,7 @@ async function synthesizeNarrative(sb: Sb, report: IntelligentReport): Promise<{
     "REGRA ABSOLUTA: use SOMENTE os números presentes no JSON de fatos. Nunca calcule, estime, arredonde de forma diferente ou invente valores.",
     "Não prometa funcionalidades. Não use provas sociais.",
     "Responda em JSON puro: {\"summary\": string, \"closing\": string}.",
-    "summary: 3 a 5 frases resumindo o período. closing: 2 a 3 frases com o próximo passo mais útil.",
+    "summary: até 3 frases, com uma conclusão principal e no máximo 3 números. closing: 1 frase com o próximo passo mais útil.",
   ].join(" ");
 
   const controller = new AbortController();

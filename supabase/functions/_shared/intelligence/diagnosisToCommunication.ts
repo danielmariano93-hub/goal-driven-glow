@@ -7,6 +7,8 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { isAppTaskKind } from "./insightValue.ts";
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { communicationTopicKey } from "./logicalDedup.ts";
+import { humanizeJargon } from "../copy/ninoVoice.ts";
+import { compactBRL, pct } from "../copy/numbers.ts";
 
 export type DiagnosisCandidate = {
   user_id: string;
@@ -110,11 +112,52 @@ export function followUpQuestionFor(kind: string): string {
  * Usa o texto já produzido pelo diagnóstico — nenhum número novo entra aqui.
  */
 export function conversationalBody(
-  item: Pick<ItemRow, "title" | "summary" | "explanation">,
+  item: Pick<ItemRow, "title" | "summary" | "explanation" | "facts" | "evidence" | "impact_amount">,
   kind: string,
 ): string {
+  const numberFrom = (key: string): number | null => {
+    const value = item.evidence?.[key] ?? item.facts?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const stringFrom = (key: string): string | null => {
+    const value = item.evidence?.[key] ?? item.facts?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  const total = numberFrom("total") ?? numberFrom("current") ?? (typeof item.impact_amount === "number" ? item.impact_amount : null);
+  const previous = numberFrom("previous");
+  const deltaPct = numberFrom("delta_pct");
+  const category = stringFrom("category") ?? stringFrom("category_name");
+
+  if (kind === "categorize_transaction" || /sem categoria/i.test(`${item.title} ${item.summary ?? ""}`)) {
+    const lines = [
+      "Seus gastos aumentaram principalmente por lançamentos sem categoria.",
+      total !== null && previous !== null
+        ? `Foram ${compactBRL(total)} neste período, contra ${compactBRL(previous)} no anterior.`
+        : total !== null
+          ? `São ${compactBRL(total)} ainda sem classificação.`
+          : null,
+      "Antes de concluir que você gastou mais, vale organizar esses lançamentos.",
+      followUpQuestionFor(kind),
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
+  if (kind === "growing_category" && category) {
+    const lines = [
+      `${category} foi o gasto que mais mudou no período.`,
+      total !== null && previous !== null
+        ? `Saiu de ${compactBRL(previous)} para ${compactBRL(total)}.`
+        : deltaPct !== null
+          ? `A alta foi de ${pct(Math.abs(deltaPct), "alert")} em relação ao período anterior.`
+          : null,
+      "Vale conferir se foi pontual ou se virou parte da rotina.",
+      followUpQuestionFor(kind),
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
   const sentence = (text: string | null | undefined): string => {
-    const clean = String(text ?? "").replace(/\s{2,}/g, " ").trim();
+    const clean = humanizeJargon(text).replace(/\s{2,}/g, " ").trim();
     if (!clean) return "";
     const first = clean.split(/(?<=[.!?])\s+/)[0] ?? clean;
     return first.trim();
@@ -124,7 +167,22 @@ export function conversationalBody(
   const lines = [conclusion];
   if (context && context !== conclusion) lines.push(context);
   lines.push(followUpQuestionFor(kind));
-  return lines.filter(Boolean).join(" ").trim() || item.title;
+  return lines.filter(Boolean).slice(0, 4).join("\n").trim() || item.title;
+}
+
+function displayTitleFor(item: Pick<ItemRow, "title" | "summary" | "facts" | "evidence" | "impact_amount">, kind: string): string {
+  const stringFrom = (key: string): string | null => {
+    const value = item.evidence?.[key] ?? item.facts?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  const category = stringFrom("category") ?? stringFrom("category_name");
+  if (kind === "categorize_transaction" || /sem categoria/i.test(`${item.title} ${item.summary ?? ""}`)) {
+    return "Lançamentos sem categoria precisam de revisão.";
+  }
+  if (kind === "growing_category" && category) return `${category} foi o gasto que mais mudou.`;
+  if (kind === "goal_feasibility" && category) return `${category} precisa de atenção na meta.`;
+  const clean = humanizeJargon(item.summary || item.title).replace(/\s{2,}/g, " ").trim();
+  return clean.split(/(?<=[.!?])\s+/)[0]?.trim() || item.title;
 }
 
 export function toCandidate(userId: string, item: ItemRow, now = new Date()): DiagnosisCandidate {
@@ -139,7 +197,7 @@ export function toCandidate(userId: string, item: ItemRow, now = new Date()): Di
     user_id: userId,
     kind,
     severity: String(item.severity ?? "info"),
-    title: item.title,
+    title: displayTitleFor(item, kind),
     body,
     action: { ...(item.primary_action ?? {}), route },
     evidence: {
@@ -206,15 +264,19 @@ export async function diagnosisCandidates(
       const exceeded = goal.current_overage > 0;
       const topic = `category_goal:${userId}:${goal.goal_id}:${goal.period_start}`;
       const impact = exceeded ? goal.current_overage : goal.projected_overage;
+      const categoryName = goal.category_name ?? "essa categoria";
       const title = exceeded
-        ? `Você passou o teto de ${goal.category_name ?? "categoria"} em R$ ${impact.toFixed(2).replace(".", ",")}`
-        : `${goal.category_name ?? "A categoria"} pode passar do teto em R$ ${impact.toFixed(2).replace(".", ",")}`;
+        ? `${categoryName} passou do combinado.`
+        : `${categoryName} pode passar do combinado.`;
+      const body = exceeded
+        ? `Você já passou ${compactBRL(impact)} do limite. Quer que eu mostre onde dá pra ajustar?`
+        : `No ritmo atual, pode faltar ${compactBRL(impact)} para ficar dentro do limite. Quer que eu ajuste o plano da meta?`;
       return {
         user_id: userId,
         kind: "goal_feasibility",
         severity: exceeded ? "critical" : "attention",
         title,
-        body: goal.message,
+        body,
         action: { type: "review_goal", route: `/app/metas/categoria/${goal.goal_id}` },
         evidence: {
           source: "financial_snapshot_contract.v8",

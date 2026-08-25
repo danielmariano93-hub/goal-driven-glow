@@ -9,6 +9,7 @@ import {
   round2,
   type TransactionRow,
 } from "@/lib/engine/facts";
+import { exactBRL, pct } from "@/lib/copy/numbers";
 
 import { eachDay, resolvePeriods, shortDay, daysInPeriod, daysInMonthOf } from "./periods";
 import { detectHighlights, mergeHighlights } from "./highlights";
@@ -143,10 +144,10 @@ function buildHealth(payload: ReportPayload, quality: DataQualityFlag[]): { scor
   else if (rate >= 0) saving = 1.2;
   components.push({
     key: "savings",
-    label: "Sobra do período",
+    label: "Quanto sobrou",
     score: saving,
     max: 3.5,
-    detail: rate === null ? "Sem receita registrada no período." : `Sobra de ${(rate * 100).toFixed(1)}% da receita.`,
+    detail: rate === null ? "Sem receita registrada no período." : `Você guardou ${pct(rate * 100, "summary")} do que recebeu.`,
   });
 
   // 2. Controle de gastos vs período anterior (0–2,5)
@@ -160,10 +161,10 @@ function buildHealth(payload: ReportPayload, quality: DataQualityFlag[]): { scor
   else control = 0.3;
   components.push({
     key: "control",
-    label: "Controle de gastos",
+    label: "Mudança nos gastos",
     score: control,
     max: 2.5,
-    detail: delta === null ? "Sem período anterior comparável." : `Despesa ${delta >= 0 ? "subiu" : "caiu"} ${Math.abs(delta).toFixed(1)}% vs período anterior.`,
+    detail: delta === null ? "Sem período anterior comparável." : `Os gastos ${delta >= 0 ? "subiram" : "caíram"} ${pct(Math.abs(delta), "summary")} em relação ao período anterior.`,
   });
 
   // 3. Composição essencial vs flexível (0–2)
@@ -176,10 +177,10 @@ function buildHealth(payload: ReportPayload, quality: DataQualityFlag[]): { scor
   else composition = 0.4;
   components.push({
     key: "composition",
-    label: "Composição dos gastos",
+    label: "Onde dá pra ajustar",
     score: composition,
     max: 2,
-    detail: `${(flexShare * 100).toFixed(0)}% das despesas em categorias flexíveis.`,
+    detail: `${pct(flexShare * 100, "summary")} dos gastos estão em grupos que costumam dar mais margem de ajuste.`,
   });
 
   // 4. Consistência de registro (0–1)
@@ -216,9 +217,9 @@ function buildQualityFlags(payload: ReportPayload, txCount: number): { flags: Da
   if (uncategorized && uncategorized.share >= 0.15) {
     flags.push({
       key: "uncategorized",
-      label: `${(uncategorized.share * 100).toFixed(0)}% das despesas sem categoria`,
+      label: "Lançamentos sem categoria atrapalham a leitura",
       severity: "attention",
-      detail: `${uncategorized.count} lançamentos sem categoria somam R$ ${uncategorized.total.toFixed(2)}.`,
+      detail: `${uncategorized.count} lançamentos somam ${exactBRL(uncategorized.total)} sem classificação.`,
     });
   }
   if (payload.totals.income <= 0) {
@@ -226,7 +227,7 @@ function buildQualityFlags(payload: ReportPayload, txCount: number): { flags: Da
       key: "no_income",
       label: "Nenhuma receita registrada",
       severity: "attention",
-      detail: "Sem receita no período, a taxa de sobra não pode ser calculada.",
+      detail: "Sem receita no período, o Nino não consegue dizer quanto sobrou.",
     });
   }
   if (txCount < 3) {
@@ -252,12 +253,12 @@ function buildMetrics(payload: ReportPayload): ReportMetric[] {
     { key: "income_total", label: "Receitas", value: t.income, comparison: t.previousIncome, comparisonPct: pctDelta(t.income, t.previousIncome), unit: "BRL", order: 1 },
     { key: "expense_total", label: "Despesas", value: t.expense, comparison: t.previousExpense, comparisonPct: t.expenseDeltaPct, unit: "BRL", order: 2 },
     { key: "net_result", label: "Resultado do período", value: t.net, unit: "BRL", order: 3 },
-    { key: "savings_rate", label: "Taxa de sobra", value: t.savingsRate === null ? null : round2(t.savingsRate * 100), unit: "pct", order: 4 },
+    { key: "savings_rate", label: "Quanto sobrou", value: t.savingsRate === null ? null : round2(t.savingsRate * 100), unit: "pct", order: 4 },
     { key: "daily_avg_expense", label: "Gasto médio por dia", value: t.dailyAvgExpense, unit: "BRL", order: 5 },
     { key: "days_with_expense", label: "Dias com gasto", value: t.daysWithExpense, unit: "days", order: 6 },
     { key: "transaction_count", label: "Lançamentos", value: t.transactionCount, unit: "count", order: 7 },
     { key: "essential_total", label: "Gastos essenciais", value: t.essentialTotal, unit: "BRL", order: 8 },
-    { key: "flexible_total", label: "Gastos flexíveis", value: t.flexibleTotal, unit: "BRL", order: 9 },
+    { key: "flexible_total", label: "Gastos que dão pra ajustar", value: t.flexibleTotal, unit: "BRL", order: 9 },
     { key: "card_outstanding", label: "Cartão em aberto", value: t.cardOutstanding, unit: "BRL", order: 10 },
     { key: "cash_total", label: "Saldo em contas", value: t.cashTotal, unit: "BRL", order: 11 },
   ];

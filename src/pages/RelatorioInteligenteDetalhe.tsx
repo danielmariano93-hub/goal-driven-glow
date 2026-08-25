@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Info, Loader2, Printer, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Info, Loader2, MessageCircle, Printer, RefreshCw, Trash2 } from "lucide-react";
 import ReportHealthGauge from "@/components/relatorios/ReportHealthGauge";
 import ReportMetricsGrid from "@/components/relatorios/ReportMetricsGrid";
 import ReportHighlightList from "@/components/relatorios/ReportHighlightList";
 import ReportCharts from "@/components/relatorios/ReportCharts";
 import ReportPerformanceSection from "@/components/relatorios/ReportPerformanceSection";
 import { deleteReport, generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { buildReportReading } from "@/lib/reports/intelligent/presentation";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -15,6 +16,8 @@ import { notifySuccess } from "@/lib/ui/feedback";
 
 import { notifyError } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export default function RelatorioInteligenteDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -88,6 +91,7 @@ export default function RelatorioInteligenteDetalhe() {
 
   const quality = report.data_quality_flags ?? [];
   const breakdown = report.health_breakdown ?? [];
+  const reading = buildReportReading(report);
 
   return (
     <div className="space-y-5 pt-2 pb-10 print:pb-0" id="report-print-area">
@@ -177,15 +181,32 @@ export default function RelatorioInteligenteDetalhe() {
         </ul>
       </section>
 
-      {report.executive_summary && (
+      {reading.headline && (
         <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <div className="flex items-center gap-2">
-            <Sparkles size={15} className="text-primary" />
+            <MessageCircle size={15} className="text-primary" />
             <h2 className="text-sm font-semibold">Leitura do Nino</h2>
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{report.executive_summary}</p>
-          {report.closing_text && (
-            <p className="mt-2 border-t border-border pt-2 text-xs leading-relaxed">{report.closing_text}</p>
+          <p className="mt-3 text-base font-semibold leading-snug text-foreground">{reading.headline}</p>
+          {reading.context && (
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{reading.context}</p>
+          )}
+          {reading.nextStep && (
+            <p className="mt-3 rounded-xl bg-muted px-3 py-2 text-sm font-medium leading-relaxed text-foreground">{reading.nextStep}</p>
+          )}
+          {reading.details.length > 0 && (
+            <Collapsible className="mt-2 border-t border-border pt-2">
+              <CollapsibleTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" className="h-8 px-0 text-[11px] font-semibold text-muted-foreground">
+                  Como o Nino chegou aqui <ChevronDown size={13} />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <ul className="mt-1 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {reading.details.map((detail) => <li key={detail}>{detail}</li>)}
+                </ul>
+              </CollapsibleContent>
+            </Collapsible>
           )}
         </section>
       )}

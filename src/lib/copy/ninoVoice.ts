@@ -23,6 +23,7 @@ export const SURFACE_LIMITS: Record<CommSurface, { maxSentences: number; maxNumb
 
 /** Jargão financeiro proibido na UI → tradução humana obrigatória. */
 export const JARGON_TRANSLATIONS: Array<[RegExp, string]> = [
+  [/\b(.+?)\s+explicou\s+(\d+(?:[,.]\d+)?)%\s+do\s+aumento\s+dos\s+seus\s+gastos\b/gi, "Seus gastos aumentaram principalmente por $1"],
   [/\bgastos?\s+flex[íi]ve(l|is)\b/gi, "gastos que dão pra ajustar"],
   [/\bdespesas?\s+discricion[áa]ria(s)?\b/gi, "gastos que dão pra ajustar"],
   [/\bproje[çc][ãa]o de caixa\b/gi, "como seu mês deve fechar"],
@@ -31,6 +32,8 @@ export const JARGON_TRANSLATIONS: Array<[RegExp, string]> = [
   [/\bindicador de liquidez\b/gi, "dinheiro disponível"],
   [/\bdiagn[óo]stico causal\b/gi, "leitura do seu mês"],
   [/\bimpacto estimado\b/gi, "peso no seu mês"],
+  [/\bcomposi[çc][ãa]o\b/gi, "de onde veio"],
+  [/\btaxa de sobra\b/gi, "quanto sobrou"],
   [/\bdrill-?down\b/gi, "ver detalhe"],
   [/\bconsolidad(o|as|os)\b/gi, "reunidas"],
 ];
@@ -53,7 +56,10 @@ export const BANNED_WORDS = [
 export function humanizeJargon(text: string | null | undefined): string {
   let out = String(text ?? "");
   for (const [pattern, replacement] of JARGON_TRANSLATIONS) out = out.replace(pattern, replacement);
-  return out.replace(/\s{2,}/g, " ").trim();
+  return out
+    .replace(/(\d+),\d{2,}\s?%/g, "$1%")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /** Confiança nunca aparece como número ao usuário — vira frase. */

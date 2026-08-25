@@ -1,12 +1,13 @@
 // Detectores determinísticos de destaques (reports_catalog.v1).
 // Cada detector só usa números já calculados pelo motor — nunca cria valor novo.
 import { round2 } from "@/lib/engine/facts";
+import { compactBRL, pct } from "@/lib/copy/numbers";
 import { resultHeadline } from "@/lib/copy/resultWording";
 import { isFlexibleCategory } from "./engine";
 import type { ReportHighlight, ReportPayload } from "./types";
 
-const BRL = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
-const PCT = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+const BRL = (n: number) => compactBRL(n);
+const PCT = (n: number) => pct(n, "card");
 
 export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
   const t = payload.totals;
@@ -19,7 +20,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
       detectorKey: "negative_result",
       type: "risk",
       title: resultHeadline(t.income, t.expense, periodWord),
-      body: `Os gastos (${BRL(t.expense)}) passaram das receitas (${BRL(t.income)}) neste ${periodWord}. O ajuste mais rápido está nas categorias flexíveis, que somaram ${BRL(t.flexibleTotal)}.`,
+      body: `O ajuste mais rápido costuma estar nos gastos que dão pra ajustar. Eles somaram ${BRL(t.flexibleTotal)} neste ${periodWord}.`,
       priority: 100,
       confidence: t.income > 0 ? "high" : "medium",
       evidence: { net: t.net, income: t.income, expense: t.expense },
@@ -33,8 +34,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "strong_savings",
       type: "win",
-      title: `Você guardou ${PCT(t.savingsRate * 100)} da receita`,
-      body: `Sobraram ${BRL(t.net)} de ${BRL(t.income)} recebidos. Esse é o tipo de ${periodWord} que vale transformar em aporte para uma meta.`,
+      title: `Sobrou dinheiro neste ${periodWord}.`,
+      body: `Você terminou com ${BRL(t.net)} livre. Vale direcionar uma parte para a meta mais importante.`,
       priority: 70,
       confidence: "high",
       evidence: { savings_rate: round2(t.savingsRate * 100), net: t.net },
@@ -49,8 +50,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "expense_spike",
       type: "risk",
-      title: `Despesas subiram ${PCT(t.expenseDeltaPct)} vs o período anterior`,
-      body: `Saiu de ${BRL(t.previousExpense)} para ${BRL(t.expense)}. A comparação é entre ${payload.previousPeriod.label} e ${payload.period.label}.`,
+      title: `Seus gastos subiram neste ${periodWord}.`,
+      body: `Foram ${BRL(t.expense)} agora, contra ${BRL(t.previousExpense)} antes. Vale separar o que foi pontual do que virou rotina.`,
       priority: 92,
       confidence: "high",
       evidence: { current: t.expense, previous: t.previousExpense, delta_pct: t.expenseDeltaPct },
@@ -63,8 +64,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "expense_drop",
       type: "win",
-      title: `Despesas caíram ${PCT(Math.abs(t.expenseDeltaPct))}`,
-      body: `De ${BRL(t.previousExpense)} para ${BRL(t.expense)}. Vale registrar o que mudou na rotina para repetir no próximo período.`,
+      title: `Seus gastos caíram neste ${periodWord}.`,
+      body: `Foram ${BRL(t.expense)} agora, contra ${BRL(t.previousExpense)} antes. Vale entender o que mudou para repetir.`,
       priority: 60,
       confidence: "high",
       evidence: { current: t.expense, previous: t.previousExpense, delta_pct: t.expenseDeltaPct },
@@ -78,8 +79,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "category_concentration",
       type: "info",
-      title: `${top.category} concentrou ${PCT(top.share * 100)} das despesas`,
-      body: `Foram ${BRL(top.total)} em ${top.count} lançamento(s). Qualquer ajuste aqui muda mais o resultado do que cortar gastos pequenos espalhados.`,
+      title: `${top.category} é o ponto principal do período.`,
+      body: `Foram ${BRL(top.total)} nesse grupo. Ajustar aqui muda mais o resultado do que cortar gastos pequenos espalhados.`,
       priority: 80,
       confidence: "high",
       category: top.category,
@@ -98,7 +99,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "category_growth",
       type: "risk",
-      title: `${worsened.category} cresceu ${PCT(worsened.deltaPct ?? 0)}`,
+      title: `${worsened.category} foi a mudança que mais chamou atenção.`,
       body: `Saiu de ${BRL(worsened.previous)} para ${BRL(worsened.total)}. Vale conferir se foi um evento pontual ou uma mudança de hábito.`,
       priority: 85,
       confidence: "medium",
@@ -116,8 +117,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "flexible_saving",
       type: "opportunity",
-      title: `Reduzir ${cutPct}% em ${flexible.category} libera ${BRL(saving)}`,
-      body: `A simulação usa apenas o que aconteceu no período (${BRL(flexible.total)}). É um ajuste dentro de categoria flexível, sem mexer em contas essenciais.`,
+      title: `Há espaço de ajuste em ${flexible.category}.`,
+      body: `Um corte pequeno aqui pode liberar cerca de ${BRL(saving)} sem mexer nas contas essenciais.`,
       priority: 65,
       confidence: "medium",
       category: flexible.category,
@@ -132,8 +133,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "uncategorized",
       type: "info",
-      title: `${PCT(uncategorized.share * 100)} das despesas estão sem categoria`,
-      body: `São ${uncategorized.count} lançamento(s) somando ${BRL(uncategorized.total)}. Classificar os maiores melhora todas as leituras seguintes.`,
+      title: `Lançamentos sem categoria estão atrapalhando a leitura.`,
+      body: `São ${BRL(uncategorized.total)} sem classificação. Antes de concluir que você gastou mais, vale organizar esses lançamentos.`,
       priority: 75,
       confidence: "high",
       evidence: { total: uncategorized.total, count: uncategorized.count, share: round2(uncategorized.share * 100) },
@@ -148,8 +149,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "single_large_expense",
       type: "info",
-      title: `Um único gasto representou ${PCT((t.biggestExpense.amount / t.expense) * 100)} do total`,
-      body: `${t.biggestExpense.description} — ${BRL(t.biggestExpense.amount)} em ${t.biggestExpense.date.slice(8, 10)}/${t.biggestExpense.date.slice(5, 7)}. Se foi pontual, o período não representa sua rotina.`,
+      title: `Um gasto sozinho mudou a leitura do período.`,
+      body: `${t.biggestExpense.description} foi ${BRL(t.biggestExpense.amount)}. Se foi pontual, não trate esse período como sua rotina normal.`,
       priority: 55,
       confidence: "high",
       category: t.biggestExpense.category,
@@ -163,8 +164,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "card_over_cash",
       type: "risk",
-      title: `Cartão em aberto (${BRL(t.cardOutstanding)}) maior que o saldo em contas`,
-      body: `Você tem ${BRL(t.cashTotal)} disponível hoje. Antecipar parte da fatura ou revisar novas compras no cartão evita aperto no próximo vencimento.`,
+      title: `A fatura em aberto está maior que seu saldo.`,
+      body: `O cartão soma ${BRL(t.cardOutstanding)} e hoje há ${BRL(t.cashTotal)} disponível. Vale revisar novas compras antes do vencimento.`,
       priority: 95,
       confidence: "medium",
       evidence: { card_outstanding: t.cardOutstanding, cash_total: t.cashTotal },
@@ -180,8 +181,8 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "goal_progress",
       type: "win",
-      title: `Meta ${bestGoal.name} está em ${PCT(bestGoal.progress * 100)}`,
-      body: `Já foram ${BRL(bestGoal.current)} de ${BRL(bestGoal.target)}. Faltam ${BRL(round2(bestGoal.target - bestGoal.current))} para concluir.`,
+      title: `${bestGoal.name} já passou da metade.`,
+      body: `Faltam ${BRL(round2(bestGoal.target - bestGoal.current))}. Manter o próximo aporte deixa essa meta mais previsível.`,
       priority: 50,
       confidence: "high",
       evidence: { ...bestGoal },
