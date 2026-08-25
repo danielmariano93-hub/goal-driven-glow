@@ -3,7 +3,7 @@ import { isPassThroughDescriptor, matchAuthoritativeMerchant } from "./merchantC
 import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
 
 export const CATEGORY_ENGINE_VERSION = "categorization_truth.v2";
-export type ClassificationAction = "auto_apply" | "suggest_review" | "leave_unresolved" | "exclude";
+export type ClassificationAction = "auto_apply" | "suggest_review" | "leave_unresolved" | "exclude" | "preserve";
 export type ClassificationInput = { transaction_id?:string|null; type:"income"|"expense"|"transfer"; description?:string|null; explicit_category?:string|null; movement_kind?:string|null; transfer_group_id?:string|null; settles_card_id?:string|null; shared_expense_id?:string|null };
 export type ClassificationResult = CategoryDecision & { action:ClassificationAction; reason_code:string; engine_version:string; alternatives:Array<{category_id:string;confidence:number}> };
 export type CategorizationContext = {
