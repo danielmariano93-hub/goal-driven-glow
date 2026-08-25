@@ -11,6 +11,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
+import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
+import { recordAiUsage, estimateAiCostUsd } from "../_shared/aiUsageLedger.ts";
+import { ensureWorkloadAllowed, pauseWorkloadCircuit } from "../_shared/aiWorkloadBudget.ts";
 
 const FN = "assistant-ingest-document";
 import { ALLOWED_MIME, MAX_BYTES, detectMime, reconcileMime, sha256Hex, sanitize, normalizeAmountBR, normalizeDateBR, todaySaoPaulo, validateExtractedRow, type ExtractionResult } from "../_shared/documents/types.ts";
@@ -365,6 +368,7 @@ function recoverCompactJson(text: string): { parsed: unknown; partial: boolean }
 }
 
 async function callMultimodal(
+  ctx: { sb: ReturnType<typeof createClient>; userId: string; documentId: string },
   publicBase64Url: string,
   mimeType: string,
   filename: string,
@@ -380,6 +384,12 @@ async function callMultimodal(
   textContent?: string | null,
 ): Promise<MultimodalOutcome> {
   const start = Date.now();
+  let tokens_in = 0;
+  let tokens_out = 0;
+  let httpStatus: number | null = null;
+  let success = false;
+  let errorCode: string | null = null;
+  let payloadBytes: number | null = null;
   // A cláusula de "já extraídos" só existe quando há de fato itens anteriores.
   // Enviá-la vazia (ou em modo estrito) fazia o modelo escolher a saída
   // "sem novos lançamentos" e devolver i=[] mesmo em faturas cheias.
@@ -387,6 +397,19 @@ async function callMultimodal(
     ? `\nNão repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.join("; ")}.\nSe TODOS os lançamentos do documento já estiverem nessa lista, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.`
     : `\nNenhum lançamento foi extraído ainda: devolva TODOS os lançamentos deste trecho, sem omitir nenhum.`;
   try {
+    if (!LOVABLE_API_KEY) {
+      errorCode = "gateway_no_api_key";
+      return { result: { document_kind: "unknown", items: [], notes: "gateway_no_api_key" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: "gateway:no_api_key" };
+    }
+    if (await getAiBlock(ctx.sb)) {
+      errorCode = "ai_circuit_blocked";
+      return { result: { document_kind: "unknown", items: [], notes: "ai_circuit_blocked" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: "gateway:blocked" };
+    }
+    const budget = await ensureWorkloadAllowed(ctx.sb, "DOCUMENT_INGEST");
+    if (!budget.allowed) {
+      errorCode = budget.block_reason ?? "workload_budget_blocked";
+      return { result: { document_kind: "unknown", items: [], notes: "workload_budget_blocked" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: `budget:${errorCode}` };
+    }
     const instruction = `Data atual em America/Sao_Paulo: ${todaySaoPaulo()}. Orientação do usuário: ${guidance || "nenhuma"}.
 Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos, do mais recente ao mais antigo.${exclusion}`;
     const content = textContent
@@ -397,32 +420,44 @@ Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos
           ? { type: "file", file: { filename: filename || "extrato.pdf", file_data: publicBase64Url } }
           : { type: "image_url", image_url: { url: publicBase64Url } },
       ];
+    const requestBody = {
+      model,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: BATCH_MAX_TOKENS,
+    };
+    payloadBytes = JSON.stringify(requestBody).length;
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Lovable-API-Key": LOVABLE_API_KEY,
+        "X-Lovable-AIG-SDK": "edge-function",
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content },
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: BATCH_MAX_TOKENS,
-      }),
+      body: JSON.stringify(requestBody),
       signal,
     });
     const ms = Date.now() - start;
     if (!res.ok) {
+      httpStatus = res.status;
+      errorCode = `gateway_${res.status}`;
       const body = await res.text();
+      if (res.status === 402 || res.status === 403) {
+        await pauseAiCircuit(ctx.sb, res.status, body);
+        await pauseWorkloadCircuit(ctx.sb, "DOCUMENT_INGEST", errorCode, { status: res.status, requires: res.status === 402 ? "top_up" : "admin_action" });
+      } else if (res.status === 429) {
+        await pauseWorkloadCircuit(ctx.sb, "DOCUMENT_INGEST", "rate_limited", { status: 429, requires: "rate_limit", resumeAfter: new Date(Date.now() + 15 * 60_000).toISOString() });
+      }
       return { result: { document_kind: "unknown", items: [], notes: `gateway_error:${res.status}` }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms, has_more: false, partial: false, errorTag: `gateway:${res.status}:${body.slice(0, 160)}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? "{}";
-    const tokens_in = data?.usage?.prompt_tokens ?? 0;
-    const tokens_out = data?.usage?.completion_tokens ?? 0;
+    tokens_in = Number(data?.usage?.prompt_tokens ?? 0);
+    tokens_out = Number(data?.usage?.completion_tokens ?? 0);
+    success = true;
     let parsed: unknown;
     let partial = false;
     try {
@@ -448,8 +483,18 @@ Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos
     };
   } catch (e) {
     const err = e as Error;
+    errorCode = err.name === "AbortError" ? "timeout_aborted" : "fetch_error";
     const tag = err.name === "AbortError" ? "timeout:aborted" : `fetch_error:${err.message?.slice(0, 160) ?? "unknown"}`;
     return { result: { document_kind: "unknown", items: [], notes: "fetch_error" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: tag };
+  } finally {
+    await recordAiUsage(ctx.sb, {
+      workload: "DOCUMENT_INGEST", function_name: FN, operation: textContent ? "extract_text_batch" : "extract_vision_batch",
+      user_id: ctx.userId, run_id: ctx.documentId, model, operation_type: textContent ? "document_text" : "vision",
+      input_tokens: tokens_in, output_tokens: tokens_out, estimated_cost_usd: estimateAiCostUsd(model, tokens_in, tokens_out),
+      success, http_status: httpStatus, error_code: errorCode, latency_ms: Date.now() - start, batch_size: 1, unique_items: 1,
+      idempotency_key: `${ctx.documentId}:${batch.index}:${model}:${Boolean(textContent)}`, reason_for_ai_call: textContent ? "document_text_extraction" : "document_vision_extraction",
+      payload_bytes: payloadBytes, metadata: { mime_type: mimeType, filename: filename.slice(0, 80), fragment_index: batch.index, fragments: batch.max, strict: Boolean(batch.strict) },
+    });
   }
 }
 
@@ -1139,6 +1184,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         // Camada de texto usa o tier textual; escaneado continua no de visão.
         const extractionModel = chunkText ? documentTextModel : visionModel;
         out = await callMultimodal(
+          { sb, userId, documentId },
           dataUrl, doc.mime_type, filename, guide, ac.signal,
           { index: batchIndex, max: maxBatches, exclude: [...seenSignatures].slice(-90) },
           extractionModel,
@@ -1153,6 +1199,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
         if (emptyFinancial) {
           console.log(`[assistant-ingest] strict_retry document=${documentId} fragment=${batchIndex}`);
           const retry = await callMultimodal(
+            { sb, userId, documentId },
             dataUrl, doc.mime_type, filename, guide, ac.signal,
             { index: batchIndex, max: maxBatches, exclude: [], strict: true },
             extractionModel,
