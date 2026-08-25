@@ -44,7 +44,12 @@ export const INFRA_LEAK_PATTERNS: readonly RegExp[] = [
   /respons[aá]vel\s+pelo\s+app/i,
   /\b(?:lovable|openai|gpt-?\d|gemini|anthropic|claude|waha)\b/i,
   /\b(?:gateway|provider|upstream|service[_\s-]?role|api[_\s-]?key|rate\s*limit)\b/i,
-  /\bHTTP\s*\d{3}\b|\b(?:402|403|429|500|502|503)\b\s*(?:erro|error|status)?/i,
+  // Só é vazamento quando o número vem com contexto HTTP explícito. Valor
+  // monetário legítimo ("R$ 500,00", "parcela 403") nunca casa aqui.
+  /\bHTTP\s*\d{3}\b/i,
+  /\b(?:status|c[oó]digo|code|erro|error)\s*(?:HTTP\s*)?[:=]?\s*(?:40[23]|429|50[023])\b/i,
+  /\b(?:40[23]|429|50[023])\s*(?:erro|error|status)\b/i,
+
   /configura[cç][ãa]o\s+administrativa/i,
 ];
 
