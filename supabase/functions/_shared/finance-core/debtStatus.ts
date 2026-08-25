@@ -140,18 +140,62 @@ function anchorFor(debt: DebtScheduleRow, covered: number, today: string): strin
   return dueDateOf(cycleDue, 1 - Math.max(0, covered));
 }
 
+function inferredInstallmentsForPayment(debt: DebtScheduleRow, payment: DebtPaymentRow): number {
+  const explicit = Math.max(0, Number(payment.installments_covered ?? 0));
+  if (explicit > 0) return explicit;
+  const installment = Math.max(0, Number(debt.installment_amount ?? 0));
+  if (installment <= 0) return 0;
+  const applied = Number(payment.amount_applied ?? payment.amount ?? 0);
+  if (!Number.isFinite(applied) || applied < installment * 0.95) return 0;
+  return Math.max(1, Math.floor(applied / installment));
+}
+
 function coveredInstallments(debt: DebtScheduleRow, payments: DebtPaymentRow[]): number {
   const declared = Math.max(0, Number(debt.installments_paid ?? 0));
-  const installment = Math.max(0, Number(debt.installment_amount ?? 0));
   const total = debt.installments_total == null ? Number.POSITIVE_INFINITY : Math.max(0, Number(debt.installments_total));
-  const explicitFromPayments = payments.reduce((s, p) => s + Math.max(0, Number(p.installments_covered ?? 0)), 0);
-  const inferredUncountedPayments = payments.reduce((s, p) => {
-    if (Number(p.installments_covered ?? 0) > 0 || installment <= 0) return s;
-    const applied = Number(p.amount_applied ?? p.amount ?? 0);
-    if (!Number.isFinite(applied) || applied < installment * 0.95) return s;
-    return s + Math.max(1, Math.floor(applied / installment));
-  }, 0);
-  return Math.min(total, Math.max(declared, explicitFromPayments) + inferredUncountedPayments);
+  const fromPayments = payments.reduce((s, p) => s + inferredInstallmentsForPayment(debt, p), 0);
+  return Math.min(total, Math.max(declared, fromPayments));
+}
+
+function cycleDueForToday(debt: DebtScheduleRow, today: string): string | null {
+  const day = Number(debt.due_day ?? 0);
+  if (!day || debt.first_due_date || debt.start_date) return null;
+  const [ty, tm] = today.slice(0, 10).split("-").map(Number);
+  const lastDay = new Date(Date.UTC(ty ?? 1970, tm ?? 1, 0)).getUTCDate();
+  return `${ty}-${String(tm).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+function currentCycleCovered(debt: DebtScheduleRow, payments: DebtPaymentRow[], today: string): boolean {
+  const cycleDue = cycleDueForToday(debt, today);
+  if (!cycleDue) return false;
+  const previousCycleDue = dueDateOf(cycleDue, 0);
+  return payments.some((p) => {
+    if (inferredInstallmentsForPayment(debt, p) <= 0) return false;
+    const paidAt = String(p.paid_at ?? "").slice(0, 10);
+    return paidAt > previousCycleDue && paidAt <= today;
+  });
+}
+
+function expectedInstallmentsThrough(anchor: string, today: string, total: number | null): number {
+  let expected = 0;
+  for (let i = 1; i <= 600; i += 1) {
+    const due = dueDateOf(anchor, i);
+    if (due > today) break;
+    expected = i;
+    if (total && i >= total) break;
+  }
+  return total ? Math.min(expected, total) : expected;
+}
+
+function effectiveCoveredInstallments(debt: DebtScheduleRow, payments: DebtPaymentRow[], today: string): number {
+  const base = coveredInstallments(debt, payments);
+  const total = debt.installments_total == null ? null : Number(debt.installments_total);
+  if (!currentCycleCovered(debt, payments, today)) return base;
+  const anchor = anchorFor(debt, base, today);
+  if (!anchor) return base;
+  const expected = expectedInstallmentsThrough(anchor, today, total);
+  const cappedTotal = total ?? Number.POSITIVE_INFINITY;
+  return expected > base ? Math.min(cappedTotal, base + 1) : base;
 }
 
 function evaluateDebt(
@@ -163,7 +207,7 @@ function evaluateDebt(
   const outstanding = round2(Number(debt.outstanding_balance ?? 0));
   const installment = debt.installment_amount == null ? null : round2(Number(debt.installment_amount));
   const total = debt.installments_total == null ? null : Number(debt.installments_total);
-  const covered = coveredInstallments(debt, payments);
+  const covered = effectiveCoveredInstallments(debt, payments, today);
   const lastPayment = payments
     .map((p) => p.paid_at?.slice(0, 10))
     .filter((d): d is string => !!d)
@@ -199,14 +243,7 @@ function evaluateDebt(
   }
 
   // Parcelas cujo vencimento já passou (limitadas ao total contratado).
-  let expected = 0;
-  for (let i = 1; i <= 600; i += 1) {
-    const due = dueDateOf(anchor, i);
-    if (due > today) break;
-    expected = i;
-    if (total && i >= total) break;
-  }
-  const cappedExpected = total ? Math.min(expected, total) : expected;
+  const cappedExpected = expectedInstallmentsThrough(anchor, today, total);
 
   const overdueCount = Math.max(0, cappedExpected - covered);
   const overdueAmount = round2(Math.min(outstanding, overdueCount * installment));
@@ -371,7 +408,7 @@ export function buildDebtSchedule(
   today: string,
 ): DebtScheduleView {
   const day = today.slice(0, 10);
-  const covered = coveredInstallments(debt, payments);
+  const covered = effectiveCoveredInstallments(debt, payments, day);
   const installment = debt.installment_amount == null ? null : round2(Number(debt.installment_amount));
   const total = debt.installments_total == null ? null : Number(debt.installments_total);
   const outstanding = round2(Number(debt.outstanding_balance ?? 0));
