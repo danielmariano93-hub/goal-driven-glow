@@ -24,6 +24,9 @@ import {
 
 export const ANOMALY_ENGINE_VERSION = "anomaly_engine.v1";
 
+const BRL = (value: number): string =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(Number(value || 0));
+
 export type AnomalyScope = "merchant_week" | "category_week" | "ticket" | "record";
 
 export interface Anomaly {
@@ -174,7 +177,7 @@ export function detectAnomalies(input: AnomalyInput): EngineEnvelope<AnomalyFact
       sample_size: weeks.size,
       severity: severityOf(cur.total, b.high, deviation),
       reference: null,
-      detail: `Normalmente entre ${b.low.toFixed(2)} e ${b.high.toFixed(2)} por semana em ${cur.label}; agora ${cur.total.toFixed(2)}.`,
+      detail: `${cur.label} ficou acima do seu padrão semanal: ${BRL(cur.total)} agora, contra até ${BRL(b.high)} normalmente.`,
     });
   }
 
@@ -196,7 +199,7 @@ export function detectAnomalies(input: AnomalyInput): EngineEnvelope<AnomalyFact
       sample_size: weeks.size,
       severity: severityOf(total, b.high, deviation),
       reference: null,
-      detail: `${name} costuma ficar entre ${b.low.toFixed(2)} e ${b.high.toFixed(2)} por semana; agora ${total.toFixed(2)}.`,
+      detail: `${name} ficou acima do seu padrão semanal: ${BRL(total)} agora, contra até ${BRL(b.high)} normalmente.`,
     });
   }
 
@@ -220,7 +223,7 @@ export function detectAnomalies(input: AnomalyInput): EngineEnvelope<AnomalyFact
         sample_size: tickets.length,
         severity: severityOf(ticket.amount, b.high, round2(ticket.amount - maxHistoric)),
         reference: ticket.date,
-        detail: `Maior compra em ${ticket.label} dos últimos ${historyMonths} mês(es): ${ticket.amount.toFixed(2)} (recorde anterior ${maxHistoric.toFixed(2)}).`,
+        detail: `${ticket.label} teve sua maior compra dos últimos ${historyMonths} meses: ${BRL(ticket.amount)}. Antes, o maior valor era ${BRL(maxHistoric)}.`,
       });
       continue;
     }
@@ -237,7 +240,7 @@ export function detectAnomalies(input: AnomalyInput): EngineEnvelope<AnomalyFact
         sample_size: tickets.length,
         severity: severityOf(ticket.amount, b.high, round2(ticket.amount - b.high)),
         reference: ticket.date,
-        detail: `Compra de ${ticket.amount.toFixed(2)} em ${ticket.label} acima da faixa habitual (${b.low.toFixed(2)}–${b.high.toFixed(2)}).`,
+        detail: `${ticket.label} ficou acima do seu padrão: ${BRL(ticket.amount)} agora, contra até ${BRL(b.high)} normalmente.`,
       });
     }
   }

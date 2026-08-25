@@ -168,8 +168,8 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     out.push({
       detector: "cashflow_forecast",
       type: "alert",
-      title: "Projeção de caixa aponta aperto",
-      body: `Os próximos 30 dias somam ${brl(commit30)} de compromissos e hoje há ${brl(available)} disponível. Antecipar uma decisão agora custa menos que juros depois.`,
+      title: "Os próximos compromissos podem apertar seu caixa",
+      body: `Vêm ${brl(commit30)} em compromissos e hoje há ${brl(available)} disponível. Vale escolher agora o que ajustar primeiro.`,
       cta_label: "Ver planejamento",
       cta_route: "/app/planejamento",
       model: "deterministic",
@@ -238,8 +238,8 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     out.push({
       detector: "spending_rhythm",
       type: "habit",
-      title: "Seu ritmo aponta o fechamento do mês",
-      body: `No ritmo de ${brl(rhythm.dailyTypical)} por dia e ${rhythm.daysLeft} dias restantes, o mês fecha perto de ${brl(rhythm.projectedExpense)}.`,
+      title: "Seu ritmo atual merece atenção",
+      body: `Se nada mudar, o mês pode chegar perto de ${brl(rhythm.projectedExpense)} em gastos. Ainda dá tempo de ajustar os próximos dias.`,
       cta_label: "Ver ritmo",
       cta_route: "/app/relatorios",
       model: "deterministic",

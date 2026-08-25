@@ -170,6 +170,21 @@ export function conversationalBody(
   return lines.filter(Boolean).slice(0, 4).join("\n").trim() || item.title;
 }
 
+function displayTitleFor(item: Pick<ItemRow, "title" | "summary" | "facts" | "evidence" | "impact_amount">, kind: string): string {
+  const stringFrom = (key: string): string | null => {
+    const value = item.evidence?.[key] ?? item.facts?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  const category = stringFrom("category") ?? stringFrom("category_name");
+  if (kind === "categorize_transaction" || /sem categoria/i.test(`${item.title} ${item.summary ?? ""}`)) {
+    return "Lançamentos sem categoria precisam de revisão.";
+  }
+  if (kind === "growing_category" && category) return `${category} foi o gasto que mais mudou.`;
+  if (kind === "goal_feasibility" && category) return `${category} precisa de atenção na meta.`;
+  const clean = humanizeJargon(item.summary || item.title).replace(/\s{2,}/g, " ").trim();
+  return clean.split(/(?<=[.!?])\s+/)[0]?.trim() || item.title;
+}
+
 export function toCandidate(userId: string, item: ItemRow, now = new Date()): DiagnosisCandidate {
   const situationType = situationTypeFromTopic(item.logical_topic_key);
   const kind = communicationKindFor(situationType, item.kind);
@@ -182,7 +197,7 @@ export function toCandidate(userId: string, item: ItemRow, now = new Date()): Di
     user_id: userId,
     kind,
     severity: String(item.severity ?? "info"),
-    title: item.title,
+    title: displayTitleFor(item, kind),
     body,
     action: { ...(item.primary_action ?? {}), route },
     evidence: {
@@ -249,15 +264,19 @@ export async function diagnosisCandidates(
       const exceeded = goal.current_overage > 0;
       const topic = `category_goal:${userId}:${goal.goal_id}:${goal.period_start}`;
       const impact = exceeded ? goal.current_overage : goal.projected_overage;
+      const categoryName = goal.category_name ?? "essa categoria";
       const title = exceeded
-        ? `Você passou o teto de ${goal.category_name ?? "categoria"} em R$ ${impact.toFixed(2).replace(".", ",")}`
-        : `${goal.category_name ?? "A categoria"} pode passar do teto em R$ ${impact.toFixed(2).replace(".", ",")}`;
+        ? `${categoryName} passou do combinado.`
+        : `${categoryName} pode passar do combinado.`;
+      const body = exceeded
+        ? `Você já passou ${compactBRL(impact)} do limite. Quer que eu mostre onde dá pra ajustar?`
+        : `No ritmo atual, pode faltar ${compactBRL(impact)} para ficar dentro do limite. Quer que eu ajuste o plano da meta?`;
       return {
         user_id: userId,
         kind: "goal_feasibility",
         severity: exceeded ? "critical" : "attention",
         title,
-        body: goal.message,
+        body,
         action: { type: "review_goal", route: `/app/metas/categoria/${goal.goal_id}` },
         evidence: {
           source: "financial_snapshot_contract.v8",
