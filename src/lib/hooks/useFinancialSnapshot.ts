@@ -5,6 +5,7 @@ import type { FinancialSnapshot } from "@/lib/engine/metrics";
 import { todayISO } from "@/lib/engine/facts";
 import type { DateRange } from "@/lib/engine/dailyAverage";
 import { qk } from "@/lib/db/queryKeys";
+import { READ_MODEL_CONTRACTS, assertSnapshotContract } from "@/lib/db/snapshotContract";
 
 export type SnapshotSource = "accounts" | "accountSnapshots" | "transactions" | "recurringRules" | "financialSettings" | "creditCards" | "cardStatements" | "cardInstallments" | "categories" | "investments" | "investmentMovements" | "debts" | "categoryGoals" | "goals" | "goalContributions";
 export type SnapshotErrorKind = "permission" | "schema" | "network" | "timeout" | "unknown";
@@ -26,6 +27,7 @@ type ServedSnapshotPayload = {
   computed_at?: string;
   cache_hit?: boolean;
   freshness?: "fresh" | "stale_recomputing";
+  contract_version?: string | null;
 };
 
 type SnapshotQueryResult = {
@@ -38,6 +40,9 @@ type SnapshotQueryResult = {
 
 function normalizePayload(payload: ServedSnapshotPayload | null): SnapshotQueryResult | null {
   if (!payload?.ok || !payload.snapshot) return null;
+  // Contrato versionado: snapshot de contrato antigo NUNCA é servido como novo.
+  // Divergência vira violação observável e cai na recomputação canônica.
+  if (!assertSnapshotContract(payload, READ_MODEL_CONTRACTS.homeSnapshot, "home_snapshot").ok) return null;
   return {
     snapshot: payload.snapshot,
     missing: (payload.missing_sources ?? []) as SnapshotSource[],
