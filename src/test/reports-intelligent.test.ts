@@ -129,11 +129,17 @@ describe("motor de relatório", () => {
     expect(validateNumbers(deterministicSummary(report), allowed).ok).toBe(true);
   });
 
+  // `nino_comm.v1`: WhatsApp em no máximo 4 linhas, conclusão antes do número
+  // e o link do detalhe fechando a mensagem.
   it("mensagem de WhatsApp é curta e leva o link", () => {
-    const msg = whatsappMessage(report, "https://www.meunino.com.br/app/relatorios-inteligentes/x");
-    expect(msg).toContain("Relatório completo: https://www.meunino.com.br");
-    expect(msg.split("\n").length).toBeLessThan(14);
+    const url = "https://www.meunino.com.br/app/relatorios-inteligentes/x";
+    const msg = whatsappMessage(report, url);
+    expect(msg).toContain(url);
+    const lines = msg.split("\n").filter(Boolean);
+    expect(lines.length).toBeLessThanOrEqual(4);
+    expect(lines[lines.length - 1]).toContain(url);
   });
+
 });
 
 describe("guardrail numérico", () => {

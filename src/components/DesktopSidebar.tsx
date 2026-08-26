@@ -1,49 +1,19 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  List,
-  Calculator,
-  Target,
-  CreditCard,
-  Heart,
-  User,
-  Wallet,
-  PiggyBank,
-  Tag,
-  LogOut,
-} from 'lucide-react';
+import { LogOut, Wallet } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { desktopGroups, resolveActiveEntry } from '@/lib/navigation/appNavigationRegistry';
 
-const navGroups = [
-  {
-    label: 'Principal',
-    items: [
-      { path: '/app', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-      { path: '/app/lancamentos', label: 'Lançamentos', icon: List },
-      { path: '/app/planejamento', label: 'Antes de gastar', icon: Calculator },
-      { path: '/app/metas', label: 'Metas', icon: Target },
-    ],
-  },
-  {
-    label: 'Gestão',
-    items: [
-      { path: '/app/contas', label: 'Contas', icon: Wallet },
-      { path: '/app/categorias', label: 'Categorias', icon: Tag },
-      { path: '/app/investimentos', label: 'Investimentos', icon: PiggyBank },
-      { path: '/app/dividas', label: 'Dívidas', icon: CreditCard },
-      { path: '/app/emocoes', label: 'Emocional', icon: Heart },
-      { path: '/app/perfil', label: 'Perfil', icon: User },
-    ],
-  },
-];
-
+/**
+ * O sidebar NÃO mantém lista própria: ele deriva de `appNavigationRegistry`.
+ * Assim nenhuma funcionalidade navegável fica inacessível no desktop só
+ * porque alguém esqueceu de adicioná-la aqui.
+ */
 export function DesktopSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut } = useAuth();
-
-  const isActive = (path: string, exact?: boolean) =>
-    exact ? location.pathname === path : location.pathname === path || location.pathname.startsWith(path + '/');
+  const activeId = resolveActiveEntry(location.pathname)?.id;
+  const groups = desktopGroups();
 
   return (
     <aside className="hidden md:flex flex-col w-64 shrink-0 h-screen sticky top-0 border-r border-border bg-card">
@@ -52,25 +22,23 @@ export function DesktopSidebar() {
         <span className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-brand text-white shadow-brand">
           <Wallet size={18} strokeWidth={2.4} />
         </span>
-        <span className="font-display text-base font-bold tracking-tight">
-          MeuNino
-        </span>
+        <span className="font-display text-base font-bold tracking-tight">MeuNino</span>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-6" aria-label="Navegação principal">
-        {navGroups.map(group => (
-          <div key={group.label}>
+        {groups.map(group => (
+          <div key={group.group}>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.16em] px-2 mb-2">
               {group.label}
             </p>
             <div className="space-y-1">
               {group.items.map(item => {
-                const active = isActive(item.path, item.exact);
-                const Icon = item.icon;
+                const active = activeId === item.id;
+                const Icon = item.icon!;
                 return (
                   <button
-                    key={item.path}
+                    key={item.id}
                     onClick={() => navigate(item.path)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                       active
@@ -80,7 +48,7 @@ export function DesktopSidebar() {
                     aria-current={active ? 'page' : undefined}
                   >
                     <Icon size={16} strokeWidth={active ? 2.3 : 1.7} />
-                    <span>{item.label}</span>
+                    <span className="truncate">{item.label}</span>
                   </button>
                 );
               })}
