@@ -22,28 +22,24 @@ import {
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
 import { markNinoSeen, useMoreMenuContext } from "@/lib/nino/intelligence";
+import { moreGroups } from "@/lib/navigation/appNavigationRegistry";
 
 type Item = { path: string; label: string; desc: string; icon: any; badge?: string | null };
 
-const organize: Item[] = [
-  { path: "/app/contas", label: "Contas", desc: "Suas carteiras", icon: Wallet },
-  { path: "/app/cartoes", label: "Cartões", desc: "Faturas, limites e parcelas", icon: CreditCard },
-  { path: "/app/recorrencias", label: copy.recurring.title, desc: "Fixos que se repetem", icon: Repeat },
-  { path: "/app/categorias", label: "Categorias", desc: "Padrões e pessoais", icon: Tag },
-  { path: "/app/investimentos", label: "Investimentos", desc: "Carteira agregada", icon: PiggyBank },
-  { path: "/app/dividas", label: "Dívidas", desc: "O que você deve", icon: CreditCard },
-];
-
-const understand: Item[] = [
-  { path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart },
-  { path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy },
-];
-
-const account: Item[] = [
-  { path: "/app/perfil", label: "Perfil", desc: "Conta, conexões e privacidade", icon: User },
-  { path: "/app/plano", label: "Seu plano", desc: "O que está incluído hoje", icon: BadgeCheck },
-  { path: "/app/importar", label: "Importar dados", desc: "CSV, OFX e legado", icon: Upload },
-];
+/**
+ * O menu Mais deriva de `appNavigationRegistry` — nenhuma lista manual aqui.
+ * Uma funcionalidade nova ganha entrada automaticamente ao declarar
+ * `mobilePlacement: "more"` no registry.
+ */
+const registryGroups = moreGroups().map((group) => ({
+  title: group.label,
+  items: group.items.map((entry) => ({
+    path: entry.path,
+    label: entry.label,
+    desc: entry.desc ?? "",
+    icon: entry.icon,
+  })) as Item[],
+}));
 
 function brl(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -148,9 +144,9 @@ export default function MaisMenu() {
 
       {attention.length > 0 && <MoreGroup title="Precisa de você" items={attention} onGo={navigate} />}
 
-      <MoreGroup title={copy.more.sections.organize} items={organize} onGo={navigate} />
-      <MoreGroup title={copy.more.sections.understand} items={understand} onGo={navigate} />
-      <MoreGroup title={copy.more.sections.account} items={account} onGo={navigate} />
+      {registryGroups.map((group) => (
+        <MoreGroup key={group.title} title={group.title} items={group.items} onGo={navigate} />
+      ))}
 
       <section>
         <button
