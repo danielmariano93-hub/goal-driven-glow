@@ -1,24 +1,15 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  BadgeCheck,
-  CreditCard,
-  Heart,
-  User,
   ChevronRight,
-  PiggyBank,
-  Wallet,
-  Tag,
-  Upload,
   Users,
-  Repeat,
-  Trophy,
   BarChart3,
   LogOut,
   Sparkles,
   Loader2,
   Tags,
 } from "lucide-react";
+
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
 import { markNinoSeen, useMoreMenuContext } from "@/lib/nino/intelligence";
