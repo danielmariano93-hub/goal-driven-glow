@@ -3,6 +3,7 @@ import { Pencil, Trash2, Pause, Play, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
 import { formatBRL } from "@/lib/engine/facts";
+import { resolveRequiredLabel } from "@/lib/observability/dataContract";
 
 type Props = {
   evaluation: CategoryGoalEvaluation;
