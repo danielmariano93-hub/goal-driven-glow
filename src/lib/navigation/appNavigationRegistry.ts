@@ -152,9 +152,16 @@ function prefixesFor(entry: NavEntry): string[] {
   return entry.activePaths && entry.activePaths.length ? entry.activePaths : [entry.path];
 }
 
+/**
+ * Compara segmento por segmento para que rotas com parâmetro (`:id`) casem
+ * com a URL real. `/app` é exato para não capturar todo o app.
+ */
 function matches(pathname: string, prefix: string): boolean {
   if (prefix === "/app") return pathname === "/app";
-  return pathname === prefix || pathname.startsWith(prefix + "/");
+  const target = pathname.split("/").filter(Boolean);
+  const parts = prefix.split("/").filter(Boolean);
+  if (target.length < parts.length) return false;
+  return parts.every((part, i) => part.startsWith(":") || part === target[i]);
 }
 
 /**
