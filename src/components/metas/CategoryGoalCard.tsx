@@ -63,7 +63,16 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-bold leading-tight">{evaluation.categoryName ?? "Categoria"}</p>
+          <p className="text-[16px] font-bold leading-tight">
+            {resolveRequiredLabel({
+              kind: "category_name_missing",
+              surface: "CategoryGoalCard",
+              id: evaluation.goal.category_id,
+              name: evaluation.categoryName,
+              fallback: "Categoria",
+            })}
+          </p>
+
           <p className="mt-0.5 text-[12px] text-muted-foreground">
             {fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}
           </p>
