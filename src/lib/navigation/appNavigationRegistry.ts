@@ -16,7 +16,7 @@
  */
 import {
   BadgeCheck, BarChart3, Bell, Calculator, CreditCard, Heart, HandCoins, House,
-  Import, ListChecks, PiggyBank, Repeat, Sparkles, Tag, Target, Trophy, Upload,
+  ListChecks, PiggyBank, Repeat, Sparkles, Tag, Target, Trophy, Upload,
   User, Users, Wallet, CalendarClock, LayoutDashboard, List,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -102,7 +102,6 @@ export const APP_NAVIGATION: NavEntry[] = [
   e({ id: "nino-hub", path: "/app/nino-hub", label: "Nino (hub)", navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "nino-contexto", path: "/app/nino-contexto", label: "Contexto do Nino", navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "whatsapp", path: "/app/whatsapp", label: "WhatsApp", navigationType: "internal", parentId: "perfil", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "importar-detalhe", path: "/app/importar", label: "Importar", navigationType: "legacy_redirect", parentId: "importar", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
 
   // ---------- redirecionamentos legados ----------
   e({ id: "relatorios-legado", path: "/app/relatorios-inteligentes", label: "Relatórios (legado)", navigationType: "legacy_redirect", parentId: "relatorios", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
