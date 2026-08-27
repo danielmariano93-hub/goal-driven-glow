@@ -70,6 +70,7 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   { key: "analysis.merchants", label: "Estabelecimentos", domain: "analysis", tool: "analyze_merchants", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar onde seu dinheiro está indo" },
   { key: "analysis.leaks", label: "Vazamentos", domain: "analysis", tool: "find_savings_opportunities", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "encontrar onde é possível cortar" },
   { key: "analysis.cost_structure", label: "Estrutura de custo", domain: "analysis", tool: "analyze_cost_structure", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "separar custo fixo de variável" },
+  { key: "analysis.health", label: "Diagnóstico geral", domain: "analysis", tool: "assess_financial_health", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "fazer um diagnóstico geral da sua vida financeira" },
   { key: "analysis.performance", label: "Desempenho", domain: "analysis", tool: "assess_financial_performance", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "avaliar seu desempenho no período" },
 
   // --- Consultoria ---

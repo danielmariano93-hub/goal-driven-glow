@@ -29,6 +29,8 @@ export type CapabilityName =
   | "financial_plan"
 
   | "financial_performance"
+  | "holistic_assessment"
+  | "month_report"
   | "financial_comparison"
   | "financial_analysis"
   | "forecast_month_close"
@@ -74,7 +76,7 @@ const GROUPS = {
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "analyze_longitudinal_trajectory", "analyze_wealth_opportunity", "build_financial_plan",
-    "compare_financial_metric", "assess_financial_performance",
+    "compare_financial_metric", "assess_financial_performance", "assess_financial_health",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
