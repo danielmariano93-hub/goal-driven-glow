@@ -18,6 +18,8 @@ import { routeIntent } from "./IntentRouter.ts";
 import { evaluate as evaluatePolicy, decideTurn } from "./PolicyEngine.ts";
 import { plan as planAction } from "./ActionPlanner.ts";
 import { deterministicFallback } from "./DeterministicFallback.ts";
+import type { TextProvenance } from "./TextProvenance.ts";
+
 import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 import { personalizeSystemPrompt } from "./ResponseGenerator.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
@@ -76,6 +78,11 @@ import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
 /** Cartão de rascunho de lançamento na última fala do Nino. */
 const DRAFT_CARD_RX =
   /(?:•\s*\*?(?:Despesa|Receita|Transfer[êe]ncia)\*?:)|(?:deixa eu confirmar antes de salvar)|(?:pode salvar\?)|(?:rascunhei aqui)|(?:fecho assim\?)|(?:confere pra mim)/i;
+
+/** Pergunta de SLOT de lançamento feita pelo próprio Nino no turno anterior. */
+const ENTRY_SLOT_QUESTION_RX =
+  /(em qual conta eu registro)|(em qual cart[ãa]o eu registro)|(em qu[êe] foi (?:esse|essa))|(faltou a descri[çc][ãa]o)|(qual (?:foi )?o valor)|(qual categoria)/i;
+
 
 /** Resposta curta a uma pergunta do Nino, sem assunto financeiro próprio. */
 function moodFromShortAnswer(text: string): boolean {
