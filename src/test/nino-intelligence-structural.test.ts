@@ -80,6 +80,6 @@ describe("hierarquia de roteamento", () => {
   });
 
   it("a ferramenta holística está publicada no catálogo", () => {
-    expect(openAIToolDefinitions().some((t: any) => t.name === "assess_financial_health")).toBe(true);
+    expect(openAIToolDefinitions().some((t: any) => t.function?.name === "assess_financial_health")).toBe(true);
   });
 });
