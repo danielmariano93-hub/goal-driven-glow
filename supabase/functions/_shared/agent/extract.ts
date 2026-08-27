@@ -61,6 +61,8 @@ const TEMPORAL_MASK_RX: RegExp[] = [
   /\b\d{1,2}\s*\/\s*\d{1,2}(?:\s*\/\s*\d{2,4})?\b/g,
   /\b\d{1,2}\s*[:h]\s*\d{2}\b/gi,
   /\b(?:20|19)\d{2}\b/g,
+  // "mês 08", "dia 27", "ano 24": número regido por palavra de período.
+  /\b(?:mes|m[êe]s|dia|ano|semana|compet[êe]ncia|periodo|per[íi]odo)\s+(?:de\s+)?\d{1,4}\b/gi,
 ];
 
 export function maskTemporal(text: string): string {

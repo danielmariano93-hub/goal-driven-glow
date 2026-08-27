@@ -3,6 +3,7 @@
 // produção, não um exemplo de frase.
 import { describe, it, expect } from "vitest";
 import { extractSpans, maskTemporal } from "../../supabase/functions/_shared/agent/extract";
+import { interpret } from "../../supabase/functions/_shared/agent/parser";
 import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
 import {
   allowsFinancialWrite,
@@ -14,20 +15,20 @@ import { openAIToolDefinitions } from "../../supabase/functions/_shared/agent/to
 
 describe("fragmento temporal nunca é valor", () => {
   it("mascara mês, data, hora e ano", () => {
-    expect(maskTemporal("relatório do mês 08").trim()).toBe("relatório do mês 08".replace("08", "").trim());
+    expect(maskTemporal("gastei em 27/08 no mercado")).not.toMatch(/27\/08/);
     expect(maskTemporal("27 de ago. de 2026, 12:33")).not.toMatch(/\d/);
   });
 
   it("pedido de relatório não produz valor nem descrição de lançamento", () => {
     for (const text of ["Passar relatório do mês", "relatório do mês 08", "ago 8", "me passa o relatório de agosto"]) {
       const spans = extractSpans(text);
-      expect(spans.amount?.value ?? null, text).toBeNull();
+      expect(spans.amount ?? null, text).toBeNull();
     }
   });
 
   it("lançamento real continua sendo extraído", () => {
-    expect(extractSpans("gastei 33,89 alimentação Itaú hoje").amount?.value).toBe(33.89);
-    expect(extractSpans("Valor R$ 5,40\nEstabelecimento KFC").amount?.value).toBe(5.4);
+    expect(extractSpans("gastei 33,89 alimentação Itaú hoje").amount).toBe(33.89);
+    expect(extractSpans("Valor R$ 5,40\nEstabelecimento KFC").amount).toBe(5.4);
   });
 });
 
@@ -62,24 +63,26 @@ describe("continuidade por contrato, não por lista", () => {
   });
 });
 
+const classify = (text: string) => classifyCapability(text, interpret(text) as any, null);
+
 describe("hierarquia de roteamento", () => {
   it("pedido de relatório é leitura determinística", () => {
-    const cap = classifyCapability("Passar relatório do mês");
+    const cap = classify("Passar relatório do mês");
     expect(cap.name).toBe("month_report");
     expect(cap.execution).toBe("deterministic");
   });
 
   it("pergunta global vai para a avaliação holística", () => {
     for (const t of ["estou melhorando ou piorando?", "como está minha vida financeira?", "faz um diagnóstico geral"]) {
-      expect(classifyCapability(t).required_tool, t).toBe("assess_financial_health");
+      expect(classify(t).required_tool, t).toBe("assess_financial_health");
     }
   });
 
   it("pergunta de período continua na resposta executiva", () => {
-    expect(classifyCapability("como foi meu mês?").required_tool).toBe("assess_financial_performance");
+    expect(classify("como foi meu mês?").required_tool).toBe("assess_financial_performance");
   });
 
   it("a ferramenta holística está publicada no catálogo", () => {
-    expect(openAIToolDefinitions.some((t: any) => t.name === "assess_financial_health")).toBe(true);
+    expect(openAIToolDefinitions().some((t: any) => t.function?.name === "assess_financial_health")).toBe(true);
   });
 });
