@@ -113,7 +113,48 @@ export function isContinuationFresh(
   return Number.isFinite(at) && now.getTime() < at;
 }
 
-/** "ok", "sim", "pode", "manda" — resposta afirmativa curta e sem assunto novo. */
+/**
+ * Núcleo afirmativo: a palavra que carrega o "sim". A lista fechada anterior
+ * comparava a frase INTEIRA e por isso "Quero ver" (variação da própria oferta
+ * "quer ver o detalhamento?") caía fora e a conversa perdia o assunto.
+ */
+const AFFIRMATIVE_CORE = new Set([
+  "sim", "ok", "okay", "ok", "pode", "podes", "claro", "quero", "queria", "manda",
+  "mandar", "envia", "enviar", "segue", "seguir", "bora", "vamos", "isso", "faz",
+  "faca", "fazer", "traz", "trazer", "mostra", "mostrar", "beleza", "blz", "aham",
+  "confirmo", "positivo", "certo", "afirmativo", "quero ver",
+]);
+
+/**
+ * Palavras que acompanham o aceite sem trocar de assunto ("pode mandar o
+ * detalhamento completo agora"). Qualquer token fora destes dois conjuntos é
+ * assunto novo — e aí o turno volta ao roteamento normal.
+ */
+const ACCEPTANCE_FILLER = new Set([
+  "ver", "me", "eu", "a", "o", "os", "as", "e", "ai", "la", "por", "favor", "pf",
+  "agora", "tudo", "todo", "toda", "completo", "completa", "detalhe", "detalhes",
+  "detalhamento", "detalhar", "resumo", "isso", "mesmo", "entao", "so", "sim",
+  "de", "do", "da", "dos", "das", "um", "uma", "esse", "essa", "isto",
+]);
+
+function normalizeAnswer(text: string): string[] {
+  return String(text ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+/**
+ * Aceite curto e afirmativo, reconhecido por CONTRATO e não por lista:
+ * precisa ter um núcleo afirmativo, não pode ter negação e não pode introduzir
+ * assunto novo. "sim", "ok", "quero ver", "pode mandar o detalhamento" entram;
+ * "sim, e em agosto?" não (assunto novo volta ao roteamento).
+ */
 export function isAffirmativeAnswer(
   text: string,
   action?: PendingConversationAction | null,
@@ -121,11 +162,17 @@ export function isAffirmativeAnswer(
   const raw = String(text ?? "").trim().toLowerCase()
     .replace(/[!?.,;:]+$/g, "")
     .replace(/\s+/g, " ");
-  if (!raw || raw.split(" ").length > 4) return false;
+  if (!raw) return false;
   if (NEGATIVE_RX.test(raw)) return false;
   const accepted = action?.accepted_answers?.length ? action.accepted_answers : ACCEPTED_ANSWERS;
-  return accepted.includes(raw) || accepted.some((a) => raw === `${a} ok` || raw === `${a} por favor`);
+  if (accepted.includes(raw)) return true;
+
+  const tokens = normalizeAnswer(text);
+  if (!tokens.length || tokens.length > 6) return false;
+  if (!tokens.some((t) => AFFIRMATIVE_CORE.has(t))) return false;
+  return tokens.every((t) => AFFIRMATIVE_CORE.has(t) || ACCEPTANCE_FILLER.has(t));
 }
+
 
 /**
  * Texto determinístico que substitui o "ok" no turno: o roteamento passa a ver
