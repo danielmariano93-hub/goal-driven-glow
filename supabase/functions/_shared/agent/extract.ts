@@ -49,6 +49,30 @@ const CATEGORY_HINT_RX = /\b(mercado|almo[cç]o|jantar|caf[eé]|uber|99|farm[aá
 const CONNECTORS_START = /^(gastei|paguei|comprei|registr(?:e|a|ar|ei)|inclu(?:a|ir|i)|foi|de|no|na|em|com)\s+/i;
 
 /**
+ * Fragmentos temporais que NUNCA podem ser lidos como valor monetário.
+ * A máscara preserva o comprimento do texto para que os índices continuem
+ * válidos sobre a string original.
+ */
+const MONTH_TOKEN = "jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez";
+const TEMPORAL_MASK_RX: RegExp[] = [
+  new RegExp(`\\b\\d{1,2}\\s+de\\s+(?:${MONTH_TOKEN})[a-zç]*\\.?(?:\\s+de\\s+20\\d{2})?`, "gi"),
+  new RegExp(`\\b(?:${MONTH_TOKEN})[a-zç]*\\.?\\s*(?:\\/|de\\s+)?\\s*\\d{1,4}\\b`, "gi"),
+  /\b20\d{2}-\d{2}-\d{2}\b/g,
+  /\b\d{1,2}\s*\/\s*\d{1,2}(?:\s*\/\s*\d{2,4})?\b/g,
+  /\b\d{1,2}\s*[:h]\s*\d{2}\b/gi,
+  /\b(?:20|19)\d{2}\b/g,
+];
+
+export function maskTemporal(text: string): string {
+  let out = String(text ?? "");
+  for (const rx of TEMPORAL_MASK_RX) {
+    out = out.replace(rx, (match) => " ".repeat(match.length));
+  }
+  return out;
+}
+
+
+/**
  * Remove um span do texto pelos índices, colapsando espaços resultantes.
  */
 function stripSpan(text: string, start: number, end: number): string {
@@ -151,7 +175,11 @@ export function extractSpans(raw: string): ExtractedSpans {
 
 
   // 1) amount
-  const amt = remaining.match(AMOUNT_RX);
+  // Fragmento de DATA/PERÍODO nunca é valor. "27 de ago. de 2026, 12:33",
+  // "08/2026", "ago 8" e "2026" ficam mascarados antes da varredura livre —
+  // sem isso um pedido de relatório ("relatório do mês 08") virava despesa.
+  const amt = maskTemporal(remaining).match(AMOUNT_RX);
+
   if (amt && amt.index != null) {
     const end = amt.index + amt[0].length;
     const trailing = remaining.slice(end);
