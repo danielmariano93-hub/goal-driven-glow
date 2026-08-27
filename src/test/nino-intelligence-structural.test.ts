@@ -3,6 +3,7 @@
 // produção, não um exemplo de frase.
 import { describe, it, expect } from "vitest";
 import { extractSpans, maskTemporal } from "../../supabase/functions/_shared/agent/extract";
+import { interpret } from "../../supabase/functions/_shared/agent/parser";
 import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
 import {
   allowsFinancialWrite,
@@ -62,21 +63,23 @@ describe("continuidade por contrato, não por lista", () => {
   });
 });
 
+const classify = (text: string) => classifyCapability(text, interpret(text) as any, null);
+
 describe("hierarquia de roteamento", () => {
   it("pedido de relatório é leitura determinística", () => {
-    const cap = classifyCapability("Passar relatório do mês");
+    const cap = classify("Passar relatório do mês");
     expect(cap.name).toBe("month_report");
     expect(cap.execution).toBe("deterministic");
   });
 
   it("pergunta global vai para a avaliação holística", () => {
     for (const t of ["estou melhorando ou piorando?", "como está minha vida financeira?", "faz um diagnóstico geral"]) {
-      expect(classifyCapability(t).required_tool, t).toBe("assess_financial_health");
+      expect(classify(t).required_tool, t).toBe("assess_financial_health");
     }
   });
 
   it("pergunta de período continua na resposta executiva", () => {
-    expect(classifyCapability("como foi meu mês?").required_tool).toBe("assess_financial_performance");
+    expect(classify("como foi meu mês?").required_tool).toBe("assess_financial_performance");
   });
 
   it("a ferramenta holística está publicada no catálogo", () => {
