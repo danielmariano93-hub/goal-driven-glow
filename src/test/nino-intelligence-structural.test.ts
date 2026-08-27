@@ -14,20 +14,20 @@ import { openAIToolDefinitions } from "../../supabase/functions/_shared/agent/to
 
 describe("fragmento temporal nunca é valor", () => {
   it("mascara mês, data, hora e ano", () => {
-    expect(maskTemporal("relatório do mês 08").trim()).toBe("relatório do mês 08".replace("08", "").trim());
+    expect(maskTemporal("gastei em 27/08 no mercado")).not.toMatch(/27\/08/);
     expect(maskTemporal("27 de ago. de 2026, 12:33")).not.toMatch(/\d/);
   });
 
   it("pedido de relatório não produz valor nem descrição de lançamento", () => {
     for (const text of ["Passar relatório do mês", "relatório do mês 08", "ago 8", "me passa o relatório de agosto"]) {
       const spans = extractSpans(text);
-      expect(spans.amount?.value ?? null, text).toBeNull();
+      expect(spans.amount ?? null, text).toBeNull();
     }
   });
 
   it("lançamento real continua sendo extraído", () => {
-    expect(extractSpans("gastei 33,89 alimentação Itaú hoje").amount?.value).toBe(33.89);
-    expect(extractSpans("Valor R$ 5,40\nEstabelecimento KFC").amount?.value).toBe(5.4);
+    expect(extractSpans("gastei 33,89 alimentação Itaú hoje").amount).toBe(33.89);
+    expect(extractSpans("Valor R$ 5,40\nEstabelecimento KFC").amount).toBe(5.4);
   });
 });
 
@@ -80,6 +80,6 @@ describe("hierarquia de roteamento", () => {
   });
 
   it("a ferramenta holística está publicada no catálogo", () => {
-    expect(openAIToolDefinitions.some((t: any) => t.name === "assess_financial_health")).toBe(true);
+    expect(openAIToolDefinitions().some((t: any) => t.name === "assess_financial_health")).toBe(true);
   });
 });
