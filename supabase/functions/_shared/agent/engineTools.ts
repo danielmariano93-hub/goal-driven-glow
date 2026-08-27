@@ -931,3 +931,195 @@ export function build_financial_plan(
   });
 }
 
+
+// ------------------------------------------------- avaliação holística (v1)
+
+/**
+ * `assess_financial_health` (`holistic_assessment.v1`) — resposta canônica para
+ * "estou melhorando ou piorando?", "como está minha vida financeira?", "faz um
+ * diagnóstico geral".
+ *
+ * Antes, esse tipo de pergunta caía em `assess_financial_performance`, que é UMA
+ * dimensão (destaques de variação) e por isso virava conclusão global a partir de
+ * um único destaque. Aqui compomos as dimensões que já existem, cada uma com sua
+ * própria fonte determinística. Esta função NÃO calcula dinheiro: ela apenas lê
+ * números já apurados pelos motores canônicos e classifica direção e peso.
+ */
+type HealthDirection = "improving" | "worsening" | "stable" | "unknown";
+
+type HealthDimension = {
+  key: string;
+  label: string;
+  direction: HealthDirection;
+  weight: number;
+  fact: string;
+  source: string;
+};
+
+export function assess_financial_health(
+  ctx: EngineToolContext,
+  args: { months?: number },
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const today = todaySaoPaulo().slice(0, 10);
+    const [perfRes, evoRes, debtRes, snap] = await Promise.all([
+      assess_financial_performance(ctx, {}),
+      analyze_financial_evolution(ctx, {} as Record<string, never>),
+      get_debt_status(ctx, {}),
+      computeAgentSnapshot(ctx.sb, ctx.user_id),
+    ]);
+
+    const evo: any = evoRes.ok ? (evoRes.result as any) : null;
+    const perf: any = perfRes.ok ? (perfRes.result as any) : null;
+    const debt: any = debtRes.ok ? (debtRes.result as any) : null;
+    const dims: HealthDimension[] = [];
+
+    // 1) Tendência de gasto — motor financial_evolution.
+    if (evo?.facts) {
+      const trend = String(evo.facts.trend ?? "");
+      dims.push({
+        key: "spending_trend",
+        label: "Tendência de gasto",
+        direction: trend === "melhorando" ? "improving" : trend === "piorando" ? "worsening" : "stable",
+        weight: 3,
+        fact: `Tendência de gasto ${trend || "sem leitura"} nos últimos 30 dias contra os 90 anteriores.`,
+        source: evo.evidence?.formula_version ?? "financial_evolution",
+      });
+      const savings = evo.facts.savings_rate_30d;
+      dims.push({
+        key: "savings_rate",
+        label: "Sobra do mês",
+        direction: savings == null ? "unknown"
+          : savings > 0.1 ? "improving" : savings < 0 ? "worsening" : "stable",
+        weight: 3,
+        fact: savings == null
+          ? "Sem amostra suficiente para medir quanto sobra."
+          : `Você guardou ${Math.round(Number(savings) * 100)}% do que entrou nos últimos 30 dias.`,
+        source: evo.evidence?.formula_version ?? "financial_evolution",
+      });
+      dims.push({
+        key: "stability",
+        label: "Estabilidade",
+        direction: String(evo.facts.stability ?? "") === "estavel" ? "improving"
+          : evo.facts.stability ? "worsening" : "unknown",
+        weight: 1,
+        fact: `Seu gasto mensal está ${String(evo.facts.stability ?? "sem leitura")}.`,
+        source: evo.evidence?.formula_version ?? "financial_evolution",
+      });
+    }
+
+    // 2) Caixa projetado — snapshot canônico (nunca recalculado aqui).
+    const projected = Number(snap.projected_month_end_available ?? 0);
+    dims.push({
+      key: "cash_position",
+      label: "Caixa até o fim do mês",
+      direction: projected > 0 ? "improving" : projected < 0 ? "worsening" : "stable",
+      weight: 4,
+      fact: `Projeção de ${brl(projected)} disponíveis no fim do mês, considerando o que já entrou, o ritmo atual e os compromissos conhecidos.`,
+      source: "agent_snapshot",
+    });
+
+    // 3) Dívidas — motor debt_status.
+    if (debt?.facts) {
+      const overdue = Number(debt.facts.overdue_count ?? 0);
+      dims.push({
+        key: "debts",
+        label: "Dívidas",
+        direction: overdue > 0 ? "worsening" : Number(debt.facts.debts_analyzed ?? 0) === 0 ? "stable" : "improving",
+        weight: 4,
+        fact: overdue > 0
+          ? `${overdue} dívida(s) em atraso somando ${brl(Number(debt.facts.overdue_amount ?? 0))}.`
+          : Number(debt.facts.debts_analyzed ?? 0) === 0
+            ? "Nenhuma dívida ativa registrada."
+            : "Dívidas registradas estão em dia.",
+        source: debt.evidence?.formula_version ?? "debt_status",
+      });
+    }
+
+    // 4) Patrimônio — composição canônica do snapshot.
+    dims.push({
+      key: "net_worth",
+      label: "Patrimônio",
+      direction: Number(snap.net_worth ?? 0) > 0 ? "improving" : Number(snap.net_worth ?? 0) < 0 ? "worsening" : "stable",
+      weight: 2,
+      fact: `Patrimônio líquido de ${brl(Number(snap.net_worth ?? 0))}.`,
+      source: "agent_snapshot",
+    });
+
+    // 5) Qualidade dos dados — sem isso, conclusão vira palpite.
+    const mtdTxs = await loadEngineTransactions(ctx, today.slice(0, 8) + "01", today);
+    const expenses = mtdTxs.filter((t: any) => t.type === "expense");
+    const uncategorized = expenses.filter((t: any) => !t.category_id);
+    const coverage = expenses.length > 0
+      ? (expenses.length - uncategorized.length) / expenses.length
+      : null;
+    dims.push({
+      key: "data_coverage",
+      label: "Cobertura dos dados",
+      direction: coverage == null ? "unknown" : coverage >= 0.9 ? "improving" : coverage >= 0.6 ? "stable" : "worsening",
+      weight: 1,
+      fact: coverage == null
+        ? "Nenhuma despesa registrada neste mês."
+        : `${uncategorized.length} de ${expenses.length} despesas do mês ainda estão sem categoria.`,
+      source: "transactions",
+    });
+
+    const known = dims.filter((d) => d.direction !== "unknown");
+    const score = known.reduce((acc, d) =>
+      acc + (d.direction === "improving" ? d.weight : d.direction === "worsening" ? -d.weight : 0), 0);
+    const totalWeight = known.reduce((acc, d) => acc + d.weight, 0) || 1;
+    const verdict: "improving" | "worsening" | "mixed" | "insufficient" = known.length < 3
+      ? "insufficient"
+      : score >= Math.round(totalWeight * 0.25) ? "improving"
+      : score <= -Math.round(totalWeight * 0.25) ? "worsening"
+      : "mixed";
+
+    const strengths = known.filter((d) => d.direction === "improving")
+      .sort((a, b) => b.weight - a.weight).slice(0, 3);
+    const risks = known.filter((d) => d.direction === "worsening")
+      .sort((a, b) => b.weight - a.weight).slice(0, 3);
+
+    const conclusion = verdict === "insufficient"
+      ? "Ainda não tenho base suficiente para dizer se você está melhorando ou piorando."
+      : verdict === "improving"
+        ? "No conjunto, você está melhorando."
+        : verdict === "worsening"
+          ? "No conjunto, você está piorando."
+          : "No conjunto, o quadro está misto: tem avanço em uma parte e pressão em outra.";
+
+    const highlight = perf?.facts?.main_attention ?? perf?.facts?.main_improvement ?? null;
+
+    return {
+      engine: "holistic_assessment.v1",
+      facts: {
+        verdict,
+        conclusion,
+        dimensions_considered: dims.length,
+        dimensions_measured: known.length,
+        strengths: strengths.map((d) => ({ key: d.key, label: d.label, fact: d.fact })),
+        risks: risks.map((d) => ({ key: d.key, label: d.label, fact: d.fact })),
+        next_action: perf?.facts?.next_action ?? null,
+        period_highlight: highlight,
+      },
+      breakdown: dims,
+      drivers: risks,
+      evidence: {
+        formula_version: "holistic_assessment.v1",
+        period: { from: today.slice(0, 8) + "01", to: today },
+        sample_size: expenses.length,
+        notes: [
+          "Cada dimensão vem do seu próprio motor canônico; esta camada só classifica direção e peso.",
+          "Nenhum valor é recalculado aqui.",
+        ],
+      },
+      confidence: known.length >= 5 ? "high" : known.length >= 3 ? "medium" : "low",
+      answer_format: {
+        version: "nino_answer_format.v1",
+        headline: conclusion,
+        delta_line: risks[0]?.fact ?? strengths[0]?.fact ?? null,
+        evidence_line: `Leitura baseada em ${known.length} dimensões da sua vida financeira.`,
+        confidence_label: known.length >= 5 ? "alta" : known.length >= 3 ? "média" : "baixa",
+      },
+    };
+  });
+}

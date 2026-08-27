@@ -29,6 +29,8 @@ export type CapabilityName =
   | "financial_plan"
 
   | "financial_performance"
+  | "holistic_assessment"
+  | "month_report"
   | "financial_comparison"
   | "financial_analysis"
   | "forecast_month_close"
@@ -74,7 +76,7 @@ const GROUPS = {
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "analyze_longitudinal_trajectory", "analyze_wealth_opportunity", "build_financial_plan",
-    "compare_financial_metric", "assess_financial_performance",
+    "compare_financial_metric", "assess_financial_performance", "assess_financial_health",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
@@ -395,9 +397,34 @@ export function classifyCapability(
     };
   }
 
+  // "Passar relatório do mês" é PEDIDO DE LEITURA, nunca lançamento. Sem esta
+  // rota o pedido caía em `general` e o fallback tentava extrair um valor do
+  // texto ("mês 08" -> R$ 8,00). Aqui ele vira resumo determinístico.
+  if (/\b(relatorio|relatorios|resumo (do|de|desse|deste) (mes|periodo|ano|semana)|fechamento do mes|balanco do mes|extrato do mes|me (passa|manda|mostra) (o )?(resumo|relatorio)|como (foi|esta) (o )?(mes|agosto|setembro|outubro|novembro|dezembro|janeiro|fevereiro|marco|abril|maio|junho|julho))\b/.test(t)) {
+    return {
+      name: "month_report", execution: "deterministic",
+      allowed_tools: ["get_financial_snapshot", "analyze_spending", "compare_financial_metric"],
+      required_tool: "get_financial_snapshot", context: { metrics: true },
+      reason: "canonical_month_report",
+    };
+  }
+
+  // Avaliação GLOBAL ("estou melhorando ou piorando?", "como está minha vida
+  // financeira?") não pode sair de um único destaque: vai para a avaliação
+  // holística, que compõe caixa, tendência, sobra, dívidas, patrimônio e
+  // cobertura dos dados (`holistic_assessment.v1`).
+  if (/\b(estou melhorando ou piorando|melhorando ou piorando|minha (vida|saude) financeira|saude financeira|diagnostico (geral|financeiro)|avaliacao geral|panorama geral|balanco geral|no geral (eu )?estou|visao geral (da|das) (minha|minhas) financas|como (estao|esta) (as )?minhas financas)\b/.test(t)) {
+    return {
+      name: "holistic_assessment", execution: "deterministic",
+      allowed_tools: ["assess_financial_health", "assess_financial_performance", "get_financial_snapshot"],
+      required_tool: "assess_financial_health", context: { metrics: true },
+      reason: "canonical_holistic_assessment",
+    };
+  }
+
   // "Como estou?" / "melhorei?" é RESPOSTA EXECUTIVA: precisa separar melhora
   // real de efeito calendário. Vem antes de evolução/comparação.
-  if (/\b(como (eu )?estou|como (eu )?vou|estou melhorando|melhorei|estou indo bem|minha performance|performance financeira|meu desempenho|desempenho financeiro|como (foi|esta|anda) (o )?meu (mes|desempenho)|resumo do meu desempenho|estou pior|piorei|estou evoluindo financeiramente|balanco geral|panorama geral)\b/.test(t)) {
+  if (/\b(como (eu )?estou|como (eu )?vou|estou melhorando|melhorei|estou indo bem|minha performance|performance financeira|meu desempenho|desempenho financeiro|como (foi|esta|anda) (o )?meu (mes|desempenho)|resumo do meu desempenho|estou pior|piorei|estou evoluindo financeiramente)\b/.test(t)) {
     return {
       name: "financial_performance", execution: "deterministic",
       allowed_tools: ["assess_financial_performance", "compare_financial_metric", "get_financial_snapshot"],
@@ -405,6 +432,7 @@ export function classifyCapability(
       reason: "canonical_financial_performance",
     };
   }
+
 
   // Comparação explícita entre períodos passa pelo motor canônico, que deixa o
   // recorte visível (mês corrente x mesmo trecho do mês anterior, etc.).

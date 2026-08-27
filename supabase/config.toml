@@ -23,7 +23,13 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.whatsapp-send]
-verify_jwt = true
+# Worker interno: o gateway não pode barrar antes do handler. O dispatcher SQL
+# (whatsapp_send_dispatch_tick) chama esta função com x-cron-secret e não tem
+# como assinar um JWT, o que devolvia 401 e travava a fila para 100% dos
+# usuários. A autorização é validada NO CÓDIGO: service role, segredo de cron
+# ou JWT de admin — requisição anônima continua recebendo 401.
+verify_jwt = false
+
 
 [functions.whatsapp-session]
 verify_jwt = true

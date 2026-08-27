@@ -7,6 +7,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { interpret, type ParsedIntent } from "../parser.ts";
 import { extractSpans } from "../extract.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
+import { canDraftEntry, type TextProvenance } from "./TextProvenance.ts";
 import {
   create_transaction_draft, create_transfer_draft,
   add_goal_contribution_draft,
@@ -41,11 +42,14 @@ async function accountQuestion(ctx: ToolContext): Promise<string> {
 
 export async function deterministicFallback(
   sb: SupabaseClient,
-  input: { user_id: string; conversation_id: string; text: string },
+  input: { user_id: string; conversation_id: string; text: string; provenance?: TextProvenance },
 ): Promise<FallbackOutcome> {
   const intent: ParsedIntent = interpret(input.text);
   const ctx: ToolContext = { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text };
-  const entryAllowed = allowsEntryDraft(input.text);
+  // Escrita no ledger exige procedência: texto remontado pelo sistema pode
+  // ser usado para ENTENDER, nunca para criar lançamento (`nino_provenance.v1`).
+  const provenance: TextProvenance = input.provenance ?? "user_current";
+  const entryAllowed = allowsEntryDraft(input.text) && canDraftEntry(input.text, provenance);
 
   const spans = extractSpans(input.text);
   if (entryAllowed && spans.amount != null && spans.amount > 0 && spans.description && (spans.payment_method || spans.card_hint || spans.account_hint)) {

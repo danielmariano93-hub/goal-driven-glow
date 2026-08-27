@@ -18,6 +18,8 @@ import { routeIntent } from "./IntentRouter.ts";
 import { evaluate as evaluatePolicy, decideTurn } from "./PolicyEngine.ts";
 import { plan as planAction } from "./ActionPlanner.ts";
 import { deterministicFallback } from "./DeterministicFallback.ts";
+import type { TextProvenance } from "./TextProvenance.ts";
+
 import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 import { personalizeSystemPrompt } from "./ResponseGenerator.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
@@ -76,6 +78,11 @@ import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
 /** Cartão de rascunho de lançamento na última fala do Nino. */
 const DRAFT_CARD_RX =
   /(?:•\s*\*?(?:Despesa|Receita|Transfer[êe]ncia)\*?:)|(?:deixa eu confirmar antes de salvar)|(?:pode salvar\?)|(?:rascunhei aqui)|(?:fecho assim\?)|(?:confere pra mim)/i;
+
+/** Pergunta de SLOT de lançamento feita pelo próprio Nino no turno anterior. */
+const ENTRY_SLOT_QUESTION_RX =
+  /(em qual conta eu registro)|(em qual cart[ãa]o eu registro)|(em qu[êe] foi (?:esse|essa))|(faltou a descri[çc][ãa]o)|(qual (?:foi )?o valor)|(qual categoria)/i;
+
 
 /** Resposta curta a uma pergunta do Nino, sem assunto financeiro próprio. */
 function moodFromShortAnswer(text: string): boolean {
@@ -1111,26 +1118,45 @@ ${episodic}
   }));
   metrics.validations = validated.reasons.length;
   if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {
-    // If validator rejects an LLM reply, drop to deterministic fallback once.
-    // Concatena os últimos turnos do usuário para não perder contexto quando
-    // a mensagem atual é só o slot que faltava (ex.: "Alimentação").
+    // Validador rejeitou a resposta do modelo: cai uma vez no determinístico.
+    //
+    // PROIBIDO colar mensagens do usuário aqui. Era exatamente essa colagem que
+    // transformava "Passar relatório do mês" em despesa de R$ 8,00 descrita como
+    // "ago": o texto colado reinjetava valor, conta e estabelecimento de uma
+    // notificação bancária antiga (`nino_provenance.v1`).
+    //
+    // O único caso de complemento legítimo é o SLOT: o Nino perguntou "em qual
+    // conta eu registro?" e a mensagem atual é só a resposta. Aí juntamos a
+    // mensagem de lançamento original com o slot — e nada mais.
     try {
-      const lastUserTexts = (history ?? []).filter(h => h.role === "user")
-        .slice(-4).map(h => String(h.content ?? "").trim()).filter(Boolean);
-      const recoveredText = lastUserTexts.length > 0
-        ? [...lastUserTexts, input.text].join(". ")
-        : input.text;
-      const fb = await deterministicFallback(sb, { ...input, text: recoveredText });
+      const userTurns = (history ?? []).filter(h => h.role === "user")
+        .map(h => String(h.content ?? "").trim()).filter(Boolean);
+      const lastAssistant = [...(history ?? [])].reverse().find(h => h.role !== "user");
+      const assistantAskedEntrySlot = ENTRY_SLOT_QUESTION_RX.test(String(lastAssistant?.content ?? ""))
+        || DRAFT_CARD_RX.test(String(lastAssistant?.content ?? ""));
+      const originalEntryText = [...userTurns].reverse()
+        .find(t => hasEntryIntent(t) && allowsEntryDraft(t) && !/\?\s*$/.test(t)) ?? null;
+      const isSlotAnswer = assistantAskedEntrySlot
+        && !!originalEntryText
+        && !hasEntryIntent(input.text)
+        && String(input.text ?? "").trim().split(/\s+/).length <= 6;
+      const recoveredText = isSlotAnswer ? `${originalEntryText} ${input.text}` : input.text;
+      const provenance: TextProvenance = isSlotAnswer ? "slot_answer" : "user_current";
+      metrics.errors.push(`fallback_provenance:${provenance}`);
+      const fb = await deterministicFallback(sb, { ...input, text: recoveredText, provenance });
       reply = fb.reply; draft_id = fb.draft_id;
       kind = fb.kind === "draft" ? "draft" : fb.kind === "question" ? "question" : "info";
       metrics.fallback_used = true;
       path = "deterministic_fallback";
       if (kind !== "draft" && kind !== "question") {
-        // Recuperação não encontrou dados suficientes: pede a frase completa
-        // em vez de devolver o erro genérico.
-        reply = "Perdi o rascunho anterior. Pode me mandar tudo em uma frase, ex.: 'gastei 33,89 alimentação Itaú hoje'?";
+        // Recuperação não encontrou dados suficientes. Se o turno nem era de
+        // lançamento, não podemos falar de "rascunho perdido".
+        reply = isSlotAnswer || hasEntryIntent(input.text)
+          ? "Perdi o rascunho anterior. Pode me mandar tudo em uma frase, ex.: 'gastei 33,89 alimentação Itaú hoje'?"
+          : validated.body;
       }
     } catch { reply = validated.body; }
+
   } else {
     reply = validated.body;
   }

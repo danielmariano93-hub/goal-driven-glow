@@ -1360,7 +1360,7 @@ import {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
-  compare_financial_metric, assess_financial_performance,
+  compare_financial_metric, assess_financial_performance, assess_financial_health,
   analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
@@ -1369,7 +1369,7 @@ export {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
-  compare_financial_metric, assess_financial_performance,
+  compare_financial_metric, assess_financial_performance, assess_financial_health,
   analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
 };
 
@@ -2962,6 +2962,16 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: assess_financial_performance,
+  },
+  {
+    name: "assess_financial_health",
+    description: "AVALIAÇÃO HOLÍSTICA da vida financeira: compõe caixa projetado, tendência de gasto, sobra do mês, estabilidade, dívidas, patrimônio e cobertura dos dados em UM veredito com pontos fortes, riscos e próxima ação. Use SEMPRE que a pergunta for global ('estou melhorando ou piorando?', 'como está minha vida financeira?', 'faz um diagnóstico geral', 'no geral estou bem?'). Nunca responda pergunta global com um único destaque.",
+    parameters: {
+      type: "object",
+      properties: { months: { type: "integer", minimum: 3, maximum: 24 } },
+      additionalProperties: false,
+    },
+    execute: assess_financial_health,
   },
   {
     name: "analyze_financial_evolution",
