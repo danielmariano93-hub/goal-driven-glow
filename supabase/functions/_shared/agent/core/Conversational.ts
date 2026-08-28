@@ -16,6 +16,7 @@ export type ConversationalKind =
   | "identity"
   | "purpose"
   | "capabilities"
+  | "audio_status"
   | "greeting"
   | "farewell"
   | "thanks"
@@ -36,7 +37,8 @@ export const NINO_IDENTITY = {
   what: "assistente financeiro pessoal",
   channels: ["WhatsApp", "app"],
   does: [
-    "registrar gastos, receitas, cartões e faturas a partir de uma frase, print, PDF ou extrato",
+    "ouvir notas de voz e usar a transcrição como uma mensagem normal",
+    "registrar gastos, receitas, cartões e faturas a partir de uma frase, áudio, print, PDF ou extrato",
     "responder quanto você gastou, onde, com quem e o que mudou no seu comportamento",
     "prever o fechamento do mês, acompanhar metas, dívidas e assinaturas",
     "avisar antes de um aperto de caixa e ajudar a decidir uma compra",
@@ -58,6 +60,7 @@ Jeito de falar: gente boa, direto, caloroso e sem formalidade — como um amigo 
 - Use 1 emoji (2 no máximo) para dar calor à mensagem, sempre coerente com o assunto.
 - Nunca cite fornecedores de modelo, empresas de IA, versões, ferramentas internas ou jargão de sistema. Você é o Nino, ponto.
 - Nunca invente número, saldo, data ou fato financeiro nesta conversa.
+- Você entende notas de voz recebidas no WhatsApp e no app. Nunca negue essa capacidade por causa de uma falha antiga no histórico.
 - Se a pessoa perguntar algo fora de dinheiro, responda com naturalidade e, se couber, ofereça em UMA linha curta o que você pode fazer pelo dinheiro dela. Sem empurrar, sem repetir a mesma oferta a cada mensagem.
 - Se a pergunta for ambígua, faça UMA pergunta curta.
 - Fale em benefício, não em funcionalidade: "você para de descobrir o problema no fim do mês" vale mais do que "eu tenho relatórios".
@@ -71,6 +74,10 @@ const FINANCIAL_RX =
 
 
 const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
+  {
+    kind: "audio_status",
+    rx: /(?:^|\W)(?:(?:voc[êe]|vc|nino).{0,25})?(?:consegue|conseguindo|pode|podendo|d[aá] pra|ouve|ouvir|escuta|escutar|entende|entender|compreende|compreender).{0,45}(?:[áa]udio|voz|mensagem de voz|nota de voz)|(?:[áa]udio|voz|mensagem de voz|nota de voz).{0,45}(?:funciona|consegue|ouve|ouvir|escuta|escutar|entende|entender)/i,
+  },
   {
     kind: "identity",
     rx: /(?:^|\W)(?:quem (?:é|e|voc[êe] é|vc é)|o que (?:voc[êe]|vc) (?:é|e)(?=\W|$)|vc é o que|voc[êe] é o que|voce e o que|(?:é|e) (?:um|uma) rob[oô]|(?:é|e) humano|(?:é|e) uma? (?:ia|intelig[êe]ncia)|quem te (?:criou|fez|desenvolveu|programou)|quem foi que te criou|qual (?:é )?o seu nome|como (?:voc[êe]|vc) se chama|voc[êe] existe|você é real|vc é real)/i,
@@ -184,6 +191,8 @@ export function deterministicConversationalReply(
       return purposeReply(name);
     case "capabilities":
       return capabilitiesReply(name);
+    case "audio_status":
+      return "Sim — já estou ouvindo e transcrevendo seus áudios normalmente 🎧 Pode mandar o próximo.";
     case "greeting": {
       const hour = ctx?.hour ?? 12;
       const period = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
@@ -211,13 +220,9 @@ export async function generateConversationalReply(args: {
   text: string;
   history?: Array<{ role: string; content: string }>;
   first_name?: string | null;
-  model?: string;
-  timeoutMs?: number;
 }): Promise<string | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 12_000);
   try {
     const history = (args.history ?? []).slice(-6)
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -229,9 +234,8 @@ export async function generateConversationalReply(args: {
         "Lovable-API-Key": key,
         "X-Lovable-AIG-SDK": "edge-function",
       },
-      signal: controller.signal,
       body: JSON.stringify({
-        model: args.model ?? "google/gemini-3.6-flash",
+        model: "openai/gpt-5.6-sol",
         temperature: 0.6,
         messages: [
           { role: "system", content: NINO_PERSONA },
@@ -253,7 +257,5 @@ export async function generateConversationalReply(args: {
     return reply || null;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }

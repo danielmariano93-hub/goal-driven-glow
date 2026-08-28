@@ -7,6 +7,31 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 
 export type HistoryTurn = { role: "user" | "assistant"; content: string };
 
+const NON_CONVERSATIONAL_AUDIO_MARKER = /^\[áudio (?:não compreendido|recebido — aguardando escuta)\]$/i;
+
+/**
+ * Falhas operacionais de áudio pertencem à telemetria, não à memória usada
+ * para raciocinar. Mantê-las no prompt fazia o modelo concluir, incorretamente,
+ * que o Nino continuava sem conseguir ouvir mesmo após uma transcrição válida.
+ */
+export function isConversationContext(content: string): boolean {
+  const clean = String(content ?? "").trim();
+  return Boolean(clean) && !NON_CONVERSATIONAL_AUDIO_MARKER.test(clean);
+}
+
+/** Remove do histórico a cópia do turno que o runtime anexará ao prompt. */
+export function withoutCurrentTurn(history: HistoryTurn[], currentText: string): HistoryTurn[] {
+  const current = String(currentText ?? "").trim();
+  const copy = [...history];
+  for (let index = copy.length - 1; index >= 0; index -= 1) {
+    if (copy[index].role === "user" && copy[index].content.trim() === current) {
+      copy.splice(index, 1);
+      break;
+    }
+  }
+  return copy;
+}
+
 /** Map a conversation_messages row (real schema: direction/body_masked) to
  *  the {role, content} shape the LLM expects. */
 export function mapConversationRow(
@@ -57,7 +82,7 @@ export async function loadHistory(
     ? [...rows, ...directOutbound].filter(r => r.id !== opts.excludeMessageId)
     : [...rows, ...directOutbound];
   return filtered
-    .filter(r => String(r.content ?? "").trim())
+    .filter(r => isConversationContext(String(r.content ?? "")))
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     .slice(-limit)
     .map(r => ({ role: r.role, content: String(r.content).trim() }));
