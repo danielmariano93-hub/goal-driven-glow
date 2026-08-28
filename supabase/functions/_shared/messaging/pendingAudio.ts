@@ -9,7 +9,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { audioFailureReply, transcribeAudioBytes } from "./wahaMedia.ts";
-import { getAiBlock } from "../aiCircuit.ts";
+
 
 export type PendingAudioRow = {
   id: string;
