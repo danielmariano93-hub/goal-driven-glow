@@ -3,7 +3,7 @@
 
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { getAiBlock, pauseAiCircuit } from "../aiCircuit.ts";
+import { getAiBlockAllowingProbe, pauseAiCircuit, resumeAiCircuit } from "../aiCircuit.ts";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
