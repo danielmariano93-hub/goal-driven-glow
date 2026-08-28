@@ -131,7 +131,7 @@ export async function drainPendingAudio(sb: SupabaseClient, args: {
       sb, bytes: base64ToBytes(row.audio_base64), mime: row.mime_type,
     });
 
-    if (result.ok) {
+    if (result.ok === true) {
       await sb.from("pending_audio_transcriptions")
         .update({ status: "done", audio_base64: "", last_error: null, updated_at: new Date().toISOString() })
         .eq("id", row.id);
@@ -142,7 +142,8 @@ export async function drainPendingAudio(sb: SupabaseClient, args: {
       continue;
     }
 
-    if (result.code === "ai_blocked") {
+    const failure = result as Extract<Awaited<ReturnType<typeof transcribeAudioBytes>>, { ok: false }>;
+    if (failure.code === "ai_blocked") {
       // Continua indisponível: volta para a fila e para a rodada aqui.
       await sb.from("pending_audio_transcriptions")
         .update({ status: "pending", last_error: "ai_blocked", locked_at: null, updated_at: new Date().toISOString() })
@@ -152,11 +153,11 @@ export async function drainPendingAudio(sb: SupabaseClient, args: {
 
     await sb.from("pending_audio_transcriptions")
       .update({
-        status: "failed", last_error: String(result.code).slice(0, 60),
+        status: "failed", last_error: String(failure.code).slice(0, 60),
         audio_base64: "", updated_at: new Date().toISOString(),
       })
       .eq("id", row.id);
-    await args.notify(row, audioFailureReply(result.code), `audio-failed:${row.id}`).catch(() => {});
+    await args.notify(row, audioFailureReply(failure.code), `audio-failed:${row.id}`).catch(() => {});
   }
 
   return { processed, delivered, blocked: false, expired };
