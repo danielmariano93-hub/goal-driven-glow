@@ -39,6 +39,7 @@ import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { capabilityPrompt, classifyCapability, resumeDeterministicCapability } from "./CapabilityRouter.ts";
+import { withoutCurrentTurn } from "./ConversationHistory.ts";
 import { entryFailureMessage } from "./ResponseValidator.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
@@ -555,7 +556,11 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     run_id = (run as any)?.id as string | undefined;
   }, (m) => metrics.errors.push("runs_insert:" + m), null);
 
-  const history = await tctx.history(12, input.channel === "app" ? input.inbound_message_id : null);
+  const loadedHistory = await tctx.history(12, input.channel === "app" ? input.inbound_message_id : null);
+  // No WhatsApp a mensagem já foi persistida antes de entrar no AgentCore. O
+  // runtime acrescenta `user_text` ao prompt depois; retire a cópia mais recente
+  // para não duplicar o mesmo turno e distorcer a conversa.
+  const history = withoutCurrentTurn(loadedHistory, input.text);
   const previousUserText = [...history].reverse().find((entry) =>
     entry.role === "user" && String(entry.content ?? "").trim() !== String(input.text ?? "").trim()
   )?.content;

@@ -13,6 +13,7 @@ import { resolveReadIntent } from "./IntentResolver.ts";
 
 
 export type CapabilityName =
+  | "audio_status"
   | "weekday_pattern"
   | "weekday_literal"
   | "goals_overview"
@@ -269,6 +270,17 @@ export function classifyCapability(
   semantic: SemanticQuery | null,
 ): CapabilityDecision {
   const t = normalize(text);
+
+  // Estado operacional do canal: não delegar ao modelo, porque histórico de
+  // falhas antigas não representa a capacidade atual. Se esta mensagem chegou
+  // após uma nota transcrita, a própria entrada no pipeline é a prova.
+  if (/\b(?:consegue|conseguindo|pode|podendo|da pra|ouve|ouvir|escuta|escutar|entende|entender|compreende|compreender)\b[^?]{0,45}\b(?:audio|voz|mensagem de voz|nota de voz)\b|\b(?:audio|voz|mensagem de voz|nota de voz)\b[^?]{0,45}\b(?:funciona|consegue|ouve|ouvir|escuta|escutar|entende|entender)\b/.test(t)) {
+    return {
+      name: "audio_status", execution: "deterministic", allowed_tools: [], required_tool: null,
+      context: {}, clarification: "Sim — já estou ouvindo e transcrevendo seus áudios normalmente 🎧 Pode mandar o próximo.",
+      reason: "runtime_audio_capability_status",
+    };
+  }
 
   if (semantic?.intent === "weekday_pattern") {
     return {

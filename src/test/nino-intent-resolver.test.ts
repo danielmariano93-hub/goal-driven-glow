@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { resolveReadIntent } from "../../supabase/functions/_shared/agent/core/IntentResolver";
+import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
+import { isConversationContext, withoutCurrentTurn } from "../../supabase/functions/_shared/agent/core/ConversationHistory";
+import { parseIntent } from "../../supabase/functions/_shared/agent/parser";
 
 /**
  * `nino_intent.v1` — intenção de leitura resolvida por significado.
@@ -47,5 +50,35 @@ describe("resolveReadIntent", () => {
   it("nunca resolve pedido de registro como leitura", () => {
     expect(resolveReadIntent("registra 50 reais de mercado")).toBeNull();
     expect(resolveReadIntent("gastei 30 no uber")).toBeNull();
+  });
+});
+
+describe("audio status e memória do canal", () => {
+  it("responde o estado de áudio sem delegar ao modelo", () => {
+    for (const text of [
+      "Nino, agora você já tá conseguindo entender áudio?",
+      "você consegue ouvir nota de voz?",
+      "áudio funciona por aqui?",
+    ]) {
+      const capability = classifyCapability(text, parseIntent(text), null);
+      expect(capability.name, text).toBe("audio_status");
+      expect(capability.execution).toBe("deterministic");
+      expect(capability.clarification).toMatch(/ouvindo e transcrevendo/i);
+    }
+  });
+
+  it("não entrega marcadores operacionais antigos ao contexto", () => {
+    expect(isConversationContext("[áudio não compreendido]")).toBe(false);
+    expect(isConversationContext("[áudio recebido — aguardando escuta]")).toBe(false);
+    expect(isConversationContext("registra 20 reais de mercado")).toBe(true);
+  });
+
+  it("remove apenas a cópia mais recente do turno atual", () => {
+    const history = [
+      { role: "user" as const, content: "oi" },
+      { role: "assistant" as const, content: "oi!" },
+      { role: "user" as const, content: "áudio funciona?" },
+    ];
+    expect(withoutCurrentTurn(history, "áudio funciona?")).toEqual(history.slice(0, 2));
   });
 });
