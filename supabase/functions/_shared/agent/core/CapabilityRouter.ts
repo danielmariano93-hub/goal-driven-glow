@@ -9,6 +9,8 @@ import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
 import { detectCategory } from "./ConversationMemory.ts";
+import { resolveReadIntent } from "./IntentResolver.ts";
+
 
 export type CapabilityName =
   | "weekday_pattern"
@@ -624,10 +626,25 @@ export function classifyCapability(
     };
   }
 
+  // `nino_intent.v1` — antes de entregar o turno ao assistente geral, tenta
+  // resolver a intenção de LEITURA por significado (não por frase enumerada).
+  // Resolvido = motor canônico responde sem modelo; não resolvido = cobertura
+  // faltando, registrada na telemetria de rota.
+  const read = resolveReadIntent(text);
+  if (read) {
+    return {
+      name: read.name, execution: "deterministic", allowed_tools: read.allowed_tools,
+      required_tool: read.required_tool, context: { summary: true, metrics: true },
+      reason: `intent_resolved_${read.name}_${read.score}`,
+    };
+  }
+
   return {
     name: "general", execution: "llm_scoped", allowed_tools: GROUPS.general,
-    required_tool: null, context: { summary: true, metrics: true }, reason: "bounded_general_assistant",
+    required_tool: null, context: { summary: true, metrics: true },
+    reason: "general_unresolved_intent",
   };
+
 }
 
 /**

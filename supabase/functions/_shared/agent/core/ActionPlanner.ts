@@ -17,6 +17,8 @@ import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts
 import { getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 import { runTool } from "./ToolRuntime.ts";
 import { flagSnapshot } from "./FeatureFlags.ts";
+import { resolveReadIntent } from "./IntentResolver.ts";
+
 
 /** Flags de eficiência consultadas por turno (`nino_efficiency.v2`). */
 const EFFICIENCY_FLAGS = [
@@ -152,6 +154,36 @@ export async function plan(
     // Degradação real: o turno NÃO aborta. Cai no caminho determinístico
     // (registro, saldo, fatura, metas…) e só usa texto neutro quando a
     // resposta exigir de fato o modelo (ver AgentCore).
+    //
+    // `nino_intent.v1`: se a pergunta é de leitura, ela é respondida pelo motor
+    // canônico mesmo com o modelo bloqueado — o usuário não recebe "limitação
+    // temporária" para algo que o motor sabe responder.
+    const read = resolveReadIntent(args.user_text);
+    if (read) {
+      const turn = await executeDeterministicCapability(sb, {
+        user_id: args.user_id,
+        conversation_id: args.conversation_id,
+        user_text: args.user_text,
+        capability: {
+          name: read.name,
+          execution: "deterministic",
+          allowed_tools: read.allowed_tools,
+          required_tool: read.required_tool,
+          context: { summary: true, metrics: true },
+          reason: `intent_resolved_under_ai_block_${read.name}`,
+        },
+      });
+      if (turn) {
+        return {
+          path: "deterministic_tool",
+          turn,
+          errorSanitized: null,
+          modelAttempts: [],
+          routeReason: `ai_block_${existingBlock.status}+intent_resolved_${read.name}`,
+          flags,
+        };
+      }
+    }
     return {
       path: "deterministic_fallback",
       errorSanitized: `gateway_${existingBlock.status}`,
@@ -159,6 +191,7 @@ export async function plan(
       flags,
     };
   }
+
 
   const task = classifyModelTask(args.user_text, semantic);
   // `model_routing_v2` off → rota legada do prompt configurado, sem tiers.
