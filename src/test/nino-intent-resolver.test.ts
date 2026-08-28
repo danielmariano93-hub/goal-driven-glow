@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveReadIntent } from "../../supabase/functions/_shared/agent/core/IntentResolver";
 import { classifyCapability } from "../../supabase/functions/_shared/agent/core/CapabilityRouter";
 import { isConversationContext, withoutCurrentTurn } from "../../supabase/functions/_shared/agent/core/ConversationHistory";
-import { parseIntent } from "../../supabase/functions/_shared/agent/parser";
+import { interpret } from "../../supabase/functions/_shared/agent/parser";
 
 /**
  * `nino_intent.v1` — intenção de leitura resolvida por significado.
@@ -60,7 +60,7 @@ describe("audio status e memória do canal", () => {
       "você consegue ouvir nota de voz?",
       "áudio funciona por aqui?",
     ]) {
-      const capability = classifyCapability(text, parseIntent(text), null);
+      const capability = classifyCapability(text, interpret(text), null);
       expect(capability.name, text).toBe("audio_status");
       expect(capability.execution).toBe("deterministic");
       expect(capability.clarification).toMatch(/ouvindo e transcrevendo/i);
