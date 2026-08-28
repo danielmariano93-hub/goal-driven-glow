@@ -521,10 +521,83 @@ export function audioFailureReply(code: AudioTranscriptionCode, firstName?: stri
     case "download_failed":
       return `${hi}não consegui baixar seu áudio agora 🙏 Manda de novo em alguns segundos ou me escreve em texto que eu já resolvo.`;
     case "ai_blocked":
-      return `${hi}não consegui ouvir seu áudio agora por uma limitação temporária. Seu áudio não foi processado nem gerou qualquer alteração. Pode tentar de novo em alguns minutos, ou me contar em texto.`;
+      return `${hi}recebi seu áudio e guardei ele aqui 💛 A escuta está indisponível por alguns minutos, então vou ouvir e te responder assim que voltar. Nada foi registrado ainda. Se preferir resposta agora, me conta em texto.`;
 
     default:
       return `${hi}não consegui entender o áudio dessa vez 🙏 Pode repetir gravando de novo ou me escrever em texto?`;
+  }
+}
+
+/**
+ * Transcreve bytes de áudio já validados. É a ÚNICA porta para o gateway de
+ * transcrição: o webhook (áudio que acabou de chegar) e o drenador de áudios
+ * pendentes usam exatamente este caminho, então circuito, sonda de recuperação
+ * e códigos de falha são idênticos nos dois.
+ */
+export async function transcribeAudioBytes(args: {
+  sb?: SupabaseClient;
+  bytes: Uint8Array;
+  mime: string;
+  timeoutMs?: number;
+  onStage?: (stage: "transcription_submitted", metadata: Record<string, unknown>) => void | Promise<void>;
+}): Promise<AudioTranscriptionResult> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
+
+  // Bloqueio 402/403 continua terminal no turno, mas passada a janela de sonda
+  // uma única chamada real é liberada para descobrir se o bloqueio caiu.
+  let probing = false;
+  if (args.sb) {
+    const { block, probe } = await getAiBlockAllowingProbe(args.sb);
+    if (block) return { ok: false, code: "ai_blocked", detail: `status_${block.status}` };
+    probing = probe;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
+  try {
+    let normalized: ReturnType<typeof prepareAudioForTranscription>;
+    try {
+      normalized = prepareAudioForTranscription(args.bytes, args.mime);
+    } catch {
+      return { ok: false, code: "unsupported_format", detail: "decode_failed" };
+    }
+    if (normalized.bytes.length > 25 * 1024 * 1024) return { ok: false, code: "too_long", detail: String(normalized.bytes.length) };
+    const form = new FormData();
+    form.append("model", TRANSCRIPTION_MODEL);
+    const ownedBytes = new Uint8Array(normalized.bytes.byteLength);
+    ownedBytes.set(normalized.bytes);
+    form.append("file", new Blob([ownedBytes.buffer], { type: normalized.mime }), normalized.filename);
+    form.append("stream", "true");
+    await args.onStage?.("transcription_submitted", { mime: normalized.mime, bytes: normalized.bytes.length });
+    const resp = await fetch(TRANSCRIPTION_GATEWAY, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "X-Lovable-AIG-SDK": "edge-function",
+      },
+      signal: controller.signal,
+      body: form,
+    });
+    if (!resp.ok) {
+      const detail = (await resp.text().catch(() => "")).slice(0, 200);
+      console.error("[audio] transcription_http", resp.status, detail);
+      if (resp.status === 402 || resp.status === 403) {
+        if (args.sb) await pauseAiCircuit(args.sb, resp.status, detail);
+        return { ok: false, code: "ai_blocked", detail: `status_${resp.status}` };
+      }
+      return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
+    }
+    // Chamada real bem-sucedida: se estávamos sondando, o bloqueio caiu.
+    if (probing && args.sb) await resumeAiCircuit(args.sb);
+    const text = await readTranscriptionStream(resp);
+    if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
+    return { ok: true, text: text.slice(0, 1500), mime_type: args.mime, bytes: args.bytes.length };
+  } catch (e) {
+    const err = e as Error;
+    return { ok: false, code: "transcription_failed", detail: err.name === "AbortError" ? "timeout" : "exception" };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -574,55 +647,15 @@ export async function transcribeInboundAudio(args: {
   if (!FORMAT_BY_MIME[dl.mime_type]) return { ok: false, code: "unsupported_format", detail: dl.mime_type };
   await args.onStage?.("format_identified", { mime: dl.mime_type });
 
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
-  if (args.sb) {
-    const existingBlock = await getAiBlock(args.sb);
-    if (existingBlock) return { ok: false, code: "ai_blocked", detail: `status_${existingBlock.status}` };
+  const result = await transcribeAudioBytes({
+    sb: args.sb, bytes: dl.bytes, mime: dl.mime_type,
+    timeoutMs: args.timeoutMs, onStage: args.onStage,
+  });
+  // Bloqueio de IA não pode custar o áudio do usuário: devolvemos os bytes já
+  // baixados e validados para que o webhook os guarde e reprocesse depois.
+  if (result.ok === false && result.code === "ai_blocked") {
+    return { ...result, audio: { bytes: dl.bytes, mime_type: dl.mime_type } };
   }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
-  try {
-    let normalized: ReturnType<typeof prepareAudioForTranscription>;
-    try {
-      normalized = prepareAudioForTranscription(dl.bytes, dl.mime_type);
-    } catch {
-      return { ok: false, code: "unsupported_format", detail: "decode_failed" };
-    }
-    if (normalized.bytes.length > 25 * 1024 * 1024) return { ok: false, code: "too_long", detail: String(normalized.bytes.length) };
-    const form = new FormData();
-    form.append("model", TRANSCRIPTION_MODEL);
-    const ownedBytes = new Uint8Array(normalized.bytes.byteLength);
-    ownedBytes.set(normalized.bytes);
-    form.append("file", new Blob([ownedBytes.buffer], { type: normalized.mime }), normalized.filename);
-    form.append("stream", "true");
-    await args.onStage?.("transcription_submitted", { mime: normalized.mime, bytes: normalized.bytes.length });
-    const resp = await fetch(TRANSCRIPTION_GATEWAY, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
-      signal: controller.signal,
-      body: form,
-    });
-    if (!resp.ok) {
-      const detail = (await resp.text().catch(() => "")).slice(0, 200);
-      console.error("[audio] transcription_http", resp.status, detail);
-      if (resp.status === 402 || resp.status === 403) {
-        if (args.sb) await pauseAiCircuit(args.sb, resp.status, detail);
-        return { ok: false, code: "ai_blocked", detail: `status_${resp.status}` };
-      }
-      return { ok: false, code: "transcription_failed", detail: `status_${resp.status}` };
-    }
-    const text = await readTranscriptionStream(resp);
-    if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
-    return { ok: true, text: text.slice(0, 1500), mime_type: dl.mime_type, bytes: dl.bytes.length };
-  } catch (e) {
-    const err = e as Error;
-    return { ok: false, code: "transcription_failed", detail: err.name === "AbortError" ? "timeout" : "exception" };
-  } finally {
-    clearTimeout(timer);
-  }
+  return result;
 }
+
