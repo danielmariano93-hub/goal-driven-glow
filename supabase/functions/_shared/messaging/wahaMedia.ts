@@ -400,7 +400,13 @@ export type AudioTranscriptionCode =
 
 export type AudioTranscriptionResult =
   | { ok: true; text: string; mime_type: string; bytes: number }
-  | { ok: false; code: AudioTranscriptionCode; detail?: string };
+  | {
+    ok: false;
+    code: AudioTranscriptionCode;
+    detail?: string;
+    /** Presente só em `ai_blocked`: áudio válido preservado para reprocessar. */
+    audio?: { bytes: Uint8Array; mime_type: string };
+  };
 
 const FORMAT_BY_MIME: Record<string, string> = {
   "audio/ogg": "ogg",
