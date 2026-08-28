@@ -1423,7 +1423,10 @@ export type Database = {
           circuit_key: string
           last_probe_at: string | null
           paused_at: string | null
+          probe_after: string | null
+          probe_count: number
           requires: string | null
+          resumed_at: string | null
           status: string
           updated_at: string
           user_message: string | null
@@ -1433,7 +1436,10 @@ export type Database = {
           circuit_key: string
           last_probe_at?: string | null
           paused_at?: string | null
+          probe_after?: string | null
+          probe_count?: number
           requires?: string | null
+          resumed_at?: string | null
           status?: string
           updated_at?: string
           user_message?: string | null
@@ -1443,7 +1449,10 @@ export type Database = {
           circuit_key?: string
           last_probe_at?: string | null
           paused_at?: string | null
+          probe_after?: string | null
+          probe_count?: number
           requires?: string | null
+          resumed_at?: string | null
           status?: string
           updated_at?: string
           user_message?: string | null
@@ -9084,6 +9093,81 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "shared_expenses"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      pending_audio_transcriptions: {
+        Row: {
+          attempts: number
+          audio_base64: string
+          bytes: number
+          conversation_id: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          inbound_message_id: string | null
+          last_error: string | null
+          locked_at: string | null
+          mime_type: string
+          provider_message_id: string | null
+          reason: string | null
+          status: string
+          to_phone: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          audio_base64: string
+          bytes?: number
+          conversation_id?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          inbound_message_id?: string | null
+          last_error?: string | null
+          locked_at?: string | null
+          mime_type: string
+          provider_message_id?: string | null
+          reason?: string | null
+          status?: string
+          to_phone: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          audio_base64?: string
+          bytes?: number
+          conversation_id?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          inbound_message_id?: string | null
+          last_error?: string | null
+          locked_at?: string | null
+          mime_type?: string
+          provider_message_id?: string | null
+          reason?: string | null
+          status?: string
+          to_phone?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_audio_transcriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pending_audio_transcriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
           },
         ]
       }
