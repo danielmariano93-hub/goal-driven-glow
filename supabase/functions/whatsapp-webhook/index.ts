@@ -597,6 +597,20 @@ Deno.serve(async (req) => {
         .eq("id", inbound_message_id).then(() => {}, () => {});
     } else {
       const first = await firstNameFor(sb, link.user_id as string);
+      // Bloqueio temporário de IA não pode custar o áudio: guardamos os bytes
+      // já validados e processamos quando a escuta voltar.
+      if (transcription.code === "ai_blocked" && transcription.audio) {
+        await persistPendingAudio(sb, {
+          user_id: link.user_id as string,
+          conversation_id: conversationId,
+          inbound_message_id,
+          to_phone: evt.from_phone,
+          provider_message_id: evt.provider_message_id,
+          bytes: transcription.audio.bytes,
+          mime_type: transcription.audio.mime_type,
+          reason: String(transcription.detail ?? "ai_blocked"),
+        }).catch(() => ({ stored: false, duplicate: false }));
+      }
       await sb.from("outbound_messages").insert({
         user_id: link.user_id, to_phone: evt.from_phone, kind: "agent", channel: "whatsapp",
         inbound_message_id, idempotency_key: `audio-fail:${evt.provider_message_id}`,
@@ -609,7 +623,7 @@ Deno.serve(async (req) => {
       }).eq("id", inbound_message_id).then(() => {}, () => {});
       await sb.from("conversation_messages").insert({
         conversation_id: conversationId, user_id: link.user_id, direction: "inbound",
-        body_masked: "[áudio não compreendido]",
+        body_masked: transcription.code === "ai_blocked" ? "[áudio recebido — aguardando escuta]" : "[áudio não compreendido]",
       }).then(() => {}, () => {});
       triggerDispatcher();
       return json({ ok: true, audio: "failed", code: transcription.code });
