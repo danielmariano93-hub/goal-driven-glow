@@ -79,9 +79,11 @@ describe("áudio no WhatsApp", () => {
     expect(audioFailureReply("empty_audio")).toMatch(/vazio/i);
     expect(audioFailureReply("unsupported_format")).toMatch(/formato/i);
     expect(audioFailureReply("transcription_failed")).toMatch(/repetir|texto/i);
-    // `nino_safety.v1`: indisponibilidade de IA nunca vira mensagem de cobrança.
+    // `nino_safety.v1` + `pending_audio.v1`: indisponibilidade de IA nunca vira
+    // mensagem de cobrança — e o áudio fica guardado para ser ouvido depois.
     const blocked = audioFailureReply("ai_blocked");
-    expect(blocked).toMatch(/limita[cç][ãa]o temporária/i);
+    expect(blocked).toMatch(/recebi seu áudio/i);
+    expect(blocked).toMatch(/nada foi registrado/i);
     expect(blocked).not.toMatch(/cr[eé]ditos|reativar/i);
 
   });
