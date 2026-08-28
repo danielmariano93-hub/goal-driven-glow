@@ -213,13 +213,9 @@ export async function generateConversationalReply(args: {
   text: string;
   history?: Array<{ role: string; content: string }>;
   first_name?: string | null;
-  model?: string;
-  timeoutMs?: number;
 }): Promise<string | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 12_000);
   try {
     const history = (args.history ?? []).slice(-6)
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -231,9 +227,8 @@ export async function generateConversationalReply(args: {
         "Lovable-API-Key": key,
         "X-Lovable-AIG-SDK": "edge-function",
       },
-      signal: controller.signal,
       body: JSON.stringify({
-        model: args.model ?? "google/gemini-3.6-flash",
+        model: "openai/gpt-5.6-sol",
         temperature: 0.6,
         messages: [
           { role: "system", content: NINO_PERSONA },
@@ -255,7 +250,5 @@ export async function generateConversationalReply(args: {
     return reply || null;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
