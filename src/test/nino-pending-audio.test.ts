@@ -19,10 +19,22 @@ function makeClient(opts: { rows: PendingAudioRow[] }) {
     const api: any = {
       _filters: {} as Record<string, unknown>,
       select: (_c?: string, o?: { count?: string; head?: boolean }) => {
-        if (o?.head) return Promise.resolve({ count: opts.rows.length, data: null });
+        if (o?.head) {
+          const headChain: any = {
+            eq: () => headChain,
+            then: (res: (v: unknown) => unknown) =>
+              Promise.resolve({ count: opts.rows.length, data: null }).then(res),
+          };
+          return headChain;
+        }
         return api;
       },
+      upsert: (payload: Record<string, unknown>) => {
+        inserts.push({ table: name, upsert: true, ...payload });
+        return Promise.resolve({ error: null });
+      },
       eq: (col: string, val: unknown) => { api._filters[col] = val; return api; },
+      or: () => api,
       order: () => api,
       limit: () => Promise.resolve({ data: opts.rows }),
       maybeSingle: () => Promise.resolve({ data: { id: api._filters.id ?? "row" } }),
