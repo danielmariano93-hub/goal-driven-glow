@@ -47,8 +47,7 @@ const PROMPT_VERSION = "v7-catalog-only";
 const ACCOUNTING_SCOPE = "behavioral_v1";
 // Insights exigem raciocínio e síntese; extração continua no modelo rápido.
 // O modelo é configurável para permitir troca controlada e rollback sem deploy.
-const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "google/gemini-2.5-pro";
-const AI_TIMEOUT_MS = 8000;
+const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "openai/gpt-5.6-sol";
 /** Quantas dicas o lote entrega por vez (carrossel do app). */
 const BATCH_SIZE = 5;
 
