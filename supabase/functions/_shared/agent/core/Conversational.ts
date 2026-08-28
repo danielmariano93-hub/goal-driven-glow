@@ -16,6 +16,7 @@ export type ConversationalKind =
   | "identity"
   | "purpose"
   | "capabilities"
+  | "audio_status"
   | "greeting"
   | "farewell"
   | "thanks"
@@ -73,6 +74,10 @@ const FINANCIAL_RX =
 
 
 const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
+  {
+    kind: "audio_status",
+    rx: /(?:^|\W)(?:(?:voc[êe]|vc|nino).{0,25})?(?:consegue|conseguindo|pode|podendo|d[aá] pra|ouve|ouvir|escuta|escutar|entende|entender|compreende|compreender).{0,45}(?:[áa]udio|voz|mensagem de voz|nota de voz)|(?:[áa]udio|voz|mensagem de voz|nota de voz).{0,45}(?:funciona|consegue|ouve|ouvir|escuta|escutar|entende|entender)/i,
+  },
   {
     kind: "identity",
     rx: /(?:^|\W)(?:quem (?:é|e|voc[êe] é|vc é)|o que (?:voc[êe]|vc) (?:é|e)(?=\W|$)|vc é o que|voc[êe] é o que|voce e o que|(?:é|e) (?:um|uma) rob[oô]|(?:é|e) humano|(?:é|e) uma? (?:ia|intelig[êe]ncia)|quem te (?:criou|fez|desenvolveu|programou)|quem foi que te criou|qual (?:é )?o seu nome|como (?:voc[êe]|vc) se chama|voc[êe] existe|você é real|vc é real)/i,
@@ -186,6 +191,8 @@ export function deterministicConversationalReply(
       return purposeReply(name);
     case "capabilities":
       return capabilitiesReply(name);
+    case "audio_status":
+      return "Sim — já estou ouvindo e transcrevendo seus áudios normalmente 🎧 Pode mandar o próximo.";
     case "greeting": {
       const hour = ctx?.hour ?? 12;
       const period = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";

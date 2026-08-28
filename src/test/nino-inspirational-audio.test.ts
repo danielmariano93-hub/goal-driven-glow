@@ -65,6 +65,18 @@ describe("propósito e identidade sem aviso indevido", () => {
 });
 
 describe("áudio no WhatsApp", () => {
+  it("responde o estado atual do áudio sem usar IA", () => {
+    for (const text of [
+      "Nino, agora você já tá conseguindo entender áudio?",
+      "você consegue ouvir nota de voz?",
+      "áudio funciona por aqui?",
+    ]) {
+      const classification = classifyConversational(text);
+      expect(classification, text).toMatchObject({ kind: "audio_status", deterministic: true });
+      expect(deterministicConversationalReply(classification.kind!)).toMatch(/ouvindo e transcrevendo/i);
+    }
+  });
+
   it("reconhece nota de voz e ignora outras mídias", () => {
     expect(isAudioMedia({ mime_type: "audio/ogg; codecs=opus" })).toBe(true);
     expect(isAudioMedia({ mimetype: "audio/mp4" })).toBe(true);
