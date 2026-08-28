@@ -162,14 +162,10 @@ export async function drainPendingAudio(sb: SupabaseClient, args: {
   return { processed, delivered, blocked: false, expired };
 }
 
-/** True quando vale a pena tentar drenar agora (evita trabalho inútil). */
+/** True quando existe áudio pendente — evita trabalho inútil no caminho quente. */
 export async function shouldDrainPendingAudio(sb: SupabaseClient): Promise<boolean> {
   const { count } = await sb.from("pending_audio_transcriptions")
     .select("id", { count: "exact", head: true })
     .eq("status", "pending");
-  if (!count) return false;
-  // Bloqueio ativo sem janela de sonda vencida: a própria transcrição devolve
-  // `ai_blocked` sem custo, mas evitamos o round-trip quando dá.
-  const block = await getAiBlock(sb);
-  return block === null || true;
+  return Boolean(count && count > 0);
 }
