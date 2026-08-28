@@ -51,7 +51,10 @@ const OBJECT_ANCHORS = [
   "conta", "contas", "divida", "dividas", "devo", "meta", "metas", "orcamento",
   "fatura", "cartao", "lancamento", "lancamentos", "sobra", "sobrando", "situacao", "vida",
   "patrimonio", "receita", "renda", "fechamento", "fechar", "extrato", "relatorio", "resumo",
-  "desempenho", "performance", "balanco", "panorama",
+  "desempenho", "performance", "balanco", "panorama", "disponivel", "tenho",
+  // Âncoras de estado/avaliação: "estou melhorando ou piorando?" é pergunta
+  // financeira mesmo sem citar o objeto.
+  "melhorando", "piorando", "melhorei", "piorei", "economizando", "poupando", "devendo",
 ];
 
 type Exemplar = { name: ReadIntentName; text: string };
