@@ -402,8 +402,13 @@ export async function executeDeterministicCapability(
     };
   }
   let reply: string;
-  if (capability.name === "financial_snapshot") reply = formatFinancialSnapshot(execution.result);
+  // `nino_intent.v1`: leitura do mês resolvida por significado responde com o
+  // mesmo motor canônico de caixa — sem texto novo e sem modelo.
+  if (capability.name === "financial_snapshot" || (capability.name === "month_report" && capability.required_tool === "get_financial_snapshot")) {
+    reply = formatFinancialSnapshot(execution.result);
+  }
   else if (capability.name === "goals_overview") reply = formatGoalsOverview(execution.result);
+
   else if (capability.name === "goal_strategy") reply = formatGoalStrategy(execution.result);
   else if (capability.name === "before_spending") reply = formatBeforeSpending(execution.result);
   else if (capability.name === "recent_transactions") reply = formatRecentTransactions(execution.result as any[]);
