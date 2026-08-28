@@ -32,6 +32,7 @@ import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
 import { shouldAcknowledge } from "../_shared/agent/core/Conversational.ts";
 import { audioFailureReply, describeMediaHint, isAudioMedia, transcribeInboundAudio, type AudioHint } from "../_shared/messaging/wahaMedia.ts";
+import { drainPendingAudio, persistPendingAudio, shouldDrainPendingAudio, type PendingAudioRow } from "../_shared/messaging/pendingAudio.ts";
 
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 
@@ -597,6 +598,20 @@ Deno.serve(async (req) => {
         .eq("id", inbound_message_id).then(() => {}, () => {});
     } else {
       const first = await firstNameFor(sb, link.user_id as string);
+      // Bloqueio temporário de IA não pode custar o áudio: guardamos os bytes
+      // já validados e processamos quando a escuta voltar.
+      if (transcription.code === "ai_blocked" && transcription.audio) {
+        await persistPendingAudio(sb, {
+          user_id: link.user_id as string,
+          conversation_id: conversationId,
+          inbound_message_id,
+          to_phone: evt.from_phone,
+          provider_message_id: evt.provider_message_id,
+          bytes: transcription.audio.bytes,
+          mime_type: transcription.audio.mime_type,
+          reason: String(transcription.detail ?? "ai_blocked"),
+        }).catch(() => ({ stored: false, duplicate: false }));
+      }
       await sb.from("outbound_messages").insert({
         user_id: link.user_id, to_phone: evt.from_phone, kind: "agent", channel: "whatsapp",
         inbound_message_id, idempotency_key: `audio-fail:${evt.provider_message_id}`,
@@ -609,7 +624,7 @@ Deno.serve(async (req) => {
       }).eq("id", inbound_message_id).then(() => {}, () => {});
       await sb.from("conversation_messages").insert({
         conversation_id: conversationId, user_id: link.user_id, direction: "inbound",
-        body_masked: "[áudio não compreendido]",
+        body_masked: transcription.code === "ai_blocked" ? "[áudio recebido — aguardando escuta]" : "[áudio não compreendido]",
       }).then(() => {}, () => {});
       triggerDispatcher();
       return json({ ok: true, audio: "failed", code: transcription.code });
@@ -776,8 +791,48 @@ Deno.serve(async (req) => {
     } finally {
       stopHints();
       triggerDispatcher();
+      // Wake-on-message: áudio que ficou pendente por bloqueio de IA é
+      // processado aqui, sem varredura periódica e sem custo quando a fila
+      // está vazia. Falhas nunca afetam o turno atual.
+      await drainPendingAudioTurns().catch(() => {});
     }
   };
+
+  /**
+   * Drena áudios pendentes: transcreve e roda o pipeline textual normal, como
+   * se a pessoa tivesse digitado. Nenhum registro financeiro nasce aqui.
+   */
+  const drainPendingAudioTurns = async () => {
+    if (!(await shouldDrainPendingAudio(sb).catch(() => false))) return;
+    await drainPendingAudio(sb, {
+      limit: 3,
+      notify: async (row: PendingAudioRow, body: string, idempotency_key: string) => {
+        await sb.from("outbound_messages").insert({
+          user_id: row.user_id, to_phone: row.to_phone, kind: "agent", channel: "whatsapp",
+          inbound_message_id: row.inbound_message_id, idempotency_key, status: "queued", body,
+        }).then(() => {}, () => {});
+        triggerDispatcher();
+      },
+      deliver: async (row: PendingAudioRow, text: string) => {
+        if (row.inbound_message_id) {
+          await sb.from("inbound_messages")
+            .update({ body: text.slice(0, 2000), detected_intent: "audio_transcribed", media_error: null })
+            .eq("id", row.inbound_message_id).then(() => {}, () => {});
+        }
+        await sb.from("conversation_messages").insert({
+          conversation_id: row.conversation_id, user_id: row.user_id, direction: "inbound",
+          body_masked: text.slice(0, 2000),
+        }).then(() => {}, () => {});
+        await runOrchestrator({
+          user_id: row.user_id, conversation_id: row.conversation_id,
+          inbound_message_id: row.inbound_message_id, text,
+          to_phone: row.to_phone, source: "whatsapp", reply_context: null,
+        });
+        triggerDispatcher();
+      },
+    });
+  };
+
 
   if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
     EdgeRuntime.waitUntil(orchestrate());

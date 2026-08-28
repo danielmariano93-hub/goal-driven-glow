@@ -47,8 +47,7 @@ const PROMPT_VERSION = "v7-catalog-only";
 const ACCOUNTING_SCOPE = "behavioral_v1";
 // Insights exigem raciocínio e síntese; extração continua no modelo rápido.
 // O modelo é configurável para permitir troca controlada e rollback sem deploy.
-const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "google/gemini-2.5-pro";
-const AI_TIMEOUT_MS = 8000;
+const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "openai/gpt-5.6-sol";
 /** Quantas dicas o lote entrega por vez (carrossel do app). */
 const BATCH_SIZE = 5;
 
@@ -541,15 +540,15 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
 Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
       const userMsg = `Dica base: ${JSON.stringify(payload)}. Fatos: ${JSON.stringify(facts)}.`;
 
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
       try {
         const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
-          signal: ctrl.signal,
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
           body: JSON.stringify({
             model: MODEL,
+            // Redação curta não precisa de raciocínio: sem isso a chamada roda
+            // por minutos, é cancelada pela plataforma e ainda é cobrada.
+            reasoning_effort: "none",
             messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
             response_format: { type: "json_object" },
           }),
@@ -575,10 +574,8 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
             };
           }
         }
-      } catch (e) {
-        fallbackReason = (e as Error)?.name === "AbortError" ? "ai_timeout" : "ai_error";
-      } finally {
-        clearTimeout(timer);
+      } catch (_e) {
+        fallbackReason = "ai_error";
       }
     } else {
       fallbackReason = LOVABLE_API_KEY ? "deterministic_only" : "no_api_key";
