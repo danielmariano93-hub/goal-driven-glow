@@ -791,8 +791,48 @@ Deno.serve(async (req) => {
     } finally {
       stopHints();
       triggerDispatcher();
+      // Wake-on-message: áudio que ficou pendente por bloqueio de IA é
+      // processado aqui, sem varredura periódica e sem custo quando a fila
+      // está vazia. Falhas nunca afetam o turno atual.
+      await drainPendingAudioTurns().catch(() => {});
     }
   };
+
+  /**
+   * Drena áudios pendentes: transcreve e roda o pipeline textual normal, como
+   * se a pessoa tivesse digitado. Nenhum registro financeiro nasce aqui.
+   */
+  const drainPendingAudioTurns = async () => {
+    if (!(await shouldDrainPendingAudio(sb).catch(() => false))) return;
+    await drainPendingAudio(sb, {
+      limit: 3,
+      notify: async (row: PendingAudioRow, body: string, idempotency_key: string) => {
+        await sb.from("outbound_messages").insert({
+          user_id: row.user_id, to_phone: row.to_phone, kind: "agent", channel: "whatsapp",
+          inbound_message_id: row.inbound_message_id, idempotency_key, status: "queued", body,
+        }).then(() => {}, () => {});
+        triggerDispatcher();
+      },
+      deliver: async (row: PendingAudioRow, text: string) => {
+        if (row.inbound_message_id) {
+          await sb.from("inbound_messages")
+            .update({ body: text.slice(0, 2000), detected_intent: "audio_transcribed", media_error: null })
+            .eq("id", row.inbound_message_id).then(() => {}, () => {});
+        }
+        await sb.from("conversation_messages").insert({
+          conversation_id: row.conversation_id, user_id: row.user_id, direction: "inbound",
+          body_masked: text.slice(0, 2000),
+        }).then(() => {}, () => {});
+        await runOrchestrator({
+          user_id: row.user_id, conversation_id: row.conversation_id,
+          inbound_message_id: row.inbound_message_id, text,
+          to_phone: row.to_phone, source: "whatsapp", reply_context: null,
+        });
+        triggerDispatcher();
+      },
+    });
+  };
+
 
   if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
     EdgeRuntime.waitUntil(orchestrate());
