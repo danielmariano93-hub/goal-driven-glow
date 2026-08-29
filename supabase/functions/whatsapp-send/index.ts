@@ -26,7 +26,12 @@ async function requireAdmin(req: Request) {
 }
 
 const RENDER_TIMEOUT_MS = 25_000;
-const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("NOCONTROLE_CRON_SECRET") ?? "";
+// Aceita todos os nomes já usados pelo cron/vault: um nome faltando fazia o
+// worker devolver 401 e a fila de WhatsApp nunca ser drenada.
+const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET")
+  ?? Deno.env.get("CRON_SECRET")
+  ?? Deno.env.get("NOCONTROLE_CRON_SECRET")
+  ?? "";
 
 Deno.serve(async (req) => {
   const h = httpContext("whatsapp-send", req);
