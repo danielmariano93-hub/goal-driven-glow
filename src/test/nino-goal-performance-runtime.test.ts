@@ -13,6 +13,9 @@ import { computeGoalPerformance } from "../../supabase/functions/_shared/agent/g
 import { resolveAnalyticalPlan } from "../../supabase/functions/_shared/agent/core/AnalyticalQueryPlanner";
 import { computeGoalPerformanceAssessment } from "../lib/engine/goalPerformanceAssessment";
 import { reportingCompetenceDate } from "../lib/engine/facts";
+import { runAnalysisGates } from "../../supabase/functions/_shared/agent/core/AnalysisGates";
+import { resolveInterpretation } from "../../supabase/functions/_shared/agent/core/InterpretationResolver";
+import { formatGoalPerformance } from "../../supabase/functions/_shared/agent/core/DeterministicAnswers";
 
 const SCHEMA_COLUMNS = transactionColumns();
 
@@ -248,5 +251,48 @@ describe("golden: pergunta composta com escopo herdado", () => {
     expect(out.completeness.status).toBe("complete");
     expect(out.gates.every((g) => g.ok)).toBe(true);
     expect(out.toolCalls[0].tool_name).toBe("assess_goal_performance");
+  });
+});
+
+describe("golden P0: uma categoria acima, três abaixo", () => {
+  it("responde o agregado primeiro e mantém contagens, itens e soma coerentes", () => {
+    const categories = [
+      { name: "Transporte", current: 1200, previous: 900 },
+      { name: "Lazer", current: 700, previous: 1000 },
+      { name: "Assinaturas", current: 800, previous: 1000 },
+      { name: "Alimentação", current: 900, previous: 1000 },
+    ];
+    const goals = categories.map((c, i) => ({ ...GOAL, id: `g${i}`, category_id: `c${i}`, computed_limit: 500, fixed_limit: 500 }));
+    const txs = categories.flatMap((c, i) => [
+      tx({ id: `cur${i}`, category_id: `c${i}`, amount: c.current, occurred_at: "2026-08-10" }),
+      tx({ id: `prev${i}`, category_id: `c${i}`, amount: c.previous, occurred_at: "2026-07-10" }),
+    ]);
+    const out = computeGoalPerformanceAssessment({
+      goals: goals as any,
+      txs: txs as any,
+      categoryNameById: Object.fromEntries(categories.map((c, i) => [`c${i}`, c.name])),
+      today: new Date("2026-08-20T12:00:00"),
+      current: { from: "2026-08-01", to: "2026-08-20" },
+      comparison: { from: "2026-07-01", to: "2026-07-20" },
+      comparison_basis: "calendar_previous_month",
+    });
+    expect(out.conclusions.above_count).toBe(1);
+    expect(out.conclusions.below_count).toBe(3);
+    expect(out.aggregate.direction).toBe("below");
+    const interpretation = resolveInterpretation(out);
+    const reply = formatGoalPerformance(out, interpretation);
+    expect(reply.startsWith("Sim.")).toBe(true);
+    expect(reply).toContain("Transporte");
+    expect(reply.split("\u00a0").join(" ")).toContain("R$ 300,00 mais");
+    expect(reply.match(/menos que no período anterior/g)).toHaveLength(3);
+    const gates = runAnalysisGates({
+      assessment: out,
+      scope: { entity_type: "category", selection: "explicit_ids", entity_ids: goals.map((g) => g.category_id), entity_labels: categories.map((c) => c.name), aggregate_scope: "scoped_entities", source: "engine_resolved", locked: true },
+      requirements: [], comparison_requested: true, expected_entity_count: 4,
+      expected_current_period: { from: "2026-08-01", to: "2026-08-20" },
+      expected_comparison_period: { from: "2026-07-01", to: "2026-07-20" },
+      expected_comparison_basis: "calendar_previous_month",
+    });
+    expect(gates.filter((g) => !g.ok)).toEqual([]);
   });
 });

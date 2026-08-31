@@ -131,12 +131,15 @@ export async function runCompositeAnalysis(
     requirements: plan.requirements,
     comparison_requested: comparisonRequested,
     expected_entity_count: categories.length,
+    expected_current_period: plan.periods.current,
+    expected_comparison_period: plan.periods.comparison,
+    expected_comparison_basis: plan.periods.comparison_basis,
   });
   if (!gatesPassed(gates)) {
     // Regra dura: não respondemos análise que viola contrato de escopo ou
     // separação meta/tendência — e também não deixamos o fluxo antigo
     // responder outra coisa no lugar.
-    return fail("gates_failed:" + failedGates(gates).map((g) => g.gate).join(","), [exec]);
+    return fail("gates_failed:" + failedGates(gates).map((g) => `${g.gate}(${g.detail ?? "sem detalhe"})`).join(","), [exec]);
   }
 
   const interpretation = resolveInterpretation(assessment);

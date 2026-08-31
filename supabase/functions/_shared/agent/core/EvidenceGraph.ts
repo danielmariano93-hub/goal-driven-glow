@@ -14,6 +14,7 @@ export type EvidenceNode = {
   period: { from: string; to: string };
   comparison_period?: { from: string; to: string } | null;
   confidence: string;
+  direction?: "below" | "above" | "equal";
 };
 
 export type EvidenceGraphPayload = {
@@ -37,6 +38,7 @@ export function buildEvidenceGraph(assessment: any): EvidenceGraphPayload {
       source_engine: String(assessment?.formula_version ?? "goal_performance_assessment.v1"),
       period: { from: String(current.from), to: String(current.to) },
       confidence: String(c.historical?.confidence ?? "low"),
+      direction: c.historical?.direction,
     });
     nodes.push({
       claim: `${c.category_name}: ${c.historical?.trend}`,
@@ -60,6 +62,7 @@ export function buildEvidenceGraph(assessment: any): EvidenceGraphPayload {
       period: { from: String(current.from), to: String(current.to) },
       comparison_period: comparison ? { from: String(comparison.from), to: String(comparison.to) } : null,
       confidence: String(assessment?.confidence ?? "low"),
+      direction: assessment.aggregate.direction,
     });
   }
 

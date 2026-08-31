@@ -1298,7 +1298,14 @@ export async function get_goal_strategy(
  */
 export async function assess_goal_performance(
   ctx: ToolContext,
-  args: { comparison_from?: string | null; comparison_to?: string | null; category_ids?: string[] | null } = {},
+  args: {
+    current_from?: string | null;
+    current_to?: string | null;
+    comparison_from?: string | null;
+    comparison_to?: string | null;
+    comparison_basis?: "calendar_previous_month" | "preceding_window" | null;
+    category_ids?: string[] | null;
+  } = {},
 ): Promise<ToolResult> {
   try {
     const result = await computeGoalPerformance(ctx.sb, ctx.user_id, args);
@@ -2462,8 +2469,11 @@ export const AGENT_TOOLS: ToolSpec[] = [
     parameters: {
       type: "object",
       properties: {
+        current_from: { type: "string", description: "Início do recorte atual (YYYY-MM-DD)." },
+        current_to: { type: "string", description: "Fim do recorte atual (YYYY-MM-DD)." },
         comparison_from: { type: "string", description: "Início do recorte de comparação (YYYY-MM-DD). Vazio usa o mesmo período do mês anterior." },
         comparison_to: { type: "string", description: "Fim do recorte de comparação (YYYY-MM-DD)." },
+        comparison_basis: { type: "string", enum: ["calendar_previous_month", "preceding_window"], description: "Base explícita da comparação." },
         category_ids: { type: "array", items: { type: "string" }, description: "Escopo explícito de categorias. Vazio usa todas as categorias com meta ativa." },
       },
       additionalProperties: false,

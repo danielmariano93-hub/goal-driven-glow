@@ -52,6 +52,9 @@ export type GoalPerformanceState =
 export type EngineConfidenceLevel = "insufficient" | "low" | "medium" | "high";
 
 export type GoalPerformancePeriod = { from: string; to: string; label?: string };
+export type ComparisonDirection = "below" | "above" | "equal";
+export type ComparisonMateriality = "material_improvement" | "material_worsening" | "immaterial_change";
+export type GoalComparisonBasis = "calendar_previous_month" | "preceding_window";
 
 export type GoalPerformanceCategory = {
   category_id: string;
@@ -72,6 +75,8 @@ export type GoalPerformanceCategory = {
     delta: number;
     delta_pct: number | null;
     trend: HistoricalTrend;
+    direction: ComparisonDirection;
+    materiality: ComparisonMateriality;
     confidence: EngineConfidenceLevel;
   };
   interpretation: { state: GoalPerformanceState };
@@ -82,6 +87,7 @@ export type GoalPerformanceAssessment = {
   period: {
     current: GoalPerformancePeriod;
     comparison: GoalPerformancePeriod;
+    comparison_basis: GoalComparisonBasis;
     methodology: string;
   };
   freshness: {
@@ -101,6 +107,7 @@ export type GoalPerformanceAssessment = {
     vs_target_pct: number | null;
     vs_previous: number;
     vs_previous_pct: number | null;
+    direction: ComparisonDirection;
   };
   conclusions: {
     goals_total: number;
@@ -108,6 +115,11 @@ export type GoalPerformanceAssessment = {
     goals_missed: number;
     improved_count: number;
     worsened_count: number;
+    below_count: number;
+    above_count: number;
+    equal_count: number;
+    material_improvement_count: number;
+    material_worsening_count: number;
     goal_attainment_summary: string;
     behavioral_evolution: "improving" | "worsening" | "mixed" | "stable" | "insufficient_data";
     strongest_improvement: { category_name: string; delta: number } | null;
@@ -205,6 +217,16 @@ export function classifyTrend(current: number, previous: number): HistoricalTren
   return "stable";
 }
 
+export function comparisonDirection(delta: number): ComparisonDirection {
+  return delta < 0 ? "below" : delta > 0 ? "above" : "equal";
+}
+
+export function comparisonMateriality(trend: HistoricalTrend): ComparisonMateriality {
+  if (isImproving(trend)) return "material_improvement";
+  if (isWorsening(trend)) return "material_worsening";
+  return "immaterial_change";
+}
+
 function isImproving(trend: HistoricalTrend): boolean {
   return trend === "improved" || trend === "strongly_improved";
 }
@@ -246,8 +268,11 @@ export type GoalPerformanceInput = {
   txs: TransactionRow[];
   categoryNameById?: Record<string, string>;
   today: Date;
+  /** Recorte atual explícito do plano analítico. */
+  current?: { from: string; to: string };
   /** Recorte de comparação; default = mesmo período do mês anterior. */
   comparison?: { from: string; to: string };
+  comparison_basis?: GoalComparisonBasis;
   /** Escopo explícito (ids de categoria) quando o turno o preserva. */
   entity_ids?: string[];
   freshness?: { ledger_version: number | null; source: "ledger" | "derived_cache"; stale: boolean };
@@ -275,7 +300,7 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
   const currentTo = evaluations.length
     ? evaluations.map((e) => e.ev.calculationReferenceDate).sort().slice(-1)[0]
     : isoOf(input.today);
-  const current: GoalPerformancePeriod = { from: currentFrom, to: currentTo };
+  const current: GoalPerformancePeriod = input.current ?? { from: currentFrom, to: currentTo };
   const comparison: GoalPerformancePeriod = input.comparison ?? samePeriodPreviousMonth(current);
 
   const comparable = Math.abs(daysInclusive(current.from, current.to) - daysInclusive(comparison.from, comparison.to)) <= 1;
@@ -289,6 +314,7 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
     const trend = classifyTrend(cur.amount, prev.amount);
     const goalDelta = round2(ev.actualSpend - ev.targetAmount);
     const histDelta = round2(cur.amount - prev.amount);
+    const direction = comparisonDirection(histDelta);
     return {
       category_id: goal.category_id,
       category_name: ev.categoryName ?? names[goal.category_id] ?? "Categoria",
@@ -306,6 +332,8 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
         delta: histDelta,
         delta_pct: pct(histDelta, prev.amount),
         trend,
+        direction,
+        materiality: comparisonMateriality(trend),
         confidence: confidenceOf(cur.rows + prev.rows, comparable),
       },
       interpretation: { state: crossState(status, trend) },
@@ -322,6 +350,9 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
   const missed = categories.filter((c) => c.goal.status === "missed").length;
   const improved = categories.filter((c) => isImproving(c.historical.trend)).length;
   const worsened = categories.filter((c) => isWorsening(c.historical.trend)).length;
+  const below = categories.filter((c) => c.historical.direction === "below").length;
+  const above = categories.filter((c) => c.historical.direction === "above").length;
+  const equal = categories.filter((c) => c.historical.direction === "equal").length;
 
   const bestImprovement = [...categories].sort((a, b) => a.historical.delta - b.historical.delta)[0] ?? null;
   const worstDeterioration = [...categories].sort((a, b) => b.historical.delta - a.historical.delta)[0] ?? null;
@@ -362,6 +393,7 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
     period: {
       current,
       comparison,
+      comparison_basis: input.comparison_basis ?? "calendar_previous_month",
       methodology: `Metas por categoria avaliadas no recorte ${current.from} a ${current.to}`
         + ` e comparadas com ${comparison.from} a ${comparison.to}`
         + `${comparable ? "" : " (janelas de tamanhos diferentes)"}.`
@@ -384,6 +416,7 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
       vs_target_pct: pct(vsTarget, totalTarget),
       vs_previous: vsPrevious,
       vs_previous_pct: pct(vsPrevious, prevSpend),
+      direction: comparisonDirection(vsPrevious),
     },
     conclusions: {
       goals_total: categories.length,
@@ -391,6 +424,11 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
       goals_missed: missed,
       improved_count: improved,
       worsened_count: worsened,
+      below_count: below,
+      above_count: above,
+      equal_count: equal,
+      material_improvement_count: improved,
+      material_worsening_count: worsened,
       goal_attainment_summary: categories.length === 0
         ? "Você ainda não tem metas por categoria ativas."
         : missed === 0

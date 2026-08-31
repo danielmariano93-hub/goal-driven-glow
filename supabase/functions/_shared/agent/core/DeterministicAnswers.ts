@@ -566,20 +566,30 @@ export function formatGoalPerformance(
     const goalPart = c.goal?.status === "achieved"
       ? `dentro do teto (${money(c.goal.actual)} de ${money(c.goal.target)})`
       : `acima do teto em ${money(Math.abs(Number(c.goal?.actual ?? 0) - Number(c.goal?.target ?? 0)))} (${money(c.goal?.actual)} de ${money(c.goal?.target)})`;
+    const direction = String(c.historical?.direction ?? "equal");
+    const immaterial = c.historical?.materiality === "immaterial_change";
+    const qualifier = immaterial && direction !== "equal" ? " (variação pequena)" : "";
     const trendPart = !opts.comparison_requested || c.historical?.trend === "insufficient_data"
       ? ""
-      : Number(c.historical?.delta ?? 0) < 0
-        ? `, e ${money(Math.abs(Number(c.historical.delta)))} menos que no período anterior`
-        : Number(c.historical?.delta ?? 0) > 0
-          ? `, e ${money(Number(c.historical.delta))} mais que no período anterior`
+      : direction === "below"
+        ? `, e ${money(Math.abs(Number(c.historical.delta)))} menos que no período anterior${qualifier}`
+        : direction === "above"
+          ? `, e ${money(Math.abs(Number(c.historical.delta)))} mais que no período anterior${qualifier}`
           : `, praticamente igual ao período anterior`;
     lines.push(`• ${c.category_name}: ${goalPart}${trendPart}.`);
   }
 
   const agg = assessment?.aggregate;
   if (agg && Number(agg.total_target ?? 0) > 0) {
+    const aggregateDirection = String(agg.direction ?? "equal");
+    const aggregateDelta = Math.abs(Number(agg.vs_previous ?? 0));
+    const aggregateComparison = aggregateDirection === "below"
+      ? `${money(aggregateDelta)} menos`
+      : aggregateDirection === "above"
+        ? `${money(aggregateDelta)} mais`
+        : "o mesmo valor";
     const versus = opts.comparison_requested && Number(agg.previous_spend ?? 0) > 0
-      ? ` — no período anterior essas mesmas categorias somaram ${money(agg.previous_spend)}`
+      ? ` — ${aggregateComparison} que os ${money(agg.previous_spend)} do período anterior`
       : "";
     lines.push(`No conjunto dessas categorias: ${money(agg.current_spend)} de ${money(agg.total_target)} de teto${versus}.`);
   }

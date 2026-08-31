@@ -52,9 +52,12 @@ async function loadTransactions(sb: SupabaseClient, userId: string, from: string
 
 
 export type GoalPerformanceArgs = {
+  current_from?: string | null;
+  current_to?: string | null;
   comparison_from?: string | null;
   comparison_to?: string | null;
   category_ids?: string[] | null;
+  comparison_basis?: "calendar_previous_month" | "preceding_window" | null;
 };
 
 export async function computeGoalPerformance(
@@ -62,7 +65,7 @@ export async function computeGoalPerformance(
   userId: string,
   args: GoalPerformanceArgs = {},
 ): Promise<GoalPerformanceAssessment> {
-  const today = todaySaoPaulo();
+  const today = args.current_to ? String(args.current_to) : todaySaoPaulo();
   const todayDate = new Date(`${today}T12:00:00`);
 
   const [goalsRes, categoriesRes, versionRes] = await Promise.all([
@@ -85,7 +88,7 @@ export async function computeGoalPerformance(
   for (const c of (categoriesRes.data ?? []) as any[]) categoryNameById[String(c.id)] = String(c.name);
 
   // Recorte atual = mês da meta; a comparação define o início da carga.
-  const currentFrom = `${today.slice(0, 7)}-01`;
+  const currentFrom = args.current_from ? String(args.current_from) : `${today.slice(0, 7)}-01`;
   const comparison = args.comparison_from && args.comparison_to
     ? { from: String(args.comparison_from), to: String(args.comparison_to) }
     : samePeriodPreviousMonth({ from: currentFrom, to: today });
@@ -99,7 +102,9 @@ export async function computeGoalPerformance(
     txs: txs as any,
     categoryNameById,
     today: todayDate,
+    current: { from: currentFrom, to: today },
     comparison,
+    comparison_basis: args.comparison_basis ?? "calendar_previous_month",
     entity_ids: args.category_ids?.length ? args.category_ids.map(String) : undefined,
     freshness: {
       ledger_version: versionRes?.data?.version ?? null,
