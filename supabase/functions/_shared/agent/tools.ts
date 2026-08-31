@@ -1237,11 +1237,13 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
       };
     });
     const categoryItems = snap.active_category_goals.map((goal) => ({
-      id: goal.goal_id, name: goal.category_name ?? "Categoria", type: "category", status: goal.status,
+      id: goal.goal_id, category_id: goal.category_id,
+      name: goal.category_name ?? "Categoria", type: "category", status: goal.status,
       target: goal.target_amount, achieved: goal.actual_spend,
       attainment_pct: goal.actual_spend <= goal.target_amount ? 100 : Math.max(0, Math.round(goal.target_amount / Math.max(1, goal.actual_spend) * 10000) / 100),
       remaining: goal.remaining_amount,
     }));
+
     const memberGoalIds = [...new Set(((memberRes.data ?? []) as any[]).map((m) => m.goal_id).filter(Boolean))];
     const memberSharedRes = memberGoalIds.length
       ? await ctx.sb.from("shared_goals").select("id,title,target_amount,status,deadline").in("id", memberGoalIds)
