@@ -10,7 +10,7 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-08-31.1";
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-08-31.2";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v2";
 
@@ -23,5 +23,19 @@ export function runtimeStamp(): RuntimeStamp {
   return {
     runtime_version: AGENT_RUNTIME_VERSION,
     analytical_contract_version: ANALYTICAL_CONTRACT_VERSION,
+  };
+}
+
+/** Contexto mínimo gravado desde a abertura do run, antes de qualquer atalho. */
+export function runtimeContext(finalPath = "routing") {
+  return {
+    analytical_path: {
+      ...runtimeStamp(),
+      composite_plan_matched: false,
+      goal_performance_tool_started: false,
+      goal_performance_tool_failed: false,
+      fallback_reason: null,
+      final_path: finalPath,
+    },
   };
 }

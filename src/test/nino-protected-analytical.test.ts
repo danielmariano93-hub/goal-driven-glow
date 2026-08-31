@@ -24,6 +24,7 @@ const INHERITED_SCOPE = {
 };
 
 const INCIDENT_TEXT = "Comparando essas categorias com o mesmo período do mês anterior, como eu fui?";
+const FULL_INCIDENT_TEXT = "Nino, me traga um overview das minhas metas no mês atual, se eu atingi ela ou ultrapassei, e compare essas mesmas categorias com o mesmo período do mês passado. Quero saber se, mesmo ultrapassando algumas metas, se ainda fiquei abaixo do gasto nessas mesmas categorias no mês anterior.";
 
 describe("classificação de consulta analítica protegida", () => {
   it("protege a frase exata do incidente", () => {
@@ -68,6 +69,16 @@ describe("allowlist de motor", () => {
 });
 
 describe("plano analítico para a pergunta do incidente", () => {
+  it("protege a frase completa do print em um único turno", () => {
+    const classification = classifyProtectedAnalytical({ text: FULL_INCIDENT_TEXT, previous_scope: null });
+    const plan = resolveAnalyticalPlan({ text: FULL_INCIDENT_TEXT, previous_scope: null, now: NOW });
+    expect(classification.is_protected).toBe(true);
+    expect(plan?.protected_route).toBe(true);
+    expect(plan?.engines.map((engine) => engine.tool)).toEqual([GOAL_PERFORMANCE_TOOL]);
+    expect(plan?.scope.aggregate_scope).toBe("scoped_entities");
+    expect(plan?.periods.current).toEqual({ from: "2026-08-01", to: "2026-08-20", label: "mês atual" });
+    expect(plan?.periods.comparison).toEqual({ from: "2026-07-01", to: "2026-07-20" });
+  });
   it("casa o plano, preserva os IDs herdados e usa a ferramenta canônica", () => {
     const plan = resolveAnalyticalPlan({ text: INCIDENT_TEXT, previous_scope: INHERITED_SCOPE, now: NOW });
     expect(plan).not.toBeNull();
@@ -154,7 +165,7 @@ describe("gate entity_set_identity", () => {
 
 describe("contrato de runtime", () => {
   it("expõe versões estampadas em cada run", () => {
-    expect(AGENT_RUNTIME_VERSION).toMatch(/^nino-agent-/);
+    expect(AGENT_RUNTIME_VERSION).toBe("nino-agent-p0.2026-08-31.2");
     expect(ANALYTICAL_CONTRACT_VERSION).toBe("nino_analytical.v2");
   });
 });

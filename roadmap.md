@@ -7,3 +7,7 @@
 - [x] Persistir snapshot analítico auditável no run
 - [x] Cobrir incidente e mutações com testes
 - [x] Sincronizar finance-core e validar suítes/build
+- [ ] Fechar rota comparativa de metas contra exceções e atalhos legados
+- [ ] Carimbar a versão do runtime em todos os caminhos de agent_runs
+- [ ] Cobrir o incidente completo e falhas do motor com testes executáveis
+- [ ] Validar suíte, typecheck e contratos de deploy sem publicar
