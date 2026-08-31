@@ -73,6 +73,11 @@ function cashDateOf(t) {
   if (hasBankPosting(t)) return String(t.posted_at);
   return t.competence_date || t.occurred_at;
 }
+function reportingCompetenceDate(t) {
+  const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
+  if (isCard && t.competence_date) return String(t.competence_date).slice(0, 10);
+  return String(t.occurred_at).slice(0, 10);
+}
 function txOrigin(t) {
   if (t.credit_card_id) return "credit_card";
   const pm = (t.payment_method ?? "").toString().toLowerCase();
@@ -201,7 +206,7 @@ function computeCategoryBreakdown(txs, categories, ym, type = "expense") {
   const byCat = {};
   const attribution = buildRefundAttribution(txs);
   for (const t of txs) {
-    if (!isInMonth(t.occurred_at, ym)) continue;
+    if (!isInMonth(reportingCompetenceDate(t), ym)) continue;
     const signed = behavioralMetricAmount(t, type);
     if (signed === 0) continue;
     const key = effectiveCategoryId(t, attribution) ?? "__none__";
