@@ -148,6 +148,18 @@ describe("assess_goal_performance: contrato real do banco", () => {
     expect(plan).not.toBeNull();
     expect(plan!.engines[0].tool).toBe("assess_goal_performance");
   });
+
+  it("golden temporal: mês atual permanece agosto e comparação permanece julho", () => {
+    const text = "Me traga um overview das minhas metas no mês atual, diga se eu atingi ou ultrapassei e compare essas mesmas categorias com o mesmo período do mês passado";
+    const turn = resolveAnalyticalPlan({ text, now: new Date("2026-08-31T12:00:00Z") });
+    expect(turn?.periods.current).toMatchObject({ from: "2026-08-01", to: "2026-08-31" });
+    expect(turn?.periods.comparison).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+    expect(turn?.periods.comparison_basis).toBe("calendar_previous_month");
+    expect(turn?.engines[0].args).toMatchObject({
+      current_from: "2026-08-01", current_to: "2026-08-31",
+      comparison_from: "2026-07-01", comparison_to: "2026-07-31",
+    });
+  });
 });
 
 // -------------------------------------------------- competência de relatório
@@ -294,5 +306,34 @@ describe("golden P0: uma categoria acima, três abaixo", () => {
       expected_comparison_basis: "calendar_previous_month",
     });
     expect(gates.filter((g) => !g.ok)).toEqual([]);
+  });
+});
+
+describe("ciclos de meta heterogêneos", () => {
+  it("sinaliza custom incompatível sem forçar igualdade artificial", () => {
+    const custom = {
+      ...GOAL, id: "custom", period_type: "custom", frequency: "custom",
+      start_date: "2026-08-05", end_date: "2026-09-03",
+    };
+    const out = computeGoalPerformanceAssessment({
+      goals: [custom] as any,
+      txs: [tx({ amount: 200, occurred_at: "2026-08-06" })] as any,
+      categoryNameById: { c1: "Alimentação" },
+      today: new Date("2026-08-20T12:00:00Z"),
+      current: { from: "2026-08-01", to: "2026-08-20" },
+      comparison: { from: "2026-07-01", to: "2026-07-20" },
+    });
+    expect(out.categories[0].period_compatibility).toBe("incompatible");
+    expect(out.categories[0].goal_period).toMatchObject({ from: "2026-08-05", to: "2026-08-20" });
+    const gates = runAnalysisGates({
+      assessment: out,
+      scope: { entity_type: "category", selection: "explicit_ids", entity_ids: ["c1"], entity_labels: ["Alimentação"], aggregate_scope: "scoped_entities", source: "engine_resolved", locked: true },
+      requirements: [], comparison_requested: true, expected_entity_count: 1,
+      expected_current_period: { from: "2026-08-01", to: "2026-08-20" },
+      expected_comparison_period: { from: "2026-07-01", to: "2026-07-20" },
+      expected_comparison_basis: "calendar_previous_month",
+    });
+    expect(gates.filter((g) => !g.ok)).toEqual([]);
+    expect(formatGoalPerformance(out, resolveInterpretation(out))).toContain("diferente do recorte comparado");
   });
 });
