@@ -8,6 +8,7 @@ import { httpContext } from "../_shared/http.ts";
 import { computeFinancialPerformance } from "../_shared/finance-core/financialPerformance.ts";
 import { computeAdvisorDecision } from "../_shared/finance-core/advisorRelevance.ts";
 import { today as localToday } from "../_shared/finance-core/ninoClock.ts";
+import { fetchAllPages } from "../_shared/derived/pagedSelect.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -49,11 +50,14 @@ Deno.serve(async (req) => {
   try {
     const asOf = localToday(null);
     const [txsRes, catsRes, affinityRes] = await Promise.all([
-      sb.from("transactions").select("*")
+      // Paginado: `.limit(20000)` retornava 1.000 linhas em silêncio.
+      fetchAllPages<any>((a, b) => sb.from("transactions").select("*")
         .eq("user_id", target)
         .gte("occurred_at", shiftDays(asOf, -420))
         .lte("occurred_at", asOf)
-        .limit(20000),
+        .order("occurred_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(a, b), { source: "transactions" }).then((data) => ({ data, error: null })),
       sb.from("categories").select("id,name").or(`user_id.eq.${target},user_id.is.null`),
       sb.from("user_advisor_topic_affinity")
         .select("topic_key,score,signals,last_seen_at").eq("user_id", target),

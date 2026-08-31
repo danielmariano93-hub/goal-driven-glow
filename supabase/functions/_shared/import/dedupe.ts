@@ -17,6 +17,7 @@
 
 import { merchantCanonical } from "../categorization/normalize.ts";
 import type { ImportItem } from "./schema.ts";
+import { fetchAllPages } from "../derived/pagedSelect.ts";
 
 export type ExistingTx = {
   id: string;
@@ -261,12 +262,16 @@ export async function fetchExistingCandidates(
   const from = shift(dates[0], -windowDays);
   const to = shift(dates[dates.length - 1], windowDays);
 
-  const { data } = await sb
+  // Paginado: duplicata só é detectada se o candidato estiver na amostra, e a
+  // Data API devolvia no máximo 1.000 linhas ignorando o limite pedido.
+  const data = await fetchAllPages<ExistingTx>((a, b) => sb
     .from("transactions")
     .select("id, type, amount, occurred_at, posted_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id, source_document_id, source_line_index, status")
     .eq("user_id", user_id)
     .gte("occurred_at", from)
     .lte("occurred_at", to)
-    .limit(opts.limit ?? 4000);
-  return ((data ?? []) as ExistingTx[]);
+    .order("occurred_at", { ascending: true })
+    .order("id", { ascending: true })
+    .range(a, b), { source: "transactions" });
+  return data;
 }

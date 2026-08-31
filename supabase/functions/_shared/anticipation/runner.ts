@@ -26,6 +26,7 @@ import { orchestrateAttention } from "./orchestrator.ts";
 import { decideStale } from "./staleness.ts";
 import { detectCashPressure, type Commitment, type ExpectedIncome } from "./cashPressure.ts";
 import { computeFutureIncomeProjection, type RecurringRow, type TransactionRow } from "../finance-core/index.ts";
+import { fetchAllPages } from "../derived/pagedSelect.ts";
 
 /**
  * Coleta os compromissos REAIS já registrados até a próxima entrada prevista e
@@ -303,9 +304,11 @@ export async function runAnticipationForUser(
   }
 
   const [txResp, categoriesResp, cardsResp, statementsResp] = await Promise.all([
-    sb.from("transactions").select(TX_FIELDS)
+    // Paginado: `.limit(8000)` era cortado em 1.000 linhas em silêncio.
+    fetchAllPages<any>((from, to) => sb.from("transactions").select(TX_FIELDS)
       .eq("user_id", userId).gte("occurred_at", isoDaysAgo(WINDOW_DAYS))
-      .order("occurred_at", { ascending: true }).limit(8000),
+      .order("occurred_at", { ascending: true }).order("id", { ascending: true })
+      .range(from, to), { source: "transactions" }).then((data) => ({ data, error: null })),
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
     sb.from("credit_cards").select("id,closing_day").eq("user_id", userId),
     sb.from("credit_card_statements").select("credit_card_id,competence_month,reconciled_total,stated_total,status,period_start,period_end")

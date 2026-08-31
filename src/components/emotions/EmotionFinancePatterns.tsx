@@ -10,6 +10,7 @@ import {
   type EmotionPattern,
 } from "@/lib/engine/emotionFinance";
 import type { TransactionRow } from "@/lib/engine/facts";
+import { fetchAllPages } from "@/lib/db/pagedSelect";
 
 const TX_SELECT =
   "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id";
@@ -58,7 +59,11 @@ export function EmotionFinancePatterns() {
       const from = shift(to, -(lookback - 1));
 
       const [txResp, checkinResp, catResp, cardResp] = await Promise.all([
-        supabase.from("transactions").select(TX_SELECT).gte("occurred_at", from).lte("occurred_at", to).limit(4000),
+        // Paginado: `.limit(4000)` era cortado em 1.000 linhas em silêncio.
+        fetchAllPages<any>((a, b) => supabase.from("transactions").select(TX_SELECT)
+          .gte("occurred_at", from).lte("occurred_at", to)
+          .order("occurred_at", { ascending: true }).order("id", { ascending: true })
+          .range(a, b), { source: "transactions" }).then((data) => ({ data, error: null })),
         supabase.from("emotional_checkins").select("occurred_at,mood,emotion_key,trigger_label")
           .gte("occurred_at", `${from}T00:00:00`).order("occurred_at", { ascending: false }).limit(400),
         supabase.from("categories").select("id,name"),
