@@ -60,6 +60,9 @@ export type GoalPerformanceCategory = {
   category_id: string;
   category_name: string;
   goal_id: string;
+  goal_period: GoalPerformancePeriod;
+  analysis_period: GoalPerformancePeriod;
+  period_compatibility: "compatible" | "incompatible";
   goal: {
     target: number;
     actual: number;
@@ -315,10 +318,17 @@ export function computeGoalPerformanceAssessment(input: GoalPerformanceInput): G
     const goalDelta = round2(ev.actualSpend - ev.targetAmount);
     const histDelta = round2(cur.amount - prev.amount);
     const direction = comparisonDirection(histDelta);
+    const goalPeriod = { from: ev.period.start, to: ev.calculationReferenceDate };
+    const periodCompatibility = goalPeriod.from === current.from && goalPeriod.to === current.to
+      ? "compatible" as const
+      : "incompatible" as const;
     return {
       category_id: goal.category_id,
       category_name: ev.categoryName ?? names[goal.category_id] ?? "Categoria",
       goal_id: String(goal.id ?? ""),
+      goal_period: goalPeriod,
+      analysis_period: { from: current.from, to: current.to },
+      period_compatibility: periodCompatibility,
       goal: {
         target: round2(ev.targetAmount),
         actual: round2(ev.actualSpend),

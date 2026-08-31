@@ -65,7 +65,9 @@ export async function computeGoalPerformance(
   userId: string,
   args: GoalPerformanceArgs = {},
 ): Promise<GoalPerformanceAssessment> {
-  const today = args.current_to ? String(args.current_to) : todaySaoPaulo();
+  // A data de avaliação da meta é o hoje real. O recorte analítico não pode
+  // viajar o relógio do ciclo da meta para o fim de outra janela.
+  const today = todaySaoPaulo();
   const todayDate = new Date(`${today}T12:00:00`);
 
   const [goalsRes, categoriesRes, versionRes] = await Promise.all([
@@ -89,12 +91,14 @@ export async function computeGoalPerformance(
 
   // Recorte atual = mês da meta; a comparação define o início da carga.
   const currentFrom = args.current_from ? String(args.current_from) : `${today.slice(0, 7)}-01`;
+  const currentTo = args.current_to ? String(args.current_to) : today;
   const comparison = args.comparison_from && args.comparison_to
     ? { from: String(args.comparison_from), to: String(args.comparison_to) }
-    : samePeriodPreviousMonth({ from: currentFrom, to: today });
+    : samePeriodPreviousMonth({ from: currentFrom, to: currentTo });
 
   const loadFrom = comparison.from < currentFrom ? comparison.from : currentFrom;
-  const txs = await loadTransactions(sb, userId, shiftDays(loadFrom, -COMPETENCE_LOOKBACK_DAYS), today);
+  const loadTo = currentTo > today ? currentTo : today;
+  const txs = await loadTransactions(sb, userId, shiftDays(loadFrom, -COMPETENCE_LOOKBACK_DAYS), loadTo);
 
 
   return computeGoalPerformanceAssessment({
@@ -102,7 +106,7 @@ export async function computeGoalPerformance(
     txs: txs as any,
     categoryNameById,
     today: todayDate,
-    current: { from: currentFrom, to: today },
+    current: { from: currentFrom, to: currentTo },
     comparison,
     comparison_basis: args.comparison_basis ?? "calendar_previous_month",
     entity_ids: args.category_ids?.length ? args.category_ids.map(String) : undefined,

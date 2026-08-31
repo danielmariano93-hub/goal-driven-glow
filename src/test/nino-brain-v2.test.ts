@@ -10,6 +10,7 @@ import {
   comparablePrevious,
   currentMonthPeriod,
   resolvePeriodPt,
+  resolvePeriodRolesPt,
 } from "../../supabase/functions/_shared/analytics/periodResolver";
 import {
   buildTurnPlan,
@@ -74,6 +75,23 @@ describe("period_truth.v1", () => {
     expect(resolvePeriodPt("mesmo período do mês passado", now)).toMatchObject({ from: "2026-07-01", to: "2026-07-16" });
   });
 
+  it("não deixa a comparação sobrescrever o mês atual", () => {
+    const roles = resolvePeriodRolesPt(
+      "Traga o overview do mês atual e compare essas categorias com o mesmo período do mês passado",
+      new Date("2026-08-31T15:00:00Z"),
+    );
+    expect(roles.current_period).toMatchObject({ from: "2026-08-01", to: "2026-08-31" });
+    expect(roles.comparison_period).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+    expect(roles.comparison_basis).toBe("calendar_previous_month");
+    expect(roles.source_span.current).toBe("mes atual");
+  });
+
+  it("mantém mês passado como principal quando não há comparação", () => {
+    const roles = resolvePeriodRolesPt("quanto gastei no mês passado?", now);
+    expect(roles.current_period).toMatchObject({ from: "2026-07-01", to: "2026-07-31" });
+    expect(roles.comparison_period).toBeNull();
+  });
+
   it("sem período citado retorna null e o default é o mês em curso", () => {
     expect(resolvePeriodPt("onde meu dinheiro está escapando?", now)).toBeNull();
     expect(currentMonthPeriod(now)).toMatchObject({ from: "2026-08-01", to: "2026-08-16" });
@@ -99,6 +117,15 @@ describe("nino_brain.v2 — compreensão do turno", () => {
     const tasks = splitTasks("quanto gastei este mês e quais categorias mais consomem?");
     expect(tasks.length).toBe(2);
     expect(buildTurnPlan({ text: "quanto gastei este mês e quais categorias mais consomem?", now }).composed).toBe(true);
+  });
+
+  it("o plano do turno preserva os dois papéis temporais", () => {
+    const plan = buildTurnPlan({
+      text: "No mês atual, mostre minhas metas e compare com o mesmo período do mês passado",
+      now: new Date("2026-08-31T15:00:00Z"),
+    });
+    expect(plan.effective_period).toMatchObject({ from: "2026-08-01", to: "2026-08-31" });
+    expect(plan.period_roles.comparison_period).toEqual({ from: "2026-07-01", to: "2026-07-31" });
   });
 });
 

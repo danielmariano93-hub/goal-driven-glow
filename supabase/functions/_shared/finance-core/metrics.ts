@@ -429,18 +429,21 @@ export function resolveGoalPeriod(goal: CategorySpendingGoalRow, today: Date): D
   const todayIso = todayISO(today);
 
   if (type === "monthly_recurring") {
-    const anchor = new Date(Math.max(new Date(goal.start_date + "T00:00:00").getTime(), today.getTime()));
-    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    // Datas financeiras são civis em America/Sao_Paulo. Construir meia-noite
+    // local fazia o runtime UTC deslocar o ciclo para o mês anterior.
+    const anchorIso = todayIso < goal.start_date ? goal.start_date : todayIso;
+    const [anchorYear, anchorMonth] = anchorIso.split("-").map(Number);
+    const monthStart = `${anchorYear}-${String(anchorMonth).padStart(2, "0")}-01`;
+    const monthEnd = todayISO(new Date(Date.UTC(anchorYear, anchorMonth, 0, 12)));
     // Se o mês de hoje é anterior ao start_date da meta, usa o próprio mês do start.
     if (todayIso < goal.start_date) {
-      const gs = new Date(goal.start_date + "T00:00:00");
+      const [goalYear, goalMonth] = goal.start_date.split("-").map(Number);
       return {
-        start: todayISO(new Date(gs.getFullYear(), gs.getMonth(), 1)),
-        end: todayISO(new Date(gs.getFullYear(), gs.getMonth() + 1, 0)),
+        start: `${goalYear}-${String(goalMonth).padStart(2, "0")}-01`,
+        end: todayISO(new Date(Date.UTC(goalYear, goalMonth, 0, 12))),
       };
     }
-    return { start: todayISO(start), end: todayISO(end) };
+    return { start: monthStart, end: monthEnd };
   }
 
   // Casos com datas explícitas (this_month, next_month, next_30_days, custom):

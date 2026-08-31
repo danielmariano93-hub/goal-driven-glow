@@ -14,6 +14,13 @@ export type ResolvedPeriod = {
   kind: "day" | "week" | "month" | "rolling" | "range";
 };
 
+export type PeriodRoleContract = {
+  current_period: ResolvedPeriod;
+  comparison_period: { from: string; to: string; label?: string } | null;
+  comparison_basis: "calendar_previous_month" | "preceding_window" | null;
+  source_span: { current: string; comparison: string | null };
+};
+
 const MONTHS: Record<string, number> = {
   janeiro: 1, fevereiro: 2, marco: 3, abril: 4, maio: 5, junho: 6,
   julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
@@ -149,6 +156,68 @@ export function currentMonthPeriod(now: Date = new Date()): ResolvedPeriod {
   const [year, month] = today.split("-").map(Number);
   const p = monthPeriod(year, month, today, false);
   return { ...p, label: "este mês", matched: "" };
+}
+
+/**
+ * Resolve as expressões temporais pelo PAPEL que exercem na pergunta.
+ * Uma referência introduzida por "comparado/versus" nunca substitui o
+ * período principal. Esse contrato é a fonte única para planner e telemetria.
+ */
+export function resolvePeriodRolesPt(text: string, now: Date = new Date()): PeriodRoleContract {
+  const raw = String(text ?? "");
+  const normalized = norm(raw);
+
+  const namedPair = normalized.match(new RegExp(`\\b(${MONTH_LABELS.join("|")})(?:\\s+de\\s+(20\\d{2}))?\\s+(?:comparad[oa]s?\\s+(?:a|com)|versus|vs)\\s+(?:o\\s+)?(${MONTH_LABELS.join("|")})(?:\\s+de\\s+(20\\d{2}))?\\b`));
+  if (namedPair) {
+    const currentText = `${namedPair[1]}${namedPair[2] ? ` de ${namedPair[2]}` : ""}`;
+    const comparisonText = `${namedPair[3]}${namedPair[4] ? ` de ${namedPair[4]}` : ""}`;
+    const current = resolvePeriodPt(currentText, now) ?? currentMonthPeriod(now);
+    const comparison = resolvePeriodPt(comparisonText, now);
+    return {
+      current_period: current,
+      comparison_period: comparison ? { from: comparison.from, to: comparison.to, label: comparison.label } : null,
+      comparison_basis: "calendar_previous_month",
+      source_span: { current: currentText, comparison: comparisonText },
+    };
+  }
+
+  // Marcadores explícitos do período principal têm precedência sobre qualquer
+  // expressão comparativa presente mais cedo ou mais tarde na frase.
+  const currentSpan = normalized.match(/\b(este mes|esse mes|neste mes|nesse mes|mes atual|mes em curso)\b/)?.[0] ?? null;
+  const comparisonSpan = normalized.match(/\b(mesmo periodo (?:do|de) mes (?:passado|anterior)|mesmo recorte (?:do|de) mes (?:passado|anterior)|mes passado|mes anterior)\b/)?.[0] ?? null;
+  const hasComparisonConnector = /\b(compar\w*|versus|vs|em relacao|contra)\b/.test(normalized)
+    || /\bmesmo (?:periodo|recorte)\b/.test(normalized);
+
+  const current = currentSpan
+    ? (resolvePeriodPt(currentSpan, now) ?? currentMonthPeriod(now))
+    : comparisonSpan && hasComparisonConnector
+      ? currentMonthPeriod(now)
+      : (resolvePeriodPt(raw, now) ?? currentMonthPeriod(now));
+
+  if (comparisonSpan && hasComparisonConnector) {
+    return {
+      current_period: current,
+      comparison_period: samePeriodPreviousMonth(current),
+      comparison_basis: "calendar_previous_month",
+      source_span: { current: currentSpan ?? "período atual implícito", comparison: comparisonSpan },
+    };
+  }
+
+  if (/\b(?:periodo|janela) imediatamente anterior\b/.test(normalized) || /\bcomparad[oa]s? ao periodo anterior\b/.test(normalized)) {
+    return {
+      current_period: current,
+      comparison_period: comparablePrevious(current),
+      comparison_basis: "preceding_window",
+      source_span: { current: currentSpan ?? current.matched, comparison: "período imediatamente anterior" },
+    };
+  }
+
+  return {
+    current_period: current,
+    comparison_period: null,
+    comparison_basis: null,
+    source_span: { current: currentSpan ?? current.matched, comparison: null },
+  };
 }
 
 /** Período anterior comparável (mesma duração, imediatamente antes). */
