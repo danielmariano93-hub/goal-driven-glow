@@ -59,6 +59,17 @@ export type ComparisonMode =
 
 export type Period = { from: string; to: string };
 
+/**
+ * Base explícita da comparação. A causa-raiz que isso fecha: em `CUSTOM_PERIOD`
+ * o motor escolhia SILENCIOSAMENTE a janela imediatamente anterior de mesmo
+ * tamanho. Perguntar "julho contra o mês anterior" devolvia 31/05–30/06, e a
+ * resposta parecia certa para um recorte que ninguém pediu.
+ */
+export type ComparisonBasis =
+  | "calendar_previous_month"
+  | "preceding_window"
+  | "mode_default";
+
 export type Comparability = "high" | "medium" | "low" | "invalid";
 
 export type DataCoverage = {
@@ -130,6 +141,12 @@ export type FinancialComparisonRequest = {
   driver_axes?: Array<"category" | "merchant" | "flexibility" | "card" | "movement">;
   /** Categorias recorrentes conhecidas — usadas para classificar natureza. */
   recurring_labels?: string[];
+  /**
+   * Base de comparação desejada em `CUSTOM_PERIOD`. Default: mês calendário
+   * anterior no mesmo recorte de dias quando o período atual cabe num único
+   * mês. Janela deslizante só quando pedida explicitamente.
+   */
+  comparison_basis?: ComparisonBasis;
 };
 
 
@@ -151,6 +168,8 @@ export type FinancialComparisonResult = {
   exclusions: string[];
   /** Frase pt-BR que descreve exatamente o recorte usado. */
   methodology: string;
+  /** Base da comparação efetivamente usada — auditável, nunca implícita. */
+  comparison_basis: ComparisonBasis;
   evidence: {
     current_period: Period;
     previous_period: Period;
@@ -184,6 +203,7 @@ export function resolvePeriods(req: FinancialComparisonRequest): {
   previous: Period;
   methodology: string;
   notes: string[];
+  basis?: ComparisonBasis;
 } {
   const jur = req.jurisdiction ?? DEFAULT_JURISDICTION;
   const today = req.as_of;
@@ -309,11 +329,25 @@ export function resolvePeriods(req: FinancialComparisonRequest): {
     default: {
       const current = req.current_period ?? { from: `${month}-01`, to: today };
       const size = calendarDays(current);
-      const previous = req.comparison_period ?? { from: addDays(current.from, -size), to: addDays(current.from, -1) };
+      // Período dentro de um único mês calendário → "o mês anterior" é o mês
+      // calendário anterior no MESMO recorte de dias, não a janela deslizante.
+      const sameMonth = monthOf(current.from) === monthOf(current.to);
+      const wantsWindow = req.comparison_basis === "preceding_window";
+      const useCalendar = !wantsWindow && sameMonth;
+      const previous = req.comparison_period
+        ?? (useCalendar
+          ? { from: shiftMonthKeep(current.from, -1), to: shiftMonthKeep(current.to, -1) }
+          : { from: addDays(current.from, -size), to: addDays(current.from, -1) });
+      const basis: ComparisonBasis = req.comparison_period
+        ? "mode_default"
+        : (useCalendar ? "calendar_previous_month" : "preceding_window");
       return {
         current, previous,
-        methodology: `Comparei ${current.from} a ${current.to} com ${previous.from} a ${previous.to}.`,
+        methodology: basis === "calendar_previous_month"
+          ? `Comparei ${current.from} a ${current.to} com o mesmo recorte de dias do mês calendário anterior (${previous.from} a ${previous.to}).`
+          : `Comparei ${current.from} a ${current.to} com os ${size} dias imediatamente anteriores (${previous.from} a ${previous.to}).`,
         notes,
+        basis,
       };
     }
   }
@@ -611,7 +645,7 @@ function buildDrivers(
 
 export function computeFinancialComparison(req: FinancialComparisonRequest): FinancialComparisonResult {
   const jur = req.jurisdiction ?? DEFAULT_JURISDICTION;
-  const { current: cp, previous: pp, methodology, notes } = resolvePeriods(req);
+  const { current: cp, previous: pp, methodology, notes, basis } = resolvePeriods(req);
   const ledger = (req.txs ?? []).filter((t) => String(t.status ?? "confirmed") !== "superseded");
   const attribution = buildRefundAttribution(ledger);
   const allDates = [...new Set(ledger.map((t) => t.occurred_at.slice(0, 10)))].sort();
@@ -687,6 +721,7 @@ export function computeFinancialComparison(req: FinancialComparisonRequest): Fin
     drivers,
     exclusions: [...CANONICAL_EXCLUSIONS, REFUND_EXCLUSION],
     methodology: fullMethodology,
+    comparison_basis: basis ?? "mode_default",
     evidence: {
       current_period: cp,
       previous_period: pp,
