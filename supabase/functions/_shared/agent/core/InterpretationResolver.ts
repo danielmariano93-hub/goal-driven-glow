@@ -36,11 +36,12 @@ const WORSENED = new Set(["worsened", "strongly_worsened"]);
 
 export function resolveInterpretation(assessment: any): InterpretationSummary {
   const categories: any[] = Array.isArray(assessment?.categories) ? assessment.categories : [];
+  const canonical = assessment?.conclusions ?? {};
   const total = categories.length;
-  const achieved = categories.filter((c) => c?.goal?.status === "achieved").length;
-  const missed = categories.filter((c) => c?.goal?.status === "missed").length;
-  const improved = categories.filter((c) => IMPROVED.has(String(c?.historical?.trend))).length;
-  const worsened = categories.filter((c) => WORSENED.has(String(c?.historical?.trend))).length;
+  const achieved = Number(canonical.goals_achieved ?? categories.filter((c) => c?.goal?.status === "achieved").length);
+  const missed = Number(canonical.goals_missed ?? categories.filter((c) => c?.goal?.status === "missed").length);
+  const improved = Number(canonical.material_improvement_count ?? canonical.improved_count ?? categories.filter((c) => IMPROVED.has(String(c?.historical?.trend))).length);
+  const worsened = Number(canonical.material_worsening_count ?? canonical.worsened_count ?? categories.filter((c) => WORSENED.has(String(c?.historical?.trend))).length);
 
   const state: OverallInterpretation = total === 0
     ? "insufficient_data"
@@ -60,8 +61,9 @@ export function resolveInterpretation(assessment: any): InterpretationSummary {
 
   const aggregate = assessment?.aggregate ?? {};
   const vsPrevious = Number(aggregate?.vs_previous ?? 0);
+  const aggregateDirection = String(aggregate?.direction ?? (vsPrevious < 0 ? "below" : vsPrevious > 0 ? "above" : "equal"));
 
-  const conclusion = buildConclusion(state, { total, missed, improved, worsened, vsPrevious });
+  const conclusion = buildConclusion({ total, missed, improved, worsened, vsPrevious, aggregateDirection });
 
   return {
     version: "interpretation_resolver.v1",
@@ -78,27 +80,17 @@ export function resolveInterpretation(assessment: any): InterpretationSummary {
   };
 }
 
-function buildConclusion(
-  state: OverallInterpretation,
-  facts: { total: number; missed: number; improved: number; worsened: number; vsPrevious: number },
-): string {
-  const menos = facts.vsPrevious < 0;
-  switch (state) {
-    case "all_goals_met_and_improving":
-      return "Sim: você ficou dentro de todas as metas e ainda gastou menos que no período anterior.";
-    case "all_goals_met":
-      return "Você ficou dentro de todas as metas dessas categorias.";
-    case "improving_despite_goal_misses":
-      return menos
-        ? `Sim: mesmo estourando ${facts.missed} ${facts.missed === 1 ? "meta" : "metas"}, você gastou menos que no período anterior na maior parte dessas categorias.`
-        : `Você estourou ${facts.missed} ${facts.missed === 1 ? "meta" : "metas"}, mas reduziu o gasto em ${facts.improved} ${facts.improved === 1 ? "categoria" : "categorias"} em relação ao período anterior.`;
-    case "regressing_despite_goals_met":
-      return "Você ficou dentro das metas, mas gastou mais que no período anterior — meta cumprida não é o mesmo que evolução.";
-    case "deteriorating":
-      return `Aqui o sinal é de atenção: ${facts.missed} ${facts.missed === 1 ? "meta estourada" : "metas estouradas"} e gasto acima do período anterior em ${facts.worsened} ${facts.worsened === 1 ? "categoria" : "categorias"}.`;
-    case "mixed":
-      return "O quadro é misto: em parte dessas categorias você avançou e em outra parte regrediu em relação ao período anterior.";
-    default:
-      return "Ainda não tenho histórico suficiente nessas categorias para afirmar melhora ou piora.";
+function buildConclusion(facts: {
+  total: number; missed: number; improved: number; worsened: number;
+  vsPrevious: number; aggregateDirection: string;
+}): string {
+  const amount = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(facts.vsPrevious));
+  if (facts.total === 0) return "Ainda não tenho histórico suficiente nessas categorias para afirmar melhora ou piora.";
+  if (facts.aggregateDirection === "below") {
+    return `Sim. No conjunto dessas categorias, você gastou ${amount} menos que no mesmo período anterior.`;
   }
+  if (facts.aggregateDirection === "above") {
+    return `Não. No conjunto dessas categorias, você gastou ${amount} mais que no mesmo período anterior.`;
+  }
+  return "No conjunto dessas categorias, o gasto ficou igual ao mesmo período anterior.";
 }

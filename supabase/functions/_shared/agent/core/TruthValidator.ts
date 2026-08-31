@@ -9,6 +9,7 @@ export type TruthIssue =
   | { type: "value_not_in_evidence"; value: number }
   | { type: "percent_not_in_evidence"; value: number }
   | { type: "period_mismatch"; expected: string; found: string }
+  | { type: "direction_mismatch"; expected: "below" | "above" | "equal"; found: string }
   | { type: "no_evidence" };
 
 export type ClaimProvenance = {
@@ -66,6 +67,17 @@ function collectNumbers(value: unknown, out: Set<number>, depth = 0): void {
 function extractHeadline(result: any): string | null {
   const headline = result?.answer_format?.headline ?? result?.headline;
   return typeof headline === "string" && headline.trim().length > 12 ? headline.trim() : null;
+}
+
+function collectDirections(value: unknown, out: Set<"below" | "above" | "equal">, depth = 0): void {
+  if (depth > 8 || value == null) return;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (record.direction === "below" || record.direction === "above" || record.direction === "equal") {
+      out.add(record.direction);
+    }
+    for (const item of Object.values(record)) collectDirections(item, out, depth + 1);
+  }
 }
 
 /**
@@ -173,6 +185,28 @@ export function validateAgainstEvidence(
         issues.push({ type: "period_mismatch", expected: `${expectedPeriod.from}..${expectedPeriod.to}`, found });
         break;
       }
+    }
+  }
+
+
+  // Gate semântico geral: a existência do número não basta. Quando a resposta
+  // faz uma afirmação global de direção, ela precisa existir estruturalmente na
+  // evidência canônica, sem inferência livre do modelo.
+  const replyText = String(reply ?? "").toLocaleLowerCase("pt-BR");
+  const claimedDirection = /\b(gastou|gasto|ficou|total|conjunto)[^.\n]{0,100}\b(menos|abaixo)\b/.test(replyText)
+    ? "below"
+    : /\b(gastou|gasto|ficou|total|conjunto)[^.\n]{0,100}\b(mais|acima)\b/.test(replyText)
+      ? "above"
+      : null;
+  if (claimedDirection) {
+    const directions = new Set<"below" | "above" | "equal">();
+    for (const call of okCalls) collectDirections(call.result, directions);
+    if (directions.size > 0 && !directions.has(claimedDirection)) {
+      issues.push({
+        type: "direction_mismatch",
+        expected: directions.has("below") ? "below" : directions.has("above") ? "above" : "equal",
+        found: claimedDirection,
+      });
     }
   }
 

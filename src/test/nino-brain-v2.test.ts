@@ -25,6 +25,15 @@ describe("merchant_truth.v2", () => {
     expect(resolver.resolve("99 APP SP")?.label).toBe("99");
   });
 
+  it("rejeita inversão de direção mesmo quando o valor existe", () => {
+    const verdict = validateAgainstEvidence(
+      "No conjunto, você gastou R$ 300,00 menos que no período anterior.",
+      [{ tool_name: "comparison", ok: true, result: { current: 1200, previous: 900, delta: 300, direction: "above" } }],
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.issues.some((issue) => issue.type === "direction_mismatch")).toBe(true);
+  });
+
   it("não trata intermediador de pagamento como estabelecimento", () => {
     expect(isPassThroughMerchant("PAGSEGURO *PAGAMENTO")).toBe(true);
     expect(isPassThroughMerchant("MERCADO PAGO IFOOD")).toBe(false);

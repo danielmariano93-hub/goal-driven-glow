@@ -12,7 +12,11 @@ export type GateName =
   | "entities_complete"
   | "comparison_present"
   | "evidence_fresh"
-  | "stable_category_identity";
+  | "stable_category_identity"
+  | "arithmetic_consistent"
+  | "counts_consistent"
+  | "goal_current_consistent"
+  | "comparison_contract_consistent";
 
 export type GateResult = { gate: GateName; ok: boolean; detail?: string };
 
@@ -25,6 +29,9 @@ export function runAnalysisGates(args: {
   requirements: Requirement[];
   comparison_requested: boolean;
   expected_entity_count?: number;
+  expected_current_period?: { from: string; to: string } | null;
+  expected_comparison_period?: { from: string; to: string } | null;
+  expected_comparison_basis?: string | null;
 }): GateResult[] {
   const a = args.assessment ?? {};
   const categories: any[] = Array.isArray(a.categories) ? a.categories : [];
@@ -41,6 +48,44 @@ export function runAnalysisGates(args: {
     ok: !badMissed,
     detail: badMissed ? `${badMissed.category_name} melhorou mas foi classificada como piora` : undefined,
   });
+
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const directionOf = (n: number) => n < 0 ? "below" : n > 0 ? "above" : "equal";
+  const categoryMathOk = categories.every((c) =>
+    round2(Number(c?.historical?.current ?? 0) - Number(c?.historical?.previous ?? 0)) === Number(c?.historical?.delta ?? 0)
+    && directionOf(Number(c?.historical?.delta ?? 0)) === String(c?.historical?.direction ?? "")
+  );
+  const currentSum = round2(categories.reduce((sum, c) => sum + Number(c?.historical?.current ?? 0), 0));
+  const previousSum = round2(categories.reduce((sum, c) => sum + Number(c?.historical?.previous ?? 0), 0));
+  const deltaSum = round2(categories.reduce((sum, c) => sum + Number(c?.historical?.delta ?? 0), 0));
+  const aggregateMathOk = currentSum === Number(a?.aggregate?.current_spend ?? NaN)
+    && previousSum === Number(a?.aggregate?.previous_spend ?? NaN)
+    && deltaSum === Number(a?.aggregate?.vs_previous ?? NaN)
+    && directionOf(Number(a?.aggregate?.vs_previous ?? 0)) === String(a?.aggregate?.direction ?? "");
+  results.push({ gate: "arithmetic_consistent", ok: categoryMathOk && aggregateMathOk,
+    detail: categoryMathOk && aggregateMathOk ? undefined : "deltas ou agregado não reconciliam com as categorias" });
+
+  const conclusions = a?.conclusions ?? {};
+  const count = (direction: string) => categories.filter((c) => c?.historical?.direction === direction).length;
+  const materialCount = (materiality: string) => categories.filter((c) => c?.historical?.materiality === materiality).length;
+  const countsOk = Number(conclusions.below_count ?? -1) === count("below")
+    && Number(conclusions.above_count ?? -1) === count("above")
+    && Number(conclusions.equal_count ?? -1) === count("equal")
+    && Number(conclusions.material_improvement_count ?? -1) === materialCount("material_improvement")
+    && Number(conclusions.material_worsening_count ?? -1) === materialCount("material_worsening");
+  results.push({ gate: "counts_consistent", ok: countsOk, detail: countsOk ? undefined : "contagens não correspondem aos itens" });
+
+  const goalCurrentOk = categories.every((c) => round2(Number(c?.goal?.actual ?? 0)) === round2(Number(c?.historical?.current ?? 0)));
+  results.push({ gate: "goal_current_consistent", ok: goalCurrentOk,
+    detail: goalCurrentOk ? undefined : "gasto atual da meta diverge da comparação" });
+
+  const samePeriod = (actual: any, expected: any) => !expected
+    || (String(actual?.from ?? "") === expected.from && String(actual?.to ?? "") === expected.to);
+  const periodOk = samePeriod(a?.period?.current, args.expected_current_period)
+    && samePeriod(a?.period?.comparison, args.expected_comparison_period)
+    && (!args.expected_comparison_basis || a?.period?.comparison_basis === args.expected_comparison_basis);
+  results.push({ gate: "comparison_contract_consistent", ok: periodOk,
+    detail: periodOk ? undefined : "período ou base de comparação diverge do plano" });
 
   // B) meta cumprida NÃO implica melhora histórica.
   const badAchieved = categories.find((c) =>

@@ -55,6 +55,18 @@ describe("analytical_plan.v1 — escopo herdado", () => {
     })!;
     expect(plan.periods.current.from).toBe("2026-08-01");
     expect(plan.periods.comparison!.from.slice(0, 7)).toBe("2026-07");
+    expect(plan.periods.comparison_basis).toBe("calendar_previous_month");
+  });
+
+  it("recorte parcial pedido como mês passado preserva os dias do mês anterior", () => {
+    const plan = resolveAnalyticalPlan({
+      text: "Compare essas categorias de 16 a 31 de agosto com o mesmo período do mês passado",
+      now: NOW,
+      previous_scope: inheritedScope,
+      turn_period: { from: "2026-08-16", to: "2026-08-31" },
+    });
+    expect(plan?.periods.comparison).toEqual({ from: "2026-07-16", to: "2026-07-31" });
+    expect(plan?.periods.comparison_basis).toBe("calendar_previous_month");
   });
 });
 

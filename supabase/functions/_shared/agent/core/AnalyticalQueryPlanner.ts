@@ -15,7 +15,7 @@ import {
 import {
   requirement, type Requirement, type RequiredAnswer,
 } from "./AnalysisRequirements.ts";
-import { comparablePrevious, currentMonthPeriod, resolvePeriodPt } from "../../analytics/periodResolver.ts";
+import { comparablePrevious, currentMonthPeriod, resolvePeriodPt, samePeriodPreviousMonth } from "../../analytics/periodResolver.ts";
 
 export type AnalyticalFacet =
   | "overview"
@@ -48,6 +48,7 @@ export type AnalyticalPlan = {
   periods: {
     current: { from: string; to: string; label?: string };
     comparison: { from: string; to: string } | null;
+    comparison_basis: "calendar_previous_month" | "preceding_window" | null;
     methodology: string;
   };
   engines: EngineRef[];
@@ -147,7 +148,13 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
   const explicitPeriod = resolvePeriodPt(text, now);
   const current = input.turn_period ?? explicitPeriod ?? currentMonthPeriod(now);
   const wantsComparison = facets.includes("comparison");
-  const comparison = wantsComparison ? comparablePrevious(current) : null;
+  const asksCalendarPrevious = /\b(m[eê]s passado|m[eê]s anterior|mesmo per[ií]odo do m[eê]s|mesmo recorte do m[eê]s)\b/i.test(text);
+  const comparisonBasis = wantsComparison
+    ? (asksCalendarPrevious ? "calendar_previous_month" : "preceding_window")
+    : null;
+  const comparison = wantsComparison
+    ? (comparisonBasis === "calendar_previous_month" ? samePeriodPreviousMonth(current) : comparablePrevious(current))
+    : null;
 
   const requested: RequiredAnswer[] = ["active_goals", "attainment_per_goal"];
   if (wantsComparison) requested.push("historical_comparison_per_entity");
@@ -175,16 +182,22 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
     periods: {
       current,
       comparison,
+      comparison_basis: comparisonBasis,
       methodology: wantsComparison
-        ? "Comparação pelo mesmo recorte de dias no período anterior, calculada pelos motores canônicos."
+        ? comparisonBasis === "calendar_previous_month"
+          ? "Comparação com o mesmo recorte de dias no mês anterior, calculada pelos motores canônicos."
+          : "Comparação com a janela imediatamente anterior de mesma duração, calculada pelos motores canônicos."
         : "Recorte do período da meta, calculado pelos motores canônicos.",
     },
     engines: [{
       engine: "goal_performance_assessment.v1",
       tool: "assess_goal_performance",
       args: {
+        current_from: current.from,
+        current_to: current.to,
         comparison_from: comparison?.from ?? null,
         comparison_to: comparison?.to ?? null,
+        comparison_basis: comparisonBasis,
         category_ids: scopedForGoals.entity_ids.length ? scopedForGoals.entity_ids : null,
       },
     }],

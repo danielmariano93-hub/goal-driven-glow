@@ -158,3 +158,15 @@ export function comparablePrevious(period: { from: string; to: string }): { from
   ) + 1);
   return { from: shift(period.from, -days), to: shift(period.from, -1) };
 }
+
+/** Mesmo recorte deslocado um mês calendário, com clamp no fim do mês. */
+export function samePeriodPreviousMonth(period: { from: string; to: string }): { from: string; to: string } {
+  const move = (iso: string): string => {
+    const [year, month, day] = iso.split("-").map(Number);
+    const targetMonthIndex = month - 2;
+    const lastDay = new Date(Date.UTC(year, targetMonthIndex + 1, 0)).getUTCDate();
+    const target = new Date(Date.UTC(year, targetMonthIndex, Math.min(day, lastDay)));
+    return target.toISOString().slice(0, 10);
+  };
+  return { from: move(period.from), to: move(period.to) };
+}
