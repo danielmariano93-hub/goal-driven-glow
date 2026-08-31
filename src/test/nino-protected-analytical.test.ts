@@ -20,7 +20,7 @@ const INHERITED_SCOPE = {
   entity_labels: ["Alimentação", "Transporte", "Lazer"],
   locked: true,
   aggregate_scope: "scoped_entities" as const,
-  source: "explicit_in_turn" as const,
+  source: "engine_resolved" as const,
 };
 
 const INCIDENT_TEXT = "Comparando essas categorias com o mesmo período do mês anterior, como eu fui?";
