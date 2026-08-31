@@ -82,8 +82,8 @@ function fakeSupabase(opts: {
 }
 
 const GOAL = {
-  id: "g1", user_id: "u1", category_id: "c1", mode: "fixed", fixed_limit: 800,
-  frequency: "monthly", period_type: "calendar_month", start_date: "2026-08-01",
+  id: "g1", user_id: "u1", category_id: "c1", mode: "fixed", fixed_limit: 800, computed_limit: 800,
+  frequency: "monthly", period_type: "monthly_recurring", start_date: "2026-08-01",
   end_date: null, status: "active", timezone: "America/Sao_Paulo",
 };
 
