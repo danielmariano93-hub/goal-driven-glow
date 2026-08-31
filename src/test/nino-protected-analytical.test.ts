@@ -157,3 +157,41 @@ describe("contrato de runtime", () => {
     expect(ANALYTICAL_CONTRACT_VERSION).toBe("nino_analytical.v2");
   });
 });
+
+// ---- Reprodução de DOIS TURNOS do incidente real -------------------------
+describe("incidente em dois turnos (overview → comparação anafórica)", () => {
+  it("turno 1 grava o escopo do fluxo antigo e turno 2 roda o motor canônico com os mesmos IDs", async () => {
+    const { scopeFromToolCalls } = await import(
+      "../../supabase/functions/_shared/agent/core/ScopeCarryover"
+    );
+
+    // Turno 1: pergunta de overview respondida pelo fluxo ANTIGO (get_goals_overview).
+    const turn1Scope = scopeFromToolCalls([{
+      name: "get_goals_overview",
+      result: {
+        goals: [
+          { category_id: "c1", category_name: "Alimentação" },
+          { category_id: "c2", category_name: "Transporte" },
+          { category_id: "c3", category_name: "Lazer" },
+        ],
+      },
+    }] as any);
+    expect(turn1Scope?.entity_ids).toEqual(["c1", "c2", "c3"]);
+
+    // Turno 2: a frase do incidente. Nunca pode virar agregado global,
+    // nunca pode comparar julho contra maio/junho, nunca pode usar substituto.
+    const classification = classifyProtectedAnalytical({ text: INCIDENT_TEXT, previous_scope: turn1Scope });
+    expect(classification.is_protected).toBe(true);
+
+    const plan = resolveAnalyticalPlan({ text: INCIDENT_TEXT, previous_scope: turn1Scope, now: NOW })!;
+    expect(plan.engines[0].tool).toBe(GOAL_PERFORMANCE_TOOL);
+    expect(plan.scope.aggregate_scope).toBe("scoped_entities");
+    expect(plan.expected_entity_ids).toEqual(["c1", "c2", "c3"]);
+    expect(plan.periods.current.from.slice(0, 7)).toBe("2026-08");
+    expect(plan.periods.comparison!.from.slice(0, 7)).toBe("2026-07");
+    for (const tool of FORBIDDEN_SUBSTITUTE_TOOLS) {
+      expect(plan.engines.some((e) => e.tool === tool)).toBe(false);
+      expect(isForbiddenSubstitute(plan.primary_intent, tool)).toBe(true);
+    }
+  });
+});
