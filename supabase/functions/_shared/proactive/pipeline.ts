@@ -66,13 +66,13 @@ async function loadAlreadyDelivered(sb: SupabaseClient, userId: string, days: nu
 /** Highlights do snapshot vigente de `financial_performance.v1`. */
 async function loadPerformanceHighlights(sb: SupabaseClient, userId: string) {
   const { data } = await sb.from("financial_performance_snapshots")
-    .select("payload,as_of,created_at")
+    .select("highlights,methodology,suppressed,headline,mode,as_of,created_at")
     .eq("user_id", userId)
     .is("invalidated_at", null)
     .order("as_of", { ascending: false })
     .limit(1);
-  const payload = ((data as any[]) ?? [])[0]?.payload as any;
-  const items = Array.isArray(payload?.highlights) ? payload.highlights : [];
+  const row = ((data as any[]) ?? [])[0] as any;
+  const items = Array.isArray(row?.highlights) ? row.highlights : [];
   return items.map((item: any) => ({
     id: String(item.id ?? item.topic_key ?? "highlight"),
     topic_key: String(item.topic_key ?? item.logical_topic_key ?? "performance:expense"),
@@ -85,7 +85,7 @@ async function loadPerformanceHighlights(sb: SupabaseClient, userId: string) {
     confidence: String(item.confidence ?? "medium"),
     actionable: Boolean(item.actionable),
     recommended_action: item.recommended_action ?? null,
-    methodology: payload?.methodology ?? null,
+    methodology: row?.methodology ?? null,
   })).filter((item: any) => item.title && Number.isFinite(item.materiality));
 }
 

@@ -93,7 +93,7 @@ export async function buildCatalogHighlights(
     const [cards, statements, installments, debts, rules, accounts, bankAnchors] = await Promise.all([
       sb.from("credit_cards").select("id,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("credit_card_statements")
-        .select("id,credit_card_id,competence_month,status,total_amount,outstanding_amount,paid_amount,due_date")
+        .select("id,credit_card_id,competence_month,status,stated_total,outstanding_amount,paid_amount,due_date")
         .eq("user_id", userId),
       sb.from("credit_card_installments")
         .select("id,credit_card_id,competence_month,amount,status,absorbed_by_statement_id,legacy_transaction_id")
