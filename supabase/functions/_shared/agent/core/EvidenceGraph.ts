@@ -36,7 +36,7 @@ export function buildEvidenceGraph(assessment: any): EvidenceGraphPayload {
       current: Number(c.goal?.actual ?? 0),
       previous: Number(c.goal?.target ?? 0),
       source_engine: String(assessment?.formula_version ?? "goal_performance_assessment.v1"),
-      period: { from: String(current.from), to: String(current.to) },
+      period: { from: String(c.goal_period?.from ?? current.from), to: String(c.goal_period?.to ?? current.to) },
       confidence: String(c.historical?.confidence ?? "low"),
       direction: c.historical?.direction,
     });

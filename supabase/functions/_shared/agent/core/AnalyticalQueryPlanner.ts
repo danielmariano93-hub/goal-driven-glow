@@ -50,6 +50,7 @@ export type AnalyticalPlan = {
     comparison: { from: string; to: string } | null;
     comparison_basis: "calendar_previous_month" | "preceding_window" | null;
     methodology: string;
+    source_span: { current: string; comparison: string | null };
   };
   engines: EngineRef[];
   response_depth: "brief" | "standard" | "analytical";

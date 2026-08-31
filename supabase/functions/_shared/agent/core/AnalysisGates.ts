@@ -15,7 +15,8 @@ export type GateName =
   | "stable_category_identity"
   | "arithmetic_consistent"
   | "counts_consistent"
-  | "goal_current_consistent"
+  | "goal_analysis_period_consistent"
+  | "period_role_consistent"
   | "comparison_contract_consistent";
 
 export type GateResult = { gate: GateName; ok: boolean; detail?: string };
@@ -75,9 +76,13 @@ export function runAnalysisGates(args: {
     && Number(conclusions.material_worsening_count ?? -1) === materialCount("material_worsening");
   results.push({ gate: "counts_consistent", ok: countsOk, detail: countsOk ? undefined : "contagens não correspondem aos itens" });
 
-  const goalCurrentOk = categories.every((c) => round2(Number(c?.goal?.actual ?? 0)) === round2(Number(c?.historical?.current ?? 0)));
-  results.push({ gate: "goal_current_consistent", ok: goalCurrentOk,
-    detail: goalCurrentOk ? undefined : "gasto atual da meta diverge da comparação" });
+  const compatibleCategories = categories.filter((c) => String(c?.period_compatibility ?? "compatible") === "compatible");
+  const incompatibleCategories = categories.filter((c) => String(c?.period_compatibility ?? "compatible") === "incompatible");
+  const goalCurrentOk = compatibleCategories.every((c) => round2(Number(c?.goal?.actual ?? 0)) === round2(Number(c?.historical?.current ?? 0)))
+    && incompatibleCategories.every((c) => c?.goal_period?.from && c?.analysis_period?.from);
+  const mismatch = compatibleCategories.find((c) => round2(Number(c?.goal?.actual ?? 0)) !== round2(Number(c?.historical?.current ?? 0)));
+  results.push({ gate: "goal_analysis_period_consistent", ok: goalCurrentOk,
+    detail: goalCurrentOk ? undefined : `${mismatch?.category_name ?? "categoria"}: meta=${mismatch?.goal?.actual ?? "?"}, análise=${mismatch?.historical?.current ?? "?"}` });
 
   const samePeriod = (actual: any, expected: any) => !expected
     || (String(actual?.from ?? "") === expected.from && String(actual?.to ?? "") === expected.to);
@@ -86,6 +91,11 @@ export function runAnalysisGates(args: {
     && (!args.expected_comparison_basis || a?.period?.comparison_basis === args.expected_comparison_basis);
   results.push({ gate: "comparison_contract_consistent", ok: periodOk,
     detail: periodOk ? undefined : "período ou base de comparação diverge do plano" });
+  const rolesOk = !args.comparison_requested || !args.expected_comparison_period
+    || (String(args.expected_current_period?.from ?? "") !== String(args.expected_comparison_period.from)
+      || String(args.expected_current_period?.to ?? "") !== String(args.expected_comparison_period.to));
+  results.push({ gate: "period_role_consistent", ok: rolesOk,
+    detail: rolesOk ? undefined : "período principal e comparação ocupam a mesma janela" });
 
   // B) meta cumprida NÃO implica melhora histórica.
   const badAchieved = categories.find((c) =>
