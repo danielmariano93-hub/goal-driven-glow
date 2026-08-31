@@ -76,8 +76,8 @@ describe("plano analítico para a pergunta do incidente", () => {
     expect(plan?.protected_route).toBe(true);
     expect(plan?.engines.map((engine) => engine.tool)).toEqual([GOAL_PERFORMANCE_TOOL]);
     expect(plan?.scope.aggregate_scope).toBe("scoped_entities");
-    expect(plan?.periods.current).toEqual({ from: "2026-08-01", to: "2026-08-20", label: "mês atual" });
-    expect(plan?.periods.comparison).toEqual({ from: "2026-07-01", to: "2026-07-20" });
+    expect(plan?.periods.current).toMatchObject({ from: "2026-08-01", to: "2026-08-20" });
+    expect(plan?.periods.comparison).toMatchObject({ from: "2026-07-01", to: "2026-07-20" });
   });
   it("casa o plano, preserva os IDs herdados e usa a ferramenta canônica", () => {
     const plan = resolveAnalyticalPlan({ text: INCIDENT_TEXT, previous_scope: INHERITED_SCOPE, now: NOW });

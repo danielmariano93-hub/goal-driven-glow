@@ -1,7 +1,7 @@
 // RuntimeContract — versão única do runtime do agente e do contrato analítico.
 //
 // Causa-raiz que este módulo fecha: um run de produção registrou um gate
-// (`goal_current_consistent`) que já não existia no código-fonte. Não havia como
+// (um gate antigo de consistência da meta) que já não existia no código-fonte. Não havia como
 // distinguir "código novo com bug" de "código antigo ainda rodando na Edge
 // Function". Agora toda run carrega a versão do runtime que a produziu, gravada
 // no JSONB `agent_runs.context_layers.analytical_path` (sem coluna nova).
