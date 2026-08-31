@@ -3,7 +3,7 @@
 // Responsabilidade única: transformar a mensagem crua + histórico em um plano
 // de turno explícito (assunto, período resolvido, sub-perguntas). Não calcula
 // nada financeiro e não fala com a LLM: apenas descreve o que foi perguntado.
-import { comparablePrevious, currentMonthPeriod, resolvePeriodPt, type ResolvedPeriod } from "../../analytics/periodResolver.ts";
+import { comparablePrevious, currentMonthPeriod, resolvePeriodPt, resolvePeriodRolesPt, type PeriodRoleContract, type ResolvedPeriod } from "../../analytics/periodResolver.ts";
 
 export type TurnPlan = {
   /** Texto usado pelo roteamento (pode herdar o assunto do turno anterior). */
@@ -18,6 +18,8 @@ export type TurnPlan = {
   effective_period: ResolvedPeriod;
   /** Período comparável imediatamente anterior. */
   previous_period: { from: string; to: string };
+  /** Contrato temporal canônico, com período principal e comparação separados. */
+  period_roles: PeriodRoleContract;
   /** Sub-perguntas detectadas (>=2 quando a mensagem é composta). */
   tasks: string[];
   composed: boolean;
@@ -129,8 +131,18 @@ export function buildTurnPlan(args: {
   const followup = !!previousUser && isContextOnly(text) && !NOISE.test(text);
   const effective_text = followup ? `${String(previousUser).trim()} — ${text}` : text;
 
-  const period = resolvePeriodPt(text, now) ?? (followup ? resolvePeriodPt(String(previousUser), now) : null);
-  const effective_period = period ?? currentMonthPeriod(now);
+  const explicit = resolvePeriodPt(text, now);
+  const inherited = followup ? resolvePeriodPt(String(previousUser), now) : null;
+  const period = explicit ?? inherited;
+  const roleText = followup ? effective_text : text;
+  const resolvedRoles = resolvePeriodRolesPt(roleText, now);
+  const effective_period = period && !resolvedRoles.source_span.current
+    ? period
+    : resolvedRoles.current_period;
+  const period_roles: PeriodRoleContract = {
+    ...resolvedRoles,
+    current_period: effective_period,
+  };
 
   const tasks = splitTasks(effective_text);
 
@@ -141,6 +153,7 @@ export function buildTurnPlan(args: {
     period,
     effective_period,
     previous_period: comparablePrevious(effective_period),
+    period_roles,
     tasks,
     composed: tasks.length > 1,
   };
@@ -156,7 +169,8 @@ export function turnPlanPrompt(plan: TurnPlan): string {
     `Período a usar: ${plan.effective_period.label} (${plan.effective_period.from} a ${plan.effective_period.to})`
     + `${plan.effective_period.complete ? "" : " — período ainda em curso, diga isso se comparar com mês fechado"}.`,
   );
-  lines.push(`Período anterior comparável: ${plan.previous_period.from} a ${plan.previous_period.to}.`);
+  const comparison = plan.period_roles.comparison_period ?? plan.previous_period;
+  lines.push(`Período anterior comparável: ${comparison.from} a ${comparison.to}.`);
   lines.push(`Sempre passe from="${plan.effective_period.from}" e to="${plan.effective_period.to}" nas ferramentas que aceitam período.`);
   if (plan.composed) {
     lines.push(`A mensagem tem ${plan.tasks.length} perguntas. Responda TODAS, na ordem:`);

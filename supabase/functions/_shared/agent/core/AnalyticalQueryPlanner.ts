@@ -15,7 +15,7 @@ import {
 import {
   requirement, type Requirement, type RequiredAnswer,
 } from "./AnalysisRequirements.ts";
-import { comparablePrevious, currentMonthPeriod, resolvePeriodPt, samePeriodPreviousMonth } from "../../analytics/periodResolver.ts";
+import { comparablePrevious, currentMonthPeriod, resolvePeriodRolesPt, type PeriodRoleContract } from "../../analytics/periodResolver.ts";
 
 export type AnalyticalFacet =
   | "overview"
@@ -110,6 +110,7 @@ export type PlannerInput = {
   previous_scope?: AnalysisScope | null;
   /** Período já resolvido pelo turno (ConversationOrchestrator). */
   turn_period?: { from: string; to: string; label?: string } | null;
+  period_roles?: PeriodRoleContract | null;
 };
 
 /**
@@ -145,15 +146,14 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
   // contrato quando os motores correspondentes forem plugados em `engines`.
   if (!goalDomain || !composite) return null;
 
-  const explicitPeriod = resolvePeriodPt(text, now);
-  const current = input.turn_period ?? explicitPeriod ?? currentMonthPeriod(now);
+  const roles = input.period_roles ?? resolvePeriodRolesPt(text, now);
+  const current = roles.current_period ?? input.turn_period ?? currentMonthPeriod(now);
   const wantsComparison = facets.includes("comparison");
-  const asksCalendarPrevious = /\b(m[eê]s passado|m[eê]s anterior|mesmo per[ií]odo do m[eê]s|mesmo recorte do m[eê]s)\b/i.test(text);
   const comparisonBasis = wantsComparison
-    ? (asksCalendarPrevious ? "calendar_previous_month" : "preceding_window")
+    ? (roles.comparison_basis ?? "preceding_window")
     : null;
   const comparison = wantsComparison
-    ? (comparisonBasis === "calendar_previous_month" ? samePeriodPreviousMonth(current) : comparablePrevious(current))
+    ? (roles.comparison_period ?? comparablePrevious(current))
     : null;
 
   const requested: RequiredAnswer[] = ["active_goals", "attainment_per_goal"];
@@ -188,6 +188,7 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
           ? "Comparação com o mesmo recorte de dias no mês anterior, calculada pelos motores canônicos."
           : "Comparação com a janela imediatamente anterior de mesma duração, calculada pelos motores canônicos."
         : "Recorte do período da meta, calculado pelos motores canônicos.",
+      source_span: roles.source_span,
     },
     engines: [{
       engine: "goal_performance_assessment.v1",
