@@ -16,6 +16,10 @@ import {
 import { buildEvidenceGraph, type EvidenceGraphPayload } from "./EvidenceGraph.ts";
 import { formatGoalPerformance } from "./DeterministicAnswers.ts";
 import { runTool } from "./ToolRuntime.ts";
+import {
+  allowedEnginesFor, isForbiddenSubstitute, PROTECTED_ENGINE_FAILURE_REPLY,
+} from "./ProtectedAnalyticalRouting.ts";
+import { ANALYTICAL_CONTRACT_VERSION, AGENT_RUNTIME_VERSION } from "./RuntimeContract.ts";
 
 export type CompositeAnalysisResult = {
   reply: string;
@@ -44,7 +48,7 @@ export type CompositeAnalysisOutcome =
   | ({ status: "answered" } & CompositeAnalysisResult)
   | {
     status: "failed";
-    failure_type: "engine_failed" | "truth_gate_blocked" | "empty_scope";
+    failure_type: "engine_failed" | "truth_gate_blocked" | "empty_scope" | "engine_not_allowed";
     reason: string;
     reply: string;
     plan: AnalyticalPlan;
@@ -64,6 +68,13 @@ export type CompositeTelemetry = {
   truth_gate_blocked: boolean;
   fallback_reason: string | null;
   final_path: "not_applicable" | "composite_answered" | "composite_failed";
+  protected_route: boolean;
+  runtime_version: string;
+  analytical_contract_version: string;
+  planned_tool: string | null;
+  planned_entity_ids: string[];
+  planned_current_period: { from: string; to: string } | null;
+  planned_comparison_period: { from: string; to: string } | null;
 };
 
 export async function runCompositeAnalysis(
@@ -79,7 +90,13 @@ export async function runCompositeAnalysis(
     onTelemetry?: (t: CompositeTelemetry) => void;
   },
 ): Promise<CompositeAnalysisOutcome> {
-  const emit = (t: CompositeTelemetry) => { try { input.onTelemetry?.(t); } catch { /* noop */ } };
+  const stamp = {
+    runtime_version: AGENT_RUNTIME_VERSION,
+    analytical_contract_version: ANALYTICAL_CONTRACT_VERSION,
+  };
+  const emit = (t: Omit<CompositeTelemetry, keyof typeof stamp>) => {
+    try { input.onTelemetry?.({ ...t, ...stamp } as CompositeTelemetry); } catch { /* noop */ }
+  };
 
   const plan = resolveAnalyticalPlan({
     text: input.text,
@@ -94,12 +111,24 @@ export async function runCompositeAnalysis(
       composite_plan_matched: false, goal_performance_tool_started: false,
       goal_performance_tool_failed: false, truth_gate_blocked: false, fallback_reason: "plan_not_matched",
       final_path: "not_applicable",
+      protected_route: false, planned_tool: null, planned_entity_ids: [],
+      planned_current_period: null, planned_comparison_period: null,
     });
     return { status: "not_applicable" };
   }
 
+  const planned = {
+    protected_route: Boolean(plan.protected_route),
+    planned_tool: engine.tool,
+    planned_entity_ids: [...(plan.expected_entity_ids ?? [])],
+    planned_current_period: { from: plan.periods.current.from, to: plan.periods.current.to },
+    planned_comparison_period: plan.periods.comparison
+      ? { from: plan.periods.comparison.from, to: plan.periods.comparison.to }
+      : null,
+  };
+
   const fail = (
-    failure_type: "engine_failed" | "truth_gate_blocked" | "empty_scope",
+    failure_type: "engine_failed" | "truth_gate_blocked" | "empty_scope" | "engine_not_allowed",
     reason: string,
     toolCalls: any[],
     assessment?: any,
@@ -112,9 +141,21 @@ export async function runCompositeAnalysis(
       truth_gate_blocked: failure_type === "truth_gate_blocked",
       fallback_reason: reason,
       final_path: "composite_failed",
+      ...planned,
     });
-    return { status: "failed", failure_type, reason, reply: COMPOSITE_FAILURE_REPLY, plan, toolCalls, assessment, gates };
+    const reply = plan.protected_route ? PROTECTED_ENGINE_FAILURE_REPLY : COMPOSITE_FAILURE_REPLY;
+    return { status: "failed", failure_type, reason, reply, plan, toolCalls, assessment, gates };
   };
+
+  // Allowlist estrita: para `goal_performance_analysis` só existe UMA
+  // ferramenta legítima. Nada de substituto agregado escolhido por LLM.
+  if (isForbiddenSubstitute(plan.primary_intent, engine.tool)) {
+    return fail(
+      "engine_not_allowed",
+      `engine_not_allowed:${engine.tool}|allowed=${allowedEnginesFor(plan.primary_intent).join("|")}`,
+      [],
+    );
+  }
 
   const ctx = {
     sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text,
@@ -148,6 +189,7 @@ export async function runCompositeAnalysis(
     expected_current_period: plan.periods.current,
     expected_comparison_period: plan.periods.comparison,
     expected_comparison_basis: plan.periods.comparison_basis,
+    expected_entity_ids: plan.expected_entity_ids ?? null,
   });
   if (!gatesPassed(gates)) {
     // Regra dura: não respondemos análise que viola contrato de escopo ou
@@ -174,6 +216,7 @@ export async function runCompositeAnalysis(
     composite_plan_matched: true, goal_performance_tool_started: true,
     goal_performance_tool_failed: false, truth_gate_blocked: false, fallback_reason: null,
     final_path: "composite_answered",
+    ...planned,
   });
 
   return {

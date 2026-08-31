@@ -17,7 +17,8 @@ export type GateName =
   | "counts_consistent"
   | "goal_analysis_period_consistent"
   | "period_role_consistent"
-  | "comparison_contract_consistent";
+  | "comparison_contract_consistent"
+  | "entity_set_identity";
 
 export type GateResult = { gate: GateName; ok: boolean; detail?: string };
 
@@ -33,6 +34,8 @@ export function runAnalysisGates(args: {
   expected_current_period?: { from: string; to: string } | null;
   expected_comparison_period?: { from: string; to: string } | null;
   expected_comparison_basis?: string | null;
+  /** Conjunto EXATO de entidades exigido pelo plano (escopo travado). */
+  expected_entity_ids?: string[] | null;
 }): GateResult[] {
   const a = args.assessment ?? {};
   const categories: any[] = Array.isArray(a.categories) ? a.categories : [];
@@ -151,6 +154,22 @@ export function runAnalysisGates(args: {
     ok: categories.length === 0 || stableIdentity,
     detail: stableIdentity ? undefined : "identidade de categoria duplicada ou ausente",
   });
+
+  // H) identidade do CONJUNTO (`nino_analytical.v2`): quando o plano trava IDs
+  // (escopo herdado por anáfora), a evidência precisa ser exatamente aquele
+  // conjunto. Foi assim que "essas categorias" virou agregado global.
+  const expectedIds = (args.expected_entity_ids ?? []).map(String).filter(Boolean);
+  if (expectedIds.length) {
+    const got = new Set(ids);
+    const missing = expectedIds.filter((id) => !got.has(id));
+    const extra = ids.filter((id) => !expectedIds.includes(id));
+    const setOk = missing.length === 0 && extra.length === 0;
+    results.push({
+      gate: "entity_set_identity",
+      ok: setOk,
+      detail: setOk ? undefined : `faltando ${missing.length}, extras ${extra.length}`,
+    });
+  }
 
   return results;
 }
