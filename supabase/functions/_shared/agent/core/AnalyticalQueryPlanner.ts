@@ -127,20 +127,29 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
 
   const facets = detectFacets(text);
   const domains = detectDomains(text);
-  if (!domains.length) return null;
 
+  // Escopo primeiro (`nino_analytical.v2`): abandonar o plano por "domains
+  // vazios" antes de olhar o escopo herdado era exatamente o que jogava
+  // "e comparado ao mês passado?" no fluxo legado.
   const scope = resolveScope({ text, previous: input.previous_scope ?? null });
+  const inheritedCategoryScope = scope.source === "inherited_from_turn"
+    && scope.entity_type === "category";
+
+  if (!domains.length && !inheritedCategoryScope) return null;
 
   // Domínio por HERANÇA (`nino_scope.v2`): "comparando essas categorias com o
   // mês anterior" não cita a palavra meta, mas continua sendo a mesma análise
   // do turno anterior. Exigir o termo no texto atual era a causa-raiz do desvio
   // para o caminho antigo (escopo global + ferramenta errada).
-  const inheritedCategoryScope = scope.source === "inherited_from_turn"
-    && scope.entity_type === "category";
   const categoryDomain = domains.includes("categories") || domains.includes("spending");
   const goalDomain = domains.includes("goals")
-    || (inheritedCategoryScope && (categoryDomain || mentionsScopeAnaphora(text)));
-  const composite = facets.filter((f) => COMPOSITE_FACETS.includes(f)).length >= 1 && facets.length >= 2;
+    || (inheritedCategoryScope
+      && (categoryDomain || mentionsScopeAnaphora(text) || facets.includes("comparison")));
+  // Comparação anafórica sobre escopo categorial herdado JÁ É composta: exigir
+  // duas facetas descartava "e comparado ao mês passado?".
+  const composite = (facets.filter((f) => COMPOSITE_FACETS.includes(f)).length >= 1 && facets.length >= 2)
+    || (inheritedCategoryScope && facets.includes("comparison"));
+
 
   // Hoje a composição multi-motor coberta de ponta a ponta é metas x evolução.
   // Outros cruzamentos (patrimônio, cartão, dívida) entram por este mesmo
