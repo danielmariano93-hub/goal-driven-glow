@@ -12,6 +12,7 @@
 5. **Os gates atuais verificam escopo, presença, identidade, freshness e separação meta/evolução, mas não verificam coerência aritmética ou narrativa.** Eles não comparam soma das categorias com o agregado, contagens com os itens, texto com os deltas nem conclusão com o total.
 6. **A completude atual mede se os campos existem, não se são verdadeiros entre si.** Uma comparação contraditória ainda recebe status `complete`.
 7. **A base atual do usuário confirma o sentido da reclamação:** no recorte de competência de julho e agosto, somente Transporte aparece acima; Lazer, Assinaturas e Alimentação aparecem abaixo. O plano tratará a reprodução exata do snapshot do turno como requisito, pois alterações posteriores no ledger não podem substituir a evidência que sustentou uma resposta já enviada.
+8. **Há duas definições de “período anterior” no mesmo fluxo:** o planner usa uma janela imediatamente anterior com a mesma quantidade de dias; o motor de metas usa, como fallback, o mesmo recorte deslocado para o mês anterior. Elas coincidem em alguns recortes iniciados no dia 1, mas divergem em períodos parciais. O rótulo exibido pode, portanto, dizer “mês passado” sem que todas as camadas tenham aplicado a mesma regra.
 
 ## Correção definitiva
 
@@ -49,7 +50,16 @@ A resposta começará pela pergunta do usuário:
 
 Depois virão meta, categorias e prioridade. “Maioria das categorias” nunca substituirá a resposta sobre o total agregado.
 
-### 3. Tornar o renderer declarativo
+### 3. Unificar a semântica do período comparativo
+
+- Introduzir `comparison_basis` obrigatório no plano, nos argumentos da ferramenta e no assessment.
+- “Mesmo período do mês passado” sempre significará deslocar o recorte um mês de calendário, preservando os dias e aplicando clamp no fim do mês.
+- “Período imediatamente anterior” será a única expressão que autoriza janela rolante contígua.
+- O motor não terá fallback implícito diferente da base declarada pelo planner.
+- Um gate exigirá igualdade exata entre período solicitado, planejado, executado, persistido no evidence graph e descrito ao usuário.
+- Adicionar casos com recorte que não começa no dia 1, pois esse é o cenário em que as duas regras atuais divergem.
+
+### 4. Tornar o renderer declarativo
 
 - `DeterministicAnswers` deixará de usar `delta > 0` para inventar rótulos.
 - Ele apenas traduzirá `direction` e `materiality` já emitidos pelo motor.
@@ -57,7 +67,7 @@ Depois virão meta, categorias e prioridade. “Maioria das categorias” nunca 
 - Mudança pequena será descrita honestamente, por exemplo: “R$ 20 a mais, variação pequena”, e não apagada nem contada como piora material.
 - A linha agregada mostrará também a diferença absoluta e o sentido, não apenas dois totais soltos.
 
-### 4. Adicionar gates aritméticos e semânticos duros
+### 5. Adicionar gates aritméticos e semânticos duros
 
 Antes de qualquer resposta sair, validar:
 
@@ -76,7 +86,7 @@ Falha em qualquer invariante bloqueará o envio e retornará uma mensagem honest
 
 O mesmo gate de direção será aplicado ao caminho analítico livre: hoje a validação geral confirma que um número existe na evidência, mas não confirma se “mais”, “menos”, “melhorou” ou “piorou” corresponde ao sinal de `current - previous`. A validação passará a exigir correspondência estrutural com `direction`, em vez de tentar confiar apenas no valor absoluto citado.
 
-### 5. Persistir a evidência exata de cada resposta analítica
+### 6. Persistir a evidência exata de cada resposta analítica
 
 Cada run analítico guardará um snapshot compacto e auditável:
 
@@ -90,12 +100,13 @@ Cada run analítico guardará um snapshot compacto e auditável:
 
 Isso permitirá reconstruir uma resposta histórica sem consultar um ledger que já pode ter mudado. O painel administrativo poderá mostrar “fato calculado → frase enviada” para esse tipo de incidente.
 
-### 6. Unificar App, Nino e WhatsApp no mesmo contrato
+### 7. Unificar App, Nino e WhatsApp no mesmo contrato
 
 - Alterar o núcleo canônico em `src/lib/engine/goalPerformanceAssessment.ts`.
 - Sincronizar o espelho de Edge pelo script oficial, sem editar fórmulas duplicadas.
 - Atualizar `InterpretationResolver`, `DeterministicAnswers`, `AnalysisGates`, `AnswerCompleteness` e `EvidenceGraph` para consumir o mesmo contrato.
 - Atualizar também o validador geral de verdade e as ferramentas de performance financeira para expor e validar `direction`, fechando a mesma classe de inversão fora do caminho composto.
+- Remover a recomputação de contagens no `InterpretationResolver`: ele consumirá as contagens canônicas do assessment, com gate de paridade para impedir divergência futura.
 - Garantir que App, assessor e WhatsApp recebam os mesmos fatos e a mesma direção para o mesmo ledger/período.
 
 ## Provas obrigatórias
