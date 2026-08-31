@@ -206,9 +206,11 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
       source_span: roles.source_span,
     },
     engines: [{
-      engine: "goal_performance_assessment.v1",
-      tool: "assess_goal_performance",
+      engine: GOAL_PERFORMANCE_ENGINE,
+      tool: GOAL_PERFORMANCE_TOOL,
       args: {
+        // Contrato de período: o motor recebe EXATAMENTE as janelas do plano.
+        // Nada de derivar uma segunda comparação internamente.
         current_from: current.from,
         current_to: current.to,
         comparison_from: comparison?.from ?? null,
@@ -219,6 +221,12 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
     }],
     response_depth: depthOf(facets),
     resolution: "deterministic",
+    protected_route: classifyProtectedAnalytical({
+      text,
+      previous_scope: input.previous_scope ?? null,
+    }).is_protected,
+    expected_entity_ids: [...scopedForGoals.entity_ids],
+
     composite: true,
   };
 }
