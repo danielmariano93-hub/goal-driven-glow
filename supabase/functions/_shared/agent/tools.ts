@@ -1290,6 +1290,24 @@ export async function get_goal_strategy(
   }
 }
 
+/**
+ * Desempenho de metas x evolução histórica no mesmo recorte (motor canônico
+ * `goal_performance_assessment.v1`). Responde "atingi minhas metas?" e
+ * "melhorei em relação ao período anterior?" sem misturar as duas coisas.
+ */
+export async function assess_goal_performance(
+  ctx: ToolContext,
+  args: { comparison_from?: string | null; comparison_to?: string | null; category_ids?: string[] | null } = {},
+): Promise<ToolResult> {
+  try {
+    const result = await computeGoalPerformance(ctx.sb, ctx.user_id, args);
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+
 
 
 export async function create_split_expense_draft(ctx: ToolContext, args: {
