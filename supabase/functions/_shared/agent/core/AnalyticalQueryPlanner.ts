@@ -15,7 +15,7 @@ import {
 import {
   requirement, type Requirement, type RequiredAnswer,
 } from "./AnalysisRequirements.ts";
-import { comparablePrevious, currentMonthPeriod, resolvePeriodRolesPt, type PeriodRoleContract } from "../../analytics/periodResolver.ts";
+import { comparablePrevious, currentMonthPeriod, resolvePeriodRolesPt, samePeriodPreviousMonth, type PeriodRoleContract } from "../../analytics/periodResolver.ts";
 import {
   classifyProtectedAnalytical, GOAL_PERFORMANCE_ENGINE, GOAL_PERFORMANCE_TOOL,
 } from "./ProtectedAnalyticalRouting.ts";

@@ -215,8 +215,8 @@ describe("nino_composite.v1: sem fallback semântico silencioso", () => {
 
   it("AgentCore responde honestamente quando o motor reconhecido falha", () => {
     expect(core).toContain("analyticalFailed");
-    expect(core).toContain("analyticalFailed.reply");
-    expect(core).toContain("!analyticalFailed && mandatoryTools.length > 1");
+    expect(core).toContain("analyticalFailed?.reply");
+    expect(core).toContain("!analyticalFailed && !protectedBlock && mandatoryTools.length > 1");
   });
 });
 
