@@ -229,17 +229,23 @@ export function linkRefunds(items: ImportItem[], existing: ExistingTx[]): Map<nu
   return map;
 }
 
+type PagedQuery = {
+  order: (col: string, opts: { ascending: boolean }) => PagedQuery;
+  range: (from: number, to: number) => Promise<{ data: unknown; error?: { message: string } | null }>;
+};
+
 type SupabaseLike = {
   from: (table: string) => {
     select: (cols: string) => {
       eq: (col: string, val: unknown) => {
         gte: (col: string, val: unknown) => {
-          lte: (col: string, val: unknown) => { limit: (n: number) => Promise<{ data: unknown }> };
+          lte: (col: string, val: unknown) => PagedQuery;
         };
       };
     };
   };
 };
+
 
 /**
  * Busca as transações candidatas do usuário: mesma faixa de datas do lote,
