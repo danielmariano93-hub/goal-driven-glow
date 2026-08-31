@@ -112,10 +112,12 @@ describe("estorno na composição econômica", () => {
 describe("paged_select.v1 no MCP", () => {
   it("resumo do mês e posição financeira paginam toda leitura de histórico", () => {
     const bundle = readFileSync("supabase/functions/mcp/index.ts", "utf8");
-    expect(bundle).toContain("fetchAllPagesMcp");
+    expect(bundle).toContain("fetchAllPages");
     expect(bundle).not.toContain('supabase.from("transactions").select(TX_COLUMNS),');
     const monthly = readFileSync("src/lib/mcp/tools/monthly-summary.ts", "utf8");
+    const position = readFileSync("src/lib/mcp/tools/financial-position.ts", "utf8");
     expect(monthly).toContain("fetchAllPages");
+    expect(position).toContain('source: "mcp_statements"');
   });
 });
 
