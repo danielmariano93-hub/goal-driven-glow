@@ -231,8 +231,9 @@ export function linkRefunds(items: ImportItem[], existing: ExistingTx[]): Map<nu
 
 type PagedQuery = {
   order: (col: string, opts: { ascending: boolean }) => PagedQuery;
-  range: (from: number, to: number) => Promise<{ data: unknown; error?: { message: string } | null }>;
+  range: (from: number, to: number) => Promise<{ data: ExistingTx[] | null; error: { message: string } | null }>;
 };
+
 
 type SupabaseLike = {
   from: (table: string) => {
