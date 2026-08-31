@@ -31,6 +31,16 @@ function shortLabel(ymd: string): string {
   return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
 }
 
+/**
+ * Piso de carga do CSV: compra de cartão do ciclo anterior tem competência
+ * dentro do período exportado, então o fetch recua e o corte final é por
+ * competência (`reporting_competence.v1`).
+ */
+function csvLoadFloor(from: string): string {
+  return addDaysIso(from, -75);
+}
+
+
 function scoreTone(score: number | null) {
   if (score === null) return "bg-muted text-muted-foreground";
   if (score >= 7.5) return "bg-emerald-500/10 text-emerald-600";
@@ -128,8 +138,10 @@ export default function RelatoriosInteligentes() {
     try {
       const { data, error } = await supabase
         .from("transactions")
-        .select("id,account_id,type,status,amount,occurred_at,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
-        .gte("occurred_at", from)
+        .select("id,account_id,type,status,amount,occurred_at,competence_date,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
+        // Margem para trás: compra de cartão do ciclo anterior tem competência
+        // dentro do período. O recorte final é feito por competência.
+        .gte("occurred_at", csvLoadFloor(from))
         .lte("occurred_at", to)
         .order("occurred_at", { ascending: false });
       if (error) throw error;
@@ -146,6 +158,7 @@ export default function RelatoriosInteligentes() {
       }
       const csv = toCsv(rows.map((t) => ({
         data: t.occurred_at,
+        competencia: t.competence_date ?? t.occurred_at,
         tipo: t.type,
         valor: t.amount,
         categoria: t.category_name ?? "",

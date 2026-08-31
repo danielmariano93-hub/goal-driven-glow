@@ -92,11 +92,40 @@ export function findInvalidTransactionColumns(selects = collectTransactionSelect
   return bad;
 }
 
+/**
+ * Guarda de competência (`reporting_competence.v1`).
+ *
+ * Qualquer superfície que agregue por mês precisa da competência canônica:
+ * cartão pelo mês da fatura. Se o `SELECT` traz `occurred_at` mas não traz
+ * `competence_date`, a agregação degrada em silêncio para a data da compra e o
+ * WhatsApp volta a divergir do relatório. Aqui a divergência falha antes.
+ */
+const COMPETENCE_REQUIRED_FILES = [
+  "supabase/functions/financial-reports-generate/index.ts",
+  "src/pages/RelatoriosInteligentes.tsx",
+];
+
+export function findMissingCompetenceSelects(selects = collectTransactionSelects()) {
+  const missing = [];
+  for (const s of selects) {
+    if (!COMPETENCE_REQUIRED_FILES.includes(s.file)) continue;
+    if (!s.columns.includes("occurred_at")) continue;
+    if (!s.columns.includes("competence_date")) missing.push({ file: s.file });
+  }
+  return missing;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const bad = findInvalidTransactionColumns();
   if (bad.length) {
     for (const b of bad) console.error(`✗ ${b.file}: coluna inexistente em transactions -> ${b.column}`);
     process.exit(1);
   }
-  console.log("tx_select_guard: todos os SELECT de transactions usam colunas reais");
+  const missing = findMissingCompetenceSelects();
+  if (missing.length) {
+    for (const m of missing) console.error(`✗ ${m.file}: agregação mensal sem competence_date`);
+    process.exit(1);
+  }
+  console.log("tx_select_guard: colunas reais + competência presente nas agregações mensais");
 }
+

@@ -543,13 +543,20 @@ function formatEmotionFinance(result: any): string {
 }
 
 /**
- * Resposta do motor `goal_performance_assessment.v1` em voz humana:
- * CONCLUSÃO primeiro, depois o porquê categoria por categoria, e o total só
- * das categorias com meta (nunca o gasto global).
+ * Resposta do motor `goal_performance_assessment.v1` em voz humana
+ * (`nino_comm.v1`): CONCLUSÃO primeiro, uma leitura por bloco e o total só das
+ * categorias com meta (nunca o gasto global).
  *
- * Nenhum número é recalculado aqui e nenhuma conclusão é inventada: o estado
- * agregado vem do InterpretationResolver e os valores vêm do motor.
+ * Teto e tendência ficam em blocos SEPARADOS: juntar as duas leituras na mesma
+ * frase produzia linhas autocontraditórias ("acima do teto, e R$ X menos que no
+ * período anterior"). O recorte de competência é declarado uma única vez, para
+ * que compra de cartão do ciclo anterior tenha explicação visível.
+ *
+ * Nenhum número é recalculado aqui e nenhuma conclusão é inventada.
  */
+export const COMPETENCE_DISCLOSURE =
+  "Conto compras de cartão pelo mês da fatura e o restante pela data do lançamento — é a mesma régua do relatório no app.";
+
 export function formatGoalPerformance(
   assessment: any,
   interpretation: { conclusion: string; priority?: { category_name: string; reason: string } | null },
@@ -560,26 +567,42 @@ export function formatGoalPerformance(
     return "Você ainda não tem meta por categoria ativa. Se quiser, eu defino um teto com base no seu próprio histórico.";
   }
 
-  const lines: string[] = [interpretation.conclusion];
+  const blocks: string[] = [interpretation.conclusion];
 
-  for (const c of categories.slice(0, 8)) {
-    const goalPart = c.goal?.status === "achieved"
+  // Bloco 1 — teto por categoria. Só teto.
+  const ceilingLines = categories.slice(0, 8).map((c: any) => {
+    const part = c.goal?.status === "achieved"
       ? `dentro do teto (${money(c.goal.actual)} de ${money(c.goal.target)})`
       : `acima do teto em ${money(Math.abs(Number(c.goal?.actual ?? 0) - Number(c.goal?.target ?? 0)))} (${money(c.goal?.actual)} de ${money(c.goal?.target)})`;
-    const direction = String(c.historical?.direction ?? "equal");
-    const immaterial = c.historical?.materiality === "immaterial_change";
-    const qualifier = immaterial && direction !== "equal" ? " (variação pequena)" : "";
-    const incompatiblePeriod = c.period_compatibility === "incompatible";
-    const trendPart = incompatiblePeriod
-      ? `; a meta cobre ${datePt(c.goal_period?.from)} a ${datePt(c.goal_period?.to)}, diferente do recorte comparado, então não misturei as duas leituras`
-      : !opts.comparison_requested || c.historical?.trend === "insufficient_data"
-      ? ""
-      : direction === "below"
-        ? `, e ${money(Math.abs(Number(c.historical.delta)))} menos que no período anterior${qualifier}`
+    return `• ${c.category_name}: ${part}.`;
+  });
+  blocks.push(["Teto por categoria:", ...ceilingLines].join("\n"));
+
+  // Bloco 2 — comparação com o período anterior. Só tendência.
+  if (opts.comparison_requested) {
+    const trendLines: string[] = [];
+    for (const c of categories.slice(0, 8)) {
+      if (c.period_compatibility === "incompatible") {
+        trendLines.push(
+          `• ${c.category_name}: a meta cobre ${datePt(c.goal_period?.from)} a ${datePt(c.goal_period?.to)}, diferente do recorte comparado, então não misturei as duas leituras.`,
+        );
+        continue;
+      }
+      if (c.historical?.trend === "insufficient_data") continue;
+      const direction = String(c.historical?.direction ?? "equal");
+      const immaterial = c.historical?.materiality === "immaterial_change";
+      const qualifier = immaterial && direction !== "equal" ? " (variação pequena)" : "";
+      const delta = money(Math.abs(Number(c.historical?.delta ?? 0)));
+      const phrase = direction === "below"
+        ? `${delta} menos${qualifier}`
         : direction === "above"
-          ? `, e ${money(Math.abs(Number(c.historical.delta)))} mais que no período anterior${qualifier}`
-          : `, praticamente igual ao período anterior`;
-    lines.push(`• ${c.category_name}: ${goalPart}${trendPart}.`);
+          ? `${delta} mais${qualifier}`
+          : "praticamente igual";
+      trendLines.push(`• ${c.category_name}: ${phrase}.`);
+    }
+    if (trendLines.length) {
+      blocks.push(["Contra o mesmo recorte do período anterior:", ...trendLines].join("\n"));
+    }
   }
 
   const agg = assessment?.aggregate;
@@ -594,13 +617,16 @@ export function formatGoalPerformance(
     const versus = opts.comparison_requested && Number(agg.previous_spend ?? 0) > 0
       ? ` — ${aggregateComparison} que os ${money(agg.previous_spend)} do período anterior`
       : "";
-    lines.push(`No conjunto dessas categorias: ${money(agg.current_spend)} de ${money(agg.total_target)} de teto${versus}.`);
+    blocks.push(`No conjunto dessas categorias: ${money(agg.current_spend)} de ${money(agg.total_target)} de teto${versus}.`);
   }
+
+  blocks.push(COMPETENCE_DISCLOSURE);
 
   if (interpretation.priority) {
-    lines.push(`Onde eu olharia primeiro: ${interpretation.priority.category_name} — ${interpretation.priority.reason}`);
+    blocks.push(`Onde eu olharia primeiro: ${interpretation.priority.category_name} — ${interpretation.priority.reason}`);
   }
-  if (opts.disclosure) lines.push(opts.disclosure);
+  if (opts.disclosure) blocks.push(opts.disclosure);
 
-  return lines.join("\n");
+  return blocks.join("\n\n");
 }
+

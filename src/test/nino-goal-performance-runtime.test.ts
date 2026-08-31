@@ -348,8 +348,13 @@ describe("golden P0: uma categoria acima, três abaixo", () => {
     const reply = formatGoalPerformance(out, interpretation);
     expect(reply.startsWith("Sim.")).toBe(true);
     expect(reply).toContain("Transporte");
-    expect(reply.split("\u00a0").join(" ")).toContain("R$ 300,00 mais");
-    expect(reply.match(/menos que no período anterior/g)).toHaveLength(3);
+    // `nino_comm.v1`: teto e tendência em blocos separados.
+    const plain = reply.split("\u00a0").join(" ");
+    expect(plain).toContain("Teto por categoria:");
+    expect(plain).toContain("Contra o mesmo recorte do período anterior:");
+    expect(plain).toContain("R$ 300,00 mais");
+    expect(plain.match(/R\$ [\d.,]+ menos/g)).toHaveLength(5); // conclusão + 3 categorias + agregado
+
     const gates = runAnalysisGates({
       assessment: out,
       scope: { entity_type: "category", selection: "explicit_ids", entity_ids: goals.map((g) => g.category_id), entity_labels: categories.map((c) => c.name), aggregate_scope: "scoped_entities", source: "engine_resolved", locked: true },

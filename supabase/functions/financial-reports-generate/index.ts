@@ -44,17 +44,39 @@ function logEvent(event: Record<string, unknown>) {
 
 type Sb = SupabaseClient;
 
-/** Carrega os lançamentos necessários (período + anterior + margem). */
+/**
+ * Carrega os lançamentos necessários (período + anterior + margem).
+ *
+ * `competence_date` é obrigatória: o relatório agrega pela competência canônica
+ * (cartão pelo mês da fatura). Sem essa coluna o cálculo degradaria em silêncio
+ * para a data da compra e voltaria a divergir do Nino — por isso a ausência é
+ * erro explícito, não fallback.
+ *
+ * A janela recua `COMPETENCE_MARGIN_DAYS` antes do início porque uma compra de
+ * cartão feita no ciclo anterior tem competência DENTRO do período do relatório.
+ */
+const COMPETENCE_MARGIN_DAYS = 75;
+
+function shiftDays(day: string, delta: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
 async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promise<TransactionRow[]> {
   const { data, error } = await sb
     .from("transactions")
-    .select("id,account_id,type,status,amount,occurred_at,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
+    .select("id,account_id,type,status,amount,occurred_at,competence_date,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
     .eq("user_id", userId)
-    .gte("occurred_at", fromDate)
+    .gte("occurred_at", shiftDays(fromDate, -COMPETENCE_MARGIN_DAYS))
     .order("occurred_at", { ascending: true })
-    .limit(5000);
+    .limit(8000);
   if (error) throw new Error(`load_transactions:${error.message}`);
-  return (data ?? []) as unknown as TransactionRow[];
+  const rows = (data ?? []) as unknown as TransactionRow[];
+  if (rows.length > 0 && !("competence_date" in (rows[0] as Record<string, unknown>))) {
+    throw new Error("load_transactions:missing_competence_date");
+  }
+  return rows;
 }
 
 async function loadContext(sb: Sb, userId: string) {
