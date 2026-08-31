@@ -65,6 +65,10 @@ import {
   serializeWithinBudget, estimateTokens, measureLayers, fitWorkingMemory, LAYER_BUDGET_CHARS,
 } from "./ContextBudget.ts";
 import { isEnabled } from "./FeatureFlags.ts";
+import { scopeFromToolCalls } from "./ScopeCarryover.ts";
+import {
+  reconcileEvidence, replyUsesRejectedEvidence, EVIDENCE_CONFLICT_REPLY,
+} from "./EvidenceReconciliation.ts";
 
 
 import { allowsEntryDraft, hasEntryIntent } from "./HypotheticalGuard.ts";
@@ -1235,6 +1239,29 @@ ${episodic}
     reply = validated.body;
   }
 
+  // ---- Reconciliação de evidência (`nino_evidence.v1`) -------------------
+  // Escopo travado nunca é respondido por agregado global, e evidência de outro
+  // período não sustenta o número deste turno. A LLM não escolhe entre leituras
+  // divergentes: o runtime descarta e, se a resposta usou o valor descartado,
+  // ela não sai.
+  const inheritedScope = (memory as any)?.last_analysis?.scope ?? null;
+  const reconciliation = reconcileEvidence({
+    toolCalls: toolCallLog as any[],
+    scope: analytical ? analytical.scope : inheritedScope,
+    period: turnPlan.effective_period
+      ? { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to }
+      : null,
+  });
+  if (reconciliation.rejected.length) {
+    metrics.errors.push(
+      "evidence_rejected:" + reconciliation.rejected.map((r) => `${r.tool_name}:${r.reason}`).slice(0, 4).join(","),
+    );
+  }
+  if (!analytical && replyUsesRejectedEvidence(reply, reconciliation)) {
+    metrics.errors.push("evidence_conflict_blocked");
+    reply = EVIDENCE_CONFLICT_REPLY;
+  }
+
   // ---- Truth Gate v2 -----------------------------------------------------
   // Regra absoluta: nenhum valor em reais e nenhum percentual sai daqui sem
   // ferramenta determinística que o sustente. Quando falta prova, o Core tenta
@@ -1445,6 +1472,34 @@ ${episodic}
     // como operação estruturada até o usuário responder.
     pending_conversation_action: detectContinuationOffer(reply)
       ?? (continuationMemory?.pending_conversation_action ?? null),
+    // `nino_scope.v2` — escopo de categorias sobrevive ao turno, mesmo quando a
+    // resposta veio pelo fluxo antigo. Sem isso "essas categorias" nasce órfão.
+    last_analysis: analytical
+      ? {
+        scope: analytical.scope,
+        entity_ids: analytical.scope.entity_ids,
+        entity_labels: analytical.scope.entity_labels,
+        period: { from: analytical.plan.periods.current.from, to: analytical.plan.periods.current.to },
+        comparison_period: analytical.plan.periods.comparison,
+        state: analytical.interpretation.state,
+        engines: analytical.plan.engines.map((e) => e.engine),
+      }
+      : (() => {
+        const carried = scopeFromToolCalls(toolCallLog as any[]);
+        if (!carried) return (memory as any)?.last_analysis ?? null;
+        return {
+          scope: carried,
+          entity_ids: carried.entity_ids,
+          entity_labels: carried.entity_labels,
+          period: {
+            from: turnPlan.effective_period.from,
+            to: turnPlan.effective_period.to,
+          },
+          comparison_period: turnPlan.previous_period,
+          state: null,
+          engines: [],
+        };
+      })(),
     last_tool_context: toolCallLog.length
       ? { tool: String(toolCallLog[toolCallLog.length - 1]?.tool_name ?? ""), period: turnPlan.previous_period }
       : (memory?.last_tool_context ?? null),
