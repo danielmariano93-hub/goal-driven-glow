@@ -4,6 +4,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import type { TurnMetrics } from "./Observability.ts";
+import { runtimeStamp } from "./RuntimeContract.ts";
 
 export type DecisionRecord = {
   run_id: string | null;
@@ -70,6 +71,7 @@ export function buildRecord(args: {
     error: args.error ?? (args.metrics.errors[0] ?? null),
     duration_ms: args.metrics.stages.total ?? 0,
     metrics: {
+      ...runtimeStamp(),
       stages_ms: args.metrics.stages,
       tokens_in: args.metrics.tokens_in,
       tokens_out: args.metrics.tokens_out,

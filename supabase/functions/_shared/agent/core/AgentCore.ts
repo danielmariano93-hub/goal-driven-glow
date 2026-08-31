@@ -50,7 +50,7 @@ import { runCompositeAnalysis } from "./CompositeAnalysis.ts";
 import {
   classifyProtectedAnalytical, PROTECTED_ENGINE_FAILURE_REPLY, PROTECTED_SCOPE_MISSING_REPLY,
 } from "./ProtectedAnalyticalRouting.ts";
-import { AGENT_RUNTIME_VERSION, ANALYTICAL_CONTRACT_VERSION } from "./RuntimeContract.ts";
+import { AGENT_RUNTIME_VERSION, ANALYTICAL_CONTRACT_VERSION, runtimeContext } from "./RuntimeContract.ts";
 
 import {
   classifyConversational, deterministicConversationalReply, generateConversationalReply,
@@ -168,6 +168,54 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
 
   const tctx = createTurnContext({ sb, user_id: input.user_id, conversation_id: input.conversation_id, session_id: session_id ?? null });
 
+  // Todo turno novo abre o registro ANTES dos atalhos. Assim fast log,
+  // confirmação, categorização e conversa casual também provam qual bundle
+  // respondeu. Retry deduplicado acima não abre um segundo run de propósito.
+  let run_id: string | undefined;
+  await guard(async () => {
+    const { data: run, error } = await sb.from("agent_runs").insert({
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      prompt_version_id: null,
+      model: "routing",
+      status: "running",
+      started_at: new Date().toISOString(),
+      channel: input.channel,
+      context_layers: runtimeContext(),
+    }).select("id").maybeSingle();
+    if (error) throw error;
+    run_id = (run as any)?.id as string | undefined;
+  }, (m) => metrics.errors.push("runs_insert:" + m), null);
+
+  const finishEarlyRun = async (args: {
+    path: string;
+    capability: string;
+    tools?: string[];
+    error?: string | null;
+    finalPath?: string;
+  }) => {
+    if (!run_id) return;
+    await guard(async () => {
+      const { error } = await sb.from("agent_runs").update({
+        status: args.error ? "error" : "done",
+        ended_at: new Date().toISOString(),
+        path: args.path,
+        steps: args.tools?.length ?? 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        tools_used: args.tools ?? [],
+        capability: args.capability,
+        tool_scope: args.tools ?? [],
+        channel: input.channel,
+        latency_ms: Date.now() - t0,
+        error_sanitized: args.error ?? null,
+        error_masked: args.error ?? null,
+        context_layers: runtimeContext(args.finalPath ?? "early_return"),
+      }).eq("id", run_id);
+      if (error) throw error;
+    }, (m) => metrics.errors.push("runs_finish_early:" + m), null);
+  };
+
   // ---- CONTINUIDADE (`nino_continuation.v1`) ------------------------------
   // O Nino ofereceu uma análise ("quer comparar…? me dá o ok") e o usuário
   // respondeu "Ok". Antes isso caía no PolicyEngine e virava "não encontrei
@@ -240,8 +288,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
             });
           }
           metrics.stages.total = Date.now() - t0;
+          await finishEarlyRun({ path: "deterministic_tool", capability: "assign_category", tools: ["assign_category"] });
           await logDecision(sb, buildRecord({
-            run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+            run_id: run_id ?? null, user_id: input.user_id, conversation_id: input.conversation_id,
             channel: input.channel, intent: "assign_category",
             policy_decision: outcome.reply_kind, metrics, validations: [],
           }));
@@ -263,16 +312,6 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const fastLogToken = await loadFastLogToken(sb, input.user_id);
   const fastLog = detectFastLog(input.text, fastLogToken);
   if (fastLog.triggered) {
-    let run_id_fl: string | undefined;
-    await guard(async () => {
-      const { data: run, error } = await sb.from("agent_runs").insert({
-        user_id: input.user_id, conversation_id: input.conversation_id,
-        prompt_version_id: null, model: "fast_log", status: "running",
-        started_at: new Date().toISOString(),
-      }).select("id").maybeSingle();
-      if (error) throw error;
-      run_id_fl = (run as any)?.id as string | undefined;
-    }, (m) => metrics.errors.push("runs_insert:" + m), null);
     const started = Date.now();
     let outcome: Awaited<ReturnType<typeof runFastLog>> = { handled: true, reply: "", reply_kind: "info", tool_calls: [] };
     let fastLogError: string | null = null;
@@ -291,7 +330,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     const body = outcome.reply ?? "";
     const kind: HandleTurnResult["reply_kind"] = outcome.reply_kind === "receipt" ? "receipt"
       : outcome.reply_kind === "question" ? "question" : "info";
-    if (run_id_fl) {
+    if (run_id) {
       // Sempre encerra o run (try/finally garante que status='running' não fica órfão).
       await guard(async () => {
         const { error: runError } = await sb.from("agent_runs").update({
@@ -300,11 +339,12 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
           path: "fast_log", steps: outcome.tool_calls?.length ?? 0,
           latency_ms: Date.now() - started,
           error_sanitized: fastLogError, error_masked: fastLogError,
-        }).eq("id", run_id_fl);
+          context_layers: runtimeContext("fast_log"),
+        }).eq("id", run_id);
         if (runError) throw runError;
         if ((outcome.tool_calls?.length ?? 0) > 0) {
           const { error: callsError } = await sb.from("agent_tool_calls").insert(outcome.tool_calls!.map(c => ({
-            run_id: run_id_fl, step_index: c.step_index, tool_name: c.tool_name,
+            run_id, step_index: c.step_index, tool_name: c.tool_name,
             args: c.args ?? {}, result: c.result ?? null,
             ok: c.ok, duration_ms: c.duration_ms, error: c.error ?? null,
           })));
@@ -321,7 +361,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       });
     }
     metrics.stages.total = Date.now() - t0;
-    return { reply: body, reply_kind: kind, path: "deterministic_fallback", draft_id: outcome.draft_id, run_id: run_id_fl, session_id };
+    return { reply: body, reply_kind: kind, path: "deterministic_fallback", draft_id: outcome.draft_id, run_id, session_id };
   }
 
   // ---- Registro em lote (lista/fatura colada) ----------------------------
@@ -354,7 +394,8 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         });
       }
       metrics.stages.total = Date.now() - t0;
-      return { reply: body, reply_kind: routed.intent.kind === "cancel" ? "cancelled" : "receipt", path: "deterministic_fallback", session_id };
+      await finishEarlyRun({ path: "deterministic_fallback", capability: `bulk_${routed.intent.kind}` });
+      return { reply: body, reply_kind: routed.intent.kind === "cancel" ? "cancelled" : "receipt", path: "deterministic_fallback", run_id, session_id };
     }
   } else {
     const bulk = await guard(
@@ -375,7 +416,8 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         });
       }
       metrics.stages.total = Date.now() - t0;
-      return { reply: bulk.reply, reply_kind: "draft", path: "deterministic_fallback", draft_id: bulk.pending_id ?? undefined, session_id };
+      await finishEarlyRun({ path: "deterministic_fallback", capability: "bulk_draft" });
+      return { reply: bulk.reply, reply_kind: "draft", path: "deterministic_fallback", draft_id: bulk.pending_id ?? undefined, run_id, session_id };
     }
   }
 
@@ -451,9 +493,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
             source: input.channel === "simulator" ? "simulator" : "whatsapp",
           });
         }
+        await finishEarlyRun({ path: "deterministic_fallback", capability: "confirm_recovery" });
         return {
           reply: finalReply, reply_kind: finalKind, path: "deterministic_fallback",
-          draft_id: recovered.draft_id, session_id,
+          draft_id: recovered.draft_id, run_id, session_id,
         };
       }
     }
@@ -469,15 +512,16 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       });
     }
     metrics.stages.total = Date.now() - t0;
+    await finishEarlyRun({ path: "deterministic_fallback", capability: `policy:${routed.intent.kind}` });
     await logDecision(sb, buildRecord({
-      run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+      run_id: run_id ?? null, user_id: input.user_id, conversation_id: input.conversation_id,
       channel: input.channel, intent: routed.intent.kind,
       policy_decision: policyReply.replyKind, metrics,
       validations: v.reasons,
     }));
     return {
       reply: body, reply_kind: policyReply.replyKind, path: "deterministic_fallback",
-      draft_id: policyReply.draft_id, result: policyReply.result, session_id,
+      draft_id: policyReply.draft_id, result: policyReply.result, run_id, session_id,
     };
   }
 
@@ -538,12 +582,13 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         });
       }
       metrics.stages.total = Date.now() - t0;
+      await finishEarlyRun({ path: "deterministic_fallback", capability: "conversational" });
       await logDecision(sb, buildRecord({
-        run_id: null, user_id: input.user_id, conversation_id: input.conversation_id,
+        run_id: run_id ?? null, user_id: input.user_id, conversation_id: input.conversation_id,
         channel: input.channel, intent: `conversational:${conversational.kind}`,
         policy_decision: "info", metrics, validations: [],
       }));
-      return { reply: convReply, reply_kind: "info", path: "deterministic_fallback", session_id };
+      return { reply: convReply, reply_kind: "info", path: "deterministic_fallback", run_id, session_id };
     }
   }
 
@@ -561,19 +606,18 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const prompt = await guard(() => loadActivePrompt(sb),
     (m) => metrics.errors.push("prompt:" + m), null as any);
 
-  let run_id: string | undefined;
-  await guard(async () => {
-    const { data: run, error } = await sb.from("agent_runs").insert({
-      user_id: input.user_id, conversation_id: input.conversation_id,
-      prompt_version_id: prompt?.id ?? null, model: prompt?.model ?? "unknown",
-      status: "running", started_at: new Date().toISOString(),
-      capability: capability.name,
-      tool_scope: capability.allowed_tools,
-      model_attempts: [],
-    }).select("id").maybeSingle();
-    if (error) throw error;
-    run_id = (run as any)?.id as string | undefined;
-  }, (m) => metrics.errors.push("runs_insert:" + m), null);
+  if (run_id) {
+    await guard(async () => {
+      const { error } = await sb.from("agent_runs").update({
+        prompt_version_id: prompt?.id ?? null,
+        model: prompt?.model ?? "unknown",
+        capability: capability.name,
+        tool_scope: capability.allowed_tools,
+        model_attempts: [],
+      }).eq("id", run_id);
+      if (error) throw error;
+    }, (m) => metrics.errors.push("runs_prepare:" + m), null);
+  }
 
   const loadedHistory = await tctx.history(12, input.channel === "app" ? input.inbound_message_id : null);
   // No WhatsApp a mensagem já foi persistida antes de entrar no AgentCore. O

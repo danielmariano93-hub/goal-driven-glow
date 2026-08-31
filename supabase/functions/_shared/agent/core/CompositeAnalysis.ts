@@ -77,6 +77,8 @@ export type CompositeTelemetry = {
   planned_comparison_period: { from: string; to: string } | null;
 };
 
+type ExecuteTool = typeof runTool;
+
 export async function runCompositeAnalysis(
   sb: SupabaseClient,
   input: {
@@ -88,6 +90,8 @@ export async function runCompositeAnalysis(
     period_roles?: import("../../analytics/periodResolver.ts").PeriodRoleContract | null;
     now?: Date;
     onTelemetry?: (t: CompositeTelemetry) => void;
+    /** Injeção restrita a testes para exercitar falhas reais do orquestrador. */
+    executeTool?: ExecuteTool;
   },
 ): Promise<CompositeAnalysisOutcome> {
   const stamp = {
@@ -162,9 +166,19 @@ export async function runCompositeAnalysis(
   } as any;
 
   // Recuperação determinística: uma retentativa real do motor obrigatório.
-  let exec = await runTool(ctx, engine.tool, engine.args, { timeoutMs: 15_000 });
-  if (!exec?.ok || !exec.result) {
-    exec = await runTool(ctx, engine.tool, engine.args, { timeoutMs: 15_000, maxRetries: 0 });
+  const executeTool = input.executeTool ?? runTool;
+  let exec;
+  try {
+    exec = await executeTool(ctx, engine.tool, engine.args, { timeoutMs: 15_000 });
+    if (!exec?.ok || !exec.result) {
+      exec = await executeTool(ctx, engine.tool, engine.args, { timeoutMs: 15_000, maxRetries: 0 });
+    }
+  } catch (error) {
+    return fail(
+      "engine_failed",
+      "engine_exception:" + String((error as Error)?.message ?? error ?? "unknown").slice(0, 120),
+      [],
+    );
   }
   if (!exec?.ok || !exec.result) {
     return fail("engine_failed", "engine_error:" + String(exec?.error ?? "unknown").slice(0, 120), exec ? [exec] : []);

@@ -14,6 +14,8 @@ import { resolveAnalyticalPlan } from "../../supabase/functions/_shared/agent/co
 import { computeGoalPerformanceAssessment } from "../lib/engine/goalPerformanceAssessment";
 import { reportingCompetenceDate } from "../lib/engine/facts";
 import { runAnalysisGates } from "../../supabase/functions/_shared/agent/core/AnalysisGates";
+import { runCompositeAnalysis } from "../../supabase/functions/_shared/agent/core/CompositeAnalysis";
+import { AGENT_RUNTIME_VERSION } from "../../supabase/functions/_shared/agent/core/RuntimeContract";
 import { resolveInterpretation } from "../../supabase/functions/_shared/agent/core/InterpretationResolver";
 import { formatGoalPerformance } from "../../supabase/functions/_shared/agent/core/DeterministicAnswers";
 
@@ -263,6 +265,57 @@ describe("golden: pergunta composta com escopo herdado", () => {
     expect(out.completeness.status).toBe("complete");
     expect(out.gates.every((g) => g.ok)).toBe(true);
     expect(out.toolCalls[0].tool_name).toBe("assess_goal_performance");
+  });
+});
+
+describe("nino_analytical.v2: falhas executáveis são fail-closed", () => {
+  const text = "Nino, me traga um overview das minhas metas no mês atual, se eu atingi ou ultrapassei, e compare essas mesmas categorias com o mesmo período do mês passado.";
+  const failedExecution = (error: string) => async (_ctx: any, tool: string, args: any) => ({
+    tool_name: tool, args, ok: false, result: null, error, duration_ms: 1, retries: 0,
+  });
+
+  it("exceção do motor termina como engine_failed e registra telemetria", async () => {
+    const telemetry: any[] = [];
+    const out = await runCompositeAnalysis({} as any, {
+      user_id: "u1", conversation_id: "c1", text, now: new Date("2026-08-20T12:00:00Z"),
+      executeTool: async () => { throw new Error("database_unavailable"); },
+      onTelemetry: (event) => telemetry.push(event),
+    });
+    expect(out.status).toBe("failed");
+    if (out.status !== "failed") return;
+    expect(out.failure_type).toBe("engine_failed");
+    expect(out.plan.engines.map((engine) => engine.tool)).toEqual(["assess_goal_performance"]);
+    expect(telemetry.at(-1)).toMatchObject({
+      final_path: "composite_failed", goal_performance_tool_failed: true,
+      runtime_version: AGENT_RUNTIME_VERSION, planned_tool: "assess_goal_performance",
+    });
+  });
+
+  it("erro retornado tenta novamente e nunca libera ferramenta substituta", async () => {
+    let attempts = 0;
+    const executeTool = async (_ctx: any, tool: string, args: any) => {
+      attempts++;
+      return failedExecution("tool_timeout_15000ms")(_ctx, tool, args);
+    };
+    const out = await runCompositeAnalysis({} as any, {
+      user_id: "u1", conversation_id: "c1", text, now: new Date("2026-08-20T12:00:00Z"), executeTool,
+    });
+    expect(attempts).toBe(2);
+    expect(out.status).toBe("failed");
+    if (out.status !== "failed") return;
+    expect(out.failure_type).toBe("engine_failed");
+    expect(out.toolCalls.every((call) => call.tool_name === "assess_goal_performance")).toBe(true);
+  });
+
+  it("resultado sem categorias falha fechado como empty_scope", async () => {
+    const executeTool = async (_ctx: any, tool: string, args: any) => ({
+      tool_name: tool, args, ok: true, result: { categories: [] }, error: null, duration_ms: 1, retries: 0,
+    });
+    const out = await runCompositeAnalysis({} as any, {
+      user_id: "u1", conversation_id: "c1", text, now: new Date("2026-08-20T12:00:00Z"), executeTool,
+    });
+    expect(out.status).toBe("failed");
+    if (out.status === "failed") expect(out.failure_type).toBe("empty_scope");
   });
 });
 

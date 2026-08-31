@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 const FUNCTIONS_DIR = "supabase/functions";
 const DEPENDENTS_DOC = join(FUNCTIONS_DIR, "_shared/agent/DEPENDENTS.md");
+const RUNTIME_CONTRACT = join(FUNCTIONS_DIR, "_shared/agent/core/RuntimeContract.ts");
 
 function walk(dir) {
   const out = [];
@@ -45,6 +46,24 @@ if (missing.length || stale.length) {
   if (missing.length) console.error("Funções dependentes NÃO declaradas em DEPENDENTS.md:", missing.join(", "));
   if (stale.length) console.error("Funções declaradas que já não dependem de _shared/agent:", stale.join(", "));
   console.error("Corrija DEPENDENTS.md — a lista guia o redeploy atômico.");
+  process.exit(1);
+}
+
+const runtime = readFileSync(RUNTIME_CONTRACT, "utf8");
+if (!/AGENT_RUNTIME_VERSION\s*=\s*"nino-agent-p0\.\d{4}-\d{2}-\d{2}\.\d+"/.test(runtime)) {
+  console.error("AGENT_RUNTIME_VERSION ausente ou fora do formato verificável.");
+  process.exit(1);
+}
+
+const forbiddenLegacyGate = "goal_" + "current_consistent";
+const sharedSources = [
+  ...walk(join(FUNCTIONS_DIR, "_shared/agent")),
+  ...walk(join(FUNCTIONS_DIR, "_shared/analytics")),
+  ...walk(join(FUNCTIONS_DIR, "_shared/finance-core")),
+];
+const legacyHits = sharedSources.filter((file) => readFileSync(file, "utf8").includes(forbiddenLegacyGate));
+if (legacyHits.length) {
+  console.error("Gate legado proibido reapareceu:", legacyHits.join(", "));
   process.exit(1);
 }
 
