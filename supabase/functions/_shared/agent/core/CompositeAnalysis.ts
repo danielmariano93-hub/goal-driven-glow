@@ -51,13 +51,13 @@ export async function runCompositeAnalysis(
   const engine = plan.engines[0];
   if (!engine) return null;
 
-  const exec = await runTool(sb, {
-    user_id: input.user_id,
-    conversation_id: input.conversation_id,
-    user_text: input.text,
-    name: engine.tool,
-    args: engine.args,
-  } as any);
+  const exec = await runTool(
+    { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text } as any,
+    engine.tool,
+    engine.args,
+    { timeoutMs: 15_000 },
+  );
+
 
   if (!exec?.ok || !exec.result) return null;
   const assessment = exec.result;
