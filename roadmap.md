@@ -6,4 +6,4 @@
 - [x] Adicionar gates aritméticos, semânticos e de período
 - [x] Persistir snapshot analítico auditável no run
 - [x] Cobrir incidente e mutações com testes
-- [ ] Sincronizar finance-core e validar suítes/build
+- [x] Sincronizar finance-core e validar suítes/build
