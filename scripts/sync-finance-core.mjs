@@ -46,6 +46,7 @@ export const FINANCE_CORE_MODULES = [
   "categoryProjection",
   "metrics",
   "categoryGoalStrategy",
+  "goalPerformanceAssessment",
   "longitudinal",
   "wealthOpportunity",
   "recurringSchedule",

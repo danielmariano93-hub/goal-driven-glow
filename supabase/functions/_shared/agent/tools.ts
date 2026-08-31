@@ -18,6 +18,7 @@ import {
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
+import { computeGoalPerformance } from "./goalPerformanceTool.ts";
 import {
   computeEmotionFinance,
   DEFAULT_MIN_COMPOSITE_SAMPLE,
@@ -1237,11 +1238,13 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
       };
     });
     const categoryItems = snap.active_category_goals.map((goal) => ({
-      id: goal.goal_id, name: goal.category_name ?? "Categoria", type: "category", status: goal.status,
+      id: goal.goal_id, category_id: goal.category_id,
+      name: goal.category_name ?? "Categoria", type: "category", status: goal.status,
       target: goal.target_amount, achieved: goal.actual_spend,
       attainment_pct: goal.actual_spend <= goal.target_amount ? 100 : Math.max(0, Math.round(goal.target_amount / Math.max(1, goal.actual_spend) * 10000) / 100),
       remaining: goal.remaining_amount,
     }));
+
     const memberGoalIds = [...new Set(((memberRes.data ?? []) as any[]).map((m) => m.goal_id).filter(Boolean))];
     const memberSharedRes = memberGoalIds.length
       ? await ctx.sb.from("shared_goals").select("id,title,target_amount,status,deadline").in("id", memberGoalIds)
@@ -1287,6 +1290,24 @@ export async function get_goal_strategy(
     return { ok: false, error: (error as Error).message };
   }
 }
+
+/**
+ * Desempenho de metas x evolução histórica no mesmo recorte (motor canônico
+ * `goal_performance_assessment.v1`). Responde "atingi minhas metas?" e
+ * "melhorei em relação ao período anterior?" sem misturar as duas coisas.
+ */
+export async function assess_goal_performance(
+  ctx: ToolContext,
+  args: { comparison_from?: string | null; comparison_to?: string | null; category_ids?: string[] | null } = {},
+): Promise<ToolResult> {
+  try {
+    const result = await computeGoalPerformance(ctx.sb, ctx.user_id, args);
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
 
 
 
@@ -2434,6 +2455,20 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["amount", "planned_date"], additionalProperties: false,
     },
     execute: run_before_spending,
+  },
+  {
+    name: "assess_goal_performance",
+    description: "Avalia, no mesmo recorte de período, se o usuário atingiu cada meta por categoria E se evoluiu em relação ao período anterior. Use quando a pergunta pedir visão geral das metas, atingimento, comparação com o mês/período anterior, ou uma leitura de melhora/piora. Nunca mistura meta cumprida com melhora histórica: devolve os dois estados separados, o total apenas das categorias com meta e o ponto de atenção.",
+    parameters: {
+      type: "object",
+      properties: {
+        comparison_from: { type: "string", description: "Início do recorte de comparação (YYYY-MM-DD). Vazio usa o mesmo período do mês anterior." },
+        comparison_to: { type: "string", description: "Fim do recorte de comparação (YYYY-MM-DD)." },
+        category_ids: { type: "array", items: { type: "string" }, description: "Escopo explícito de categorias. Vazio usa todas as categorias com meta ativa." },
+      },
+      additionalProperties: false,
+    },
+    execute: assess_goal_performance,
   },
   {
 

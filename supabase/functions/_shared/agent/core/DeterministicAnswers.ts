@@ -541,3 +541,53 @@ function formatEmotionFinance(result: any): string {
     "São associações observadas nos seus registros, não uma explicação do motivo.",
   ].filter(Boolean).join("\n\n");
 }
+
+/**
+ * Resposta do motor `goal_performance_assessment.v1` em voz humana:
+ * CONCLUSÃO primeiro, depois o porquê categoria por categoria, e o total só
+ * das categorias com meta (nunca o gasto global).
+ *
+ * Nenhum número é recalculado aqui e nenhuma conclusão é inventada: o estado
+ * agregado vem do InterpretationResolver e os valores vêm do motor.
+ */
+export function formatGoalPerformance(
+  assessment: any,
+  interpretation: { conclusion: string; priority?: { category_name: string; reason: string } | null },
+  opts: { comparison_requested: boolean; disclosure?: string | null } = { comparison_requested: true },
+): string {
+  const categories = Array.isArray(assessment?.categories) ? assessment.categories : [];
+  if (!categories.length) {
+    return "Você ainda não tem meta por categoria ativa. Se quiser, eu defino um teto com base no seu próprio histórico.";
+  }
+
+  const lines: string[] = [interpretation.conclusion];
+
+  for (const c of categories.slice(0, 8)) {
+    const goalPart = c.goal?.status === "achieved"
+      ? `dentro do teto (${money(c.goal.actual)} de ${money(c.goal.target)})`
+      : `acima do teto em ${money(Math.abs(Number(c.goal?.actual ?? 0) - Number(c.goal?.target ?? 0)))} (${money(c.goal?.actual)} de ${money(c.goal?.target)})`;
+    const trendPart = !opts.comparison_requested || c.historical?.trend === "insufficient_data"
+      ? ""
+      : Number(c.historical?.delta ?? 0) < 0
+        ? `, e ${money(Math.abs(Number(c.historical.delta)))} menos que no período anterior`
+        : Number(c.historical?.delta ?? 0) > 0
+          ? `, e ${money(Number(c.historical.delta))} mais que no período anterior`
+          : `, praticamente igual ao período anterior`;
+    lines.push(`• ${c.category_name}: ${goalPart}${trendPart}.`);
+  }
+
+  const agg = assessment?.aggregate;
+  if (agg && Number(agg.total_target ?? 0) > 0) {
+    const versus = opts.comparison_requested && Number(agg.previous_spend ?? 0) > 0
+      ? ` — no período anterior essas mesmas categorias somaram ${money(agg.previous_spend)}`
+      : "";
+    lines.push(`No conjunto dessas categorias: ${money(agg.current_spend)} de ${money(agg.total_target)} de teto${versus}.`);
+  }
+
+  if (interpretation.priority) {
+    lines.push(`Onde eu olharia primeiro: ${interpretation.priority.category_name} — ${interpretation.priority.reason}`);
+  }
+  if (opts.disclosure) lines.push(opts.disclosure);
+
+  return lines.join("\n");
+}

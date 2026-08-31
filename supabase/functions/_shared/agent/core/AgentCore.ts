@@ -46,6 +46,7 @@ import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
+import { runCompositeAnalysis } from "./CompositeAnalysis.ts";
 import {
   classifyConversational, deterministicConversationalReply, generateConversationalReply,
 } from "./Conversational.ts";
@@ -897,6 +898,42 @@ ${episodic}
       systemPrompt;
   }
 
+  // Análise composta com escopo e completude (`nino_composite.v1`): pergunta
+  // que cruza metas, atingimento e evolução histórica é resolvida por motor
+  // canônico único, com truth gates e validação de completude. Se não se
+  // aplica, devolve null e o fluxo padrão segue igual.
+  const analytical = (await isEnabled("composite_analysis_v1"))
+    ? await guard(
+      () => runCompositeAnalysis(sb, {
+        user_id: input.user_id,
+        conversation_id: input.conversation_id,
+        text: turnPlan.effective_text,
+        previous_scope: (memory as any)?.last_analysis?.scope ?? null,
+        turn_period: turnPlan.effective_period,
+      }),
+      (m) => metrics.errors.push("composite_analysis:" + m),
+      null,
+    )
+    : null;
+
+  if (analytical) {
+    await guard(
+      () => saveConversationMemory(sb, session_id ?? null, {
+        last_analysis: {
+          scope: analytical.scope,
+          entity_ids: analytical.scope.entity_ids,
+          entity_labels: analytical.scope.entity_labels,
+          period: { from: analytical.plan.periods.current.from, to: analytical.plan.periods.current.to },
+          comparison_period: analytical.plan.periods.comparison,
+          state: analytical.interpretation.state,
+          engines: analytical.plan.engines.map((e) => e.engine),
+        },
+      }),
+      (m) => metrics.errors.push("composite_analysis_memory:" + m),
+      null,
+    );
+  }
+
   // Perguntas compostas: executor determinístico real. Cada sub-pergunta chama
   // sua ferramenta canônica e recebe seu próprio bloco com número do motor.
   const composite = mandatoryTools.length > 1
@@ -910,7 +947,17 @@ ${episodic}
     : null;
 
   // ---- Planner (LLM loop or fallback) ------------------------------------
-  const planner = composite && composite.answered >= 2
+  const planner = analytical
+    ? {
+      path: "deterministic_tool" as const,
+      errorSanitized: null,
+      modelAttempts: [],
+      turn: {
+        reply: analytical.reply, steps: analytical.toolCalls.length, tokensIn: 0, tokensOut: 0,
+        toolCalls: analytical.toolCalls, finish: "stop" as const,
+      },
+    }
+    : composite && composite.answered >= 2
     ? {
       path: "deterministic_tool" as const,
       errorSanitized: null,

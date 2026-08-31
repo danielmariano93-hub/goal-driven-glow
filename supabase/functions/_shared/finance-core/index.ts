@@ -28,6 +28,7 @@ export * from "./debtStatus.ts";
 export * from "./categoryProjection.ts";
 export * from "./metrics.ts";
 export * from "./categoryGoalStrategy.ts";
+export * from "./goalPerformanceAssessment.ts";
 export * from "./longitudinal.ts";
 export * from "./wealthOpportunity.ts";
 export * from "./recurringSchedule.ts";

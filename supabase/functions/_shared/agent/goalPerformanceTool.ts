@@ -1,0 +1,92 @@
+// assess_goal_performance — ferramenta do motor canônico
+// `goal_performance_assessment.v1`.
+//
+// Ela só CARREGA dados (metas ativas, categorias, ledger dos dois recortes) e
+// delega 100% do cálculo ao motor espelhado em `finance-core`. Nenhuma fórmula
+// nasce aqui: divergência App x Edge é bug P0.
+
+// deno-lint-ignore-file no-explicit-any
+type SupabaseClient = any;
+
+import {
+  computeGoalPerformanceAssessment,
+  samePeriodPreviousMonth,
+  type GoalPerformanceAssessment,
+} from "../finance-core/goalPerformanceAssessment.ts";
+import { todaySaoPaulo } from "./parser.ts";
+
+const TX_SELECT =
+  "id,amount,category_id,type,status,movement_kind,occurred_at,payment_method,credit_card_id,refund_of_transaction_id,transfer_direction";
+
+const PAGE = 1000;
+const MAX_ROWS = 20000;
+
+async function loadTransactions(sb: SupabaseClient, userId: string, from: string, to: string) {
+  const rows: any[] = [];
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
+    const { data, error } = await sb.from("transactions")
+      .select(TX_SELECT)
+      .eq("user_id", userId)
+      .gte("occurred_at", from)
+      .lte("occurred_at", `${to}T23:59:59`)
+      .order("occurred_at", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw new Error(`transactions_query_failed:${error.message}`);
+    const page = (data ?? []) as any[];
+    rows.push(...page.map((r) => ({ ...r, amount: Number(r.amount) })));
+    if (page.length < PAGE) return rows;
+  }
+  throw new Error(`transactions_query_exceeded_${MAX_ROWS}_rows`);
+}
+
+export type GoalPerformanceArgs = {
+  comparison_from?: string | null;
+  comparison_to?: string | null;
+  category_ids?: string[] | null;
+};
+
+export async function computeGoalPerformance(
+  sb: SupabaseClient,
+  userId: string,
+  args: GoalPerformanceArgs = {},
+): Promise<GoalPerformanceAssessment> {
+  const today = todaySaoPaulo();
+  const todayDate = new Date(`${today}T12:00:00`);
+
+  const [goalsRes, categoriesRes, versionRes] = await Promise.all([
+    sb.from("category_spending_goals")
+      .select("id,user_id,category_id,mode,reduction_pct,fixed_limit,baseline_kind,baseline_value,computed_limit,frequency,start_date,end_date,status,period_type,recurrence_end_date,timezone")
+      .eq("user_id", userId).eq("status", "active"),
+    sb.from("categories").select("id,name").eq("user_id", userId),
+    sb.from("financial_ledger_versions").select("version").eq("user_id", userId).maybeSingle(),
+  ]);
+  if (goalsRes.error) throw new Error(`goals_query_failed:${goalsRes.error.message}`);
+  if (categoriesRes.error) throw new Error(`categories_query_failed:${categoriesRes.error.message}`);
+
+  const goals = (goalsRes.data ?? []) as any[];
+  const categoryNameById: Record<string, string> = {};
+  for (const c of (categoriesRes.data ?? []) as any[]) categoryNameById[String(c.id)] = String(c.name);
+
+  // Recorte atual = mês da meta; a comparação define o início da carga.
+  const currentFrom = `${today.slice(0, 7)}-01`;
+  const comparison = args.comparison_from && args.comparison_to
+    ? { from: String(args.comparison_from), to: String(args.comparison_to) }
+    : samePeriodPreviousMonth({ from: currentFrom, to: today });
+
+  const loadFrom = comparison.from < currentFrom ? comparison.from : currentFrom;
+  const txs = await loadTransactions(sb, userId, loadFrom, today);
+
+  return computeGoalPerformanceAssessment({
+    goals: goals as any,
+    txs: txs as any,
+    categoryNameById,
+    today: todayDate,
+    comparison,
+    entity_ids: args.category_ids?.length ? args.category_ids.map(String) : undefined,
+    freshness: {
+      ledger_version: versionRes?.data?.version ?? null,
+      source: "ledger",
+      stale: false,
+    },
+  });
+}
