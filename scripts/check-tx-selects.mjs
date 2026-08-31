@@ -10,10 +10,13 @@
  * runtime, o motor cai no fluxo antigo e o usuário recebe a resposta errada —
  * exatamente o que aconteceu com `transfer_direction`.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const ROOT = resolve(new URL("..", import.meta.url).pathname);
+// Sob vitest o especificador vem como `/@fs/...`; caímos para o cwd do projeto.
+const FROM_URL = resolve(new URL("..", import.meta.url).pathname.replace(/^\/@fs/, ""));
+const ROOT = existsSync(join(FROM_URL, "package.json")) ? FROM_URL : process.cwd();
+
 const TYPES = join(ROOT, "src/integrations/supabase/types.ts");
 const SCAN_DIRS = ["src", "supabase/functions", "scripts"];
 const EXTS = [".ts", ".tsx", ".mjs"];
