@@ -46,3 +46,17 @@ geração também regenera automaticamente relatórios de template antigo.
   precisam devolver o mesmo total para o mesmo mês, incluindo cartão de ciclo
   anterior e estorno.
 - `src/test/finance-core-parity.test.ts` — espelho das edge functions idêntico à fonte.
+
+## Leitura completa (`paged_select.v1`)
+
+A Data API devolve no máximo **1.000 linhas por requisição** e ignora limites
+maiores sem erro. Foi o que fez o relatório mostrar Transporte R$ 1.603,76
+enquanto a verdade de agosto/2026 era R$ 2.389,99: o loader pedia 8.000 linhas,
+recebia as 1.000 mais antigas e somava um pedaço do mês.
+
+Toda leitura de `transactions` que alimenta número exibido, agregação, dedupe ou
+motor de análise usa `fetchAllPages` (`supabase/functions/_shared/derived/pagedSelect.ts`
+e `src/lib/db/pagedSelect.ts`) com `.range()` e ordenação estável.
+
+Guarda: `findTruncatedTransactionReads` em `scripts/check-tx-selects.mjs`
+(`.limit(N > 1000)` sobre `transactions` falha o contrato).

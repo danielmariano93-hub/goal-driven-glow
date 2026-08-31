@@ -63,21 +63,37 @@ function shiftDays(day: string, delta: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Paginação obrigatória: a Data API corta a resposta em 1.000 linhas EM
+ * SILÊNCIO, mesmo com `.limit(8000)`. Sem paginar, o relatório somava uma
+ * amostra parcial do período e divergia do Nino sem nenhum erro.
+ */
+const TX_PAGE = 1000;
+
 async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promise<TransactionRow[]> {
-  const { data, error } = await sb
-    .from("transactions")
-    .select("id,account_id,type,status,amount,occurred_at,competence_date,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
-    .eq("user_id", userId)
-    .gte("occurred_at", shiftDays(fromDate, -COMPETENCE_MARGIN_DAYS))
-    .order("occurred_at", { ascending: true })
-    .limit(8000);
-  if (error) throw new Error(`load_transactions:${error.message}`);
-  const rows = (data ?? []) as unknown as TransactionRow[];
-  if (rows.length > 0 && !("competence_date" in (rows[0] as Record<string, unknown>))) {
-    throw new Error("load_transactions:missing_competence_date");
+  const since = shiftDays(fromDate, -COMPETENCE_MARGIN_DAYS);
+  const rows: TransactionRow[] = [];
+  for (let page = 0; page < 50; page++) {
+    const offset = page * TX_PAGE;
+    const { data, error } = await sb
+      .from("transactions")
+      .select("id,account_id,type,status,amount,occurred_at,competence_date,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
+      .eq("user_id", userId)
+      .gte("occurred_at", since)
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + TX_PAGE - 1);
+    if (error) throw new Error(`load_transactions:${error.message}`);
+    const chunk = (data ?? []) as unknown as TransactionRow[];
+    if (chunk.length > 0 && !("competence_date" in (chunk[0] as unknown as Record<string, unknown>))) {
+      throw new Error("load_transactions:missing_competence_date");
+    }
+    rows.push(...chunk);
+    if (chunk.length < TX_PAGE) break;
   }
   return rows;
 }
+
 
 async function loadContext(sb: Sb, userId: string) {
   const [cats, accounts, snapshots, goals, contributions] = await Promise.all([

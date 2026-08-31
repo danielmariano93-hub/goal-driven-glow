@@ -142,6 +142,34 @@ export function findCategoryBreakdownWithoutCompetence() {
   return bad;
 }
 
+/**
+ * Guarda de leitura completa (`paged_select.v1`).
+ *
+ * A Data API devolve NO MÁXIMO 1.000 linhas por requisição e ignora limites
+ * maiores sem erro. `.limit(8000)` em `transactions` não trazia 8.000 linhas:
+ * trazia as 1.000 primeiras da ordenação, e o relatório somava um pedaço do
+ * período (Transporte 1.603,76 contra a verdade 2.389,99). Quem precisa da
+ * série inteira pagina com `fetchAllPages`; pedir mais de 1.000 numa tacada é
+ * mentira silenciosa e falha aqui.
+ */
+const LIMIT_RE = /from\(\s*["']transactions["']\s*\)[\s\S]{0,900}?\.limit\(\s*(\d+)/g;
+
+export function findTruncatedTransactionReads(files = SCAN_DIRS.flatMap((d) => walk(join(ROOT, d)))) {
+  const bad = [];
+  for (const file of files) {
+    if (/\.test\.tsx?$/.test(file) || file.endsWith("check-tx-selects.mjs")) continue;
+    const source = readFileSync(file, "utf8");
+    if (!source.includes('from("transactions")') && !source.includes("from('transactions')")) continue;
+    for (const m of source.matchAll(LIMIT_RE)) {
+      const limit = Number(m[1]);
+      if (limit > DATA_API_PAGE) bad.push({ file: file.replace(ROOT + "/", ""), limit });
+    }
+  }
+  return bad;
+}
+
+export const DATA_API_PAGE = 1000;
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const bad = findInvalidTransactionColumns();
   if (bad.length) {
@@ -158,7 +186,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     for (const l of lens) console.error(`✗ ${l.file}: computeCategoryBreakdown soma fora da competência canônica`);
     process.exit(1);
   }
-  console.log("tx_select_guard: colunas reais + competência nas agregações mensais e por categoria");
+  const truncated = findTruncatedTransactionReads();
+  if (truncated.length) {
+    for (const t of truncated) {
+      console.error(`✗ ${t.file}: .limit(${t.limit}) em transactions — a Data API corta em 1.000; use fetchAllPages`);
+    }
+    process.exit(1);
+  }
+  console.log("tx_select_guard: colunas reais + competência + leitura paginada");
 }
+
 
 

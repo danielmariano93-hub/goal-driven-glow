@@ -7,6 +7,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { loadProfile } from "./UserProfile.ts";
 import { remember } from "./MemoryStore.ts";
 import { periodReviewKey } from "../../intelligence/logicalDedup.ts";
+import { fetchAllPages } from "../../derived/pagedSelect.ts";
 
 
 export type AdvisorAction = {
@@ -543,13 +544,16 @@ export async function generateAdvisorReviews(
   const latest = [weeklyWindow.end, monthlyWindow.end].sort().at(-1)!;
 
   const [{ data: txData, error: txError }, { data: categoryData, error: categoryError }, selectedGoal] = await Promise.all([
-    sb.from("transactions")
+    // Paginado: a Data API corta em 1.000 linhas e a revisão perdia período.
+    fetchAllPages<any>((a, b) => sb.from("transactions")
       .select("id,amount,type,occurred_at,description,friendly_description,category_id,movement_kind,transfer_group_id,settles_card_id,split_transaction_role")
       .eq("user_id", userId)
       .eq("status", "confirmed")
       .gte("occurred_at", earliest)
       .lte("occurred_at", latest)
-      .limit(2000),
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(a, b), { source: "transactions" }).then((data) => ({ data, error: null })),
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
     loadSelectedGoal(sb, userId),
   ]);

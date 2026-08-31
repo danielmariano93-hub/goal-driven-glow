@@ -4,6 +4,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { behavioralMetricAmount, computeNetWorth, type TransactionRow } from "../../engine/facts.ts";
+import { fetchAllPages } from "../../derived/pagedSelect.ts";
 
 export type UserProfile = {
   user_id: string;
@@ -44,10 +45,15 @@ export async function computeProfile(sb: SupabaseClient, user_id: string): Promi
 
   const txFields = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind";
   const [txResp, balanceTxResp, accResp, invResp, debtResp, categoryResp, snapResp] = await Promise.all([
-    sb.from("transactions").select(txFields)
-      .eq("user_id", user_id).gte("occurred_at", sixMonthsAgo.slice(0, 10)).limit(5000),
-    sb.from("transactions").select(txFields)
-      .eq("user_id", user_id).order("occurred_at", { ascending: true }).limit(10000),
+    // Paginado: a Data API corta em 1.000 linhas e o perfil somava um pedaço.
+    fetchAllPages<any>((from, to) => sb.from("transactions").select(txFields)
+      .eq("user_id", user_id).gte("occurred_at", sixMonthsAgo.slice(0, 10))
+      .order("occurred_at", { ascending: true }).order("id", { ascending: true })
+      .range(from, to), { source: "transactions" }).then((data) => ({ data, error: null })),
+    fetchAllPages<any>((from, to) => sb.from("transactions").select(txFields)
+      .eq("user_id", user_id).order("occurred_at", { ascending: true })
+      .order("id", { ascending: true }).range(from, to), { source: "transactions" })
+      .then((data) => ({ data, error: null })),
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id),
     sb.from("investments").select("current_value").eq("user_id", user_id),
     sb.from("debts").select("outstanding_balance,status").eq("user_id", user_id),

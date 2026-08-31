@@ -3,6 +3,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { decay, forget, remember } from "./MemoryStore.ts";
+import { fetchAllPages } from "../../derived/pagedSelect.ts";
 import {
   runBehaviorDetectors,
   type BehaviorHypothesisCandidate,
@@ -48,12 +49,14 @@ export async function refreshBehaviorHypotheses(
   const recurringFrom = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
 
   const [txResp, checkinResp, recurringResp] = await Promise.all([
-    sb.from("transactions")
+    // Paginado: `.limit(5000)` voltava com 1.000 linhas sem avisar.
+    fetchAllPages<any>((a, b) => sb.from("transactions")
       .select("id,amount,description,occurred_at,type,movement_kind")
       .eq("user_id", user_id)
       .gte("occurred_at", from)
       .order("occurred_at", { ascending: true })
-      .limit(5000),
+      .order("id", { ascending: true })
+      .range(a, b), { source: "transactions" }).then((data) => ({ data, error: null })),
     sb.from("emotional_checkins")
       .select("occurred_at,mood,trigger_label")
       .eq("user_id", user_id)

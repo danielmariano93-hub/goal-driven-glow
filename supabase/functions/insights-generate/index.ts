@@ -153,7 +153,9 @@ async function activeUserIds(supa: SupabaseClient, only: string | null): Promise
     .from("transactions")
     .select("user_id")
     .gte("occurred_at", since)
-    .limit(2000);
+    // Amostra de audiência do cron (não é número exibido): a Data API entrega no
+    // máximo 1.000 linhas, então o limite fica explícito em vez de fingir 2.000.
+    .limit(1000);
   const set = new Set<string>();
   for (const row of ((data ?? []) as Array<{ user_id?: string }>)) {
     if (row?.user_id) set.add(row.user_id);
