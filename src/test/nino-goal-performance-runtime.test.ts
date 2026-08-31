@@ -1,0 +1,206 @@
+// Regressão de RUNTIME do caminho analítico novo.
+//
+// O bug real: `assess_goal_performance` pedia a coluna inexistente
+// `transfer_direction`, o PostgREST derrubava a leitura, `CompositeAnalysis`
+// devolvia null e o fluxo antigo respondia outra coisa — mesma resposta de
+// sempre. Estes testes cobrem o caminho até o contrato do banco.
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import {
+  transactionColumns, collectTransactionSelects, findInvalidTransactionColumns,
+} from "../../scripts/check-tx-selects.mjs";
+import { computeGoalPerformance } from "../../supabase/functions/_shared/agent/goalPerformanceTool";
+import { resolveAnalyticalPlan } from "../../supabase/functions/_shared/agent/core/AnalyticalQueryPlanner";
+import { computeGoalPerformanceAssessment } from "../lib/engine/goalPerformanceAssessment";
+import { reportingCompetenceDate } from "../lib/engine/facts";
+
+const SCHEMA_COLUMNS = transactionColumns();
+
+// ---------------------------------------------------------------- guarda CI
+describe("tx_select_guard.v1", () => {
+  it("não existe SELECT de transactions com coluna fora do schema", () => {
+    expect(findInvalidTransactionColumns()).toEqual([]);
+  });
+
+  it("encontra selects reais para auditar", () => {
+    expect(collectTransactionSelects().length).toBeGreaterThan(5);
+  });
+
+  it("acusaria a coluna inexistente transfer_direction", () => {
+    const bad = findInvalidTransactionColumns(
+      [{ file: "fake.ts", columns: ["id", "amount", "transfer_direction"] }],
+      SCHEMA_COLUMNS,
+    );
+    expect(bad).toEqual([{ file: "fake.ts", column: "transfer_direction" }]);
+  });
+});
+
+// -------------------------------------------------- cliente falso do banco
+type Query = { table: string; columns: string[]; filters: string[] };
+
+function fakeSupabase(opts: {
+  goals: any[]; categories: any[]; txs: any[]; queries: Query[];
+}) {
+  const build = (table: string) => {
+    const q: Query = { table, columns: [], filters: [] };
+    let rows: any[] = table === "category_spending_goals"
+      ? opts.goals
+      : table === "categories"
+      ? opts.categories
+      : table === "transactions"
+      ? opts.txs
+      : [];
+    const api: any = {
+      select(cols: string) {
+        q.columns = String(cols).split(",").map((c) => c.trim()).filter(Boolean);
+        if (table === "transactions") {
+          // Contrato real: coluna inexistente derruba a query (PostgREST).
+          const invalid = q.columns.filter((c) => !SCHEMA_COLUMNS.has(c));
+          if (invalid.length) {
+            api.__error = { message: `column transactions.${invalid[0]} does not exist` };
+          }
+        }
+        opts.queries.push(q);
+        return api;
+      },
+      eq(col: string, val: unknown) { q.filters.push(`eq:${col}=${val}`); return api; },
+      is(col: string, val: unknown) { q.filters.push(`is:${col}=${val}`); return api; },
+      or(expr: string) { q.filters.push(`or:${expr}`); return api; },
+      gte(col: string, v: string) { q.filters.push(`gte:${col}=${v}`); rows = rows.filter((r) => String(r[col]) >= v); return api; },
+      lte(col: string, v: string) { q.filters.push(`lte:${col}=${v}`); rows = rows.filter((r) => String(r[col]) <= v); return api; },
+      order() { return api; },
+      range() { return Promise.resolve(api.__error ? { data: null, error: api.__error } : { data: rows, error: null }); },
+      maybeSingle() { return Promise.resolve({ data: rows[0] ?? null, error: null }); },
+      then(res: any, rej: any) {
+        return Promise.resolve(api.__error ? { data: null, error: api.__error } : { data: rows, error: null }).then(res, rej);
+      },
+      __error: null as any,
+    };
+    return api;
+  };
+  return { from: (table: string) => build(table) };
+}
+
+const GOAL = {
+  id: "g1", user_id: "u1", category_id: "c1", mode: "fixed", fixed_limit: 800,
+  frequency: "monthly", period_type: "calendar_month", start_date: "2026-08-01",
+  end_date: null, status: "active", timezone: "America/Sao_Paulo",
+};
+
+function tx(over: Record<string, unknown>) {
+  return {
+    id: crypto.randomUUID(), user_id: "u1", account_id: "a1", category_id: "c1",
+    type: "expense", status: "confirmed", amount: 100, occurred_at: "2026-08-05",
+    description: "compra", transfer_group_id: null, payment_method: "account",
+    credit_card_id: null, competence_date: null, settles_card_id: null,
+    movement_kind: "transaction", refund_of_transaction_id: null,
+    posted_at: null, posted_at_source: null, ...over,
+  };
+}
+
+describe("assess_goal_performance: contrato real do banco", () => {
+  it("carrega transações sem coluna inventada e devolve avaliação", async () => {
+    const queries: Query[] = [];
+    const sb = fakeSupabase({
+      goals: [GOAL],
+      categories: [{ id: "c1", name: "Alimentação" }],
+      txs: [tx({ amount: 300, occurred_at: "2026-08-05" }), tx({ amount: 400, occurred_at: "2026-07-05" })],
+      queries,
+    });
+
+    const result = await computeGoalPerformance(sb as any, "u1");
+    expect(result.formula_version).toBe("goal_performance_assessment.v1");
+    expect(result.categories.length).toBe(1);
+    expect(result.categories[0].category_name).toBe("Alimentação");
+
+    const txQuery = queries.find((q) => q.table === "transactions")!;
+    expect(txQuery.columns).not.toContain("transfer_direction");
+    for (const col of txQuery.columns) expect(SCHEMA_COLUMNS.has(col)).toBe(true);
+  });
+
+  it("carrega o contrato completo exigido por isRealMonthlyMovement", async () => {
+    const queries: Query[] = [];
+    const sb = fakeSupabase({ goals: [GOAL], categories: [{ id: "c1", name: "Alimentação" }], txs: [tx({})], queries });
+    await computeGoalPerformance(sb as any, "u1");
+    const cols = queries.find((q) => q.table === "transactions")!.columns;
+    for (const required of [
+      "transfer_group_id", "settles_card_id", "movement_kind", "competence_date",
+      "posted_at", "posted_at_source", "refund_of_transaction_id", "credit_card_id", "payment_method",
+    ]) expect(cols).toContain(required);
+  });
+
+  it("inclui categorias globais (user_id IS NULL), não só as pessoais", async () => {
+    const queries: Query[] = [];
+    const sb = fakeSupabase({ goals: [GOAL], categories: [{ id: "c1", name: "Alimentação" }], txs: [tx({})], queries });
+    await computeGoalPerformance(sb as any, "u1");
+    const catQuery = queries.find((q) => q.table === "categories")!;
+    expect(catQuery.filters.some((f) => f.includes("user_id.is.null"))).toBe(true);
+  });
+
+  it("a pergunta exata do usuário casa com o plano analítico e chama o motor", () => {
+    const plan = resolveAnalyticalPlan({
+      text: "Me traga um overview das minhas metas, diga se eu atingi ou ultrapassei e compare essas mesmas categorias com o mesmo período do mês passado",
+      now: new Date("2026-08-31T12:00:00"),
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.engines[0].tool).toBe("assess_goal_performance");
+  });
+});
+
+// -------------------------------------------------- competência de relatório
+describe("reporting_competence.v1", () => {
+  it("cartão usa competência da fatura; conta usa data econômica", () => {
+    expect(reportingCompetenceDate({
+      payment_method: "credit_card", credit_card_id: "cc1",
+      competence_date: "2026-08-01", occurred_at: "2026-07-30",
+    } as any)).toBe("2026-08-01");
+    expect(reportingCompetenceDate({
+      payment_method: "account", credit_card_id: null,
+      competence_date: null, occurred_at: "2026-07-30",
+    } as any)).toBe("2026-07-30");
+  });
+
+  it("compra de 30/07 na fatura de agosto conta em agosto e não em julho", () => {
+    const cardBuy = tx({
+      amount: 250, occurred_at: "2026-07-30", competence_date: "2026-08-01",
+      payment_method: "credit_card", credit_card_id: "cc1",
+    });
+    const assessment = computeGoalPerformanceAssessment({
+      goals: [GOAL] as any,
+      txs: [cardBuy, tx({ amount: 100, occurred_at: "2026-08-10" })] as any,
+      categoryNameById: { c1: "Alimentação" },
+      today: new Date("2026-08-20T12:00:00"),
+      comparison: { from: "2026-07-01", to: "2026-07-20" },
+    });
+    const cat = assessment.categories[0];
+    expect(cat.goal.actual).toBe(350);      // 250 (fatura de agosto) + 100
+    expect(cat.historical.current).toBe(350);
+    expect(cat.historical.previous).toBe(0); // nada em julho por competência
+  });
+});
+
+// ------------------------------------- proibição de fallback semântico
+describe("nino_composite.v1: sem fallback semântico silencioso", () => {
+  const composite = readFileSync("supabase/functions/_shared/agent/core/CompositeAnalysis.ts", "utf8");
+  const core = readFileSync("supabase/functions/_shared/agent/core/AgentCore.ts", "utf8");
+
+  it("o desfecho do motor é explícito (answered/failed/not_applicable)", () => {
+    for (const token of ["not_applicable", "answered", "failed", "COMPOSITE_FAILURE_REPLY"]) {
+      expect(composite).toContain(token);
+    }
+    expect(composite).not.toContain("return null");
+  });
+
+  it("emite telemetria de caminho e motivo do fallback", () => {
+    for (const token of [
+      "composite_plan_matched", "goal_performance_tool_started",
+      "goal_performance_tool_failed", "fallback_reason", "final_path",
+    ]) expect(composite).toContain(token);
+  });
+
+  it("AgentCore responde honestamente quando o motor reconhecido falha", () => {
+    expect(core).toContain("analyticalFailed");
+    expect(core).toContain("analyticalFailed.reply");
+    expect(core).toContain("!analyticalFailed && mandatoryTools.length > 1");
+  });
+});

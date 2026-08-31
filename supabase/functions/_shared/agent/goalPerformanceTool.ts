@@ -13,13 +13,24 @@ import {
   samePeriodPreviousMonth,
   type GoalPerformanceAssessment,
 } from "../finance-core/goalPerformanceAssessment.ts";
+import { TX_COLUMNS } from "../derived/txColumns.ts";
 import { todaySaoPaulo } from "./parser.ts";
 
-const TX_SELECT =
-  "id,amount,category_id,type,status,movement_kind,occurred_at,payment_method,credit_card_id,refund_of_transaction_id,transfer_direction";
+// Contrato único de colunas de lançamento (`TX_COLUMNS`). Nunca montar SELECT
+// artesanal: campo inexistente derruba a leitura e o motor cai no fluxo antigo.
+const TX_SELECT = TX_COLUMNS;
 
 const PAGE = 1000;
 const MAX_ROWS = 20000;
+
+/** Recuo extra na carga: compra de 30/07 pode ter competência em agosto. */
+const COMPETENCE_LOOKBACK_DAYS = 62;
+
+function shiftDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 async function loadTransactions(sb: SupabaseClient, userId: string, from: string, to: string) {
   const rows: any[] = [];
@@ -39,6 +50,7 @@ async function loadTransactions(sb: SupabaseClient, userId: string, from: string
   throw new Error(`transactions_query_exceeded_${MAX_ROWS}_rows`);
 }
 
+
 export type GoalPerformanceArgs = {
   comparison_from?: string | null;
   comparison_to?: string | null;
@@ -57,7 +69,12 @@ export async function computeGoalPerformance(
     sb.from("category_spending_goals")
       .select("id,user_id,category_id,mode,reduction_pct,fixed_limit,baseline_kind,baseline_value,computed_limit,frequency,start_date,end_date,status,period_type,recurrence_end_date,timezone")
       .eq("user_id", userId).eq("status", "active"),
-    sb.from("categories").select("id,name").eq("user_id", userId),
+    // Categorias pessoais E globais (`user_id IS NULL`): sem isso a meta fica
+    // sem nome e o gate de identidade derruba a análise.
+    sb.from("categories").select("id,name")
+      .or(`user_id.eq.${userId},user_id.is.null`)
+      .is("archived_at", null),
+
     sb.from("financial_ledger_versions").select("version").eq("user_id", userId).maybeSingle(),
   ]);
   if (goalsRes.error) throw new Error(`goals_query_failed:${goalsRes.error.message}`);
@@ -74,7 +91,8 @@ export async function computeGoalPerformance(
     : samePeriodPreviousMonth({ from: currentFrom, to: today });
 
   const loadFrom = comparison.from < currentFrom ? comparison.from : currentFrom;
-  const txs = await loadTransactions(sb, userId, loadFrom, today);
+  const txs = await loadTransactions(sb, userId, shiftDays(loadFrom, -COMPETENCE_LOOKBACK_DAYS), today);
+
 
   return computeGoalPerformanceAssessment({
     goals: goals as any,

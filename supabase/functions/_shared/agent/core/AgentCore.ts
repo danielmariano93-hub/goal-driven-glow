@@ -900,9 +900,11 @@ ${episodic}
 
   // Análise composta com escopo e completude (`nino_composite.v1`): pergunta
   // que cruza metas, atingimento e evolução histórica é resolvida por motor
-  // canônico único, com truth gates e validação de completude. Se não se
-  // aplica, devolve null e o fluxo padrão segue igual.
-  const analytical = (await isEnabled("composite_analysis_v1"))
+  // canônico único, com truth gates e validação de completude. Se o plano NÃO
+  // é reconhecido, o fluxo padrão segue igual. Se o plano é reconhecido e o
+  // motor obrigatório falha, respondemos honestamente — nunca uma análise
+  // semanticamente diferente vinda do fluxo antigo.
+  const analyticalOutcome = (await isEnabled("composite_analysis_v1"))
     ? await guard(
       () => runCompositeAnalysis(sb, {
         user_id: input.user_id,
@@ -910,11 +912,20 @@ ${episodic}
         text: turnPlan.effective_text,
         previous_scope: (memory as any)?.last_analysis?.scope ?? null,
         turn_period: turnPlan.effective_period,
+        onTelemetry: (t) => {
+          (metrics as any).composite_analysis = t;
+          if (t.goal_performance_tool_failed) {
+            metrics.errors.push("composite_analysis_failed:" + String(t.fallback_reason ?? "unknown"));
+          }
+        },
       }),
       (m) => metrics.errors.push("composite_analysis:" + m),
-      null,
+      { status: "not_applicable" as const },
     )
-    : null;
+    : { status: "not_applicable" as const };
+
+  const analytical = analyticalOutcome?.status === "answered" ? analyticalOutcome : null;
+  const analyticalFailed = analyticalOutcome?.status === "failed" ? analyticalOutcome : null;
 
   if (analytical) {
     await guard(
@@ -936,7 +947,7 @@ ${episodic}
 
   // Perguntas compostas: executor determinístico real. Cada sub-pergunta chama
   // sua ferramenta canônica e recebe seu próprio bloco com número do motor.
-  const composite = mandatoryTools.length > 1
+  const composite = (!analyticalFailed && mandatoryTools.length > 1)
     ? await guard(
       () => executeComposite(sb, {
         user_id: input.user_id, conversation_id: input.conversation_id, plan: turnPlan,
@@ -957,7 +968,18 @@ ${episodic}
         toolCalls: analytical.toolCalls, finish: "stop" as const,
       },
     }
+    : analyticalFailed
+    ? {
+      path: "deterministic_tool" as const,
+      errorSanitized: null,
+      modelAttempts: [],
+      turn: {
+        reply: analyticalFailed.reply, steps: analyticalFailed.toolCalls.length, tokensIn: 0, tokensOut: 0,
+        toolCalls: analyticalFailed.toolCalls, finish: "stop" as const,
+      },
+    }
     : composite && composite.answered >= 2
+
     ? {
       path: "deterministic_tool" as const,
       errorSanitized: null,
