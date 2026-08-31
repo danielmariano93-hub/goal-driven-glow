@@ -4,7 +4,7 @@
 import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } from "@/lib/engine/facts";
 
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
-export const REPORT_TEMPLATE_VERSION = "report_template.v3";
+export const REPORT_TEMPLATE_VERSION = "report_template.v4";
 
 /**
  * `monthly_partial` = mês corrente, ainda aberto (números reais + projeção).

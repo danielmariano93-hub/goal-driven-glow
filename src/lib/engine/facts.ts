@@ -544,6 +544,13 @@ export function effectiveCategoryId(
   return t.category_id ?? null;
 }
 
+/**
+ * Despesa (ou receita) do mês por categoria — `reporting_competence.v1`.
+ *
+ * Recorta por COMPETÊNCIA canônica: compra de cartão pertence ao mês da fatura.
+ * É a mesma lente do teto por categoria, do relatório e do Nino — sem isso a
+ * mesma categoria mostrava dois valores diferentes em duas telas.
+ */
 export function computeCategoryBreakdown(
   txs: TransactionRow[],
   categories: CategoryRow[],
@@ -553,12 +560,13 @@ export function computeCategoryBreakdown(
   const byCat: Record<string, number> = {};
   const attribution = buildRefundAttribution(txs);
   for (const t of txs) {
-    if (!isInMonth(t.occurred_at, ym)) continue;
+    if (!isInMonth(reportingCompetenceDate(t), ym)) continue;
     const signed = behavioralMetricAmount(t, type);
     if (signed === 0) continue;
     const key = effectiveCategoryId(t, attribution) ?? "__none__";
     byCat[key] = (byCat[key] || 0) + signed;
   }
+
 
   const catName = (id: string) =>
     id === "__none__" ? "Sem categoria" : categories.find((c) => c.id === id)?.name ?? "Categoria removida";

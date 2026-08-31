@@ -6,7 +6,7 @@ import ReportMetricsGrid from "@/components/relatorios/ReportMetricsGrid";
 import ReportHighlightList from "@/components/relatorios/ReportHighlightList";
 import ReportCharts from "@/components/relatorios/ReportCharts";
 import ReportPerformanceSection from "@/components/relatorios/ReportPerformanceSection";
-import { deleteReport, generateReportNow, getReport, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
+import { deleteReport, generateReportNow, getReport, isReportStale, markReportViewed, periodLabel, type ReportDetail } from "@/lib/reports/intelligent/client";
 import { buildReportReading } from "@/lib/reports/intelligent/presentation";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -158,7 +158,25 @@ export default function RelatorioInteligenteDetalhe() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {isReportStale(report) && (
+        <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-2">
+            <Info size={15} className="text-amber-600" />
+            <h2 className="text-sm font-semibold">Este período precisa ser recalculado</h2>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            Os números abaixo foram gerados por uma versão anterior do motor, antes de o cartão passar a
+            contar no mês da fatura. Use “Atualizar dados” para recalcular com a régua atual — até então
+            este relatório pode divergir das metas e do Nino.
+          </p>
+          <Button type="button" size="sm" className="mt-3" onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? "Recalculando…" : "Recalcular agora"}
+          </Button>
+        </section>
+      )}
+
       <section className="rounded-2xl border border-border bg-gradient-to-br from-card to-secondary/30 p-4 shadow-card">
+
         <ReportHealthGauge score={report.health_score ?? 0} />
         <ul className="mt-4 space-y-1.5 border-t border-border pt-3">
           {breakdown.map((c) => (

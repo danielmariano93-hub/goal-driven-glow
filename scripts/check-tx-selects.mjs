@@ -115,6 +115,33 @@ export function findMissingCompetenceSelects(selects = collectTransactionSelects
   return missing;
 }
 
+/**
+ * Guarda de lente por categoria (`reporting_competence.v1`).
+ *
+ * Toda definição de `computeCategoryBreakdown` — fonte, espelho de edge ou
+ * bundle do MCP — precisa recortar por `reportingCompetenceDate`. Se alguma
+ * cópia voltar a somar por `occurred_at`, a mesma categoria mostra dois valores
+ * em duas telas. Aqui a divergência falha antes de ir para produção.
+ */
+const CATEGORY_BREAKDOWN_FILES = [
+  "src/lib/engine/facts.ts",
+  "supabase/functions/_shared/finance-core/facts.ts",
+  "supabase/functions/mcp/index.ts",
+];
+
+export function findCategoryBreakdownWithoutCompetence() {
+  const bad = [];
+  for (const file of CATEGORY_BREAKDOWN_FILES) {
+    let src;
+    try { src = readFileSync(file, "utf8"); } catch { continue; }
+    const at = src.indexOf("function computeCategoryBreakdown");
+    if (at < 0) continue;
+    const body = src.slice(at, at + 900);
+    if (!body.includes("reportingCompetenceDate")) bad.push({ file });
+  }
+  return bad;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const bad = findInvalidTransactionColumns();
   if (bad.length) {
@@ -126,6 +153,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     for (const m of missing) console.error(`✗ ${m.file}: agregação mensal sem competence_date`);
     process.exit(1);
   }
-  console.log("tx_select_guard: colunas reais + competência presente nas agregações mensais");
+  const lens = findCategoryBreakdownWithoutCompetence();
+  if (lens.length) {
+    for (const l of lens) console.error(`✗ ${l.file}: computeCategoryBreakdown soma fora da competência canônica`);
+    process.exit(1);
+  }
+  console.log("tx_select_guard: colunas reais + competência nas agregações mensais e por categoria");
 }
+
 

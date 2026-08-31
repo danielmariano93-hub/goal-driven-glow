@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Acesso aos Relatórios Inteligentes. Somente leitura pela Data API (RLS já
 // restringe ao dono) + geração on-demand pela Edge Function.
+import { REPORT_TEMPLATE_VERSION } from "./types";
 import { supabase } from "@/integrations/supabase/client";
 import type { ReportPayload, ReportType } from "@/lib/reports/intelligent/types";
 
@@ -45,6 +46,8 @@ export interface ReportHighlightRow {
 
 export interface ReportDetail extends ReportListItem {
   timezone: string;
+  /** Versão do motor que gerou o número gravado (`report_template.vN`). */
+  template_version: string | null;
   closing_text: string | null;
   text_source: "ai" | "deterministic";
   health_breakdown: Array<{ key: string; label: string; score: number; max: number; detail: string }>;
@@ -71,7 +74,7 @@ export async function getReport(id: string): Promise<ReportDetail | null> {
   const [reportRes, metricsRes, highlightsRes] = await Promise.all([
     (supabase as any)
       .from("financial_reports")
-      .select(`${LIST_COLUMNS},timezone,closing_text,text_source,health_breakdown,data_quality_flags,payload`)
+      .select(`${LIST_COLUMNS},timezone,template_version,closing_text,text_source,health_breakdown,data_quality_flags,payload`)
       .eq("id", id)
       .maybeSingle(),
     (supabase as any)
@@ -127,4 +130,16 @@ export function periodLabel(item: Pick<ReportListItem, "report_type" | "period_s
   // Mês aberto: o rótulo precisa dizer que ainda não fechou.
   if (item.report_type === "monthly_partial") return `${months[month]} até ${short(item.period_end)}`;
   return `${months[month]} de ${item.period_start.slice(0, 4)}`;
+}
+
+/**
+ * Relatório gravado por motor anterior não é verdade atual.
+ *
+ * Cada mudança de lente (ex.: competência de fatura) sobe
+ * `REPORT_TEMPLATE_VERSION`. Enquanto o período não é recalculado, o número
+ * gravado pertence a outra régua — a tela avisa em vez de apresentá-lo como
+ * atual.
+ */
+export function isReportStale(report: Pick<ReportDetail, "template_version">): boolean {
+  return (report.template_version ?? "") !== REPORT_TEMPLATE_VERSION;
 }

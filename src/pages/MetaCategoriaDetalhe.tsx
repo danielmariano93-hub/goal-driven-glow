@@ -15,7 +15,7 @@ import { buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
-import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, todayISO } from "@/lib/engine/facts";
+import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
 
 export default function MetaCategoriaDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -50,16 +50,23 @@ export default function MetaCategoriaDetalhe() {
     [evaluation, numericTxs],
   );
 
+  // Mesma lente do teto (`reporting_competence.v1`): compra de cartão pertence
+  // ao mês da fatura. Sem isso a lista somava por data da compra e mostrava um
+  // total diferente do card logo acima dela.
   const periodTxs = useMemo(() => {
     if (!evaluation) return [];
     const attribution = buildRefundAttribution(numericTxs as never);
     return numericTxs
       .filter((t) => String(t.status ?? "confirmed") === "confirmed")
       .filter((t) => effectiveCategoryId(t as never, attribution) === evaluation.goal.category_id)
-      .filter((t) => t.occurred_at >= evaluation.period.start && t.occurred_at <= evaluation.period.end)
+      .filter((t) => {
+        const day = reportingCompetenceDate(t as never);
+        return day >= evaluation.period.start && day <= evaluation.period.end;
+      })
       .filter((t) => String(t.movement_kind ?? "") === "refund" || (t.type === "expense" && isRealMonthlyMovement(t as never)))
-      .sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1));
+      .sort((a, b) => (reportingCompetenceDate(a as never) < reportingCompetenceDate(b as never) ? 1 : -1));
   }, [evaluation, numericTxs]);
+
 
   if (isLoading) {
     return <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -113,6 +120,9 @@ export default function MetaCategoriaDetalhe() {
                   <p className="truncate text-xs font-medium">{t.merchant_name || t.description || "Sem descrição"}</p>
                   <p className="text-[10px] text-muted-foreground">
                     {new Date(t.occurred_at + "T00:00:00").toLocaleDateString("pt-BR")}
+                    {reportingCompetenceDate(t as never) !== String(t.occurred_at).slice(0, 10)
+                      ? ` · fatura de ${new Date(reportingCompetenceDate(t as never) + "T00:00:00").toLocaleDateString("pt-BR", { month: "long" })}`
+                      : ""}
                     {String(t.movement_kind ?? "") === "refund" ? " · estorno" : ""}
                   </p>
                 </Link>
