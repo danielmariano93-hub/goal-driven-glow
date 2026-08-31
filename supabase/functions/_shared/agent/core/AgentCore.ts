@@ -916,9 +916,10 @@ ${episodic}
         text: turnPlan.effective_text,
         previous_scope: (memory as any)?.last_analysis?.scope ?? null,
         turn_period: turnPlan.effective_period,
+        period_roles: turnPlan.period_roles,
         onTelemetry: (t) => {
           (metrics as any).composite_analysis = t;
-          if (t.goal_performance_tool_failed) {
+          if (t.goal_performance_tool_failed || t.truth_gate_blocked) {
             metrics.errors.push("composite_analysis_failed:" + String(t.fallback_reason ?? "unknown"));
           }
         },
@@ -1430,23 +1431,31 @@ ${episodic}
             turn_period: turnPlan.effective_period
               ? { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to }
               : null,
-            comparison_period: turnPlan.previous_period ?? null,
+            period_roles: analyticalOutcome?.status !== "not_applicable"
+              ? analyticalOutcome.plan.periods
+              : turnPlan.period_roles,
+            comparison_period: analyticalOutcome?.status !== "not_applicable"
+              ? analyticalOutcome.plan.periods.comparison
+              : turnPlan.period_roles.comparison_period ?? turnPlan.previous_period,
             evidence_rejected: reconciliation.rejected.map((r) => ({ tool: r.tool_name, reason: r.reason })),
-            coherence_gates: analytical?.gates?.map((g: any) => ({ gate: g.gate, ok: g.ok })) ?? null,
-            analytical_snapshot: analytical ? {
+            coherence_gates: (analytical?.gates ?? analyticalFailed?.gates)?.map((g: any) => ({ gate: g.gate, ok: g.ok, detail: g.detail ?? null })) ?? null,
+            analytical_snapshot: (analytical?.assessment ?? analyticalFailed?.assessment) ? {
               version: "goal_comparison_snapshot.v1",
-              period: analytical.assessment.period,
-              categories: analytical.assessment.categories.map((c: any) => ({
+              period: (analytical?.assessment ?? analyticalFailed?.assessment).period,
+              categories: (analytical?.assessment ?? analyticalFailed?.assessment).categories.map((c: any) => ({
                 category_id: c.category_id,
                 category_name: c.category_name,
+                goal_period: c.goal_period,
+                analysis_period: c.analysis_period,
+                period_compatibility: c.period_compatibility,
                 goal: c.goal,
                 historical: c.historical,
               })),
-              aggregate: analytical.assessment.aggregate,
-              conclusions: analytical.assessment.conclusions,
-              ledger_version: analytical.assessment.freshness?.ledger_version ?? null,
-              formula_versions: analytical.assessment.formula_versions ?? [],
-              evidence_graph: analytical.evidence_graph,
+              aggregate: (analytical?.assessment ?? analyticalFailed?.assessment).aggregate,
+              conclusions: (analytical?.assessment ?? analyticalFailed?.assessment).conclusions,
+              ledger_version: (analytical?.assessment ?? analyticalFailed?.assessment).freshness?.ledger_version ?? null,
+              formula_versions: (analytical?.assessment ?? analyticalFailed?.assessment).formula_versions ?? [],
+              evidence_graph: analytical?.evidence_graph ?? null,
             } : null,
           },
         },

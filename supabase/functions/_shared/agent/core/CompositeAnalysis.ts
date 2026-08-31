@@ -44,20 +44,24 @@ export type CompositeAnalysisOutcome =
   | ({ status: "answered" } & CompositeAnalysisResult)
   | {
     status: "failed";
+    failure_type: "engine_failed" | "truth_gate_blocked" | "empty_scope";
     reason: string;
     reply: string;
     plan: AnalyticalPlan;
     toolCalls: any[];
+    assessment?: any;
+    gates?: GateResult[];
   };
 
 export const COMPOSITE_FAILURE_REPLY =
-  "Não consegui cruzar suas metas com o histórico agora. Não vou te mandar um número que eu não confirmei. Me chame de novo em alguns minutos que eu refaço essa leitura.";
+  "Bloqueei esta leitura porque os períodos das metas e do histórico não ficaram compatíveis. Não vou te mandar um número sem confirmar a mesma janela.";
 
 /** Telemetria determinística do caminho analítico. */
 export type CompositeTelemetry = {
   composite_plan_matched: boolean;
   goal_performance_tool_started: boolean;
   goal_performance_tool_failed: boolean;
+  truth_gate_blocked: boolean;
   fallback_reason: string | null;
   final_path: "not_applicable" | "composite_answered" | "composite_failed";
 };
@@ -70,6 +74,7 @@ export async function runCompositeAnalysis(
     text: string;
     previous_scope?: AnalysisScope | null;
     turn_period?: { from: string; to: string; label?: string } | null;
+    period_roles?: import("../../analytics/periodResolver.ts").PeriodRoleContract | null;
     now?: Date;
     onTelemetry?: (t: CompositeTelemetry) => void;
   },
@@ -81,25 +86,34 @@ export async function runCompositeAnalysis(
     now: input.now,
     previous_scope: input.previous_scope ?? null,
     turn_period: input.turn_period ?? null,
+    period_roles: input.period_roles ?? null,
   });
   const engine = plan?.engines?.[0] ?? null;
   if (!plan || !engine) {
     emit({
       composite_plan_matched: false, goal_performance_tool_started: false,
-      goal_performance_tool_failed: false, fallback_reason: "plan_not_matched",
+      goal_performance_tool_failed: false, truth_gate_blocked: false, fallback_reason: "plan_not_matched",
       final_path: "not_applicable",
     });
     return { status: "not_applicable" };
   }
 
-  const fail = (reason: string, toolCalls: any[]): CompositeAnalysisOutcome => {
+  const fail = (
+    failure_type: "engine_failed" | "truth_gate_blocked" | "empty_scope",
+    reason: string,
+    toolCalls: any[],
+    assessment?: any,
+    gates?: GateResult[],
+  ): CompositeAnalysisOutcome => {
     console.warn("[composite_analysis] failed", reason);
     emit({
       composite_plan_matched: true, goal_performance_tool_started: true,
-      goal_performance_tool_failed: true, fallback_reason: reason,
+      goal_performance_tool_failed: failure_type === "engine_failed",
+      truth_gate_blocked: failure_type === "truth_gate_blocked",
+      fallback_reason: reason,
       final_path: "composite_failed",
     });
-    return { status: "failed", reason, reply: COMPOSITE_FAILURE_REPLY, plan, toolCalls };
+    return { status: "failed", failure_type, reason, reply: COMPOSITE_FAILURE_REPLY, plan, toolCalls, assessment, gates };
   };
 
   const ctx = {
@@ -112,12 +126,12 @@ export async function runCompositeAnalysis(
     exec = await runTool(ctx, engine.tool, engine.args, { timeoutMs: 15_000, maxRetries: 0 });
   }
   if (!exec?.ok || !exec.result) {
-    return fail("engine_error:" + String(exec?.error ?? "unknown").slice(0, 120), exec ? [exec] : []);
+    return fail("engine_failed", "engine_error:" + String(exec?.error ?? "unknown").slice(0, 120), exec ? [exec] : []);
   }
 
   const assessment = exec.result as any;
   const categories: any[] = Array.isArray(assessment?.categories) ? assessment.categories : [];
-  if (!categories.length) return fail("engine_empty_scope", [exec]);
+  if (!categories.length) return fail("empty_scope", "engine_empty_scope", [exec], assessment);
 
   const scope = bindEntities(
     plan.scope,
@@ -139,7 +153,7 @@ export async function runCompositeAnalysis(
     // Regra dura: não respondemos análise que viola contrato de escopo ou
     // separação meta/tendência — e também não deixamos o fluxo antigo
     // responder outra coisa no lugar.
-    return fail("gates_failed:" + failedGates(gates).map((g) => `${g.gate}(${g.detail ?? "sem detalhe"})`).join(","), [exec]);
+    return fail("truth_gate_blocked", "gates_failed:" + failedGates(gates).map((g) => `${g.gate}(${g.detail ?? "sem detalhe"})`).join(","), [exec], assessment, gates);
   }
 
   const interpretation = resolveInterpretation(assessment);
@@ -158,7 +172,7 @@ export async function runCompositeAnalysis(
 
   emit({
     composite_plan_matched: true, goal_performance_tool_started: true,
-    goal_performance_tool_failed: false, fallback_reason: null,
+    goal_performance_tool_failed: false, truth_gate_blocked: false, fallback_reason: null,
     final_path: "composite_answered",
   });
 

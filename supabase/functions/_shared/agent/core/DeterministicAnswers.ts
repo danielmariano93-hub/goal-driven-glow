@@ -569,7 +569,10 @@ export function formatGoalPerformance(
     const direction = String(c.historical?.direction ?? "equal");
     const immaterial = c.historical?.materiality === "immaterial_change";
     const qualifier = immaterial && direction !== "equal" ? " (variação pequena)" : "";
-    const trendPart = !opts.comparison_requested || c.historical?.trend === "insufficient_data"
+    const incompatiblePeriod = c.period_compatibility === "incompatible";
+    const trendPart = incompatiblePeriod
+      ? `; a meta cobre ${datePt(c.goal_period?.from)} a ${datePt(c.goal_period?.to)}, diferente do recorte comparado, então não misturei as duas leituras`
+      : !opts.comparison_requested || c.historical?.trend === "insufficient_data"
       ? ""
       : direction === "below"
         ? `, e ${money(Math.abs(Number(c.historical.delta)))} menos que no período anterior${qualifier}`

@@ -185,7 +185,7 @@ export function resolvePeriodRolesPt(text: string, now: Date = new Date()): Peri
   // expressão comparativa presente mais cedo ou mais tarde na frase.
   const currentSpan = normalized.match(/\b(este mes|esse mes|neste mes|nesse mes|mes atual|mes em curso)\b/)?.[0] ?? null;
   const comparisonSpan = normalized.match(/\b(mesmo periodo (?:do|de) mes (?:passado|anterior)|mesmo recorte (?:do|de) mes (?:passado|anterior)|mes passado|mes anterior)\b/)?.[0] ?? null;
-  const hasComparisonConnector = /\b(compar|versus|vs|em relacao|contra)\b/.test(normalized)
+  const hasComparisonConnector = /\b(compar\w*|versus|vs|em relacao|contra)\b/.test(normalized)
     || /\bmesmo (?:periodo|recorte)\b/.test(normalized);
 
   const current = currentSpan
