@@ -373,14 +373,16 @@ export function behavioralMetricAmount(
   return Number(t.amount || 0);
 }
 
+// Totais mensais financeiros usam competência de relatório (fatura do cartão).
+// Métricas de hábito/ritmo continuam em `computeBehavioralExpense`/`occurred_at`.
 export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
   let income = 0, expense = 0;
   for (const t of txs) {
-    if (!isInMonth(t.occurred_at, ym)) continue;
+    if (!isInMonth(reportingCompetenceDate(t), ym)) continue;
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
-  // Sem clamp: estorno abate honestamente a despesa do mês.
+  // Sem clamp: estorno abate honestamente a despesa da competência.
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 
@@ -412,7 +414,7 @@ export function computeMonthlyIncomeExpense(
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
-  // Sem clamp: estorno abate honestamente a despesa do mês.
+  // Sem clamp: estorno abate honestamente a despesa da competência.
   return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
 }
 

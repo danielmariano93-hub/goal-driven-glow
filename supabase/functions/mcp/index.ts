@@ -172,7 +172,7 @@ function behavioralMetricAmount(t, metric) {
 function computeMonthlyTotals(txs, ym) {
   let income = 0, expense = 0;
   for (const t of txs) {
-    if (!isInMonth(t.occurred_at, ym)) continue;
+    if (!isInMonth(reportingCompetenceDate(t), ym)) continue;
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
