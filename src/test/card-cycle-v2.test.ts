@@ -9,19 +9,20 @@ import {
 // Fixture real do Daniel: Cartão Itaú, closing_day=25, due_day=1.
 const ITAU = { id: "card-itau", closing_day: 25, due_day: 1 };
 
-describe("card_cycle.v2 — ciclo real por fechamento", () => {
+describe("card_cycle.v3 — ciclo real por fechamento (competência = fechamento)", () => {
   it("compra em 24/07 pertence ao ciclo que fecha em 25/07 e vence em 01/08", () => {
     const c = cycleFor(ITAU, "2026-07-24");
     expect(c.period_start).toBe("2026-06-26");
     expect(c.period_end).toBe("2026-07-25");
     expect(c.closing_date).toBe("2026-07-25");
     expect(c.due_date).toBe("2026-08-01");
-    expect(c.competence).toBe("2026-08");
+    // Competência = mês do fechamento (25/07), não do vencimento (01/08).
+    expect(c.competence).toBe("2026-07");
     expect(c.fallback).toBe(false);
   });
 
   it("compra no próprio dia do fechamento (25/07) ainda entra na fatura que fecha", () => {
-    expect(cycleFor(ITAU, "2026-07-25").competence).toBe("2026-08");
+    expect(cycleFor(ITAU, "2026-07-25").competence).toBe("2026-07");
   });
 
   it("compra em 26/07 cai no ciclo seguinte (fecha 25/08, vence 01/09)", () => {
@@ -29,11 +30,12 @@ describe("card_cycle.v2 — ciclo real por fechamento", () => {
     expect(c.period_start).toBe("2026-07-26");
     expect(c.period_end).toBe("2026-08-25");
     expect(c.due_date).toBe("2026-09-01");
-    expect(c.competence).toBe("2026-09");
+    // Fecha em 25/08 e vence em 01/09: permanece fatura de agosto.
+    expect(c.competence).toBe("2026-08");
   });
 
   it("compra em 31/07 cai no mesmo ciclo de 26/07", () => {
-    expect(cycleFor(ITAU, "2026-07-31").competence).toBe("2026-09");
+    expect(cycleFor(ITAU, "2026-07-31").competence).toBe("2026-08");
   });
 
   it("respeita meses curtos: fechamento 31 em fevereiro", () => {
@@ -55,7 +57,7 @@ describe("card_cycle.v2 — ciclo real por fechamento", () => {
     const c = cycleFor(ITAU, "2026-12-30");
     expect(c.period_end).toBe("2027-01-25");
     expect(c.due_date).toBe("2027-02-01");
-    expect(c.competence).toBe("2027-02");
+    expect(c.competence).toBe("2027-01");
   });
 
   it("sem closing_day válido cai no fallback de calendário", () => {
