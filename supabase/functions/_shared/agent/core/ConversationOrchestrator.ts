@@ -134,7 +134,9 @@ export function buildTurnPlan(args: {
   const explicit = resolvePeriodPt(text, now);
   const inherited = followup ? resolvePeriodPt(String(previousUser), now) : null;
   const period = explicit ?? inherited;
-  const roleText = followup ? effective_text : text;
+  // Em follow-up, um período dito agora ("e em julho?") substitui apenas o
+  // período herdado; o assunto continua herdado, mas a data anterior não cola.
+  const roleText = explicit ? text : (followup ? effective_text : text);
   const resolvedRoles = resolvePeriodRolesPt(roleText, now);
   const effective_period = period && !resolvedRoles.source_span.current
     ? period
