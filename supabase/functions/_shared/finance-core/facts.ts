@@ -94,6 +94,26 @@ export function cashDateOf(
   return t.competence_date || t.occurred_at;
 }
 
+/**
+ * Data canônica de COMPETÊNCIA DE RELATÓRIO (`reporting_competence.v1`).
+ *
+ * Regra do produto: compra que pertence à fatura de agosto é competência de
+ * agosto, mesmo tendo ocorrido em 30/07. Gasto em conta/débito/pix segue a data
+ * econômica. O extrato/histórico continua exibindo `occurred_at` — são duas
+ * verdades diferentes e propositalmente separadas.
+ *
+ * Toda avaliação mensal (meta por categoria, comparação por categoria,
+ * fechamento e assessment composto) recorta período por esta função.
+ */
+export function reportingCompetenceDate(
+  t: Pick<TransactionRow, "payment_method" | "credit_card_id" | "competence_date" | "occurred_at">,
+): string {
+  const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
+  if (isCard && t.competence_date) return String(t.competence_date).slice(0, 10);
+  return String(t.occurred_at).slice(0, 10);
+}
+
+
 
 
 export interface CreditCardRow {

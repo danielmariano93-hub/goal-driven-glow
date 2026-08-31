@@ -21,9 +21,11 @@ import {
   buildRefundAttribution,
   effectiveCategoryId,
   isRealMonthlyMovement,
+  reportingCompetenceDate,
   round2,
   type TransactionRow,
 } from "./facts.ts";
+
 import {
   evaluateCategoryGoal,
   type CategoryGoalEvaluation,
@@ -176,7 +178,7 @@ export function categorySpendInPeriod(
   for (const t of txs) {
     if (String(t.status ?? "confirmed") === "superseded") continue;
     if (effectiveCategoryId(t, attr) !== categoryId) continue;
-    const day = String(t.occurred_at).slice(0, 10);
+    const day = reportingCompetenceDate(t);
     if (day < period.from || day > period.to) continue;
     if (String(t.movement_kind ?? "") === "refund") {
       const credit = behavioralMetricAmount(t, "expense");

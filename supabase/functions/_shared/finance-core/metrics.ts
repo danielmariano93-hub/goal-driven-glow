@@ -20,7 +20,9 @@ import {
   computeUpcomingCommitments,
   isRealMonthlyMovement,
   round2,
+  reportingCompetenceDate,
   todayISO,
+
   type AccountRow,
   type AccountBalanceSnapshotRow,
   type CategoryRow,
@@ -545,7 +547,10 @@ export function evaluateCategoryGoal(
   const goalAttribution = buildRefundAttribution(txs);
   for (const t of txs) {
     if (effectiveCategoryId(t, goalAttribution) !== goal.category_id) continue;
-    if (t.occurred_at < period.start || t.occurred_at > period.end) continue;
+    // `reporting_competence.v1`: fatura define o mês do gasto de cartão.
+    const competenceDay = reportingCompetenceDate(t);
+    if (competenceDay < period.start || competenceDay > period.end) continue;
+
     const refundCredit = behavioralMetricAmount(t, "expense");
     if (String(t.movement_kind ?? "") === "refund") {
       if (refundCredit === 0) continue;
