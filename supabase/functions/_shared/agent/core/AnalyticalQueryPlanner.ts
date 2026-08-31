@@ -56,7 +56,12 @@ export type AnalyticalPlan = {
   response_depth: "brief" | "standard" | "analytical";
   resolution: "deterministic" | "llm_assisted";
   composite: boolean;
+  /** Consulta analítica protegida: nunca pode cair no fluxo legado/LLM. */
+  protected_route: boolean;
+  /** Conjunto exato exigido pelo plano (vazio = motor resolve as entidades). */
+  expected_entity_ids: string[];
 };
+
 
 // ------------------------------------------------------- detecção de facetas
 
