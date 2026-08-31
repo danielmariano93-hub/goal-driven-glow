@@ -13,6 +13,8 @@
     "test:watch": "vitest",
     "test:perf-arch": "node scripts/check-performance-architecture.mjs",
     "test:tx-selects": "node scripts/check-tx-selects.mjs",
+    "check:agent-dependents": "node scripts/check-agent-dependents.mjs",
+    "test:deploy-contract": "node scripts/check-agent-dependents.mjs && node scripts/check-tx-selects.mjs",
 
     "cap:sync": "cap sync",
     "cap:open:ios": "cap open ios",
