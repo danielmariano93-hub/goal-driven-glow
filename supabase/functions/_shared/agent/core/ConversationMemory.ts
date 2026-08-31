@@ -25,6 +25,20 @@ export type ConversationMemory = {
   /** Análise que o Nino OFERECEU fazer e aguarda um "ok" (nino_continuation.v1). */
   pending_conversation_action: PendingConversationAction | null;
   last_tool_context: { tool: string; period?: { from: string; to: string } | null } | null;
+  /**
+   * Última análise composta (`nino_composite.v1`): escopo, entidades, períodos
+   * e estados já calculados. Permite follow-up ("e nessas mesmas?") sem
+   * recomeçar do zero nem trocar o escopo por "tudo".
+   */
+  last_analysis: {
+    scope: unknown;
+    entity_ids: string[];
+    entity_labels: string[];
+    period: { from: string; to: string } | null;
+    comparison_period: { from: string; to: string } | null;
+    state: string | null;
+    engines: string[];
+  } | null;
   conversation_summary: string | null;
   updated_at: string;
 };
@@ -37,7 +51,7 @@ export function emptyMemory(): ConversationMemory {
     current_topic: null, previous_intent: null, active_category: null, active_merchant: null,
     active_period: null, comparison_period: null, pending_action: null, pending_slots: [],
     awaiting: null, pending_conversation_action: null,
-    last_tool_context: null, conversation_summary: null, updated_at: new Date(0).toISOString(),
+    last_tool_context: null, last_analysis: null, conversation_summary: null, updated_at: new Date(0).toISOString(),
   };
 }
 
