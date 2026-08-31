@@ -140,9 +140,20 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
   // Escopo primeiro (`nino_analytical.v2`): abandonar o plano por "domains
   // vazios" antes de olhar o escopo herdado era exatamente o que jogava
   // "e comparado ao mês passado?" no fluxo legado.
-  const scope = resolveScope({ text, previous: input.previous_scope ?? null });
+  const resolved = resolveScope({ text, previous: input.previous_scope ?? null });
+  // Follow-up ELÍPTICO ("e comparado ao mês passado?"): não tem pronome nem
+  // sujeito, então `resolveScope` não herda. Mas a pergunta é comparativa e o
+  // turno anterior travou um conjunto de categorias — é o mesmo sujeito.
+  const elliptic = classifyProtectedAnalytical({ text, previous_scope: input.previous_scope ?? null });
+  const previous = input.previous_scope ?? null;
+  const scope: AnalysisScope = (resolved.source !== "inherited_from_turn"
+    && elliptic.reason === "inherited_scope_comparison"
+    && previous)
+    ? { ...previous, locked: true, aggregate_scope: "scoped_entities", source: "inherited_from_turn" }
+    : resolved;
   const inheritedCategoryScope = scope.source === "inherited_from_turn"
     && scope.entity_type === "category";
+
 
   if (!domains.length && !inheritedCategoryScope) return null;
 
