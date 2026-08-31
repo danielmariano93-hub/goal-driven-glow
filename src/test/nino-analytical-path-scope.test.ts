@@ -83,7 +83,7 @@ describe("nino_scope.v2 — escopo sobrevive ao turno antigo", () => {
     const scope = scopeFromToolCalls([{
       tool_name: "get_goals_overview", ok: true,
       result: { category_goals: [{ category_id: "cat-food", name: "Alimentação" }] },
-    })!;
+    }])!;
     const plan = resolveAnalyticalPlan({
       text: "e nessas mesmas categorias eu melhorei em relação ao mês anterior?",
       now: NOW, previous_scope: scope,
