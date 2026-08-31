@@ -48,6 +48,11 @@ import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
 import { runCompositeAnalysis } from "./CompositeAnalysis.ts";
 import {
+  classifyProtectedAnalytical, PROTECTED_ENGINE_FAILURE_REPLY, PROTECTED_SCOPE_MISSING_REPLY,
+} from "./ProtectedAnalyticalRouting.ts";
+import { AGENT_RUNTIME_VERSION, ANALYTICAL_CONTRACT_VERSION } from "./RuntimeContract.ts";
+
+import {
   classifyConversational, deterministicConversationalReply, generateConversationalReply,
 } from "./Conversational.ts";
 import {
@@ -492,8 +497,17 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // "o que você é?", "bom dia", "obrigado", "qual a capital da França": não há
   // número, período nem motor. Responde com persona + identidade canônica, em
   // um único passo, sem tocar no pipeline analítico.
+  // ROTEAMENTO PROTEGIDO (`nino_analytical.v2`): pergunta comparativa sobre um
+  // conjunto de categorias/metas (inclusive follow-up anafórico curto) NUNCA
+  // pode ser absorvida pelo atalho conversacional nem pelo fluxo legado.
+  const protectedAnalytical = classifyProtectedAnalytical({
+    text: input.text,
+    previous_scope: (continuationMemory as any)?.last_analysis?.scope ?? null,
+  });
+  (metrics as any).protected_analytical = protectedAnalytical;
+
   const conversational = classifyConversational(input.text);
-  if (conversational.kind && !emotionalAnswerExpected && !(await tctx.pending())) {
+  if (conversational.kind && !emotionalAnswerExpected && !protectedAnalytical.is_protected && !(await tctx.pending())) {
 
     const firstName = await guard(async () => {
       const { data } = await sb.from("profiles").select("full_name").eq("id", input.user_id).maybeSingle();
@@ -932,6 +946,37 @@ ${episodic}
   const analytical = analyticalOutcome?.status === "answered" ? analyticalOutcome : null;
   const analyticalFailed = analyticalOutcome?.status === "failed" ? analyticalOutcome : null;
 
+  // FAIL-CLOSED: o roteamento identificou consulta analítica protegida, mas o
+  // plano canônico não casou (escopo perdido, motor indisponível). Antes isso
+  // caía no planner LLM e virava agregado global com período errado. Agora o
+  // Nino não responde outra pergunta: pede o escopo ou assume a falha.
+  const protectedForTurn = protectedAnalytical.is_protected
+    ? protectedAnalytical
+    : classifyProtectedAnalytical({
+      text: turnPlan.effective_text,
+      previous_scope: (memory as any)?.last_analysis?.scope ?? null,
+    });
+  const protectedBlock = (protectedForTurn.is_protected && analyticalOutcome?.status === "not_applicable")
+    ? {
+      reason: protectedForTurn.scope_available ? "protected_plan_not_matched" : "protected_scope_missing",
+      reply: protectedForTurn.scope_available
+        ? PROTECTED_ENGINE_FAILURE_REPLY
+        : PROTECTED_SCOPE_MISSING_REPLY,
+    }
+    : null;
+  if (protectedBlock) {
+    metrics.errors.push("protected_analytical_blocked:" + protectedBlock.reason);
+    (metrics as any).composite_analysis = {
+      ...((metrics as any).composite_analysis ?? {}),
+      composite_plan_matched: false,
+      protected_route: true,
+      fallback_reason: protectedBlock.reason,
+      final_path: "protected_blocked",
+      runtime_version: AGENT_RUNTIME_VERSION,
+      analytical_contract_version: ANALYTICAL_CONTRACT_VERSION,
+    };
+  }
+
   if (analytical) {
     await guard(
       () => saveConversationMemory(sb, session_id ?? null, {
@@ -952,7 +997,7 @@ ${episodic}
 
   // Perguntas compostas: executor determinístico real. Cada sub-pergunta chama
   // sua ferramenta canônica e recebe seu próprio bloco com número do motor.
-  const composite = (!analyticalFailed && mandatoryTools.length > 1)
+  const composite = (!analyticalFailed && !protectedBlock && mandatoryTools.length > 1)
     ? await guard(
       () => executeComposite(sb, {
         user_id: input.user_id, conversation_id: input.conversation_id, plan: turnPlan,
@@ -973,14 +1018,15 @@ ${episodic}
         toolCalls: analytical.toolCalls, finish: "stop" as const,
       },
     }
-    : analyticalFailed
+    : (analyticalFailed || protectedBlock)
     ? {
       path: "deterministic_tool" as const,
       errorSanitized: null,
       modelAttempts: [],
       turn: {
-        reply: analyticalFailed.reply, steps: analyticalFailed.toolCalls.length, tokensIn: 0, tokensOut: 0,
-        toolCalls: analyticalFailed.toolCalls, finish: "stop" as const,
+        reply: (analyticalFailed?.reply ?? protectedBlock!.reply),
+        steps: analyticalFailed?.toolCalls.length ?? 0, tokensIn: 0, tokensOut: 0,
+        toolCalls: analyticalFailed?.toolCalls ?? [], finish: "stop" as const,
       },
     }
     : composite && composite.answered >= 2
@@ -1427,6 +1473,9 @@ ${episodic}
               fallback_reason: null,
               final_path: "not_applicable",
             }),
+            runtime_version: AGENT_RUNTIME_VERSION,
+            analytical_contract_version: ANALYTICAL_CONTRACT_VERSION,
+            protected_analytical: protectedForTurn,
             inherited_scope_ids: ((memory as any)?.last_analysis?.entity_ids ?? []).slice(0, 20),
             turn_period: turnPlan.effective_period
               ? { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to }

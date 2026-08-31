@@ -15,7 +15,11 @@ import {
 import {
   requirement, type Requirement, type RequiredAnswer,
 } from "./AnalysisRequirements.ts";
-import { comparablePrevious, currentMonthPeriod, resolvePeriodRolesPt, type PeriodRoleContract } from "../../analytics/periodResolver.ts";
+import { comparablePrevious, currentMonthPeriod, resolvePeriodRolesPt, samePeriodPreviousMonth, type PeriodRoleContract } from "../../analytics/periodResolver.ts";
+import {
+  classifyProtectedAnalytical, GOAL_PERFORMANCE_ENGINE, GOAL_PERFORMANCE_TOOL,
+} from "./ProtectedAnalyticalRouting.ts";
+
 
 export type AnalyticalFacet =
   | "overview"
@@ -56,7 +60,12 @@ export type AnalyticalPlan = {
   response_depth: "brief" | "standard" | "analytical";
   resolution: "deterministic" | "llm_assisted";
   composite: boolean;
+  /** Consulta analítica protegida: nunca pode cair no fluxo legado/LLM. */
+  protected_route: boolean;
+  /** Conjunto exato exigido pelo plano (vazio = motor resolve as entidades). */
+  expected_entity_ids: string[];
 };
+
 
 // ------------------------------------------------------- detecção de facetas
 
@@ -127,20 +136,40 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
 
   const facets = detectFacets(text);
   const domains = detectDomains(text);
-  if (!domains.length) return null;
 
-  const scope = resolveScope({ text, previous: input.previous_scope ?? null });
+  // Escopo primeiro (`nino_analytical.v2`): abandonar o plano por "domains
+  // vazios" antes de olhar o escopo herdado era exatamente o que jogava
+  // "e comparado ao mês passado?" no fluxo legado.
+  const resolved = resolveScope({ text, previous: input.previous_scope ?? null });
+  // Follow-up ELÍPTICO ("e comparado ao mês passado?"): não tem pronome nem
+  // sujeito, então `resolveScope` não herda. Mas a pergunta é comparativa e o
+  // turno anterior travou um conjunto de categorias — é o mesmo sujeito.
+  const elliptic = classifyProtectedAnalytical({ text, previous_scope: input.previous_scope ?? null });
+  const previous = input.previous_scope ?? null;
+  const scope: AnalysisScope = (resolved.source !== "inherited_from_turn"
+    && elliptic.reason === "inherited_scope_comparison"
+    && previous)
+    ? { ...previous, locked: true, aggregate_scope: "scoped_entities", source: "inherited_from_turn" }
+    : resolved;
+  const inheritedCategoryScope = scope.source === "inherited_from_turn"
+    && scope.entity_type === "category";
+
+
+  if (!domains.length && !inheritedCategoryScope) return null;
 
   // Domínio por HERANÇA (`nino_scope.v2`): "comparando essas categorias com o
   // mês anterior" não cita a palavra meta, mas continua sendo a mesma análise
   // do turno anterior. Exigir o termo no texto atual era a causa-raiz do desvio
   // para o caminho antigo (escopo global + ferramenta errada).
-  const inheritedCategoryScope = scope.source === "inherited_from_turn"
-    && scope.entity_type === "category";
   const categoryDomain = domains.includes("categories") || domains.includes("spending");
   const goalDomain = domains.includes("goals")
-    || (inheritedCategoryScope && (categoryDomain || mentionsScopeAnaphora(text)));
-  const composite = facets.filter((f) => COMPOSITE_FACETS.includes(f)).length >= 1 && facets.length >= 2;
+    || (inheritedCategoryScope
+      && (categoryDomain || mentionsScopeAnaphora(text) || facets.includes("comparison")));
+  // Comparação anafórica sobre escopo categorial herdado JÁ É composta: exigir
+  // duas facetas descartava "e comparado ao mês passado?".
+  const composite = (facets.filter((f) => COMPOSITE_FACETS.includes(f)).length >= 1 && facets.length >= 2)
+    || (inheritedCategoryScope && facets.includes("comparison"));
+
 
   // Hoje a composição multi-motor coberta de ponta a ponta é metas x evolução.
   // Outros cruzamentos (patrimônio, cartão, dívida) entram por este mesmo
@@ -148,14 +177,26 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
   if (!goalDomain || !composite) return null;
 
   const roles = input.period_roles ?? resolvePeriodRolesPt(text, now);
-  const current = roles.current_period ?? input.turn_period ?? currentMonthPeriod(now);
+  // Recorte EXPLÍCITO do turno vence período principal implícito. Sem isso,
+  // "de 16 a 31 de agosto contra o mesmo período do mês passado" virava
+  // 01–20 de agosto contra 01–20 de julho.
+  const implicitCurrent = !roles.current_period?.matched;
+  const current = (implicitCurrent && input.turn_period)
+    ? input.turn_period
+    : (roles.current_period ?? input.turn_period ?? currentMonthPeriod(now));
+  const overrodeCurrent = implicitCurrent && !!input.turn_period;
   const wantsComparison = facets.includes("comparison");
   const comparisonBasis = wantsComparison
     ? (roles.comparison_basis ?? "preceding_window")
     : null;
   const comparison = wantsComparison
-    ? (roles.comparison_period ?? comparablePrevious(current))
+    ? (overrodeCurrent
+      ? (comparisonBasis === "calendar_previous_month"
+        ? samePeriodPreviousMonth(current)
+        : comparablePrevious(current))
+      : (roles.comparison_period ?? comparablePrevious(current)))
     : null;
+
 
   const requested: RequiredAnswer[] = ["active_goals", "attainment_per_goal"];
   if (wantsComparison) requested.push("historical_comparison_per_entity");
@@ -192,9 +233,11 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
       source_span: roles.source_span,
     },
     engines: [{
-      engine: "goal_performance_assessment.v1",
-      tool: "assess_goal_performance",
+      engine: GOAL_PERFORMANCE_ENGINE,
+      tool: GOAL_PERFORMANCE_TOOL,
       args: {
+        // Contrato de período: o motor recebe EXATAMENTE as janelas do plano.
+        // Nada de derivar uma segunda comparação internamente.
         current_from: current.from,
         current_to: current.to,
         comparison_from: comparison?.from ?? null,
@@ -205,6 +248,12 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
     }],
     response_depth: depthOf(facets),
     resolution: "deterministic",
+    protected_route: classifyProtectedAnalytical({
+      text,
+      previous_scope: input.previous_scope ?? null,
+    }).is_protected,
+    expected_entity_ids: [...scopedForGoals.entity_ids],
+
     composite: true,
   };
 }
