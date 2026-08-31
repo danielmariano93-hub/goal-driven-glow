@@ -177,14 +177,26 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
   if (!goalDomain || !composite) return null;
 
   const roles = input.period_roles ?? resolvePeriodRolesPt(text, now);
-  const current = roles.current_period ?? input.turn_period ?? currentMonthPeriod(now);
+  // Recorte EXPLÍCITO do turno vence período principal implícito. Sem isso,
+  // "de 16 a 31 de agosto contra o mesmo período do mês passado" virava
+  // 01–20 de agosto contra 01–20 de julho.
+  const implicitCurrent = !roles.current_period?.matched;
+  const current = (implicitCurrent && input.turn_period)
+    ? input.turn_period
+    : (roles.current_period ?? input.turn_period ?? currentMonthPeriod(now));
+  const overrodeCurrent = implicitCurrent && !!input.turn_period;
   const wantsComparison = facets.includes("comparison");
   const comparisonBasis = wantsComparison
     ? (roles.comparison_basis ?? "preceding_window")
     : null;
   const comparison = wantsComparison
-    ? (roles.comparison_period ?? comparablePrevious(current))
+    ? (overrodeCurrent
+      ? (comparisonBasis === "calendar_previous_month"
+        ? samePeriodPreviousMonth(current)
+        : comparablePrevious(current))
+      : (roles.comparison_period ?? comparablePrevious(current)))
     : null;
+
 
   const requested: RequiredAnswer[] = ["active_goals", "attainment_per_goal"];
   if (wantsComparison) requested.push("historical_comparison_per_entity");
