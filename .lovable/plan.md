@@ -74,6 +74,8 @@ Antes de qualquer resposta sair, validar:
 
 Falha em qualquer invariante bloqueará o envio e retornará uma mensagem honesta, sem delegar a decisão à LLM e sem cair em outro motor.
 
+O mesmo gate de direção será aplicado ao caminho analítico livre: hoje a validação geral confirma que um número existe na evidência, mas não confirma se “mais”, “menos”, “melhorou” ou “piorou” corresponde ao sinal de `current - previous`. A validação passará a exigir correspondência estrutural com `direction`, em vez de tentar confiar apenas no valor absoluto citado.
+
 ### 5. Persistir a evidência exata de cada resposta analítica
 
 Cada run analítico guardará um snapshot compacto e auditável:
@@ -93,6 +95,7 @@ Isso permitirá reconstruir uma resposta histórica sem consultar um ledger que 
 - Alterar o núcleo canônico em `src/lib/engine/goalPerformanceAssessment.ts`.
 - Sincronizar o espelho de Edge pelo script oficial, sem editar fórmulas duplicadas.
 - Atualizar `InterpretationResolver`, `DeterministicAnswers`, `AnalysisGates`, `AnswerCompleteness` e `EvidenceGraph` para consumir o mesmo contrato.
+- Atualizar também o validador geral de verdade e as ferramentas de performance financeira para expor e validar `direction`, fechando a mesma classe de inversão fora do caminho composto.
 - Garantir que App, assessor e WhatsApp recebam os mesmos fatos e a mesma direção para o mesmo ledger/período.
 
 ## Provas obrigatórias
