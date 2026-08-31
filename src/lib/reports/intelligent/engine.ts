@@ -328,6 +328,10 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
   let essential = 0;
   let flexible = 0;
 
+  // Atribuição de estorno pelo histórico completo: o estorno abate a mesma
+  // composição econômica (essencial/flexível) da despesa original.
+  const currentAttribution = buildRefundAttribution(all);
+
   for (const t of current) {
     const inc = incomeOf(t);
     const exp = expenseOf(t);
@@ -335,11 +339,16 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     txCount += 1;
     income = round2(income + inc);
     expense = round2(expense + exp);
+
+    if (exp !== 0) {
+      const effectiveCat = effectiveCategoryNameOf(t, names, currentAttribution);
+      if (isFlexibleCategory(effectiveCat)) flexible = round2(flexible + exp);
+      else if (isEssentialCategory(effectiveCat)) essential = round2(essential + exp);
+    }
+
     if (exp > 0) {
       expenseDays.add(competenceDayOf(t));
       const cat = categoryNameOf(t, names);
-      if (isFlexibleCategory(cat)) flexible = round2(flexible + exp);
-      else if (isEssentialCategory(cat)) essential = round2(essential + exp);
       if (!biggest || exp > biggest.amount) {
         biggest = {
           description: (((t as { friendly_description?: string | null }).friendly_description) || t.description || cat || "Lançamento").slice(0, 80),
@@ -350,6 +359,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
       }
     }
   }
+
 
   let previousExpense = 0;
   let previousIncome = 0;
