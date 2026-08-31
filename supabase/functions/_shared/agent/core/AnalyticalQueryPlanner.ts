@@ -10,7 +10,7 @@
 // resposta precisa conter. Determinístico: nada de número, nada de LLM.
 import { normalizeIntentText } from "./IntentResolver.ts";
 import {
-  resolveScope, mentionsGoalScope, type AnalysisScope,
+  resolveScope, mentionsGoalScope, mentionsScopeAnaphora, type AnalysisScope,
 } from "./ScopeResolver.ts";
 import {
   requirement, type Requirement, type RequiredAnswer,
@@ -128,7 +128,15 @@ export function resolveAnalyticalPlan(input: PlannerInput): AnalyticalPlan | nul
 
   const scope = resolveScope({ text, previous: input.previous_scope ?? null });
 
-  const goalDomain = domains.includes("goals");
+  // Domínio por HERANÇA (`nino_scope.v2`): "comparando essas categorias com o
+  // mês anterior" não cita a palavra meta, mas continua sendo a mesma análise
+  // do turno anterior. Exigir o termo no texto atual era a causa-raiz do desvio
+  // para o caminho antigo (escopo global + ferramenta errada).
+  const inheritedCategoryScope = scope.source === "inherited_from_turn"
+    && scope.entity_type === "category";
+  const categoryDomain = domains.includes("categories") || domains.includes("spending");
+  const goalDomain = domains.includes("goals")
+    || (inheritedCategoryScope && (categoryDomain || mentionsScopeAnaphora(text)));
   const composite = facets.filter((f) => COMPOSITE_FACETS.includes(f)).length >= 1 && facets.length >= 2;
 
   // Hoje a composição multi-motor coberta de ponta a ponta é metas x evolução.
