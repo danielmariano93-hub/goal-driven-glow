@@ -204,3 +204,49 @@ describe("nino_composite.v1: sem fallback semântico silencioso", () => {
     expect(core).toContain("!analyticalFailed && mandatoryTools.length > 1");
   });
 });
+
+// -------------------------------------- golden E2E do caminho analítico novo
+describe("golden: pergunta composta com escopo herdado", () => {
+  it("plano → motor → renderer traz todas as metas, cruzamento e conclusão", async () => {
+    const { runCompositeAnalysis } = await import(
+      "../../supabase/functions/_shared/agent/core/CompositeAnalysis"
+    );
+    const goals = [
+      { ...GOAL, id: "g1", category_id: "c1" },
+      { ...GOAL, id: "g2", category_id: "c2", fixed_limit: 500, computed_limit: 500 },
+    ];
+    const sb = fakeSupabase({
+      goals,
+      categories: [{ id: "c1", name: "Alimentação" }, { id: "c2", name: "Lazer" }],
+      txs: [
+        tx({ amount: 300, occurred_at: "2026-08-05", category_id: "c1" }),
+        tx({ amount: 700, occurred_at: "2026-07-05", category_id: "c1" }),
+        tx({ amount: 200, occurred_at: "2026-08-06", category_id: "c2" }),
+      ],
+      queries: [],
+    });
+
+    const out = await runCompositeAnalysis(sb as any, {
+      user_id: "u1",
+      conversation_id: "conv1",
+      text: "Comparando essas categorias com o mesmo período do mês anterior, eu melhorei ou piorei?",
+      previous_scope: {
+        entity_type: "category", selection: "explicit_ids",
+        entity_ids: ["c1", "c2"], entity_labels: ["Alimentação", "Lazer"],
+        aggregate_scope: "scoped_entities", source: "engine_resolved", locked: true,
+      } as any,
+      turn_period: { from: "2026-08-01", to: "2026-08-31" },
+      now: new Date("2026-08-20T12:00:00Z"),
+    });
+
+    expect(out.status).toBe("answered");
+    if (out.status !== "answered") return;
+    expect(out.reply).toContain("Alimentação");
+    expect(out.reply).toContain("Lazer");
+    expect(out.scope.entity_ids).toEqual(["c1", "c2"]);
+    expect(out.scope.aggregate_scope).toBe("scoped_entities");
+    expect(out.completeness.status).toBe("complete");
+    expect(out.gates.every((g) => g.ok)).toBe(true);
+    expect(out.toolCalls[0].tool_name).toBe("assess_goal_performance");
+  });
+});
