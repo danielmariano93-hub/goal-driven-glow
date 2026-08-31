@@ -2,14 +2,14 @@
  * READ MODEL VERSIONED CONTRACT (`read_model_contract.v1`).
  *
  * Snapshot materializado NÃO pode sobreviver silenciosamente a uma mudança de
- * contrato. Quem espera `home_snapshot.v3` nunca aceita `home_snapshot.v2`,
+ * contrato. Quem espera `home_snapshot.v4` nunca aceita `home_snapshot.v2`,
  * mesmo que o payload pareça válido: o consumidor trata como stale, recomputa
  * e — nunca — preenche campo ausente como se fosse verdade.
  */
 import { recordDataContractViolation } from "@/lib/observability/dataContract";
 
 export const READ_MODEL_CONTRACTS = {
-  homeSnapshot: "home_snapshot.v3",
+  homeSnapshot: "home_snapshot.v4",
   performance: "advisor_performance.v1",
 } as const;
 

@@ -26,7 +26,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-const CONTRACT = "home_snapshot.v3";
+const CONTRACT = "home_snapshot.v4";
 
 
 // deno-lint-ignore no-explicit-any
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     // Memoização por versão do ledger: enquanto nada financeiro é escrito,
     // reabrir a Home não recalcula o snapshot (perf_derived.v1).
     const ledgerVersion = await getLedgerVersion(sb, userId);
-    const cacheKey = `home_snapshot_v3|${start}|${end}|${today}`;
+    const cacheKey = `home_snapshot_v4|${start}|${end}|${today}`;
     const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
     if (cached) {
       return json({

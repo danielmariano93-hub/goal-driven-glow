@@ -1,7 +1,7 @@
 // proactive_multifinance.v1 — contratos do motor de proatividade multi-financeira.
 // ==========================================================================
 // Nada aqui calcula dinheiro: os valores chegam prontos do snapshot canônico
-// (financial_snapshot_contract.v8) e do diagnóstico. Este módulo apenas
+// (financial_snapshot_contract.v9) e do diagnóstico. Este módulo apenas
 // estrutura sinais, compõe situações e explica decisões de forma auditável.
 
 export const PROACTIVE_MULTIFINANCE_VERSION = "proactive_multifinance.v1";

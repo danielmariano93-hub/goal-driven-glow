@@ -1,4 +1,4 @@
-// finance-current-snapshot-worker (`home_snapshot.v3`)
+// finance-current-snapshot-worker (`home_snapshot.v4`)
 // ====================================================
 // Recalcula o read model corrente FORA do caminho de navegação.
 // A fila é preenchida pelos triggers de verdade financeira; o claim só libera
@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
 
   return json({
     ok: true,
-    contract_version: "home_snapshot.v3",
+    contract_version: "home_snapshot.v4",
     claimed: rows.length,
     processed: results.filter((row) => row.ok).length,
     failed: results.filter((row) => !row.ok).length,

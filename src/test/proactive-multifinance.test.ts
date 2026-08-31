@@ -18,7 +18,7 @@ function ctxOf(overrides: Partial<MultiFinanceProactiveContext> = {}): MultiFina
     typical_daily_pace: 200,
     cash_horizon: [],
     first_negative_day: null,
-    snapshot_ref: { reconciliation_id: "rec-1", formula_version: "financial_snapshot_contract.v8" },
+    snapshot_ref: { reconciliation_id: "rec-1", formula_version: "financial_snapshot_contract.v9" },
     domains: {
       cash: { month_start: "2026-08-01", month_end: "2026-08-31", days_remaining: 21, known_future_commitments: 2500 },
       cards: { cards_owed: 3000, card_due_this_month: 2400, card_due_estimated: false, next_card_due_date: "2026-08-15" },

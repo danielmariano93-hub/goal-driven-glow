@@ -19,7 +19,7 @@ DECLARE
   v_period_start date;
   v_cache_key text;
   v_stale_response jsonb := NULL;
-  v_contract text := 'home_snapshot.v3';
+  v_contract text := 'home_snapshot.v4';
 BEGIN
   IF v_uid IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'error', 'unauthenticated');
@@ -84,7 +84,7 @@ BEGIN
   END IF;
 
   v_cache_key := format(
-    'home_snapshot_v3|%s|%s|%s',
+    'home_snapshot_v4|%s|%s|%s',
     _start::text,
     _end::text,
     v_local_today::text

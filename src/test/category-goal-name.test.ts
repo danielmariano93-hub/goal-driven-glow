@@ -49,9 +49,9 @@ describe("meta por categoria — rótulo da categoria", () => {
   it("hot path e Edge usam a chave v3 para não servir cache antigo sem nome", () => {
     const edge = readFileSync(resolve(process.cwd(), "supabase/functions/home-snapshot/index.ts"), "utf8");
     const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260825135056_ec732c02-6e43-4c20-bdb2-41f65d7c262f.sql"), "utf8");
-    expect(edge).toContain("home_snapshot_v3|");
+    expect(edge).toContain("home_snapshot_v4|");
     expect(edge).not.toContain("home_snapshot_v2|");
     expect(migration).toContain("contract_version = v_contract");
-    expect(migration).toContain("home_snapshot_v3|%s|%s|%s");
+    expect(migration).toContain("home_snapshot_v4|%s|%s|%s");
   });
 });

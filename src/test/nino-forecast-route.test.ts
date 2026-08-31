@@ -21,7 +21,7 @@ describe("Nino — previsão de fechamento", () => {
       point: 4200.5,
       low: 3900,
       high: 4600,
-      model_used: "financial_snapshot_contract.v8+observed",
+      model_used: "financial_snapshot_contract.v9+observed",
       drivers: { mtd_expense: 2100, day_of_month: 12, days_in_month: 31, recurring_future: 900 },
       provenance: { row_count: 88, confidence: "medium" },
     });

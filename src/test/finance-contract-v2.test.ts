@@ -10,7 +10,7 @@ import {
 
 describe("finance_contract", () => {
   it("expõe a versão vigente do contrato", () => {
-    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v8");
+    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v9");
   });
 
   it("progresso de meta soma contribuições e investimentos vinculados", () => {

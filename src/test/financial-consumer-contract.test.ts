@@ -15,7 +15,7 @@ describe("verdade financeira única — consumidores críticos", () => {
   it("comunicação de meta nasce do snapshot e carrega reconciliação", () => {
     const adapter = source("supabase/functions/_shared/intelligence/diagnosisToCommunication.ts");
     expect(adapter).toContain("computeAgentSnapshot");
-    expect(adapter).toContain('source: "financial_snapshot_contract.v8"');
+    expect(adapter).toContain('source: "financial_snapshot_contract.v9"');
     expect(adapter).toContain("reconciliation_id: snapshot.reconciliation_id");
     expect(adapter).toContain('String(row.logical_topic_key ?? "").includes("category_goal")');
   });

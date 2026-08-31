@@ -15,7 +15,7 @@ beforeEach(() => {
 
 describe("contrato de snapshot", () => {
   it("aceita o contrato esperado", () => {
-    const res = assertSnapshotContract({ contract_version: "home_snapshot.v3" }, READ_MODEL_CONTRACTS.homeSnapshot, "home");
+    const res = assertSnapshotContract({ contract_version: "home_snapshot.v4" }, READ_MODEL_CONTRACTS.homeSnapshot, "home");
     expect(res.ok).toBe(true);
   });
 

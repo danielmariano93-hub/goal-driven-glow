@@ -6,7 +6,7 @@
 // É puramente textual: não recalcula nem remove números.
 
 const INTERNAL_TOKENS: RegExp[] = [
-  // financial_snapshot_contract.v8, nino_engines.v1, forecast.seasonal.v1 ...
+  // financial_snapshot_contract.v9, nino_engines.v1, forecast.seasonal.v1 ...
   /\b[a-z][a-z0-9_.]*(?:contract|engine|engines|core|truth|pipeline|snapshot|seasonal|baseline)[a-z0-9_.]*\s*\.?\s*v\d+(?:\.\d+)*\b/gi,
   /\bv\d+(?:\.\d+)*\+[a-z0-9_.+-]+/gi,
   // nomes de tools internas
