@@ -4,7 +4,7 @@
 import type { TransactionRow, AccountRow, AccountBalanceSnapshotRow, GoalRow } from "@/lib/engine/facts";
 
 export const REPORTS_CATALOG_VERSION = "reports_catalog.v1";
-export const REPORT_TEMPLATE_VERSION = "report_template.v4";
+export const REPORT_TEMPLATE_VERSION = "report_template.v5";
 
 /**
  * `monthly_partial` = mês corrente, ainda aberto (números reais + projeção).
@@ -157,5 +157,11 @@ export interface ReportEngineInput {
   /** Destaques vindos do catálogo de insights (insights_catalog.v1). */
   extraHighlights?: ReportHighlight[];
   timezone?: string;
+  /** Cartões (ciclo) — habilitam a exposição oficial de cartão no relatório. */
+  creditCards?: Array<{ id: string; name?: string | null; closing_day?: number | null; due_day?: number | null }>;
+  /** Faturas oficiais — quando existem, mandam sobre o cálculo legado. */
+  cardStatements?: Array<Record<string, unknown>>;
+  /** Parcelas contratadas — competências futuras ainda não faturadas. */
+  cardInstallments?: Array<Record<string, unknown>>;
 
 }
