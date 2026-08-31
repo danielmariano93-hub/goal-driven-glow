@@ -1048,6 +1048,24 @@ var list_transactions_default = defineTool({
 // src/lib/mcp/tools/monthly-summary.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.26.1";
 import { z as z2 } from "npm:zod@^3.25.76";
+
+// src/lib/db/pagedSelect.ts
+var DATA_API_PAGE = 1e3;
+async function fetchAllPages(build, opts = {}) {
+  const maxPages = opts.maxPages ?? 50;
+  const rows = [];
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * DATA_API_PAGE;
+    const { data, error } = await build(from, from + DATA_API_PAGE - 1);
+    if (error) throw new Error(`${opts.source ?? "paged_select"}:${error.message}`);
+    const chunk = data ?? [];
+    rows.push(...chunk);
+    if (chunk.length < DATA_API_PAGE) break;
+  }
+  return rows;
+}
+
+// src/lib/mcp/tools/monthly-summary.ts
 var TX_COLUMNS = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,settles_card_id,movement_kind";
 var monthly_summary_default = defineTool2({
   name: "monthly_summary",
@@ -1062,7 +1080,10 @@ var monthly_summary_default = defineTool2({
     const supabase = supabaseForUser(ctx);
     const target = month && /^\d{4}-\d{2}$/.test(month) ? month : currentMonth();
     const [txRes, catRes, accRes, snapRes] = await Promise.all([
-      supabase.from("transactions").select(TX_COLUMNS),
+      fetchAllPages(
+        (from, to) => supabase.from("transactions").select(TX_COLUMNS).order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(from, to),
+        { source: "mcp_monthly_summary" }
+      ).then((data) => ({ data, error: null })).catch((e) => ({ data: [], error: { message: String(e?.message ?? e) } })),
       supabase.from("categories").select("id, name, type"),
       supabase.from("accounts").select("id,name,type,opening_balance,active"),
       supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta")

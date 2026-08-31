@@ -12,6 +12,7 @@ import {
 } from "../../engine/facts";
 import { computeCashBridge, computePeriodPerformance, explainBalanceChange } from "../../engine/bridges";
 import { FINANCE_CONTRACT_VERSION } from "../../engine/metrics";
+import { fetchAllPages } from "../../db/pagedSelect";
 
 /** Colunas exigidas pelo contrato `TransactionRow` do finance-core. */
 const TX_COLUMNS =
@@ -32,8 +33,17 @@ export default defineTool({
     const target = month && /^\d{4}-\d{2}$/.test(month) ? month : currentMonth();
 
     // A ponte de caixa exige o histórico completo (saldo inicial é derivado).
+    // `paged_select.v1`: a Data API corta em 1.000 linhas em silêncio — sem
+    // paginar, o resumo somaria um pedaço do histórico e daria outro saldo.
     const [txRes, catRes, accRes, snapRes] = await Promise.all([
-      supabase.from("transactions").select(TX_COLUMNS),
+      fetchAllPages<Record<string, unknown>>(
+        (from, to) => supabase.from("transactions").select(TX_COLUMNS)
+          .order("occurred_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to) as never,
+        { source: "mcp_monthly_summary" },
+      ).then((data) => ({ data, error: null as null | { message: string } }))
+        .catch((e: unknown) => ({ data: [] as Record<string, unknown>[], error: { message: String((e as Error)?.message ?? e) } })),
       supabase.from("categories").select("id, name, type"),
       supabase.from("accounts").select("id,name,type,opening_balance,active"),
       supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta"),
