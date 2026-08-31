@@ -15,6 +15,7 @@ const NOW = new Date("2026-08-20T12:00:00Z");
 
 const INHERITED_SCOPE = {
   entity_type: "category" as const,
+  selection: "explicit_ids" as const,
   entity_ids: ["c1", "c2", "c3"],
   entity_labels: ["Alimentação", "Transporte", "Lazer"],
   locked: true,
