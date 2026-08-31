@@ -283,7 +283,7 @@ describe("golden P0: uma categoria acima, três abaixo", () => {
     const reply = formatGoalPerformance(out, interpretation);
     expect(reply.startsWith("Sim.")).toBe(true);
     expect(reply).toContain("Transporte");
-    expect(reply.replaceAll("\u00a0", " ")).toContain("R$ 300,00 mais");
+    expect(reply.split("\u00a0").join(" ")).toContain("R$ 300,00 mais");
     expect(reply.match(/menos que no período anterior/g)).toHaveLength(3);
     const gates = runAnalysisGates({
       assessment: out,
