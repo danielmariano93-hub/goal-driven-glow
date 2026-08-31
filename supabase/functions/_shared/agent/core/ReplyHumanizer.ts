@@ -169,12 +169,18 @@ export function addEmojiAccent(text: string): string {
       .trim();
   }
   if (total > 0) return raw;
-  const emoji = ACCENT_RULES.find((rule) => rule.re.test(raw))?.emoji ?? "💛";
   const lines = raw.split("\n");
   const index = lines.findIndex((line) => line.trim().length > 0);
   if (index < 0) return raw;
+  // O emoji acompanha a CONCLUSÃO (primeira linha), não qualquer palavra do
+  // corpo: abrir com alerta enquanto a conclusão é positiva confundia a leitura.
+  const headline = lines[index];
+  const emoji = ACCENT_RULES.find((rule) => rule.re.test(headline))?.emoji
+    ?? ACCENT_RULES.find((rule) => rule.re.test(raw))?.emoji
+    ?? "💛";
   lines[index] = `${emoji} ${lines[index].trimStart()}`;
   return lines.join("\n");
+
 }
 
 /** O Nino nunca chama o usuário de "Nino": vocativo inventado sai do texto. */

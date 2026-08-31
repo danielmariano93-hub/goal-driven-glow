@@ -3,6 +3,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
+  reportingCompetenceDate,
   type TransactionRow,
 } from "@/lib/engine/facts";
 import { canonicalLedgerRows } from "@/lib/engine/canonicalFacts";
@@ -13,7 +14,12 @@ export interface ReportTxn {
   type: "income" | "expense" | "transfer";
   status: "confirmed" | "planned";
   amount: number;
-  occurred_at: string; // YYYY-MM-DD
+  occurred_at: string; // YYYY-MM-DD — data real do lançamento (extrato)
+  /**
+   * Competência do cartão. Obrigatória para qualquer leitura mensal: sem ela,
+   * a compra de cartão cairia no mês da compra e divergiria do Nino.
+   */
+  competence_date?: string | null;
   category_id?: string | null;
   category_name?: string | null;
   /** Proveniência de estorno — sem ela a leitura por categoria mente. */
@@ -72,7 +78,8 @@ export function groupByMonth(txns: ReportTxn[]): MonthlyBucket[] {
     const incomeAmount = behavioralMetricAmount(canonical, "income");
     const expenseAmount = behavioralMetricAmount(canonical, "expense");
     if (incomeAmount === 0 && expenseAmount === 0) continue;
-    const ym = t.occurred_at.slice(0, 7);
+    // Lente única de competência (`reporting_competence.v1`).
+    const ym = reportingCompetenceDate(canonical).slice(0, 7);
     const b = map.get(ym) ?? { ym, income: 0, expense: 0, net: 0 };
     b.income += incomeAmount;
     // Sem clamp: estorno reduz honestamente a despesa do mês.
@@ -234,8 +241,10 @@ export function spendingHighlights(categories: CategoryBucket[], totalExpense?: 
 
 export function filterPeriod(txns: ReportTxn[], from?: string, to?: string): ReportTxn[] {
   return txns.filter((t) => {
-    if (from && t.occurred_at < from) return false;
-    if (to && t.occurred_at > to) return false;
+    // Recorte por competência: mesma régua do relatório e do Nino.
+    const day = reportingCompetenceDate(asCanonicalTransaction(t));
+    if (from && day < from) return false;
+    if (to && day > to) return false;
     return true;
   });
 }

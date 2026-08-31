@@ -6,9 +6,11 @@ import {
   computeTotalCash,
   computeCreditCardOutstanding,
   effectiveCategoryId,
+  reportingCompetenceDate,
   round2,
   type TransactionRow,
 } from "@/lib/engine/facts";
+
 import { exactBRL, pct } from "@/lib/copy/numbers";
 
 import { eachDay, resolvePeriods, shortDay, daysInPeriod, daysInMonthOf } from "./periods";
@@ -41,6 +43,27 @@ export function isFlexibleCategory(name: string): boolean {
 function inRange(dateStr: string, period: ReportPeriod): boolean {
   return dateStr >= period.start && dateStr <= period.end;
 }
+
+/**
+ * LENTE ÚNICA DE COMPETÊNCIA (`reporting_competence.v1`).
+ *
+ * O mês de um lançamento é o mês da competência canônica: compra de cartão
+ * pertence ao mês da fatura, todo o resto ao dia em que aconteceu. É a MESMA
+ * regra do motor de metas e do motor de comparação — o relatório usava só
+ * `occurred_at` e por isso mostrava valores diferentes do Nino no WhatsApp.
+ *
+ * `competence_date` precisa estar carregado: sem a coluna, cartão degradaria
+ * silenciosamente para a data da compra. Quem carrega lançamentos para
+ * agregação mensal é obrigado a selecionar a coluna (`check-tx-selects.mjs`).
+ */
+function competenceDayOf(t: TransactionRow): string {
+  return reportingCompetenceDate(t);
+}
+
+/** Rótulo único do recorte, exibido na tela e repetido na mensagem do Nino. */
+export const REPORT_COMPETENCE_LABEL =
+  "Competência do período: compras de cartão entram pelo mês da fatura; o restante, pela data do lançamento.";
+
 
 function categoryNameOf(t: TransactionRow, names: Record<string, string>): string {
   const id = t.category_id ?? "";
@@ -117,10 +140,11 @@ function buildSeries(period: ReportPeriod, txns: TransactionRow[]): SeriesPoint[
 
   const byDay = new Map<string, { expense: number; income: number }>();
   for (const t of txns) {
-    const acc = byDay.get(t.occurred_at) ?? { expense: 0, income: 0 };
+    const day = competenceDayOf(t);
+    const acc = byDay.get(day) ?? { expense: 0, income: 0 };
     acc.expense = round2(acc.expense + expenseOf(t));
     acc.income = round2(acc.income + incomeOf(t));
-    byDay.set(t.occurred_at, acc);
+    byDay.set(day, acc);
   }
   let cumulative = 0;
   return eachDay(period).map((date) => {
@@ -293,8 +317,8 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
   const { period, previous } = resolvePeriods(input.reportType, input.referenceDate, input.customPeriod);
   const names = input.categoryNames ?? {};
   const all = input.transactions ?? [];
-  const current = all.filter((t) => inRange(t.occurred_at, period));
-  const prior = all.filter((t) => inRange(t.occurred_at, previous));
+  const current = all.filter((t) => inRange(competenceDayOf(t), period));
+  const prior = all.filter((t) => inRange(competenceDayOf(t), previous));
 
   let income = 0;
   let expense = 0;
@@ -312,7 +336,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     income = round2(income + inc);
     expense = round2(expense + exp);
     if (exp > 0) {
-      expenseDays.add(t.occurred_at);
+      expenseDays.add(competenceDayOf(t));
       const cat = categoryNameOf(t, names);
       if (isFlexibleCategory(cat)) flexible = round2(flexible + exp);
       else if (isEssentialCategory(cat)) essential = round2(essential + exp);
