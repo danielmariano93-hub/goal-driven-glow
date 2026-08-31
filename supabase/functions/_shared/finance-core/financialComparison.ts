@@ -12,6 +12,7 @@ import {
   effectiveCategoryId,
   round2,
   type TransactionRow,
+  reportingCompetenceDate,
 } from "./facts.ts";
 import {
   CANONICAL_EXCLUSIONS,
@@ -459,7 +460,10 @@ function aggregate(
   let investmentOut = 0;
 
   for (const t of ledger) {
-    const d = t.occurred_at.slice(0, 10);
+    // Competência de relatório: compra de cartão pertence ao mês da fatura
+    // (`competence_date`), o resto segue a data econômica. Mesma regra usada em
+    // meta por categoria e fechamento mensal.
+    const d = reportingCompetenceDate(t);
     if (d < period.from || d > period.to) continue;
     if (!includedByDaySelection(d, daySelection, jur)) continue;
     if (!matchesScope(t, req, attribution)) continue;
