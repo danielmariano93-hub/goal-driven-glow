@@ -18,6 +18,7 @@ import {
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
+import { computeGoalPerformance } from "./goalPerformanceTool.ts";
 import {
   computeEmotionFinance,
   DEFAULT_MIN_COMPOSITE_SAMPLE,
@@ -2454,6 +2455,20 @@ export const AGENT_TOOLS: ToolSpec[] = [
       required: ["amount", "planned_date"], additionalProperties: false,
     },
     execute: run_before_spending,
+  },
+  {
+    name: "assess_goal_performance",
+    description: "Avalia, no mesmo recorte de período, se o usuário atingiu cada meta por categoria E se evoluiu em relação ao período anterior. Use quando a pergunta pedir visão geral das metas, atingimento, comparação com o mês/período anterior, ou uma leitura de melhora/piora. Nunca mistura meta cumprida com melhora histórica: devolve os dois estados separados, o total apenas das categorias com meta e o ponto de atenção.",
+    parameters: {
+      type: "object",
+      properties: {
+        comparison_from: { type: "string", description: "Início do recorte de comparação (YYYY-MM-DD). Vazio usa o mesmo período do mês anterior." },
+        comparison_to: { type: "string", description: "Fim do recorte de comparação (YYYY-MM-DD)." },
+        category_ids: { type: "array", items: { type: "string" }, description: "Escopo explícito de categorias. Vazio usa todas as categorias com meta ativa." },
+      },
+      additionalProperties: false,
+    },
+    execute: assess_goal_performance,
   },
   {
 
