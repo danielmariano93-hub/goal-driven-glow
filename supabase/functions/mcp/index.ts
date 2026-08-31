@@ -637,7 +637,7 @@ function explainBalanceChange(bridge, performance) {
 
 // src/lib/engine/cardExposure.ts
 var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v3";
-var CARD_CYCLE_VERSION = "card_cycle.v2";
+var CARD_CYCLE_VERSION = "card_cycle.v3";
 var pad = (n) => String(n).padStart(2, "0");
 var lastDayOf = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
 var iso = (y, m1, d) => `${y}-${pad(m1)}-${pad(d)}`;
@@ -683,7 +683,8 @@ function cycleFor(card, dateISO) {
   const [dy, dm] = dueDay > closingDay ? [cy, cm] : addMonths(cy, cm, 1);
   const due = dayInMonth(dy, dm, dueDay);
   return {
-    competence: due.slice(0, 7),
+    // Competência = mês do fechamento. Vencimento nunca define competência.
+    competence: closing.slice(0, 7),
     period_start: periodStart,
     period_end: closing,
     closing_date: closing,
