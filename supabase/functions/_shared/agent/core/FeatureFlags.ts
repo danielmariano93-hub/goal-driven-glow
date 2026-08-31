@@ -26,7 +26,9 @@ export type FlagName =
   | "progressive_tools_v1"
   | "context_budget_v2"
   | "model_routing_v2"
-  | "document_efficiency_v1";
+  | "document_efficiency_v1"
+  // Análise composta com escopo e completude (`nino_composite.v1`).
+  | "composite_analysis_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -41,6 +43,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   context_budget_v2: true,
   model_routing_v2: true,
   document_efficiency_v1: true,
+  composite_analysis_v1: true,
 };
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;

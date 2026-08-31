@@ -918,7 +918,7 @@ ${episodic}
 
   if (analytical) {
     await guard(
-      () => saveConversationMemory(sb, session?.id ?? null, {
+      () => saveConversationMemory(sb, session_id ?? null, {
         last_analysis: {
           scope: analytical.scope,
           entity_ids: analytical.scope.entity_ids,
