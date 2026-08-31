@@ -1413,7 +1413,27 @@ ${episodic}
         compression_ratio: (metrics.tool_result_full_chars ?? 0) > 0
           ? Math.round(((metrics.tool_result_llm_chars ?? 0) / metrics.tool_result_full_chars) * 1000) / 1000
           : null,
-        context_layers: { ...layerMeasures, flags: planner.flags ?? null },
+        context_layers: {
+          ...layerMeasures,
+          flags: planner.flags ?? null,
+          // Telemetria do caminho analítico: o diagnóstico deixa de ser
+          // investigação e passa a ser consulta.
+          analytical_path: {
+            ...((metrics as any).composite_analysis ?? {
+              composite_plan_matched: false,
+              goal_performance_tool_started: false,
+              goal_performance_tool_failed: false,
+              fallback_reason: null,
+              final_path: "not_applicable",
+            }),
+            inherited_scope_ids: ((memory as any)?.last_analysis?.entity_ids ?? []).slice(0, 20),
+            turn_period: turnPlan.effective_period
+              ? { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to }
+              : null,
+            comparison_period: turnPlan.previous_period ?? null,
+            evidence_rejected: reconciliation.rejected.map((r) => ({ tool: r.tool_name, reason: r.reason })),
+          },
+        },
         system_prompt_chars: systemPrompt.length,
         history_chars: historyText.length,
         working_memory_chars: layerMeasures.layers.working_memory?.chars ?? 0,
