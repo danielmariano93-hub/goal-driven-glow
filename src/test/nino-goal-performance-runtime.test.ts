@@ -246,7 +246,7 @@ describe("golden: pergunta composta com escopo herdado", () => {
     expect(out.scope.entity_ids).toEqual(["c1", "c2"]);
     expect(out.scope.aggregate_scope).toBe("scoped_entities");
     expect(out.completeness.status).toBe("complete");
-    console.log(JSON.stringify(out.gates));
+    expect(out.gates.every((g) => g.ok)).toBe(true);
     expect(out.toolCalls[0].tool_name).toBe("assess_goal_performance");
   });
 });
