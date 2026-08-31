@@ -1,80 +1,87 @@
-# Auditoria P0 — caminho analítico do Nino (somente leitura)
+# Correção P0 definitiva — Nino comparativo de metas
 
-Nada foi alterado: sem edição de código, sem migration, sem deploy.
+## Diagnóstico confirmado
 
-## Evidência de produção (consulta a `agent_runs`, últimos 4 dias)
+O print corresponde aos runs de produção de **31/08/2026 às 14:17 e 14:43 UTC**. Eles:
 
-| horário (UTC) | path | tools_used | final_path | fallback_reason |
-|---|---|---|---|---|
-| 31/08 14:43, 14:17, 14:16 | deterministic_tool | assess_goal_performance | composite_failed | `gates_failed:goal_current_consistent(gasto atual da meta diverge da comparação)` |
-| 31/08 13:40 | deterministic_tool | assess_goal_performance | composite_answered | — |
-| 31/08 13:36 | llm | compare_financial_metric, get_financial_snapshot | not_applicable | `plan_not_matched` |
-| 31/08 12:42 | llm | compare_financial_metric, get_financial_snapshot, assess_financial_performance | (sem telemetria) | — |
+- chamaram a ferramenta correta (`assess_goal_performance`), mas executaram um **bundle antigo**;
+- usaram período principal de **julho** e comparação de **31/05 a 30/06**, embora a pergunta pedisse mês atual contra o mesmo período do mês anterior;
+- falharam no gate antigo `goal_current_consistent`, que já não existe no código atual;
+- não registraram `runtime_version`; há **zero runs** com a versão nova `nino-agent-p0.2026-08-31.1`.
 
-Fato-chave: o gate `goal_current_consistent` **não existe mais no main** (foi substituído por `goal_analysis_period_consistent` e `period_role_consistent` em `AnalysisGates.ts`). Runs às 14:16–14:43 ainda o registram: o runtime em produção é anterior ao commit atual. **Drift confirmado por evidência, não por suposição.**
+Portanto, a repetição da resposta do print não prova falha do patch local novo: prova que o WhatsApp ainda estava atendido pelo runtime anterior. Além disso, a auditoria encontrou lacunas reais no patch que precisam ser fechadas antes de atualizar produção.
 
-Também confirmado: `agent_runtime_flags` não tem linha `composite_analysis_v1`, então vale o default `true` em `FeatureFlags.ts` — o flag não é a causa.
+## Implementação
 
-## 1) Caminho real e entrypoints
+### 1. Tornar a rota protegida realmente fail-closed
 
-- `whatsapp-webhook/index.ts` → `runOrchestrator` (`_shared/agent/orchestrator.ts`, linhas 733 e 826) → `handleTurn` (`_shared/agent/core/AgentCore.ts`).
-- `agent-run/index.ts` → `runOrchestrator` → `handleTurn` (usado pelo simulador admin e por chamadas service-role).
-- `agent-chat/index.ts` → `handleAppMessage` / `handleAppAction` (`core/adapters/AppAdapter.ts`) → `handleTurn`.
-- `core/adapters/WhatsAppAdapter.ts` existe mas **não é usado pelo webhook** (o webhook chama `runOrchestrator` direto). É código paralelo, não um bypass ativo.
-- Não há entrypoint legado que escreva resposta sem passar por `handleTurn`. O que existe são **atalhos internos de `handleTurn` anteriores ao caminho analítico** (item 3).
+- Fazer qualquer exceção inesperada de `runCompositeAnalysis` preservar o estado de consulta protegida e responder com falha honesta; hoje o `guard()` pode convertê-la em `not_applicable` e liberar o fluxo legado.
+- Resolver a classificação e o plano protegido antes dos atalhos capazes de retornar sem análise.
+- Impedir por contrato que uma consulta de desempenho de metas disponibilize à LLM `compare_financial_metric`, `assess_financial_performance` ou `get_financial_snapshot`.
+- Manter como único desfecho válido: `assess_goal_performance` com escopo/período exatos ou falha fechada — nunca agregado global.
 
-## 2) Edge Functions que dependem de `_shared/agent` (precisam de redeploy quando `_shared` muda)
+### 2. Corrigir e endurecer o contrato temporal e de entidades
 
-`agent-chat`, `agent-proactive-tick`, `agent-run`, `anticipation-tick`, `financial-reports-generate`, `shared-goal-notify-invite`, `split-reminders-dispatch-v2`, `user-ai-preferences`, `whatsapp-webhook`.
+- Usar o período principal calculado para o mês atual até a data corrente e derivar a comparação com `samePeriodPreviousMonth`; o período citado como comparação nunca poderá substituir o período principal.
+- Exigir identidade exata entre IDs planejados e categorias devolvidas pelo motor, sem categorias ausentes ou extras.
+- Validar competência financeira canônica, categorias pessoais e globais, metas com ciclos heterogêneos e agregados aritmeticamente reconciliados.
+- Diferenciar de forma auditável falha de consulta, escopo vazio, período divergente, conjunto divergente e inconsistência aritmética.
 
-As duas do incidente são `whatsapp-webhook` e `agent-run`. Redeployar só uma delas produz exatamente o quadro observado: uma responde com gates novos e a outra com gates antigos.
+### 3. Eliminar drift invisível de runtime
 
-## 3) Pontos que ainda deixam pergunta anafórica/comparativa cair no fluxo legado
+- Incrementar `AGENT_RUNTIME_VERSION` para esta correção.
+- Gravar `runtime_version` e `analytical_contract_version` em **todos** os caminhos de `agent_runs`, inclusive fast log e retornos determinísticos atualmente sem carimbo.
+- Centralizar a criação/finalização do run para que conversa casual, confirmação, categorização e análise também provem qual bundle respondeu.
+- Acrescentar ao contrato de deploy uma verificação que falhe se `_shared/agent`, `_shared/analytics` ou `_shared/finance-core` mudar sem atualização de versão e sem a lista completa dos dependentes.
 
-1. **`resolveAnalyticalPlan` exige domínio + composição.** Em `AnalyticalQueryPlanner.ts`: `if (!domains.length) return null` e `if (!goalDomain || !composite) return null`. `goalDomain` só nasce por herança quando `scope.source === "inherited_from_turn"` e `entity_type === "category"`. Se `last_analysis.scope` não estiver na memória da sessão (sessão nova, expirada, canal diferente, turno anterior respondido por rota conversacional), a pergunta "comparando essas categorias…" cai em `plan_not_matched` → LLM → `compare_financial_metric`. Foi o run das 13:36.
-2. **`composite` exige `facets.length >= 2`.** Uma anáfora enxuta ("e comparado ao mês passado?") tem só a faceta `comparison` e não monta plano.
-3. **Atalhos antes do bloco analítico em `handleTurn`**: fast log (linha ~260), fluxo de pendência/slots (linhas ~319–473) e **rota conversacional** `classifyConversational` (linha ~493, `return` na 532). Qualquer um deles responde e retorna antes de `runCompositeAnalysis` (linha 911) — e nesses returns **`last_analysis` não é salvo**, o que quebra a herança do turno seguinte.
-4. **Carryover depende de `scopeFromToolCalls`** (`AgentCore.ts` 1533): se o turno anterior respondeu sem ferramenta que devolva categorias com id, não há escopo herdável. `resolveScope` então retorna `globalScope()` com `locked: false`.
-5. **`composite_analysis_v1` é lido por flag com cache de 60s e fail-open**; a leitura falhando devolve `{}` e usa default, então não bloqueia — mas uma linha `enabled=false` inserida por engano derruba todo o caminho novo silenciosamente.
+### 4. Testes de regressão executáveis, não apenas inspeção de código
 
-## 4) Garantias atuais contra evidência `scope=overall` / período divergente
+Adicionar testes que executem o fluxo real:
 
-Parciais. `EvidenceReconciliation.reconcileEvidence` só rejeita quando `args.scope?.locked === true` e `entity_ids.length > 0`. Fora do caminho composto, o escopo vem de `memory.last_analysis.scope` — ausente exatamente no cenário do incidente, então `scopeLocked = false` e a evidência global **é aceita**.
+1. a **frase completa do print**, em um único turno, deve usar somente `assess_goal_performance`, mês atual e mesmo recorte do mês anterior;
+2. fluxo de dois turnos (`overview` → anáfora) deve preservar exatamente os mesmos IDs;
+3. memória ausente deve falhar fechado, nunca responder `scope=overall`;
+4. exceção, timeout, resultado vazio e gate bloqueado devem impedir qualquer fallback para LLM;
+5. evidência com julho contra maio/junho deve ser rejeitada;
+6. categorias globais, competência de cartão, metas heterogêneas e múltiplas metas na mesma categoria devem manter cálculo e nomes corretos;
+7. telemetria deve registrar ferramenta, períodos, IDs, gates, caminho final e versão;
+8. nenhum runtime novo pode emitir `goal_current_consistent`.
 
-Além disso:
-- A reconciliação roda **depois** da resposta pronta (`AgentCore.ts` ~1249): a LLM já viu as duas leituras. O bloqueio final (`replyUsesRejectedEvidence`) é textual — só dispara se a resposta cita um valor ≥ R$ 100 que exista *apenas* na evidência rejeitada, com tolerância de R$ 0,50. Conclusão errada sem número citado, ou com número coincidente, passa.
-- `!analytical && replyUsesRejectedEvidence(...)`: quando o caminho composto respondeu, o bloqueio nem é avaliado.
-- `AnalysisGates` (incluindo `scope_preserved`, `comparison_contract_consistent`, `period_role_consistent`, `arithmetic_consistent`) só roda **dentro** de `CompositeAnalysis`. Se o plano não casou, nenhum gate protege a resposta.
+Executar a suíte completa, typecheck, validação de selects de transações e contrato de dependentes.
 
-Ou seja: para "categorias específicas + agosto vs julho", a garantia existe apenas quando o plano composto casa. Quando ele não casa, não há gate algum.
+## Atualização controlada das funções
 
-## 5) Deploy atômico/verificável — o que falta
+Como a causa imediata é drift de bundle, corrigir apenas o repositório não muda o WhatsApp. Após todos os testes locais passarem, preparar a atualização atômica das 9 funções dependentes:
 
-- `agent_runs` **não tem** coluna de versão de runtime: nenhuma de `runtime_version`/`build_sha` existe (colunas confirmadas por `information_schema`). Não há como distinguir "código novo com bug" de "código antigo em produção" sem inferir por nome de gate.
-- Nenhuma constante de versão no código: `grep RUNTIME_VERSION|BUILD_SHA` em `supabase/`, `scripts/`, `docs/` não retorna nada.
-- `package.json` tem `test`, `test:perf-arch`, `test:tx-selects`, `sync:finance-core` — **nenhum smoke test pós-deploy** e nenhuma lista declarada de functions dependentes de `_shared/agent`.
+- `whatsapp-webhook`
+- `agent-run`
+- `agent-chat`
+- `agent-proactive-tick`
+- `anticipation-tick`
+- `financial-reports-generate`
+- `shared-goal-notify-invite`
+- `split-reminders-dispatch-v2`
+- `user-ai-preferences`
 
-Recomendação para o patch P0:
-1. Constante `AGENT_RUNTIME_VERSION` em um módulo do core, persistida em `agent_runs.context_layers.analytical_path.runtime_version` (sem migration, usa o JSONB existente) e devolvida por `agent-run`/`whatsapp-webhook` num endpoint `?health=1`.
-2. Manifesto explícito (`supabase/functions/_shared/agent/DEPENDENTS.md` ou um `.mjs` de checagem) com as 9 functions do item 2, e script que falha quando `_shared/agent` muda sem que todas estejam na lista de deploy.
-3. Smoke test pós-deploy: `agent-run` com `source=simulator` executando os dois turnos do incidente e afirmando `final_path=composite_answered`, `tools_used=[assess_goal_performance]` e `runtime_version` esperada. Sem isso, deploy parcial continua invisível.
+**Não atualizar produção sem autorização explícita.** A aprovação deste plano autoriza a implementação e os testes; a atualização das funções será apresentada separadamente para confirmação.
 
-## 6) Lacunas de teste end-to-end
+## Prova de correção pós-atualização
 
-O que existe é unitário: `nino-composite-analysis.test.ts` (planner, escopo, gates, interpretação), `nino-analytical-path-scope.test.ts` (herança, carryover, reconciliação, base de comparação), `nino-goal-performance-runtime.test.ts` (motor). Nenhum teste exercita `handleTurn`.
+Depois da autorização de produção:
 
-Faltando, para reproduzir o incidente:
-1. **Dois turnos reais via `handleTurn`** (turno 1 "overview das metas" → turno 2 "comparando essas categorias com o mesmo período do mês anterior"), afirmando `path`, `tools_used`, `final_path` e o escopo persistido em memória entre turnos.
-2. **Turno 2 com memória vazia** (sessão nova) — hoje é o caminho que produz `plan_not_matched`; o teste deve fixar o comportamento esperado (plano casar por anáfora, ou resposta honesta), nunca `compare_financial_metric` global.
-3. **Turno anterior respondido por rota conversacional/fast log**, provando que o escopo ainda sobrevive.
-4. **Turno com duas ferramentas divergentes no mesmo run** (agosto×julho e julho×maio/junho), provando que a evidência global é descartada *antes* de ir à LLM, e não só se o valor for citado.
-5. **Regressão de nome de gate**: teste que falha se `goal_current_consistent` reaparecer em qualquer arquivo, e teste que casa a lista de gates emitidos com `GateName`.
-6. **Guarda de drift**: teste do manifesto de dependentes de `_shared/agent` contra `ls supabase/functions`.
+- atualizar as 9 funções no mesmo lote;
+- executar o caso completo por `agent-run` e pelo caminho real do WhatsApp;
+- confirmar em `agent_runs` a nova `runtime_version`;
+- exigir `final_path=composite_answered`, `tools_used=[assess_goal_performance]`, escopo de categorias, período atual correto e comparação no mesmo recorte do mês anterior;
+- verificar que não existe ferramenta concorrente nem novo run com gate legado;
+- se qualquer prova falhar, interromper a validação e não considerar o incidente encerrado.
 
-## Recomendação de ordem para o patch P0
+## Critérios de aceite
 
-1. Redeploy explícito e verificado das 9 functions dependentes (o incidente das 14:43 é drift, não lógica).
-2. `runtime_version` em `analytical_path` + smoke test de dois turnos.
-3. Fechar `plan_not_matched` para anáfora comparativa e persistir `last_analysis` também nos returns antecipados de `handleTurn`.
-4. Mover a reconciliação de evidência para antes da síntese da resposta quando o plano exige escopo travado.
-5. Testes 1–6 acima.
+- A frase do print jamais produz `scope=overall`.
+- Jamais compara julho contra maio/junho nesse contexto.
+- A LLM jamais escolhe entre ferramentas conflitantes para essa intenção.
+- Falha do motor não cai no fluxo legado.
+- Todo run prova a versão do runtime que o respondeu.
+- Suíte completa, typecheck e contratos estáticos passam.
+- Produção só é considerada corrigida após smoke test real com o novo carimbo de runtime.
