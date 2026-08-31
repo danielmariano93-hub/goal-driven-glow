@@ -1297,8 +1297,16 @@ var financial_position_default = defineTool5({
       supabase.from("credit_cards").select("id, name, brand, last_four, total_limit, closing_day, due_day, active"),
       supabase.from("debts").select("id, name, creditor, outstanding_balance, installment_amount, status"),
       supabase.from("goals").select("id, name, target_amount, target_date, status"),
-      supabase.from("credit_card_statements").select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status"),
-      supabase.from("credit_card_installments").select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id")
+      // `paged_select.v1`: fatura e parcela também passam de 1.000 linhas em
+      // histórico longo — sem paginar, a obrigação apareceria menor do que é.
+      fetchAllPages(
+        (from, to) => supabase.from("credit_card_statements").select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status").order("competence_month", { ascending: true }).order("credit_card_id", { ascending: true }).range(from, to),
+        { source: "mcp_statements" }
+      ).then((data) => ({ data, error: null })).catch((e) => ({ data: [], error: { message: String(e?.message ?? e) } })),
+      fetchAllPages(
+        (from, to) => supabase.from("credit_card_installments").select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id").order("competence_month", { ascending: true }).order("id", { ascending: true }).range(from, to),
+        { source: "mcp_installments" }
+      ).then((data) => ({ data, error: null })).catch((e) => ({ data: [], error: { message: String(e?.message ?? e) } }))
     ]);
     const sourceResults = [
       ["cart\xF5es", cardsRes],
