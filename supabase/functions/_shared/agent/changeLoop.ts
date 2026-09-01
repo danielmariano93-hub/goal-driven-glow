@@ -566,6 +566,8 @@ export async function getActiveCommitmentStatus(
       strategy: decided.strategy,
       strategy_reason: decided.reason,
       behavioral_intervention: intervention,
+      communication_instruction: intervention,
+      deterministic_body: message,
       formula_version: NINO_CHANGE_AGENT_VERSION,
     },
     message,
