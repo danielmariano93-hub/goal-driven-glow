@@ -742,7 +742,10 @@ export function buildChangeLearningProfilePure(args: {
     principles?: any; dismissals?: number | null; accepted_at?: string | null;
     last_check_at?: string | null; target_amount?: number | null;
   }>;
-  checkins: Array<{ commitment_id: string; outcome: string; created_at?: string | null }>;
+  checkins: Array<{
+    commitment_id: string; outcome: string; created_at?: string | null;
+    strategy?: string | null; principle?: string | null;
+  }>;
 }): ChangeLearningProfile {
   const profile: ChangeLearningProfile = {
     ...EMPTY_LEARNING_PROFILE,
@@ -751,6 +754,8 @@ export function buildChangeLearningProfilePure(args: {
     outcome_counts: {},
     stage_success: {},
     principle_success: {},
+    strategy_success: {},
+    dismissed_principles: [],
   };
 
   profile.events = args.events.length;
@@ -774,7 +779,51 @@ export function buildChangeLearningProfilePure(args: {
 
   profile.commitments_accepted = args.commitments.length;
   profile.commitments_completed = args.commitments.filter((c) => c.status === "completed").length;
-  profile.commitments_abandoned = args.commitments.filter((c) => c.status === "abandoned").length;
+  // O ciclo tem um único encerramento por desistência: `cancelled`.
+  profile.commitments_abandoned = args.commitments
+    .filter((c) => c.status === "cancelled" || c.status === "abandoned").length;
+
+  // Feedback negativo explícito conta como tentativa que NÃO funcionou para
+  // aquele princípio e para aquela estratégia. É assim que a dispensa deixa de
+  // ser só um número e passa a mudar a próxima abordagem.
+  const dismissedPrinciples = new Map<string, number>();
+  for (const event of args.events) {
+    if (event.signal !== "dismissed") continue;
+    const principle = String(event.metadata?.principle ?? "");
+    const strategy = String(event.metadata?.strategy ?? "");
+    if (principle) {
+      const p = profile.principle_success[principle] ?? { total: 0, success: 0 };
+      p.total += 1;
+      profile.principle_success[principle] = p;
+      dismissedPrinciples.set(principle, (dismissedPrinciples.get(principle) ?? 0) + 1);
+    }
+    if (strategy) {
+      const s = profile.strategy_success[strategy] ?? { total: 0, success: 0 };
+      s.total += 1;
+      profile.strategy_success[strategy] = s;
+    }
+  }
+  profile.dismissed_principles = [...dismissedPrinciples.entries()]
+    .sort((a, b) => b[1] - a[1]).map(([k]) => k);
+
+  for (const checkin of args.checkins) {
+    const win = checkin.outcome === "completed" || checkin.outcome === "progress";
+    const strategy = String(checkin.strategy ?? "");
+    if (strategy) {
+      const s = profile.strategy_success[strategy] ?? { total: 0, success: 0 };
+      s.total += 1;
+      if (win) s.success += 1;
+      profile.strategy_success[strategy] = s;
+    }
+    const principle = String(checkin.principle ?? "");
+    if (principle) {
+      const p = profile.principle_success[principle] ?? { total: 0, success: 0 };
+      p.total += 1;
+      if (win) p.success += 1;
+      profile.principle_success[principle] = p;
+    }
+  }
+
 
   const byCommitment = new Map<string, { stage: string; principles: string[]; outcomes: string[]; target: number | null }>();
   for (const c of args.commitments) {
