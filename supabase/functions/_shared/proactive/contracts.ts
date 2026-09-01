@@ -119,9 +119,17 @@ export interface FinancialSituation {
   priority_score: number;
   score_reasons: string[];
   evidence: Record<string, unknown>;
+  /** nino_behavioral_timing.v1 — momento comportamental (0..100). */
+  timing_score?: number;
+  timing_trigger?: string | null;
+  timing_window?: string | null;
+  /** priority_score x timing_score — ordena a fila real. */
+  effective_score?: number;
+  /** Quando o momento ainda não chegou, o instante de reavaliar. */
+  defer_until?: string | null;
 }
 
-export type ProactiveDecisionKind = "deliver" | "suppress";
+export type ProactiveDecisionKind = "deliver" | "suppress" | "defer";
 
 export interface ProactiveDecision {
   fingerprint: string;
@@ -129,7 +137,13 @@ export interface ProactiveDecision {
   decision: ProactiveDecisionKind;
   reason: string;
   priority_score: number;
+  timing_score?: number;
+  timing_trigger?: string | null;
+  timing_window?: string | null;
+  effective_score?: number;
+  defer_until?: string | null;
 }
+
 
 export interface AttentionBudget {
   /** Interrupções máximas por canal nesta rodada. */

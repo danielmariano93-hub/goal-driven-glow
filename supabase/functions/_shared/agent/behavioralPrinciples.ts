@@ -164,7 +164,11 @@ export function resolveBehavioralIntervention(args: {
     principle_success?: Record<string, { total: number; success: number }>;
   } | null;
   financialFacts?: Record<string, unknown> | null;
+  /** nino_behavioral_timing.v1 — momento real do evento (opcional). */
+  trigger?: string | null;
+  timing?: { window?: string | null; timing_score?: number | null } | null;
 }): BehavioralIntervention {
+
   const candidates = (args.principles && args.principles.length > 0)
     ? args.principles
     : principlesForStage(args.stage);
@@ -202,7 +206,11 @@ export function resolveBehavioralIntervention(args: {
     args.learningProfile?.prefers_smaller_steps
       ? "Sinal observado: este usuário conclui passos menores. Ajuste a linguagem e a fricção, nunca o valor — valor vem do motor canônico."
       : null,
+    args.trigger
+      ? `Momento (nino_behavioral_timing.v1): evento ${args.trigger}, janela ${args.timing?.window ?? "n/d"}. Fale do agora sem inventar urgência nem valor novo.`
+      : null,
   ].filter(Boolean).join("\n");
 
   return { principle, strategy, communication_goal, prohibited_patterns, context_for_llm };
 }
+
