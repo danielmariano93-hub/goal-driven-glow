@@ -13,7 +13,6 @@ import {
 import { Activity, Gauge, Loader2, TrendingDown, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
-import { AiHistoryTable } from "@/components/admin/AiHistoryTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -114,6 +113,49 @@ const WORKLOADS = [
   { id: "ADVISOR_REPORTS", label: "Relatórios do consultor" },
   { id: "ANTICIPATION", label: "Antecipação" },
 ] as const;
+
+const intFmt = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 }));
+const secFmt = (v: unknown) => (v == null ? "—" : `${(Number(v) / 1000).toFixed(1)}s`);
+
+/** Tooltip único dos gráficos: mostra o dia inteiro (conversas, tokens e latências). */
+function DayTooltip({ active, payload, mode }: { active?: boolean; payload?: Array<{ payload: Series }>; mode: "tokens" | "ai" | "e2e" }) {
+  if (!active || !payload?.length) return null;
+  const r = payload[0].payload;
+  const rows: Array<[string, string]> = [["Conversas", intFmt(r.runs)]];
+  if (mode === "tokens") {
+    rows.push(
+      ["Tokens no dia", intFmt(r.tokens_total)],
+      ["Entrada", intFmt(r.tokens_in)],
+      ["Saída", intFmt(r.tokens_out)],
+      ["Tokens por conversa", intFmt(r.tokens_per_run)],
+    );
+  } else if (mode === "ai") {
+    rows.push(
+      ["Mediana", secFmt(r.ai_p50_latency_ms)],
+      ["P95", secFmt(r.ai_p95_latency_ms)],
+      ["Média", secFmt(r.ai_avg_latency_ms)],
+    );
+  } else {
+    rows.push(
+      ["Mediana", secFmt(r.e2e_p50_latency_ms)],
+      ["P95", secFmt(r.e2e_p95_latency_ms)],
+      ["Média", secFmt(r.e2e_avg_latency_ms)],
+    );
+  }
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs shadow-md">
+      <p className="mb-1 font-semibold">{r.day}</p>
+      <dl className="space-y-0.5">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex items-center justify-between gap-4">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="font-medium tabular-nums">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
 
 export function AiEfficiencyHistoryBoard() {
   const [preset, setPreset] = useState<string>("30");
@@ -338,7 +380,7 @@ export function AiEfficiencyHistoryBoard() {
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <Tooltip formatter={(v: number) => Number(v).toLocaleString("pt-BR")} />
+              <Tooltip content={<DayTooltip mode="tokens" />} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Area type="monotone" dataKey="tokens_in" name="Entrada" stackId="1" dot={tokenSeries.length < 3} stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} />
               <Area type="monotone" dataKey="tokens_out" name="Saída" stackId="1" dot={tokenSeries.length < 3} stroke="hsl(var(--brand-coral))" fill="hsl(var(--brand-coral))" fillOpacity={0.25} />
@@ -368,7 +410,7 @@ export function AiEfficiencyHistoryBoard() {
               <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false}
                 tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
-              <Tooltip formatter={(v: number) => `${(Number(v) / 1000).toFixed(1)}s`} />
+              <Tooltip content={<DayTooltip mode="ai" />} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
                <Line type="monotone" dataKey="ai_p50_latency_ms" name="Mediana" stroke="hsl(var(--primary))" dot={latencySeries.length < 3} strokeWidth={2} />
                <Line type="monotone" dataKey="ai_p95_latency_ms" name="P95" stroke="hsl(var(--brand-coral))" dot={latencySeries.length < 3} strokeWidth={2} />
@@ -395,7 +437,7 @@ export function AiEfficiencyHistoryBoard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
-                <Tooltip formatter={(v: number) => `${(Number(v) / 1000).toFixed(1)}s`} />
+                <Tooltip content={<DayTooltip mode="e2e" />} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="e2e_p50_latency_ms" name="Mediana ponta a ponta" stroke="hsl(var(--primary))" dot={e2eSeries.length < 3} strokeWidth={2} />
                 <Line type="monotone" dataKey="e2e_p95_latency_ms" name="P95 ponta a ponta" stroke="hsl(var(--brand-coral))" dot={e2eSeries.length < 3} strokeWidth={2} />
@@ -406,7 +448,6 @@ export function AiEfficiencyHistoryBoard() {
         )}
       </figure>
 
-      <AiHistoryTable series={daySeries} />
 
 
       <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">

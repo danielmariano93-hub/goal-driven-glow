@@ -122,17 +122,17 @@ describe("Admin hardening", () => {
     expect(latencyFix).toContain("l.ai_avg_latency_ms IS NOT NULL THEN ''ai_usage_ledger'' ELSE ''none'' END");
   });
 
-  it("Custo e latência tem histórico tabular e não volta o drill-down", () => {
+  it("Custo e latência mostra histórico dentro dos gráficos, sem tabelão e sem drill-down", () => {
     const ai = read("src/components/admin/AiEfficiencyHistoryBoard.tsx");
-    const table = read("src/components/admin/AiHistoryTable.tsx");
-    expect(ai).toContain("<AiHistoryTable series={daySeries} />");
+    expect(ai).not.toContain("AiHistoryTable");
     expect(ai).not.toContain("Drill-down de latência");
     expect(ai).not.toContain("latency_drilldown");
     expect(ai).not.toContain("admin_ai_latency_day");
-    expect(table).toContain("Histórico de tokens e latência");
-    expect(table).toContain("Por semana");
+    expect(ai).toContain('<DayTooltip mode="tokens" />');
+    expect(ai).toContain('<DayTooltip mode="ai" />');
+    expect(ai).toContain('<DayTooltip mode="e2e" />');
+    expect(ai).toContain("Tokens por conversa");
     expect(ai).toContain("Como o Nino resolveu cada conversa");
-    expect(ai).toContain("Tokens/conversa");
   });
 
 });
