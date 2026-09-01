@@ -2,6 +2,7 @@ import { Component, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { AlertOctagon, RefreshCw, LayoutDashboard } from "lucide-react";
 import { mapAdminError } from "@/lib/admin/errorMapper";
+import { isChunkLoadError, recoverFromChunkError } from "@/lib/lazyRoute";
 
 type State = { code: string | null };
 
@@ -9,6 +10,9 @@ export class AdminErrorBoundary extends Component<{ children: ReactNode }, State
   state: State = { code: null };
 
   static getDerivedStateFromError(err: unknown): State {
+    // Versão publicada nova com cache antigo: recarrega uma vez em vez de
+    // mostrar erro genérico ao administrador.
+    if (isChunkLoadError(err) && recoverFromChunkError()) return { code: null };
     return { code: mapAdminError(err).code };
   }
 
