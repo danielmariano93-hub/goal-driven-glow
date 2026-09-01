@@ -313,7 +313,9 @@ function situationOnly(
     tone,
     sameDecision: false,
     sourceRefs: ["nino_diagnosis"],
+    compact: { headline, body: context },
     variants: {
+
       home: lines,
       nino_detail: lines,
       whatsapp: lines.join(" "),
