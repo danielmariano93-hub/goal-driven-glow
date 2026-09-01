@@ -135,6 +135,10 @@ export async function persistNextActionRecommendation(
     route: action.action.route,
     amount: action.action.amount,
     amount_role: action.action.amount_role,
+    // Valor do prazo transportado pelo motor: a Home explica a diferença entre
+    // o necessário e o sustentável sem recalcular nada.
+    required_amount: action.action.required_amount ?? null,
+    required_amount_role: action.action.required_amount != null ? "goal_deadline_monthly" : null,
     goal_id: action.action.goal_id,
     goal_name: action.action.goal_name,
     financial_state: action.financial_state,

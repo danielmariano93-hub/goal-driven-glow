@@ -23,6 +23,7 @@ de TODAS as funções abaixo, no mesmo lote:
 - `shared-goal-notify-invite`
 - `split-reminders-dispatch-v2`
 - `user-ai-preferences`
+- `nino-next-step`
 
 Fonte de verdade da lista: `scripts/check-agent-dependents.mjs`
 (`npm run check:agent-dependents`), que varre os imports reais e falha quando

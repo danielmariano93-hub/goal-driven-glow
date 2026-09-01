@@ -5,8 +5,7 @@ import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { QuickActions } from "@/components/home/QuickActions";
-import { NinoGuidanceCard } from "@/components/home/NinoGuidanceCard";
-import { NinoNextStepCard } from "@/components/home/NinoNextStepCard";
+import { NinoGuidanceSection } from "@/components/home/NinoGuidanceSection";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
@@ -84,7 +83,7 @@ export default function Index() {
 
       <QuickActions />
 
-      <NinoGuidanceCard
+      <NinoGuidanceSection
         diagnosis={homeDiagnosis}
         context={diagnosis.data ?? null}
         projection={snap?.projection ?? null}
@@ -94,8 +93,6 @@ export default function Index() {
         onRetry={() => void diagnosis.refetch()}
         projectionAvailability={availability.projection}
       />
-
-      <NinoNextStepCard />
 
 
 

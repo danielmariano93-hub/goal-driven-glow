@@ -19,6 +19,10 @@ type Props = {
   retrying?: boolean;
   onRetry?: () => void;
   projectionAvailability?: "available" | "partial" | "unavailable";
+  /** Situações já contadas por outro card (consolidação editorial). */
+  excludeSituationIds?: string[];
+  /** Sem leitura elegível, não ocupa espaço: já existe uma decisão na tela. */
+  hideWhenEmpty?: boolean;
 };
 
 /** Leituras já respondidas hoje não voltam a aparecer (cooldown local espelha o backend). */
@@ -47,23 +51,24 @@ function persistAnswered(ids: string[]) {
   }
 }
 
-export function NinoGuidanceCard({ diagnosis, context, projection, loading, error, retrying, onRetry, projectionAvailability = "available" }: Props) {
+export function NinoGuidanceCard({ diagnosis, context, projection, loading, error, retrying, onRetry, projectionAvailability = "available", excludeSituationIds, hideWhenEmpty }: Props) {
   const feedback = useNinoSituationFeedback();
   const [answered, setAnswered] = useState<string[]>(() => readAnswered());
   const [index, setIndex] = useState(0);
   const [savingFeedback, setSavingFeedback] = useState<null | "useful" | "not_useful">(null);
   const [noMoreReadings, setNoMoreReadings] = useState(false);
 
+  const excludedKey = (excludeSituationIds ?? []).join("|");
   const queue = useMemo(
     () =>
       context
         ? buildNinoReadingQueue(context, {
             // O servidor já é a memória do que foi respondido (vale entre dias e
             // aparelhos); o storage local segue como supressão otimista da sessão.
-            suppressedIds: [...answered, ...(context.suppressed_situation_ids ?? [])],
+            suppressedIds: [...answered, ...(context.suppressed_situation_ids ?? []), ...(excludedKey ? excludedKey.split("|") : [])],
           })
         : [],
-    [context, answered],
+    [context, answered, excludedKey],
   );
 
   useEffect(() => {
@@ -144,9 +149,9 @@ export function NinoGuidanceCard({ diagnosis, context, projection, loading, erro
   const accent = critical ? "bg-destructive" : attention ? "bg-warning" : "bg-primary";
   const hasNext = index + 1 < queue.length;
 
-  if (loading) return <section aria-label="Orientação do Nino" aria-busy="true" className="min-h-[82px] animate-pulse rounded-[18px] border border-border bg-card p-3.5"><div className="h-3 w-24 rounded bg-secondary" /><div className="mt-2 h-4 w-3/4 rounded bg-secondary" /></section>;
-  if (error) return <section aria-label="Orientação do Nino" className="rounded-[18px] border border-border bg-card p-4"><NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} /></section>;
-  if (!item || !presentation) return <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-3.5 pl-5"><span className="absolute inset-y-0 left-0 w-[3px] bg-warning" aria-hidden="true" /><p className="text-[10px] font-semibold text-primary">Orientação do Nino</p><h2 className="mt-1 font-display text-[15px] font-bold leading-5 text-foreground">{context && answered.length > 0 ? "Você já viu as leituras de hoje" : "Ainda estou formando uma leitura segura"}</h2><p className="mt-0.5 text-[12px] leading-[17px] text-muted-foreground">{context && answered.length > 0 ? "Novas leituras aparecem quando seus dados mudarem ou no próximo ciclo." : "Com mais movimentações, consigo explicar o que mudou sem tirar conclusões apressadas."}</p></section>;
+  if (loading) return hideWhenEmpty ? null : <section aria-label="Orientação do Nino" aria-busy="true" className="min-h-[82px] animate-pulse rounded-[18px] border border-border bg-card p-3.5"><div className="h-3 w-24 rounded bg-secondary" /><div className="mt-2 h-4 w-3/4 rounded bg-secondary" /></section>;
+  if (error) return hideWhenEmpty ? null : <section aria-label="Orientação do Nino" className="rounded-[18px] border border-border bg-card p-4"><NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} /></section>;
+  if (!item || !presentation) return hideWhenEmpty ? null : <section aria-label="Orientação do Nino" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-3.5 pl-5"><span className="absolute inset-y-0 left-0 w-[3px] bg-warning" aria-hidden="true" /><p className="text-[10px] font-semibold text-primary">Orientação do Nino</p><h2 className="mt-1 font-display text-[15px] font-bold leading-5 text-foreground">{context && answered.length > 0 ? "Você já viu as leituras de hoje" : "Ainda estou formando uma leitura segura"}</h2><p className="mt-0.5 text-[12px] leading-[17px] text-muted-foreground">{context && answered.length > 0 ? "Novas leituras aparecem quando seus dados mudarem ou no próximo ciclo." : "Com mais movimentações, consigo explicar o que mudou sem tirar conclusões apressadas."}</p></section>;
   return (
     <section aria-label="Orientação do Nino" aria-live="polite" className="relative overflow-hidden rounded-[18px] border border-border bg-card p-3.5 pl-5 animate-fade-in">
       <span className={`absolute inset-y-0 left-0 w-[3px] ${accent}`} aria-hidden="true" />

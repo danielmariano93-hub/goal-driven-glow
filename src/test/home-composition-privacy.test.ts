@@ -12,7 +12,7 @@ describe("composição narrativa da Home", () => {
       "<HomeHeader",
       "<HeroDisponivelCard",
       "<QuickActions",
-      "<NinoGuidanceCard",
+      "<NinoGuidanceSection",
       "<RitmoUnificadoCard",
       "<PrevisaoFechamentoCard",
       "<ProximosCompromissosCard",
