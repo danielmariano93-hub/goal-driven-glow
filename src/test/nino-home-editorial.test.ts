@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { buildNinoHomeEditorialView, NINO_SUPPORTING_LIMIT } from "@/lib/nino/homeEditorial";
+import { buildNinoHomeEditorialView, NINO_SUPPORTING_DEFAULT, NINO_SUPPORTING_LIMIT } from "@/lib/nino/homeEditorial";
 import { toHomeDiagnosisView, type FinancialSituation, type NinoDiagnosisContext } from "@/lib/nino/diagnosis";
 import type { NinoNextStep } from "@/lib/nino/nextStep";
 
