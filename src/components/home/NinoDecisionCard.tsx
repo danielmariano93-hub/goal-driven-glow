@@ -30,7 +30,7 @@ export function NinoDecisionCard({ narrative, accepting, onAccept, acceptedMessa
     <section
       aria-label="Orientação do Nino"
       aria-live="polite"
-      className="relative overflow-hidden rounded-[20px] border border-border bg-card p-4 pl-5 animate-fade-in"
+      className="relative flex h-full flex-col overflow-hidden rounded-[20px] border border-border bg-card p-4 pl-5 animate-fade-in"
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${tone.accent}`} aria-hidden="true" />
       <div className="flex items-center gap-2">
