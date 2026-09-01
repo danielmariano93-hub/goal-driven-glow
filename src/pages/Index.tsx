@@ -10,6 +10,9 @@ import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
 import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
+import { HeatmapSemanalCard } from "@/components/home/HeatmapSemanalCard";
+import { useCategoryWeekdayHeatmap } from "@/lib/hooks/useCategoryWeekdayHeatmap";
+
 
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
@@ -35,6 +38,8 @@ export default function Index() {
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const diagnosis = useNinoHomeContext();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
+  const heatmap = useCategoryWeekdayHeatmap();
+
 
   const hasAccount = (accounts ?? []).length > 0;
 
@@ -106,11 +111,14 @@ export default function Index() {
           error={availability.rhythm === "unavailable" ? snapshotError : null}
           onRetry={() => void snapshot.refetchCritical()}
       />
+      <HeatmapSemanalCard data={heatmap.data} loading={heatmap.isLoading} />
+
       <PrevisaoFechamentoCard
           projection={snap?.projection ?? null}
           availability={availability.projection}
           loading={loading}
       />
+
 
       <ProximosCompromissosCard
         commitments={snap?.commitmentAgenda.items ?? []}

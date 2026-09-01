@@ -50,6 +50,7 @@ export const FINANCE_CORE_MODULES = [
   "longitudinal",
   "wealthOpportunity",
   "recurringSchedule",
+  "categoryWeekdayHeatmap",
 ];
 
 export const REPORT_MODULES = [
