@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toHomeDiagnosisView, type NinoDiagnosisContext } from "@/lib/nino/diagnosis";
-import { buildHomeGuidancePresentation } from "@/lib/nino/homeGuidance";
+import { buildNinoHomeEditorialView } from "@/lib/nino/homeEditorial";
 
 function context(): NinoDiagnosisContext {
   const primary = {
