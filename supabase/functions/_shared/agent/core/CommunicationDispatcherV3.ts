@@ -9,6 +9,7 @@ import { communicationTopicKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
 import { confirmChangeFollowupDelivery } from "../changeLoop.ts";
+import { applyCommunicationInstruction, instructionFromEvidence } from "../changeMessage.ts";
 
 
 
