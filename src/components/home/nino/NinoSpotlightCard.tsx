@@ -70,24 +70,24 @@ export function NinoSpotlightCard({ item, accepting, onAccept, acceptedMessage, 
       ref={ref}
       aria-label="Orientação do Nino"
       aria-live="polite"
-      className="relative overflow-hidden rounded-[20px] border border-border bg-card p-5 pl-6 shadow-sm animate-fade-in"
+      className="relative flex flex-col overflow-hidden rounded-[22px] border border-border bg-card px-5 py-[18px] pl-6 shadow-[0_1px_2px_hsl(var(--foreground)/0.04)] animate-fade-in"
     >
       <span className={cn("absolute inset-y-0 left-0 w-[3px] opacity-80", tone.accent)} aria-hidden="true" />
 
       <div className="flex items-center gap-2">
-        <tone.Icon size={16} weight="duotone" className={tone.text} aria-hidden="true" />
-        <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">{item.eyebrow}</p>
+        <tone.Icon size={15} weight="duotone" className={tone.text} aria-hidden="true" />
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{item.eyebrow}</p>
         <span className="sr-only">{tone.label}</span>
       </div>
 
-      <h2 className="mt-2 font-display text-[21px] font-bold leading-[27px] text-foreground">{item.headline}</h2>
+      <h2 className="mt-2 line-clamp-3 font-display text-[19px] font-bold leading-[24px] text-foreground">{item.headline}</h2>
 
       {item.supportingText ? (
-        <p className="mt-2 text-[15px] leading-[21px] text-muted-foreground">{item.supportingText}</p>
+        <p className="mt-1.5 line-clamp-3 text-[14px] leading-[20px] text-muted-foreground">{item.supportingText}</p>
       ) : null}
 
       {item.mainValue !== null ? (
-        <p className="mt-4 font-display text-[29px] font-semibold leading-none tabular-nums text-foreground">
+        <p className="mt-3 font-display text-[29px] font-semibold leading-none tabular-nums text-foreground">
           {formatBRL(item.mainValue)}
           {item.mainValueSuffix ? (
             <span className="ml-1.5 align-middle text-[13px] font-medium text-muted-foreground">{item.mainValueSuffix}</span>
@@ -96,9 +96,10 @@ export function NinoSpotlightCard({ item, accepting, onAccept, acceptedMessage, 
       ) : null}
 
       {acceptedMessage ? (
-        <p className="mt-4 text-[15px] font-medium leading-[21px] text-success">{acceptedMessage}</p>
+        <p className="mt-3.5 text-[15px] font-medium leading-[21px] text-success">{acceptedMessage}</p>
       ) : primary ? (
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+
           {primary.kind === "accept" ? (
             <Button
               type="button"
