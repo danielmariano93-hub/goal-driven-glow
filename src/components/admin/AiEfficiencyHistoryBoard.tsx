@@ -151,7 +151,7 @@ export function AiEfficiencyHistoryBoard() {
   const [workload, setWorkload] = useState<string>("AGENT_CONVERSATION");
   const [milestone, setMilestone] = useState<string>(MILESTONES[1].date);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [selectedLatencyDay, setSelectedLatencyDay] = useState<string | null>(null);
+  
 
   const range = useMemo(() => {
     if (preset === "custom") return { from, to };
