@@ -4,6 +4,7 @@ import {
   attentionWeightOf,
   decideCommunication,
   normalizeCommunicationPolicy,
+  policyForUser,
   type CommunicationPolicySettings,
   type CommunicationPreferences,
 } from "../../supabase/functions/_shared/intelligence/communicationPolicy.ts";
@@ -149,6 +150,19 @@ describe("nino_comm_priority.v1", () => {
     expect(d.allowed).toBe(true);
     expect(attentionWeightOf("emotional_checkin_due", DEFAULT_COMMUNICATION_POLICY))
       .toBeLessThan(attentionWeightOf("upcoming_cash_pressure", DEFAULT_COMMUNICATION_POLICY));
+  });
+
+  it("K — piloto restrito só vale para os clientes listados", () => {
+    const restricted = { ...pilot, pilot_user_ids: ["u-pilot"] };
+    expect(policyForUser(restricted, "u-pilot").pilot_mode).toBe(true);
+    const outside = policyForUser(restricted, "u-outro");
+    expect(outside.pilot_mode).toBe(false);
+    expect(outside.allow_high_priority_override).toBe(false);
+    const d = decideCommunication({
+      candidate: candidate({ evidence: { priority_score: 200 } }),
+      target: "app", preferences: prefs, history: fullHistory(), now, policy: outside,
+    });
+    expect(d.allowed).toBe(false);
   });
 
   it("J — a configuração salva é a configuração usada (sem teto oculto)", () => {
