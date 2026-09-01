@@ -452,52 +452,8 @@ export function AiEfficiencyHistoryBoard() {
         )}
       </figure>
 
-      <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
-        <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="flex items-center gap-2 text-sm font-semibold">
-              <Gauge size={14} className="text-primary" aria-hidden /> Drill-down de latência
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              {drillTitle} · P50 {ms(drill.thresholds?.p50_latency_ms)} · P95 {ms(drill.thresholds?.p95_latency_ms)}
-            </p>
-          </div>
-          {selectedLatencyDay ? (
-            <Button size="sm" variant="outline" onClick={() => setSelectedLatencyDay(null)}>Ver recorte completo</Button>
-          ) : null}
-        </header>
-        {latencyDay.isLoading ? (
-          <p className="text-xs text-muted-foreground">Carregando runs do dia…</p>
-        ) : latencyDay.error ? (
-          <p className="text-xs text-muted-foreground">Não foi possível carregar o drill-down agora.</p>
-        ) : (
-          <div className="grid gap-3 xl:grid-cols-3">
-            {drillRows.map((group) => (
-              <div key={group.title} className="rounded-2xl border border-border/70 p-3">
-                <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{group.title}</h4>
-                <ul className="space-y-2">
-                  {group.rows.map((run) => (
-                    <li key={`${group.title}-${run.run_id}`} className="rounded-xl bg-muted/40 p-2 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold tabular-nums">{ms(run.latency_ms)}</span>
-                        <span className="text-muted-foreground tabular-nums">{num(run.tokens_total)} tokens</span>
-                      </div>
-                      <p className="mt-1 truncate font-medium">{run.capability ?? run.path ?? "sem capacidade"}</p>
-                      <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-muted-foreground">
-                        {run.model_tier ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">{run.model_tier}</span> : null}
-                        {run.model ? <span className="rounded-full bg-secondary px-2 py-0.5">{run.model}</span> : null}
-                        {run.channel ? <span className="rounded-full bg-secondary px-2 py-0.5">{run.channel}</span> : null}
-                      </div>
-                      {run.error_summary ? <p className="mt-1 truncate text-destructive">{run.error_summary}</p> : null}
-                    </li>
-                  ))}
-                  {!group.rows.length && <li className="text-xs text-muted-foreground">Sem runs neste recorte.</li>}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      <AiHistoryTable series={daySeries} />
+
 
       <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
         <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
