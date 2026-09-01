@@ -38,6 +38,8 @@ export default function Index() {
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const diagnosis = useNinoHomeContext();
   const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
+  const heatmap = useCategoryWeekdayHeatmap();
+
 
   const hasAccount = (accounts ?? []).length > 0;
 
