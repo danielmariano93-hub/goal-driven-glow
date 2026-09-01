@@ -9,6 +9,7 @@ import {
   DEFAULT_COMMUNICATION_POLICY,
   normalizeCommunicationPolicy,
   NINO_COMM_PRIORITY_VERSION,
+  policyForUser,
   type CommunicationPolicySettings,
   type CommunicationPreferences,
   type DeliveryHistory,
