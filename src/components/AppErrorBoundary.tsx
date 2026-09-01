@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { isChunkLoadError, recoverFromChunkError } from "@/lib/lazyRoute";
 
 type State = { hasError: boolean };
 
@@ -9,7 +10,8 @@ type State = { hasError: boolean };
 export class AppErrorBoundary extends Component<{ children: ReactNode }, State> {
   state: State = { hasError: false };
 
-  static getDerivedStateFromError(): State {
+  static getDerivedStateFromError(error: unknown): State {
+    if (isChunkLoadError(error) && recoverFromChunkError()) return { hasError: false };
     return { hasError: true };
   }
 
