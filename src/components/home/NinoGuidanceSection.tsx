@@ -83,27 +83,56 @@ export function NinoGuidanceSection({ diagnosis, context, projection, loading, e
   return <GuidanceCarousel slides={visible} />;
 }
 
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mql.matches);
+    const onChange = () => setReduced(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
 function GuidanceCarousel({ slides }: { slides: JSX.Element[] }) {
-  const [emblaRef, embla] = useEmblaCarousel({ loop: true, align: "start" });
+  const reducedMotion = usePrefersReducedMotion();
+  const [emblaRef, embla] = useEmblaCarousel({ loop: true, align: "center", containScroll: "trimSnaps", duration: 22 });
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [cycle, setCycle] = useState(0);
 
   useEffect(() => {
     if (!embla) return;
-    const onSelect = () => setIndex(embla.selectedScrollSnap());
+    const onSelect = () => {
+      setIndex(embla.selectedScrollSnap());
+      setCycle((value) => value + 1);
+    };
+    const onPointerDown = () => setPaused(true);
     onSelect();
     embla.on("select", onSelect);
-    embla.on("pointerDown", () => setPaused(true));
+    embla.on("pointerDown", onPointerDown);
     return () => {
       embla.off("select", onSelect);
+      embla.off("pointerDown", onPointerDown);
     };
   }, [embla]);
 
   useEffect(() => {
-    if (!embla || paused) return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") setPaused(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  const autoplay = Boolean(embla) && !paused && !reducedMotion;
+
+  useEffect(() => {
+    if (!embla || !autoplay) return;
     const timer = window.setInterval(() => embla.scrollNext(), AUTOPLAY_MS);
     return () => window.clearInterval(timer);
-  }, [embla, paused]);
+  }, [embla, autoplay]);
 
   const goTo = useCallback(
     (i: number) => {
@@ -113,13 +142,43 @@ function GuidanceCarousel({ slides }: { slides: JSX.Element[] }) {
     [embla],
   );
 
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      setPaused(true);
+      if (event.key === "ArrowLeft") embla?.scrollPrev();
+      else embla?.scrollNext();
+    },
+    [embla],
+  );
+
   return (
-    <div className="space-y-3">
+    <div
+      role="group"
+      aria-roledescription="carrossel"
+      aria-label="Orientações do Nino"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      onMouseEnter={() => setPaused(true)}
+      onFocus={() => setPaused(true)}
+      className="space-y-2.5 rounded-[20px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
       <div className="overflow-hidden" ref={emblaRef}>
-        <div className="flex">
+        <div className="flex items-stretch">
           {slides.map((slide, i) => (
-            <div key={i} className="min-w-0 flex-[0_0_100%] pr-1">
-              {slide}
+            <div
+              key={i}
+              role="group"
+              aria-roledescription="slide"
+              aria-label={`${i + 1} de ${slides.length}`}
+              aria-hidden={i !== index}
+              className={cn(
+                "min-w-0 flex-[0_0_100%] transition-opacity duration-200",
+                i === index ? "opacity-100" : "opacity-40",
+              )}
+            >
+              <div className="h-full">{slide}</div>
             </div>
           ))}
         </div>
@@ -129,16 +188,30 @@ function GuidanceCarousel({ slides }: { slides: JSX.Element[] }) {
           <button
             key={i}
             type="button"
-            aria-label={`Ver orientação ${i + 1}`}
+            aria-label={`Ver orientação ${i + 1} de ${slides.length}`}
             aria-current={i === index}
             onClick={() => goTo(i)}
-            className={cn(
-              "h-2 rounded-full transition-all",
-              i === index ? "w-6 bg-primary" : "w-2 bg-border",
-            )}
-          />
+            className="inline-flex h-9 items-center justify-center px-1"
+          >
+            <span
+              className={cn(
+                "relative block h-1.5 overflow-hidden rounded-full transition-all duration-300",
+                i === index ? "w-7 bg-primary/25" : "w-1.5 bg-border",
+              )}
+            >
+              {i === index ? (
+                <span
+                  key={cycle}
+                  aria-hidden="true"
+                  className={cn("absolute inset-0 origin-left rounded-full bg-primary", autoplay && "animate-dot-progress")}
+                  style={autoplay ? { animationDuration: `${AUTOPLAY_MS}ms` } : undefined}
+                />
+              ) : null}
+            </span>
+          </button>
         ))}
       </div>
     </div>
   );
 }
+

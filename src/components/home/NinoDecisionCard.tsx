@@ -30,7 +30,7 @@ export function NinoDecisionCard({ narrative, accepting, onAccept, acceptedMessa
     <section
       aria-label="Orientação do Nino"
       aria-live="polite"
-      className="relative overflow-hidden rounded-[20px] border border-border bg-card p-4 pl-5 animate-fade-in"
+      className="relative flex h-full flex-col overflow-hidden rounded-[20px] border border-border bg-card p-4 pl-5 animate-fade-in"
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${tone.accent}`} aria-hidden="true" />
       <div className="flex items-center gap-2">
@@ -59,9 +59,9 @@ export function NinoDecisionCard({ narrative, accepting, onAccept, acceptedMessa
       ) : null}
 
       {acceptedMessage ? (
-        <p className="mt-3 text-[12.5px] font-medium leading-[18px] text-success">{acceptedMessage}</p>
+        <p className="mt-auto pt-3 text-[12.5px] font-medium leading-[18px] text-success">{acceptedMessage}</p>
       ) : primary ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
           {primary.kind === "accept" ? (
             <Button type="button" size="sm" className="rounded-full" disabled={accepting} onClick={onAccept}>
               {accepting ? <SpinnerGap className="mr-1 animate-spin" /> : null}
