@@ -139,7 +139,8 @@ export function AiEfficiencyHistoryBoard() {
   const [capability, setCapability] = useState<string>(ANY);
   const [tier, setTier] = useState<string>(ANY);
   const [model, setModel] = useState<string>(ANY);
-  const [workload, setWorkload] = useState<string>(ANY);
+  // Conversa do Nino é o recorte que responde "o Nino está rápido para a pessoa?".
+  const [workload, setWorkload] = useState<string>("AGENT_CONVERSATION");
   const [milestone, setMilestone] = useState<string>(MILESTONES[1].date);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedLatencyDay, setSelectedLatencyDay] = useState<string | null>(null);
@@ -340,8 +341,8 @@ export function AiEfficiencyHistoryBoard() {
           value={num(t.tokens_total)}
           detail={`Entrada ${num(t.tokens_in)} · Saída ${num(t.tokens_out)}`}
         />
-        <AdminMetricCard label="Latência mediana" value={ms(t.p50_latency_ms)} detail={`Média ${ms(t.avg_latency_ms)}`} />
-        <AdminMetricCard label="Latência P95" value={ms(t.p95_latency_ms)} tone="warning" />
+        <AdminMetricCard label="Latência de IA (mediana)" value={ms(t.p50_latency_ms)} detail={`Média ${ms(t.avg_latency_ms)} · só o tempo do modelo`} />
+        <AdminMetricCard label="Latência de IA (P95)" value={ms(t.p95_latency_ms)} tone="warning" detail="Ponta a ponta fica em Observabilidade do agente" />
         <AdminMetricCard
           label="Chamadas de IA por conversa"
           value={t.avg_llm_calls == null ? "—" : Number(t.avg_llm_calls).toFixed(2)}
@@ -376,7 +377,7 @@ export function AiEfficiencyHistoryBoard() {
 
       <figure className="rounded-3xl border border-border bg-card p-4 shadow-sm">
         <figcaption className="mb-2 flex items-center gap-2 text-sm font-semibold">
-          <Gauge size={14} className="text-primary" aria-hidden /> Latência do Nino por dia
+          <Gauge size={14} className="text-primary" aria-hidden /> Latência de IA por dia (tempo do modelo)
         </figcaption>
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
