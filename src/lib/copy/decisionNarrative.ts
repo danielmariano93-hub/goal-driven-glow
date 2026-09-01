@@ -19,6 +19,7 @@ export type NinoDecisionTone = "risk" | "attention" | "opportunity" | "progress"
 export type NinoDecisionSituation = {
   id?: string | null;
   situation_type?: string | null;
+  situation_key?: string | null;
   severity?: string | null;
   headline?: string | null;
   one_line_summary?: string | null;

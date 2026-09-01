@@ -63,7 +63,7 @@ export const REPORT_MODULES = [
   "index",
 ];
 
-export const COPY_MODULES = ["resultWording", "numbers", "ninoVoice", "commIntent"];
+export const COPY_MODULES = ["resultWording", "numbers", "ninoVoice", "commIntent", "decisionNarrative"];
 
 
 export const FINANCE_CONTRACT_VERSION = "finance_contract.v4";
