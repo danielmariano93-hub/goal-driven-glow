@@ -16,6 +16,18 @@ import {
 } from "../agent/changeLoop.ts";
 import { resolveBehavioralIntervention } from "../agent/behavioralPrinciples.ts";
 import { composeChangeMessage } from "../agent/changeMessage.ts";
+import {
+  attachTimingSignal,
+  buildTimingContext,
+  buildTimingSituations,
+  loadPendingBehavioralEvents,
+  loadTimingLearning,
+  loadTimingWindows,
+  markBehavioralEventsProcessed,
+  recordTimingDeliveries,
+  reconcileTimingOutcomes,
+} from "./behavioralTimingRuntime.ts";
+
 
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -34,8 +46,22 @@ export type MultiFinanceRunResult = {
   delivered_candidates: number;
   suppressed: number;
   suppression_reasons: Record<string, number>;
-  top: Array<{ fingerprint: string; type: string; score: number; impact: number; domains: string[] }>;
+  /** nino_behavioral_timing.v1 */
+  behavioral_events: number;
+  timing_situations: number;
+  deferred_by_timing: number;
+  top: Array<{
+    fingerprint: string;
+    type: string;
+    score: number;
+    effective_score: number;
+    timing_score: number | null;
+    timing_trigger: string | null;
+    impact: number;
+    domains: string[];
+  }>;
 };
+
 
 function candidateFor(userId: string, situation: FinancialSituation) {
   return {
@@ -204,12 +230,39 @@ export async function runMultiFinanceProactive(
     });
   }
 
+  // ---- nino_behavioral_timing.v1 -----------------------------------------
+  // Evento econômico real -> janela de decisão -> intervenção no MESMO ranking.
+  const [windows, learning, timingState] = await Promise.all([
+    loadTimingWindows(sb).catch(() => ({} as any)),
+    loadTimingLearning(sb, userId).catch(() => ({ learned: {}, dismissals: {} })),
+    loadTimingSideFacts(sb, userId).catch(() => ({ has_active_goal: false, commitment_pending: false })),
+  ]);
+  const events = await loadPendingBehavioralEvents(sb, userId).catch(() => []);
+  const timingCtx = buildTimingContext(ctx as any, nextBest, {
+    has_active_goal: timingState.has_active_goal,
+    commitment_pending: timingState.commitment_pending,
+    learned: learning.learned,
+    dismissals: learning.dismissals,
+  });
+  const timingBuild = buildTimingSituations({
+    events,
+    timingCtx,
+    windows,
+    nextBest,
+    dismissals: learning.dismissals,
+    alreadyFingerprinted: new Set(situations.map((situation) => situation.fingerprint)),
+  });
+  situations.push(...timingBuild.situations);
+  // Timing também é sinal de ordem para os detectores que já existiam — nunca
+  // bloqueio: quem já falava continua podendo falar.
+  const timedSituations = attachTimingSignal(situations, timingCtx, windows);
+
   const alreadyDelivered = persist
     ? await loadAlreadyDelivered(sb, userId, opts.repeatWindowDays ?? 5)
     : new Set<string>();
 
   const { decisions, selected, ranked } = allocateAttention({
-    situations,
+    situations: timedSituations,
     ctx,
     channels,
     budget: opts.budget ?? DEFAULT_ATTENTION_BUDGET,
@@ -221,6 +274,7 @@ export async function runMultiFinanceProactive(
     if (decision.decision !== "suppress") continue;
     suppressionReasons[decision.reason] = (suppressionReasons[decision.reason] ?? 0) + 1;
   }
+  const deferredByTiming = decisions.filter((decision) => decision.decision === "defer").length;
 
   if (persist) {
     await persistRun(sb, userId, ctx.as_of, signals, ranked, decisions, selected);
@@ -232,6 +286,11 @@ export async function runMultiFinanceProactive(
         });
       if (error) throw new Error(`pending_proactive_suggestions_upsert:${error.message}`);
     }
+    // Evento avaliado não volta à fila; o aprendizado de timing registra o que
+    // foi escolhido e reconcilia o resultado das entregas anteriores.
+    await markBehavioralEventsProcessed(sb, timingBuild.assessments).catch(() => undefined);
+    await recordTimingDeliveries(sb, userId, selected).catch(() => undefined);
+    await reconcileTimingOutcomes(sb, userId).catch(() => undefined);
   }
 
   return {
@@ -239,19 +298,39 @@ export async function runMultiFinanceProactive(
     user_id: userId,
     as_of: ctx.as_of,
     signals: signals.length,
-    situations: situations.length,
+    situations: timedSituations.length,
     delivered_candidates: selected.length,
     suppressed: decisions.filter((decision) => decision.decision === "suppress").length,
     suppression_reasons: suppressionReasons,
+    behavioral_events: events.length,
+    timing_situations: timingBuild.situations.length,
+    deferred_by_timing: deferredByTiming,
     top: ranked.slice(0, 5).map((situation) => ({
       fingerprint: situation.fingerprint,
       type: situation.type,
       score: situation.priority_score,
+      effective_score: situation.effective_score ?? situation.priority_score,
+      timing_score: situation.timing_score ?? null,
+      timing_trigger: situation.timing_trigger ?? null,
       impact: situation.impact_amount,
       domains: situation.domains,
     })),
   };
 }
+
+/** Fatos auxiliares do contexto de timing (existência, não cálculo de valor). */
+async function loadTimingSideFacts(sb: SupabaseClient, userId: string) {
+  const [goals, commitments] = await Promise.all([
+    sb.from("goals").select("id").eq("user_id", userId).eq("status", "active").limit(1),
+    sb.from("nino_change_commitments").select("id").eq("user_id", userId)
+      .eq("status", "active").limit(1),
+  ]);
+  return {
+    has_active_goal: (((goals.data as any[]) ?? []).length > 0),
+    commitment_pending: (((commitments.data as any[]) ?? []).length > 0),
+  };
+}
+
 
 async function persistRun(
   sb: SupabaseClient,
@@ -302,6 +381,10 @@ async function persistRun(
       priority_score: situation.priority_score,
       score_reasons: situation.score_reasons,
       evidence: situation.evidence,
+      timing_score: situation.timing_score ?? null,
+      timing_trigger: situation.timing_trigger ?? null,
+      timing_window: situation.timing_window ?? null,
+      defer_until: situation.defer_until ?? null,
       last_seen_at: nowIso,
       ...(selectedKeys.has(situation.fingerprint) ? { last_delivered_at: nowIso } : {}),
       formula_version: PROACTIVE_MULTIFINANCE_VERSION,
@@ -317,6 +400,10 @@ async function persistRun(
       decision: decision.decision,
       reason: decision.reason,
       priority_score: decision.priority_score,
+      timing_score: decision.timing_score ?? null,
+      timing_trigger: decision.timing_trigger ?? null,
+      timing_window: decision.timing_window ?? null,
+      defer_until: decision.defer_until ?? null,
       formula_version: PROACTIVE_MULTIFINANCE_VERSION,
     })));
   }

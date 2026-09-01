@@ -8169,6 +8169,96 @@ export type Database = {
           },
         ]
       }
+      nino_behavioral_events: {
+        Row: {
+          created_at: string
+          dedup_key: string
+          detected_at: string
+          economic_event_id: string | null
+          economic_event_table: string | null
+          event_type: string
+          id: string
+          materiality: number
+          occurred_at: string
+          payload: Json
+          processed_at: string | null
+          processing_result: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dedup_key: string
+          detected_at?: string
+          economic_event_id?: string | null
+          economic_event_table?: string | null
+          event_type: string
+          id?: string
+          materiality?: number
+          occurred_at: string
+          payload?: Json
+          processed_at?: string | null
+          processing_result?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dedup_key?: string
+          detected_at?: string
+          economic_event_id?: string | null
+          economic_event_table?: string | null
+          event_type?: string
+          id?: string
+          materiality?: number
+          occurred_at?: string
+          payload?: Json
+          processed_at?: string | null
+          processing_result?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      nino_behavioral_timing_windows: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          event_type: string
+          label: string
+          min_evidence_count: number
+          notes: string | null
+          open_after_hours: number
+          relative_floor_pct: number
+          updated_at: string
+          valid_for_hours: number
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          event_type: string
+          label: string
+          min_evidence_count?: number
+          notes?: string | null
+          open_after_hours?: number
+          relative_floor_pct?: number
+          updated_at?: string
+          valid_for_hours?: number
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          event_type?: string
+          label?: string
+          min_evidence_count?: number
+          notes?: string | null
+          open_after_hours?: number
+          relative_floor_pct?: number
+          updated_at?: string
+          valid_for_hours?: number
+        }
+        Relationships: []
+      }
       nino_change_checkins: {
         Row: {
           channel: string | null
@@ -9848,11 +9938,14 @@ export type Database = {
           channel: string
           created_at: string
           decision: string
+          defer_until: string | null
           fingerprint: string
           formula_version: string
           id: string
           priority_score: number
           reason: string
+          timing_score: number | null
+          timing_trigger: string | null
           user_id: string
         }
         Insert: {
@@ -9860,11 +9953,14 @@ export type Database = {
           channel: string
           created_at?: string
           decision: string
+          defer_until?: string | null
           fingerprint: string
           formula_version?: string
           id?: string
           priority_score?: number
           reason: string
+          timing_score?: number | null
+          timing_trigger?: string | null
           user_id: string
         }
         Update: {
@@ -9872,11 +9968,14 @@ export type Database = {
           channel?: string
           created_at?: string
           decision?: string
+          defer_until?: string | null
           fingerprint?: string
           formula_version?: string
           id?: string
           priority_score?: number
           reason?: string
+          timing_score?: number | null
+          timing_trigger?: string | null
           user_id?: string
         }
         Relationships: []
@@ -10007,6 +10106,7 @@ export type Database = {
           confidence: number
           created_at: string
           days_until: number | null
+          defer_until: string | null
           domains: Json
           evidence: Json
           fingerprint: string
@@ -10020,6 +10120,9 @@ export type Database = {
           score_reasons: Json
           severity: string
           situation_type: string
+          timing_score: number | null
+          timing_trigger: string | null
+          timing_window: string | null
           title: string
           updated_at: string
           user_id: string
@@ -10032,6 +10135,7 @@ export type Database = {
           confidence?: number
           created_at?: string
           days_until?: number | null
+          defer_until?: string | null
           domains?: Json
           evidence?: Json
           fingerprint: string
@@ -10045,6 +10149,9 @@ export type Database = {
           score_reasons?: Json
           severity?: string
           situation_type: string
+          timing_score?: number | null
+          timing_trigger?: string | null
+          timing_window?: string | null
           title: string
           updated_at?: string
           user_id: string
@@ -10057,6 +10164,7 @@ export type Database = {
           confidence?: number
           created_at?: string
           days_until?: number | null
+          defer_until?: string | null
           domains?: Json
           evidence?: Json
           fingerprint?: string
@@ -10070,6 +10178,9 @@ export type Database = {
           score_reasons?: Json
           severity?: string
           situation_type?: string
+          timing_score?: number | null
+          timing_trigger?: string | null
+          timing_window?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -13421,6 +13532,10 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_v3_behavioral_timing: {
+        Args: { _days?: number; _user_id?: string }
+        Returns: Json
+      }
       admin_waha_config_status: { Args: never; Returns: Json }
       admin_waha_resolve_config: { Args: never; Returns: Json }
       admin_waha_save_config: {
@@ -14406,6 +14521,18 @@ export type Database = {
       nino_legacy_rebuild_items: {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
+      }
+      nino_mark_behavioral_event: {
+        Args: {
+          _economic_event_id: string
+          _economic_event_table: string
+          _event_type: string
+          _materiality: number
+          _occurred_at: string
+          _payload: Json
+          _user_id: string
+        }
+        Returns: undefined
       }
       nino_norm_text: { Args: { _t: string }; Returns: string }
       nino_num: { Args: { _v: number }; Returns: string }

@@ -3,6 +3,8 @@
 // A cota de interrupção é escassa: fala quem tem maior impacto material,
 // urgência real, confiança suficiente e ação executável.
 import { insightValue, materialityFloor } from "../intelligence/insightValue.ts";
+import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
+
 import {
   DEFAULT_ATTENTION_BUDGET,
   type AttentionBudget,
@@ -58,14 +60,30 @@ export function scoreSituations(
       const scored = (value.score + boost) * (1 + affinity * 0.25);
       if (affinity !== 0) reasons.push(`affinity:${affinity.toFixed(2)}`);
 
+      // nino_behavioral_timing.v1 — o QUE importa (priority) e se é AGORA
+      // (timing) são scores separados; a fila usa a combinação determinística.
+      const timing = (situation.evidence as any)?.behavioral_timing ?? null;
+      const timingScore = Number(
+        situation.timing_score ?? timing?.timing_score ?? 50,
+      );
+      const priority = Math.round(scored * 100) / 100;
+      const effective = effectiveScore(priority, timingScore);
+      reasons.push(`timing:${Math.round(timingScore)}`);
+
       return {
         ...situation,
-        priority_score: Math.round(scored * 100) / 100,
+        priority_score: priority,
+        timing_score: Math.round(timingScore * 100) / 100,
+        timing_trigger: situation.timing_trigger ?? timing?.trigger ?? null,
+        timing_window: situation.timing_window ?? timing?.window ?? null,
+        effective_score: effective,
+        defer_until: situation.defer_until ?? timing?.defer_until ?? null,
         score_reasons: reasons,
       };
     })
-    .sort((a, b) => b.priority_score - a.priority_score);
+    .sort((a, b) => (b.effective_score ?? b.priority_score) - (a.effective_score ?? a.priority_score));
 }
+
 
 /** Piso de materialidade: risco crítico e vencimento sempre passam. */
 export function meetsSituationMateriality(
@@ -106,7 +124,18 @@ export function allocateAttention(input: BudgetInput): {
   for (const channel of input.channels) {
     let remaining = channel === "whatsapp" ? budget.whatsapp : budget.app;
     for (const situation of ranked) {
-      const base = { fingerprint: situation.fingerprint, channel, priority_score: situation.priority_score };
+      const timing = (situation.evidence as any)?.behavioral_timing ?? null;
+      const timingOwned = (situation.evidence as any)?.behavioral_timing_owned === true;
+      const base = {
+        fingerprint: situation.fingerprint,
+        channel,
+        priority_score: situation.priority_score,
+        timing_score: situation.timing_score ?? null,
+        timing_trigger: situation.timing_trigger ?? null,
+        timing_window: situation.timing_window ?? null,
+        effective_score: situation.effective_score ?? situation.priority_score,
+        defer_until: situation.defer_until ?? null,
+      } as ProactiveDecision & Record<string, unknown>;
       if (input.alreadyDelivered?.has(situation.fingerprint)) {
         decisions.push({ ...base, decision: "suppress", reason: "already_communicated_no_material_change" });
         continue;
@@ -123,6 +152,17 @@ export function allocateAttention(input: BudgetInput): {
         decisions.push({ ...base, decision: "suppress", reason: "confidence_too_low" });
         continue;
       }
+      // Momento fraco adia (não descarta) o que nasceu do motor de timing.
+      // Detector antigo nunca é bloqueado por timing: ele só é reordenado.
+      if (timingOwned && timing && shouldDeferByTiming(timing, situation.severity)) {
+        decisions.push({
+          ...base,
+          decision: "defer",
+          reason: `timing_not_now:${timing.reason ?? "low_timing_score"}`,
+        });
+        continue;
+      }
+
       if (remaining <= 0) {
         decisions.push({ ...base, decision: "suppress", reason: "attention_budget_exhausted" });
         continue;

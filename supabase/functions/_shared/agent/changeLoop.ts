@@ -603,6 +603,30 @@ export async function pauseActiveCommitment(
   return { status: "paused", commitment_id: data.id, message: `Parei de acompanhar “${data.title}”.` };
 }
 
+/**
+ * Passo menor determinístico para reframe: fração aritmética do compromisso
+ * canônico, arredondada para múltiplo de R$ 5. Nunca cria valor novo.
+ */
+export function computeCommitmentAlternative(
+  targetAmount: number,
+  cadenceDays: number,
+): { amount: number; slices: number; cadence_days: number; sentence: string } | null {
+  const target = Number(targetAmount ?? 0);
+  if (!Number.isFinite(target) || target <= 0) return null;
+  const slices = cadenceDays >= 28 ? 4 : cadenceDays >= 14 ? 2 : 2;
+  const raw = target / slices;
+  const amount = Math.max(5, Math.floor(raw / 5) * 5);
+  if (amount >= target) return null;
+  const brlFmt = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  const step = Math.round(cadenceDays / slices);
+  return {
+    amount,
+    slices,
+    cadence_days: cadenceDays,
+    sentence: `Se o passo inteiro ficou grande, ele cabe em ${slices} partes de ${brlFmt.format(amount)} a cada ${step} dias — mesmo destino, menos atrito.`,
+  };
+}
+
 export async function buildDueChangeFollowups(
   sb: SupabaseClient,
   userId: string,
@@ -655,11 +679,19 @@ export async function buildDueChangeFollowups(
 
     // O corpo determinístico é a verdade; a moldura comportamental decide só a
     // abordagem. O dispatcher recebe as duas coisas separadas.
-    const deterministicBody = status.message;
+    // Reframe não pede menos "por sentimento": o passo menor é uma fração
+    // aritmética do valor canônico já comprometido (nunca valor novo).
+    const alternative = decided.strategy === "reframe"
+      ? computeCommitmentAlternative(Number(row.target_amount ?? 0), Number(row.cadence_days ?? 7))
+      : null;
+    const deterministicBody = alternative
+      ? `${status.message} ${alternative.sentence}`
+      : status.message;
     const body = composeChangeMessage({
       baseMessage: deterministicBody,
       instruction: intervention as unknown as CommunicationInstruction,
     });
+
 
     out.push({
       fingerprint: `${NINO_CHANGE_AGENT_VERSION}:${row.id}:${String(row.next_check_at).slice(0, 10)}`,
@@ -685,6 +717,7 @@ export async function buildDueChangeFollowups(
         status_evidence: status.evidence,
         strategy: decided.strategy,
         strategy_reason: decided.reason,
+        commitment_alternative: alternative,
         consecutive_stalls: stalls,
         behavioral_intervention: intervention,
         communication_instruction: intervention,
