@@ -13,6 +13,7 @@ import {
 import { Activity, Gauge, Loader2, TrendingDown, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
+import { AiHistoryTable } from "@/components/admin/AiHistoryTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -362,7 +363,7 @@ export function AiEfficiencyHistoryBoard() {
         ) : (
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={latencySeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} onClick={selectLatencyDay}>
+            <LineChart data={latencySeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false}
