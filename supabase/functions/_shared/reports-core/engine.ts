@@ -13,6 +13,15 @@ import {
   type TransactionRow,
 } from "../finance-core/facts.ts";
 
+import {
+  computeCardExposure,
+  totalCardDebtOf,
+  type CardCycleConfig,
+  type CardInstallmentRow,
+  type CardStatementRow,
+  type CardTxRow,
+} from "../finance-core/cardExposure.ts";
+
 import { exactBRL, pct } from "../copy/numbers.ts";
 
 import { eachDay, resolvePeriods, shortDay, daysInPeriod, daysInMonthOf } from "./periods.ts";
@@ -315,6 +324,34 @@ function buildMetrics(payload: ReportPayload): ReportMetric[] {
   return metrics;
 }
 
+/**
+ * Dívida de cartão do relatório.
+ *
+ * Havendo faturas oficiais (`credit_card_statements`), a verdade é o
+ * `CardExposure` — o cálculo legado por transações só entra quando não existe
+ * nenhum documento oficial. `totalCardDebt` é dívida atual (faturas abertas),
+ * distinta de "fatura vencendo no mês" e de "parcelas futuras".
+ */
+function resolveCardOutstanding(
+  input: ReportEngineInput,
+  all: TransactionRow[],
+  period: ReportPeriod,
+): number {
+  const statements = (input.cardStatements ?? []) as unknown as CardStatementRow[];
+  if (!statements.length) return round2(computeCreditCardOutstanding(all));
+  const cards = (input.creditCards ?? []) as CardCycleConfig[];
+  const exposures = computeCardExposure({
+    cardIds: cards.map((c) => String(c.id)).filter(Boolean),
+    statements,
+    installments: (input.cardInstallments ?? []) as unknown as CardInstallmentRow[],
+    txs: all as unknown as CardTxRow[],
+    currentYM: period.end.slice(0, 7),
+    cards,
+    todayISO: period.end,
+  });
+  return round2(totalCardDebtOf(exposures));
+}
+
 export function buildIntelligentReport(input: ReportEngineInput): IntelligentReport {
   const { period, previous } = resolvePeriods(input.reportType, input.referenceDate, input.customPeriod);
   const names = input.categoryNames ?? {};
@@ -330,6 +367,10 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
   let essential = 0;
   let flexible = 0;
 
+  // Atribuição de estorno pelo histórico completo: o estorno abate a mesma
+  // composição econômica (essencial/flexível) da despesa original.
+  const currentAttribution = buildRefundAttribution(all);
+
   for (const t of current) {
     const inc = incomeOf(t);
     const exp = expenseOf(t);
@@ -337,11 +378,16 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     txCount += 1;
     income = round2(income + inc);
     expense = round2(expense + exp);
+
+    if (exp !== 0) {
+      const effectiveCat = effectiveCategoryNameOf(t, names, currentAttribution);
+      if (isFlexibleCategory(effectiveCat)) flexible = round2(flexible + exp);
+      else if (isEssentialCategory(effectiveCat)) essential = round2(essential + exp);
+    }
+
     if (exp > 0) {
       expenseDays.add(competenceDayOf(t));
       const cat = categoryNameOf(t, names);
-      if (isFlexibleCategory(cat)) flexible = round2(flexible + exp);
-      else if (isEssentialCategory(cat)) essential = round2(essential + exp);
       if (!biggest || exp > biggest.amount) {
         biggest = {
           description: (((t as { friendly_description?: string | null }).friendly_description) || t.description || cat || "Lançamento").slice(0, 80),
@@ -352,6 +398,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
       }
     }
   }
+
 
   let previousExpense = 0;
   let previousIncome = 0;
@@ -394,13 +441,15 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
       previousExpense,
       previousIncome,
       expenseDeltaPct: pctDelta(expense, previousExpense),
-      dailyAvgExpense: expenseDays.size > 0 ? round2(expense / expenseDays.size) : 0,
+      // Gasto médio por dia = despesa ÷ DIAS CORRIDOS do período.
+      // Dias sem gasto também contam; "dias com gasto" segue métrica separada.
+      dailyAvgExpense: daysInPeriod(period) > 0 ? round2(expense / daysInPeriod(period)) : 0,
       daysWithExpense: expenseDays.size,
       transactionCount: txCount,
       biggestExpense: biggest,
-      essentialTotal: essential,
-      flexibleTotal: flexible,
-      cardOutstanding: round2(computeCreditCardOutstanding(all)),
+      essentialTotal: round2(Math.max(0, essential)),
+      flexibleTotal: round2(Math.max(0, flexible)),
+      cardOutstanding: resolveCardOutstanding(input, all, period),
       cashTotal: round2(computeTotalCash(input.accounts ?? [], all, input.balanceSnapshots ?? [])),
     },
     categories,

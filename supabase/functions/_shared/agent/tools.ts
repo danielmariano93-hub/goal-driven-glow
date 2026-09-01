@@ -1606,8 +1606,8 @@ export async function forecast_month_close(ctx: ToolContext, args: { model?: "au
     low,
     high,
     model_used: statistical
-      ? `financial_snapshot_contract.v8+${statistical.model_used}`
-      : "financial_snapshot_contract.v8",
+      ? `financial_snapshot_contract.v9+${statistical.model_used}`
+      : "financial_snapshot_contract.v9",
     drivers: {
       mtd_expense: snapshot.current_month_expense,
       day_of_month: snapshot.days_elapsed,

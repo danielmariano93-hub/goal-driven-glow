@@ -24,7 +24,7 @@ import { round2 } from "./facts.ts";
 
 export const CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v3";
 /** Ciclo real por fechamento/vencimento (Onda 2). */
-export const CARD_CYCLE_VERSION = "card_cycle.v2";
+export const CARD_CYCLE_VERSION = "card_cycle.v3";
 
 /**
  * Confiança do número exibido:
@@ -46,7 +46,7 @@ export interface CardCycleConfig {
 }
 
 export interface CardCycle {
-  /** competência da fatura no formato YYYY-MM (mês do vencimento) */
+  /** competência da fatura no formato YYYY-MM (mês do FECHAMENTO do ciclo) */
   competence: string;
   /** primeiro dia do período de compras (fechamento anterior + 1) */
   period_start: string;
@@ -80,12 +80,11 @@ function addDaysISO(value: string, days: number): string {
 /**
  * Ciclo ao qual uma data pertence.
  *
- * Convenção (Itaú e maioria dos emissores brasileiros): a competência da fatura
- * é o MÊS DO VENCIMENTO. Compra em 26/07 com fechamento 25 e vencimento 01 cai
- * no ciclo 26/07–25/08, vence em 01/09 → competência `2026-09`.
+ * `card_cycle.v3` — a competência da fatura é o MÊS DO FECHAMENTO do ciclo.
+ * O vencimento é atributo operacional e NÃO define competência: ciclo que fecha
+ * em 25/08 e vence em 01/09 continua sendo a fatura de agosto (`2026-08`).
  *
- * Sem `closing_day` válido, cai no fallback de calendário (mês da própria data),
- * preservando o comportamento anterior a `card_cycle.v2`.
+ * Sem `closing_day` válido, cai no fallback de calendário (mês da própria data).
  */
 export function cycleFor(card: CardCycleConfig | null | undefined, dateISO: string): CardCycle {
   const [y0, m0, d0] = String(dateISO).slice(0, 10).split("-").map(Number);
@@ -124,7 +123,8 @@ export function cycleFor(card: CardCycleConfig | null | undefined, dateISO: stri
   const due = dayInMonth(dy, dm, dueDay);
 
   return {
-    competence: due.slice(0, 7),
+    // Competência = mês do fechamento. Vencimento nunca define competência.
+    competence: closing.slice(0, 7),
     period_start: periodStart,
     period_end: closing,
     closing_date: closing,

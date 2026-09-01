@@ -279,7 +279,7 @@ export async function diagnosisCandidates(
         body,
         action: { type: "review_goal", route: `/app/metas/categoria/${goal.goal_id}` },
         evidence: {
-          source: "financial_snapshot_contract.v8",
+          source: "financial_snapshot_contract.v9",
           goal_kind: "category_spending",
           goal_id: goal.goal_id,
           category_id: goal.category_id,

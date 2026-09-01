@@ -175,7 +175,7 @@ export interface CategoryGoalEvaluation {
 }
 
 /** Versão do contrato financeiro único (App × Edge × Nino × MCP). */
-export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v8";
+export const FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v9";
 
 export type SnapshotCompleteness = "complete" | "partial" | "unavailable";
 export type SnapshotPeriodStatus = "open" | "closed";
@@ -244,10 +244,10 @@ export interface SnapshotGoalProgress {
 /** Nível de confiança da projeção — função apenas dos dias já observados. */
 export type ProjectionConfidence = "insufficient" | "low" | "medium" | "high";
 
-export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v8";
+export const SPENDING_PROJECTION_VERSION = "financial_snapshot_contract.v9";
 
 /**
- * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v8`).
+ * FONTE ÚNICA de ritmo e projeção do mês (`financial_snapshot_contract.v9`).
  *
  * Regras invioláveis:
  *  - "Ritmo atual" tem UMA definição: consumo realizado do mês ÷ dias corridos.

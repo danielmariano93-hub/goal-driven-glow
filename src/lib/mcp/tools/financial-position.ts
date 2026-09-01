@@ -10,6 +10,7 @@ import {
   type CardTxRow,
 } from "../../engine/cardExposure";
 import { currentMonthYM, todaySP } from "../../engine/facts";
+import { fetchAllPages } from "../../db/pagedSelect";
 
 const CARD_TX_PAGE_SIZE = 1_000;
 
@@ -28,10 +29,24 @@ export default defineTool({
       supabase.from("credit_cards").select("id, name, brand, last_four, total_limit, closing_day, due_day, active"),
       supabase.from("debts").select("id, name, creditor, outstanding_balance, installment_amount, status"),
       supabase.from("goals").select("id, name, target_amount, target_date, status"),
-      supabase.from("credit_card_statements")
-        .select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status"),
-      supabase.from("credit_card_installments")
-        .select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id"),
+      // `paged_select.v1`: fatura e parcela também passam de 1.000 linhas em
+      // histórico longo — sem paginar, a obrigação apareceria menor do que é.
+      fetchAllPages<CardStatementRow>(
+        (from, to) => supabase.from("credit_card_statements")
+          .select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
+          .order("competence_month", { ascending: true }).order("credit_card_id", { ascending: true })
+          .range(from, to) as never,
+        { source: "mcp_statements" },
+      ).then((data) => ({ data, error: null as null | { message: string } }))
+        .catch((e: unknown) => ({ data: [] as CardStatementRow[], error: { message: String((e as Error)?.message ?? e) } })),
+      fetchAllPages<CardInstallmentRow>(
+        (from, to) => supabase.from("credit_card_installments")
+          .select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id")
+          .order("competence_month", { ascending: true }).order("id", { ascending: true })
+          .range(from, to) as never,
+        { source: "mcp_installments" },
+      ).then((data) => ({ data, error: null as null | { message: string } }))
+        .catch((e: unknown) => ({ data: [] as CardInstallmentRow[], error: { message: String((e as Error)?.message ?? e) } })),
     ]);
 
     const sourceResults = [

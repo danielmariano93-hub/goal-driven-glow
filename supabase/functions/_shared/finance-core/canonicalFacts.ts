@@ -1,7 +1,11 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
 // Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
 /**
- * finance_truth.v1 — camada canônica de fatos de período.
+ * finance_truth.v2 — camada canônica de fatos de período.
+ *
+ * LENTE FINANCEIRA: todo recorte de período nos totais canônicos usa
+ * `financialConsumptionDate` (competência da fatura no cartão, data econômica
+ * nos demais meios). Ritmo diário/hábito NÃO usa esta lente.
  *
  * Objetivo: nenhuma superfície (Home, Relatórios, Metas, Nino, WhatsApp, MCP,
  * Insights, Proatividade, Pulso) pode calcular os mesmos conceitos de formas
@@ -19,6 +23,7 @@ import {
   buildRefundAttribution,
   effectiveCategoryId,
   isRealMonthlyMovement,
+  reportingCompetenceDate,
   round2,
   type CategoryRow,
   type TransactionRow,
@@ -27,7 +32,7 @@ import { normalizeMerchant, merchantLabel } from "./merchant.ts";
 import type { EngineConfidence } from "./engineEnvelope.ts";
 import type { PeriodRange } from "./bridges.ts";
 
-export const FINANCE_TRUTH_VERSION = "finance_truth.v1";
+export const FINANCE_TRUTH_VERSION = "finance_truth.v2";
 
 /**
  * Contrato de leitura único de transações. Toda superfície canônica precisa
@@ -141,6 +146,15 @@ export function canonicalLedgerRows<T extends { status?: string | null }>(txs: T
   return txs.filter((t) => String(t.status ?? "confirmed") !== "superseded");
 }
 
+/**
+ * Data canônica de consumo financeiro.
+ * Cartão usa a competência da fatura; demais meios usam a data econômica.
+ * Ritmo/hábito diário NÃO usa esta função (ver `computeBehavioralExpense`).
+ */
+function financialConsumptionDate(t: TransactionRow): string {
+  return reportingCompetenceDate(t);
+}
+
 function inRange(date: string, range: PeriodRange): boolean {
   const d = date.slice(0, 10);
   return d >= range.start && d <= range.end;
@@ -156,7 +170,7 @@ export function computeCanonicalPeriodTotals(
   let expense = 0;
   let count = 0;
   for (const t of txs) {
-    if (!inRange(t.occurred_at, range)) continue;
+    if (!inRange(financialConsumptionDate(t), range)) continue;
     const inc = behavioralMetricAmount(t, "income");
     const exp = behavioralMetricAmount(t, "expense");
     if (inc === 0 && exp === 0) continue;
@@ -206,7 +220,7 @@ export function computeCanonicalCategoryFacts(
   let rowCount = 0;
 
   for (const t of txs) {
-    if (!inRange(t.occurred_at, range)) continue;
+    if (!inRange(financialConsumptionDate(t), range)) continue;
     const signed = behavioralMetricAmount(t, metric);
     if (signed === 0) continue;
     rowCount += 1;
@@ -287,7 +301,7 @@ export function computeCanonicalCategoryTotal(
   let count = 0;
   for (const t of rows) {
     if (effectiveCategoryId(t, attribution) !== categoryId) continue;
-    if (!inRange(t.occurred_at, range)) continue;
+    if (!inRange(financialConsumptionDate(t), range)) continue;
     const signed = behavioralMetricAmount(t, metric);
     if (signed === 0) continue;
     net += signed;

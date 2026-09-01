@@ -8,7 +8,7 @@ const emptyInput = {
 
 describe("contrato financeiro v8 da Home", () => {
   it("mantém snapshot e projeção na mesma versão", () => {
-    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v8");
+    expect(FINANCE_CONTRACT_VERSION).toBe("financial_snapshot_contract.v9");
     expect(SPENDING_PROJECTION_VERSION).toBe(FINANCE_CONTRACT_VERSION);
   });
 

@@ -172,7 +172,7 @@ function behavioralMetricAmount(t, metric) {
 function computeMonthlyTotals(txs, ym) {
   let income = 0, expense = 0;
   for (const t of txs) {
-    if (!isInMonth(t.occurred_at, ym)) continue;
+    if (!isInMonth(reportingCompetenceDate(t), ym)) continue;
     income += behavioralMetricAmount(t, "income");
     expense += behavioralMetricAmount(t, "expense");
   }
@@ -637,7 +637,7 @@ function explainBalanceChange(bridge, performance) {
 
 // src/lib/engine/cardExposure.ts
 var CARD_EXPOSURE_FORMULA_VERSION = "card_exposure.v3";
-var CARD_CYCLE_VERSION = "card_cycle.v2";
+var CARD_CYCLE_VERSION = "card_cycle.v3";
 var pad = (n) => String(n).padStart(2, "0");
 var lastDayOf = (y, m1) => new Date(Date.UTC(y, m1, 0)).getUTCDate();
 var iso = (y, m1, d) => `${y}-${pad(m1)}-${pad(d)}`;
@@ -683,7 +683,8 @@ function cycleFor(card, dateISO) {
   const [dy, dm] = dueDay > closingDay ? [cy, cm] : addMonths(cy, cm, 1);
   const due = dayInMonth(dy, dm, dueDay);
   return {
-    competence: due.slice(0, 7),
+    // Competência = mês do fechamento. Vencimento nunca define competência.
+    competence: closing.slice(0, 7),
     period_start: periodStart,
     period_end: closing,
     closing_date: closing,
@@ -951,7 +952,7 @@ function totalFutureInstallmentsOf(exposures) {
 }
 
 // src/lib/engine/metrics.ts
-var FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v8";
+var FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v9";
 
 // src/lib/mcp/shared.ts
 var ERROR_CONTRACT_VERSION = "edge_error.v1";
@@ -1047,6 +1048,24 @@ var list_transactions_default = defineTool({
 // src/lib/mcp/tools/monthly-summary.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.26.1";
 import { z as z2 } from "npm:zod@^3.25.76";
+
+// src/lib/db/pagedSelect.ts
+var DATA_API_PAGE = 1e3;
+async function fetchAllPages(build, opts = {}) {
+  const maxPages = opts.maxPages ?? 50;
+  const rows = [];
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * DATA_API_PAGE;
+    const { data, error } = await build(from, from + DATA_API_PAGE - 1);
+    if (error) throw new Error(`${opts.source ?? "paged_select"}:${error.message}`);
+    const chunk = data ?? [];
+    rows.push(...chunk);
+    if (chunk.length < DATA_API_PAGE) break;
+  }
+  return rows;
+}
+
+// src/lib/mcp/tools/monthly-summary.ts
 var TX_COLUMNS = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,settles_card_id,movement_kind";
 var monthly_summary_default = defineTool2({
   name: "monthly_summary",
@@ -1061,7 +1080,10 @@ var monthly_summary_default = defineTool2({
     const supabase = supabaseForUser(ctx);
     const target = month && /^\d{4}-\d{2}$/.test(month) ? month : currentMonth();
     const [txRes, catRes, accRes, snapRes] = await Promise.all([
-      supabase.from("transactions").select(TX_COLUMNS),
+      fetchAllPages(
+        (from, to) => supabase.from("transactions").select(TX_COLUMNS).order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(from, to),
+        { source: "mcp_monthly_summary" }
+      ).then((data) => ({ data, error: null })).catch((e) => ({ data: [], error: { message: String(e?.message ?? e) } })),
       supabase.from("categories").select("id, name, type"),
       supabase.from("accounts").select("id,name,type,opening_balance,active"),
       supabase.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta")
@@ -1275,8 +1297,16 @@ var financial_position_default = defineTool5({
       supabase.from("credit_cards").select("id, name, brand, last_four, total_limit, closing_day, due_day, active"),
       supabase.from("debts").select("id, name, creditor, outstanding_balance, installment_amount, status"),
       supabase.from("goals").select("id, name, target_amount, target_date, status"),
-      supabase.from("credit_card_statements").select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status"),
-      supabase.from("credit_card_installments").select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id")
+      // `paged_select.v1`: fatura e parcela também passam de 1.000 linhas em
+      // histórico longo — sem paginar, a obrigação apareceria menor do que é.
+      fetchAllPages(
+        (from, to) => supabase.from("credit_card_statements").select("credit_card_id,competence_month,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status").order("competence_month", { ascending: true }).order("credit_card_id", { ascending: true }).range(from, to),
+        { source: "mcp_statements" }
+      ).then((data) => ({ data, error: null })).catch((e) => ({ data: [], error: { message: String(e?.message ?? e) } })),
+      fetchAllPages(
+        (from, to) => supabase.from("credit_card_installments").select("credit_card_id,competence_month,amount,status,absorbed_by_statement_id").order("competence_month", { ascending: true }).order("id", { ascending: true }).range(from, to),
+        { source: "mcp_installments" }
+      ).then((data) => ({ data, error: null })).catch((e) => ({ data: [], error: { message: String(e?.message ?? e) } }))
     ]);
     const sourceResults = [
       ["cart\xF5es", cardsRes],

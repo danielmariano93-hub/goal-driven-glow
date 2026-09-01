@@ -96,7 +96,7 @@ async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promi
 
 
 async function loadContext(sb: Sb, userId: string) {
-  const [cats, accounts, snapshots, goals, contributions] = await Promise.all([
+  const [cats, accounts, snapshots, goals, contributions, cards, statements, installments] = await Promise.all([
     // Categorias globais (user_id IS NULL) precisam entrar: a maioria dos
     // lançamentos aponta para elas e sem isso tudo virava "Sem categoria".
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
@@ -105,6 +105,14 @@ async function loadContext(sb: Sb, userId: string) {
     sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
     sb.from("goals").select("id,name,target_amount,status,due_date").eq("user_id", userId),
     sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
+    // Exposição oficial de cartão: fatura registrada manda sobre o cálculo legado.
+    sb.from("credit_cards").select("id,name,closing_day,due_day,active").eq("user_id", userId),
+    sb.from("credit_card_statements")
+      .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,status,requires_manual_review")
+      .eq("user_id", userId),
+    sb.from("credit_card_installments")
+      .select("id,credit_card_id,purchase_id,competence_month,amount,status,installment_number,installments_total")
+      .eq("user_id", userId),
   ]);
   const categoryNames: Record<string, string> = {};
   for (const c of (cats.data ?? []) as Array<{ id: string; name: string }>) categoryNames[c.id] = c.name;
@@ -114,6 +122,9 @@ async function loadContext(sb: Sb, userId: string) {
     balanceSnapshots: (snapshots.data ?? []) as never[],
     goals: (goals.data ?? []) as never[],
     goalContributions: (contributions.data ?? []) as Array<{ goal_id: string; amount: number }>,
+    creditCards: (cards.data ?? []) as never[],
+    cardStatements: (statements.data ?? []) as never[],
+    cardInstallments: (installments.data ?? []) as never[],
   };
 }
 
@@ -290,6 +301,9 @@ async function generateForUser(
     balanceSnapshots: ctx.balanceSnapshots,
     goals: ctx.goals,
     goalContributions: ctx.goalContributions,
+    creditCards: ctx.creditCards,
+    cardStatements: ctx.cardStatements,
+    cardInstallments: ctx.cardInstallments,
     timezone: prefs.report_timezone,
   };
   // 1ª passada: números do período. 2ª passada: destaques do período mesclados
