@@ -86,15 +86,18 @@ describe("category_weekday_heatmap.v1", () => {
   });
 
   it("TESTE 8 — normalização por linha 0,25 / 0,50 / 1,00", () => {
+    const occ = countWeekdayOccurrences(RANGE.start, RANGE.end);
+    // Valores calibrados para médias 50 / 100 / 200 por ocorrência real do dia.
     const result = run([
-      tx({ id: "m", occurred_at: "2026-06-08", amount: 50 }),
-      tx({ id: "t", occurred_at: "2026-06-09", amount: 100 }),
-      tx({ id: "w", occurred_at: "2026-06-10", amount: 200 }),
+      tx({ id: "m", occurred_at: "2026-06-08", amount: 50 * occ.monday }),
+      tx({ id: "t", occurred_at: "2026-06-09", amount: 100 * occ.tuesday }),
+      tx({ id: "w", occurred_at: "2026-06-10", amount: 200 * occ.wednesday }),
     ]);
     expect(cellOf(result, "cat-lazer", "monday").intensity).toBeCloseTo(0.25, 5);
     expect(cellOf(result, "cat-lazer", "tuesday").intensity).toBeCloseTo(0.5, 5);
     expect(cellOf(result, "cat-lazer", "wednesday").intensity).toBeCloseTo(1, 5);
   });
+
 
   it("TESTE 9 — categoria grande e pequena normalizam a própria linha", () => {
     const result = run([
