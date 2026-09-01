@@ -19,6 +19,7 @@ import {
   type CategoryRow,
   type TransactionRow,
 } from "./facts";
+import { STRUCTURAL_CATEGORY_KINDS, isFixedCategoryName } from "./spendingRhythm";
 
 export const CATEGORY_WEEKDAY_HEATMAP_VERSION = "category_weekday_heatmap.v1";
 
