@@ -114,6 +114,9 @@ const Fallback = () => (
   </div>
 );
 
+// Carregou o app: libera o recurso de reload único para um próximo deploy.
+clearChunkReloadFlag();
+
 const App = () => (
   <AppErrorBoundary>
   <QueryClientProvider client={queryClient}>
