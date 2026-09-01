@@ -626,3 +626,14 @@ export function AiEfficiencyHistoryBoard() {
     </section>
   );
 }
+
+/** Nome legível dos caminhos de resolução — o rótulo técnico continua visível. */
+function friendlyPath(path: string): string {
+  return ({
+    fast_log: "Resposta instantânea",
+    llm: "Com IA",
+    deterministic_tool: "Ferramenta determinística",
+    deterministic_fallback: "Ferramenta após falha",
+    unknown: "Não classificado",
+  } as Record<string, string>)[path] ?? path;
+}
