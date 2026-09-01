@@ -51,23 +51,24 @@ function persistAnswered(ids: string[]) {
   }
 }
 
-export function NinoGuidanceCard({ diagnosis, context, projection, loading, error, retrying, onRetry, projectionAvailability = "available" }: Props) {
+export function NinoGuidanceCard({ diagnosis, context, projection, loading, error, retrying, onRetry, projectionAvailability = "available", excludeSituationIds, hideWhenEmpty }: Props) {
   const feedback = useNinoSituationFeedback();
   const [answered, setAnswered] = useState<string[]>(() => readAnswered());
   const [index, setIndex] = useState(0);
   const [savingFeedback, setSavingFeedback] = useState<null | "useful" | "not_useful">(null);
   const [noMoreReadings, setNoMoreReadings] = useState(false);
 
+  const excludedKey = (excludeSituationIds ?? []).join("|");
   const queue = useMemo(
     () =>
       context
         ? buildNinoReadingQueue(context, {
             // O servidor já é a memória do que foi respondido (vale entre dias e
             // aparelhos); o storage local segue como supressão otimista da sessão.
-            suppressedIds: [...answered, ...(context.suppressed_situation_ids ?? [])],
+            suppressedIds: [...answered, ...(context.suppressed_situation_ids ?? []), ...(excludedKey ? excludedKey.split("|") : [])],
           })
         : [],
-    [context, answered],
+    [context, answered, excludedKey],
   );
 
   useEffect(() => {

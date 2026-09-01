@@ -84,7 +84,7 @@ export default function Index() {
 
       <QuickActions />
 
-      <NinoGuidanceCard
+      <NinoGuidanceSection
         diagnosis={homeDiagnosis}
         context={diagnosis.data ?? null}
         projection={snap?.projection ?? null}
@@ -94,8 +94,6 @@ export default function Index() {
         onRetry={() => void diagnosis.refetch()}
         projectionAvailability={availability.projection}
       />
-
-      <NinoNextStepCard />
 
 
 
