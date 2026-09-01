@@ -57,7 +57,52 @@ export function estimateAiCostUsd(model: string | null | undefined, inputTokens 
   return +(inputTokens / 1000 * per1KIn + outputTokens / 1000 * per1KOut).toFixed(6);
 }
 
+export type GatewayUsageRead = {
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  /** `false` quando o provedor não devolveu uso — a tela mostra "uso não informado". */
+  reported: boolean;
+};
+
+/** Lê o uso real da resposta do gateway (chat completions e responses). Nunca estima. */
+// deno-lint-ignore no-explicit-any
+export function readGatewayUsage(json: any): GatewayUsageRead {
+  const u = json?.usage ?? json?.response?.usage ?? null;
+  const inTok = Number(u?.prompt_tokens ?? u?.input_tokens ?? 0);
+  const outTok = Number(u?.completion_tokens ?? u?.output_tokens ?? 0);
+  const cached = Number(u?.prompt_tokens_details?.cached_tokens ?? u?.input_tokens_details?.cached_tokens ?? 0);
+  const reported = (Number.isFinite(inTok) && inTok > 0) || (Number.isFinite(outTok) && outTok > 0);
+  return {
+    input_tokens: Number.isFinite(inTok) && inTok > 0 ? Math.floor(inTok) : 0,
+    output_tokens: Number.isFinite(outTok) && outTok > 0 ? Math.floor(outTok) : 0,
+    cached_tokens: Number.isFinite(cached) && cached > 0 ? Math.floor(cached) : 0,
+    reported,
+  };
+}
+
+/**
+ * Registro obrigatório de uma chamada ao gateway: tokens, latência e modelo
+ * reais tirados da resposta. Quando o provedor não informa uso (áudio, por
+ * exemplo), a linha entra com `usage_reported: false` em vez de número inventado.
+ */
+export async function recordGatewayCall(
+  sb: SupabaseClient,
+  event: Omit<AiUsageEvent, "input_tokens" | "output_tokens" | "cached_tokens">,
+  responseJson: unknown,
+): Promise<void> {
+  const usage = readGatewayUsage(responseJson);
+  await recordAiUsage(sb, {
+    ...event,
+    input_tokens: usage.input_tokens,
+    output_tokens: usage.output_tokens,
+    cached_tokens: usage.cached_tokens,
+    metadata: { ...(event.metadata ?? {}), usage_reported: usage.reported },
+  });
+}
+
 export async function recordAiUsage(sb: SupabaseClient, event: AiUsageEvent): Promise<void> {
+
   try {
     const inputTokens = Math.max(0, Math.floor(Number(event.input_tokens ?? 0)));
     const outputTokens = Math.max(0, Math.floor(Number(event.output_tokens ?? 0)));

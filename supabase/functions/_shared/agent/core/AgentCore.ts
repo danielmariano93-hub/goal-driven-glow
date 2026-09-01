@@ -570,6 +570,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         .catch(() => [] as Array<{ role: string; content: string }>);
       convReply = await generateConversationalReply({
         text: input.text, history: convHistory as any, first_name: firstName,
+        sb, user_id: input.user_id,
       });
     }
 

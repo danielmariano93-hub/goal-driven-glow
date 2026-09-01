@@ -4,6 +4,7 @@
 import { assertPublicHttpsUrl } from "../security/ssrf.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { getAiBlockAllowingProbe, pauseAiCircuit, resumeAiCircuit } from "../aiCircuit.ts";
+import { recordGatewayCall, type AiWorkload } from "../aiUsageLedger.ts";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
@@ -544,6 +545,9 @@ export async function transcribeAudioBytes(args: {
   sb?: SupabaseClient;
   bytes: Uint8Array;
   mime: string;
+  /** Dono do áudio — sem ele o consumo entra no ledger sem atribuição. */
+  user_id?: string | null;
+  workload?: AiWorkload;
   timeoutMs?: number;
   onStage?: (stage: "transcription_submitted", metadata: Record<string, unknown>) => void | Promise<void>;
 }): Promise<AudioTranscriptionResult> {
@@ -561,6 +565,20 @@ export async function transcribeAudioBytes(args: {
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
+  const aiStarted = Date.now();
+  const logUsage = async (ok: boolean, status: number | null, error: string | null, bytes: number) => {
+    if (!args.sb) return;
+    await recordGatewayCall(args.sb, {
+      workload: args.workload ?? "AUDIO_TRANSCRIPTION_WHATSAPP",
+      function_name: "whatsapp-audio-transcription",
+      operation: "transcribe", user_id: args.user_id ?? null,
+      model: TRANSCRIPTION_MODEL, operation_type: "transcription",
+      success: ok, http_status: status, error_code: error,
+      latency_ms: Date.now() - aiStarted, payload_bytes: bytes,
+      reason_for_ai_call: "inbound_voice_note",
+      metadata: { mime: args.mime },
+    }, null);
+  };
   try {
     let normalized: ReturnType<typeof prepareAudioForTranscription>;
     try {
@@ -588,6 +606,7 @@ export async function transcribeAudioBytes(args: {
     if (!resp.ok) {
       const detail = (await resp.text().catch(() => "")).slice(0, 200);
       console.error("[audio] transcription_http", resp.status, detail);
+      await logUsage(false, resp.status, `gateway_${resp.status}`, args.bytes.length);
       if (resp.status === 402 || resp.status === 403) {
         if (args.sb) await pauseAiCircuit(args.sb, resp.status, detail);
         return { ok: false, code: "ai_blocked", detail: `status_${resp.status}` };
@@ -597,6 +616,7 @@ export async function transcribeAudioBytes(args: {
     // Chamada real bem-sucedida: se estávamos sondando, o bloqueio caiu.
     if (probing && args.sb) await resumeAiCircuit(args.sb);
     const text = await readTranscriptionStream(resp);
+    await logUsage(true, 200, null, args.bytes.length);
     if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
     return { ok: true, text: text.slice(0, 1500), mime_type: args.mime, bytes: args.bytes.length };
   } catch (e) {
@@ -613,6 +633,7 @@ export async function transcribeAudioBytes(args: {
  */
 export async function transcribeInboundAudio(args: {
   sb?: SupabaseClient;
+  user_id?: string | null;
   media: AudioHint;
   messageId?: string;
   waha?: { apiUrl?: string; apiKey?: string; session?: string };
@@ -654,7 +675,7 @@ export async function transcribeInboundAudio(args: {
   await args.onStage?.("format_identified", { mime: dl.mime_type });
 
   const result = await transcribeAudioBytes({
-    sb: args.sb, bytes: dl.bytes, mime: dl.mime_type,
+    sb: args.sb, user_id: args.user_id ?? null, bytes: dl.bytes, mime: dl.mime_type,
     timeoutMs: args.timeoutMs, onStage: args.onStage,
   });
   // Bloqueio de IA não pode custar o áudio do usuário: devolvemos os bytes já

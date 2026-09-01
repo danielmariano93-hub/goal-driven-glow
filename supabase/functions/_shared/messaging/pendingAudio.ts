@@ -128,7 +128,7 @@ export async function drainPendingAudio(sb: SupabaseClient, args: {
     }
 
     const result = await transcribeAudioBytes({
-      sb, bytes: base64ToBytes(row.audio_base64), mime: row.mime_type,
+      sb, user_id: row.user_id, bytes: base64ToBytes(row.audio_base64), mime: row.mime_type,
     });
 
     if (result.ok === true) {

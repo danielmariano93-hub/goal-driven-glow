@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { z } from "npm:zod@3.23.8";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
+import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
 
 const ALLOWED_MIME = ["audio/aac", "audio/m4a", "audio/x-m4a", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/webm", "audio/wav"];
 
@@ -56,10 +57,20 @@ Deno.serve(async (req) => {
   const form = new FormData();
   form.append("model", "openai/gpt-4o-transcribe");
   form.append("file", new Blob([bytes.buffer], { type: parsed.data.mime_type }), `gravacao.${extension}`);
+  const aiStarted = Date.now();
+  const logUsage = (ok: boolean, status: number | null, error: string | null) =>
+    recordGatewayCall(admin, {
+      workload: "AUDIO_TRANSCRIPTION_APP", function_name: "native-audio-transcribe",
+      operation: "transcribe", user_id: userData.user!.id, model: "openai/gpt-4o-transcribe",
+      operation_type: "transcription", success: ok, http_status: status, error_code: error,
+      latency_ms: Date.now() - aiStarted, payload_bytes: bytes.length,
+      reason_for_ai_call: "app_voice_note", metadata: { mime: parsed.data.mime_type },
+    }, null).catch(() => undefined);
   const upstream = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
     method: "POST", headers: { Authorization: `Bearer ${key}`, "X-Lovable-AIG-SDK": "edge-function" }, body: form,
   });
   if (!upstream.ok) {
+    await logUsage(false, upstream.status, `gateway_${upstream.status}`);
     const raw = await upstream.text().catch(() => "");
     if (upstream.status === 402 || upstream.status === 403) {
       const block = await pauseAiCircuit(admin, upstream.status, raw);
@@ -67,6 +78,7 @@ Deno.serve(async (req) => {
     }
     return response({ error: raw ? raw.slice(0, 500) : "Não foi possível entender o áudio" }, upstream.status);
   }
+  await logUsage(true, 200, null);
   const result = await upstream.json().catch(() => null) as { text?: string } | null;
   const text = result?.text?.trim();
   return text ? response({ text: text.slice(0, 1500) }) : response({ error: "Áudio sem fala" }, 422);

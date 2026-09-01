@@ -34,6 +34,8 @@ import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { insightLogicalKey } from "../_shared/intelligence/logicalDedup.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
+import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
+
 
 
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
@@ -542,6 +544,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
 Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
       const userMsg = `Dica base: ${JSON.stringify(payload)}. Fatos: ${JSON.stringify(facts)}.`;
 
+      const aiStarted = Date.now();
       try {
         const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -559,8 +562,20 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
           const raw = await resp.text().catch(() => "");
           if (resp.status === 402 || resp.status === 403) await pauseAiCircuit(supa, resp.status, raw);
           fallbackReason = `ai_status_${resp.status}`;
+          await recordGatewayCall(supa, {
+            workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
+            user_id: uid, model: MODEL, operation_type: "chat", success: false,
+            http_status: resp.status, error_code: `gateway_${resp.status}`,
+            latency_ms: Date.now() - aiStarted, reason_for_ai_call: "insight_copy_rewrite",
+          }, null);
         } else {
           const j = await resp.json();
+          await recordGatewayCall(supa, {
+            workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
+            user_id: uid, model: MODEL, operation_type: "chat", success: true,
+            http_status: 200, latency_ms: Date.now() - aiStarted,
+            reason_for_ai_call: "insight_copy_rewrite",
+          }, j);
           const content = j?.choices?.[0]?.message?.content;
           const parsed = typeof content === "string" ? safeJson(content) : content;
           const validated = parseInsightResponse(parsed);
@@ -578,7 +593,14 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
         }
       } catch (_e) {
         fallbackReason = "ai_error";
+        await recordGatewayCall(supa, {
+          workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
+          user_id: uid, model: MODEL, operation_type: "chat", success: false,
+          error_code: "network_error", latency_ms: Date.now() - aiStarted,
+          reason_for_ai_call: "insight_copy_rewrite",
+        }, null);
       }
+
     } else {
       fallbackReason = LOVABLE_API_KEY ? "deterministic_only" : "no_api_key";
     }
