@@ -76,7 +76,7 @@ export function HeatmapSemanalCard({ data, loading, periodLabel = "Últimos 90 d
         <div>
           <p className="text-[11px] font-bold text-primary">Seu padrão semanal</p>
           <h2 id="heatmap-title" className="mt-0.5 text-base font-bold text-foreground">Onde seus gastos se concentram</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Veja em quais dias da semana cada categoria costuma pesar mais.</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Só gastos variáveis: contas fixas ficam de fora porque seguem o vencimento.</p>
         </div>
         <CalendarCheck className="h-5 w-5 shrink-0 text-muted-foreground" weight="duotone" />
       </div>
