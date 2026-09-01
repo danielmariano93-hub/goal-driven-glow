@@ -27,14 +27,41 @@ type LearningOverview = {
     checkins: number;
     memory_items: number;
     active_commitments: number;
+    paused_commitments: number;
     completed_commitments: number;
+    delivered_checkins: number;
+    backfilled_events: number;
     recent_agent_runs: number;
   };
+  current_strategy: {
+    strategy: string;
+    strategy_reason: string | null;
+    stage: string;
+    title: string;
+    last_outcome: string | null;
+    intervention_attempts: number;
+    next_check_at: string;
+  } | null;
   by_type: Array<{ event_type: string; total: number; applied: number }>;
   recent: LearningEvent[];
   last_learned_at: string | null;
   health: "healthy" | "warming_up" | "attention";
   health_reason: string;
+};
+
+const STRATEGY_LABEL: Record<string, string> = {
+  reinforce: "reforçar",
+  remind: "retomar",
+  reframe: "reformular",
+  pause: "pausar",
+};
+
+const OUTCOME_LABEL: Record<string, string> = {
+  completed: "concluído",
+  progress: "avanço",
+  stalled: "sem avanço",
+  regressed: "piorou",
+  no_evidence: "sem evidência",
 };
 
 function label(type: string): string {
@@ -96,13 +123,31 @@ export function NinoLearningBoard({ userId }: { userId: string }) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <AdminMetricCard label="Eventos de aprendizado" value={String(d.totals.events)} detail={`${d.totals.applied} aplicados`} />
         <AdminMetricCard label="Correções absorvidas" value={String(d.totals.corrections)} />
-        <AdminMetricCard label="Compromissos acompanhados" value={String(d.totals.commitments)} detail={`${d.totals.active_commitments} ativos · ${d.totals.completed_commitments} concluídos`} />
+        <AdminMetricCard label="Compromissos acompanhados" value={String(d.totals.commitments)} detail={`${d.totals.active_commitments} ativos · ${d.totals.paused_commitments} pausados · ${d.totals.completed_commitments} concluídos`} />
         <AdminMetricCard
           label="Último aprendizado"
           value={d.last_learned_at ? new Date(d.last_learned_at).toLocaleDateString("pt-BR") : "—"}
           detail={d.health_reason}
         />
       </div>
+
+      {d.current_strategy && (
+        <div className="surface-card p-4 text-xs">
+          <p className="text-sm font-semibold">Abordagem atual do Nino</p>
+          <p className="mt-1 text-muted-foreground">
+            “{d.current_strategy.title}” · estágio {d.current_strategy.stage} · abordagem {STRATEGY_LABEL[d.current_strategy.strategy] ?? d.current_strategy.strategy}
+            {d.current_strategy.last_outcome ? ` · último resultado ${OUTCOME_LABEL[d.current_strategy.last_outcome] ?? d.current_strategy.last_outcome}` : ""}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {d.current_strategy.intervention_attempts} intervenção(ões) medida(s) · próximo acompanhamento em{" "}
+            {new Date(d.current_strategy.next_check_at).toLocaleDateString("pt-BR")}
+            {d.current_strategy.strategy_reason ? ` · motivo ${d.current_strategy.strategy_reason}` : ""}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {d.totals.delivered_checkins} acompanhamento(s) contabilizado(s) somente após entrega confirmada.
+          </p>
+        </div>
+      )}
 
       {d.health === "attention" && (
         <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-3 text-xs">
@@ -116,7 +161,8 @@ export function NinoLearningBoard({ userId }: { userId: string }) {
           <h4 className="text-sm font-semibold flex items-center gap-2"><Brain size={14} /> O que mais está ensinando o Nino</h4>
           {d.by_type.length === 0 ? (
             <p className="mt-3 text-xs text-muted-foreground">
-              Ainda não há eventos novos. As {d.totals.memory_items} memórias existentes continuam disponíveis.
+              Ainda não há eventos novos. As {d.totals.memory_items} memórias existentes continuam disponíveis
+              ({d.totals.backfilled_events} já importadas para o ledger).
             </p>
           ) : (
             <ul className="mt-3 space-y-2">
