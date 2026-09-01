@@ -196,7 +196,7 @@ function normalize(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function isFixedCategoryName(name?: string | null): boolean {
+export function isFixedCategoryName(name?: string | null): boolean {
   if (!name) return false;
   const n = normalize(name);
   return FIXED_CATEGORY_PATTERNS.some((p) => n.includes(normalize(p)));
