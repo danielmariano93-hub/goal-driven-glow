@@ -30,6 +30,8 @@ type LearningOverview = {
     paused_commitments: number;
     completed_commitments: number;
     delivered_checkins: number;
+    dismissals: number;
+    cancelled_commitments: number;
     backfilled_events: number;
     recent_agent_runs: number;
   };
@@ -39,10 +41,14 @@ type LearningOverview = {
     stage: string;
     title: string;
     last_outcome: string | null;
+    dismissals?: number | null;
     intervention_attempts: number;
     next_check_at: string;
   } | null;
   by_type: Array<{ event_type: string; total: number; applied: number }>;
+  by_strategy: Array<{ strategy: string; total: number; success: number }>;
+  by_principle: Array<{ principle: string; total: number; success: number }>;
+  by_recommendation_source: Array<{ source: string; total: number; accepted: number }>;
   recent: LearningEvent[];
   last_learned_at: string | null;
   health: "healthy" | "warming_up" | "attention";
@@ -122,7 +128,11 @@ export function NinoLearningBoard({ userId }: { userId: string }) {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <AdminMetricCard label="Eventos de aprendizado" value={String(d.totals.events)} detail={`${d.totals.applied} aplicados`} />
-        <AdminMetricCard label="Correções absorvidas" value={String(d.totals.corrections)} />
+        <AdminMetricCard
+          label="Correções absorvidas"
+          value={String(d.totals.corrections)}
+          detail={`${d.totals.dismissals ?? 0} dispensa(s) viraram mudança de abordagem`}
+        />
         <AdminMetricCard label="Compromissos acompanhados" value={String(d.totals.commitments)} detail={`${d.totals.active_commitments} ativos · ${d.totals.paused_commitments} pausados · ${d.totals.completed_commitments} concluídos`} />
         <AdminMetricCard
           label="Último aprendizado"
@@ -155,6 +165,54 @@ export function NinoLearningBoard({ userId }: { userId: string }) {
           <p className="mt-1 text-muted-foreground">{d.health_reason}</p>
         </div>
       )}
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <section className="surface-card p-4">
+          <h4 className="text-sm font-semibold">Abordagem que funciona</h4>
+          {(d.by_strategy ?? []).length === 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">Sem acompanhamento entregue no recorte.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {(d.by_strategy ?? []).map((row) => (
+                <li key={row.strategy} className="flex items-center justify-between gap-3 text-xs">
+                  <span>{STRATEGY_LABEL[row.strategy] ?? row.strategy}</span>
+                  <span className="tabular-nums text-muted-foreground">{row.success}/{row.total} com avanço</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="surface-card p-4">
+          <h4 className="text-sm font-semibold">Princípio que funciona</h4>
+          {(d.by_principle ?? []).length === 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">Sem princípio medido ainda.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {(d.by_principle ?? []).map((row) => (
+                <li key={row.principle} className="flex items-center justify-between gap-3 text-xs">
+                  <span>{row.principle.split("_").join(" ")}</span>
+                  <span className="tabular-nums text-muted-foreground">{row.success}/{row.total} com avanço</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="surface-card p-4">
+          <h4 className="text-sm font-semibold">De onde vem a recomendação</h4>
+          {(d.by_recommendation_source ?? []).length === 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">Nenhuma recomendação registrada no recorte.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {(d.by_recommendation_source ?? []).map((row) => (
+                <li key={row.source} className="flex items-center justify-between gap-3 text-xs">
+                  <span>{row.source === "chat" ? "conversa" : row.source === "app" ? "app" : "proativo"}</span>
+                  <span className="tabular-nums text-muted-foreground">{row.accepted}/{row.total} assumidas</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
         <section className="surface-card p-4">
