@@ -57,6 +57,17 @@ function r2(v: number): number { return Math.round(v * 100) / 100; }
 function isoPlusDays(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString();
 }
+/**
+ * Cadência real: o próximo acompanhamento nasce da DATA DA ENTREGA, nunca do
+ * instante em que a reconciliação rodou. Entrega na segunda + cadência 7 =
+ * próxima segunda, mesmo que o ack chegue na quarta.
+ */
+export function isoPlusDaysFrom(base: string | Date, days: number): string {
+  const ts = base instanceof Date ? base.getTime() : Date.parse(String(base));
+  const safe = Number.isFinite(ts) ? ts : Date.now();
+  return new Date(safe + days * 86_400_000).toISOString();
+}
+
 function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 export async function recordLearningEvent(
