@@ -952,6 +952,12 @@ export function resolveChangeStrategy(args: {
   if (profile?.prefers_smaller_steps && stalls >= 1) {
     return { strategy: "reframe", reason: "learning_profile_prefers_smaller_steps" };
   }
+  // Estratégia medida e nunca eficaz para esta pessoa perde a vez. O ledger de
+  // aprendizado deixa de ser registro e passa a decidir a próxima abordagem.
+  const remindStats = profile?.strategy_success?.remind;
+  if (remindStats && remindStats.total >= 3 && remindStats.success === 0) {
+    return { strategy: "reframe", reason: "learning_profile_remind_never_worked" };
+  }
 
   return { strategy: "remind", reason: "first_stall_reduce_friction" };
 }
@@ -1090,6 +1096,9 @@ export async function confirmChangeFollowupDelivery(
       strategy_reason: decided.reason,
       consecutive_stalls: stalls,
       stage: commitment.stage,
+      principle: intervention.principle,
+      channel: args.channel ?? null,
+      delivered_at: deliveredAt,
     },
     dedup_key: dedupKey,
   }).catch(() => undefined);
@@ -1151,6 +1160,12 @@ export async function registerChangeDismissal(
     intervention_attempts: Number(row.intervention_attempts ?? 0),
     learning_profile: profile,
   });
+  const intervention = resolveBehavioralIntervention({
+    stage: String(row.stage ?? ""),
+    outcome: "stalled",
+    strategy: decided.strategy,
+    learningProfile: profile,
+  });
   await sb.from("nino_change_commitments").update({
     dismissals,
     strategy: decided.strategy,
@@ -1167,7 +1182,10 @@ export async function registerChangeDismissal(
     signal: "dismissed",
     subject_key: commitmentId,
     confidence: 1,
-    metadata: { dismissals, strategy: decided.strategy, strategy_reason: decided.reason, stage: row.stage },
+    metadata: {
+      dismissals, strategy: decided.strategy, strategy_reason: decided.reason,
+      stage: row.stage, principle: intervention.principle,
+    },
   }).catch(() => undefined);
   return { dismissals, strategy: decided.strategy };
 }
