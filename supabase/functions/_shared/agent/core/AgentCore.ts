@@ -22,6 +22,8 @@ import type { TextProvenance } from "./TextProvenance.ts";
 
 import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 import { personalizeSystemPrompt } from "./ResponseGenerator.ts";
+import { resolveBehavioralIntervention } from "../behavioralPrinciples.ts";
+import { buildCommunicationInstructionPrompt } from "../changeMessage.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { createMetrics, estimateCost, timeStage, summarize, recordArtifact, recordFormulaVersion } from "./Observability.ts";
 import { buildRecord, logDecision } from "./DecisionLogger.ts";
