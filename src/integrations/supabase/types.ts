@@ -3398,6 +3398,57 @@ export type Database = {
         }
         Relationships: []
       }
+      communication_policy_settings: {
+        Row: {
+          allow_high_priority_override: boolean
+          attention_weights: Json
+          cap_behavior: string
+          created_at: string
+          critical_priority_threshold: number
+          high_priority_kinds: string[]
+          high_priority_threshold: number
+          id: boolean
+          pilot_budget_multiplier: number
+          pilot_mode: boolean
+          pilot_user_ids: string[]
+          quiet_hours_high_priority_behavior: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          allow_high_priority_override?: boolean
+          attention_weights?: Json
+          cap_behavior?: string
+          created_at?: string
+          critical_priority_threshold?: number
+          high_priority_kinds?: string[]
+          high_priority_threshold?: number
+          id?: boolean
+          pilot_budget_multiplier?: number
+          pilot_mode?: boolean
+          pilot_user_ids?: string[]
+          quiet_hours_high_priority_behavior?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          allow_high_priority_override?: boolean
+          attention_weights?: Json
+          cap_behavior?: string
+          created_at?: string
+          critical_priority_threshold?: number
+          high_priority_kinds?: string[]
+          high_priority_threshold?: number
+          id?: boolean
+          pilot_budget_multiplier?: number
+          pilot_mode?: boolean
+          pilot_user_ids?: string[]
+          quiet_hours_high_priority_behavior?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       communication_templates: {
         Row: {
           active: boolean
@@ -13037,6 +13088,35 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_communication_policy: { Args: never; Returns: Json }
+      admin_communication_policy_update:
+        | {
+            Args: {
+              _allow_high_priority_override?: boolean
+              _cap_behavior?: string
+              _critical_priority_threshold?: number
+              _high_priority_kinds?: string[]
+              _high_priority_threshold?: number
+              _pilot_budget_multiplier?: number
+              _pilot_mode?: boolean
+              _quiet_hours_high_priority_behavior?: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              _allow_high_priority_override: boolean
+              _cap_behavior: string
+              _critical_priority_threshold: number
+              _high_priority_kinds: string[]
+              _high_priority_threshold: number
+              _pilot_budget_multiplier: number
+              _pilot_mode: boolean
+              _pilot_user_ids?: string[]
+              _quiet_hours_high_priority_behavior: string
+            }
+            Returns: Json
+          }
       admin_communication_template_coverage: { Args: never; Returns: Json }
       admin_communication_template_upsert:
         | {
@@ -13277,6 +13357,10 @@ export type Database = {
       }
       admin_v2_cockpit: {
         Args: { _from?: string; _to?: string }
+        Returns: Json
+      }
+      admin_v2_communication_override_metrics: {
+        Args: { _days?: number }
         Returns: Json
       }
       admin_v2_contract_health: { Args: never; Returns: Json }

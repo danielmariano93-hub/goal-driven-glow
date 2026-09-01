@@ -3,7 +3,17 @@
 // deno-lint-ignore-file no-explicit-any
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { decideCommunication, type CommunicationPreferences, type DeliveryHistory } from "../../intelligence/communicationPolicy.ts";
+import {
+  candidatePriorityScore,
+  decideCommunication,
+  DEFAULT_COMMUNICATION_POLICY,
+  normalizeCommunicationPolicy,
+  NINO_COMM_PRIORITY_VERSION,
+  policyForUser,
+  type CommunicationPolicySettings,
+  type CommunicationPreferences,
+  type DeliveryHistory,
+} from "../../intelligence/communicationPolicy.ts";
 import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 import { communicationTopicKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
@@ -208,6 +218,15 @@ async function loadReminderSettings(
   };
 }
 
+/** Política de prioridade/piloto (`nino_comm_priority.v1`), editável no admin. */
+async function loadCommunicationPolicy(sb: SupabaseClient): Promise<CommunicationPolicySettings> {
+  const { data } = await sb.from("communication_policy_settings")
+    .select("pilot_mode,high_priority_threshold,critical_priority_threshold,allow_high_priority_override,high_priority_kinds,cap_behavior,quiet_hours_high_priority_behavior,attention_weights,pilot_budget_multiplier")
+    .maybeSingle();
+  return data ? normalizeCommunicationPolicy(data) : DEFAULT_COMMUNICATION_POLICY;
+}
+
+
 async function history(sb: SupabaseClient, userId: string): Promise<DeliveryHistory[]> {
   const { data, error } = await sb.from("communication_deliveries")
     .select("created_at,kind,channel,status,dedup_key")
@@ -327,7 +346,7 @@ export async function dispatchSuggestions(
     ...(((deferredResp.data as any[] | null) ?? [])),
   ] as CommunicationCandidate[];
 
-  const [prefs, recent, catalog, templates, monthlyIncome, learning, reminderSettings] = await Promise.all([
+  const [prefs, recent, catalog, templates, monthlyIncome, learning, reminderSettings, globalCommPolicy] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
     loadCatalog(sb),
@@ -335,8 +354,11 @@ export async function dispatchSuggestions(
     loadMonthlyIncome(sb, userId),
     loadKindLearning(sb, userId),
     loadReminderSettings(sb),
+    loadCommunicationPolicy(sb),
   ]);
   const { careQuota, emotionalChannels } = reminderSettings;
+  // Fase piloto restrita: quem está fora da lista mantém a política conservadora.
+  const commPolicy = policyForUser(globalCommPolicy, userId);
 
   const dryRunEarly = opts.dryRun === true;
   const results: DispatchOutcome[] = [];
@@ -394,6 +416,9 @@ export async function dispatchSuggestions(
     }
     seenTopics.add(topic);
     (item as any).value_score = value.score;
+    // O score real chega à política: `priority_score` do ranking determinístico
+    // quando existe, senão o valor calculado nesta rodada.
+    item.evidence = { ...(item.evidence ?? {}), value_score: value.score };
     rows.push(item);
     if (rows.length >= limit) break;
   }
@@ -439,7 +464,18 @@ export async function dispatchSuggestions(
       }
 
 
-      const decision = decideCommunication({ candidate, target, preferences: prefs, history: recent, careQuota });
+      const decision = decideCommunication({
+        candidate, target, preferences: prefs, history: recent, careQuota, policy: commPolicy,
+      });
+      const policyContext = {
+        policy_version: NINO_COMM_PRIORITY_VERSION,
+        priority_score: decision.priority_score ?? candidatePriorityScore(candidate),
+        priority_band: decision.priority_band ?? null,
+        cap_override: Boolean(decision.cap_override),
+        cap_original_reason: decision.cap_original_reason ?? null,
+        pilot_mode: commPolicy.pilot_mode,
+        attention_weights: commPolicy.attention_weights,
+      };
       if (!decision.allowed) {
         if (decision.temporary) {
           // Bloqueio temporário: adia, não descarta.
@@ -451,12 +487,29 @@ export async function dispatchSuggestions(
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "suppressed", reason: decision.reason, dedup_key: candidate.dedup_key,
             evidence: candidate.evidence,
-            block_context: { policy_reason: decision.reason, target, temporary: Boolean(decision.temporary) },
+            block_context: {
+              policy_reason: decision.reason, target, temporary: Boolean(decision.temporary),
+              ...policyContext,
+            },
           });
         }
         results.push({ id: candidate.id, channel: target, status: "skipped", reason: decision.reason });
         continue;
       }
+      if (decision.cap_override && !dryRun) {
+        // Aprendizado: mensagem que furou o cap fica marcada para avaliação.
+        await sb.from("nino_learning_events").insert({
+          user_id: userId,
+          event_type: "communication_cap_override",
+          source: "communication_dispatcher",
+          signal: decision.cap_original_reason ?? "frequency_cap",
+          subject_key: candidate.dedup_key,
+          confidence: 0.9,
+          dedup_key: `cap_override:${candidate.id}:${target}`,
+          metadata: { ...policyContext, kind: candidate.kind, channel: target },
+        });
+      }
+
 
 
       const actionUrl = typeof candidate.action?.route === "string" ? candidate.action.route : null;
@@ -524,6 +577,7 @@ export async function dispatchSuggestions(
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "delivered", reason: template ? `in_app_template_v${template.version}` : "in_app_notification_created",
             dedup_key: candidate.dedup_key, evidence: candidate.evidence,
+            block_context: policyContext,
           });
           // Verdade de entrega: só aqui o follow-up de mudança vira check-in.
           await confirmChangeFollowupDelivery(sb, userId, {
@@ -591,6 +645,7 @@ export async function dispatchSuggestions(
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "queued", reason: template ? `whatsapp_template_v${template.version}` : "whatsapp_queued",
             dedup_key: candidate.dedup_key, evidence: candidate.evidence,
+            block_context: policyContext,
           });
           anyQueued = true;
           results.push({ id: candidate.id, channel: target, status: "queued", title: rendered.title, body: rendered.body });
