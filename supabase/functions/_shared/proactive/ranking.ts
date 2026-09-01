@@ -94,6 +94,8 @@ export type BudgetInput = {
 export function allocateAttention(input: BudgetInput): {
   decisions: ProactiveDecision[];
   selected: FinancialSituation[];
+  /** Situações já pontuadas (ordem e `priority_score` reais). */
+  ranked: FinancialSituation[];
 } {
   const budget = input.budget ?? DEFAULT_ATTENTION_BUDGET;
   const minConfidence = input.minConfidence ?? 0.6;
