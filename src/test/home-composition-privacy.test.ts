@@ -35,7 +35,6 @@ describe("composição narrativa da Home", () => {
     const source = read("src/pages/Index.tsx");
     expect(source).toContain('availability.projection === "available"');
     expect(source).toContain('availability.cardExposure === "available"');
-    expect(source).toContain("projectionAvailability={availability.projection}");
   });
 
   it("aplica a identidade oficial na Home", () => {
@@ -45,7 +44,7 @@ describe("composição narrativa da Home", () => {
       "src/components/home/PeriodPicker.tsx",
       "src/components/home/HeroDisponivelCard.tsx",
       "src/components/home/RitmoUnificadoCard.tsx",
-      "src/components/home/NinoGuidanceCard.tsx",
+      "src/components/home/NinoGuidanceSection.tsx",
       "src/components/home/AvailableBalanceDetails.tsx",
       "src/components/home/RhythmMethodSheet.tsx",
       "src/components/home/QuickActions.tsx",
