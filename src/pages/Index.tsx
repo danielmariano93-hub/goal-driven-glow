@@ -106,11 +106,14 @@ export default function Index() {
           error={availability.rhythm === "unavailable" ? snapshotError : null}
           onRetry={() => void snapshot.refetchCritical()}
       />
+      <HeatmapSemanalCard data={heatmap.data} loading={heatmap.isLoading} />
+
       <PrevisaoFechamentoCard
           projection={snap?.projection ?? null}
           availability={availability.projection}
           loading={loading}
       />
+
 
       <ProximosCompromissosCard
         commitments={snap?.commitmentAgenda.items ?? []}
