@@ -19,6 +19,10 @@ type Props = {
   retrying?: boolean;
   onRetry?: () => void;
   projectionAvailability?: "available" | "partial" | "unavailable";
+  /** Situações já contadas por outro card (consolidação editorial). */
+  excludeSituationIds?: string[];
+  /** Sem leitura elegível, não ocupa espaço: já existe uma decisão na tela. */
+  hideWhenEmpty?: boolean;
 };
 
 /** Leituras já respondidas hoje não voltam a aparecer (cooldown local espelha o backend). */
