@@ -259,6 +259,7 @@ export async function computeNextBestAction(
         route: "/app/alertas",
         amount: null,
         amount_role: null,
+        required_amount: null,
         goal_id: null,
         goal_name: null,
       };
@@ -278,6 +279,7 @@ export async function computeNextBestAction(
         route: "/app/planejamento",
         amount: shortfall > 0 ? shortfall : Math.abs(Math.min(0, available)),
         amount_role: "shortfall",
+        required_amount: null,
         goal_id: null,
         goal_name: null,
       };
@@ -293,6 +295,7 @@ export async function computeNextBestAction(
         route: "/app/dividas",
         amount: monthlyDebtInstallments,
         amount_role: "monthly_commitment",
+        required_amount: null,
         goal_id: null,
         goal_name: null,
       };
@@ -311,11 +314,14 @@ export async function computeNextBestAction(
         title: `Transformar folga em avanço da meta${goalPlan?.goalName ? ` "${goalPlan.goalName}"` : ""}`,
         detail:
           safeAmount && safeAmount > 0
-            ? `Seu histórico sustenta até ${brl(safeAmount)} por mês neste momento. O valor é limitado pela sua capacidade sustentável, não pelo desejo da meta.`
+            ? (required > 0 && required > safeAmount
+              ? `Para chegar no prazo seriam ${brl(required)} por mês, e o que caberia hoje sem aperto é ${brl(safeAmount)}. Começar por ${brl(safeAmount)} já faz a meta andar.`
+              : `Pelo seu histórico, ${brl(safeAmount)} por mês cabe no seu mês sem aperto.`)
             : String(goalPlan?.nextAction ?? "Revise o plano da meta e o prazo antes de aumentar o aporte."),
         route: "/app/metas",
         amount: safeAmount && safeAmount > 0 ? round2(safeAmount) : null,
         amount_role: safeAmount && safeAmount > 0 ? "monthly_capacity" : null,
+        required_amount: required > 0 ? round2(required) : null,
         goal_id: String((goalPlan as any)?.goalId ?? "") || null,
         goal_name: goalPlan?.goalName ?? null,
       };
@@ -331,6 +337,7 @@ export async function computeNextBestAction(
         route: "/app/investimentos",
         amount: sustainable,
         amount_role: "monthly_capacity",
+        required_amount: null,
         goal_id: null,
         goal_name: null,
       };
@@ -346,6 +353,7 @@ export async function computeNextBestAction(
         route: "/app/relatorios",
         amount: null,
         amount_role: null,
+        required_amount: null,
         goal_id: null,
         goal_name: null,
       };
