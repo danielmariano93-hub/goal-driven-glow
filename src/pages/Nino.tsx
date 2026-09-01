@@ -37,7 +37,7 @@ export default function Nino() {
   useEffect(() => {
     if (!data) return;
     void markNinoSeen("nino", "all").then(() => {
-      void qc.invalidateQueries({ queryKey: ["nino", "more-menu"] });
+      void qc.invalidateQueries({ queryKey: ["more-menu-context"] });
     });
   }, [data, qc]);
 
