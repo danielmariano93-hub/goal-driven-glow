@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AdvisorObservabilityBoard } from "@/components/admin/AdvisorObservabilityBoard";
-import { AiEfficiencyHistoryBoard } from "@/components/admin/AiEfficiencyHistoryBoard";
 import { NinoLearningBoard } from "@/components/admin/NinoLearningBoard";
 
 
@@ -105,13 +104,10 @@ export default function IAInteligencia() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="IA & Inteligência"
-        description="Memória, perfil, decisões e sugestões proativas do assistente por usuário."
-        status={<Badge variant="secondary" className="gap-1"><Sparkles size={12} /> Assistente</Badge>}
+        title="Inspetor de usuário"
+        description="Memória, perfil, decisões e sugestões do Nino para um cliente específico."
+        status={<Badge variant="secondary" className="gap-1"><Sparkles size={12} /> Diagnóstico individual</Badge>}
       />
-
-      <AiEfficiencyHistoryBoard />
-
 
       <section className="surface-card p-4">
         <form
@@ -161,16 +157,11 @@ export default function IAInteligencia() {
       )}
 
       {!target && !notFound && (
-        <div className="space-y-4">
-          <EmptyState
-            icon={Sparkles}
-            title="Busque um usuário para inspecionar a inteligência do assistente"
-            description="Você verá o snapshot do perfil, memória aprendida, sugestões proativas, decisões recentes e execuções do agente."
-          />
-          {/* Aprendizado do Nino não depende de escolher um cliente: a visão global
-              soma o ledger de todos e diz se o pipeline está registrando. */}
-          <NinoLearningBoard />
-        </div>
+        <EmptyState
+          icon={Sparkles}
+          title="Busque um usuário para inspecionar a inteligência do assistente"
+          description="Você verá o snapshot do perfil, memória aprendida, sugestões proativas, decisões recentes e execuções do agente."
+        />
       )}
 
       {target && inspect.isLoading && (

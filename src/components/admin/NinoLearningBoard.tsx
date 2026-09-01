@@ -27,6 +27,7 @@ type LearningOverview = {
     corrections: number;
     commitments: number;
     checkins: number;
+    learning_users?: number;
     memory_items: number;
     active_commitments: number;
     paused_commitments: number;
@@ -119,7 +120,7 @@ export function NinoLearningBoard({ userId = null }: { userId?: string | null })
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-semibold">Como o Nino está aprendendo</h3>
+          <h3 className="font-semibold">{userId ? "Aprendizado deste cliente" : "O que o Nino aprendeu"}</h3>
           <p className="text-xs text-muted-foreground">
             {userId ? "Este cliente" : "Todos os clientes"} · evento → memória/estratégia aplicada → efeito nas próximas
             decisões. Últimos {d.period_days} dias.
@@ -132,6 +133,7 @@ export function NinoLearningBoard({ userId = null }: { userId?: string | null })
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <AdminMetricCard label="Eventos de aprendizado" value={String(d.totals.events)} detail={`${d.totals.applied} aplicados`} />
+        {!userId && <AdminMetricCard label="Clientes alcançados" value={String(d.totals.learning_users ?? 0)} detail="Identidades preservadas" />}
         <AdminMetricCard
           label="Correções absorvidas"
           value={String(d.totals.corrections)}
@@ -162,7 +164,7 @@ export function NinoLearningBoard({ userId = null }: { userId?: string | null })
         </section>
       )}
 
-      {d.current_strategy && (
+      {userId && d.current_strategy && (
         <div className="surface-card p-4 text-xs">
           <p className="text-sm font-semibold">Abordagem atual do Nino</p>
           <p className="mt-1 text-muted-foreground">
