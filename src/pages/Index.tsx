@@ -94,6 +94,10 @@ export default function Index() {
         projectionAvailability={availability.projection}
       />
 
+      <NinoNextStepCard />
+
+
+
 
       <ResumoPeriodoCard
         performance={snap?.periodPerformance ?? null}
