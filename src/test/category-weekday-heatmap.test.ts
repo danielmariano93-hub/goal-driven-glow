@@ -158,3 +158,50 @@ describe("category_weekday_heatmap.v1", () => {
     expect(result.insight?.text).toContain("Lazer");
   });
 });
+
+describe("category_weekday_heatmap.v1 — só categorias variáveis", () => {
+  const MIXED = [
+    { id: "cat-moradia", name: "Moradia" },
+    { id: "cat-dividas", name: "Dívidas e empréstimos" },
+    { id: "cat-assin", name: "Assinaturas" },
+    { id: "cat-lazer", name: "Lazer" },
+    { id: "cat-transp", name: "Transporte" },
+  ] as unknown as CategoryRow[];
+
+  const rows = [
+    tx({ id: "t1", occurred_at: "2026-07-06", amount: 3000, category_id: "cat-moradia" }),
+    tx({ id: "t2", occurred_at: "2026-07-06", amount: 2000, category_id: "cat-dividas" }),
+    tx({ id: "t3", occurred_at: "2026-07-07", amount: 500, category_id: "cat-assin" }),
+    tx({ id: "t4", occurred_at: "2026-07-11", amount: 300, category_id: "cat-lazer" }),
+    tx({ id: "t5", occurred_at: "2026-07-10", amount: 200, category_id: "cat-transp" }),
+  ];
+
+  it("exclui fixas por nome e mantém as variáveis", () => {
+    const result = computeCategoryWeekdayHeatmap({
+      transactions: rows,
+      categories: MIXED,
+      range: RANGE,
+    });
+    expect(result.categories.map((c) => c.categoryId)).toEqual(["cat-lazer", "cat-transp"]);
+  });
+
+  it("classificação declarada tem prioridade sobre o nome", () => {
+    const result = computeCategoryWeekdayHeatmap({
+      transactions: rows,
+      categories: MIXED,
+      range: RANGE,
+      categoryKindById: { "cat-assin": "variable", "cat-transp": "structural" },
+    });
+    expect(result.categories.map((c) => c.categoryId)).toEqual(["cat-assin", "cat-lazer"]);
+  });
+
+  it("insight nunca fala de categoria fixa", () => {
+    const result = computeCategoryWeekdayHeatmap({
+      transactions: rows,
+      categories: MIXED,
+      range: RANGE,
+    });
+    expect(result.insight?.categoryId).not.toBe("cat-moradia");
+    expect(result.insight?.categoryId).not.toBe("cat-dividas");
+  });
+});
