@@ -131,5 +131,5 @@ export function allocateAttention(input: BudgetInput): {
     }
   }
 
-  return { decisions, selected: [...selected.values()] };
+  return { decisions, selected: [...selected.values()], ranked };
 }

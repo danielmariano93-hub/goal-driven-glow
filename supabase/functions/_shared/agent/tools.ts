@@ -19,6 +19,7 @@ import {
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
+import { computeNextBestAction } from "../behavior-wealth/nextBestAction.ts";
 import {
   computeEmotionFinance,
   DEFAULT_MIN_COMPOSITE_SAMPLE,
@@ -1285,6 +1286,23 @@ export async function get_goal_strategy(
     if (result.plans.length === 0) {
       return { ok: true, result: { ...result, message: "Nenhuma meta ativa encontrada para montar o plano." } };
     }
+    return { ok: true, result };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Próxima melhor ação (`nino_behavior_wealth.v1`).
+ * Une verdade financeira, pressão de caixa, dívidas, metas, baseline pessoal
+ * de poupança e somente hipóteses comportamentais confirmadas/parciais.
+ */
+export async function get_next_best_action(
+  ctx: ToolContext,
+  args: { months?: number } = {},
+): Promise<ToolResult> {
+  try {
+    const result = await computeNextBestAction(ctx.sb, ctx.user_id, args);
     return { ok: true, result };
   } catch (error) {
     return { ok: false, error: (error as Error).message };
@@ -3066,6 +3084,18 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: build_financial_plan,
+  },
+  {
+    name: "get_next_best_action",
+    description: "PRÓXIMA MELHOR AÇÃO FINANCEIRA (nino_behavior_wealth.v1): responde o que o usuário deveria fazer agora para melhorar comportamento e construir patrimônio. Prioriza verdade financeira, caixa, pressão de dívidas, metas e só então construção patrimonial. Valores vêm de motores canônicos; hipótese comportamental pending nunca vira fato.",
+    parameters: {
+      type: "object",
+      properties: {
+        months: { type: "integer", minimum: 3, maximum: 36 },
+      },
+      additionalProperties: false,
+    },
+    execute: get_next_best_action,
   },
   {
     name: "get_debt_status",

@@ -30,6 +30,7 @@ export type CapabilityName =
   | "longitudinal_trajectory"
   | "wealth_opportunity"
   | "financial_plan"
+  | "next_best_action"
 
   | "financial_performance"
   | "holistic_assessment"
@@ -79,6 +80,7 @@ const GROUPS = {
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "analyze_longitudinal_trajectory", "analyze_wealth_opportunity", "build_financial_plan",
+    "get_next_best_action",
     "compare_financial_metric", "assess_financial_performance", "assess_financial_health",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
@@ -456,6 +458,20 @@ export function classifyCapability(
       allowed_tools: ["compare_financial_metric", "assess_financial_performance", "analyze_spending"],
       required_tool: "compare_financial_metric", context: { metrics: true },
       reason: "canonical_financial_comparison",
+    };
+  }
+
+  // "O que eu faço agora?" deixa de ser opinião aberta do modelo. O Nino
+  // calcula uma próxima ação única, explicável e coerente com o estágio real.
+  if (
+    /\b(qual (e )?o meu proximo passo financeiro|o que (eu )?devo fazer agora (com|pelo|pro) (meu )?dinheiro|por onde (eu )?comeco (financeiramente|a organizar minha vida financeira)|como (eu )?comeco a construir patrimonio|qual (e )?a melhor coisa que (eu )?posso fazer agora (financeiramente|com meu dinheiro)|o que mais mudaria minha vida financeira agora)\b/.test(t)
+    || /\bproxima melhor acao\b.*\b(financeir|dinheiro|patrimonio|meta)\w*/.test(t)
+  ) {
+    return {
+      name: "next_best_action", execution: "deterministic",
+      allowed_tools: ["get_next_best_action"],
+      required_tool: "get_next_best_action", context: { metrics: true },
+      reason: "canonical_behavior_wealth_next_best_action",
     };
   }
 

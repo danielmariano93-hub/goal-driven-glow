@@ -44,6 +44,8 @@ export const KIND_PRIORITY: Record<string, number> = {
   recurring_commitment_pressure: 82,
   cash_flow_imbalance: 80,
   investment_drawdown: 74,
+  wealth_building_action: 68,
+  wealth_progress: 45,
   goal_feasibility: 70,
   goal_at_risk: 70,
   growing_category: 64,
