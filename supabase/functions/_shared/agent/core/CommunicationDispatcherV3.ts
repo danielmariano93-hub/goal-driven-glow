@@ -345,7 +345,7 @@ export async function dispatchSuggestions(
     ...(((deferredResp.data as any[] | null) ?? [])),
   ] as CommunicationCandidate[];
 
-  const [prefs, recent, catalog, templates, monthlyIncome, learning, reminderSettings, commPolicy] = await Promise.all([
+  const [prefs, recent, catalog, templates, monthlyIncome, learning, reminderSettings, globalCommPolicy] = await Promise.all([
     loadPreferences(sb, userId),
     history(sb, userId),
     loadCatalog(sb),
