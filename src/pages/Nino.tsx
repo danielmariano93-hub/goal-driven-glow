@@ -26,10 +26,20 @@ export default function Nino() {
   const active = (params.get("section") ?? "agora") as SectionId;
   const { data, isLoading, isError, error, isFetching, refetch } = useNinoDiagnosisContext();
   const [expanded, setExpanded] = useState(false);
+  const qc = useQueryClient();
 
   const section = useMemo(() => SECTIONS.find((s) => s.id === active) ?? SECTIONS[0], [active]);
 
   useEffect(() => setExpanded(false), [section.id]);
+
+  // Visitar a tela do Nino zera o "novidades" da aba Mais: badge e tela
+  // passam a contar exatamente a mesma coleção editorial.
+  useEffect(() => {
+    if (!data) return;
+    void markNinoSeen("nino", "all").then(() => {
+      void qc.invalidateQueries({ queryKey: ["nino", "more-menu"] });
+    });
+  }, [data, qc]);
 
   const quality = data?.data_quality;
   const insufficient = data?.overall_state === "insufficient_data";
