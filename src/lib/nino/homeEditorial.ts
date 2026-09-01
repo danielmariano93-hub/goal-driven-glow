@@ -153,6 +153,15 @@ function toAction(cta: NinoDecisionNarrative["primaryCta"]): NinoEditorialAction
   return { kind: "link", label, route: cta.route };
 }
 
+function fallbackAction(situation: FinancialSituation | null): NinoEditorialAction | null {
+  if (!situation) return null;
+  const route = diagnosisRouteForSituation(situation, null);
+  const label = clean(diagnosisActionLabel(situation, null));
+  if (!route || !label) return null;
+  return { kind: "link", label, route };
+}
+
+
 /**
  * Spotlight: o Nino escolheu isso. A decisão do Change Agent lidera, exceto
  * quando existe um risco crítico que não é a mesma decisão — nesse caso o risco
@@ -200,7 +209,9 @@ function buildSpotlight(
       mainValueSuffix: narrative.primaryAmount?.caption ? clean(narrative.primaryAmount.caption) : null,
       tone,
       priority,
-      primaryAction: toAction(narrative.primaryCta),
+      // Spotlight sem CTA não converte: quando o motor não anexou ação confiável,
+      // usamos o destino canônico da própria situação (rota já existente).
+      primaryAction: toAction(narrative.primaryCta) ?? fallbackAction(situation),
       secondaryAction: toAction(narrative.secondaryCta),
     },
   };

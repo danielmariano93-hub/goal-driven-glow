@@ -61,7 +61,11 @@ export function diagnosisActionLabel(situation: FinancialSituation, action?: Fin
   if (["resolved", "expired", "suppressed"].includes(situation.status)) return null;
   const title = action?.title?.trim();
   if (title && title !== "Resolver agora") return title;
-  if (situation.situation_type === "behavioral_pattern") return situation.status === "observed" ? "Entender o padrão" : "Ver os gastos do padrão";
+  if (situation.situation_type === "behavioral_pattern") {
+    // A rota canônica dessa leitura é o check-in: o rótulo precisa dizer a mesma coisa.
+    if (situation.evaluation?.days_without_checkin != null) return "Registrar como me sinto";
+    return situation.status === "observed" ? "Entender o padrão" : "Ver os gastos do padrão";
+  }
   if (situation.situation_type === "data_quality_issue") return "Classificar lançamentos";
   if (situation.situation_type === "duplicate_review") return "Revisar duplicidades";
   if (situation.situation_type === "goal_feasibility") return "Recalibrar meta";
