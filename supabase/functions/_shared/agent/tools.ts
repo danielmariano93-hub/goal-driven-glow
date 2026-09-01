@@ -19,7 +19,7 @@ import {
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
-import { computeNextBestAction } from "../behavior-wealth/nextBestAction.ts";
+import { computeNextBestAction } from "./behaviorWealth.ts";
 import {
   computeEmotionFinance,
   DEFAULT_MIN_COMPOSITE_SAMPLE,

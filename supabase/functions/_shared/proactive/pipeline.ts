@@ -7,7 +7,7 @@ import { buildMultiFinanceProactiveContext } from "./context.ts";
 import { collectFinancialSignals } from "./signals.ts";
 import { composeFinancialSituations } from "./situations.ts";
 import { allocateAttention } from "./ranking.ts";
-import { computeNextBestAction } from "../behavior-wealth/nextBestAction.ts";
+import { computeNextBestAction } from "../agent/behaviorWealth.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
