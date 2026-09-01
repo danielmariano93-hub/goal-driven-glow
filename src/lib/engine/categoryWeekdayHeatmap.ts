@@ -243,9 +243,21 @@ export function computeCategoryWeekdayHeatmap(input: HeatmapInput): CategoryWeek
       ? "Sem categoria"
       : input.categories.find((c) => c.id === id)?.name ?? "Categoria removida";
 
+  // Card COMPORTAMENTAL: só categorias variáveis/discricionárias entram.
+  // Fixas (moradia, dívidas/empréstimos, assinaturas, seguros, contas de casa…)
+  // não têm padrão de dia da semana escolhido pela pessoa — são agenda de
+  // vencimento. Classificação declarada (`categoryKindById`) tem prioridade;
+  // o dicionário de nomes de `spendingRhythm` é fallback (mesma regra do ritmo).
+  const kindById = input.categoryKindById ?? {};
+  const isFixed = (id: string) => {
+    const kind = kindById[id];
+    if (kind) return STRUCTURAL_CATEGORY_KINDS.has(kind);
+    return isFixedCategoryName(nameOf(id));
+  };
+
   const ranked = [...totalsByCategory.entries()]
     .map(([id, total]) => ({ id, total: round2(total) }))
-    .filter((row) => row.total > 0)
+    .filter((row) => row.total > 0 && !isFixed(row.id))
     .sort((a, b) => b.total - a.total)
     .slice(0, topN);
 
