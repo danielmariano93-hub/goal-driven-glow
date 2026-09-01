@@ -176,22 +176,8 @@ export function AiEfficiencyHistoryBoard() {
     },
   });
 
-  const latencyDay = useQuery({
-    queryKey: ["admin_ai_latency_day", selectedLatencyDay, channel, path, capability, tier, model, workload],
-    enabled: !!selectedLatencyDay,
-    queryFn: async (): Promise<History> => {
-      const day = selectedLatencyDay;
-      if (!day) throw new Error("latency_day_required");
-      const { data, error } = await supabase.rpc("admin_v3_ai_history", {
-        p_from: day, p_to: day,
-        p_channel: clean(channel), p_path: clean(path),
-        p_capability: clean(capability), p_model_tier: clean(tier),
-        p_model: clean(model), p_workload: clean(workload),
-      });
-      if (error) throw error;
-      return data as unknown as History;
-    },
-  });
+
+
 
   const compare = useQuery({
     queryKey: ["admin_ai_compare", milestone, channel, path],
