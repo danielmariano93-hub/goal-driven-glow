@@ -1,5 +1,6 @@
 import { Brain } from "lucide-react";
 import { NinoLearningBoard } from "@/components/admin/NinoLearningBoard";
+import { BehavioralTimingBoard } from "@/components/admin/BehavioralTimingBoard";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/admin/PageHeader";
 
@@ -12,6 +13,7 @@ export default function AprendizadoGlobal() {
         status={<Badge variant="secondary" className="gap-1"><Brain size={12} /> Todos os clientes</Badge>}
       />
       <NinoLearningBoard />
+      <BehavioralTimingBoard />
     </div>
   );
 }

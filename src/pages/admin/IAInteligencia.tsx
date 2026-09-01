@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AdvisorObservabilityBoard } from "@/components/admin/AdvisorObservabilityBoard";
 import { NinoLearningBoard } from "@/components/admin/NinoLearningBoard";
+import { BehavioralTimingBoard } from "@/components/admin/BehavioralTimingBoard";
 
 
 type InspectResult = {
@@ -193,6 +194,7 @@ function InspectView({ data, userId }: { data: InspectResult; userId: string }) 
         <TabsTrigger value="summary">Resumo</TabsTrigger>
         <TabsTrigger value="memory">Memória</TabsTrigger>
         <TabsTrigger value="learning">Aprendizado</TabsTrigger>
+        <TabsTrigger value="timing">Momento</TabsTrigger>
         <TabsTrigger value="suggestions">
           Sugestões {suggestionsCount > 0 && <span className="ml-1 rounded-full bg-primary/15 text-primary px-1.5 text-[10px]">{suggestionsCount}</span>}
         </TabsTrigger>
@@ -215,6 +217,10 @@ function InspectView({ data, userId }: { data: InspectResult; userId: string }) 
 
       <TabsContent value="learning">
         <NinoLearningBoard userId={userId} />
+      </TabsContent>
+
+      <TabsContent value="timing">
+        <BehavioralTimingBoard userId={userId} />
       </TabsContent>
 
 
