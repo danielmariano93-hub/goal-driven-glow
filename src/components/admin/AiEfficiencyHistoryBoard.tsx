@@ -510,38 +510,107 @@ export function AiEfficiencyHistoryBoard() {
         )}
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
+      <section className="space-y-3">
         <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
-          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <Activity size={14} className="text-primary" aria-hidden /> Determinístico x IA
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <Activity size={14} className="text-primary" aria-hidden /> Como o Nino resolveu cada conversa
           </h3>
-          <ul className="space-y-2 text-xs">
-            {h.by_path.map((row) => (
-              <li key={row.path} className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0">
-                <span className="font-medium">{row.path}</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {num(row.runs)} conversas · {num(row.tokens_per_run)} tokens · P50 {ms(row.p50_latency_ms)} · P95 {ms(row.p95_latency_ms)}
-                </span>
-              </li>
-            ))}
-            {!h.by_path.length && <li className="text-muted-foreground">Sem conversas no recorte.</li>}
-          </ul>
+          <p className="mb-3 mt-1 text-xs text-muted-foreground">
+            Quanto foi resolvido sem modelo e quanto custou cada caminho.
+          </p>
+          {!h.by_path.length ? (
+            <p className="rounded-2xl border border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">
+              Sem conversas no recorte.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-border/70">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/60">
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Caminho</th>
+                    <th className="px-3 py-2 text-right font-medium">Conversas</th>
+                    <th className="px-3 py-2 text-right font-medium">Participação</th>
+                    <th className="px-3 py-2 text-right font-medium">Tokens/conversa</th>
+                    <th className="px-3 py-2 text-right font-medium">P50</th>
+                    <th className="px-3 py-2 text-right font-medium">P95</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...h.by_path]
+                    .sort((a, b) => Number(b.runs ?? 0) - Number(a.runs ?? 0))
+                    .map((row) => {
+                      const share = t.runs > 0 ? Number(row.runs ?? 0) / Number(t.runs) : 0;
+                      return (
+                        <tr key={row.path} className="border-t border-border/60">
+                          <td className="px-3 py-2">
+                            <span className="block font-medium">{friendlyPath(row.path)}</span>
+                            <span className="text-[11px] text-muted-foreground">{row.path}</span>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">{num(row.runs)}</td>
+                          <td className="px-3 py-2 text-right">
+                            <span className="tabular-nums">{Math.round(share * 100)}%</span>
+                            <span aria-hidden className="mt-1 block h-1 rounded-full bg-muted">
+                              <span
+                                className="block h-1 rounded-full bg-primary"
+                                style={{ width: `${Math.max(share * 100, 2)}%` }}
+                              />
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">{num(row.tokens_per_run)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{ms(row.p50_latency_ms)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{ms(row.p95_latency_ms)}</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
+
         <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-semibold">Modelos efetivamente usados</h3>
-          <ul className="space-y-2 text-xs">
-            {h.by_model.map((row) => (
-              <li key={`${row.model}-${row.model_tier}`} className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0">
-                <span className="font-medium">{row.model}{row.model_tier ? ` · ${row.model_tier}` : ""}</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {num(row.runs)} conversas · {num(row.tokens_in + row.tokens_out)} tokens
-                </span>
-              </li>
-            ))}
-            {!h.by_model.length && <li className="text-muted-foreground">Nenhuma conversa usou modelo no recorte.</li>}
-          </ul>
+          <h3 className="text-sm font-semibold">Modelos efetivamente usados</h3>
+          <p className="mb-3 mt-1 text-xs text-muted-foreground">
+            Onde o consumo de tokens realmente aconteceu, do maior para o menor.
+          </p>
+          {!h.by_model.length ? (
+            <p className="rounded-2xl border border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">
+              Nenhuma conversa usou modelo no recorte.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-border/70">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/60">
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Modelo</th>
+                    <th className="px-3 py-2 font-medium">Faixa</th>
+                    <th className="px-3 py-2 text-right font-medium">Conversas</th>
+                    <th className="px-3 py-2 text-right font-medium">Tokens</th>
+                    <th className="px-3 py-2 text-right font-medium">Tokens/conversa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...h.by_model]
+                    .map((row) => ({ ...row, tokens: Number(row.tokens_in ?? 0) + Number(row.tokens_out ?? 0) }))
+                    .sort((a, b) => b.tokens - a.tokens)
+                    .map((row) => (
+                      <tr key={`${row.model}-${row.model_tier}`} className="border-t border-border/60">
+                        <td className="px-3 py-2 font-medium">{row.model}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{row.model_tier ?? "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{num(row.runs)}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">{num(row.tokens)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.runs > 0 ? num(row.tokens / row.runs) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </section>
+
 
       <p className="text-xs text-muted-foreground">
         Cobertura da telemetria: primeira conversa registrada em{" "}
