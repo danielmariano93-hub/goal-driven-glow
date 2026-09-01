@@ -210,7 +210,7 @@ function fallbackAction(situation: FinancialSituation | null): NinoEditorialActi
 function buildSpotlight(
   diagnosis: HomeDiagnosisView | null,
   nextStep: NinoNextStep | null,
-): { item: NinoSpotlightItem; usedSituationId: string | null; usedStep: boolean } | null {
+): { item: NinoSpotlightItem; usedSituationId: string | null; usedStep: boolean; subject: string } | null {
   const situation = diagnosis?.primary ?? null;
   const same = isSameDecision(situation, nextStep);
   const criticalFirst = situation?.severity === "critical" && !same;
@@ -232,12 +232,14 @@ function buildSpotlight(
         ? priorityForSituation(situation)
         : NINO_EDITORIAL_PRIORITY.stability;
 
-  const headline = compactSentence(narrative.headline, HEADLINE_MAX) ?? narrative.headline;
-  const body = compactSentence(narrative.context ?? narrative.recommendation, SPOTLIGHT_BODY_MAX);
+  // Home usa a variante compacta: conclusão curta + uma evidência.
+  const headline = compactSentence(narrative.compact.headline, HEADLINE_MAX) ?? narrative.compact.headline;
+  const body = compactSentence(narrative.compact.body, SPOTLIGHT_BODY_MAX);
 
   return {
     usedSituationId: useStep && !same ? null : situation?.id ?? null,
     usedStep: useStep,
+    subject: subjectKey(situation, useStep ? nextStep : null),
     item: {
       id: useStep && nextStep ? nextStep.id : situation?.id ?? "nino-spotlight",
       situationId: situation?.id ?? null,
@@ -257,20 +259,25 @@ function buildSpotlight(
   };
 }
 
-function toSupporting(reading: NinoReading): NinoSupportingItem | null {
+type SupportingCandidate = NinoSupportingItem & { subject: string };
+
+function toSupporting(reading: NinoReading): SupportingCandidate | null {
   const situation = reading.situation;
   const title = clean(situation.one_line_summary) ?? clean(situation.headline);
   if (!title) return null;
-  const body = compactSentence(situation.cause_summary ?? situation.consequence_summary, SUPPORTING_BODY_MAX);
+  const body = humanizeSupportingText(
+    compactSentence(situation.cause_summary ?? situation.consequence_summary, SUPPORTING_BODY_MAX),
+  );
   return {
     id: situation.id,
     situationId: situation.id,
     semanticType: situation.situation_type,
-    title: compactSentence(title, HEADLINE_MAX) ?? title,
+    title: compactSentence(title, SUPPORTING_TITLE_MAX) ?? title,
     supportingText: body ?? clean(diagnosisActionLabel(situation, reading.action)),
     tone: toneForSituation(situation),
     route: diagnosisRouteForSituation(situation, reading.action),
     priority: priorityForSituation(situation),
+    subject: subjectKey(situation),
   };
 }
 
@@ -292,22 +299,43 @@ export function buildNinoHomeEditorialView(input: {
 
   const usedId = spotlight?.usedSituationId ?? null;
   const usedKey = spotlight ? semanticKey(spotlight.item.headline) : "";
+  const usedSubject = spotlight?.subject ?? "";
+  const usedName = usedSubject.startsWith("name:") ? usedSubject.slice(5) : "";
 
   const eligible = queue
     .map(toSupporting)
-    .filter((item): item is NinoSupportingItem => Boolean(item))
+    .filter((item): item is SupportingCandidate => Boolean(item))
     .filter((item) => {
       if (usedId && item.situationId === usedId) return false;
+      // Dedup por assunto canônico: mesma meta/entidade não repete na Home.
+      if (usedSubject && item.subject === usedSubject) return false;
       const key = semanticKey(item.title);
+      if (usedName && key.includes(usedName)) return false;
       if (!usedKey || !key) return true;
       return key !== usedKey && !usedKey.includes(key) && !key.includes(usedKey);
     })
     .sort((a, b) => a.priority - b.priority);
 
+  // Padrão: 2 leituras de apoio. A terceira só entra quando é outro assunto.
+  const chosen: SupportingCandidate[] = eligible.slice(0, NINO_SUPPORTING_DEFAULT);
+  const third = eligible[NINO_SUPPORTING_DEFAULT];
+  if (
+    third &&
+    chosen.length === NINO_SUPPORTING_DEFAULT &&
+    !chosen.some(
+      (item) =>
+        item.semanticType === third.semanticType || (Boolean(item.subject) && item.subject === third.subject),
+    )
+  ) {
+    chosen.push(third);
+  }
+
   return {
     primary: spotlight?.item ?? null,
-    supporting: eligible.slice(0, NINO_SUPPORTING_LIMIT),
+    supporting: chosen.slice(0, NINO_SUPPORTING_LIMIT).map(({ subject: _subject, ...item }) => item),
     totalAvailable: eligible.length + (spotlight ? 1 : 0),
     lastUpdatedAt: diagnosis?.asOf ?? context?.as_of ?? null,
   };
+}
+
 }
