@@ -4,6 +4,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { remember, recall } from "./MemoryStore.ts";
 import { learnComparisonPreference } from "./AdvisorInteractionLearning.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
+import { recordLearningEvent } from "../changeLoop.ts";
 
 export type TurnSignal = {
   user_id: string;
@@ -18,6 +19,15 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
   try {
     if (sig.policy_decision === "confirm" || sig.reply_kind === "receipt") {
       await reinforceRecent(sb, sig.user_id);
+      await recordLearningEvent(sb, {
+        user_id: sig.user_id,
+        event_type: "interaction_reinforcement",
+        source: "learning_loop",
+        signal: "confirmed_or_receipt",
+        subject_key: sig.intent,
+        confidence: 0.8,
+        metadata: { reply_kind: sig.reply_kind },
+      }).catch(() => undefined);
     }
 
     // Correção de recorte ("prefiro dias úteis") vira preferência do consultor.
@@ -45,6 +55,19 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
         source: "correction",
         confidence: 0.98,
       });
+      await recordLearningEvent(sb, {
+        user_id: sig.user_id,
+        event_type: "correction",
+        source: "learning_loop",
+        signal: semantic?.intent ? "semantic_correction" : "user_correction",
+        subject_key: key,
+        confidence: 0.98,
+        metadata: {
+          original_intent: sig.intent,
+          corrected_intent: semantic?.intent ?? null,
+          rejected_tool: rejected,
+        },
+      }).catch(() => undefined);
     }
 
     for (const c of sig.tool_calls) {
@@ -61,6 +84,16 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
             source: "inferred",
             confidence: 0.55,
           });
+          await recordLearningEvent(sb, {
+            user_id: sig.user_id,
+            event_type: "merchant_observation",
+            source: "learning_loop",
+            signal: "merchant_seen",
+            subject_key: merchant.toLowerCase().slice(0, 120),
+            confidence: 0.55,
+            metadata: { has_category: Boolean(category) },
+            dedup_key: `merchant:${merchant.toLowerCase().slice(0, 120)}`,
+          }).catch(() => undefined);
         }
         if (category) {
           await remember(sb, {
@@ -71,6 +104,15 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
             source: "inferred",
             confidence: 0.5,
           });
+          await recordLearningEvent(sb, {
+            user_id: sig.user_id,
+            event_type: "category_observation",
+            source: "learning_loop",
+            signal: "category_seen",
+            subject_key: String(category),
+            confidence: 0.5,
+            dedup_key: `category:${String(category)}`,
+          }).catch(() => undefined);
         }
       }
     }

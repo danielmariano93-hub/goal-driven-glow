@@ -1,5 +1,5 @@
 // Histórico de consumo de tokens e latência do Nino.
-// Toda agregação acontece no banco (`admin_v2_ai_history` e
+// Toda agregação acontece no banco (`admin_v3_ai_history` e
 // `admin_v2_ai_milestone_compare`): a tela só desenha. Nenhuma métrica é
 // estimada no frontend e nenhum histórico é preenchido artificialmente —
 // quando uma coluna de telemetria só existe a partir de certa data, o bloco
@@ -141,7 +141,7 @@ export function AiEfficiencyHistoryBoard() {
   const history = useQuery({
     queryKey: ["admin_ai_history", range, channel, path, capability, tier, model],
     queryFn: async (): Promise<History> => {
-      const { data, error } = await supabase.rpc("admin_v2_ai_history", {
+      const { data, error } = await supabase.rpc("admin_v3_ai_history", {
         p_from: range.from, p_to: range.to,
         p_channel: clean(channel), p_path: clean(path),
         p_capability: clean(capability), p_model_tier: clean(tier),
@@ -158,7 +158,7 @@ export function AiEfficiencyHistoryBoard() {
     queryFn: async (): Promise<History> => {
       const day = selectedLatencyDay;
       if (!day) throw new Error("latency_day_required");
-      const { data, error } = await supabase.rpc("admin_v2_ai_history", {
+      const { data, error } = await supabase.rpc("admin_v3_ai_history", {
         p_from: day, p_to: day,
         p_channel: clean(channel), p_path: clean(path),
         p_capability: clean(capability), p_model_tier: clean(tier),
@@ -198,6 +198,10 @@ export function AiEfficiencyHistoryBoard() {
 
   const h = history.data!;
   const t = h.totals;
+  const tokenSeries = (h.series ?? []).filter((row) => Number(row.tokens_total ?? 0) > 0);
+  const latencySeries = (h.series ?? []).filter((row) =>
+    row.avg_latency_ms != null || row.p50_latency_ms != null || row.p95_latency_ms != null
+  );
   const filters = h.available_filters ?? { channels: [], paths: [], model_tiers: [], models: [], capabilities: [] };
   const ms = (v: number | null | undefined) => (v == null ? "—" : `${(v / 1000).toFixed(1)}s`);
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
@@ -330,7 +334,7 @@ export function AiEfficiencyHistoryBoard() {
         </figcaption>
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={h.series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+            <AreaChart data={tokenSeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
@@ -353,7 +357,7 @@ export function AiEfficiencyHistoryBoard() {
         </figcaption>
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={h.series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} onClick={selectLatencyDay}>
+            <LineChart data={latencySeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} onClick={selectLatencyDay}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false}

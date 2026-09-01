@@ -21,6 +21,12 @@ import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
 import { computeNextBestAction } from "./behaviorWealth.ts";
 import {
+  commitLatestRecommendation,
+  getActiveCommitmentStatus,
+  pauseActiveCommitment,
+  persistNextActionRecommendation,
+} from "./changeLoop.ts";
+import {
   computeEmotionFinance,
   DEFAULT_MIN_COMPOSITE_SAMPLE,
   DEFAULT_MIN_DELTA_ABS,
@@ -1303,7 +1309,51 @@ export async function get_next_best_action(
 ): Promise<ToolResult> {
   try {
     const result = await computeNextBestAction(ctx.sb, ctx.user_id, args);
-    return { ok: true, result };
+    const recommendationId = await persistNextActionRecommendation(
+      ctx.sb, ctx.user_id, result, "chat",
+    ).catch(() => null);
+    return { ok: true, result: { ...result, recommendation_id: recommendationId } };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+/** Assume o próximo passo como compromisso acompanhado (nino_change_agent.v1). */
+export async function commit_latest_change_action(
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  try {
+    return { ok: true, result: await commitLatestRecommendation(ctx.sb, ctx.user_id) };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+/** Mede por evidência o avanço do compromisso ativo. */
+export async function get_change_commitment_status(
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  try {
+    const result = await getActiveCommitmentStatus(ctx.sb, ctx.user_id);
+    return {
+      ok: true,
+      result: result ?? {
+        version: "nino_change_agent.v1",
+        status: "none",
+        message: "Você não tem um próximo passo em acompanhamento agora.",
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+/** Pausa o acompanhamento a pedido explícito do usuário. */
+export async function pause_change_commitment(
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  try {
+    return { ok: true, result: await pauseActiveCommitment(ctx.sb, ctx.user_id) };
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }
@@ -3096,6 +3146,24 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: get_next_best_action,
+  },
+  {
+    name: "commit_latest_change_action",
+    description: "ASSUMIR O PRÓXIMO PASSO (nino_change_agent.v1): cria acompanhamento somente a partir da recomendação canônica mais recente e a recalcula antes de aceitar. Não movimenta dinheiro.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: commit_latest_change_action,
+  },
+  {
+    name: "get_change_commitment_status",
+    description: "ACOMPANHAMENTO DO COMBINADO: mede por evidência se o próximo passo aceito avançou, concluiu, travou ou regrediu. Não inventa progresso.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_change_commitment_status,
+  },
+  {
+    name: "pause_change_commitment",
+    description: "PAUSAR ACOMPANHAMENTO: respeita pedido explícito do usuário para parar de acompanhar o compromisso financeiro ativo. Não desfaz nenhuma movimentação.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: pause_change_commitment,
   },
   {
     name: "get_debt_status",
