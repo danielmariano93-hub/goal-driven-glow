@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
@@ -7,6 +8,7 @@ import { NinoSupportingSignalRow } from "@/components/nino/NinoSupportingSignalR
 import { NinoRefreshButton } from "@/components/nino/NinoRefreshButton";
 import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock } from "@/components/nino/NinoStateBlocks";
 import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
+import { markNinoSeen } from "@/lib/nino/intelligence";
 import { consolidateSituations } from "@/lib/nino/consolidate";
 
 const SECTIONS = [
