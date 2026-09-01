@@ -181,24 +181,20 @@ export async function refreshBehaviorHypotheses(
       }).catch(() => 0);
     }
 
-    if (candidate.confidence >= 0.72 && effectiveStatus === "pending") {
-      const { error: suggestionError } = await sb.from("pending_proactive_suggestions").upsert({
-        user_id,
-        kind: candidate.kind,
-        severity: candidate.confidence >= 0.85 ? "attention" : "info",
-        title: candidate.title,
-        body: candidate.explanation,
-        action: { route: "/app/nino-contexto" },
-        evidence: candidate.evidence,
-        channel_ready: "both",
-        dedup_key: candidate.dedup_key,
-        expires_at: candidate.expires_at,
-        status: "pending",
-      }, {
-        onConflict: "user_id,dedup_key",
-        ignoreDuplicates: true,
-      });
-      if (suggestionError) throw queryError("behavior_suggestion_upsert_failed", suggestionError);
+    // Hipótese ainda não confirmada é convite à validação, não verdade e muito
+    // menos interrupção proativa. Remove também lixo deixado pela implementação
+    // anterior, que colocava pending com confiança >= .72 na fila de mensagens.
+    if (!shouldPersistBehaviorMemory(effectiveStatus)) {
+      const { error: suggestionError } = await sb.from("pending_proactive_suggestions")
+        .update({
+          status: "dismissed",
+          dismissed_at: new Date().toISOString(),
+          defer_reason: "behavior_hypothesis_not_confirmed",
+        })
+        .eq("user_id", user_id)
+        .eq("dedup_key", candidate.dedup_key)
+        .in("status", ["pending", "dispatched"]);
+      if (suggestionError) throw queryError("behavior_suggestion_cleanup_failed", suggestionError);
     }
   }
 

@@ -7,6 +7,7 @@ import { buildMultiFinanceProactiveContext } from "./context.ts";
 import { collectFinancialSignals } from "./signals.ts";
 import { composeFinancialSituations } from "./situations.ts";
 import { allocateAttention } from "./ranking.ts";
+import { computeNextBestAction } from "../agent/behaviorWealth.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
@@ -121,11 +122,51 @@ export async function runMultiFinanceProactive(
   const ctx = { ...base, performance_highlights: performanceHighlights, affinity };
   const signals = collectFinancialSignals(ctx);
   const situations = composeFinancialSituations(signals, ctx);
+
+  // O governador de atenção recebe também a oportunidade de crescimento.
+  // Riscos (caixa, dívida, vencimentos) continuam ganhando pelo score; patrimônio
+  // só disputa atenção quando o próprio motor diz que a base está estável.
+  const nextBest = await computeNextBestAction(sb, userId, { months: 12 }).catch(() => null);
+  if (
+    nextBest
+    && (nextBest.stage === "fund_goal" || nextBest.stage === "build_wealth")
+    && Number(nextBest.action.amount ?? 0) > 0
+  ) {
+    situations.push({
+      fingerprint: `${nextBest.version}:${nextBest.stage}:${nextBest.as_of}`,
+      type: nextBest.stage,
+      communication_kind: "wealth_building_action",
+      severity: "info",
+      title: nextBest.action.title,
+      body: nextBest.action.detail,
+      primary_domain: nextBest.stage === "fund_goal" ? "goals" : "investments",
+      domains: nextBest.stage === "fund_goal" ? ["goals", "investments"] : ["investments"],
+      signals: [],
+      impact_amount: Number(nextBest.action.amount ?? 0),
+      days_until: null,
+      confidence: nextBest.confidence,
+      actionable: true,
+      route: nextBest.action.route,
+      priority_score: 0,
+      score_reasons: [],
+      evidence: {
+        source: nextBest.version,
+        stage: nextBest.stage,
+        stage_reason: nextBest.stage_reason,
+        truth_gate: nextBest.truth_gate,
+        behavior_context: nextBest.behavior_context,
+        financial_state: nextBest.financial_state,
+        next_action: nextBest.action,
+        formula_version: nextBest.version,
+      },
+    });
+  }
+
   const alreadyDelivered = persist
     ? await loadAlreadyDelivered(sb, userId, opts.repeatWindowDays ?? 5)
     : new Set<string>();
 
-  const { decisions, selected } = allocateAttention({
+  const { decisions, selected, ranked } = allocateAttention({
     situations,
     ctx,
     channels,
@@ -140,7 +181,7 @@ export async function runMultiFinanceProactive(
   }
 
   if (persist) {
-    await persistRun(sb, userId, ctx.as_of, signals, situations, decisions, selected);
+    await persistRun(sb, userId, ctx.as_of, signals, ranked, decisions, selected);
     if (selected.length > 0) {
       const { error } = await sb.from("pending_proactive_suggestions")
         .upsert(selected.map((situation) => candidateFor(userId, situation)), {
@@ -159,7 +200,7 @@ export async function runMultiFinanceProactive(
     delivered_candidates: selected.length,
     suppressed: decisions.filter((decision) => decision.decision === "suppress").length,
     suppression_reasons: suppressionReasons,
-    top: situations.slice(0, 5).map((situation) => ({
+    top: ranked.slice(0, 5).map((situation) => ({
       fingerprint: situation.fingerprint,
       type: situation.type,
       score: situation.priority_score,
