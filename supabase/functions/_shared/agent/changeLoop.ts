@@ -1146,6 +1146,7 @@ export async function registerChangeDismissal(
   sb: SupabaseClient,
   userId: string,
   commitmentId: string,
+  opts: { dedup_key?: string | null; origin?: string } = {},
 ): Promise<{ dismissals: number; strategy: ChangeStrategy } | null> {
   const { data: row } = await sb.from("nino_change_commitments")
     .select("id,stage,dismissals,intervention_attempts")
@@ -1185,8 +1186,72 @@ export async function registerChangeDismissal(
     metadata: {
       dismissals, strategy: decided.strategy, strategy_reason: decided.reason,
       stage: row.stage, principle: intervention.principle,
+      origin: opts.origin ?? "user_action",
     },
+    dedup_key: opts.dedup_key ?? null,
   }).catch(() => undefined);
   return { dismissals, strategy: decided.strategy };
+}
+
+/**
+ * Reconcilia dispensas feitas no app (sugestão dispensada ou feedback negativo)
+ * com o ciclo de mudança. Idempotente por sugestão: o ledger de aprendizado usa
+ * dedup_key, então rodar o tick duas vezes não pune a pessoa duas vezes.
+ */
+export async function reconcileChangeDismissals(
+  sb: SupabaseClient,
+  userId: string,
+  opts: { days?: number } = {},
+): Promise<{ registered: number; skipped: number }> {
+  const since = new Date(Date.now() - Math.max(1, opts.days ?? 14) * 86_400_000).toISOString();
+
+  const [dismissedSuggestions, negativeFeedback] = await Promise.all([
+    sb.from("pending_proactive_suggestions")
+      .select("id,evidence,dismissed_at")
+      .eq("user_id", userId)
+      .not("dismissed_at", "is", null)
+      .gte("dismissed_at", since)
+      .limit(100),
+    sb.from("communication_feedback")
+      .select("source_id,source_table,feedback,created_at")
+      .eq("user_id", userId)
+      .in("feedback", ["dismissed", "not_useful", "irrelevant"])
+      .gte("created_at", since)
+      .limit(100),
+  ]);
+
+  const targets = new Map<string, string>(); // suggestion_id -> commitment_id
+  for (const row of ((dismissedSuggestions?.data as any[]) ?? [])) {
+    const commitmentId = String((row.evidence ?? {}).change_commitment_id ?? "");
+    if (commitmentId) targets.set(String(row.id), commitmentId);
+  }
+
+  const feedbackIds = [...new Set(((negativeFeedback?.data as any[]) ?? [])
+    .filter((row) => !row.source_table || row.source_table === "pending_proactive_suggestions")
+    .map((row) => String(row.source_id))
+    .filter((id) => id && id !== "null" && !targets.has(id)))];
+  if (feedbackIds.length > 0) {
+    const { data: rows } = await sb.from("pending_proactive_suggestions")
+      .select("id,evidence").eq("user_id", userId).in("id", feedbackIds).limit(100);
+    for (const row of ((rows as any[]) ?? [])) {
+      const commitmentId = String((row.evidence ?? {}).change_commitment_id ?? "");
+      if (commitmentId) targets.set(String(row.id), commitmentId);
+    }
+  }
+
+  let registered = 0;
+  let skipped = 0;
+  for (const [suggestionId, commitmentId] of targets.entries()) {
+    const dedupKey = `dismissal:${suggestionId}`;
+    const { data: seen } = await sb.from("nino_learning_events")
+      .select("id").eq("user_id", userId).eq("dedup_key", dedupKey).maybeSingle();
+    if (seen) { skipped += 1; continue; }
+    const result = await registerChangeDismissal(sb, userId, commitmentId, {
+      dedup_key: dedupKey,
+      origin: "app_dismissal",
+    }).catch(() => null);
+    if (result) registered += 1; else skipped += 1;
+  }
+  return { registered, skipped };
 }
 
