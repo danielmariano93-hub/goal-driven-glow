@@ -70,6 +70,8 @@ export type NextBestAction = {
     route: string;
     amount: number | null;
     amount_role: "shortfall" | "monthly_commitment" | "monthly_capacity" | null;
+    /** Valor necessário para cumprir o prazo vigente (quando existe prazo). */
+    required_amount: number | null;
     goal_id: string | null;
     goal_name: string | null;
   };
