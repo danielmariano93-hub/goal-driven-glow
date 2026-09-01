@@ -6,26 +6,29 @@ const root = path.resolve(__dirname, "../..");
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 
 describe("motor único de dicas + ajuste restrito + crons observáveis", () => {
-  it("o card de dicas não usa mais o motor legado local", () => {
-    const card = read("src/components/home/NinoGuidanceCard.tsx");
-    expect(card).not.toContain("buildLocalCandidates");
-    expect(card).not.toContain("pickFallback");
-    expect(card).not.toContain("localFallback");
+  it("o bloco editorial da Home não usa motor legado local", () => {
+    const section = read("src/components/home/NinoGuidanceSection.tsx");
+    const view = read("src/lib/nino/homeEditorial.ts");
+    for (const source of [section, view]) {
+      expect(source).not.toContain("buildLocalCandidates");
+      expect(source).not.toContain("pickFallback");
+      expect(source).not.toContain("localFallback");
+    }
   });
 
-  it("o card da Home consome a inteligência unificada do Nino", () => {
-    const card = read("src/components/home/NinoGuidanceCard.tsx");
+  it("o bloco da Home consome a inteligência unificada do Nino", () => {
+    const section = read("src/components/home/NinoGuidanceSection.tsx");
     const page = read("src/pages/Index.tsx");
     expect(page).toContain("useNinoHomeContext");
     expect(page).not.toContain("useNinoDiagnosisContext");
     expect(page).toContain("toHomeDiagnosisView");
-    expect(card).toContain("HomeDiagnosisView");
+    expect(section).toContain("HomeDiagnosisView");
   });
 
-  it("o botão Útil registra retorno no item de inteligência", () => {
-    const card = read("src/components/home/NinoGuidanceCard.tsx");
-    expect(card).toContain('situationId: item.id, feedback: "acted", surface: "home"');
-    expect(card).toContain("useNinoSituationFeedback");
+  it("o feedback de leitura vive na tela do Nino, não na Home", () => {
+    const section = read("src/components/home/NinoGuidanceSection.tsx");
+    expect(section).not.toContain("useNinoSituationFeedback");
+    expect(read("src/components/nino/NinoSituationCard.tsx")).toContain("useNinoSituationFeedback");
   });
 
   it("insights-generate usa só o catálogo determinístico e entrega lote", () => {

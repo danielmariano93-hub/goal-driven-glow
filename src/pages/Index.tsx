@@ -86,12 +86,10 @@ export default function Index() {
       <NinoGuidanceSection
         diagnosis={homeDiagnosis}
         context={diagnosis.data ?? null}
-        projection={snap?.projection ?? null}
         loading={diagnosis.isLoading}
         error={diagnosis.error}
         retrying={diagnosis.isFetching}
         onRetry={() => void diagnosis.refetch()}
-        projectionAvailability={availability.projection}
       />
 
 
