@@ -148,7 +148,17 @@ type StageCopy = {
   tone: NinoDecisionTone;
   primary: NinoDecisionCta;
   secondary: NinoDecisionCta | null;
+  compact: NinoDecisionCompactCopy;
 };
+
+/** Valor compacto de headline/evidência da Home (R$ 1.943). Nunca em recibo. */
+function brlCompact(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+}
 
 function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | null): StageCopy {
   const stage = String(step.stage ?? "");
@@ -159,11 +169,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
 
   if (stage === "fund_goal") {
     const named = goal ? `A meta “${goal}”` : "Sua meta";
-    const headline = required && amount && required > amount
+    const behind = Boolean(required && amount && required > amount);
+    const headline = behind
       ? `${named} pede um ritmo maior do que cabe hoje`
       : `Avance ${goal ? `a meta “${goal}”` : "sua meta"} no ritmo que cabe hoje`;
-    const context = required && amount && required > amount
-      ? `Para chegar no prazo atual seriam necessários ${brl(required)} por mês. Pelo seu histórico, o ritmo que cabe hoje é menor — e é dele que eu parto.`
+    const context = behind
+      ? `Para chegar no prazo atual seriam necessários ${brl(required!)} por mês. Pelo seu histórico, o ritmo que cabe hoje é menor — e é dele que eu parto.`
       : amount
         ? "Pelo seu histórico, esse é o ritmo que cabe hoje sem apertar seu mês."
         : humanOrNull(step.detail);
@@ -176,9 +187,17 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       amountCaption: "por mês",
       tone: "attention",
       primary: amount
-        ? { kind: "accept", label: "Quero seguir esse plano", route }
-        : { kind: "link", label: "Ajustar minha meta", route: route ?? "/app/metas" },
+        ? { kind: "accept", label: "Seguir esse plano", route }
+        : { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" },
       secondary: amount ? { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" } : null,
+      compact: {
+        headline: behind ? "Sua meta precisa de um ritmo mais realista" : "Sua meta cabe no seu ritmo de hoje",
+        body: behind
+          ? `O prazo atual pediria ${brlCompact(required!)} por mês.`
+          : amount
+            ? "É o ritmo que seu histórico sustenta hoje."
+            : null,
+      },
     };
   }
 
@@ -191,6 +210,10 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       tone: "risk",
       primary: { kind: "link", label: "Resolver isso", route: safeRoute(step.route) ?? "/app/alertas" },
       secondary: null,
+      compact: {
+        headline: "Tem um número que não fecha",
+        body: "Vou corrigir isso antes de recomendar corte ou aporte.",
+      },
     };
   }
 
@@ -204,8 +227,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: vamos cobrir essa folga antes de acelerar qualquer outra coisa. Eu acompanho com você.",
       amountCaption: "para cobrir",
       tone: "risk",
-      primary: { kind: "accept", label: "Quero seguir esse plano", route },
+      primary: { kind: "accept", label: "Seguir esse plano", route },
       secondary: { kind: "link", label: "Ver planejamento", route: route ?? "/app/planejamento" },
+      compact: {
+        headline: "Seu mês fecha apertado se nada mudar",
+        body: shortfall ? "É o que falta para fechar sem aperto." : "Proteger o caixa vem antes de qualquer aporte.",
+      },
     };
   }
 
@@ -216,8 +243,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: vamos aliviar essa pressão antes de aumentar aportes. Eu acompanho a evolução.",
       amountCaption: "por mês em parcelas",
       tone: "attention",
-      primary: { kind: "accept", label: "Quero seguir esse plano", route },
+      primary: { kind: "accept", label: "Seguir esse plano", route },
       secondary: { kind: "link", label: "Ver dívidas", route: route ?? "/app/dividas" },
+      compact: {
+        headline: "Suas parcelas estão consumindo sua folga",
+        body: "É quase tudo o que sobra no seu mês.",
+      },
     };
   }
 
@@ -228,8 +259,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: comece com um aporte planejado nesse ritmo. Eu acompanho e te aviso se o cenário mudar.",
       amountCaption: "por mês",
       tone: "opportunity",
-      primary: { kind: "accept", label: "Quero seguir esse plano", route },
+      primary: { kind: "accept", label: "Seguir esse plano", route },
       secondary: { kind: "link", label: "Ver investimentos", route: route ?? "/app/investimentos" },
+      compact: {
+        headline: "Sua folga pode virar patrimônio",
+        body: "Sobra esse valor todo mês e hoje ele não rende nada.",
+      },
     };
   }
 
@@ -242,8 +277,10 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
     tone: "progress",
     primary: { kind: "link", label: "Ver meu relatório", route: safeRoute(step.route) ?? "/app/relatorios" },
     secondary: null,
+    compact: { headline: fallbackHeadline, body: humanOrNull(step.detail) },
   };
 }
+
 
 function situationOnly(
   situation: NinoDecisionSituation,
