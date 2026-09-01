@@ -8445,6 +8445,8 @@ export type Database = {
           goal_name: string | null
           id: string
           principles: Json
+          required_amount: number | null
+          required_amount_role: string | null
           route: string | null
           source: string
           stage: string
@@ -8472,6 +8474,8 @@ export type Database = {
           goal_name?: string | null
           id?: string
           principles?: Json
+          required_amount?: number | null
+          required_amount_role?: string | null
           route?: string | null
           source?: string
           stage: string
@@ -8499,6 +8503,8 @@ export type Database = {
           goal_name?: string | null
           id?: string
           principles?: Json
+          required_amount?: number | null
+          required_amount_role?: string | null
           route?: string | null
           source?: string
           stage?: string
