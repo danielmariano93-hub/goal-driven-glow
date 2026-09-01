@@ -11,6 +11,7 @@ import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 
 type Policy = {
   pilot_mode: boolean;
+  pilot_user_ids: string[];
   high_priority_threshold: number;
   critical_priority_threshold: number;
   allow_high_priority_override: boolean;
@@ -80,6 +81,7 @@ export function PriorityPolicyCard() {
           _cap_behavior: form.cap_behavior,
           _quiet_hours_high_priority_behavior: form.quiet_hours_high_priority_behavior,
           _pilot_budget_multiplier: form.pilot_budget_multiplier,
+          _pilot_user_ids: form.pilot_user_ids,
         });
       } catch (error) {
         throw new Error(adminErrorMessage(error, "Falha ao salvar a política de prioridade"));
@@ -97,6 +99,7 @@ export function PriorityPolicyCard() {
     return <EmptyState title="Não foi possível carregar a política de prioridade" description={(policy.error as Error)?.message} />;
   }
   if (!form) return <SkeletonStats count={3} />;
+  const pilotIds = form.pilot_user_ids ?? [];
 
   const set = <K extends keyof Policy>(key: K, value: Policy[K]) => setForm({ ...form, [key]: value });
   const totals = metrics.data?.totals;
@@ -114,7 +117,9 @@ export function PriorityPolicyCard() {
             </p>
           </div>
           <HealthPill tone={form.pilot_mode ? "warn" : "info"}>
-            {form.pilot_mode ? "piloto ligado" : "piloto desligado"}
+            {form.pilot_mode
+              ? `piloto ligado${(form.pilot_user_ids ?? []).length ? ` · ${(form.pilot_user_ids ?? []).length} cliente(s)` : " · todos"}`
+              : "piloto desligado"}
           </HealthPill>
         </div>
 
@@ -192,7 +197,17 @@ export function PriorityPolicyCard() {
               <option value="immediate">Enviar na hora</option>
             </select>
           </label>
-          <label className="text-xs font-medium text-muted-foreground sm:col-span-2 lg:col-span-3">
+          <label className="text-xs font-medium text-muted-foreground sm:col-span-2 lg:col-span-2">
+            Clientes do piloto (um id por linha; vazio = todos)
+            <textarea
+              className="mt-1 min-h-[92px] w-full rounded-md border border-input bg-background p-3 text-sm"
+              value={pilotIds.join("\n")}
+              onChange={(e) =>
+                set("pilot_user_ids", e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))
+              }
+            />
+          </label>
+          <label className="text-xs font-medium text-muted-foreground sm:col-span-2 lg:col-span-2">
             Tipos de alta relevância (um por linha)
             <textarea
               className="mt-1 min-h-[92px] w-full rounded-md border border-input bg-background p-3 text-sm"
