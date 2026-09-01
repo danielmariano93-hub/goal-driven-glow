@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
@@ -7,6 +8,7 @@ import { NinoSupportingSignalRow } from "@/components/nino/NinoSupportingSignalR
 import { NinoRefreshButton } from "@/components/nino/NinoRefreshButton";
 import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock } from "@/components/nino/NinoStateBlocks";
 import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
+import { markNinoSeen } from "@/lib/nino/intelligence";
 import { consolidateSituations } from "@/lib/nino/consolidate";
 
 const SECTIONS = [
@@ -24,10 +26,20 @@ export default function Nino() {
   const active = (params.get("section") ?? "agora") as SectionId;
   const { data, isLoading, isError, error, isFetching, refetch } = useNinoDiagnosisContext();
   const [expanded, setExpanded] = useState(false);
+  const qc = useQueryClient();
 
   const section = useMemo(() => SECTIONS.find((s) => s.id === active) ?? SECTIONS[0], [active]);
 
   useEffect(() => setExpanded(false), [section.id]);
+
+  // Visitar a tela do Nino zera o "novidades" da aba Mais: badge e tela
+  // passam a contar exatamente a mesma coleção editorial.
+  useEffect(() => {
+    if (!data) return;
+    void markNinoSeen("nino", "all").then(() => {
+      void qc.invalidateQueries({ queryKey: ["more-menu-context"] });
+    });
+  }, [data, qc]);
 
   const quality = data?.data_quality;
   const insufficient = data?.overall_state === "insufficient_data";

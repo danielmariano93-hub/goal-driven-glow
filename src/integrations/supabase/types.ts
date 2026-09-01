@@ -14285,6 +14285,16 @@ export type Database = {
         Args: { _user_id: string }
         Returns: string[]
       }
+      nino_diag_pace_sample_ok: {
+        Args: {
+          _min_days?: number
+          _min_tx?: number
+          _period_end: string
+          _period_start: string
+          _user_id: string
+        }
+        Returns: boolean
+      }
       nino_diag_pct: { Args: { _value: number }; Returns: string }
       nino_diag_put_situation: {
         Args: {
@@ -14434,11 +14444,31 @@ export type Database = {
         }
         Returns: number
       }
+      nino_screen_situations: {
+        Args: { _user_id: string }
+        Returns: {
+          created_at: string
+          headline: string
+          id: string
+          last_material_at: string
+          narrative_role: string
+          relevance_score: number
+          severity: string
+          situation_key: string
+          situation_type: string
+          status: string
+          temporal_scope: string
+        }[]
+      }
       nino_semantic_gate: {
         Args: { _kind: string; _text: string }
         Returns: string
       }
       nino_situation_cooldown_ids: {
+        Args: { _user_id: string }
+        Returns: string[]
+      }
+      nino_situation_screen_hidden_ids: {
         Args: { _user_id: string }
         Returns: string[]
       }
