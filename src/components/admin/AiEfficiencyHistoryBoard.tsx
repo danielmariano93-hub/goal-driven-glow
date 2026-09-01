@@ -33,6 +33,12 @@ type Series = {
   avg_latency_ms: number | null;
   p50_latency_ms: number | null;
   p95_latency_ms: number | null;
+  ai_avg_latency_ms: number | null;
+  ai_p50_latency_ms: number | null;
+  ai_p95_latency_ms: number | null;
+  e2e_avg_latency_ms: number | null;
+  e2e_p50_latency_ms: number | null;
+  e2e_p95_latency_ms: number | null;
   estimated_cost_usd: number;
 };
 
@@ -43,6 +49,8 @@ type History = {
     tokens_in: number; tokens_out: number; tokens_total: number;
     tokens_per_run: number; tokens_per_llm_run: number; avg_llm_calls: number;
     avg_latency_ms: number | null; p50_latency_ms: number | null; p95_latency_ms: number | null;
+    ai_avg_latency_ms?: number | null; ai_p50_latency_ms?: number | null; ai_p95_latency_ms?: number | null;
+    e2e_avg_latency_ms?: number | null; e2e_p50_latency_ms?: number | null; e2e_p95_latency_ms?: number | null;
     estimated_cost_usd: number; avg_system_prompt_chars: number | null;
     compression_ratio: number | null;
   };
@@ -221,7 +229,10 @@ export function AiEfficiencyHistoryBoard() {
   const hasTokens = daySeries.some((row) => Number(row.tokens_total ?? 0) > 0);
   const tokenSeries = hasTokens ? daySeries : [];
   const latencySeries = daySeries.filter((row) =>
-    row.avg_latency_ms != null || row.p50_latency_ms != null || row.p95_latency_ms != null
+    row.ai_avg_latency_ms != null || row.ai_p50_latency_ms != null || row.ai_p95_latency_ms != null
+  );
+  const e2eSeries = daySeries.filter((row) =>
+    row.e2e_avg_latency_ms != null || row.e2e_p50_latency_ms != null || row.e2e_p95_latency_ms != null
   );
 
   const filters = h.available_filters ?? { channels: [], paths: [], model_tiers: [], models: [], capabilities: [] };
@@ -347,8 +358,8 @@ export function AiEfficiencyHistoryBoard() {
           value={num(t.tokens_total)}
           detail={`Entrada ${num(t.tokens_in)} · Saída ${num(t.tokens_out)}`}
         />
-        <AdminMetricCard label="Latência de IA (mediana)" value={ms(t.p50_latency_ms)} detail={`Média ${ms(t.avg_latency_ms)} · só o tempo do modelo`} />
-        <AdminMetricCard label="Latência de IA (P95)" value={ms(t.p95_latency_ms)} tone="warning" detail="Ponta a ponta fica em Observabilidade do agente" />
+        <AdminMetricCard label="Latência de IA (mediana)" value={ms(t.ai_p50_latency_ms)} detail={`Média ${ms(t.ai_avg_latency_ms)} · só o tempo do modelo`} />
+        <AdminMetricCard label="Latência de IA (P95)" value={ms(t.ai_p95_latency_ms)} tone="warning" detail="Somente chamadas registradas no ledger de IA" />
         <AdminMetricCard
           label="Chamadas de IA por conversa"
           value={t.avg_llm_calls == null ? "—" : Number(t.avg_llm_calls).toFixed(2)}
@@ -405,15 +416,39 @@ export function AiEfficiencyHistoryBoard() {
                 tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
               <Tooltip formatter={(v: number) => `${(Number(v) / 1000).toFixed(1)}s`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="p50_latency_ms" name="Mediana" stroke="hsl(var(--primary))" dot={latencySeries.length < 3} strokeWidth={2} />
-              <Line type="monotone" dataKey="p95_latency_ms" name="P95" stroke="hsl(var(--brand-coral))" dot={latencySeries.length < 3} strokeWidth={2} />
-              <Line type="monotone" dataKey="avg_latency_ms" name="Média" stroke="hsl(var(--success))" dot={latencySeries.length < 3} strokeWidth={1} />
+               <Line type="monotone" dataKey="ai_p50_latency_ms" name="Mediana" stroke="hsl(var(--primary))" dot={latencySeries.length < 3} strokeWidth={2} />
+               <Line type="monotone" dataKey="ai_p95_latency_ms" name="P95" stroke="hsl(var(--brand-coral))" dot={latencySeries.length < 3} strokeWidth={2} />
+               <Line type="monotone" dataKey="ai_avg_latency_ms" name="Média" stroke="hsl(var(--success))" dot={latencySeries.length < 3} strokeWidth={1} />
               {marks.map((m) => (
                 <ReferenceLine key={m.date} x={m.date} stroke="hsl(var(--success))" strokeDasharray="4 4" />
               ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
+        )}
+      </figure>
+
+      <figure className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+        <figcaption className="mb-2 flex items-center gap-2 text-sm font-semibold">
+          <Activity size={14} className="text-primary" aria-hidden /> Latência ponta a ponta por dia
+        </figcaption>
+        {e2eSeries.length === 0 ? (
+          <p className="rounded-2xl border border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">Sem execuções completas medidas neste recorte.</p>
+        ) : (
+          <div style={{ height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={e2eSeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
+                <Tooltip formatter={(v: number) => `${(Number(v) / 1000).toFixed(1)}s`} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="e2e_p50_latency_ms" name="Mediana ponta a ponta" stroke="hsl(var(--primary))" dot={e2eSeries.length < 3} strokeWidth={2} />
+                <Line type="monotone" dataKey="e2e_p95_latency_ms" name="P95 ponta a ponta" stroke="hsl(var(--brand-coral))" dot={e2eSeries.length < 3} strokeWidth={2} />
+                <Line type="monotone" dataKey="e2e_avg_latency_ms" name="Média ponta a ponta" stroke="hsl(var(--success))" dot={e2eSeries.length < 3} strokeWidth={1} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </figure>
 

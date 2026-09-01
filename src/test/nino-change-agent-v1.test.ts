@@ -109,12 +109,13 @@ describe("Admin hardening", () => {
     expect(migration).not.toContain("least(14");
   });
 
-  it("Admin usa telemetria v3 e possui aba Aprendizado", () => {
+  it("Admin separa custo, aprendizado global e inspetor", () => {
     const ai = read("src/components/admin/AiEfficiencyHistoryBoard.tsx");
-    const page = read("src/pages/admin/IAInteligencia.tsx");
+    const page = read("src/pages/admin/NinoIA.tsx");
     expect(ai).toContain('admin_v3_ai_history');
-    expect(page).toContain('value="learning"');
-    expect(page).toContain("NinoLearningBoard");
+    expect(page).toContain('id: "aprendizado"');
+    expect(page).toContain('id: "inspetor"');
+    expect(page).toContain("AprendizadoGlobal");
   });
 });
 

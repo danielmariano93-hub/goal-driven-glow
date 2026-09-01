@@ -14,6 +14,8 @@ import Assistente from "./operacao/Assistente";
 import IaOcr from "./operacao/IaOcr";
 import Simulador from "./AgenteSimulador";
 import AgenticObservabilityBoard from "./agente/AgenticObservabilityBoard";
+import CustoLatencia from "./CustoLatencia";
+import AprendizadoGlobal from "./AprendizadoGlobal";
 
 
 /**
@@ -26,7 +28,9 @@ export default function NinoIA() {
       <PageHeader title="Nino & IA" description="Qualidade das respostas, custo por modelo, conhecimento oficial, leitura de documentos e simulador." />
       <AdminTabs tabs={[
         { id: "qualidade", label: "Qualidade", render: () => <Assistente /> },
-        { id: "custo", label: "Custo e uso", render: () => <IAInteligencia /> },
+        { id: "custo", label: "Custo e latência", render: () => <CustoLatencia /> },
+        { id: "aprendizado", label: "Aprendizado global", render: () => <AprendizadoGlobal /> },
+        { id: "inspetor", label: "Inspetor", render: () => <IAInteligencia /> },
         { id: "modelos", label: "Modelos", render: () => <Models /> },
         { id: "conhecimento", label: "Conhecimento", render: () => <Knowledge /> },
         { id: "documentos", label: "Documentos", render: () => <IaOcr /> },
