@@ -200,7 +200,9 @@ function buildSpotlight(
       mainValueSuffix: narrative.primaryAmount?.caption ? clean(narrative.primaryAmount.caption) : null,
       tone,
       priority,
-      primaryAction: toAction(narrative.primaryCta),
+      // Spotlight sem CTA não converte: quando o motor não anexou ação confiável,
+      // usamos o destino canônico da própria situação (rota já existente).
+      primaryAction: toAction(narrative.primaryCta) ?? fallbackAction(situation),
       secondaryAction: toAction(narrative.secondaryCta),
     },
   };
