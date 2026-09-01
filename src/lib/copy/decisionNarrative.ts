@@ -46,6 +46,13 @@ export type NinoDecisionCta =
   | { kind: "accept"; label: string; route: string | null }
   | { kind: "link"; label: string; route: string };
 
+export type NinoDecisionCompactCopy = {
+  /** Headline curta de Home: <= 65 caracteres, conclusão em uma linha. */
+  headline: string;
+  /** Evidência mínima: uma frase, <= 140 caracteres, sem repetir o valor destacado. */
+  body: string | null;
+};
+
 export type NinoDecisionNarrative = {
   eyebrow: string;
   headline: string;
@@ -60,6 +67,8 @@ export type NinoDecisionNarrative = {
   /** true quando diagnóstico e próximo passo são a MESMA decisão (um card só). */
   sameDecision: boolean;
   sourceRefs: string[];
+  /** Variante da Home: conclusão + evidência mínima, nunca o texto detalhado. */
+  compact: NinoDecisionCompactCopy;
   variants: {
     home: string[];
     nino_detail: string[];
@@ -67,6 +76,7 @@ export type NinoDecisionNarrative = {
     proactive: string;
   };
 };
+
 
 const BANNED = [
   /capacidade sustent[áa]vel/i,
