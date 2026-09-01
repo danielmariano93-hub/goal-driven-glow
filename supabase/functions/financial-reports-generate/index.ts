@@ -27,6 +27,7 @@ import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
 import { buildCatalogHighlights } from "./catalogHighlights.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
+import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
 
 
 const FN = "financial-reports-generate";
@@ -129,7 +130,7 @@ async function loadContext(sb: Sb, userId: string) {
 }
 
 /** Texto do relatório via Lovable AI Gateway, validado pelo guardrail. */
-async function synthesizeNarrative(sb: Sb, report: IntelligentReport): Promise<{
+async function synthesizeNarrative(sb: Sb, userId: string, report: IntelligentReport): Promise<{
   summary: string; closing: string; source: "ai" | "deterministic"; fallbackReason: string | null;
 }> {
   const deterministic = {
@@ -172,6 +173,12 @@ async function synthesizeNarrative(sb: Sb, report: IntelligentReport): Promise<{
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const aiStarted = Date.now();
+  const usageBase = {
+    workload: "ADVISOR_REPORTS" as const, function_name: "financial-reports-generate",
+    operation: "synthesize_narrative", user_id: userId, model: MODEL,
+    operation_type: "chat", reason_for_ai_call: "report_narrative",
+  };
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -191,9 +198,16 @@ async function synthesizeNarrative(sb: Sb, report: IntelligentReport): Promise<{
       const detail = (await res.text()).slice(0, 200);
       if (res.status === 402 || res.status === 403) await pauseAiCircuit(sb, res.status, detail);
       logEvent({ event: "ai_error", status: res.status, detail });
+      await recordGatewayCall(sb, {
+        ...usageBase, success: false, http_status: res.status,
+        error_code: `gateway_${res.status}`, latency_ms: Date.now() - aiStarted,
+      }, null);
       return { ...deterministic, fallbackReason: `gateway_${res.status}` };
     }
     const payload = await res.json();
+    await recordGatewayCall(sb, {
+      ...usageBase, success: true, http_status: 200, latency_ms: Date.now() - aiStarted,
+    }, payload);
     const raw = payload?.choices?.[0]?.message?.content ?? "";
     let parsed: { summary?: string; closing?: string } = {};
     try { parsed = JSON.parse(raw); } catch { return { ...deterministic, fallbackReason: "invalid_json" }; }
@@ -207,6 +221,9 @@ async function synthesizeNarrative(sb: Sb, report: IntelligentReport): Promise<{
     }
     return { summary, closing, source: "ai", fallbackReason: null };
   } catch (e) {
+    await recordGatewayCall(sb, {
+      ...usageBase, success: false, error_code: "network_error", latency_ms: Date.now() - aiStarted,
+    }, null);
     return { ...deterministic, fallbackReason: `ai_exception:${(e as Error).message}`.slice(0, 120) };
   } finally {
     clearTimeout(timer);
@@ -315,7 +332,7 @@ async function generateForUser(
     : base;
 
 
-  const narrative = await synthesizeNarrative(sb, report);
+  const narrative = await synthesizeNarrative(sb, userId, report);
 
   const row = {
     user_id: userId,

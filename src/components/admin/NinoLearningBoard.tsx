@@ -19,6 +19,8 @@ type LearningEvent = {
 
 type LearningOverview = {
   period_days: number;
+  scope?: "global" | "user";
+  top_users?: Array<{ pseudo_id: string; events: number; corrections: number; last_at: string }>;
   totals: {
     events: number;
     applied: number;
@@ -83,9 +85,10 @@ function label(type: string): string {
   return map[type] ?? type.split("_").join(" ");
 }
 
-export function NinoLearningBoard({ userId }: { userId: string }) {
+/** `userId` nulo = visão global: soma o aprendizado de todos os clientes. */
+export function NinoLearningBoard({ userId = null }: { userId?: string | null }) {
   const query = useQuery({
-    queryKey: ["admin_nino_learning_overview", userId],
+    queryKey: ["admin_nino_learning_overview", userId ?? "global"],
     queryFn: async (): Promise<LearningOverview> => {
       const { data, error } = await supabase.rpc("admin_nino_learning_overview", {
         _user_id: userId,
@@ -118,7 +121,8 @@ export function NinoLearningBoard({ userId }: { userId: string }) {
         <div>
           <h3 className="font-semibold">Como o Nino está aprendendo</h3>
           <p className="text-xs text-muted-foreground">
-            Evento → memória/estratégia aplicada → efeito nas próximas decisões. Últimos {d.period_days} dias.
+            {userId ? "Este cliente" : "Todos os clientes"} · evento → memória/estratégia aplicada → efeito nas próximas
+            decisões. Últimos {d.period_days} dias.
           </p>
         </div>
         <Badge variant={d.health === "attention" ? "destructive" : "secondary"}>
@@ -140,6 +144,23 @@ export function NinoLearningBoard({ userId }: { userId: string }) {
           detail={d.health_reason}
         />
       </div>
+
+      {!userId && (d.top_users ?? []).length > 0 && (
+        <section className="surface-card p-4">
+          <h4 className="text-sm font-semibold">Quem está gerando aprendizado</h4>
+          <ul className="mt-3 space-y-2">
+            {(d.top_users ?? []).map((row) => (
+              <li key={row.pseudo_id} className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-mono">{row.pseudo_id}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {row.events} evento(s) · {row.corrections} correção(ões) ·{" "}
+                  {new Date(row.last_at).toLocaleDateString("pt-BR")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {d.current_strategy && (
         <div className="surface-card p-4 text-xs">

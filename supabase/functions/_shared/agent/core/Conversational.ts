@@ -1,3 +1,4 @@
+import { recordGatewayCall } from "../../aiUsageLedger.ts";
 // Conversational (`nino_brain.v2`) — camada CONVERSAR não-financeira.
 //
 // Perguntas corriqueiras ("o que você é?", "bom dia", "obrigado", "qual a
@@ -221,9 +222,25 @@ export async function generateConversationalReply(args: {
   text: string;
   history?: Array<{ role: string; content: string }>;
   first_name?: string | null;
+  /** Ledger de consumo: sem sb/user_id a chamada ficaria invisível no admin. */
+  // deno-lint-ignore no-explicit-any
+  sb?: any;
+  user_id?: string | null;
 }): Promise<string | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
+  const MODEL = "openai/gpt-5.6-sol";
+  const aiStarted = Date.now();
+  // deno-lint-ignore no-explicit-any
+  const logUsage = async (ok: boolean, status: number | null, error: string | null, json: any) => {
+    if (!args.sb) return;
+    await recordGatewayCall(args.sb, {
+      workload: "AGENT_CONVERSATION", function_name: "agent-conversational",
+      operation: "casual_reply", user_id: args.user_id ?? null, model: MODEL,
+      operation_type: "chat", success: ok, http_status: status, error_code: error,
+      latency_ms: Date.now() - aiStarted, reason_for_ai_call: "casual_route",
+    }, json).catch(() => undefined);
+  };
   try {
     const history = (args.history ?? []).slice(-6)
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -236,7 +253,7 @@ export async function generateConversationalReply(args: {
         "X-Lovable-AIG-SDK": "edge-function",
       },
       body: JSON.stringify({
-        model: "openai/gpt-5.6-sol",
+        model: MODEL,
         temperature: 0.6,
         messages: [
           { role: "system", content: NINO_PERSONA },
@@ -252,11 +269,16 @@ export async function generateConversationalReply(args: {
         ],
       }),
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      await logUsage(false, resp.status, `gateway_${resp.status}`, null);
+      return null;
+    }
     const json = await resp.json().catch(() => null) as any;
+    await logUsage(true, 200, null, json);
     const reply = String(json?.choices?.[0]?.message?.content ?? "").trim();
     return reply || null;
   } catch {
+    await logUsage(false, null, "network_error", null);
     return null;
   }
 }

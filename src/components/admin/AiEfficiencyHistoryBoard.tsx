@@ -214,10 +214,16 @@ export function AiEfficiencyHistoryBoard() {
 
   const h = history.data!;
   const t = h.totals;
-  const tokenSeries = (h.series ?? []).filter((row) => Number(row.tokens_total ?? 0) > 0);
-  const latencySeries = (h.series ?? []).filter((row) =>
+  // A série do banco já vem dia a dia. Dias com zero token continuam na série
+  // (o consumo real naquele dia foi zero); só escondemos o gráfico quando não
+  // existe um único dia com token no recorte — aí a mensagem é explícita.
+  const daySeries = h.series ?? [];
+  const hasTokens = daySeries.some((row) => Number(row.tokens_total ?? 0) > 0);
+  const tokenSeries = hasTokens ? daySeries : [];
+  const latencySeries = daySeries.filter((row) =>
     row.avg_latency_ms != null || row.p50_latency_ms != null || row.p95_latency_ms != null
   );
+
   const filters = h.available_filters ?? { channels: [], paths: [], model_tiers: [], models: [], capabilities: [] };
   const ms = (v: number | null | undefined) => (v == null ? "—" : `${(v / 1000).toFixed(1)}s`);
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
@@ -356,6 +362,11 @@ export function AiEfficiencyHistoryBoard() {
         <figcaption className="mb-2 flex items-center gap-2 text-sm font-semibold">
           <Zap size={14} className="text-primary" aria-hidden /> Consumo de tokens por dia
         </figcaption>
+        {tokenSeries.length === 0 ? (
+          <p className="rounded-2xl border border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">
+            Nenhum consumo de IA registrado neste recorte. Troque o tipo de uso ou amplie o período.
+          </p>
+        ) : (
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={tokenSeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
@@ -364,8 +375,8 @@ export function AiEfficiencyHistoryBoard() {
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <Tooltip formatter={(v: number) => Number(v).toLocaleString("pt-BR")} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Area type="monotone" dataKey="tokens_in" name="Entrada" stackId="1" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} />
-              <Area type="monotone" dataKey="tokens_out" name="Saída" stackId="1" stroke="hsl(var(--brand-coral))" fill="hsl(var(--brand-coral))" fillOpacity={0.25} />
+              <Area type="monotone" dataKey="tokens_in" name="Entrada" stackId="1" dot={tokenSeries.length < 3} stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} />
+              <Area type="monotone" dataKey="tokens_out" name="Saída" stackId="1" dot={tokenSeries.length < 3} stroke="hsl(var(--brand-coral))" fill="hsl(var(--brand-coral))" fillOpacity={0.25} />
               {marks.map((m) => (
                 <ReferenceLine key={m.date} x={m.date} stroke="hsl(var(--success))" strokeDasharray="4 4"
                   label={{ value: m.label, position: "insideTopRight", fontSize: 10, fill: "hsl(var(--success))" }} />
@@ -373,12 +384,18 @@ export function AiEfficiencyHistoryBoard() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        )}
       </figure>
 
       <figure className="rounded-3xl border border-border bg-card p-4 shadow-sm">
         <figcaption className="mb-2 flex items-center gap-2 text-sm font-semibold">
           <Gauge size={14} className="text-primary" aria-hidden /> Latência de IA por dia (tempo do modelo)
         </figcaption>
+        {latencySeries.length === 0 ? (
+          <p className="rounded-2xl border border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">
+            Sem latência de IA medida neste recorte.
+          </p>
+        ) : (
         <div style={{ height: 240 }}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={latencySeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} onClick={selectLatencyDay}>
@@ -388,15 +405,16 @@ export function AiEfficiencyHistoryBoard() {
                 tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
               <Tooltip formatter={(v: number) => `${(Number(v) / 1000).toFixed(1)}s`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="p50_latency_ms" name="Mediana" stroke="hsl(var(--primary))" dot={false} strokeWidth={2} />
-              <Line type="monotone" dataKey="p95_latency_ms" name="P95" stroke="hsl(var(--brand-coral))" dot={false} strokeWidth={2} />
-              <Line type="monotone" dataKey="avg_latency_ms" name="Média" stroke="hsl(var(--success))" dot={false} strokeWidth={1} />
+              <Line type="monotone" dataKey="p50_latency_ms" name="Mediana" stroke="hsl(var(--primary))" dot={latencySeries.length < 3} strokeWidth={2} />
+              <Line type="monotone" dataKey="p95_latency_ms" name="P95" stroke="hsl(var(--brand-coral))" dot={latencySeries.length < 3} strokeWidth={2} />
+              <Line type="monotone" dataKey="avg_latency_ms" name="Média" stroke="hsl(var(--success))" dot={latencySeries.length < 3} strokeWidth={1} />
               {marks.map((m) => (
                 <ReferenceLine key={m.date} x={m.date} stroke="hsl(var(--success))" strokeDasharray="4 4" />
               ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
+        )}
       </figure>
 
       <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">

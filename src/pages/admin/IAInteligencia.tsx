@@ -161,11 +161,16 @@ export default function IAInteligencia() {
       )}
 
       {!target && !notFound && (
-        <EmptyState
-          icon={Sparkles}
-          title="Busque um usuário para inspecionar a inteligência do assistente"
-          description="Você verá o snapshot do perfil, memória aprendida, sugestões proativas, decisões recentes e execuções do agente."
-        />
+        <div className="space-y-4">
+          <EmptyState
+            icon={Sparkles}
+            title="Busque um usuário para inspecionar a inteligência do assistente"
+            description="Você verá o snapshot do perfil, memória aprendida, sugestões proativas, decisões recentes e execuções do agente."
+          />
+          {/* Aprendizado do Nino não depende de escolher um cliente: a visão global
+              soma o ledger de todos e diz se o pipeline está registrando. */}
+          <NinoLearningBoard />
+        </div>
       )}
 
       {target && inspect.isLoading && (

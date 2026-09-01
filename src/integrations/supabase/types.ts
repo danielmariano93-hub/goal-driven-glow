@@ -13141,7 +13141,7 @@ export type Database = {
       admin_message_reprocess: { Args: { p_id: string }; Returns: Json }
       admin_message_timeline: { Args: { p_id: string }; Returns: Json }
       admin_nino_learning_overview: {
-        Args: { _days?: number; _user_id: string }
+        Args: { _days?: number; _user_id?: string }
         Returns: Json
       }
       admin_open_break_glass: {
