@@ -368,7 +368,9 @@ export function composeNinoDecisionNarrative(input: {
     tone: copy.tone,
     sameDecision,
     sourceRefs: sameDecision ? ["nino_diagnosis", "nino_change_recommendation"] : ["nino_change_recommendation"],
+    compact: copy.compact,
     variants: {
+
       home: homeLines,
       nino_detail: [...homeLines, ...(secondaryAmount ? [`Necessário para o prazo atual: ${brl(secondaryAmount.value)} por mês.`] : [])],
       whatsapp: whatsappLines.join("\n"),
