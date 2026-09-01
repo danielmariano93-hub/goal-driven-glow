@@ -17,6 +17,7 @@ import {
   type NextBestAction,
 } from "./behaviorWealth.ts";
 import { principlesForStage, resolveBehavioralIntervention } from "./behavioralPrinciples.ts";
+import { composeChangeMessage, type CommunicationInstruction } from "./changeMessage.ts";
 import type { FinancialSituation } from "../proactive/contracts.ts";
 
 type SupabaseClient = any;
