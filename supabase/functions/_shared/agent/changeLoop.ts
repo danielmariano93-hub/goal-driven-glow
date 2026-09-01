@@ -944,6 +944,24 @@ export async function confirmChangeFollowupDelivery(
   const score = clamp01(n((args.evidence as any)?.progress_score));
   const cadence = Math.max(1, Number(commitment.cadence_days ?? 7));
 
+  const stallsBefore = await consecutiveStalls(sb, userId, commitmentId);
+  const profileBefore = await buildChangeLearningProfile(sb, userId).catch(() => null);
+  const attempts = Math.max(0, Number(commitment.intervention_attempts ?? 0)) + 1;
+  const decided = resolveChangeStrategy({
+    outcome,
+    stage: String(commitment.stage ?? ""),
+    consecutive_stalls: stallsBefore + (outcome === "stalled" || outcome === "regressed" ? 1 : 0),
+    dismissals: Number(commitment.dismissals ?? 0),
+    intervention_attempts: attempts,
+    learning_profile: profileBefore,
+  });
+  const intervention = resolveBehavioralIntervention({
+    stage: String(commitment.stage ?? ""),
+    outcome,
+    strategy: decided.strategy,
+    learningProfile: profileBefore,
+  });
+
   const { error: insertError } = await sb.from("nino_change_checkins").insert({
     user_id: userId,
     commitment_id: commitmentId,
@@ -952,9 +970,19 @@ export async function confirmChangeFollowupDelivery(
     evidence: {
       ...((args.evidence as any)?.status_evidence ?? {}),
       delivery: { suggestion_id: args.suggestion_id, channel: args.channel ?? null, delivered_at: deliveredAt },
+      strategy: decided.strategy,
+      strategy_reason: decided.reason,
+      principle: intervention.principle,
     },
     source: "delivery_confirmed",
     communicated: true,
+    // Colunas estruturadas: o ciclo de vida da entrega é consultável sem abrir
+    // o JSON de evidência.
+    delivered_at: deliveredAt,
+    channel: args.channel ?? null,
+    communication_kind: args.communication_kind ?? null,
+    strategy: decided.strategy,
+    principle: intervention.principle,
     dedup_key: dedupKey,
   });
   if (insertError) {
@@ -963,22 +991,13 @@ export async function confirmChangeFollowupDelivery(
   }
 
   const stalls = await consecutiveStalls(sb, userId, commitmentId);
-  const profile = await buildChangeLearningProfile(sb, userId).catch(() => null);
-  const attempts = Math.max(0, Number(commitment.intervention_attempts ?? 0)) + 1;
-  const decided = resolveChangeStrategy({
-    outcome,
-    stage: String(commitment.stage ?? ""),
-    consecutive_stalls: stalls,
-    dismissals: Number(commitment.dismissals ?? 0),
-    intervention_attempts: attempts,
-    learning_profile: profile,
-  });
 
   await sb.from("nino_change_commitments").update({
     last_check_at: deliveredAt,
     last_progress_score: score,
     last_outcome: outcome,
-    next_check_at: isoPlusDays(cadence),
+    // Cadência a partir da ENTREGA real, não do instante da reconciliação.
+    next_check_at: isoPlusDaysFrom(deliveredAt, cadence),
     intervention_attempts: attempts,
     strategy: decided.strategy,
     strategy_reason: decided.reason,
@@ -989,6 +1008,7 @@ export async function confirmChangeFollowupDelivery(
         ? { status: "paused", ended_at: deliveredAt, end_reason: "strategy_paused_after_dismissals" }
         : {}),
   }).eq("id", commitmentId).eq("user_id", userId);
+
 
   await recordLearningEvent(sb, {
     user_id: userId,
