@@ -54,16 +54,17 @@ export function NinoInsightRow({ item, surface = "home" }: { item: NinoSupportin
           surface,
         })
       }
-      className="flex min-h-[72px] items-center gap-3 rounded-[16px] border border-border bg-card px-4 py-3 transition-colors hover:bg-secondary/60"
+      className="grid min-h-[64px] max-h-[76px] w-full grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors first:rounded-t-[16px] last:rounded-b-[16px] hover:bg-secondary/50"
     >
       <tone.Icon size={20} weight="duotone" className={cn("shrink-0", tone.text)} aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-semibold leading-[20px] text-foreground">{item.title}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-[15px] font-semibold leading-[20px] text-foreground">{item.title}</span>
         {item.supportingText ? (
-          <span className="mt-0.5 block text-[13px] leading-[18px] text-muted-foreground">{item.supportingText}</span>
+          <span className="mt-0.5 block truncate text-[13px] leading-[17px] text-muted-foreground">{item.supportingText}</span>
         ) : null}
       </span>
-      <CaretRight size={16} weight="bold" className="shrink-0 text-muted-foreground" aria-hidden="true" />
+      <CaretRight size={16} weight="bold" className="shrink-0 self-center text-muted-foreground" aria-hidden="true" />
     </Link>
+
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { buildNinoHomeEditorialView, NINO_SUPPORTING_LIMIT } from "@/lib/nino/homeEditorial";
+import { buildNinoHomeEditorialView, NINO_SUPPORTING_DEFAULT, NINO_SUPPORTING_LIMIT } from "@/lib/nino/homeEditorial";
 import { toHomeDiagnosisView, type FinancialSituation, type NinoDiagnosisContext } from "@/lib/nino/diagnosis";
 import type { NinoNextStep } from "@/lib/nino/nextStep";
 
@@ -170,9 +170,65 @@ describe("nino_home_editorial.v1", () => {
     expect(fs.existsSync(path.join(root, "src/components/home/NinoDecisionCard.tsx"))).toBe(false);
   });
 
+  it("K. supporting da MESMA meta do Spotlight não entra na Home", () => {
+    const view = build(
+      {
+        supporting_situations: [
+          situation({ id: "same-goal", one_line_summary: "Sua meta pede um próximo aporte", evaluation: { goal_id: "goal-1" } }),
+          situation({ id: "other", situation_type: "cash_flow_imbalance", one_line_summary: "Seu caixa está apertado" }),
+        ],
+      },
+      goalStep,
+    );
+    expect(view.supporting.map((item) => item.id)).toEqual(["other"]);
+  });
+
+  it("L. metadata de detector não vira linguagem de Home", () => {
+    const view = build({
+      supporting_situations: [
+        situation({
+          id: "meta",
+          one_line_summary: "Você gasta mais nas sextas",
+          cause_summary: "O comportamento apareceu em 19 amostras, com confiança de 62,00%",
+        }),
+      ],
+    });
+    expect(view.supporting[0].supportingText).toBe("Padrão recorrente no seu histórico");
+  });
+
+  it("M. o terceiro apoio só entra quando é outro assunto", () => {
+    const view = build({
+      supporting_situations: [
+        situation({ id: "a", situation_type: "spending_pace_change", one_line_summary: "Leitura A" }),
+        situation({ id: "b", situation_type: "cash_flow_imbalance", one_line_summary: "Leitura B" }),
+        situation({ id: "c", situation_type: "cash_flow_imbalance", one_line_summary: "Leitura C" }),
+      ],
+    });
+    expect(view.supporting).toHaveLength(NINO_SUPPORTING_DEFAULT);
+  });
+
+  it("N. copy compacta respeita o orçamento editorial da Home", () => {
+    const view = build({}, goalStep);
+    expect(view.primary!.headline.length).toBeLessThanOrEqual(65);
+    expect((view.primary!.supportingText ?? "").length).toBeLessThanOrEqual(140);
+    // O valor destacado aparece uma única vez: não se repete no corpo.
+    expect(view.primary!.supportingText ?? "").not.toContain("290");
+    expect(view.primary!.primaryAction?.label.length ?? 0).toBeLessThanOrEqual(24);
+  });
+
+  it("O. apoios ficam em uma única superfície agrupada e o link é curto", () => {
+    const section = read("src/components/home/NinoGuidanceSection.tsx");
+    expect(section).toContain("divide-y");
+    expect(section).toContain("Ver todas no Nino");
+    const row = read("src/components/home/nino/NinoInsightRow.tsx");
+    expect(row).toContain("max-h-[76px]");
+    expect(row).not.toContain("rounded-[16px] border");
+  });
+
   it("não vaza jargão técnico do motor para a UI", () => {
     const view = build({}, goalStep);
     const text = `${view.primary?.eyebrow} ${view.primary?.headline} ${view.primary?.supportingText ?? ""}`;
     expect(text).not.toMatch(/stage|confidence|priority|truth gate|capacidade sustent/i);
   });
 });
+
