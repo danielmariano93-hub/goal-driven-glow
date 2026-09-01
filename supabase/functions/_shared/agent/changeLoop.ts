@@ -714,6 +714,8 @@ export type ChangeLearningProfile = {
   outcome_counts: Record<string, number>;
   stage_success: Record<string, { total: number; success: number }>;
   principle_success: Record<string, { total: number; success: number }>;
+  strategy_success: Record<string, { total: number; success: number }>;
+  dismissed_principles: string[];
   avg_days_to_act: number | null;
   prefers_smaller_steps: boolean;
 };
@@ -731,6 +733,8 @@ const EMPTY_LEARNING_PROFILE: ChangeLearningProfile = {
   outcome_counts: {},
   stage_success: {},
   principle_success: {},
+  strategy_success: {},
+  dismissed_principles: [],
   avg_days_to_act: null,
   prefers_smaller_steps: false,
 };
@@ -896,7 +900,7 @@ export async function buildChangeLearningProfile(
       .select("id,stage,status,strategy,principles,dismissals,accepted_at,last_check_at,target_amount")
       .eq("user_id", userId).gte("accepted_at", since).limit(200),
     sb.from("nino_change_checkins")
-      .select("commitment_id,outcome,created_at")
+      .select("commitment_id,outcome,created_at,strategy,principle")
       .eq("user_id", userId).gte("created_at", since).limit(500),
   ]);
   return buildChangeLearningProfilePure({
