@@ -201,6 +201,8 @@ export interface HeatmapInput {
   topCategories?: number;
   /** Mínimo de dias com histórico útil para afirmar padrão (padrão 28). */
   minHistoryDays?: number;
+  /** Classificação declarada por categoria (`structural`/`fixed` = fixa). */
+  categoryKindById?: Record<string, string>;
 }
 
 export function computeCategoryWeekdayHeatmap(input: HeatmapInput): CategoryWeekdayHeatmap {
