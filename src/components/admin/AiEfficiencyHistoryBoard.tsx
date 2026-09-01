@@ -115,6 +115,49 @@ const WORKLOADS = [
   { id: "ANTICIPATION", label: "Antecipação" },
 ] as const;
 
+const intFmt = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 }));
+const secFmt = (v: unknown) => (v == null ? "—" : `${(Number(v) / 1000).toFixed(1)}s`);
+
+/** Tooltip único dos gráficos: mostra o dia inteiro (conversas, tokens e latências). */
+function DayTooltip({ active, payload, mode }: { active?: boolean; payload?: Array<{ payload: DayRow }>; mode: "tokens" | "ai" | "e2e" }) {
+  if (!active || !payload?.length) return null;
+  const r = payload[0].payload;
+  const rows: Array<[string, string]> = [["Conversas", intFmt(r.runs)]];
+  if (mode === "tokens") {
+    rows.push(
+      ["Tokens no dia", intFmt(r.tokens_total)],
+      ["Entrada", intFmt(r.tokens_in)],
+      ["Saída", intFmt(r.tokens_out)],
+      ["Tokens por conversa", intFmt(r.tokens_per_run)],
+    );
+  } else if (mode === "ai") {
+    rows.push(
+      ["Mediana", secFmt(r.ai_p50_latency_ms)],
+      ["P95", secFmt(r.ai_p95_latency_ms)],
+      ["Média", secFmt(r.ai_avg_latency_ms)],
+    );
+  } else {
+    rows.push(
+      ["Mediana", secFmt(r.e2e_p50_latency_ms)],
+      ["P95", secFmt(r.e2e_p95_latency_ms)],
+      ["Média", secFmt(r.e2e_avg_latency_ms)],
+    );
+  }
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs shadow-md">
+      <p className="mb-1 font-semibold">{r.day}</p>
+      <dl className="space-y-0.5">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex items-center justify-between gap-4">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="font-medium tabular-nums">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 export function AiEfficiencyHistoryBoard() {
   const [preset, setPreset] = useState<string>("30");
   const [from, setFrom] = useState<string>(isoDaysAgo(29));
