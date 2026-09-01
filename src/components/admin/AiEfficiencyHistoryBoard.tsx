@@ -116,6 +116,20 @@ function isoDaysAgo(days: number): string {
 
 const ANY = "__any__";
 
+/** Workloads reais do ledger de IA — separar conversa do Nino de OCR, áudio etc. */
+const WORKLOADS = [
+  { id: "AGENT_CONVERSATION", label: "Conversa do Nino" },
+  { id: "DOCUMENT_INGEST", label: "Leitura de documentos" },
+  { id: "AUDIO_TRANSCRIPTION_WHATSAPP", label: "Áudio (WhatsApp)" },
+  { id: "AUDIO_TRANSCRIPTION_APP", label: "Áudio (app)" },
+  { id: "CATEGORY_BACKGROUND", label: "Categorização (fundo)" },
+  { id: "CATEGORY_ONDEMAND", label: "Categorização (na hora)" },
+  { id: "PROACTIVE", label: "Proatividade" },
+  { id: "INSIGHTS", label: "Insights" },
+  { id: "ADVISOR_REPORTS", label: "Relatórios do consultor" },
+  { id: "ANTICIPATION", label: "Antecipação" },
+] as const;
+
 export function AiEfficiencyHistoryBoard() {
   const [preset, setPreset] = useState<string>("30");
   const [from, setFrom] = useState<string>(isoDaysAgo(29));
@@ -125,6 +139,7 @@ export function AiEfficiencyHistoryBoard() {
   const [capability, setCapability] = useState<string>(ANY);
   const [tier, setTier] = useState<string>(ANY);
   const [model, setModel] = useState<string>(ANY);
+  const [workload, setWorkload] = useState<string>(ANY);
   const [milestone, setMilestone] = useState<string>(MILESTONES[1].date);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedLatencyDay, setSelectedLatencyDay] = useState<string | null>(null);
@@ -139,13 +154,13 @@ export function AiEfficiencyHistoryBoard() {
   const clean = (v: string) => (v === ANY ? null : v);
 
   const history = useQuery({
-    queryKey: ["admin_ai_history", range, channel, path, capability, tier, model],
+    queryKey: ["admin_ai_history", range, channel, path, capability, tier, model, workload],
     queryFn: async (): Promise<History> => {
       const { data, error } = await supabase.rpc("admin_v3_ai_history", {
         p_from: range.from, p_to: range.to,
         p_channel: clean(channel), p_path: clean(path),
         p_capability: clean(capability), p_model_tier: clean(tier),
-        p_model: clean(model),
+        p_model: clean(model), p_workload: clean(workload),
       });
       if (error) throw error;
       return data as unknown as History;
@@ -153,7 +168,7 @@ export function AiEfficiencyHistoryBoard() {
   });
 
   const latencyDay = useQuery({
-    queryKey: ["admin_ai_latency_day", selectedLatencyDay, channel, path, capability, tier, model],
+    queryKey: ["admin_ai_latency_day", selectedLatencyDay, channel, path, capability, tier, model, workload],
     enabled: !!selectedLatencyDay,
     queryFn: async (): Promise<History> => {
       const day = selectedLatencyDay;
@@ -162,7 +177,7 @@ export function AiEfficiencyHistoryBoard() {
         p_from: day, p_to: day,
         p_channel: clean(channel), p_path: clean(path),
         p_capability: clean(capability), p_model_tier: clean(tier),
-        p_model: clean(model),
+        p_model: clean(model), p_workload: clean(workload),
       });
       if (error) throw error;
       return data as unknown as History;
@@ -256,6 +271,13 @@ export function AiEfficiencyHistoryBoard() {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
+        <Select value={workload} onValueChange={setWorkload}>
+          <SelectTrigger className="h-9 w-[220px]"><SelectValue placeholder="Tipo de uso de IA" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Todos os usos de IA</SelectItem>
+            {WORKLOADS.map((w) => <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Select value={channel} onValueChange={setChannel}>
           <SelectTrigger className="h-9 w-[170px]"><SelectValue placeholder="Canal" /></SelectTrigger>
           <SelectContent>
@@ -263,6 +285,7 @@ export function AiEfficiencyHistoryBoard() {
             {filters.channels.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
           </SelectContent>
         </Select>
+
         <Select value={path} onValueChange={setPath}>
           <SelectTrigger className="h-9 w-[210px]"><SelectValue placeholder="Caminho" /></SelectTrigger>
           <SelectContent>

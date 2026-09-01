@@ -36,3 +36,13 @@ Mantém `nino_behavior_wealth.v1` como decisão financeira e adiciona persistên
 - Limites globais de mensagens deixam de ter teto hardcoded.
 - `admin_v3_ai_history` combina telemetria moderna (`ai_usage_ledger`) com histórico de `agent_runs`.
 - Aprendizado passa a ter ledger `nino_learning_events` e visão auditável por usuário.
+
+## Hardening (fechamento das 10 lacunas auditadas)
+
+- **Revalidação material**: `hasMaterialRecommendationChange` invalida por estágio, meta, rota, papel do valor, capacidade sustentável, caixa projetado, pressão de dívida (só quando ela define a prioridade) e truth gate. Diferença de valor só conta acima de R$ 20 ou 10%.
+- **Check-in só com entrega real**: o ranking não marca nada. `confirmChangeFollowupDelivery` roda no dispatcher após entrega e `reconcileChangeFollowupDeliveries` absorve ack assíncrono. Dedup por `(user_id, dedup_key)`.
+- **Proteção física**: índice único parcial garante um único compromisso ativo por pessoa; CHECKs cobrem estágio, status, estratégia, outcome, cadência e notas 0..1.
+- **Estratégia real**: `resolveChangeStrategy` alterna reinforce/remind/reframe/pause por evidência, stalls consecutivos, descartes e perfil de aprendizado; pausa após tentativas repetidas sem evidência.
+- **Aprendizado influencia**: `buildChangeLearningProfile` alimenta a escolha de princípio e estratégia; `resolveBehavioralIntervention` devolve princípio, objetivo, proibições e contexto — sem calcular dinheiro.
+- **Telemetria honesta**: `admin_v3_ai_history` gera série por `generate_series` (dia sem chamada aparece como zero), filtra `p_workload`, separa latência de IA (`ai_usage_ledger`) da latência E2E (`agent_runs`) e declara `tokens_source`/`latency_source`.
+- **Backfill executado**: `agent_memory` virou `nino_learning_events` com `source = 'agent_memory_backfill'` (apenas tipo, data, chave e confiança).

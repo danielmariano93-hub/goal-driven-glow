@@ -8,6 +8,8 @@ import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 import { communicationTopicKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
+import { confirmChangeFollowupDelivery } from "../changeLoop.ts";
+
 
 
 export type DispatchOutcome = {
@@ -509,8 +511,16 @@ export async function dispatchSuggestions(
             status: "delivered", reason: template ? `in_app_template_v${template.version}` : "in_app_notification_created",
             dedup_key: candidate.dedup_key, evidence: candidate.evidence,
           });
+          // Verdade de entrega: só aqui o follow-up de mudança vira check-in.
+          await confirmChangeFollowupDelivery(sb, userId, {
+            suggestion_id: candidate.id,
+            evidence: (candidate.evidence ?? {}) as Record<string, unknown>,
+            channel: target,
+            communication_kind: candidate.kind,
+          }).catch(() => undefined);
           anyQueued = true;
           results.push({ id: candidate.id, channel: target, status: "delivered", title: rendered.title, body: rendered.body });
+
 
         } else {
           if (!(link as any)?.phone_e164) {

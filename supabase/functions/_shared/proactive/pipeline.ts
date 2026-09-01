@@ -10,8 +10,9 @@ import { allocateAttention } from "./ranking.ts";
 import { computeNextBestAction } from "../agent/behaviorWealth.ts";
 import {
   buildDueChangeFollowups,
-  markSelectedChangeFollowups,
+  reconcileChangeFollowupDeliveries,
 } from "../agent/changeLoop.ts";
+
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
@@ -132,10 +133,17 @@ export async function runMultiFinanceProactive(
   // só disputa atenção quando o próprio motor diz que a base está estável.
   const nextBest = await computeNextBestAction(sb, userId, { months: 12 }).catch(() => null);
 
+  // Entregas já confirmadas (inclui ack assíncrono do WhatsApp) viram check-in
+  // antes de recalcular follow-ups. Nenhum check-in nasce do ranking.
+  if (persist) {
+    await reconcileChangeFollowupDeliveries(sb, userId).catch(() => undefined);
+  }
+
   // Compromissos já aceitos voltam como follow-up no MESMO ranking, não em um
   // segundo sistema de notificações. Assim risco real pode vencer um check-in.
   const dueFollowups = await buildDueChangeFollowups(sb, userId).catch(() => []);
   situations.push(...dueFollowups);
+
 
   if (
     nextBest
@@ -192,7 +200,7 @@ export async function runMultiFinanceProactive(
 
   if (persist) {
     await persistRun(sb, userId, ctx.as_of, signals, ranked, decisions, selected);
-    await markSelectedChangeFollowups(sb, userId, selected).catch(() => undefined);
+    // Check-in NÃO nasce aqui: só depois de entrega confirmada pelo dispatcher.
     if (selected.length > 0) {
       const { error } = await sb.from("pending_proactive_suggestions")
         .upsert(selected.map((situation) => candidateFor(userId, situation)), {

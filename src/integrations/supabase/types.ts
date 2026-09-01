@@ -8120,8 +8120,13 @@ export type Database = {
       }
       nino_change_checkins: {
         Row: {
+          channel: string | null
           commitment_id: string
+          communicated: boolean
+          communication_kind: string | null
           created_at: string
+          dedup_key: string | null
+          delivered_at: string | null
           evidence: Json
           id: string
           outcome: string
@@ -8130,8 +8135,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          channel?: string | null
           commitment_id: string
+          communicated?: boolean
+          communication_kind?: string | null
           created_at?: string
+          dedup_key?: string | null
+          delivered_at?: string | null
           evidence?: Json
           id?: string
           outcome: string
@@ -8140,8 +8150,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          channel?: string | null
           commitment_id?: string
+          communicated?: boolean
+          communication_kind?: string | null
           created_at?: string
+          dedup_key?: string | null
+          delivered_at?: string | null
           evidence?: Json
           id?: string
           outcome?: string
@@ -8173,8 +8188,11 @@ export type Database = {
           goal_id: string | null
           goal_name: string | null
           id: string
+          intervention_attempts: number
           last_check_at: string | null
+          last_outcome: string | null
           last_progress_score: number | null
+          last_strategy_change_at: string | null
           next_check_at: string
           principles: Json
           recommendation_id: string | null
@@ -8182,6 +8200,7 @@ export type Database = {
           stage: string
           status: string
           strategy: string
+          strategy_reason: string | null
           target_amount: number | null
           target_amount_role: string | null
           title: string
@@ -8201,8 +8220,11 @@ export type Database = {
           goal_id?: string | null
           goal_name?: string | null
           id?: string
+          intervention_attempts?: number
           last_check_at?: string | null
+          last_outcome?: string | null
           last_progress_score?: number | null
+          last_strategy_change_at?: string | null
           next_check_at?: string
           principles?: Json
           recommendation_id?: string | null
@@ -8210,6 +8232,7 @@ export type Database = {
           stage: string
           status?: string
           strategy?: string
+          strategy_reason?: string | null
           target_amount?: number | null
           target_amount_role?: string | null
           title: string
@@ -8229,8 +8252,11 @@ export type Database = {
           goal_id?: string | null
           goal_name?: string | null
           id?: string
+          intervention_attempts?: number
           last_check_at?: string | null
+          last_outcome?: string | null
           last_progress_score?: number | null
+          last_strategy_change_at?: string | null
           next_check_at?: string
           principles?: Json
           recommendation_id?: string | null
@@ -8238,6 +8264,7 @@ export type Database = {
           stage?: string
           status?: string
           strategy?: string
+          strategy_reason?: string | null
           target_amount?: number | null
           target_amount_role?: string | null
           title?: string
@@ -13291,18 +13318,32 @@ export type Database = {
       }
       admin_v2_revenue_summary: { Args: never; Returns: Json }
       admin_v2_whatsapp_monitor: { Args: { _days?: number }; Returns: Json }
-      admin_v3_ai_history: {
-        Args: {
-          p_capability?: string
-          p_channel?: string
-          p_from?: string
-          p_model?: string
-          p_model_tier?: string
-          p_path?: string
-          p_to?: string
-        }
-        Returns: Json
-      }
+      admin_v3_ai_history:
+        | {
+            Args: {
+              p_capability?: string
+              p_channel?: string
+              p_from?: string
+              p_model?: string
+              p_model_tier?: string
+              p_path?: string
+              p_to?: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_capability?: string
+              p_channel?: string
+              p_from?: string
+              p_model?: string
+              p_model_tier?: string
+              p_path?: string
+              p_to?: string
+              p_workload?: string
+            }
+            Returns: Json
+          }
       admin_waha_config_status: { Args: never; Returns: Json }
       admin_waha_resolve_config: { Args: never; Returns: Json }
       admin_waha_save_config: {

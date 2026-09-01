@@ -78,7 +78,7 @@ describe("nino_change_agent.v1 — contratos de integração", () => {
     expect(pipeline).toContain("buildDueChangeFollowups");
     expect(pipeline).toContain("situations.push(...dueFollowups)");
     expect(pipeline).toContain("allocateAttention");
-    expect(pipeline).toContain("markSelectedChangeFollowups");
+    expect(pipeline).toContain("reconcileChangeFollowupDeliveries");
   });
 
   it("LearningLoop grava ledger auditável", () => {
@@ -99,7 +99,7 @@ describe("Admin hardening", () => {
   it("migration remove clamps antigos do backend", () => {
     const dir = `${process.cwd()}/supabase/migrations`;
     const file = readdirSync(dir)
-      .filter((f) => readFileSync(`${dir}/${f}`, "utf8").includes("nino_change_commitments"))
+      .filter((f) => readFileSync(`${dir}/${f}`, "utf8").includes("CREATE TABLE IF NOT EXISTS public.nino_change_commitments"))
       .sort()
       .pop();
     expect(file).toBeTruthy();
@@ -115,5 +115,110 @@ describe("Admin hardening", () => {
     expect(ai).toContain('admin_v3_ai_history');
     expect(page).toContain('value="learning"');
     expect(page).toContain("NinoLearningBoard");
+  });
+});
+
+describe("nino_change_agent.v1 — hardening auditado", () => {
+  it("revalidação material invalida mudança relevante e ignora centavo", async () => {
+    const { hasMaterialRecommendationChange } = await import(
+      "../../supabase/functions/_shared/agent/changeLoop.ts"
+    );
+    const base = { stage: "fund_goal", goal_id: "g1", route: "/app/metas", amount: 800, amount_role: "monthly_contribution" };
+    expect(hasMaterialRecommendationChange(base, { ...base, amount: 803 }).changed).toBe(false);
+    const material = hasMaterialRecommendationChange(base, { ...base, amount: 300 });
+    expect(material.changed).toBe(true);
+    expect(material.reasons).toContain("amount_changed_materially");
+    expect(hasMaterialRecommendationChange(base, { ...base, stage: "stabilize_cash" }).reasons)
+      .toContain("stage_changed");
+    expect(hasMaterialRecommendationChange(base, { ...base, truth_blocked: true }).reasons)
+      .toContain("truth_gate_blocked");
+  });
+
+  it("estratégia alterna para reframe depois de sem avanço repetido e pausa após descartes", async () => {
+    const { resolveChangeStrategy } = await import(
+      "../../supabase/functions/_shared/agent/changeLoop.ts"
+    );
+    expect(resolveChangeStrategy({ outcome: "progress", stage: "fund_goal", consecutive_stalls: 0, dismissals: 0, intervention_attempts: 1 }).strategy)
+      .toBe("reinforce");
+    expect(resolveChangeStrategy({ outcome: "stalled", stage: "fund_goal", consecutive_stalls: 2, dismissals: 0, intervention_attempts: 2 }).strategy)
+      .toBe("reframe");
+    expect(resolveChangeStrategy({ outcome: "regressed", stage: "fund_goal", consecutive_stalls: 1, dismissals: 0, intervention_attempts: 2 }).strategy)
+      .toBe("reframe");
+    expect(resolveChangeStrategy({ outcome: "stalled", stage: "fund_goal", consecutive_stalls: 4, dismissals: 1, intervention_attempts: 6 }).strategy)
+      .toBe("pause");
+    expect(resolveChangeStrategy({ outcome: "stalled", stage: "fund_goal", consecutive_stalls: 1, dismissals: 4, intervention_attempts: 2 }).strategy)
+      .toBe("pause");
+  });
+
+  it("princípio molda intervenção, proíbe culpa e nunca cria número", async () => {
+    const { resolveBehavioralIntervention } = await import(
+      "../../supabase/functions/_shared/agent/behavioralPrinciples.ts"
+    );
+    const stabilize = resolveBehavioralIntervention({ stage: "stabilize_cash", outcome: "stalled" });
+    expect(stabilize.strategy).toBe("remind");
+    expect(stabilize.prohibited_patterns.join(" ")).toMatch(/culpa/);
+    expect(stabilize.prohibited_patterns.join(" ")).toMatch(/aporte|investimento/);
+    expect(stabilize.context_for_llm).not.toMatch(/\d+%/);
+
+    const reframe = resolveBehavioralIntervention({ stage: "fund_goal", outcome: "regressed" });
+    expect(reframe.strategy).toBe("reframe");
+    expect(reframe.prohibited_patterns.join(" ")).toMatch(/repetir o mesmo pedido/);
+  });
+
+  it("perfil de aprendizado influencia a escolha do princípio", async () => {
+    const { resolveBehavioralIntervention } = await import(
+      "../../supabase/functions/_shared/agent/behavioralPrinciples.ts"
+    );
+    const principles = ["margin_of_safety", "friction_and_nudge"] as const;
+    const chosen = resolveBehavioralIntervention({
+      stage: "stabilize_cash",
+      outcome: "stalled",
+      principles: [...principles] as any,
+      learningProfile: {
+        principle_success: {
+          margin_of_safety: { total: 4, success: 0 },
+          friction_and_nudge: { total: 4, success: 4 },
+        },
+      },
+    });
+    expect(chosen.principle).toBe("friction_and_nudge");
+  });
+
+  it("check-in só nasce de entrega confirmada, nunca do ranking", () => {
+    const pipeline = read("supabase/functions/_shared/proactive/pipeline.ts");
+    expect(pipeline).not.toContain("markSelectedChangeFollowups(");
+    expect(pipeline).toContain("reconcileChangeFollowupDeliveries");
+    const dispatcher = read("supabase/functions/_shared/agent/core/CommunicationDispatcherV3.ts");
+    expect(dispatcher).toContain("confirmChangeFollowupDelivery");
+    const loop = read("supabase/functions/_shared/agent/changeLoop.ts");
+    expect(loop).toContain('source: "delivery_confirmed"');
+    expect(loop).toContain("communicated: true");
+  });
+
+  it("migration protege compromisso único ativo, domínios e backfill", () => {
+    const dir = `${process.cwd()}/supabase/migrations`;
+    const file = readdirSync(dir)
+      .filter((f) => readFileSync(`${dir}/${f}`, "utf8").includes("nino_change_commitments_one_active_idx"))
+      .sort()
+      .pop();
+    expect(file).toBeTruthy();
+    const sql = readFileSync(`${dir}/${file}`, "utf8");
+    expect(sql).toContain("CREATE UNIQUE INDEX IF NOT EXISTS nino_change_commitments_one_active_idx");
+    expect(sql).toContain("WHERE status = 'active'");
+    expect(sql).toContain("nino_change_checkins_outcome_chk");
+    expect(sql).toContain("nino_change_commitments_strategy_chk");
+    expect(sql).toContain("agent_memory_backfill");
+    expect(sql).toContain("generate_series(v_from, v_to");
+    expect(sql).toContain("p_workload");
+    expect(sql).not.toMatch(/DELETE FROM public\.transactions/);
+  });
+
+  it("Admin filtra workload e mostra origem de cada número", () => {
+    const board = read("src/components/admin/AiEfficiencyHistoryBoard.tsx");
+    expect(board).toContain("p_workload");
+    expect(board).toContain("AGENT_CONVERSATION");
+    const learning = read("src/components/admin/NinoLearningBoard.tsx");
+    expect(learning).toContain("current_strategy");
+    expect(learning).toContain("delivered_checkins");
   });
 });
