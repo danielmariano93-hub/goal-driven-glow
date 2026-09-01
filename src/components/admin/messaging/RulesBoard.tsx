@@ -9,6 +9,7 @@ import { HealthPill } from "@/components/admin/kit/HealthPill";
 import { adminToast } from "@/components/admin/adminToast";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { dict } from "@/lib/admin/displayDictionary";
+import { PriorityPolicyCard } from "./PriorityPolicyCard";
 
 type Limits = { max_per_day: number; max_per_week: number; updated_at: string | null };
 
@@ -224,6 +225,10 @@ export function RulesBoard() {
           cota por regra de segurança. Alterações ficam registradas na auditoria.
         </p>
       </section>
+
+      <PriorityPolicyCard />
+
+
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
         <h3 className="font-semibold">Regras que mais retiveram mensagens (30 dias)</h3>

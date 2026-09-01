@@ -47,10 +47,127 @@ export type CommunicationDecision = {
   /** Bloqueio temporário (quiet hours / cap): a comunicação deve ser adiada, não descartada. */
   temporary?: boolean;
   retryAt?: string | null;
+  /** `nino_comm_priority.v1` — a comunicação furou um cap por relevância. */
+  cap_override?: boolean;
+  /** Motivo que teria bloqueado se não houvesse override. */
+  cap_original_reason?: string | null;
+  /** Score de prioridade lido do candidato (0 quando ausente). */
+  priority_score?: number;
+  /** Faixa de relevância aplicada. */
+  priority_band?: "low" | "medium" | "high" | "very_high";
 };
 
-export const DEFAULT_TIMEZONE = "America/Sao_Paulo";
+// ---------------------------------------------------------------------------
+// nino_comm_priority.v1 — orçamento de atenção com peso e override
+// ---------------------------------------------------------------------------
+export const NINO_COMM_PRIORITY_VERSION = "nino_comm_priority.v1";
 
+export type AttentionWeights = { care: number; informational: number; financial: number };
+
+export type CommunicationPolicySettings = {
+  pilot_mode: boolean;
+  /** Fase piloto restrita: lista vazia = piloto vale para todos. */
+  pilot_user_ids: string[];
+  high_priority_threshold: number;
+  critical_priority_threshold: number;
+  allow_high_priority_override: boolean;
+  high_priority_kinds: string[];
+  cap_behavior: "defer" | "suppress";
+  quiet_hours_high_priority_behavior: "defer" | "immediate";
+  attention_weights: AttentionWeights;
+  pilot_budget_multiplier: number;
+};
+
+/**
+ * Padrão do código = comportamento atual (conservador). O piloto e o override
+ * são ligados explicitamente pela configuração do admin, nunca por omissão.
+ */
+export const DEFAULT_COMMUNICATION_POLICY: CommunicationPolicySettings = {
+  pilot_mode: false,
+  pilot_user_ids: [],
+  high_priority_threshold: 75,
+  critical_priority_threshold: 90,
+  allow_high_priority_override: false,
+  high_priority_kinds: [],
+  cap_behavior: "suppress",
+  quiet_hours_high_priority_behavior: "defer",
+  attention_weights: { care: 1, informational: 2, financial: 4 },
+  pilot_budget_multiplier: 3,
+};
+
+export function normalizeCommunicationPolicy(raw: unknown): CommunicationPolicySettings {
+  const row = (raw ?? {}) as Record<string, unknown>;
+  const w = (row.attention_weights ?? {}) as Record<string, unknown>;
+  const num = (value: unknown, fallback: number) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const behavior = String(row.cap_behavior ?? "");
+  const quiet = String(row.quiet_hours_high_priority_behavior ?? "");
+  return {
+    pilot_mode: row.pilot_mode === true,
+    pilot_user_ids: Array.isArray(row.pilot_user_ids)
+      ? row.pilot_user_ids.map((id) => String(id)).filter(Boolean) : [],
+    high_priority_threshold: num(row.high_priority_threshold, 75),
+    critical_priority_threshold: num(row.critical_priority_threshold, 90),
+    allow_high_priority_override: row.allow_high_priority_override === true,
+    high_priority_kinds: Array.isArray(row.high_priority_kinds)
+      ? row.high_priority_kinds.map((k) => String(k)) : [],
+    cap_behavior: behavior === "defer" ? "defer" : "suppress",
+    quiet_hours_high_priority_behavior: quiet === "immediate" ? "immediate" : "defer",
+    attention_weights: {
+      care: num(w.care, 1),
+      informational: num(w.informational, 2),
+      financial: num(w.financial, 4),
+    },
+    pilot_budget_multiplier: Math.min(20, Math.max(1, num(row.pilot_budget_multiplier, 3))),
+  };
+}
+/**
+ * Piloto restrito: quando há clientes listados, quem está fora recebe a
+ * política conservadora (piloto desligado e sem override por relevância).
+ */
+export function policyForUser(
+  policy: CommunicationPolicySettings,
+  userId: string,
+): CommunicationPolicySettings {
+  if (!policy.pilot_mode) return policy;
+  if (policy.pilot_user_ids.length === 0) return policy;
+  if (policy.pilot_user_ids.includes(userId)) return policy;
+  return { ...policy, pilot_mode: false, allow_high_priority_override: false };
+}
+
+
+/** Score real do candidato: nunca inventado — vem do ranking determinístico. */
+export function candidatePriorityScore(candidate: CommunicationCandidate): number {
+  const ev = (candidate.evidence ?? {}) as Record<string, unknown>;
+  for (const key of ["priority_score", "value_score"]) {
+    const n = Number(ev[key]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+export function priorityBand(
+  score: number,
+  policy: CommunicationPolicySettings,
+): "low" | "medium" | "high" | "very_high" {
+  if (score >= policy.critical_priority_threshold) return "very_high";
+  if (score >= policy.high_priority_threshold) return "high";
+  if (score >= 50) return "medium";
+  return "low";
+}
+
+/** Peso de atenção do tipo: cuidado < informativo < decisão financeira. */
+export function attentionWeightOf(kind: string, policy: CommunicationPolicySettings): number {
+  if (isCareKind(kind)) return policy.attention_weights.care;
+  if (SMART_TIP_KINDS.has(kind) || BEHAVIOR_KINDS.has(kind)) return policy.attention_weights.informational;
+  return policy.attention_weights.financial;
+}
+
+
+
+export const DEFAULT_TIMEZONE = "America/Sao_Paulo";
 
 const ACCEPTED_STATUSES = new Set(["queued", "sent", "delivered", "acted"]);
 const BEHAVIOR_KINDS = new Set([
@@ -122,6 +239,20 @@ function uniqueCommunications(rows: DeliveryHistory[]): number {
   )).size;
 }
 
+/** Pontos de atenção já consumidos na janela (por comunicação lógica). */
+function usedAttentionPoints(rows: DeliveryHistory[], policy: CommunicationPolicySettings): number {
+  const byKey = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.dedup_key ? `logical:${row.dedup_key}` : `logical:${row.kind}:${row.created_at}`;
+    const weight = attentionWeightOf(row.kind, policy);
+    byKey.set(key, Math.max(byKey.get(key) ?? 0, weight));
+  }
+  let total = 0;
+  for (const weight of byKey.values()) total += weight;
+  return total;
+}
+
+
 
 export function decideCommunication(args: {
   candidate: CommunicationCandidate;
@@ -130,12 +261,22 @@ export function decideCommunication(args: {
   history: DeliveryHistory[];
   /** Cota própria dos lembretes de cuidado (configurável no painel admin). */
   careQuota?: CareQuota;
+  /** Configuração de prioridade/piloto (`nino_comm_priority.v1`). */
+  policy?: CommunicationPolicySettings;
   now?: Date;
 }): CommunicationDecision {
   const now = args.now ?? new Date();
   const { candidate, preferences, history, target } = args;
   const tz = (preferences.timezone ?? "").trim() || DEFAULT_TIMEZONE;
   const muted = new Set(preferences.muted_proactive_kinds ?? []);
+  const policy = args.policy ?? DEFAULT_COMMUNICATION_POLICY;
+  const score = candidatePriorityScore(candidate);
+  const band = priorityBand(score, policy);
+  const highRelevanceKind = policy.high_priority_kinds.includes(candidate.kind);
+  const canOverrideCap = candidate.severity === "critical" ||
+    ((policy.allow_high_priority_override || policy.pilot_mode) &&
+      (band === "high" || band === "very_high" || (highRelevanceKind && band !== "low")));
+
 
 
   // Elegibilidade de canal e severidade pertence ao communication_catalog,
@@ -170,7 +311,13 @@ export function decideCommunication(args: {
   if (target === "whatsapp" && !preferences.whatsapp_proactive) {
     return { allowed: false, reason: "whatsapp_opt_out", channel: target, priority: 0 };
   }
-  if (target === "whatsapp" && isQuiet(now, preferences.quiet_start, preferences.quiet_end, tz)) {
+  const quietNow = target === "whatsapp" &&
+    isQuiet(now, preferences.quiet_start, preferences.quiet_end, tz);
+  const quietBypass = quietNow &&
+    (band === "high" || band === "very_high") &&
+    policy.quiet_hours_high_priority_behavior === "immediate" &&
+    (policy.allow_high_priority_override || policy.pilot_mode);
+  if (quietNow && !quietBypass) {
     // Silêncio é adiamento, nunca descarte.
     return {
       allowed: false,
@@ -179,6 +326,8 @@ export function decideCommunication(args: {
       priority: 0,
       temporary: (preferences.quiet_behavior ?? "defer") !== "silent",
       retryAt: quietWindowEnd(now, preferences.quiet_end, tz),
+      priority_score: score,
+      priority_band: band,
     };
   }
 
@@ -191,7 +340,7 @@ export function decideCommunication(args: {
     new Date(row.created_at).getTime() >= fourteenDaysAgo,
   );
   if (exactDuplicate) {
-    return { allowed: false, reason: "dedup_key_14d", channel: target, priority: 0 };
+    return { allowed: false, reason: "dedup_key_14d", channel: target, priority: 0, priority_score: score, priority_band: band };
   }
 
   const sameKind24h = accepted.some((row) =>
@@ -200,8 +349,11 @@ export function decideCommunication(args: {
     new Date(row.created_at).getTime() >= now.getTime() - 86_400_000,
   );
   if (sameKind24h) {
-    return { allowed: false, reason: "kind_cooldown_24h", channel: target, priority: 0 };
+    return { allowed: false, reason: "kind_cooldown_24h", channel: target, priority: 0, priority_score: score, priority_band: band };
   }
+
+  let capOverride = false;
+  let capOriginalReason: string | null = null;
 
   if (candidate.severity !== "critical") {
     // Cuidado e insight financeiro têm cotas separadas: um lembrete carinhoso
@@ -214,11 +366,44 @@ export function decideCommunication(args: {
     const dailyCap = care
       ? Math.max(0, Math.min(5, quota.maxPerDay))
       : Math.max(0, Math.min(5, preferences.max_proactive_per_day ?? 1));
-    if (dailyCap === 0 || uniqueCommunications(dayRows) >= dailyCap) {
+
+    // Orçamento de atenção ponderado: o cap do admin continua o guardrail, mas
+    // é convertido em pontos — duas mensagens leves não consomem a vez de uma
+    // decisão financeira.
+    const unit = policy.attention_weights.financial;
+    const multiplier = policy.pilot_mode ? policy.pilot_budget_multiplier : 1;
+    const candidateWeight = attentionWeightOf(candidate.kind, policy);
+    const budgetFor = (cap: number) => cap * unit * multiplier;
+
+    const exceeded = (rows: DeliveryHistory[], cap: number) => {
+      if (cap === 0) return true;
+      if (unit <= 0) return uniqueCommunications(rows) >= cap;
+      return usedAttentionPoints(rows, policy) + candidateWeight > budgetFor(cap);
+    };
+
+    const capBlock = (reason: string, retryAt: string): CommunicationDecision | null => {
+      if (canOverrideCap) {
+        capOverride = true;
+        capOriginalReason = reason;
+        return null;
+      }
+      const defer = policy.cap_behavior === "defer" || band === "medium";
       return {
-        allowed: false, reason: "daily_frequency_cap", channel: target, priority: 0,
-        temporary: true, retryAt: new Date(now.getTime() + 24 * 3_600_000).toISOString(),
+        allowed: false,
+        reason: band === "medium" && defer ? "medium_priority_frequency_defer" : reason,
+        channel: target,
+        priority: 0,
+        temporary: defer,
+        retryAt: defer ? retryAt : null,
+        cap_original_reason: reason,
+        priority_score: score,
+        priority_band: band,
       };
+    };
+
+    if (exceeded(dayRows, dailyCap)) {
+      const blocked = capBlock("daily_frequency_cap", new Date(now.getTime() + 24 * 3_600_000).toISOString());
+      if (blocked) return blocked;
     }
 
     const weekAgo = now.getTime() - 7 * 86_400_000;
@@ -226,17 +411,27 @@ export function decideCommunication(args: {
     const weeklyCap = care
       ? Math.max(0, Math.min(21, quota.maxPerWeek))
       : Math.max(1, Math.min(14, preferences.max_proactive_per_week ?? 3));
-    if (weeklyCap === 0 || uniqueCommunications(weekRows) >= weeklyCap) {
-      return {
-        allowed: false, reason: "weekly_frequency_cap", channel: target, priority: 0,
-        temporary: true, retryAt: new Date(now.getTime() + 3 * 86_400_000).toISOString(),
-      };
+    if (exceeded(weekRows, weeklyCap)) {
+      const blocked = capBlock("weekly_frequency_cap", new Date(now.getTime() + 3 * 86_400_000).toISOString());
+      if (blocked) return blocked;
     }
   }
 
 
-  const priority = candidate.severity === "critical" ? 300
+
+  const severityPriority = candidate.severity === "critical" ? 300
     : candidate.severity === "attention" ? 200
     : 100;
-  return { allowed: true, reason: "eligible", channel: target, priority };
+  // O score real do ranking desempata dentro da mesma severidade.
+  const priority = severityPriority + Math.min(99, Math.round(score));
+  return {
+    allowed: true,
+    reason: "eligible",
+    channel: target,
+    priority,
+    cap_override: capOverride || undefined,
+    cap_original_reason: capOriginalReason,
+    priority_score: score,
+    priority_band: band,
+  };
 }
