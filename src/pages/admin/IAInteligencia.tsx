@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AdvisorObservabilityBoard } from "@/components/admin/AdvisorObservabilityBoard";
 import { AiEfficiencyHistoryBoard } from "@/components/admin/AiEfficiencyHistoryBoard";
+import { NinoLearningBoard } from "@/components/admin/NinoLearningBoard";
 
 
 type InspectResult = {
@@ -192,9 +193,10 @@ function InspectView({ data, userId }: { data: InspectResult; userId: string }) 
   const suggestionsCount = data.suggestions.length;
   return (
     <Tabs defaultValue="summary" className="space-y-4">
-      <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-grid md:grid-cols-6">
+      <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-grid md:grid-cols-7">
         <TabsTrigger value="summary">Resumo</TabsTrigger>
         <TabsTrigger value="memory">Memória</TabsTrigger>
+        <TabsTrigger value="learning">Aprendizado</TabsTrigger>
         <TabsTrigger value="suggestions">
           Sugestões {suggestionsCount > 0 && <span className="ml-1 rounded-full bg-primary/15 text-primary px-1.5 text-[10px]">{suggestionsCount}</span>}
         </TabsTrigger>
@@ -214,6 +216,11 @@ function InspectView({ data, userId }: { data: InspectResult; userId: string }) 
       <TabsContent value="memory">
         <MemoryPanel memory={data.memory} />
       </TabsContent>
+
+      <TabsContent value="learning">
+        <NinoLearningBoard userId={userId} />
+      </TabsContent>
+
 
       <TabsContent value="suggestions">
         <SuggestionsPanel items={data.suggestions} />

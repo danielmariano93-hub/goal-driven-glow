@@ -10,7 +10,7 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-01.3";
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-01.4";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v2";
 

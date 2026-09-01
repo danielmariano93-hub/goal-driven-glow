@@ -31,6 +31,9 @@ export type CapabilityName =
   | "wealth_opportunity"
   | "financial_plan"
   | "next_best_action"
+  | "change_commitment"
+  | "change_progress"
+  | "change_pause"
 
   | "financial_performance"
   | "holistic_assessment"
@@ -80,7 +83,7 @@ const GROUPS = {
     "explain_behavior_change", "analyze_merchants", "merchant_profile",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "analyze_longitudinal_trajectory", "analyze_wealth_opportunity", "build_financial_plan",
-    "get_next_best_action",
+    "get_next_best_action", "get_change_commitment_status",
     "compare_financial_metric", "assess_financial_performance", "assess_financial_health",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
   ],
@@ -474,6 +477,35 @@ export function classifyCapability(
       reason: "canonical_behavior_wealth_next_best_action",
     };
   }
+
+  // Compromisso: assumir, acompanhar e pausar têm rota determinística própria.
+  if (/\b(quero seguir esse proximo passo|vou seguir essa recomendacao|quero assumir esse compromisso|acompanhe esse plano|vamos acompanhar esse proximo passo)\b/.test(t)) {
+    return {
+      name: "change_commitment", execution: "deterministic",
+      allowed_tools: ["commit_latest_change_action"],
+      required_tool: "commit_latest_change_action", context: { metrics: true },
+      reason: "canonical_change_commitment",
+    };
+  }
+
+  if (/\b(como estou indo com o que combinamos|como esta meu compromisso|meu compromisso com o nino|estou avancando no que combinamos|acompanha meu progresso)\b/.test(t)) {
+    return {
+      name: "change_progress", execution: "deterministic",
+      allowed_tools: ["get_change_commitment_status"],
+      required_tool: "get_change_commitment_status", context: { metrics: true },
+      reason: "canonical_change_progress",
+    };
+  }
+
+  if (/\b(pausa esse acompanhamento|pare de acompanhar esse compromisso|nao quero mais acompanhar esse plano)\b/.test(t)) {
+    return {
+      name: "change_pause", execution: "deterministic",
+      allowed_tools: ["pause_change_commitment"],
+      required_tool: "pause_change_commitment", context: {},
+      reason: "canonical_change_pause",
+    };
+  }
+
 
   // Trajetória de vários meses e patrimônio contrafactual têm motor próprio:
   // não podem cair na evolução de 30/90/180 dias nem em estimativa da LLM.

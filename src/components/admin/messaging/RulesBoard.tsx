@@ -121,8 +121,11 @@ export function RulesBoard() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const nextDay = Number(day || (limits.data?.max_per_day ?? 1));
-      const nextWeek = Number(week || (limits.data?.max_per_week ?? 3));
+      const nextDay = Number(day === "" ? (limits.data?.max_per_day ?? 1) : day);
+      const nextWeek = Number(week === "" ? (limits.data?.max_per_week ?? 3) : week);
+      if (!Number.isInteger(nextDay) || nextDay < 0 || !Number.isInteger(nextWeek) || nextWeek < 0) {
+        throw new Error("Informe números inteiros maiores ou iguais a zero.");
+      }
       try {
         await callAdminRpc("admin_proactive_limits_update", {
           _max_per_day: nextDay,
@@ -188,22 +191,22 @@ export function RulesBoard() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="text-xs font-medium text-muted-foreground">
-            Máximo por dia (0 a 5)
+            Máximo por dia (sem teto fixo)
             <Input
               type="number"
               min={0}
-              max={5}
+              step={1}
               value={day === "" ? String(currentDay) : day}
               onChange={(e) => setDay(e.target.value)}
               className="mt-1"
             />
           </label>
           <label className="text-xs font-medium text-muted-foreground">
-            Máximo por semana (1 a 14)
+            Máximo por semana (sem teto fixo)
             <Input
               type="number"
-              min={1}
-              max={14}
+              min={0}
+              step={1}
               value={week === "" ? String(currentWeek) : week}
               onChange={(e) => setWeek(e.target.value)}
               className="mt-1"
@@ -216,8 +219,9 @@ export function RulesBoard() {
           </div>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Mensagens críticas ignoram esses limites de propósito. Alterações ficam registradas na
-          auditoria.
+          Não existe teto escondido no código: o valor salvo aqui é o valor usado pelo motor.
+          Zero bloqueia mensagens não críticas. Mensagens críticas continuam podendo ignorar a
+          cota por regra de segurança. Alterações ficam registradas na auditoria.
         </p>
       </section>
 

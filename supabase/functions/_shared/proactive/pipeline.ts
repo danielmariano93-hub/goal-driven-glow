@@ -9,6 +9,10 @@ import { composeFinancialSituations } from "./situations.ts";
 import { allocateAttention } from "./ranking.ts";
 import { computeNextBestAction } from "../agent/behaviorWealth.ts";
 import {
+  buildDueChangeFollowups,
+  markSelectedChangeFollowups,
+} from "../agent/changeLoop.ts";
+import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
   type AttentionBudget,
@@ -127,6 +131,12 @@ export async function runMultiFinanceProactive(
   // Riscos (caixa, dívida, vencimentos) continuam ganhando pelo score; patrimônio
   // só disputa atenção quando o próprio motor diz que a base está estável.
   const nextBest = await computeNextBestAction(sb, userId, { months: 12 }).catch(() => null);
+
+  // Compromissos já aceitos voltam como follow-up no MESMO ranking, não em um
+  // segundo sistema de notificações. Assim risco real pode vencer um check-in.
+  const dueFollowups = await buildDueChangeFollowups(sb, userId).catch(() => []);
+  situations.push(...dueFollowups);
+
   if (
     nextBest
     && (nextBest.stage === "fund_goal" || nextBest.stage === "build_wealth")
@@ -182,6 +192,7 @@ export async function runMultiFinanceProactive(
 
   if (persist) {
     await persistRun(sb, userId, ctx.as_of, signals, ranked, decisions, selected);
+    await markSelectedChangeFollowups(sb, userId, selected).catch(() => undefined);
     if (selected.length > 0) {
       const { error } = await sb.from("pending_proactive_suggestions")
         .upsert(selected.map((situation) => candidateFor(userId, situation)), {

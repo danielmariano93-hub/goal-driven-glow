@@ -8118,6 +8118,226 @@ export type Database = {
           },
         ]
       }
+      nino_change_checkins: {
+        Row: {
+          commitment_id: string
+          created_at: string
+          evidence: Json
+          id: string
+          outcome: string
+          progress_score: number
+          source: string
+          user_id: string
+        }
+        Insert: {
+          commitment_id: string
+          created_at?: string
+          evidence?: Json
+          id?: string
+          outcome: string
+          progress_score?: number
+          source?: string
+          user_id: string
+        }
+        Update: {
+          commitment_id?: string
+          created_at?: string
+          evidence?: Json
+          id?: string
+          outcome?: string
+          progress_score?: number
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_change_checkins_commitment_id_fkey"
+            columns: ["commitment_id"]
+            isOneToOne: false
+            referencedRelation: "nino_change_commitments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nino_change_commitments: {
+        Row: {
+          accepted_at: string
+          baseline_state: Json
+          baseline_truth_gate: Json
+          cadence_days: number
+          created_at: string
+          detail: string | null
+          dismissals: number
+          end_reason: string | null
+          ended_at: string | null
+          goal_id: string | null
+          goal_name: string | null
+          id: string
+          last_check_at: string | null
+          last_progress_score: number | null
+          next_check_at: string
+          principles: Json
+          recommendation_id: string | null
+          route: string | null
+          stage: string
+          status: string
+          strategy: string
+          target_amount: number | null
+          target_amount_role: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          baseline_state?: Json
+          baseline_truth_gate?: Json
+          cadence_days?: number
+          created_at?: string
+          detail?: string | null
+          dismissals?: number
+          end_reason?: string | null
+          ended_at?: string | null
+          goal_id?: string | null
+          goal_name?: string | null
+          id?: string
+          last_check_at?: string | null
+          last_progress_score?: number | null
+          next_check_at?: string
+          principles?: Json
+          recommendation_id?: string | null
+          route?: string | null
+          stage: string
+          status?: string
+          strategy?: string
+          target_amount?: number | null
+          target_amount_role?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          baseline_state?: Json
+          baseline_truth_gate?: Json
+          cadence_days?: number
+          created_at?: string
+          detail?: string | null
+          dismissals?: number
+          end_reason?: string | null
+          ended_at?: string | null
+          goal_id?: string | null
+          goal_name?: string | null
+          id?: string
+          last_check_at?: string | null
+          last_progress_score?: number | null
+          next_check_at?: string
+          principles?: Json
+          recommendation_id?: string | null
+          route?: string | null
+          stage?: string
+          status?: string
+          strategy?: string
+          target_amount?: number | null
+          target_amount_role?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_change_commitments_recommendation_id_fkey"
+            columns: ["recommendation_id"]
+            isOneToOne: false
+            referencedRelation: "nino_change_recommendations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nino_change_recommendations: {
+        Row: {
+          accepted_at: string | null
+          amount: number | null
+          amount_role: string | null
+          behavior_context: Json
+          behavior_wealth_version: string | null
+          confidence: number
+          created_at: string
+          dedup_key: string
+          detail: string | null
+          expires_at: string | null
+          financial_state: Json
+          goal_id: string | null
+          goal_name: string | null
+          id: string
+          principles: Json
+          route: string | null
+          source: string
+          stage: string
+          stage_reason: string | null
+          status: string
+          superseded_at: string | null
+          title: string
+          truth_gate: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          amount?: number | null
+          amount_role?: string | null
+          behavior_context?: Json
+          behavior_wealth_version?: string | null
+          confidence?: number
+          created_at?: string
+          dedup_key: string
+          detail?: string | null
+          expires_at?: string | null
+          financial_state?: Json
+          goal_id?: string | null
+          goal_name?: string | null
+          id?: string
+          principles?: Json
+          route?: string | null
+          source?: string
+          stage: string
+          stage_reason?: string | null
+          status?: string
+          superseded_at?: string | null
+          title: string
+          truth_gate?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          amount?: number | null
+          amount_role?: string | null
+          behavior_context?: Json
+          behavior_wealth_version?: string | null
+          confidence?: number
+          created_at?: string
+          dedup_key?: string
+          detail?: string | null
+          expires_at?: string | null
+          financial_state?: Json
+          goal_id?: string | null
+          goal_name?: string | null
+          id?: string
+          principles?: Json
+          route?: string | null
+          source?: string
+          stage?: string
+          stage_reason?: string | null
+          status?: string
+          superseded_at?: string | null
+          title?: string
+          truth_gate?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       nino_diagnosis_config: {
         Row: {
           assembler_version: string
@@ -8561,6 +8781,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      nino_learning_events: {
+        Row: {
+          after_value: Json | null
+          applied: boolean
+          applied_at: string | null
+          before_value: Json | null
+          confidence: number
+          created_at: string
+          dedup_key: string | null
+          event_type: string
+          id: string
+          metadata: Json
+          occurred_at: string
+          signal: string
+          source: string
+          subject_key: string | null
+          user_id: string
+          weight: number
+        }
+        Insert: {
+          after_value?: Json | null
+          applied?: boolean
+          applied_at?: string | null
+          before_value?: Json | null
+          confidence?: number
+          created_at?: string
+          dedup_key?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          signal: string
+          source: string
+          subject_key?: string | null
+          user_id: string
+          weight?: number
+        }
+        Update: {
+          after_value?: Json | null
+          applied?: boolean
+          applied_at?: string | null
+          before_value?: Json | null
+          confidence?: number
+          created_at?: string
+          dedup_key?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          signal?: string
+          source?: string
+          subject_key?: string | null
+          user_id?: string
+          weight?: number
+        }
+        Relationships: []
       }
       nino_narrative_catalog: {
         Row: {
@@ -12830,6 +13107,10 @@ export type Database = {
       }
       admin_message_reprocess: { Args: { p_id: string }; Returns: Json }
       admin_message_timeline: { Args: { p_id: string }; Returns: Json }
+      admin_nino_learning_overview: {
+        Args: { _days?: number; _user_id: string }
+        Returns: Json
+      }
       admin_open_break_glass: {
         Args: {
           _fields: string[]
@@ -13010,6 +13291,18 @@ export type Database = {
       }
       admin_v2_revenue_summary: { Args: never; Returns: Json }
       admin_v2_whatsapp_monitor: { Args: { _days?: number }; Returns: Json }
+      admin_v3_ai_history: {
+        Args: {
+          p_capability?: string
+          p_channel?: string
+          p_from?: string
+          p_model?: string
+          p_model_tier?: string
+          p_path?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       admin_waha_config_status: { Args: never; Returns: Json }
       admin_waha_resolve_config: { Args: never; Returns: Json }
       admin_waha_save_config: {
