@@ -17,6 +17,7 @@ import {
   type NextBestAction,
 } from "./behaviorWealth.ts";
 import { principlesForStage, resolveBehavioralIntervention } from "./behavioralPrinciples.ts";
+import { composeChangeMessage, type CommunicationInstruction } from "./changeMessage.ts";
 import type { FinancialSituation } from "../proactive/contracts.ts";
 
 type SupabaseClient = any;
@@ -57,6 +58,17 @@ function r2(v: number): number { return Math.round(v * 100) / 100; }
 function isoPlusDays(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString();
 }
+/**
+ * Cadência real: o próximo acompanhamento nasce da DATA DA ENTREGA, nunca do
+ * instante em que a reconciliação rodou. Entrega na segunda + cadência 7 =
+ * próxima segunda, mesmo que o ack chegue na quarta.
+ */
+export function isoPlusDaysFrom(base: string | Date, days: number): string {
+  const ts = base instanceof Date ? base.getTime() : Date.parse(String(base));
+  const safe = Number.isFinite(ts) ? ts : Date.now();
+  return new Date(safe + days * 86_400_000).toISOString();
+}
+
 function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 export async function recordLearningEvent(
@@ -554,6 +566,8 @@ export async function getActiveCommitmentStatus(
       strategy: decided.strategy,
       strategy_reason: decided.reason,
       behavioral_intervention: intervention,
+      communication_instruction: intervention,
+      deterministic_body: message,
       formula_version: NINO_CHANGE_AGENT_VERSION,
     },
     message,
@@ -639,13 +653,21 @@ export async function buildDueChangeFollowups(
         ? "Vamos ajustar o caminho, não cobrar você"
         : "Retomando o que combinamos";
 
+    // O corpo determinístico é a verdade; a moldura comportamental decide só a
+    // abordagem. O dispatcher recebe as duas coisas separadas.
+    const deterministicBody = status.message;
+    const body = composeChangeMessage({
+      baseMessage: deterministicBody,
+      instruction: intervention as unknown as CommunicationInstruction,
+    });
+
     out.push({
       fingerprint: `${NINO_CHANGE_AGENT_VERSION}:${row.id}:${String(row.next_check_at).slice(0, 10)}`,
       type: `change_${status.outcome}`,
       communication_kind: kind,
       severity: status.outcome === "regressed" ? "attention" : "info",
       title,
-      body: status.message,
+      body,
       primary_domain: row.stage === "fund_goal" ? "goals" : row.stage === "build_wealth" ? "investments" : "cash",
       domains: [row.stage === "fund_goal" ? "goals" : row.stage === "build_wealth" ? "investments" : "cash"],
       signals: [],
@@ -665,6 +687,8 @@ export async function buildDueChangeFollowups(
         strategy_reason: decided.reason,
         consecutive_stalls: stalls,
         behavioral_intervention: intervention,
+        communication_instruction: intervention,
+        deterministic_body: deterministicBody,
         formula_version: NINO_CHANGE_AGENT_VERSION,
       },
     } as FinancialSituation);
@@ -690,6 +714,8 @@ export type ChangeLearningProfile = {
   outcome_counts: Record<string, number>;
   stage_success: Record<string, { total: number; success: number }>;
   principle_success: Record<string, { total: number; success: number }>;
+  strategy_success: Record<string, { total: number; success: number }>;
+  dismissed_principles: string[];
   avg_days_to_act: number | null;
   prefers_smaller_steps: boolean;
 };
@@ -707,6 +733,8 @@ const EMPTY_LEARNING_PROFILE: ChangeLearningProfile = {
   outcome_counts: {},
   stage_success: {},
   principle_success: {},
+  strategy_success: {},
+  dismissed_principles: [],
   avg_days_to_act: null,
   prefers_smaller_steps: false,
 };
@@ -718,7 +746,10 @@ export function buildChangeLearningProfilePure(args: {
     principles?: any; dismissals?: number | null; accepted_at?: string | null;
     last_check_at?: string | null; target_amount?: number | null;
   }>;
-  checkins: Array<{ commitment_id: string; outcome: string; created_at?: string | null }>;
+  checkins: Array<{
+    commitment_id: string; outcome: string; created_at?: string | null;
+    strategy?: string | null; principle?: string | null;
+  }>;
 }): ChangeLearningProfile {
   const profile: ChangeLearningProfile = {
     ...EMPTY_LEARNING_PROFILE,
@@ -727,6 +758,8 @@ export function buildChangeLearningProfilePure(args: {
     outcome_counts: {},
     stage_success: {},
     principle_success: {},
+    strategy_success: {},
+    dismissed_principles: [],
   };
 
   profile.events = args.events.length;
@@ -750,7 +783,51 @@ export function buildChangeLearningProfilePure(args: {
 
   profile.commitments_accepted = args.commitments.length;
   profile.commitments_completed = args.commitments.filter((c) => c.status === "completed").length;
-  profile.commitments_abandoned = args.commitments.filter((c) => c.status === "abandoned").length;
+  // O ciclo tem um único encerramento por desistência: `cancelled`.
+  profile.commitments_abandoned = args.commitments
+    .filter((c) => c.status === "cancelled" || c.status === "abandoned").length;
+
+  // Feedback negativo explícito conta como tentativa que NÃO funcionou para
+  // aquele princípio e para aquela estratégia. É assim que a dispensa deixa de
+  // ser só um número e passa a mudar a próxima abordagem.
+  const dismissedPrinciples = new Map<string, number>();
+  for (const event of args.events) {
+    if (event.signal !== "dismissed") continue;
+    const principle = String(event.metadata?.principle ?? "");
+    const strategy = String(event.metadata?.strategy ?? "");
+    if (principle) {
+      const p = profile.principle_success[principle] ?? { total: 0, success: 0 };
+      p.total += 1;
+      profile.principle_success[principle] = p;
+      dismissedPrinciples.set(principle, (dismissedPrinciples.get(principle) ?? 0) + 1);
+    }
+    if (strategy) {
+      const s = profile.strategy_success[strategy] ?? { total: 0, success: 0 };
+      s.total += 1;
+      profile.strategy_success[strategy] = s;
+    }
+  }
+  profile.dismissed_principles = [...dismissedPrinciples.entries()]
+    .sort((a, b) => b[1] - a[1]).map(([k]) => k);
+
+  for (const checkin of args.checkins) {
+    const win = checkin.outcome === "completed" || checkin.outcome === "progress";
+    const strategy = String(checkin.strategy ?? "");
+    if (strategy) {
+      const s = profile.strategy_success[strategy] ?? { total: 0, success: 0 };
+      s.total += 1;
+      if (win) s.success += 1;
+      profile.strategy_success[strategy] = s;
+    }
+    const principle = String(checkin.principle ?? "");
+    if (principle) {
+      const p = profile.principle_success[principle] ?? { total: 0, success: 0 };
+      p.total += 1;
+      if (win) p.success += 1;
+      profile.principle_success[principle] = p;
+    }
+  }
+
 
   const byCommitment = new Map<string, { stage: string; principles: string[]; outcomes: string[]; target: number | null }>();
   for (const c of args.commitments) {
@@ -823,7 +900,7 @@ export async function buildChangeLearningProfile(
       .select("id,stage,status,strategy,principles,dismissals,accepted_at,last_check_at,target_amount")
       .eq("user_id", userId).gte("accepted_at", since).limit(200),
     sb.from("nino_change_checkins")
-      .select("commitment_id,outcome,created_at")
+      .select("commitment_id,outcome,created_at,strategy,principle")
       .eq("user_id", userId).gte("created_at", since).limit(500),
   ]);
   return buildChangeLearningProfilePure({
@@ -874,6 +951,12 @@ export function resolveChangeStrategy(args: {
   }
   if (profile?.prefers_smaller_steps && stalls >= 1) {
     return { strategy: "reframe", reason: "learning_profile_prefers_smaller_steps" };
+  }
+  // Estratégia medida e nunca eficaz para esta pessoa perde a vez. O ledger de
+  // aprendizado deixa de ser registro e passa a decidir a próxima abordagem.
+  const remindStats = profile?.strategy_success?.remind;
+  if (remindStats && remindStats.total >= 3 && remindStats.success === 0) {
+    return { strategy: "reframe", reason: "learning_profile_remind_never_worked" };
   }
 
   return { strategy: "remind", reason: "first_stall_reduce_friction" };
@@ -933,6 +1016,24 @@ export async function confirmChangeFollowupDelivery(
   const score = clamp01(n((args.evidence as any)?.progress_score));
   const cadence = Math.max(1, Number(commitment.cadence_days ?? 7));
 
+  const stallsBefore = await consecutiveStalls(sb, userId, commitmentId);
+  const profileBefore = await buildChangeLearningProfile(sb, userId).catch(() => null);
+  const attempts = Math.max(0, Number(commitment.intervention_attempts ?? 0)) + 1;
+  const decided = resolveChangeStrategy({
+    outcome,
+    stage: String(commitment.stage ?? ""),
+    consecutive_stalls: stallsBefore + (outcome === "stalled" || outcome === "regressed" ? 1 : 0),
+    dismissals: Number(commitment.dismissals ?? 0),
+    intervention_attempts: attempts,
+    learning_profile: profileBefore,
+  });
+  const intervention = resolveBehavioralIntervention({
+    stage: String(commitment.stage ?? ""),
+    outcome,
+    strategy: decided.strategy,
+    learningProfile: profileBefore,
+  });
+
   const { error: insertError } = await sb.from("nino_change_checkins").insert({
     user_id: userId,
     commitment_id: commitmentId,
@@ -941,9 +1042,19 @@ export async function confirmChangeFollowupDelivery(
     evidence: {
       ...((args.evidence as any)?.status_evidence ?? {}),
       delivery: { suggestion_id: args.suggestion_id, channel: args.channel ?? null, delivered_at: deliveredAt },
+      strategy: decided.strategy,
+      strategy_reason: decided.reason,
+      principle: intervention.principle,
     },
     source: "delivery_confirmed",
     communicated: true,
+    // Colunas estruturadas: o ciclo de vida da entrega é consultável sem abrir
+    // o JSON de evidência.
+    delivered_at: deliveredAt,
+    channel: args.channel ?? null,
+    communication_kind: args.communication_kind ?? null,
+    strategy: decided.strategy,
+    principle: intervention.principle,
     dedup_key: dedupKey,
   });
   if (insertError) {
@@ -952,22 +1063,13 @@ export async function confirmChangeFollowupDelivery(
   }
 
   const stalls = await consecutiveStalls(sb, userId, commitmentId);
-  const profile = await buildChangeLearningProfile(sb, userId).catch(() => null);
-  const attempts = Math.max(0, Number(commitment.intervention_attempts ?? 0)) + 1;
-  const decided = resolveChangeStrategy({
-    outcome,
-    stage: String(commitment.stage ?? ""),
-    consecutive_stalls: stalls,
-    dismissals: Number(commitment.dismissals ?? 0),
-    intervention_attempts: attempts,
-    learning_profile: profile,
-  });
 
   await sb.from("nino_change_commitments").update({
     last_check_at: deliveredAt,
     last_progress_score: score,
     last_outcome: outcome,
-    next_check_at: isoPlusDays(cadence),
+    // Cadência a partir da ENTREGA real, não do instante da reconciliação.
+    next_check_at: isoPlusDaysFrom(deliveredAt, cadence),
     intervention_attempts: attempts,
     strategy: decided.strategy,
     strategy_reason: decided.reason,
@@ -978,6 +1080,7 @@ export async function confirmChangeFollowupDelivery(
         ? { status: "paused", ended_at: deliveredAt, end_reason: "strategy_paused_after_dismissals" }
         : {}),
   }).eq("id", commitmentId).eq("user_id", userId);
+
 
   await recordLearningEvent(sb, {
     user_id: userId,
@@ -993,6 +1096,9 @@ export async function confirmChangeFollowupDelivery(
       strategy_reason: decided.reason,
       consecutive_stalls: stalls,
       stage: commitment.stage,
+      principle: intervention.principle,
+      channel: args.channel ?? null,
+      delivered_at: deliveredAt,
     },
     dedup_key: dedupKey,
   }).catch(() => undefined);
@@ -1040,6 +1146,7 @@ export async function registerChangeDismissal(
   sb: SupabaseClient,
   userId: string,
   commitmentId: string,
+  opts: { dedup_key?: string | null; origin?: string } = {},
 ): Promise<{ dismissals: number; strategy: ChangeStrategy } | null> {
   const { data: row } = await sb.from("nino_change_commitments")
     .select("id,stage,dismissals,intervention_attempts")
@@ -1053,6 +1160,12 @@ export async function registerChangeDismissal(
     dismissals,
     intervention_attempts: Number(row.intervention_attempts ?? 0),
     learning_profile: profile,
+  });
+  const intervention = resolveBehavioralIntervention({
+    stage: String(row.stage ?? ""),
+    outcome: "stalled",
+    strategy: decided.strategy,
+    learningProfile: profile,
   });
   await sb.from("nino_change_commitments").update({
     dismissals,
@@ -1070,8 +1183,75 @@ export async function registerChangeDismissal(
     signal: "dismissed",
     subject_key: commitmentId,
     confidence: 1,
-    metadata: { dismissals, strategy: decided.strategy, strategy_reason: decided.reason, stage: row.stage },
+    metadata: {
+      dismissals, strategy: decided.strategy, strategy_reason: decided.reason,
+      stage: row.stage, principle: intervention.principle,
+      origin: opts.origin ?? "user_action",
+    },
+    dedup_key: opts.dedup_key ?? null,
   }).catch(() => undefined);
   return { dismissals, strategy: decided.strategy };
+}
+
+/**
+ * Reconcilia dispensas feitas no app (sugestão dispensada ou feedback negativo)
+ * com o ciclo de mudança. Idempotente por sugestão: o ledger de aprendizado usa
+ * dedup_key, então rodar o tick duas vezes não pune a pessoa duas vezes.
+ */
+export async function reconcileChangeDismissals(
+  sb: SupabaseClient,
+  userId: string,
+  opts: { days?: number } = {},
+): Promise<{ registered: number; skipped: number }> {
+  const since = new Date(Date.now() - Math.max(1, opts.days ?? 14) * 86_400_000).toISOString();
+
+  const [dismissedSuggestions, negativeFeedback] = await Promise.all([
+    sb.from("pending_proactive_suggestions")
+      .select("id,evidence,dismissed_at")
+      .eq("user_id", userId)
+      .not("dismissed_at", "is", null)
+      .gte("dismissed_at", since)
+      .limit(100),
+    sb.from("communication_feedback")
+      .select("source_id,source_table,feedback,created_at")
+      .eq("user_id", userId)
+      .in("feedback", ["dismissed", "not_useful", "irrelevant"])
+      .gte("created_at", since)
+      .limit(100),
+  ]);
+
+  const targets = new Map<string, string>(); // suggestion_id -> commitment_id
+  for (const row of ((dismissedSuggestions?.data as any[]) ?? [])) {
+    const commitmentId = String((row.evidence ?? {}).change_commitment_id ?? "");
+    if (commitmentId) targets.set(String(row.id), commitmentId);
+  }
+
+  const feedbackIds = [...new Set(((negativeFeedback?.data as any[]) ?? [])
+    .filter((row) => !row.source_table || row.source_table === "pending_proactive_suggestions")
+    .map((row) => String(row.source_id))
+    .filter((id) => id && id !== "null" && !targets.has(id)))];
+  if (feedbackIds.length > 0) {
+    const { data: rows } = await sb.from("pending_proactive_suggestions")
+      .select("id,evidence").eq("user_id", userId).in("id", feedbackIds).limit(100);
+    for (const row of ((rows as any[]) ?? [])) {
+      const commitmentId = String((row.evidence ?? {}).change_commitment_id ?? "");
+      if (commitmentId) targets.set(String(row.id), commitmentId);
+    }
+  }
+
+  let registered = 0;
+  let skipped = 0;
+  for (const [suggestionId, commitmentId] of targets.entries()) {
+    const dedupKey = `dismissal:${suggestionId}`;
+    const { data: seen } = await sb.from("nino_learning_events")
+      .select("id").eq("user_id", userId).eq("dedup_key", dedupKey).maybeSingle();
+    if (seen) { skipped += 1; continue; }
+    const result = await registerChangeDismissal(sb, userId, commitmentId, {
+      dedup_key: dedupKey,
+      origin: "app_dismissal",
+    }).catch(() => null);
+    if (result) registered += 1; else skipped += 1;
+  }
+  return { registered, skipped };
 }
 

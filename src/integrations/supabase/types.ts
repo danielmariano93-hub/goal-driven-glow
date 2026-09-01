@@ -8130,8 +8130,10 @@ export type Database = {
           evidence: Json
           id: string
           outcome: string
+          principle: string | null
           progress_score: number
           source: string
+          strategy: string | null
           user_id: string
         }
         Insert: {
@@ -8145,8 +8147,10 @@ export type Database = {
           evidence?: Json
           id?: string
           outcome: string
+          principle?: string | null
           progress_score?: number
           source?: string
+          strategy?: string | null
           user_id: string
         }
         Update: {
@@ -8160,8 +8164,10 @@ export type Database = {
           evidence?: Json
           id?: string
           outcome?: string
+          principle?: string | null
           progress_score?: number
           source?: string
+          strategy?: string | null
           user_id?: string
         }
         Relationships: [
@@ -13318,32 +13324,19 @@ export type Database = {
       }
       admin_v2_revenue_summary: { Args: never; Returns: Json }
       admin_v2_whatsapp_monitor: { Args: { _days?: number }; Returns: Json }
-      admin_v3_ai_history:
-        | {
-            Args: {
-              p_capability?: string
-              p_channel?: string
-              p_from?: string
-              p_model?: string
-              p_model_tier?: string
-              p_path?: string
-              p_to?: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_capability?: string
-              p_channel?: string
-              p_from?: string
-              p_model?: string
-              p_model_tier?: string
-              p_path?: string
-              p_to?: string
-              p_workload?: string
-            }
-            Returns: Json
-          }
+      admin_v3_ai_history: {
+        Args: {
+          p_capability?: string
+          p_channel?: string
+          p_from?: string
+          p_model?: string
+          p_model_tier?: string
+          p_path?: string
+          p_to?: string
+          p_workload?: string
+        }
+        Returns: Json
+      }
       admin_waha_config_status: { Args: never; Returns: Json }
       admin_waha_resolve_config: { Args: never; Returns: Json }
       admin_waha_save_config: {

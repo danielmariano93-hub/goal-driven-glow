@@ -11,7 +11,11 @@ import { computeNextBestAction } from "../agent/behaviorWealth.ts";
 import {
   buildDueChangeFollowups,
   reconcileChangeFollowupDeliveries,
+  reconcileChangeDismissals,
+  persistNextActionRecommendation,
 } from "../agent/changeLoop.ts";
+import { resolveBehavioralIntervention } from "../agent/behavioralPrinciples.ts";
+import { composeChangeMessage } from "../agent/changeMessage.ts";
 
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -137,6 +141,9 @@ export async function runMultiFinanceProactive(
   // antes de recalcular follow-ups. Nenhum check-in nasce do ranking.
   if (persist) {
     await reconcileChangeFollowupDeliveries(sb, userId).catch(() => undefined);
+    // Dispensa feita no app também é resposta do usuário: entra no aprendizado
+    // antes de decidir a próxima abordagem.
+    await reconcileChangeDismissals(sb, userId).catch(() => undefined);
   }
 
   // Compromissos já aceitos voltam como follow-up no MESMO ranking, não em um
@@ -150,13 +157,27 @@ export async function runMultiFinanceProactive(
     && (nextBest.stage === "fund_goal" || nextBest.stage === "build_wealth")
     && Number(nextBest.action.amount ?? 0) > 0
   ) {
+    // A recomendação proativa é persistida: se a pessoa responder "quero",
+    // existe uma recomendação canônica recente para revalidar e assumir.
+    if (persist) {
+      await persistNextActionRecommendation(sb, userId, nextBest, "proactive").catch(() => null);
+    }
+    const wealthIntervention = resolveBehavioralIntervention({
+      stage: nextBest.stage,
+      learningProfile: null,
+      financialFacts: nextBest.financial_state as unknown as Record<string, unknown>,
+    });
+
     situations.push({
       fingerprint: `${nextBest.version}:${nextBest.stage}:${nextBest.as_of}`,
       type: nextBest.stage,
       communication_kind: "wealth_building_action",
       severity: "info",
       title: nextBest.action.title,
-      body: nextBest.action.detail,
+      body: composeChangeMessage({
+        baseMessage: nextBest.action.detail,
+        instruction: wealthIntervention,
+      }),
       primary_domain: nextBest.stage === "fund_goal" ? "goals" : "investments",
       domains: nextBest.stage === "fund_goal" ? ["goals", "investments"] : ["investments"],
       signals: [],
@@ -175,6 +196,9 @@ export async function runMultiFinanceProactive(
         behavior_context: nextBest.behavior_context,
         financial_state: nextBest.financial_state,
         next_action: nextBest.action,
+        behavioral_intervention: wealthIntervention,
+        communication_instruction: wealthIntervention,
+        deterministic_body: nextBest.action.detail,
         formula_version: nextBest.version,
       },
     });

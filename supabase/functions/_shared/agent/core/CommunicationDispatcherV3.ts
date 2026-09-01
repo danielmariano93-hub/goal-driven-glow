@@ -9,6 +9,7 @@ import { communicationTopicKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
 import { confirmChangeFollowupDelivery } from "../changeLoop.ts";
+import { applyCommunicationInstruction, instructionFromEvidence } from "../changeMessage.ts";
 
 
 
@@ -460,7 +461,20 @@ export async function dispatchSuggestions(
 
       const actionUrl = typeof candidate.action?.route === "string" ? candidate.action.route : null;
       const template = templates.get(`${candidate.kind}:${target}`);
-      const rendered = renderCommunicationTemplate(template, candidate, actionUrl);
+      const renderedRaw = renderCommunicationTemplate(template, candidate, actionUrl);
+      // A moldura comportamental chega à mensagem REAL: princípio e estratégia
+      // definem a abordagem; se o texto renderizado inventar valor, percentual
+      // ou moralizar, volta ao corpo determinístico do motor.
+      const instruction = instructionFromEvidence(candidate.evidence);
+      const behavioral = applyCommunicationInstruction({
+        renderedBody: renderedRaw.body,
+        deterministicBody: String(
+          (candidate.evidence as any)?.deterministic_body ?? candidate.body ?? renderedRaw.body,
+        ),
+        instruction,
+      });
+      const rendered = { title: renderedRaw.title, body: behavioral.body };
+
       if (dryRun) {
         results.push({
           id: candidate.id,

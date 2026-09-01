@@ -22,6 +22,8 @@ import type { TextProvenance } from "./TextProvenance.ts";
 
 import { validate, validateReply, FRIENDLY_ORCHESTRATOR_ERROR } from "./ResponseValidator.ts";
 import { personalizeSystemPrompt } from "./ResponseGenerator.ts";
+import { resolveBehavioralIntervention } from "../behavioralPrinciples.ts";
+import { buildCommunicationInstructionPrompt } from "../changeMessage.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { createMetrics, estimateCost, timeStage, summarize, recordArtifact, recordFormulaVersion } from "./Observability.ts";
 import { buildRecord, logDecision } from "./DecisionLogger.ts";
@@ -959,6 +961,32 @@ ${episodic}
       `Não crie novo rascunho nem inicie nova conversa enquanto houver pendência.\n\n` +
       systemPrompt;
   }
+
+  // nino_change_agent.v1 — a moldura comportamental chega à camada de linguagem.
+  // Só instrução de COMO falar: princípio, objetivo e proibições. Nenhum número
+  // nasce aqui; valor e ação continuam vindo do motor determinístico.
+  const activeCommitment = await guard(async () => {
+    const { data } = await sb.from("nino_change_commitments")
+      .select("id,title,stage,strategy,last_outcome,principles")
+      .eq("user_id", input.user_id).eq("status", "active")
+      .order("accepted_at", { ascending: false }).limit(1).maybeSingle();
+    return data ?? null;
+  }, (m) => metrics.errors.push("change_commitment_prompt:" + m), null);
+  if (activeCommitment) {
+    const intervention = resolveBehavioralIntervention({
+      stage: String((activeCommitment as any).stage ?? ""),
+      outcome: (activeCommitment as any).last_outcome ?? null,
+      strategy: ((activeCommitment as any).strategy ?? undefined) as any,
+      principles: Array.isArray((activeCommitment as any).principles)
+        ? (activeCommitment as any).principles.map(String) as any
+        : undefined,
+    });
+    systemPrompt =
+      `${buildCommunicationInstructionPrompt(intervention)}\n`
+      + `Compromisso ativo: “${String((activeCommitment as any).title ?? "")}”.\n\n`
+      + systemPrompt;
+  }
+
 
   // Análise composta com escopo e completude (`nino_composite.v1`): pergunta
   // que cruza metas, atingimento e evolução histórica é resolvida por motor
