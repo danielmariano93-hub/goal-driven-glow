@@ -356,6 +356,8 @@ export async function dispatchSuggestions(
     loadCommunicationPolicy(sb),
   ]);
   const { careQuota, emotionalChannels } = reminderSettings;
+  // Fase piloto restrita: quem está fora da lista mantém a política conservadora.
+  const commPolicy = policyForUser(globalCommPolicy, userId);
 
   const dryRunEarly = opts.dryRun === true;
   const results: DispatchOutcome[] = [];
