@@ -74,11 +74,19 @@ export type NinoHomeEditorialView = {
   lastUpdatedAt: string | null;
 };
 
+/** Teto absoluto de leituras de apoio (desktop / itens materialmente distintos). */
 export const NINO_SUPPORTING_LIMIT = 3;
+/** Padrão da Home: duas leituras de apoio. A terceira só entra se for outro assunto. */
+export const NINO_SUPPORTING_DEFAULT = 2;
 
-const HEADLINE_MAX = 90;
-const SPOTLIGHT_BODY_MAX = 150;
-const SUPPORTING_BODY_MAX = 70;
+const HEADLINE_MAX = 65;
+const SPOTLIGHT_BODY_MAX = 140;
+const SUPPORTING_TITLE_MAX = 48;
+const SUPPORTING_BODY_MAX = 60;
+
+/** Metadata de detector nunca é linguagem de Home. */
+const TECHNICAL_METADATA = /(amostra|confian[cç]a|percentil|desvio[- ]padr|relev[âa]ncia|score|p\d{2}\b)/i;
+const TECHNICAL_REPLACEMENT = "Padrão recorrente no seu histórico";
 
 function clean(value: string | null | undefined): string | null {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -107,12 +115,44 @@ export function compactSentence(value: string | null | undefined, max: number): 
   return `${cut.slice(0, space > 20 ? space : max).trim()}…`;
 }
 
+/**
+ * Sanitiza subtítulo de apoio: significado em vez de metadata do detector.
+ * O texto técnico continua íntegro na tela detalhada, na evidência e no Admin.
+ */
+export function humanizeSupportingText(value: string | null | undefined): string | null {
+  const text = clean(value);
+  if (!text) return null;
+  return TECHNICAL_METADATA.test(text) ? TECHNICAL_REPLACEMENT : text;
+}
+
 function semanticKey(value: string | null | undefined): string {
   return String(value ?? "")
     .toLocaleLowerCase("pt-BR")
     .replace(/[^a-z0-9á-ú]+/gi, " ")
     .trim();
 }
+
+/** Assunto canônico da leitura (meta, dívida, entidade, domínio). */
+function subjectKey(situation: FinancialSituation | null, step?: NinoNextStep | null): string {
+  const evaluation = (situation?.evaluation ?? {}) as Record<string, unknown>;
+  const candidates = [
+    step?.goalId,
+    evaluation.goal_id,
+    evaluation.debt_id,
+    evaluation.entity_id,
+    evaluation.category_id,
+    evaluation.merchant_id,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return `id:${candidate.trim().toLowerCase()}`;
+  }
+  const names = [step?.goalName, evaluation.goal_name, evaluation.entity_name, evaluation.merchant];
+  for (const name of names) {
+    if (typeof name === "string" && name.trim()) return `name:${semanticKey(name)}`;
+  }
+  return "";
+}
+
 
 function toneForSituation(situation: FinancialSituation): NinoEditorialTone {
   if (situation.severity === "critical") return "critical";
