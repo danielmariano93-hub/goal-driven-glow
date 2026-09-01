@@ -240,17 +240,8 @@ export function AiEfficiencyHistoryBoard() {
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
   const num = (v: number | null | undefined) => (v == null ? "—" : Number(v).toLocaleString("pt-BR"));
   const marks = MILESTONES.filter((m) => m.date >= h.period.from && m.date <= h.period.to);
-  const drill = (selectedLatencyDay ? latencyDay.data?.latency_drilldown : h.latency_drilldown) ?? {};
-  const drillTitle = selectedLatencyDay ? `Runs de ${selectedLatencyDay}` : "Runs do recorte";
-  const selectLatencyDay = (state: unknown) => {
-    const day = (state as { activeLabel?: unknown } | null)?.activeLabel;
-    if (typeof day === "string") setSelectedLatencyDay(day);
-  };
-  const drillRows = [
-    { title: "Próximos da mediana", rows: drill.p50_runs ?? [] },
-    { title: "Cauda P95", rows: drill.p95_runs ?? [] },
-    { title: "Maiores latências", rows: drill.outlier_runs ?? [] },
-  ];
+
+
 
   return (
     <section className="space-y-4">
