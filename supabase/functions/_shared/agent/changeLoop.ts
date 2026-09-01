@@ -651,13 +651,21 @@ export async function buildDueChangeFollowups(
         ? "Vamos ajustar o caminho, não cobrar você"
         : "Retomando o que combinamos";
 
+    // O corpo determinístico é a verdade; a moldura comportamental decide só a
+    // abordagem. O dispatcher recebe as duas coisas separadas.
+    const deterministicBody = status.message;
+    const body = composeChangeMessage({
+      baseMessage: deterministicBody,
+      instruction: intervention as unknown as CommunicationInstruction,
+    });
+
     out.push({
       fingerprint: `${NINO_CHANGE_AGENT_VERSION}:${row.id}:${String(row.next_check_at).slice(0, 10)}`,
       type: `change_${status.outcome}`,
       communication_kind: kind,
       severity: status.outcome === "regressed" ? "attention" : "info",
       title,
-      body: status.message,
+      body,
       primary_domain: row.stage === "fund_goal" ? "goals" : row.stage === "build_wealth" ? "investments" : "cash",
       domains: [row.stage === "fund_goal" ? "goals" : row.stage === "build_wealth" ? "investments" : "cash"],
       signals: [],
@@ -677,6 +685,8 @@ export async function buildDueChangeFollowups(
         strategy_reason: decided.reason,
         consecutive_stalls: stalls,
         behavioral_intervention: intervention,
+        communication_instruction: intervention,
+        deterministic_body: deterministicBody,
         formula_version: NINO_CHANGE_AGENT_VERSION,
       },
     } as FinancialSituation);
