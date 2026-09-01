@@ -57,36 +57,12 @@ type History = {
   series: Series[];
   by_path: Array<{ path: string; runs: number; tokens_per_run: number; p50_latency_ms: number | null; p95_latency_ms: number | null }>;
   by_model: Array<{ model: string; model_tier: string | null; runs: number; tokens_in: number; tokens_out: number; estimated_cost_usd: number }>;
-  latency_drilldown?: LatencyDrilldown;
   coverage: Record<string, string | null>;
   available_filters: {
     channels: string[]; paths: string[]; model_tiers: string[]; models: string[]; capabilities: string[];
   };
 };
 
-type LatencyRun = {
-  run_id: string;
-  started_at: string;
-  day: string;
-  status: string | null;
-  channel: string | null;
-  path: string | null;
-  capability: string | null;
-  model_tier: string | null;
-  model: string | null;
-  latency_ms: number | null;
-  tokens_total: number;
-  llm_calls: number;
-  estimated_cost_usd: number;
-  error_summary: string | null;
-};
-
-type LatencyDrilldown = {
-  thresholds?: { p50_latency_ms: number | null; p95_latency_ms: number | null };
-  p50_runs?: LatencyRun[];
-  p95_runs?: LatencyRun[];
-  outlier_runs?: LatencyRun[];
-};
 
 type Compare = {
   milestone: string;
