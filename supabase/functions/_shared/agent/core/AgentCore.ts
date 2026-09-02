@@ -812,7 +812,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   let semanticTurn: { reply: string; toolCalls: any[] } | null = null;
   let semanticIRTelemetry: Record<string, unknown> | null = null;
   let semanticEngines: string[] = [];
+  let semanticRequiredTool: string | null = null;
   let semanticDeterministicText: string | null = null;
+
   const dialogueState = classifyDialogueState(input.text, routed.intent);
   const semanticV3 = await isEnabled("semantic_ir_v3", input.user_id);
   const capabilityRescueEnabled = await isEnabled("semantic_capability_rescue_v1", input.user_id);
@@ -893,9 +895,37 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       semanticDeterministicText = outcome.deterministic_text;
       semanticIRTelemetry = outcome.telemetry;
       for (const err of outcome.errors) metrics.errors.push(err);
+      // `nino_semantic_ir.v3` — AUTORIDADE DE FERRAMENTA. Com o turno resolvido
+      // pelo executor semântico, a ferramenta obrigatória do turno é a engine
+      // MAPEADA, nunca o `required_tool` do roteador legado. Era exatamente esse
+      // descasamento que descartava uma resposta correta: o legado classificava
+      // "quais categorias gastei mais nos últimos 90 dias" como
+      // `recent_transactions` (required_tool `list_recent_transactions`),
+      // o executor rodava `analyze_spending` com sucesso, e o ResponseValidator
+      // acusava `required_tool_missing` e substituía o ranking real pela
+      // mensagem "Não consegui consultar a fonte financeira necessária…".
+      if (semanticTurn && semanticStatus === "executable") {
+        const mapped = (outcome.validation?.mapped ?? []).map((m) => m.tool);
+        const engines = semanticEngines.length ? semanticEngines : mapped;
+        const executedOk = engines.find((t) =>
+          (semanticTurn?.toolCalls ?? []).some((c: any) => c.ok && String(c.tool_name) === t)
+        );
+        semanticRequiredTool = executedOk ?? engines[0] ?? null;
+        capability = {
+          ...capability,
+          name: "financial_analysis",
+          execution: "deterministic",
+          allowed_tools: engines.length ? engines : capability.allowed_tools,
+          required_tool: semanticRequiredTool,
+          reason: "semantic_ir_v3_authority",
+        } as typeof capability;
+      }
       // Última defesa: gate bloqueou a resposta, mas a ferramenta canônica
-      // mapeada continua obrigatória — nunca resposta aproximada.
+      // mapeada continua obrigatória — nunca resposta aproximada. O rescue segue
+      // no MESMO caminho semântico (engine determinística mapeada); o
+      // ActionPlanner não volta a escolher ferramenta.
       if (!semanticTurn && outcome.rescue) {
+        semanticRequiredTool = outcome.rescue.tool;
         capability = {
           ...capability,
           name: "financial_analysis",
@@ -906,6 +936,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
           reason: `semantic_ir_v3_rescue:${outcome.rescue.intent}`,
         } as typeof capability;
       }
+
       if (topicStateEnabled && session_id) {
         await guard(
           () => patchState(sb, session_id, { semantic_topic_state: outcome.topic_state }),
