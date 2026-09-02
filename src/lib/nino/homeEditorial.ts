@@ -244,21 +244,26 @@ function buildSpotlight(
         ? priorityForSituation(situation)
         : NINO_EDITORIAL_PRIORITY.stability;
 
-  // Home usa a variante compacta: conclusão curta + uma evidência.
+  // Home usa a variante conversacional compacta: conclusão + causa + conselho.
   const headline = compactSentence(narrative.compact.headline, HEADLINE_MAX) ?? narrative.compact.headline;
   const body = compactSentence(narrative.compact.body, SPOTLIGHT_BODY_MAX);
+  const contextText = compactSentence(narrative.compact.context ?? null, SPOTLIGHT_CONTEXT_MAX);
+  const recommendation = compactSentence(narrative.compact.recommendation ?? null, SPOTLIGHT_RECOMMENDATION_MAX);
+  const subject = subjectKey(situation, useStep ? nextStep : null);
 
   return {
     usedSituationId: useStep && !same ? null : situation?.id ?? null,
     usedStep: useStep,
-    subject: subjectKey(situation, useStep ? nextStep : null),
+    subject,
     item: {
       id: useStep && nextStep ? nextStep.id : situation?.id ?? "nino-spotlight",
       situationId: situation?.id ?? null,
       semanticType: useStep ? "next_best_action" : situation?.situation_type ?? "guidance",
       eyebrow: eyebrowFor(tone, useStep),
       headline,
-      supportingText: body,
+      contextText: contextText ?? body,
+      recommendation,
+      supportingText: contextText ? null : body,
       mainValue: narrative.primaryAmount?.value ?? null,
       mainValueSuffix: narrative.primaryAmount?.caption ? clean(narrative.primaryAmount.caption) : null,
       tone,
@@ -267,11 +272,12 @@ function buildSpotlight(
       // usamos o destino canônico da própria situação (rota já existente).
       primaryAction: toAction(narrative.primaryCta) ?? fallbackAction(situation),
       secondaryAction: toAction(narrative.secondaryCta),
+      subject,
     },
   };
 }
 
-type SupportingCandidate = NinoSupportingItem & { subject: string };
+type SupportingCandidate = NinoSupportingItem;
 
 function toSupporting(reading: NinoReading): SupportingCandidate | null {
   const situation = reading.situation;
@@ -289,6 +295,44 @@ function toSupporting(reading: NinoReading): SupportingCandidate | null {
     tone: toneForSituation(situation),
     route: diagnosisRouteForSituation(situation, reading.action),
     priority: priorityForSituation(situation),
+    subject: subjectKey(situation),
+  };
+}
+
+/**
+ * Alternativa de Spotlight a partir de uma leitura da fila canônica. Mesmo
+ * template, mesmo orçamento de conteúdo, CTA canônico da própria situação —
+ * nenhuma recomendação financeira é criada aqui.
+ */
+function spotlightFromReading(reading: NinoReading): NinoSpotlightItem | null {
+  const situation = reading.situation;
+  const narrative = composeNinoDecisionNarrative({
+    situation,
+    action: reading.action ? { title: reading.action.title, route: reading.action.route } : null,
+  });
+  if (!narrative) return null;
+  const tone = toneForSituation(situation);
+  const headline = compactSentence(narrative.compact.headline, HEADLINE_MAX) ?? narrative.compact.headline;
+  const contextText = humanizeSupportingText(
+    compactSentence(narrative.compact.context ?? narrative.compact.body, SPOTLIGHT_CONTEXT_MAX),
+  );
+  const route = diagnosisRouteForSituation(situation, reading.action);
+  const label = clean(diagnosisActionLabel(situation, reading.action));
+  return {
+    id: situation.id,
+    situationId: situation.id,
+    semanticType: situation.situation_type,
+    eyebrow: eyebrowFor(tone, false),
+    headline,
+    contextText,
+    recommendation: null,
+    supportingText: null,
+    mainValue: null,
+    mainValueSuffix: null,
+    tone,
+    priority: priorityForSituation(situation),
+    primaryAction: route && label ? { kind: "link", label, route } : null,
+    secondaryAction: null,
     subject: subjectKey(situation),
   };
 }
@@ -342,9 +386,19 @@ export function buildNinoHomeEditorialView(input: {
     chosen.push(third);
   }
 
+  // Pool de Spotlight: o item oficial lidera; as alternativas seguem o mesmo
+  // ranking canônico da fila (prioridade, severidade, relevância, frescor).
+  const alternatives = queue
+    .map(spotlightFromReading)
+    .filter((item): item is NinoSpotlightItem => Boolean(item) && Boolean(item?.primaryAction ?? item?.contextText))
+    .filter((item) => !spotlight || item.id !== spotlight.item.id)
+    .sort((a, b) => a.priority - b.priority);
+
   return {
     primary: spotlight?.item ?? null,
-    supporting: chosen.slice(0, NINO_SUPPORTING_LIMIT).map(({ subject: _subject, ...item }) => item),
+    supporting: chosen.slice(0, NINO_SUPPORTING_LIMIT),
+    primaryPool: spotlight ? [spotlight.item, ...alternatives] : alternatives,
+    supportingPool: eligible,
     totalAvailable: eligible.length + (spotlight ? 1 : 0),
     lastUpdatedAt: diagnosis?.asOf ?? context?.as_of ?? null,
   };
