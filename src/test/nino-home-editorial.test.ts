@@ -216,14 +216,22 @@ describe("nino_home_editorial.v1", () => {
     expect(view.primary!.primaryAction?.label.length ?? 0).toBeLessThanOrEqual(24);
   });
 
-  it("O. apoios ficam em uma única superfície agrupada e o link é curto", () => {
+  it("O. a Home mostra só o Spotlight: nenhuma lista de apoios e link curto", () => {
     const section = read("src/components/home/NinoGuidanceSection.tsx");
-    expect(section).toContain("divide-y");
+    expect(section).not.toContain("Também vale saber");
+    expect(section).not.toContain("NinoInsightRow");
     expect(section).toContain("Ver todas no Nino");
-    const row = read("src/components/home/nino/NinoInsightRow.tsx");
-    expect(row).toContain("max-h-[68px]");
-    expect(row).not.toContain("rounded-[16px] border");
   });
+
+  it("P. as ações do Spotlight ficam em uma linha só, em peso de link", () => {
+    const card = read("src/components/home/nino/NinoSpotlightCard.tsx");
+    // Sem botão cheio: nada de <Button> no card.
+    expect(card).not.toContain("<Button");
+    expect(card).toContain("Outra orientação");
+    const row = card.slice(card.indexOf("flex flex-wrap items-center"));
+    expect(row.indexOf("Outra orientação")).toBeGreaterThan(0);
+  });
+
 
   it("não vaza jargão técnico do motor para a UI", () => {
     const view = build({}, goalStep);
