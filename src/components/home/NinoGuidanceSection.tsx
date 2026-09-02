@@ -8,7 +8,6 @@ import { ArrowRight } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { NinoErrorBlock } from "@/components/nino/NinoStateBlocks";
 import { NinoEditorialSkeleton } from "@/components/home/nino/NinoEditorialSkeleton";
-import { NinoInsightRow } from "@/components/home/nino/NinoInsightRow";
 import { NinoSpotlightCard } from "@/components/home/nino/NinoSpotlightCard";
 import { trackNinoEditorial } from "@/lib/analytics/ninoEditorial";
 import { buildNinoHomeEditorialView } from "@/lib/nino/homeEditorial";
