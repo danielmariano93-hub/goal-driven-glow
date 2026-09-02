@@ -36,6 +36,7 @@ import {
   type ConversationTopicState, type PendingClarification,
 } from "./ConversationTopicState.ts";
 import type { SemanticCompilerTelemetry } from "./SemanticCompiler.ts";
+import { ontologyHintFor, ontologySignature } from "./IRCapabilityAdapter.ts";
 
 export type SemanticPipelineTurn = { reply: string; toolCalls: any[] };
 
@@ -59,6 +60,12 @@ export type SemanticPipelineResult = {
   topic_id: string | null;
   rescue: SemanticCapabilityRescue | null;
   errors: string[];
+  /** Presente só em `unsupported`: o Core pode tentar o motor canônico do turno. */
+  canonical_fallback?: {
+    allowed: boolean;
+    reason: "no_engine_for_combination" | "intent_unsupported";
+    honest_reply: string;
+  };
   telemetry: Record<string, unknown>;
 };
 
@@ -304,16 +311,33 @@ export async function runSemanticTurn(
     };
   }
 
-  // ---- 5. Unsupported: falha honesta, sem fallback legado -----------------
+  // ---- 5. Unsupported: degradação para motor canônico, senão falha honesta --
+  // `unsupported` significa "o IR não achou motor", NÃO "não há resposta". Antes
+  // isso descartava a capability determinística que o roteador já tinha escolhido
+  // (era assim que "estou melhorando ou piorando?" — que tem
+  // `assess_financial_health` — virava falha honesta com motivo errado).
   if (status === "unsupported") {
     state = upsertTopic(state, { ...topic, ir: irV2, status: "answered", updated_at: new Date().toISOString() }, true);
+    const gaps = ontologyGaps(irV2, validation);
     return {
       version: "nino_semantic_ir.v3",
       status, ir, ir_v2: irV2, validation,
-      turn: { reply: input.failure_reply, toolCalls: [] },
+      // Sem `turn`: quem decide é o AgentCore — motor canônico do turno, se
+      // existir; senão o texto honesto abaixo, com o motivo VERDADEIRO.
+      turn: null,
       deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
-      telemetry: { ...baseTelemetry(), executed_by: "honest_failure", action_planner_used_for_tool_choice: false },
+      canonical_fallback: {
+        allowed: true,
+        reason: gaps.length ? "no_engine_for_combination" : "intent_unsupported",
+        honest_reply: unsupportedReply(gaps),
+      },
+      telemetry: {
+        ...baseTelemetry(),
+        unsupported_ontology: gaps,
+        executed_by: "canonical_fallback_offered",
+        action_planner_used_for_tool_choice: false,
+      },
     };
   }
 
@@ -491,4 +515,42 @@ function domainFailureReply(slot: string, options: string[]): string {
   return options.length
     ? `Não encontrei essa categoria na sua base. As que existem são: ${list}. Me diga qual delas que eu refaço a conta.`
     : "Não encontrei essa categoria na sua base. Me diga o nome que aparece nos seus lançamentos que eu refaço a conta.";
+}
+
+// ---------------------------------------------------------------------------
+// Lacuna de ontologia (`nino_ontology.v1`)
+//
+// `unsupported` deixa de ser uma mensagem genérica: registramos QUAL combinação
+// métrica/operação não tem motor (telemetria auditável para o backlog) e o texto
+// honesto explica a limitação real, sem falar de "janela de comparação" quando o
+// problema é outro.
+// ---------------------------------------------------------------------------
+function ontologyGaps(
+  ir: FinancialQueryIRv2 | null,
+  validation: PlanValidation | null,
+): string[] {
+  if (!ir) return [];
+  const unmapped = new Set(
+    (validation?.mapped ?? []).length
+      ? ir.queries
+        .filter((q) => !validation!.mapped.some((m) => m.query_id === q.id))
+        .map((q) => q.id)
+      : ir.queries.map((q) => q.id),
+  );
+  const gaps = ir.queries
+    .filter((q) => unmapped.has(q.id))
+    .map((q) => {
+      const hint = ontologyHintFor(q);
+      return hint ? `${ontologySignature(q)} → sugerido: ${hint}` : ontologySignature(q);
+    });
+  return [...new Set(gaps)].slice(0, 6);
+}
+
+function unsupportedReply(gaps: string[]): string {
+  if (gaps.length) {
+    return "Entendi exatamente o que você quer, mas esse corte específico eu ainda não calculo "
+      + "com número confiável. Posso te dar a leitura mais próxima disso agora — quer que eu vá por aí?";
+  }
+  return "Essa eu não consigo responder com número confiável agora. "
+    + "Se você me disser o período e o que quer comparar, eu monto a leitura certa.";
 }

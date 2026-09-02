@@ -91,6 +91,33 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
 
     if (q.operation === "trend") {
+      // Trajetória mês a mês: motor longitudinal (ponto de virada, tendência).
+      if (group === "month" && !q.filters.length) {
+        return {
+          tool: "analyze_longitudinal_trajectory",
+          capability: "financial_analysis",
+          execution: "deterministic",
+          args: { from: ir.period.from, to: ir.period.to },
+        };
+      }
+      // Tendência COM recorte (categoria/cartão): o motor de comparação canônica
+      // suporta o corte; antes a query inteira virava `unsupported`.
+      const cat = filter(q, "category");
+      const card = filter(q, "card");
+      if ((cat || card) && metric === "expense" && !group && ir.comparison_period) {
+        return {
+          tool: "compare_financial_metric",
+          capability: "financial_comparison",
+          execution: "llm_scoped",
+          args: {
+            metric: cat ? "category_spend" : "card_spend",
+            mode: "CUSTOM_PERIOD",
+            ...(cat ? { category_name: cat } : {}),
+            from: ir.period.from,
+            to: ir.period.to,
+          },
+        };
+      }
       if (q.filters.length || group) return null;
       return metric === "expense"
         ? {
@@ -130,6 +157,14 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
       };
     }
     return null;
+  }
+
+  // Saúde financeira ("estou melhorando ou piorando?") é veredito holístico:
+  // vale para value/sum e também para trend/compare/explain, porque o motor já
+  // compõe direção, tendência, sobra, dívida e patrimônio numa única leitura.
+  if (q.metric === "financial_health" && !q.filters.length && !q.group_by.length
+    && ["value", "sum", "trend", "compare", "explain"].includes(q.operation)) {
+    return { tool: "assess_financial_health", capability: "holistic_assessment", execution: "deterministic", args: {} };
   }
 
   if (q.filters.length || q.group_by.length || !["value", "sum"].includes(q.operation)) return null;
@@ -211,4 +246,51 @@ export function mappingsFromIR(
   ir: FinancialQueryIR & { queries: FinancialQuery[] },
 ): Array<{ query_id: string; mapping: IRQueryMapping | null }> {
   return ir.queries.map((q) => ({ query_id: q.id, mapping: mappingForQuery(q, ir) }));
+}
+
+// ---------------------------------------------------------------------------
+// Ontologia executável (`nino_ontology.v1`)
+//
+// Causa-raiz que esta seção fecha: o compilador não sabia o que é executável,
+// gerava queries sem motor, o status virava `unsupported` e o Nino devolvia
+// falha honesta mesmo tendo motor canônico para a pergunta. Agora o catálogo é
+// DERIVADO deste arquivo (nunca escrito à mão em prompt) e a lacuna vira
+// telemetria auditável em vez de print de conversa.
+// ---------------------------------------------------------------------------
+
+/** Assinatura determinística da query — chave de lacuna de ontologia. */
+export function ontologySignature(q: FinancialQuery): string {
+  const group = q.group_by.length ? q.group_by.join("+") : "none";
+  const filters = q.filters.length
+    ? [...q.filters].map((f) => f.field).sort().join("+")
+    : "none";
+  return `${q.metric}/${q.operation}/group:${group}/filters:${filters}`;
+}
+
+/** Combinações realmente mapeadas, para o prompt do compilador. */
+export const EXECUTABLE_ONTOLOGY: string[] = [
+  "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
+  "expense_amount + rank|breakdown group merchant (filtro opcional: category)",
+  "expense_amount|income_amount + compare (sem filtro, exige período de comparação)",
+  "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
+  "expense_amount + trend com filtro category|card (exige período de comparação)",
+  "expense_amount + forecast (fechamento do mês)",
+  "expense_amount + explain (exige período de comparação)",
+  "balance | net_worth | debt_balance | goal_progress | future_installments + value|sum",
+  "financial_health + value|sum|trend|compare|explain (veredito holístico: 'estou melhorando ou piorando?')",
+];
+
+export function executableOntologyText(): string {
+  return EXECUTABLE_ONTOLOGY.map((line) => `- ${line}`).join("\n");
+}
+
+/** Sugestão canônica quando a combinação pedida não tem motor. */
+export function ontologyHintFor(q: FinancialQuery): string | null {
+  if (q.metric === "financial_health") return "financial_health + value";
+  if (q.operation === "trend" && q.group_by.length && q.group_by[0] !== "month") {
+    return `${q.metric} + trend group month`;
+  }
+  if (q.operation === "compare" && q.filters.length) return `${q.metric} + compare sem filtro`;
+  if (q.group_by[0] === "weekday") return `${q.metric} + breakdown group category`;
+  return null;
 }

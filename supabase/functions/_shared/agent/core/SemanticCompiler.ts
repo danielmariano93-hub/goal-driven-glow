@@ -7,6 +7,7 @@ import {
   validateFinancialIRv2, withCanonicalPeriods,
   type FinancialQueryIR,
 } from "./FinancialQueryIR.ts";
+import { executableOntologyText } from "./IRCapabilityAdapter.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
 
 
@@ -121,6 +122,9 @@ Regras de compilação:
 - "só crédito/no crédito" => filter payment_method=credit_card.
 - "só débito/conta" => filter payment_method=account.
 - "tendência do gasto médio" => expense_amount + trend.
+- "minha trajetória / mês a mês / desde o começo do ano" => expense_amount + trend + group_by month.
+- "estou melhorando ou piorando", "como está minha vida financeira", "faz um diagnóstico geral",
+  "minha evolução financeira" => financial_health + value (veredito holístico, sem group_by e sem filtro).
 - "previsão/fechamento do mês" => expense_amount + forecast.
 - "por que gastei mais/menos que o período anterior" => investigate + expense_amount + explain.
 - use compare quando a pergunta pedir comparação factual entre períodos.
@@ -143,8 +147,12 @@ const MULTI_QUERY_RULE = `- você pode emitir até 4 queries com ids q1..q4 quan
 
 /** Prompt do compilador. O rollout single-query mantém o texto original. */
 function systemPrompt(maxQueries: number): string {
-  return `${SYSTEM}\n${maxQueries > 1 ? MULTI_QUERY_RULE : SINGLE_QUERY_RULE}`;
+  // Catálogo DERIVADO do adaptador: o compilador só emite o que existe motor para
+  // executar. Sem isso ele criava queries órfãs e o turno morria em `unsupported`.
+  const ontology = `\nCombinações com motor disponível (não fuja desta lista):\n${executableOntologyText()}`;
+  return `${SYSTEM}\n${maxQueries > 1 ? MULTI_QUERY_RULE : SINGLE_QUERY_RULE}${ontology}`;
 }
+
 
 function emptyTelemetry(source: SemanticCompilerTelemetry["source"], model: string | null = null): SemanticCompilerTelemetry {
   return { model, llm_calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: 0, ok: true, error: null, source };

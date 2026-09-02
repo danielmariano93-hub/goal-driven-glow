@@ -943,6 +943,31 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         } as typeof capability;
       }
 
+      // ESCADA DE DEGRADAÇÃO (`nino_ontology.v1`). `unsupported` = o IR não achou
+      // motor para a combinação, NÃO "não há resposta". Se o roteador do turno já
+      // tem motor canônico (ex.: "estou melhorando ou piorando?" →
+      // `assess_financial_health`), ele responde. Só sem nenhum motor é que
+      // entregamos a falha honesta — e com o motivo verdadeiro, nunca a mensagem
+      // de escopo de comparação.
+      if (semanticStatus === "unsupported" && outcome.canonical_fallback?.allowed) {
+        const hasCanonicalEngine = !!capability.required_tool
+          || (capability.allowed_tools ?? []).length > 0;
+        if (hasCanonicalEngine) {
+          semanticIRTelemetry = {
+            ...(semanticIRTelemetry as Record<string, unknown>),
+            executed_by: "degraded_to_canonical",
+            degraded_to: capability.required_tool ?? capability.allowed_tools?.[0] ?? null,
+          };
+        } else {
+          semanticTurn = { reply: outcome.canonical_fallback.honest_reply, toolCalls: [] };
+          semanticIRTelemetry = {
+            ...(semanticIRTelemetry as Record<string, unknown>),
+            executed_by: "honest_failure",
+            honest_failure_reason: outcome.canonical_fallback.reason,
+          };
+        }
+      }
+
       if (topicStateEnabled && session_id) {
         await guard(
           () => patchState(sb, session_id, { semantic_topic_state: outcome.topic_state }),
