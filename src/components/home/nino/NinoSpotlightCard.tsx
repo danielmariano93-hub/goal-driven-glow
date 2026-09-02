@@ -152,7 +152,7 @@ export function NinoSpotlightCard({
                 onClick={() =>
                   trackNinoEditorial("nino_spotlight_secondary_action", {
                     item_id: item.id,
-                    semanticType: item.semanticType,
+                    semantic_type: item.semanticType,
                     priority: item.priority,
                     surface,
                     action: secondary.kind,
