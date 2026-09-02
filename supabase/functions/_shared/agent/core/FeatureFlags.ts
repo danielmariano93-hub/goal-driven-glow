@@ -32,7 +32,15 @@ export type FlagName =
   // Análise composta com escopo e completude (`nino_composite.v1`).
   | "composite_analysis_v1"
   // Semantic Compiler -> Financial Query IR. Rollout começa desligado.
-  | "semantic_ir_v1";
+  | "semantic_ir_v1"
+  // `nino_semantic_ir.v3` — flags independentes, todas OFF no nascimento.
+  | "semantic_ir_v3"
+  | "semantic_ir_multiquery_v1"
+  | "semantic_completeness_v1"
+  | "semantic_allowed_claims_v1"
+  | "semantic_topic_state_v1"
+  | "semantic_investigation_loop_v1"
+  | "semantic_capability_rescue_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -49,7 +57,29 @@ const DEFAULTS: Record<FlagName, boolean> = {
   document_efficiency_v1: true,
   composite_analysis_v1: true,
   semantic_ir_v1: false,
+  semantic_ir_v3: false,
+  semantic_ir_multiquery_v1: false,
+  semantic_completeness_v1: false,
+  semantic_allowed_claims_v1: false,
+  semantic_topic_state_v1: false,
+  semantic_investigation_loop_v1: false,
+  semantic_capability_rescue_v1: false,
 };
+
+/**
+ * Flags com rollout por usuário: fail-closed. Sem configuração de rollout na
+ * tabela, NÃO liga globalmente por acidente.
+ */
+const ROLLOUT_FLAGS = new Set<FlagName>([
+  "semantic_ir_v1",
+  "semantic_ir_v3",
+  "semantic_ir_multiquery_v1",
+  "semantic_completeness_v1",
+  "semantic_allowed_claims_v1",
+  "semantic_topic_state_v1",
+  "semantic_investigation_loop_v1",
+  "semantic_capability_rescue_v1",
+]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;
 const TTL_MS = 60_000;
@@ -132,7 +162,7 @@ async function loadRollouts(): Promise<Record<string, RolloutConfig>> {
 export async function isEnabled(name: FlagName, userId?: string): Promise<boolean> {
   const map = await load();
   const enabled = name in map ? map[name] : (DEFAULTS[name] ?? false);
-  if (!enabled || !userId || name !== "semantic_ir_v1") return enabled;
+  if (!enabled || !userId || !ROLLOUT_FLAGS.has(name)) return enabled;
 
   // Fail-closed para o novo cérebro: se a migration de rollout ainda não
   // existe ou falhar, não ativa globalmente por acidente.
