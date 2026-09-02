@@ -231,6 +231,8 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Tem um número que não fecha",
         body: "Vou corrigir isso antes de recomendar corte ou aporte.",
+        context: "Há uma divergência entre seus registros e seus saldos, e ela muda qualquer conta que eu fizer agora.",
+        recommendation: "Meu conselho: vamos acertar isso primeiro.",
       },
     };
   }
