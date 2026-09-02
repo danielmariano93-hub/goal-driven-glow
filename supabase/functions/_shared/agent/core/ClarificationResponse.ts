@@ -28,13 +28,15 @@ const PROMPTS: Record<ClarificationSlot, (options: string[]) => string> = {
 
 export function normalizeSlot(raw: string): ClarificationSlot {
   const t = String(raw ?? "").toLowerCase();
-  if (/cart|credit/.test(t)) return "card";
+  // O slot pode chegar em pt-BR ou em inglês (a LLM emite o nome do campo do IR).
+  if (/cart[aã]o|cart[oõ]es|card|credit/.test(t)) return "card";
   if (/conta|account/.test(t)) return "account";
   if (/categor/.test(t)) return "category";
   if (/per[ií]odo|data|m[eê]s|period/.test(t)) return "period";
   if (/meta|goal/.test(t)) return "goal";
   return "unknown";
 }
+
 
 export type ClarificationQuestion = {
   version: "nino_clarification.v1";

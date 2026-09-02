@@ -3,10 +3,12 @@
 // A saída é Financial Query IR via function calling forçado.
 import {
   FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
-  fastFinancialIR, validateFinancialIR, withCanonicalPeriods,
+  fastFinancialIR, MAX_IR_QUERIES, normalizeToV2, validateFinancialIR,
+  validateFinancialIRv2, withCanonicalPeriods,
   type FinancialQueryIR,
 } from "./FinancialQueryIR.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -30,6 +32,16 @@ type CompileInput = {
   sb?: any;
   user_id?: string | null;
   run_id?: string | null;
+  /** `nino_semantic_ir.v3`: multi-query real (teto MAX_IR_QUERIES). */
+  max_queries?: number;
+  /** Contexto de replan: só entra quando a investigação pede novo IR. */
+  replan?: {
+    current_ir: unknown;
+    execution_summary: Array<{ query_id: string; status: string; engine: string | null }>;
+    missing_targets: string[];
+  } | null;
+  /** Rótulo da chamada na telemetria de uso de IA. */
+  reason?: string;
 };
 
 export type SemanticCompileOutcome = {
@@ -37,7 +49,9 @@ export type SemanticCompileOutcome = {
   telemetry: SemanticCompilerTelemetry;
 };
 
-const COMPILER_TOOL = {
+/** Schema do IR emitido pela LLM. `maxQueries=1` mantém o contrato v2. */
+function compilerTool(maxQueries: number) {
+  return {
   type: "function",
   function: {
     name: "emit_financial_query_ir",
@@ -54,7 +68,7 @@ const COMPILER_TOOL = {
         needs_clarification: { type: "array", items: { type: "string" }, maxItems: 3 },
         assumptions: { type: "array", items: { type: "string" }, maxItems: 4 },
         queries: {
-          type: "array", minItems: 0, maxItems: 1,
+          type: "array", minItems: 0, maxItems: Math.max(1, Math.min(MAX_IR_QUERIES, maxQueries)),
           items: {
             type: "object", additionalProperties: false,
             required: ["id", "metric", "operation", "group_by", "filters", "limit"],
@@ -79,6 +93,9 @@ const COMPILER_TOOL = {
                 },
               },
               limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
+              ...(maxQueries > 1
+                ? { depends_on: { type: "array", maxItems: 3, items: { type: "string" } } }
+                : {}),
             },
           },
         },
@@ -87,7 +104,8 @@ const COMPILER_TOOL = {
       },
     },
   },
-} as const;
+  } as const;
+}
 
 const SYSTEM = `Você é o compilador semântico do Nino, um agente financeiro pessoal.
 Sua única tarefa é traduzir a pergunta para Financial Query IR.
@@ -107,21 +125,39 @@ Regras de compilação:
 - "por que gastei mais/menos que o período anterior" => investigate + expense_amount + explain.
 - use compare quando a pergunta pedir comparação factual entre períodos.
 - se uma entidade específica estiver ambígua, preencha needs_clarification em vez de chutar.
-- v1 executa UMA query. Se houver duas análises independentes que não cabem em um único resultado,
-  intent=unsupported e queries=[]; não descarte metade.
 - filtros negativos ("sem X"), what-if complexo, causalidade não suportada ou combinação fora da ontologia:
   intent=unsupported, queries=[] e unsupported_reason explícito.
 - correção do usuário preserva a pergunta anterior e aplica somente a nova restrição.
 - completeness_targets descreve exatamente o que a resposta precisa entregar.
 - datas/períodos não aparecem no IR gerado pela LLM; o backend os anexa depois.`;
 
+const SINGLE_QUERY_RULE = `- este rollout executa UMA query. Se houver duas análises independentes que não cabem em um único
+  resultado, intent=unsupported e queries=[]; não descarte metade.`;
+
+const MULTI_QUERY_RULE = `- você pode emitir até 4 queries com ids q1..q4 quando a pergunta pedir mais de um fato
+  (ex.: ranking de categorias E total do período para calcular participação).
+- use depends_on APENAS quando uma query precisar do resultado de outra; nunca crie ciclo.
+- cada query precisa ser distinta: duas queries idênticas invalidam o plano.
+- completeness_targets deve citar o id da query que entrega cada fato ("q1.rank", "q2.money").
+- investigação de aumento de gasto: q1 compara o período com o anterior e q2 detalha por categoria.`;
+
+/** Prompt do compilador. O rollout single-query mantém o texto original. */
+function systemPrompt(maxQueries: number): string {
+  return `${SYSTEM}\n${maxQueries > 1 ? MULTI_QUERY_RULE : SINGLE_QUERY_RULE}`;
+}
+
 function emptyTelemetry(source: SemanticCompilerTelemetry["source"], model: string | null = null): SemanticCompilerTelemetry {
   return { model, llm_calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: 0, ok: true, error: null, source };
 }
 
+
 export async function compileFinancialQuery(input: CompileInput): Promise<SemanticCompileOutcome> {
-  const fast = fastFinancialIR(input.text, input.period, input.comparison_period);
-  if (fast) return { ir: fast, telemetry: emptyTelemetry("fast_path") };
+  const maxQueries = Math.max(1, Math.min(MAX_IR_QUERIES, input.max_queries ?? 1));
+  // Replan nunca usa Fast Path: a pergunta já falhou em completude.
+  if (!input.replan) {
+    const fast = fastFinancialIR(input.text, input.period, input.comparison_period);
+    if (fast) return { ir: fast, telemetry: emptyTelemetry("fast_path") };
+  }
 
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) {
@@ -138,6 +174,16 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
     const user = [
       input.previous_query ? `Pergunta factual anterior:\n${input.previous_query}` : "",
       `Mensagem atual:\n${input.text}`,
+      // Replan semântico: a LLM recebe IR atual, execução e lacunas — nunca
+      // catálogo de tools, nunca números, nunca texto de resposta.
+      input.replan
+        ? [
+          `IR atual:\n${JSON.stringify(input.replan.current_ir)}`,
+          `Execução:\n${JSON.stringify(input.replan.execution_summary)}`,
+          `Alvos de completude ainda não atendidos: ${input.replan.missing_targets.join(", ") || "nenhum"}`,
+          "Emita um IR REVISADO que cubra os alvos faltantes sem mudar a pergunta do usuário.",
+        ].join("\n\n")
+        : "",
       "Emita somente a chamada emit_financial_query_ir.",
     ].filter(Boolean).join("\n\n");
 
@@ -150,11 +196,12 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       },
       body: JSON.stringify({
         model: input.model,
-        messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user }],
-        tools: [COMPILER_TOOL],
+        messages: [{ role: "system", content: systemPrompt(maxQueries) }, { role: "user", content: user }],
+        tools: [compilerTool(maxQueries)],
         tool_choice: { type: "function", function: { name: "emit_financial_query_ir" } },
         temperature: 0,
       }),
+
       signal: controller.signal,
     });
     const text = await response.text();
@@ -170,7 +217,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
           run_id: input.run_id ?? null, model: input.model,
           success: false, http_status: response.status || null,
           error_code: error, latency_ms: Date.now() - started,
-          reason_for_ai_call: "semantic_ir_v1",
+          reason_for_ai_call: input.reason ?? "semantic_ir_v1",
         });
       }
       return {
@@ -189,7 +236,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         operation: "semantic_compile", user_id: input.user_id ?? null,
         run_id: input.run_id ?? null, model: input.model,
         success: true, latency_ms: Date.now() - started,
-        reason_for_ai_call: "semantic_ir_v1",
+        reason_for_ai_call: input.reason ?? "semantic_ir_v1",
         metadata: { compiler_version: "nino_semantic_ir.v2" },
       }, body);
     }
@@ -231,7 +278,11 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         : null,
     } as FinancialQueryIR;
 
-    const errors = validateFinancialIR(candidate);
+    // Single-query mantém o validador v1; multi-query valida no contrato v2
+    // (ids, depends_on, ciclos, duplicidade) — nunca correção silenciosa.
+    const errors = maxQueries > 1
+      ? validateFinancialIRv2(normalizeToV2(candidate))
+      : validateFinancialIR(candidate);
     return {
       ir: errors.length ? null : withCanonicalPeriods(candidate, input.period, input.comparison_period),
       telemetry: {
@@ -243,6 +294,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         source: "llm",
       },
     };
+
   } catch (error) {
     const code = error instanceof DOMException && error.name === "AbortError"
       ? "semantic_compiler_timeout"
@@ -253,7 +305,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         operation: "semantic_compile", user_id: input.user_id ?? null,
         run_id: input.run_id ?? null, model: input.model,
         success: false, error_code: code, latency_ms: Date.now() - started,
-        reason_for_ai_call: "semantic_ir_v1",
+        reason_for_ai_call: input.reason ?? "semantic_ir_v1",
       });
     }
     return {
