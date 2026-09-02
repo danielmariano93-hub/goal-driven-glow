@@ -408,3 +408,66 @@ export function buildNinoHomeEditorialView(input: {
   };
 }
 
+
+type RotatableItem = {
+  id: string;
+  semanticType: string;
+  subject: string;
+  priority: number;
+  headline?: string;
+  title?: string;
+};
+
+function labelOf(item: RotatableItem): string {
+  return semanticKey(item.headline ?? item.title ?? "");
+}
+
+/** Equivalência semântica: mesmo assunto/tipo ou mesma frase, sem decisão nova. */
+function isEquivalent(a: RotatableItem, b: RotatableItem): boolean {
+  if (a.id === b.id) return true;
+  if (a.subject && a.subject === b.subject) return true;
+  const left = labelOf(a);
+  const right = labelOf(b);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+/**
+ * Próximo item elegível para "Outra orientação" / "Mostrar outra".
+ *
+ * Não é aleatório: mantém o ranking canônico já calculado (prioridade da fila)
+ * e apenas evita repetir o item atual, os itens exibidos em outros slots e
+ * itens semanticamente equivalentes. Preferimos o que ainda não foi visto na
+ * sessão; quando o pool se esgota, o ciclo é liberado de novo.
+ *
+ * Retorna null quando não existe alternativa realmente relevante — a Home
+ * mostra um aviso neutro em vez de inventar uma dica.
+ */
+export function pickNextEditorialItem<T extends RotatableItem>(input: {
+  pool: T[];
+  current: T | null;
+  displayed?: RotatableItem[];
+  seenIds?: Iterable<string>;
+}): T | null {
+  const seen = new Set(input.seenIds ?? []);
+  const blocked = [
+    ...(input.current ? [input.current] : []),
+    ...(input.displayed ?? []).filter((item) => item.id !== input.current?.id),
+  ];
+  const candidates = input.pool
+    .filter((item) => !blocked.some((used) => isEquivalent(item, used)))
+    .sort((a, b) => a.priority - b.priority);
+  if (candidates.length === 0) return null;
+  const unseen = candidates.filter((item) => !seen.has(item.id));
+  return (unseen[0] ?? candidates[0]) ?? null;
+}
+
+/** Existe alternativa para este slot? Usado para esconder controles inúteis. */
+export function hasEditorialAlternative<T extends RotatableItem>(input: {
+  pool: T[];
+  current: T | null;
+  displayed?: RotatableItem[];
+  seenIds?: Iterable<string>;
+}): boolean {
+  return pickNextEditorialItem(input) !== null;
+}
