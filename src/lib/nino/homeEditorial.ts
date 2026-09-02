@@ -47,6 +47,10 @@ export type NinoSpotlightItem = {
   semanticType: string;
   eyebrow: string;
   headline: string;
+  /** Causa + significado em uma frase (variante conversacional da Home). */
+  contextText: string | null;
+  /** Conselho do Nino em uma linha. Nunca inventado. */
+  recommendation: string | null;
   supportingText: string | null;
   mainValue: number | null;
   mainValueSuffix: string | null;
@@ -54,6 +58,8 @@ export type NinoSpotlightItem = {
   priority: number;
   primaryAction: NinoEditorialAction | null;
   secondaryAction: NinoEditorialAction | null;
+  /** Assunto canônico (meta/dívida/categoria). Uso interno de dedup, nunca UI. */
+  subject: string;
 };
 
 export type NinoSupportingItem = {
@@ -65,11 +71,17 @@ export type NinoSupportingItem = {
   tone: NinoEditorialTone;
   route: string;
   priority: number;
+  /** Assunto canônico. Uso interno de dedup, nunca UI. */
+  subject: string;
 };
 
 export type NinoHomeEditorialView = {
   primary: NinoSpotlightItem | null;
   supporting: NinoSupportingItem[];
+  /** Pool ordenado de candidatos a Spotlight (oficial primeiro). Base de "Outra orientação". */
+  primaryPool: NinoSpotlightItem[];
+  /** Pool ordenado de leituras de apoio elegíveis (inclui as exibidas). */
+  supportingPool: NinoSupportingItem[];
   totalAvailable: number;
   lastUpdatedAt: string | null;
 };
