@@ -46,11 +46,19 @@ export type NinoDecisionCta =
   | { kind: "accept"; label: string; route: string | null }
   | { kind: "link"; label: string; route: string };
 
+/**
+ * `home_compact_conversational` — variante de Home: conclusão + causa curta +
+ * conselho em uma linha. Nunca usa o texto detalhado nem copy de Admin.
+ */
 export type NinoDecisionCompactCopy = {
   /** Headline curta de Home: <= 65 caracteres, conclusão em uma linha. */
   headline: string;
   /** Evidência mínima: uma frase, <= 140 caracteres, sem repetir o valor destacado. */
   body: string | null;
+  /** Contexto causal conversacional: causa + significado, <= 150 caracteres. */
+  context?: string | null;
+  /** Conselho do Nino em uma linha ("Meu conselho: comece por esse ritmo."). */
+  recommendation?: string | null;
 };
 
 export type NinoDecisionNarrative = {
