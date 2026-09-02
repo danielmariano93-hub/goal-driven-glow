@@ -146,8 +146,12 @@ const MULTI_QUERY_RULE = `- você pode emitir até 4 queries com ids q1..q4 quan
 
 /** Prompt do compilador. O rollout single-query mantém o texto original. */
 function systemPrompt(maxQueries: number): string {
-  return `${SYSTEM}\n${maxQueries > 1 ? MULTI_QUERY_RULE : SINGLE_QUERY_RULE}`;
+  // Catálogo DERIVADO do adaptador: o compilador só emite o que existe motor para
+  // executar. Sem isso ele criava queries órfãs e o turno morria em `unsupported`.
+  const ontology = `\nCombinações com motor disponível (não fuja desta lista):\n${executableOntologyText()}`;
+  return `${SYSTEM}\n${maxQueries > 1 ? MULTI_QUERY_RULE : SINGLE_QUERY_RULE}${ontology}`;
 }
+
 
 function emptyTelemetry(source: SemanticCompilerTelemetry["source"], model: string | null = null): SemanticCompilerTelemetry {
   return { model, llm_calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: 0, ok: true, error: null, source };
