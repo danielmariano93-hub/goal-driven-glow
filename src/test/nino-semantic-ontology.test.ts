@@ -27,7 +27,7 @@ describe("ontologia executável", () => {
 
   it("tendência com filtro de categoria usa comparação canônica", () => {
     const m = mappingForQuery(
-      q({ operation: "trend", filters: [{ field: "category", value: "Transporte" }] }),
+      q({ operation: "trend", filters: [{ field: "category", op: "eq", value: "Transporte" }] }),
       ir as any,
     );
     expect(m?.tool).toBe("compare_financial_metric");
