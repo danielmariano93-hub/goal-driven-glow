@@ -154,8 +154,12 @@ export function resolveTopicForTurn(args: {
   const subject = subjectOf(args.text);
   const isRepair = acts.includes("repair") || acts.includes("clarification");
   const isFollowup = acts.includes("followup");
+  // `constraint_update` é, por definição, a MESMA pergunta com nova restrição
+  // ("e por cartão?"). A dimensão nova muda o assunto aparente do texto, mas
+  // não abre tópico novo — o período segue herdado, salvo override explícito.
+  const isConstraintUpdate = acts.includes("constraint_update");
 
-  if (active && (isRepair || (isFollowup && active.subject === subject))) {
+  if (active && (isRepair || isConstraintUpdate || (isFollowup && active.subject === subject))) {
     // Repair mantém topic_id e herda período/entidades, salvo override explícito.
     const topic: ConversationTopic = {
       ...active,
