@@ -290,6 +290,8 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Sua folga pode virar patrimônio",
         body: "Sobra esse valor todo mês e hoje ele não rende nada.",
+        context: "Pelo seu histórico sobra dinheiro todos os meses, e hoje ele fica parado sem render.",
+        recommendation: "Meu conselho: comece um aporte planejado nesse ritmo.",
       },
     };
   }
