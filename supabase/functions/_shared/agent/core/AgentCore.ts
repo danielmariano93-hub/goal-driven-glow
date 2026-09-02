@@ -788,9 +788,14 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // Sem capacidade mapeada => fail-closed: mantém a rota atual, nunca inventa.
   let semanticIR: FinancialQueryIR | null = null;
   let semanticIRTelemetry: Record<string, unknown> | null = null;
-  if (!rawDeterministic
+  // Capacidades determinísticas que o IR PODE reclassificar: são leituras de
+  // número em que a similaridade textual erra ("quanto gastei com transporte
+  // neste mês" caía em saldo disponível). Fora desta lista, a rota crua manda.
+  const IR_REROUTABLE = new Set(["financial_snapshot", "financial_analysis", "financial_comparison"]);
+  if ((!rawDeterministic || IR_REROUTABLE.has(capability.name))
     && !capability.clarification
     && await isEnabled("semantic_ir_v1", input.user_id)) {
+
     const outcome = await guard(
       () => compileFinancialQuery({
         text: turnPlan.effective_text,
