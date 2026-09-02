@@ -67,30 +67,31 @@ export function NinoInsightRow({ item, surface = "home", canRequestNext, onReque
 
   return (
     <div ref={ref} className="relative">
-      <div className="grid min-h-[64px] max-h-[76px] w-full grid-cols-[auto_1fr_auto_auto] items-center gap-2 pl-4 pr-1">
-        <tone.Icon size={20} weight="duotone" className={cn("shrink-0", tone.text)} aria-hidden="true" />
+      <div className="grid min-h-[54px] w-full grid-cols-[auto_1fr_auto_auto] items-center gap-2 pl-3.5 pr-1">
+        <tone.Icon size={17} weight="duotone" className={cn("shrink-0", tone.text)} aria-hidden="true" />
         <Link
           key={item.id}
           to={item.route}
           aria-label={item.title}
           onClick={trackOpen}
-          className="min-w-0 animate-fade-in py-3 text-left"
+          className="min-w-0 animate-fade-in py-2.5 text-left"
         >
-          <span className="block truncate text-[15px] font-semibold leading-[20px] text-foreground">{item.title}</span>
+          <span className="block truncate text-[13.5px] font-semibold leading-[18px] text-foreground">{item.title}</span>
           {item.supportingText ? (
-            <span className="mt-0.5 block truncate text-[13px] leading-[17px] text-muted-foreground">{item.supportingText}</span>
+            <span className="mt-0.5 block truncate text-[12px] leading-[16px] text-muted-foreground">{item.supportingText}</span>
           ) : null}
         </Link>
-        <CaretRight size={16} weight="bold" className="shrink-0 self-center text-muted-foreground" aria-hidden="true" />
+        <CaretRight size={14} weight="bold" className="shrink-0 self-center text-muted-foreground" aria-hidden="true" />
 
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label={`Mais opções para ${item.title}`}
             data-testid="nino-supporting-menu"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
           >
-            <DotsThree size={18} weight="bold" aria-hidden="true" />
+            <DotsThree size={16} weight="bold" aria-hidden="true" />
           </DropdownMenuTrigger>
+
           <DropdownMenuContent align="end" className="min-w-[184px]">
             {canRequestNext && onRequestNext ? (
               <DropdownMenuItem
