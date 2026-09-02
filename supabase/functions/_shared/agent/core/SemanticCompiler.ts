@@ -121,6 +121,9 @@ Regras de compilação:
 - "só crédito/no crédito" => filter payment_method=credit_card.
 - "só débito/conta" => filter payment_method=account.
 - "tendência do gasto médio" => expense_amount + trend.
+- "minha trajetória / mês a mês / desde o começo do ano" => expense_amount + trend + group_by month.
+- "estou melhorando ou piorando", "como está minha vida financeira", "faz um diagnóstico geral",
+  "minha evolução financeira" => financial_health + value (veredito holístico, sem group_by e sem filtro).
 - "previsão/fechamento do mês" => expense_amount + forecast.
 - "por que gastei mais/menos que o período anterior" => investigate + expense_amount + explain.
 - use compare quando a pergunta pedir comparação factual entre períodos.
