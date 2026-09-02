@@ -83,33 +83,9 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
         />
       ) : null}
 
-      {supporting.length > 0 ? (
-        <section aria-label="Também vale saber">
-          <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Também vale saber</h3>
-          <div className="divide-y divide-border overflow-hidden rounded-[14px] border border-border bg-card">
+      {/* A Home mostra UMA orientação. Explorar outras leituras acontece pelo
+          "Outra orientação" do próprio card ou na tela do Nino. */}
 
-            {supporting.map((item, index) => (
-              <NinoInsightRow
-                key={`${index}-${item.id}`}
-                item={item}
-                canRequestNext={rotation.canReplaceSupporting(index)}
-                notice={rotation.supportingNotice === index ? "Não encontrei outra leitura relevante agora." : null}
-                onRequestNext={() => {
-                  const replacement = rotation.replaceSupporting(index);
-                  trackNinoEditorial("nino_supporting_next_requested", {
-                    surface: "home",
-                    current_item_id: item.id,
-                    replacement_item_id: replacement?.id ?? null,
-                    semantic_type: item.semanticType,
-                    position: index,
-                    action: "view_next_requested",
-                  });
-                }}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       <Link
         to="/app/nino"
