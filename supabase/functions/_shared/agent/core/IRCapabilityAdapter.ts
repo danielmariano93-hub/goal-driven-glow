@@ -159,6 +159,14 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     return null;
   }
 
+  // Saúde financeira ("estou melhorando ou piorando?") é veredito holístico:
+  // vale para value/sum e também para trend/compare/explain, porque o motor já
+  // compõe direção, tendência, sobra, dívida e patrimônio numa única leitura.
+  if (q.metric === "financial_health" && !q.filters.length && !q.group_by.length
+    && ["value", "sum", "trend", "compare", "explain"].includes(q.operation)) {
+    return { tool: "assess_financial_health", capability: "holistic_assessment", execution: "deterministic", args: {} };
+  }
+
   if (q.filters.length || q.group_by.length || !["value", "sum"].includes(q.operation)) return null;
   if (q.metric === "balance") {
     return { tool: "get_financial_snapshot", capability: "financial_snapshot", execution: "deterministic", args: {} };
