@@ -52,7 +52,7 @@ import {
 } from "./DialogueAct.ts";
 import { compileFinancialQuery } from "./SemanticCompiler.ts";
 import { capabilityFromFinancialIR, isFalseCapabilityDenial } from "./IRCapabilityAdapter.ts";
-import { normalizeToV2, type FinancialQueryIR, type FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
+import { MAX_IR_QUERIES, normalizeToV2, type FinancialQueryIR, type FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
 import { validateFinancialPlan, type PlanValidation } from "./FinancialPlanValidator.ts";
 import { deriveSemanticStatus, type SemanticStatus } from "./SemanticStatus.ts";
 import { fastPathIR, isSemanticReadEligible } from "./SemanticRouting.ts";
@@ -64,6 +64,11 @@ import { buildClarification } from "./ClarificationResponse.ts";
 import { recordAiStage } from "./AiStageMetrics.ts";
 import { runTool } from "./ToolRuntime.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
+import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
+import { loadClarificationOptions } from "./SemanticClarificationOptions.ts";
+import { rescueCapabilityDenial } from "./CapabilityRescue.ts";
+import { getState, patchState } from "./StateManager.ts";
+
 import { executeComposite } from "./CompositeExecutor.ts";
 import { runCompositeAnalysis } from "./CompositeAnalysis.ts";
 import {
@@ -806,11 +811,12 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   let semanticPlan: PlanValidation | null = null;
   let semanticTurn: { reply: string; toolCalls: any[] } | null = null;
   let semanticIRTelemetry: Record<string, unknown> | null = null;
+  let semanticEngines: string[] = [];
+  let semanticDeterministicText: string | null = null;
   const dialogueState = classifyDialogueState(input.text, routed.intent);
-  // Capacidades determinísticas que o IR PODE reclassificar na v2: leituras de
-  // número em que a similaridade textual erra. Na v3 esta allowlist não existe.
-  const IR_REROUTABLE = new Set(["financial_snapshot", "financial_analysis", "financial_comparison"]);
   const semanticV3 = await isEnabled("semantic_ir_v3", input.user_id);
+  const capabilityRescueEnabled = await isEnabled("semantic_capability_rescue_v1", input.user_id);
+
   const semanticEligible = isSemanticReadEligible({
     capability_name: capability.name,
     acts: dialogueState.acts,
@@ -818,144 +824,103 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   });
 
   if (semanticV3 && semanticEligible) {
-    const fast = fastPathIR({
-      text: turnPlan.effective_text,
-      acts: dialogueState.acts,
-      constraints: dialogueState.constraints,
-      period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
-      comparison_period: turnPlan.previous_period,
-    });
-    const outcome = fast
-      ? { ir: fast, telemetry: null }
-      : await guard(
-        () => compileFinancialQuery({
-          text: turnPlan.effective_text,
+    const multiQuery = await isEnabled("semantic_ir_multiquery_v1", input.user_id);
+    const investigation = await isEnabled("semantic_investigation_loop_v1", input.user_id);
+    const topicStateEnabled = await isEnabled("semantic_topic_state_v1", input.user_id);
+    const storedState = topicStateEnabled && session_id
+      ? await guard(
+        async () => (await getState(sb, session_id))?.semantic_topic_state ?? null,
+        (m) => metrics.errors.push("topic_state_read:" + m),
+        null,
+      )
+      : null;
+
+    const outcome = await guard(
+      () => runSemanticTurn({
+        text: turnPlan.effective_text,
+        acts: dialogueState.acts,
+        constraints: dialogueState.constraints,
+        period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
+        comparison_period: turnPlan.previous_period,
+        previous_query: turnPlan.inherited_from ?? previousUserText ?? null,
+        topic_state: storedState,
+        max_queries: multiQuery ? MAX_IR_QUERIES : 1,
+        investigation_enabled: investigation,
+        failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
+      }, {
+        compile: (args) => compileFinancialQuery({
+          text: args.text,
           model: "google/gemini-3.6-flash",
           period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
           comparison_period: turnPlan.previous_period,
-          previous_query: turnPlan.inherited_from ?? previousUserText ?? null,
+          previous_query: args.previous_query,
+          max_queries: args.max_queries,
+          replan: args.replan ?? null,
+          reason: args.reason,
           sb, user_id: input.user_id, run_id: run_id ?? null,
         }),
-        (m) => metrics.errors.push("semantic_ir:" + m),
-        null,
-      );
-    if (outcome?.telemetry) {
-      recordAiStage(metrics as any, {
-        stage: "semantic_compiler",
-        model: outcome.telemetry.model,
-        llm_calls: outcome.telemetry.llm_calls,
-        tokens_in: outcome.telemetry.tokens_in,
-        tokens_out: outcome.telemetry.tokens_out,
-        latency_ms: outcome.telemetry.latency_ms,
-        ok: outcome.telemetry.ok,
-      });
-    }
-    semanticIR = outcome?.ir ?? null;
-    semanticIRv2 = semanticIR ? normalizeToV2(semanticIR, { acts: dialogueState.acts }) : null;
-    semanticPlan = semanticIRv2 ? validateFinancialPlan(semanticIRv2) : null;
-    semanticStatus = deriveSemanticStatus({ ir: semanticIRv2, validation: semanticPlan });
+        runEngine: async (tool, args) => {
+          const exec = await runTool(
+            { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: turnPlan.effective_text },
+            tool, args, { timeoutMs: 12_000, maxRetries: 1 },
+          );
+          return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
+        },
+        loadOptions: async (slot) => (await loadClarificationOptions({ sb, user_id: input.user_id, slot })).options,
+        recordStage: (telemetry, stage) => {
+          recordAiStage(metrics as any, {
+            stage,
+            model: telemetry.model,
+            llm_calls: telemetry.llm_calls,
+            tokens_in: telemetry.tokens_in,
+            tokens_out: telemetry.tokens_out,
+            latency_ms: telemetry.latency_ms,
+            ok: telemetry.ok,
+          });
+        },
+      }),
+      (m) => metrics.errors.push("semantic_pipeline:" + m),
+      null,
+    );
 
-    // Clarificação: perguntar antes de calcular o recorte errado.
-    if (semanticStatus === "clarification_required" && semanticPlan) {
-      const question = buildClarification({ slot: semanticPlan.clarification_required[0] ?? "unknown" });
-      semanticTurn = { reply: question.reply, toolCalls: [] };
-      semanticIRTelemetry = { clarification_slot: question.slot };
-    }
-
-    // AUTORIDADE DE EXECUÇÃO: motores determinísticos rodam aqui, não no planner.
-    if (semanticStatus === "executable" && semanticIRv2 && semanticPlan) {
-      const execution = await guard(
-        () => executeSemanticPlan({
-          ir: semanticIRv2!,
-          validation: semanticPlan!,
-          runner: async (tool, args) => {
-            const exec = await runTool(
-              { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: turnPlan.effective_text },
-              tool, args, { timeoutMs: 12_000, maxRetries: 1 },
-            );
-            return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
-          },
-        }),
-        (m) => metrics.errors.push("semantic_exec:" + m),
-        null,
-      );
-      if (execution) {
-        const claims = buildEvidenceClaims(semanticIRv2, execution);
-        const completeness = checkCompleteness({ ir: semanticIRv2, execution, claims });
-        const blocks = execution.outcomes
-          .filter((o) => o.status === "ok")
-          .map((o) => semanticBlockText(o.engine, o.result))
-          .filter((text): text is string => !!text && text.trim().length > 0);
-        const reply = blocks.join("\n\n").trim();
-        const grounding = reply ? groundReply({ reply, claims }) : null;
-        const okToAnswer = !!reply
-          && (completeness.complete || completeness.partial_allowed)
-          && (!grounding || grounding.ok);
-        semanticTurn = okToAnswer
-          ? {
-            reply,
-            toolCalls: execution.outcomes.map((o, index) => ({
-              step_index: index + 1, tool_name: o.engine ?? "semantic_unmapped", args: o.args,
-              result: o.result, ok: o.status === "ok", duration_ms: o.duration_ms, error: o.error,
-            })),
-          }
-          : null;
-        semanticIRTelemetry = {
-          ...(semanticIRTelemetry ?? {}),
-          execution: {
-            complete: execution.complete, engines: execution.engines,
-            failed_queries: execution.failed_queries, duration_ms: execution.duration_ms,
-          },
-          claims_count: claims.claims.length,
-          completeness: {
-            complete: completeness.complete,
-            fulfilled: completeness.fulfilled_targets,
-            missing: completeness.missing_targets.map((m) => m.id),
-          },
-          grounding: grounding ? { ok: grounding.ok, violations: grounding.violations } : null,
-        };
-        if (!okToAnswer) metrics.errors.push("semantic_gate_blocked");
-      }
-      // Última defesa: se por algum motivo nada executou, mantém a capability
-      // mapeada para que a ferramenta canônica ainda seja obrigatória.
-      const first = semanticPlan.mapped[0];
-      if (!semanticTurn && first) {
+    if (outcome) {
+      semanticIR = outcome.ir;
+      semanticIRv2 = outcome.ir_v2;
+      semanticPlan = outcome.validation;
+      semanticStatus = outcome.status;
+      semanticTurn = outcome.turn;
+      semanticEngines = outcome.engines;
+      semanticDeterministicText = outcome.deterministic_text;
+      semanticIRTelemetry = outcome.telemetry;
+      for (const err of outcome.errors) metrics.errors.push(err);
+      // Última defesa: gate bloqueou a resposta, mas a ferramenta canônica
+      // mapeada continua obrigatória — nunca resposta aproximada.
+      if (!semanticTurn && outcome.rescue) {
         capability = {
           ...capability,
           name: "financial_analysis",
           execution: "deterministic",
-          allowed_tools: [...new Set(semanticPlan.mapped.map((m) => m.tool))],
-          required_tool: first.tool,
-          tool_args: first.args,
-          reason: `semantic_ir_v3_rescue:${semanticIRv2.intent}`,
+          allowed_tools: outcome.rescue.allowed_tools,
+          required_tool: outcome.rescue.tool,
+          tool_args: outcome.rescue.args,
+          reason: `semantic_ir_v3_rescue:${outcome.rescue.intent}`,
         } as typeof capability;
       }
+      if (topicStateEnabled && session_id) {
+        await guard(
+          () => patchState(sb, session_id, { semantic_topic_state: outcome.topic_state }),
+          (m) => metrics.errors.push("topic_state_write:" + m),
+          undefined,
+        );
+      }
+    } else {
+      semanticStatus = "compiler_failed";
+      semanticIRTelemetry = { version: "nino_semantic_ir.v3", semantic_status: "compiler_failed", executed_by: "legacy_router" };
     }
-
-    // Unsupported: o legado NÃO sobrescreve a decisão semântica.
-    if (semanticStatus === "unsupported") {
-      semanticTurn = { reply: PROTECTED_ENGINE_FAILURE_REPLY, toolCalls: [] };
-    }
-
-    semanticIRTelemetry = {
-      version: "nino_semantic_ir.v3",
-      semantic_status: semanticStatus,
-      dialogue_acts: dialogueState.acts,
-      fast_path: !!fast,
-      intent: semanticIRv2?.intent ?? null,
-      source: semanticIR?.source ?? null,
-      unsupported_reason: semanticIRv2?.unsupported_reason ?? null,
-      unsupported_queries: semanticPlan?.unsupported_queries ?? [],
-      mapped_tools: semanticPlan?.mapped.map((m) => m.tool) ?? [],
-      plan_errors: semanticPlan?.errors ?? [],
-      executed_by: semanticTurn ? "semantic_query_executor" : "legacy_or_rescue",
-      action_planner_used_for_tool_choice: !semanticTurn,
-      telemetry: outcome?.telemetry ?? null,
-      ...(semanticIRTelemetry ?? {}),
-    };
-  } else if ((!rawDeterministic || IR_REROUTABLE.has(capability.name))
+  } else if (!rawDeterministic
     && !capability.clarification
     && await isEnabled("semantic_ir_v1", input.user_id)) {
+
 
     const outcome = await guard(
       () => compileFinancialQuery({
@@ -1664,6 +1629,23 @@ ${episodic}
       );
     }
   }
+
+  // `nino_semantic_ir.v3`: negação falsa validada contra o CapabilityRegistry.
+  // Motor registrado + evidência determinística disponível => a negação é falsa
+  // e o texto provado substitui a desculpa.
+  if (capabilityRescueEnabled) {
+
+    const rescued = rescueCapabilityDenial({
+      reply,
+      engines: semanticEngines.length ? semanticEngines : toolCallLog.filter((c) => c.ok).map((c) => c.tool_name),
+      deterministic_text: semanticDeterministicText,
+    });
+    if (rescued.rescued) {
+      metrics.errors.push("capability_denial_rescued");
+      reply = rescued.text;
+    }
+  }
+
 
 
   // ---- Truth Gate v2 -----------------------------------------------------
