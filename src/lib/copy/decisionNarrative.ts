@@ -305,7 +305,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
     tone: "progress",
     primary: { kind: "link", label: "Ver meu relatório", route: safeRoute(step.route) ?? "/app/relatorios" },
     secondary: null,
-    compact: { headline: fallbackHeadline, body: humanOrNull(step.detail) },
+    compact: {
+      headline: fallbackHeadline,
+      body: humanOrNull(step.detail),
+      context: humanOrNull(step.detail),
+      recommendation: null,
+    },
   };
 }
 
