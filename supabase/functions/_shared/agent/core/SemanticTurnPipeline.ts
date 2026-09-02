@@ -236,6 +236,13 @@ export async function runSemanticTurn(
   }
 
   let irV2 = ir ? normalizeToV2(ir, { acts: input.acts, topic_id: topic.topic_id }) : null;
+  // Herança de período do tópico: turno de continuação sem período explícito
+  // usa o recorte já combinado ("e por cartão?" mantém os 90 dias).
+  const inheritPeriod = !!irV2 && !resolution.created && !input.constraints.period
+    && !!topic.period && (topic.period.from !== irV2.period.from || topic.period.to !== irV2.period.to);
+  if (inheritPeriod && irV2 && topic.period) {
+    irV2 = { ...irV2, period: { ...irV2.period, from: topic.period.from, to: topic.period.to } };
+  }
   let validation = irV2 ? validateFinancialPlan(irV2) : null;
   let status = deriveSemanticStatus({ ir: irV2, validation });
 
@@ -374,6 +381,41 @@ export async function runSemanticTurn(
     && (!grounding || grounding.ok);
   if (!okToAnswer) errors.push("semantic_gate_blocked");
 
+  // Falha de DOMÍNIO (entidade inexistente) não é falha de infraestrutura: a
+  // resposta honesta e específica sai aqui mesmo, sem devolver autoridade ao
+  // ActionPlanner e sem a mensagem genérica de "não consegui consultar".
+  const domainFailure = !okToAnswer
+    ? execution.outcomes.find((o) => o.status === "failed" && DOMAIN_ERROR_RX.test(String(o.error ?? "")))
+    : null;
+  if (domainFailure) {
+    const slot = /card/.test(String(domainFailure.error)) ? "card" : "category";
+    const options = await deps.loadOptions(slot).catch(() => [] as string[]);
+    const honest = domainFailureReply(slot, options);
+    state = upsertTopic(state, {
+      ...topic, ir: irV2,
+      execution_summary: { engines: execution.engines, complete: false },
+      status: "answered", updated_at: new Date().toISOString(),
+    }, true);
+    return {
+      version: "nino_semantic_ir.v3",
+      status, ir, ir_v2: irV2, validation,
+      turn: { reply: honest, toolCalls: toolCallsOf(execution) },
+      deterministic_text: honest,
+      engines: execution.engines,
+      topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+      telemetry: {
+        ...baseTelemetry(),
+        execution: {
+          engines: execution.engines, complete: false,
+          failed_queries: execution.failed_queries, duration_ms: execution.duration_ms,
+        },
+        domain_failure: { error: domainFailure.error, slot, options_count: options.length },
+        executed_by: "honest_domain_failure",
+        action_planner_used_for_tool_choice: false,
+      },
+    };
+  }
+
   const first = validation.mapped[0];
   const rescue = !okToAnswer && first
     ? {
@@ -421,7 +463,9 @@ export async function runSemanticTurn(
         ? { ran: true, replan_count: replanCount, max_replans: MAX_REPLANS, reasons: replanReasons, timed_out: investigationTimedOut }
         : { ran: false },
       executed_by: okToAnswer ? "semantic_query_executor" : (rescue ? "semantic_rescue" : "gate_blocked"),
-      action_planner_used_for_tool_choice: !okToAnswer,
+      // Turno `executable` nunca devolve escolha de ferramenta ao ActionPlanner,
+      // nem no rescue: o rescue continua no MESMO caminho semântico.
+      action_planner_used_for_tool_choice: false,
     },
   };
 }
@@ -432,4 +476,19 @@ export function isSlotAnswerAttempt(text: string): boolean {
   if (!t) return false;
   if (t.length > 40) return false;
   return t.split(/\s+/).length <= 5 && !/\?$/.test(t);
+}
+
+/** Erros de domínio: a entidade pedida não existe na base do usuário. */
+const DOMAIN_ERROR_RX = /(card_not_found|category_not_found|account_not_found|goal_not_found|merchant_not_found)/i;
+
+function domainFailureReply(slot: string, options: string[]): string {
+  const list = options.slice(0, 6).join(", ");
+  if (slot === "card") {
+    return options.length
+      ? `Não encontrei esse cartão na sua base. Os cartões que você tem cadastrados são: ${list}. Me diga qual deles que eu refaço a leitura.`
+      : "Não encontrei esse cartão na sua base — e também não vejo nenhum cartão cadastrado ainda. Se me disser o cartão certo, eu refaço a leitura.";
+  }
+  return options.length
+    ? `Não encontrei essa categoria na sua base. As que existem são: ${list}. Me diga qual delas que eu refaço a conta.`
+    : "Não encontrei essa categoria na sua base. Me diga o nome que aparece nos seus lançamentos que eu refaço a conta.";
 }

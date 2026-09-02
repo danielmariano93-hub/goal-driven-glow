@@ -42,7 +42,8 @@ export async function loadClarificationOptions(args: {
   if (!args.sb || !args.user_id) return { slot, options: [], source: "empty" };
 
   let options: string[] = [];
-  if (slot === "card") options = await names(args.sb, "credit_cards", args.user_id, (q) => q.is("archived_at", null));
+  // `credit_cards` não tem `archived_at` — o filtro real de cartão vivo é `active`.
+  if (slot === "card") options = await names(args.sb, "credit_cards", args.user_id, (q) => q.eq("active", true));
   else if (slot === "account") options = await names(args.sb, "accounts", args.user_id, (q) => q.eq("active", true));
   else if (slot === "category") options = await names(args.sb, "categories", args.user_id, (q) => q.is("archived_at", null));
   else if (slot === "goal") options = await names(args.sb, "goals", args.user_id);

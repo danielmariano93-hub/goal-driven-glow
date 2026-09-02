@@ -65,6 +65,7 @@ import { recordAiStage } from "./AiStageMetrics.ts";
 import { runTool } from "./ToolRuntime.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
+import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
 import { loadClarificationOptions } from "./SemanticClarificationOptions.ts";
 import { rescueCapabilityDenial } from "./CapabilityRescue.ts";
 import { getState, patchState } from "./StateManager.ts";
@@ -904,7 +905,12 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       // o executor rodava `analyze_spending` com sucesso, e o ResponseValidator
       // acusava `required_tool_missing` e substituía o ranking real pela
       // mensagem "Não consegui consultar a fonte financeira necessária…".
-      if (semanticTurn && semanticStatus === "executable") {
+      // Falha de domínio (entidade inexistente): o texto honesto entregue pelo
+      // pipeline É a resposta certa. Exigir a engine "com sucesso" aqui apagaria
+      // a resposta honesta e devolveria a mensagem genérica de indisponibilidade.
+      const honestDomainFailure =
+        (outcome.telemetry as Record<string, unknown> | null)?.executed_by === "honest_domain_failure";
+      if (semanticTurn && semanticStatus === "executable" && !honestDomainFailure) {
         const mapped = (outcome.validation?.mapped ?? []).map((m) => m.tool);
         const engines = semanticEngines.length ? semanticEngines : mapped;
         const executedOk = engines.find((t) =>
@@ -992,6 +998,30 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       });
     }
   }
+
+  // Continuidade conversacional fora do caminho v3: um READ respondido por
+  // rota determinística/legada também registra tópico (assunto + período), para
+  // que o turno seguinte ("e por cartão?") herde o recorte já combinado.
+  if (!semanticTurn && semanticStatus === null && session_id
+    && await isEnabled("semantic_topic_state_v1", input.user_id)) {
+    await guard(async () => {
+      const stored = normalizeTopicState((await getState(sb, session_id))?.semantic_topic_state ?? null);
+      const res = resolveTopicForTurn({
+        state: stored,
+        text: turnPlan.effective_text,
+        acts: dialogueState.acts,
+        period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
+        entities: [],
+        explicit_period_override: dialogueState.constraints.period,
+        explicit_entity_override: dialogueState.constraints.entity,
+      });
+      await patchState(sb, session_id, {
+        semantic_topic_state: upsertTopic(res.state, { ...res.topic, status: "answered" }, true),
+      });
+    }, (m) => metrics.errors.push("topic_state_legacy_write:" + m), undefined);
+  }
+
+
 
 
 
@@ -1650,19 +1680,25 @@ ${episodic}
   // divergentes: o runtime descarta e, se a resposta usou o valor descartado,
   // ela não sai.
   const inheritedScope = (memory as any)?.last_analysis?.scope ?? null;
+  // Com autoridade semântica, o período de verdade é o do IR executado (que já
+  // pode ter herdado o recorte do tópico) — não o recorte do roteador legado.
+  const semanticAuthority = semanticStatus === "executable" && !!semanticIRv2;
+  const reconciliationPeriod = semanticAuthority && semanticIRv2
+    ? { from: semanticIRv2.period.from, to: semanticIRv2.period.to }
+    : turnPlan.effective_period
+    ? { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to }
+    : null;
   const reconciliation = reconcileEvidence({
     toolCalls: toolCallLog as any[],
     scope: analytical ? analytical.scope : inheritedScope,
-    period: turnPlan.effective_period
-      ? { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to }
-      : null,
+    period: reconciliationPeriod,
   });
   if (reconciliation.rejected.length) {
     metrics.errors.push(
       "evidence_rejected:" + reconciliation.rejected.map((r) => `${r.tool_name}:${r.reason}`).slice(0, 4).join(","),
     );
   }
-  if (!analytical && replyUsesRejectedEvidence(reply, reconciliation)) {
+  if (!analytical && !semanticAuthority && replyUsesRejectedEvidence(reply, reconciliation)) {
     metrics.errors.push("evidence_conflict_blocked");
     reply = EVIDENCE_CONFLICT_REPLY;
   }
