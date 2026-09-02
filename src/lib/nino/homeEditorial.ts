@@ -93,6 +93,10 @@ export const NINO_SUPPORTING_DEFAULT = 2;
 
 const HEADLINE_MAX = 65;
 const SPOTLIGHT_BODY_MAX = 140;
+/** Contexto causal conversacional: 2–3 linhas no mobile. */
+const SPOTLIGHT_CONTEXT_MAX = 150;
+/** Conselho do Nino: uma linha. */
+const SPOTLIGHT_RECOMMENDATION_MAX = 70;
 const SUPPORTING_TITLE_MAX = 48;
 const SUPPORTING_BODY_MAX = 60;
 
