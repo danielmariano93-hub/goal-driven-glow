@@ -7,6 +7,7 @@ import {
   validateFinancialIRv2, withCanonicalPeriods,
   type FinancialQueryIR,
 } from "./FinancialQueryIR.ts";
+import { executableOntologyText } from "./IRCapabilityAdapter.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
 
 
