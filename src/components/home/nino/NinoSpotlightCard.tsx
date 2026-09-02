@@ -5,7 +5,6 @@
 import { useEffect, useRef } from "react";
 import { ArrowsClockwise, ArrowRight, CheckCircle, SpinnerGap, Target, TrendUp, Warning } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/engine/facts";
 import { trackNinoEditorial, trackNinoEditorialOnce } from "@/lib/analytics/ninoEditorial";
 import type { NinoEditorialTone, NinoSpotlightItem } from "@/lib/nino/homeEditorial";
