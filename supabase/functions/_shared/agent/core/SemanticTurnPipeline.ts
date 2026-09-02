@@ -304,16 +304,33 @@ export async function runSemanticTurn(
     };
   }
 
-  // ---- 5. Unsupported: falha honesta, sem fallback legado -----------------
+  // ---- 5. Unsupported: degradação para motor canônico, senão falha honesta --
+  // `unsupported` significa "o IR não achou motor", NÃO "não há resposta". Antes
+  // isso descartava a capability determinística que o roteador já tinha escolhido
+  // (era assim que "estou melhorando ou piorando?" — que tem
+  // `assess_financial_health` — virava falha honesta com motivo errado).
   if (status === "unsupported") {
     state = upsertTopic(state, { ...topic, ir: irV2, status: "answered", updated_at: new Date().toISOString() }, true);
+    const gaps = ontologyGaps(irV2, validation);
     return {
       version: "nino_semantic_ir.v3",
       status, ir, ir_v2: irV2, validation,
-      turn: { reply: input.failure_reply, toolCalls: [] },
+      // Sem `turn`: quem decide é o AgentCore — motor canônico do turno, se
+      // existir; senão o texto honesto abaixo, com o motivo VERDADEIRO.
+      turn: null,
       deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
-      telemetry: { ...baseTelemetry(), executed_by: "honest_failure", action_planner_used_for_tool_choice: false },
+      canonical_fallback: {
+        allowed: true,
+        reason: gaps.length ? "no_engine_for_combination" : "intent_unsupported",
+        honest_reply: unsupportedReply(gaps),
+      },
+      telemetry: {
+        ...baseTelemetry(),
+        unsupported_ontology: gaps,
+        executed_by: "canonical_fallback_offered",
+        action_planner_used_for_tool_choice: false,
+      },
     };
   }
 
