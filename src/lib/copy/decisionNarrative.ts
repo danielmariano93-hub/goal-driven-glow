@@ -199,12 +199,22 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
         : { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" },
       secondary: amount ? { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" } : null,
       compact: {
-        headline: behind ? "Sua meta precisa de um ritmo mais realista" : "Sua meta cabe no seu ritmo de hoje",
+        headline: behind
+          ? "Sua meta está pedindo mais do que seu mês comporta hoje"
+          : "Sua meta cabe no seu ritmo de hoje",
         body: behind
           ? `O prazo atual pediria ${brlCompact(required!)} por mês.`
           : amount
             ? "É o ritmo que seu histórico sustenta hoje."
             : null,
+        context: behind
+          ? `Para cumprir o prazo atual, seriam ${brlCompact(required!)}/mês. Seu histórico mostra que um ritmo menor cabe melhor hoje.`
+          : amount
+            ? "Pelo seu histórico, esse ritmo cabe sem apertar seu mês."
+            : null,
+        recommendation: amount
+          ? "Meu conselho: comece por esse ritmo."
+          : "Meu conselho: revise o prazo antes de aumentar o aporte.",
       },
     };
   }
