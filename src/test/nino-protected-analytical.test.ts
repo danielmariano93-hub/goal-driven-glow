@@ -165,7 +165,7 @@ describe("gate entity_set_identity", () => {
 
 describe("contrato de runtime", () => {
   it("expõe versões estampadas em cada run", () => {
-    expect(AGENT_RUNTIME_VERSION).toBe("nino-agent-p0.2026-09-02.3");
+    expect(AGENT_RUNTIME_VERSION).toBe("nino-agent-p0.2026-09-02.4");
     expect(ANALYTICAL_CONTRACT_VERSION).toBe("nino_analytical.v2");
   });
 });

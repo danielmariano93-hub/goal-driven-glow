@@ -221,7 +221,7 @@ describe("nino_home_editorial.v1", () => {
     expect(section).toContain("divide-y");
     expect(section).toContain("Ver todas no Nino");
     const row = read("src/components/home/nino/NinoInsightRow.tsx");
-    expect(row).toContain("max-h-[76px]");
+    expect(row).toContain("max-h-[68px]");
     expect(row).not.toContain("rounded-[16px] border");
   });
 
