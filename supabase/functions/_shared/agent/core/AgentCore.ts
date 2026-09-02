@@ -47,10 +47,23 @@ import { humanizeReply } from "./ReplyHumanizer.ts";
 import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
 import { executeDeterministicCapability, formatSpendingAnalysis } from "./DeterministicAnswers.ts";
-import { classifyDialogueAct, findRepairBaseQuery, repairEffectiveQuery } from "./DialogueAct.ts";
+import {
+  classifyDialogueAct, classifyDialogueState, findRepairBaseQuery, repairEffectiveQuery,
+} from "./DialogueAct.ts";
 import { compileFinancialQuery } from "./SemanticCompiler.ts";
 import { capabilityFromFinancialIR, isFalseCapabilityDenial } from "./IRCapabilityAdapter.ts";
-import type { FinancialQueryIR } from "./FinancialQueryIR.ts";
+import { normalizeToV2, type FinancialQueryIR, type FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
+import { validateFinancialPlan, type PlanValidation } from "./FinancialPlanValidator.ts";
+import { deriveSemanticStatus, type SemanticStatus } from "./SemanticStatus.ts";
+import { fastPathIR, isSemanticReadEligible } from "./SemanticRouting.ts";
+import { executeSemanticPlan } from "./SemanticQueryExecutor.ts";
+import { buildEvidenceClaims } from "./EvidenceClaims.ts";
+import { checkCompleteness } from "./CompletenessGate.ts";
+import { groundReply } from "./GroundingGateV3.ts";
+import { buildClarification } from "./ClarificationResponse.ts";
+import { recordAiStage } from "./AiStageMetrics.ts";
+import { runTool } from "./ToolRuntime.ts";
+import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
 import { runCompositeAnalysis } from "./CompositeAnalysis.ts";
 import {
@@ -1315,7 +1328,19 @@ ${episodic}
     : null;
 
   // ---- Planner (LLM loop or fallback) ------------------------------------
-  const planner = analytical
+  // AUTORIDADE DE EXECUÇÃO: com IR semântico executável, o motor já rodou e o
+  // texto já veio do formatter determinístico. O ActionPlanner não escolhe tool.
+  const planner = semanticTurn
+    ? {
+      path: "deterministic_tool" as const,
+      errorSanitized: null,
+      modelAttempts: [],
+      turn: {
+        reply: semanticTurn.reply, steps: semanticTurn.toolCalls.length, tokensIn: 0, tokensOut: 0,
+        toolCalls: semanticTurn.toolCalls, finish: "stop" as const,
+      },
+    }
+    : analytical
     ? {
       path: "deterministic_tool" as const,
       errorSanitized: null,
@@ -1373,9 +1398,18 @@ ${episodic}
   if (planner.turn) {
     const turn = planner.turn;
     reply = turn.reply;
-    metrics.tokens_in = turn.tokensIn;
-    metrics.tokens_out = turn.tokensOut;
-    metrics.llm_calls = turn.llmCalls ?? 0;
+    // `nino_semantic_ir.v3`: agregados de IA são SOMA dos estágios. Antes o
+    // planner sobrescrevia os tokens e a chamada do compilador semântico
+    // desaparecia da telemetria.
+    recordAiStage(metrics as any, {
+      stage: "planner",
+      model: null,
+      llm_calls: turn.llmCalls ?? 0,
+      tokens_in: turn.tokensIn ?? 0,
+      tokens_out: turn.tokensOut ?? 0,
+      latency_ms: 0,
+      ok: true,
+    });
     metrics.tool_result_full_chars = turn.toolResultFullChars ?? 0;
     metrics.tool_result_llm_chars = turn.toolResultLlmChars ?? 0;
     metrics.tool_call_count = turn.toolCalls.length;
