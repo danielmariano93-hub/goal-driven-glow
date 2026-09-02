@@ -272,6 +272,8 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Suas parcelas estão consumindo sua folga",
         body: "É quase tudo o que sobra no seu mês.",
+        context: "Hoje o compromisso com parcelas ocupa quase toda a folga que sobra do seu mês.",
+        recommendation: "Meu conselho: alivie essa pressão antes de aumentar aportes.",
       },
     };
   }
