@@ -159,7 +159,17 @@ export async function list_recent_transactions(ctx: ToolContext, args: { limit?:
 }
 
 export async function analyze_spending(ctx: ToolContext, args: {
-  days?: number; from?: string; to?: string; payment_method?: "account" | "credit_card";
+  days?: number;
+  from?: string;
+  to?: string;
+  metric?: "expense" | "income";
+  group_by?: "category" | "card" | "account";
+  view?: "total" | "rank" | "breakdown";
+  limit?: number;
+  payment_method?: "account" | "credit_card";
+  category?: string;
+  card?: string;
+  account?: string;
 }): Promise<ToolResult> {
   const iso = /^\d{4}-\d{2}-\d{2}$/;
   const to = iso.test(args?.to ?? "") ? args.to! : todaySaoPaulo();
@@ -167,8 +177,27 @@ export async function analyze_spending(ctx: ToolContext, args: {
   const start = new Date(`${to}T12:00:00Z`);
   start.setUTCDate(start.getUTCDate() - days + 1);
   const from = iso.test(args?.from ?? "") ? args.from! : start.toISOString().slice(0, 10);
+  const metric = args?.metric === "income" ? "income" : "expense";
+  const groupBy = ["category", "card", "account"].includes(String(args?.group_by))
+    ? args.group_by!
+    : "category";
+  const view = ["total", "rank", "breakdown"].includes(String(args?.view))
+    ? args.view!
+    : "breakdown";
+  const limit = Math.max(1, Math.min(20, Number(args?.limit ?? (view === "rank" ? 5 : 8))));
 
-  const [data, categoriesResult] = await Promise.all([
+  // Resolve filtros por nome/ID no servidor. Filtro não resolvido é erro
+  // explícito; nunca vira consulta global silenciosamente.
+  const [categoryFilterId, cardFilter, accountFilter] = await Promise.all([
+    args?.category ? resolveCategoryId(ctx, args.category, metric) : Promise.resolve(null),
+    args?.card ? resolveCreditCardId(ctx, args.card) : Promise.resolve(null),
+    args?.account ? resolveAccountId(ctx, args.account) : Promise.resolve(null),
+  ]);
+  if (args?.category && !categoryFilterId) return { ok: false, error: "category_not_found" };
+  if (args?.card && !cardFilter) return { ok: false, error: "card_not_found" };
+  if (args?.account && !accountFilter) return { ok: false, error: "account_not_found" };
+
+  const [data, categoriesResult, cardsResult, accountsResult] = await Promise.all([
     fetchTransactions(ctx, {
       select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
       from,
@@ -176,56 +205,112 @@ export async function analyze_spending(ctx: ToolContext, args: {
       paymentMethod: args?.payment_method,
     }),
     ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
+    groupBy === "card"
+      ? ctx.sb.from("credit_cards").select("id,name").eq("user_id", ctx.user_id)
+      : Promise.resolve({ data: [], error: null }),
+    groupBy === "account"
+      ? ctx.sb.from("accounts").select("id,name").eq("user_id", ctx.user_id)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   if (categoriesResult.error) return { ok: false, error: `categories_query_failed:${categoriesResult.error.message}` };
-  const categories = categoriesResult.data;
+  if (cardsResult.error) return { ok: false, error: `cards_query_failed:${cardsResult.error.message}` };
+  if (accountsResult.error) return { ok: false, error: `accounts_query_failed:${accountsResult.error.message}` };
 
-  const names = new Map((categories ?? []).map((c: any) => [c.id, c.name]));
+  const names = new Map((categoriesResult.data ?? []).map((c: any) => [c.id, c.name]));
+  const cardNames = new Map((cardsResult.data ?? []).map((c: any) => [c.id, c.name]));
+  const accountNames = new Map((accountsResult.data ?? []).map((a: any) => [a.id, a.name]));
+  if (cardFilter) cardNames.set(cardFilter.id, cardFilter.name);
+  if (accountFilter) accountNames.set(accountFilter.id, accountFilter.name);
+
   const rows = (data ?? []).map((r: any) => ({ ...r, amount: Number(r.amount) }));
   // Aplica a MESMA definição de consumo real da Home: exclui aplicações,
-  // aportes, transferências, pagamento de fatura, cancelados. Corrige o bug em
-  // que "Aplicações R$ 5.000" aparecia como maior gasto do mês.
+  // aportes, transferências, pagamento de fatura, cancelados.
   // finance_truth.v1: estorno abate a categoria economica original da compra.
   const refundAttribution = buildRefundAttribution(rows as any);
   const byCategory = new Map<string, number>();
+  const byGroup = new Map<string, number>();
   const byDay = new Map<string, number>();
   let totalExpense = 0;
   let totalIncome = 0;
-  let expenseRows = 0;
+  let metricRows = 0;
+
   for (const row of rows) {
     const expenseAmount = behavioralMetricAmount(row as any, "expense");
     const incomeAmount = behavioralMetricAmount(row as any, "income");
-    totalIncome += incomeAmount;
-    if (expenseAmount === 0) continue;
     const effectiveCategory = effectiveCategoryId(row as any, refundAttribution);
-    const category = String(effectiveCategory ? (names.get(effectiveCategory) ?? "Sem categoria") : "Sem categoria");
-    byCategory.set(category, (byCategory.get(category) ?? 0) + expenseAmount);
-    byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + expenseAmount);
+
+    if (categoryFilterId && effectiveCategory !== categoryFilterId) continue;
+    if (cardFilter && String(row.credit_card_id ?? "") !== cardFilter.id) continue;
+    if (accountFilter && String(row.account_id ?? "") !== accountFilter.id) continue;
+
     totalExpense += expenseAmount;
-    expenseRows += 1;
+    totalIncome += incomeAmount;
+    const metricAmount = metric === "income" ? incomeAmount : expenseAmount;
+    if (metricAmount === 0) continue;
+
+    const category = String(effectiveCategory ? (names.get(effectiveCategory) ?? "Sem categoria") : "Sem categoria");
+    byCategory.set(category, (byCategory.get(category) ?? 0) + metricAmount);
+
+    const groupName = groupBy === "card"
+      ? String(row.credit_card_id ? (cardNames.get(row.credit_card_id) ?? "Cartão não identificado") : "Sem cartão")
+      : groupBy === "account"
+        ? String(row.account_id ? (accountNames.get(row.account_id) ?? "Conta não identificada") : "Sem conta")
+        : category;
+    byGroup.set(groupName, (byGroup.get(groupName) ?? 0) + metricAmount);
+    byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + metricAmount);
+    metricRows += 1;
   }
-  const categoriesRank = [...byCategory.entries()]
+
+  const rank = (map: Map<string, number>) => [...map.entries()]
     .map(([name, value]) => ({ name, value: Math.round(Math.max(0, value) * 100) / 100 }))
     .filter((row) => row.value > 0)
     .sort((a, b) => b.value - a.value);
+
+  const categoriesRank = rank(byCategory);
+  const breakdown = rank(byGroup);
   const daily = [...byDay.entries()].map(([date, value]) => ({
     date,
     value: Math.round(Math.max(0, value) * 100) / 100,
   }));
   totalExpense = Math.max(0, totalExpense);
+  totalIncome = Math.max(0, totalIncome);
+  const totalMetric = metric === "income" ? totalIncome : totalExpense;
   const uncategorized = categoriesRank.find((c) => c.name === "Sem categoria")?.value ?? 0;
+
   return {
     ok: true,
     result: {
-      kind: "spending_report", period: { from, to, days },
-      totals: { expense: Math.round(totalExpense * 100) / 100, income: Math.round(totalIncome * 100) / 100, net: Math.round((totalIncome - totalExpense) * 100) / 100 },
-      transactions_count: expenseRows, categories: categoriesRank, daily,
-      top_category: categoriesRank[0] ?? null, uncategorized,
-      data_limit: expenseRows === 0 ? "no_data" : expenseRows < 3 ? "small_sample" : null,
-      formula_version: "analyze_spending.consumption.v3",
+      kind: "spending_report",
+      metric,
+      view,
+      group_by: groupBy,
+      period: { from, to, days },
+      filters: {
+        payment_method: args?.payment_method ?? null,
+        category: args?.category ?? null,
+        card: args?.card ?? null,
+        account: args?.account ?? null,
+      },
+      totals: {
+        expense: Math.round(totalExpense * 100) / 100,
+        income: Math.round(totalIncome * 100) / 100,
+        net: Math.round((totalIncome - totalExpense) * 100) / 100,
+      },
+      total_metric: Math.round(totalMetric * 100) / 100,
+      transactions_count: metricRows,
+      categories: categoriesRank,
+      breakdown,
+      top: breakdown.slice(0, limit),
+      top_group: breakdown[0] ?? null,
+      daily,
+      top_category: categoriesRank[0] ?? null,
+      uncategorized,
+      data_limit: metricRows === 0 ? "no_data" : metricRows < 3 ? "small_sample" : null,
+      formula_version: "analyze_spending.composable.v4",
     },
   };
 }
+
 
 /** Literal spend lookup for one behavioral date. Unlike analyze_spending,
  * this includes transactions posted in the following business days and then
@@ -2493,13 +2578,20 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "analyze_spending",
-    description: "APENAS respostas TEXTUAIS de resumo/onde mais gastou (mesma definição de consumo real da Home: exclui aplicações, aportes, transferências, pagamento de fatura). NUNCA use quando o usuário pedir gráfico, visualização, tendência, evolução, 'dia a dia', média diária ou 'estou reduzindo' — nesses casos chame generate_chart_artifact.",
+    description: "Consulta textual composicional de gastos/receitas no período. Suporta total, ranking ou breakdown por categoria/cartão/conta e filtros explícitos por categoria, cartão, conta e meio de pagamento. Filtro não resolvido falha fechado; nunca amplia o escopo silenciosamente. NUNCA use quando o usuário pedir gráfico, visualização, tendência, evolução, 'dia a dia', média diária ou 'estou reduzindo' — nesses casos chame generate_chart_artifact.",
     parameters: {
       type: "object",
       properties: {
         days: { type: "integer", minimum: 1, maximum: 366 },
         from: optionalStr, to: optionalStr,
+        metric: { type: "string", enum: ["expense", "income"] },
+        group_by: { type: "string", enum: ["category", "card", "account"] },
+        view: { type: "string", enum: ["total", "rank", "breakdown"] },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
         payment_method: { type: "string", enum: ["account", "credit_card"] },
+        category: optionalStr,
+        card: optionalStr,
+        account: optionalStr,
       },
       additionalProperties: false,
     },

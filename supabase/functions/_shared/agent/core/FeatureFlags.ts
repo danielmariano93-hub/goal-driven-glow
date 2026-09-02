@@ -10,8 +10,10 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// Leitura tardia do ambiente: mantém o módulo importável fora do Deno
+// (suítes de teste do app) sem afetar o comportamento em produção.
+const env = (name: string): string =>
+  ((globalThis as any).Deno?.env?.get(name) ?? "") as string;
 
 export type FlagName =
   | "artifacts_v2_strict"
@@ -28,7 +30,9 @@ export type FlagName =
   | "model_routing_v2"
   | "document_efficiency_v1"
   // Análise composta com escopo e completude (`nino_composite.v1`).
-  | "composite_analysis_v1";
+  | "composite_analysis_v1"
+  // Semantic Compiler -> Financial Query IR. Rollout começa desligado.
+  | "semantic_ir_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -44,6 +48,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   model_routing_v2: true,
   document_efficiency_v1: true,
   composite_analysis_v1: true,
+  semantic_ir_v1: false,
 };
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;
@@ -52,7 +57,7 @@ const TTL_MS = 60_000;
 async function load(): Promise<Record<string, boolean>> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.map;
   try {
-    const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    const sb = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data } = await sb.from("agent_runtime_flags").select("flag_name,enabled");
@@ -67,11 +72,73 @@ async function load(): Promise<Record<string, boolean>> {
   }
 }
 
+type RolloutConfig = {
+  enabled: boolean;
+  rollout_percent: number;
+  pilot_user_ids: string[];
+};
+
+let rolloutCache: { at: number; map: Record<string, RolloutConfig> } | null = null;
+
+function stableBucket(value: string): number {
+  // FNV-1a 32-bit: estável entre instâncias, sem PII em log.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % 100;
+}
+
+export function rolloutDecision(
+  flagName: string,
+  userId: string,
+  cfg: RolloutConfig,
+): boolean {
+  if (!cfg.enabled) return false;
+  if (cfg.pilot_user_ids.includes(userId)) return true;
+  const pct = Math.max(0, Math.min(100, Number(cfg.rollout_percent ?? 0)));
+  if (pct <= 0) return false;
+  if (pct >= 100) return true;
+  return stableBucket(`${flagName}:${userId}`) < pct;
+}
+
+async function loadRollouts(): Promise<Record<string, RolloutConfig>> {
+  if (rolloutCache && Date.now() - rolloutCache.at < TTL_MS) return rolloutCache.map;
+  try {
+    const sb = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await sb.from("agent_runtime_flags")
+      .select("flag_name,enabled,rollout_percent,pilot_user_ids");
+    if (error) throw error;
+    const map: Record<string, RolloutConfig> = {};
+    for (const row of (data ?? []) as Array<{
+      flag_name: string; enabled: boolean; rollout_percent?: number | null; pilot_user_ids?: string[] | null;
+    }>) {
+      map[row.flag_name] = {
+        enabled: Boolean(row.enabled),
+        rollout_percent: Number(row.rollout_percent ?? 100),
+        pilot_user_ids: Array.isArray(row.pilot_user_ids) ? row.pilot_user_ids.map(String) : [],
+      };
+    }
+    rolloutCache = { at: Date.now(), map };
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 export async function isEnabled(name: FlagName, userId?: string): Promise<boolean> {
   const map = await load();
-  if (name in map) return map[name];
-  return DEFAULTS[name] ?? false;
-  // userId reservado para rollout gradual — aplicar hash % 100 quando habilitado.
+  const enabled = name in map ? map[name] : (DEFAULTS[name] ?? false);
+  if (!enabled || !userId || name !== "semantic_ir_v1") return enabled;
+
+  // Fail-closed para o novo cérebro: se a migration de rollout ainda não
+  // existe ou falhar, não ativa globalmente por acidente.
+  const rollout = (await loadRollouts())[name];
+  if (!rollout) return false;
+  return rolloutDecision(name, userId, rollout);
 }
 
 /** Lê vários flags de uma vez (uma única leitura/cache). */
@@ -86,4 +153,5 @@ export async function flagSnapshot<T extends FlagName>(names: readonly T[]): Pro
 
 export function resetFlagCacheForTests() {
   cache = null;
+  rolloutCache = null;
 }

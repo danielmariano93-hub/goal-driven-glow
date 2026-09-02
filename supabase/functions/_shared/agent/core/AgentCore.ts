@@ -46,7 +46,11 @@ import { entryFailureMessage } from "./ResponseValidator.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import { buildTurnPlan, turnPlanPrompt } from "./ConversationOrchestrator.ts";
 import { validateAgainstEvidence } from "./TruthValidator.ts";
-import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
+import { executeDeterministicCapability, formatSpendingAnalysis } from "./DeterministicAnswers.ts";
+import { classifyDialogueAct, findRepairBaseQuery, repairEffectiveQuery } from "./DialogueAct.ts";
+import { compileFinancialQuery } from "./SemanticCompiler.ts";
+import { capabilityFromFinancialIR, isFalseCapabilityDenial } from "./IRCapabilityAdapter.ts";
+import type { FinancialQueryIR } from "./FinancialQueryIR.ts";
 import { executeComposite } from "./CompositeExecutor.ts";
 import { runCompositeAnalysis } from "./CompositeAnalysis.ts";
 import {
@@ -643,6 +647,32 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     null,
   );
   const turnPlan = buildTurnPlan({ text: input.text, history });
+
+  // Dialogue Act não escolhe finanças. Ele só protege estado: repair precisa
+  // restaurar pergunta + período anteriores antes de qualquer roteamento.
+  const dialogueAct = classifyDialogueAct(input.text, routed.intent);
+  const repairBaseText = dialogueAct.repair
+    ? (findRepairBaseQuery(history, input.text) ?? previousUserText ?? null)
+    : null;
+  const repairBasePlan = repairBaseText
+    ? buildTurnPlan({ text: repairBaseText, history })
+    : null;
+  if (dialogueAct.repair && repairBaseText && repairBasePlan) {
+    const currentExplicitPeriod = !!turnPlan.period;
+    turnPlan.effective_text = repairEffectiveQuery({
+      current: input.text, previous_user_query: repairBaseText, act: dialogueAct,
+    });
+    turnPlan.followup = true;
+    turnPlan.inherited_from = repairBaseText;
+    // A correção herda o período original SOMENTE se o usuário não informou
+    // um novo recorte no turno atual.
+    if (!currentExplicitPeriod) {
+      turnPlan.effective_period = repairBasePlan.effective_period;
+      turnPlan.previous_period = repairBasePlan.previous_period;
+      turnPlan.period_roles = repairBasePlan.period_roles;
+    }
+  }
+
   // Rota determinística da mensagem CRUA é soberana: nenhuma herança de
   // assunto pode transformar "estou me sentindo atento" em pergunta de gasto.
   const rawDeterministic = capability.execution === "deterministic" && !!capability.required_tool;
@@ -752,6 +782,50 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       clarification: !args.category_name && needsCategory ? askForCategory() : capability.clarification,
     };
   }
+
+  // ---- Semantic IR v2 (flag `semantic_ir_v1`, piloto) --------------------
+  // A LLM ENTENDE (produz IR); o software CONTROLA (escolhe ferramenta).
+  // Sem capacidade mapeada => fail-closed: mantém a rota atual, nunca inventa.
+  let semanticIR: FinancialQueryIR | null = null;
+  let semanticIRTelemetry: Record<string, unknown> | null = null;
+  if (!rawDeterministic
+    && !capability.clarification
+    && await isEnabled("semantic_ir_v1", input.user_id)) {
+    const outcome = await guard(
+      () => compileFinancialQuery({
+        text: turnPlan.effective_text,
+        model: "google/gemini-3.6-flash",
+        period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
+        comparison_period: turnPlan.previous_period,
+        previous_query: turnPlan.inherited_from ?? previousUserText ?? null,
+        sb, user_id: input.user_id, run_id: run_id ?? null,
+      }),
+      (m) => metrics.errors.push("semantic_ir:" + m),
+      null,
+    );
+    semanticIR = outcome?.ir ?? null;
+    const adapted = semanticIR ? capabilityFromFinancialIR(semanticIR) : null;
+    if (adapted?.capability) {
+      capability = { ...capability, ...adapted.capability } as typeof capability;
+    }
+    semanticIRTelemetry = {
+      version: "nino_semantic_ir.v2",
+      applied: !!adapted?.capability,
+      intent: semanticIR?.intent ?? null,
+      source: semanticIR?.source ?? null,
+      unsupported_reason: semanticIR?.unsupported_reason ?? null,
+      unsupported_queries: adapted?.unsupported_queries ?? [],
+      mapped_tools: adapted?.mapped_tools ?? [],
+      telemetry: outcome?.telemetry ?? null,
+    };
+    if (outcome?.telemetry) {
+      metrics.llm_calls += outcome.telemetry.llm_calls;
+      metrics.tokens_in += outcome.telemetry.tokens_in;
+      metrics.tokens_out += outcome.telemetry.tokens_out;
+    }
+  }
+
+
 
   metrics.capability = capability.name;
   metrics.tool_scope = [...capability.allowed_tools];
@@ -1382,6 +1456,22 @@ ${episodic}
     reply = EVIDENCE_CONFLICT_REPLY;
   }
 
+  // Capability Availability Guard: se o IR mapeou uma capacidade real, a LLM
+  // não pode alegar que não tem ferramenta. Reescreve pelo resultado provado.
+  if (semanticIR && isFalseCapabilityDenial(reply, semanticIR)) {
+    metrics.errors.push("false_capability_denial");
+    const proven = toolCallLog.find((c) => c.ok && c.tool_name === capability.required_tool);
+    if (proven?.result && capability.required_tool === "analyze_spending") {
+      reply = formatSpendingAnalysis(proven.result);
+    } else if (proven?.result) {
+      reply = reply.replace(
+        /\b[Nn][aã]o (?:tenho|possuo|consigo)[^.!?]*[.!?]/,
+        "Consultei seus dados e trouxe o resultado abaixo.",
+      );
+    }
+  }
+
+
   // ---- Truth Gate v2 -----------------------------------------------------
   // Regra absoluta: nenhum valor em reais e nenhum percentual sai daqui sem
   // ferramenta determinística que o sustente. Quando falta prova, o Core tenta
@@ -1538,6 +1628,12 @@ ${episodic}
           flags: planner.flags ?? null,
           // Telemetria do caminho analítico: o diagnóstico deixa de ser
           // investigação e passa a ser consulta.
+          semantic_ir: semanticIRTelemetry,
+          dialogue_act: {
+            repair: dialogueAct.repair,
+            kind: (dialogueAct as any).kind ?? null,
+            repair_base_present: !!repairBaseText,
+          },
           analytical_path: {
             ...((metrics as any).composite_analysis ?? {
               composite_plan_matched: false,

@@ -1064,18 +1064,24 @@ export type Database = {
           description: string | null
           enabled: boolean
           flag_name: string
+          pilot_user_ids: string[]
+          rollout_percent: number
           updated_at: string
         }
         Insert: {
           description?: string | null
           enabled?: boolean
           flag_name: string
+          pilot_user_ids?: string[]
+          rollout_percent?: number
           updated_at?: string
         }
         Update: {
           description?: string | null
           enabled?: boolean
           flag_name?: string
+          pilot_user_ids?: string[]
+          rollout_percent?: number
           updated_at?: string
         }
         Relationships: []
