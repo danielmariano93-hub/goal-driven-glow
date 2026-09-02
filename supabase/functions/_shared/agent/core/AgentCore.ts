@@ -1567,18 +1567,39 @@ ${episodic}
   // Gráfico só quando há intenção visual EXPLÍCITA. "Evolução"/"tendência" são
   // análise textual e não podem exigir artefato em nenhuma camada.
   const chartRequested = hasExplicitChartIntent(String(input.text ?? ""));
+  // Ferramenta obrigatória do turno: sob autoridade semântica é SEMPRE a engine
+  // mapeada/executada pelo SemanticQueryExecutor.
+  const effectiveRequiredTool = semanticRequiredTool ?? capability.required_tool;
   const validated = await timeStage(metrics, "validate", async () => validate(reply, {
     expectedKind: kind, hasDraft: !!draft_id,
     hasSuccessfulMutation: successfulMutation,
     toolCallErrors: toolCallLog.filter(c => !c.ok).length,
     userText: input.text,
     toolCalls: toolCallLog,
-    requiredTool: capability.required_tool,
+    requiredTool: effectiveRequiredTool,
     entryTurn: capability.name === "transaction_entry",
     artifactExpected: chartRequested,
     artifactReady: !!metrics.artifact_id,
   }));
   metrics.validations = validated.reasons.length;
+  // Observabilidade: quando o gate de ferramenta obrigatória bloqueia, o run
+  // registra a engine esperada e o que de fato executou — em vez de esconder a
+  // causa atrás de uma mensagem amigável.
+  if (semanticIRTelemetry) {
+    const requiredMissing = validated.reasons.find((r) => r.startsWith("required_tool_missing"));
+    (semanticIRTelemetry as Record<string, unknown>).validator = {
+      required_tool: effectiveRequiredTool ?? null,
+      required_tool_source: semanticRequiredTool ? "semantic_mapping" : "legacy_capability",
+      semantic_status: semanticStatus,
+      blocked: !!requiredMissing,
+      reasons: validated.reasons,
+      executed: toolCallLog.map((c: any) => ({
+        tool_name: String(c.tool_name), ok: !!c.ok,
+        error: c.error ?? null, duration_ms: Number(c.duration_ms ?? 0),
+      })),
+    };
+  }
+
   if (validated.action === "fallback_deterministic" && !metrics.fallback_used) {
     // Validador rejeitou a resposta do modelo: cai uma vez no determinístico.
     //
