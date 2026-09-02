@@ -252,6 +252,10 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Seu mês fecha apertado se nada mudar",
         body: shortfall ? "É o que falta para fechar sem aperto." : "Proteger o caixa vem antes de qualquer aporte.",
+        context: shortfall
+          ? "Com os compromissos já conhecidos, seu mês fecha no vermelho se nada mudar."
+          : "Seu disponível de hoje está negativo, então o caixa vem antes de qualquer aporte.",
+        recommendation: "Meu conselho: cubra essa folga antes de acelerar o resto.",
       },
     };
   }
