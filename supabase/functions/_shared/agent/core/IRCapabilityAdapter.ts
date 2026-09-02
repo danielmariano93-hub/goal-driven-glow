@@ -192,3 +192,23 @@ export function isFalseCapabilityDenial(reply: string, ir: FinancialQueryIR | nu
   return /\b(n[aã]o (?:tenho|possuo) (?:a )?(?:ferramenta|capacidade)|n[aã]o consigo (?:consultar|calcular|acessar)|n[aã]o (?:d[aá]|e poss[ií]vel) (?:para mim )?(?:calcular|consultar))\b/i
     .test(String(reply ?? ""));
 }
+
+// ---------------------------------------------------------------------------
+// `nino_semantic_ir.v3` — mapeamento por query, usado pelo FinancialPlanValidator
+// e pelo SemanticQueryExecutor. Continua sendo o ÚNICO lugar onde o IR conhece
+// a implementação atual das ferramentas.
+// ---------------------------------------------------------------------------
+export type IRQueryMapping = Mapping;
+
+export function mappingForQuery(
+  q: FinancialQuery,
+  ir: Pick<FinancialQueryIR, "period" | "comparison_period">,
+): IRQueryMapping | null {
+  return mapQuery(q, ir as FinancialQueryIR);
+}
+
+export function mappingsFromIR(
+  ir: FinancialQueryIR & { queries: FinancialQuery[] },
+): Array<{ query_id: string; mapping: IRQueryMapping | null }> {
+  return ir.queries.map((q) => ({ query_id: q.id, mapping: mappingForQuery(q, ir) }));
+}

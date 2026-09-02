@@ -73,3 +73,73 @@ export function repairEffectiveQuery(args: {
     args.current.trim(),
   ].join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// `nino_semantic_ir.v3` — Dialogue State MULTI-LABEL.
+// Uma mensagem pode ser repair + constraint_update ("não foi isso, eu queria
+// por cartão nos últimos 90 dias"): o repair é preservado E a nova restrição é
+// aplicada. Reduzir isso a um enum único era o que fazia o Nino perder metade
+// da correção do usuário.
+// ---------------------------------------------------------------------------
+import type { DialogueActLabel } from "./FinancialQueryIR.ts";
+
+export type DialogueConstraintHints = {
+  period: boolean;
+  dimension: boolean;
+  entity: boolean;
+};
+
+export type DialogueState = {
+  version: "nino_dialogue_state.v1";
+  acts: DialogueActLabel[];
+  constraints: DialogueConstraintHints;
+  confidence: number;
+};
+
+const FOLLOWUP_RX =
+  /^(e |mas |entao |então )|\b(e (?:no|na|nos|nas|em|do|da) |e quanto|e sobre|e (?:o|a) (?:mesma|mesmo)|desses|desse|dessa|nesse mesmo)\b/i;
+const PERIOD_CONSTRAINT_RX =
+  /\b(ultimos? \d+ dias|[uú]ltimos? \d+ dias|neste m[eê]s|nesse m[eê]s|m[eê]s passado|este ano|ano passado|em \d{4}|de \d{1,2}\/\d{1,2}|semana|trimestre|90 dias|30 dias|60 dias)\b/i;
+const DIMENSION_CONSTRAINT_RX =
+  /\b(por cart[aã]o|por conta|por categoria|por estabelecimento|s[oó] (?:cr[eé]dito|d[eé]bito))\b/i;
+const ENTITY_CONSTRAINT_RX =
+  /\b(no cart[aã]o [\wÀ-ú]+|na conta [\wÀ-ú]+|em [A-ZÀ-Ú][\wÀ-ú]{2,})\b/;
+
+export function dialogueActLabels(act: DialogueAct): DialogueActLabel[] {
+  const labels: DialogueActLabel[] = [];
+  if (act.repair) labels.push("repair");
+  if (act.clarification) labels.push("clarification");
+  if (act.write) labels.push("write");
+  if (act.conversational) labels.push("conversational");
+  if (act.new_query) labels.push("new_query");
+  return labels;
+}
+
+export function classifyDialogueState(text: string, parsed: ParsedIntent): DialogueState {
+  const raw = String(text ?? "").trim();
+  const act = classifyDialogueAct(raw, parsed);
+  const acts = new Set<DialogueActLabel>(dialogueActLabels(act));
+
+  const constraints: DialogueConstraintHints = {
+    period: PERIOD_CONSTRAINT_RX.test(raw),
+    dimension: DIMENSION_CONSTRAINT_RX.test(raw),
+    entity: ENTITY_CONSTRAINT_RX.test(raw),
+  };
+  if (!act.write && !act.conversational
+    && (constraints.period || constraints.dimension || constraints.entity)) {
+    acts.add("constraint_update");
+  }
+  if (!act.write && !act.conversational && FOLLOWUP_RX.test(raw)) {
+    acts.add("followup");
+    // Follow-up não é pergunta nova: continua o tópico.
+    acts.delete("new_query");
+  }
+  if (act.repair) acts.delete("new_query");
+
+  return {
+    version: "nino_dialogue_state.v1",
+    acts: [...acts],
+    constraints,
+    confidence: act.confidence,
+  };
+}
