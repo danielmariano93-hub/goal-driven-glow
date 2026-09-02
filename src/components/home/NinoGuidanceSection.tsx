@@ -54,7 +54,7 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
   if (!primary && supporting.length === 0) return null;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3.5">
       {primary ? (
         <NinoSpotlightCard
           item={primary}
@@ -85,8 +85,9 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
 
       {supporting.length > 0 ? (
         <section aria-label="Também vale saber">
-          <h3 className="mb-2 px-1 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Também vale saber</h3>
-          <div className="divide-y divide-border overflow-hidden rounded-[16px] border border-border bg-card">
+          <h3 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Também vale saber</h3>
+          <div className="divide-y divide-border overflow-hidden rounded-[14px] border border-border bg-card">
+
             {supporting.map((item, index) => (
               <NinoInsightRow
                 key={`${index}-${item.id}`}
@@ -114,7 +115,7 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
         to="/app/nino"
         aria-label="Ver todas as orientações do Nino"
         onClick={() => trackNinoEditorial("nino_view_all", { surface: "home" })}
-        className="-mt-1 inline-flex min-h-[24px] items-center gap-1 px-1 text-[14px] font-semibold text-primary underline-offset-4 hover:underline"
+        className="-mt-0.5 inline-flex min-h-[22px] items-center gap-1 px-1 text-[12.5px] font-semibold text-primary underline-offset-4 hover:underline"
       >
         Ver todas no Nino
         <ArrowRight size={16} weight="bold" aria-hidden="true" />
