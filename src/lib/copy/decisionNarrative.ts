@@ -350,7 +350,8 @@ function situationOnly(
       headline,
       body: context,
       context,
-      recommendation: humanOrNull(situation.consequence_summary),
+      // Leitura sem decisão do motor não ganha conselho inventado.
+      recommendation: null,
     },
     variants: {
 
