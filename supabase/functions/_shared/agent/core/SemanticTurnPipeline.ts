@@ -36,6 +36,7 @@ import {
   type ConversationTopicState, type PendingClarification,
 } from "./ConversationTopicState.ts";
 import type { SemanticCompilerTelemetry } from "./SemanticCompiler.ts";
+import { ontologyHintFor, ontologySignature } from "./IRCapabilityAdapter.ts";
 
 export type SemanticPipelineTurn = { reply: string; toolCalls: any[] };
 
@@ -514,4 +515,42 @@ function domainFailureReply(slot: string, options: string[]): string {
   return options.length
     ? `Não encontrei essa categoria na sua base. As que existem são: ${list}. Me diga qual delas que eu refaço a conta.`
     : "Não encontrei essa categoria na sua base. Me diga o nome que aparece nos seus lançamentos que eu refaço a conta.";
+}
+
+// ---------------------------------------------------------------------------
+// Lacuna de ontologia (`nino_ontology.v1`)
+//
+// `unsupported` deixa de ser uma mensagem genérica: registramos QUAL combinação
+// métrica/operação não tem motor (telemetria auditável para o backlog) e o texto
+// honesto explica a limitação real, sem falar de "janela de comparação" quando o
+// problema é outro.
+// ---------------------------------------------------------------------------
+function ontologyGaps(
+  ir: FinancialQueryIRv2 | null,
+  validation: PlanValidation | null,
+): string[] {
+  if (!ir) return [];
+  const unmapped = new Set(
+    (validation?.mapped ?? []).length
+      ? ir.queries
+        .filter((q) => !validation!.mapped.some((m) => m.query_id === q.id))
+        .map((q) => q.id)
+      : ir.queries.map((q) => q.id),
+  );
+  const gaps = ir.queries
+    .filter((q) => unmapped.has(q.id))
+    .map((q) => {
+      const hint = ontologyHintFor(q);
+      return hint ? `${ontologySignature(q)} → sugerido: ${hint}` : ontologySignature(q);
+    });
+  return [...new Set(gaps)].slice(0, 6);
+}
+
+function unsupportedReply(gaps: string[]): string {
+  if (gaps.length) {
+    return "Entendi exatamente o que você quer, mas esse corte específico eu ainda não calculo "
+      + "com número confiável. Posso te dar a leitura mais próxima disso agora — quer que eu vá por aí?";
+  }
+  return "Essa eu não consigo responder com número confiável agora. "
+    + "Se você me disser o período e o que quer comparar, eu monto a leitura certa.";
 }
