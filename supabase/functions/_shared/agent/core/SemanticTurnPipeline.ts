@@ -59,6 +59,12 @@ export type SemanticPipelineResult = {
   topic_id: string | null;
   rescue: SemanticCapabilityRescue | null;
   errors: string[];
+  /** Presente só em `unsupported`: o Core pode tentar o motor canônico do turno. */
+  canonical_fallback?: {
+    allowed: boolean;
+    reason: "no_engine_for_combination" | "intent_unsupported";
+    honest_reply: string;
+  };
   telemetry: Record<string, unknown>;
 };
 
