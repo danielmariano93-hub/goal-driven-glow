@@ -91,6 +91,33 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
 
     if (q.operation === "trend") {
+      // Trajetória mês a mês: motor longitudinal (ponto de virada, tendência).
+      if (group === "month" && !q.filters.length) {
+        return {
+          tool: "analyze_longitudinal_trajectory",
+          capability: "financial_analysis",
+          execution: "deterministic",
+          args: { from: ir.period.from, to: ir.period.to },
+        };
+      }
+      // Tendência COM recorte (categoria/cartão): o motor de comparação canônica
+      // suporta o corte; antes a query inteira virava `unsupported`.
+      const cat = filter(q, "category");
+      const card = filter(q, "card");
+      if ((cat || card) && metric === "expense" && !group && ir.comparison_period) {
+        return {
+          tool: "compare_financial_metric",
+          capability: "financial_comparison",
+          execution: "llm_scoped",
+          args: {
+            metric: cat ? "category_spend" : "card_spend",
+            mode: "CUSTOM_PERIOD",
+            ...(cat ? { category_name: cat } : {}),
+            from: ir.period.from,
+            to: ir.period.to,
+          },
+        };
+      }
       if (q.filters.length || group) return null;
       return metric === "expense"
         ? {
