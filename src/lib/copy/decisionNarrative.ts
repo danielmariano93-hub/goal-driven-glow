@@ -46,11 +46,19 @@ export type NinoDecisionCta =
   | { kind: "accept"; label: string; route: string | null }
   | { kind: "link"; label: string; route: string };
 
+/**
+ * `home_compact_conversational` — variante de Home: conclusão + causa curta +
+ * conselho em uma linha. Nunca usa o texto detalhado nem copy de Admin.
+ */
 export type NinoDecisionCompactCopy = {
   /** Headline curta de Home: <= 65 caracteres, conclusão em uma linha. */
   headline: string;
   /** Evidência mínima: uma frase, <= 140 caracteres, sem repetir o valor destacado. */
   body: string | null;
+  /** Contexto causal conversacional: causa + significado, <= 150 caracteres. */
+  context?: string | null;
+  /** Conselho do Nino em uma linha ("Meu conselho: comece por esse ritmo."). */
+  recommendation?: string | null;
 };
 
 export type NinoDecisionNarrative = {
@@ -191,12 +199,22 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
         : { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" },
       secondary: amount ? { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" } : null,
       compact: {
-        headline: behind ? "Sua meta precisa de um ritmo mais realista" : "Sua meta cabe no seu ritmo de hoje",
+        headline: behind
+          ? "Sua meta está pedindo mais do que seu mês comporta hoje"
+          : "Sua meta cabe no seu ritmo de hoje",
         body: behind
           ? `O prazo atual pediria ${brlCompact(required!)} por mês.`
           : amount
             ? "É o ritmo que seu histórico sustenta hoje."
             : null,
+        context: behind
+          ? `Para cumprir o prazo atual, seriam ${brlCompact(required!)}/mês. Seu histórico mostra que um ritmo menor cabe melhor hoje.`
+          : amount
+            ? "Pelo seu histórico, esse ritmo cabe sem apertar seu mês."
+            : null,
+        recommendation: amount
+          ? "Meu conselho: comece por esse ritmo."
+          : "Meu conselho: revise o prazo antes de aumentar o aporte.",
       },
     };
   }
@@ -213,6 +231,8 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Tem um número que não fecha",
         body: "Vou corrigir isso antes de recomendar corte ou aporte.",
+        context: "Há uma divergência entre seus registros e seus saldos, e ela muda qualquer conta que eu fizer agora.",
+        recommendation: "Meu conselho: vamos acertar isso primeiro.",
       },
     };
   }
@@ -232,6 +252,10 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Seu mês fecha apertado se nada mudar",
         body: shortfall ? "É o que falta para fechar sem aperto." : "Proteger o caixa vem antes de qualquer aporte.",
+        context: shortfall
+          ? "Com os compromissos já conhecidos, seu mês fecha no vermelho se nada mudar."
+          : "Seu disponível de hoje está negativo, então o caixa vem antes de qualquer aporte.",
+        recommendation: "Meu conselho: cubra essa folga antes de acelerar o resto.",
       },
     };
   }
@@ -248,6 +272,8 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Suas parcelas estão consumindo sua folga",
         body: "É quase tudo o que sobra no seu mês.",
+        context: "Hoje o compromisso com parcelas ocupa quase toda a folga que sobra do seu mês.",
+        recommendation: "Meu conselho: alivie essa pressão antes de aumentar aportes.",
       },
     };
   }
@@ -264,6 +290,8 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       compact: {
         headline: "Sua folga pode virar patrimônio",
         body: "Sobra esse valor todo mês e hoje ele não rende nada.",
+        context: "Pelo seu histórico sobra dinheiro todos os meses, e hoje ele fica parado sem render.",
+        recommendation: "Meu conselho: comece um aporte planejado nesse ritmo.",
       },
     };
   }
@@ -277,7 +305,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
     tone: "progress",
     primary: { kind: "link", label: "Ver meu relatório", route: safeRoute(step.route) ?? "/app/relatorios" },
     secondary: null,
-    compact: { headline: fallbackHeadline, body: humanOrNull(step.detail) },
+    compact: {
+      headline: fallbackHeadline,
+      body: humanOrNull(step.detail),
+      context: humanOrNull(step.detail),
+      recommendation: null,
+    },
   };
 }
 
@@ -313,7 +346,13 @@ function situationOnly(
     tone,
     sameDecision: false,
     sourceRefs: ["nino_diagnosis"],
-    compact: { headline, body: context },
+    compact: {
+      headline,
+      body: context,
+      context,
+      // Leitura sem decisão do motor não ganha conselho inventado.
+      recommendation: null,
+    },
     variants: {
 
       home: lines,

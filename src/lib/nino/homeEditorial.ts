@@ -47,6 +47,10 @@ export type NinoSpotlightItem = {
   semanticType: string;
   eyebrow: string;
   headline: string;
+  /** Causa + significado em uma frase (variante conversacional da Home). */
+  contextText: string | null;
+  /** Conselho do Nino em uma linha. Nunca inventado. */
+  recommendation: string | null;
   supportingText: string | null;
   mainValue: number | null;
   mainValueSuffix: string | null;
@@ -54,6 +58,8 @@ export type NinoSpotlightItem = {
   priority: number;
   primaryAction: NinoEditorialAction | null;
   secondaryAction: NinoEditorialAction | null;
+  /** Assunto canônico (meta/dívida/categoria). Uso interno de dedup, nunca UI. */
+  subject: string;
 };
 
 export type NinoSupportingItem = {
@@ -65,11 +71,17 @@ export type NinoSupportingItem = {
   tone: NinoEditorialTone;
   route: string;
   priority: number;
+  /** Assunto canônico. Uso interno de dedup, nunca UI. */
+  subject: string;
 };
 
 export type NinoHomeEditorialView = {
   primary: NinoSpotlightItem | null;
   supporting: NinoSupportingItem[];
+  /** Pool ordenado de candidatos a Spotlight (oficial primeiro). Base de "Outra orientação". */
+  primaryPool: NinoSpotlightItem[];
+  /** Pool ordenado de leituras de apoio elegíveis (inclui as exibidas). */
+  supportingPool: NinoSupportingItem[];
   totalAvailable: number;
   lastUpdatedAt: string | null;
 };
@@ -81,6 +93,10 @@ export const NINO_SUPPORTING_DEFAULT = 2;
 
 const HEADLINE_MAX = 65;
 const SPOTLIGHT_BODY_MAX = 140;
+/** Contexto causal conversacional: 2–3 linhas no mobile. */
+const SPOTLIGHT_CONTEXT_MAX = 150;
+/** Conselho do Nino: uma linha. */
+const SPOTLIGHT_RECOMMENDATION_MAX = 70;
 const SUPPORTING_TITLE_MAX = 48;
 const SUPPORTING_BODY_MAX = 60;
 
@@ -232,21 +248,26 @@ function buildSpotlight(
         ? priorityForSituation(situation)
         : NINO_EDITORIAL_PRIORITY.stability;
 
-  // Home usa a variante compacta: conclusão curta + uma evidência.
+  // Home usa a variante conversacional compacta: conclusão + causa + conselho.
   const headline = compactSentence(narrative.compact.headline, HEADLINE_MAX) ?? narrative.compact.headline;
   const body = compactSentence(narrative.compact.body, SPOTLIGHT_BODY_MAX);
+  const contextText = compactSentence(narrative.compact.context ?? null, SPOTLIGHT_CONTEXT_MAX);
+  const recommendation = compactSentence(narrative.compact.recommendation ?? null, SPOTLIGHT_RECOMMENDATION_MAX);
+  const subject = subjectKey(situation, useStep ? nextStep : null);
 
   return {
     usedSituationId: useStep && !same ? null : situation?.id ?? null,
     usedStep: useStep,
-    subject: subjectKey(situation, useStep ? nextStep : null),
+    subject,
     item: {
       id: useStep && nextStep ? nextStep.id : situation?.id ?? "nino-spotlight",
       situationId: situation?.id ?? null,
       semanticType: useStep ? "next_best_action" : situation?.situation_type ?? "guidance",
       eyebrow: eyebrowFor(tone, useStep),
       headline,
-      supportingText: body,
+      contextText: contextText ?? body,
+      recommendation,
+      supportingText: contextText ? null : body,
       mainValue: narrative.primaryAmount?.value ?? null,
       mainValueSuffix: narrative.primaryAmount?.caption ? clean(narrative.primaryAmount.caption) : null,
       tone,
@@ -255,11 +276,12 @@ function buildSpotlight(
       // usamos o destino canônico da própria situação (rota já existente).
       primaryAction: toAction(narrative.primaryCta) ?? fallbackAction(situation),
       secondaryAction: toAction(narrative.secondaryCta),
+      subject,
     },
   };
 }
 
-type SupportingCandidate = NinoSupportingItem & { subject: string };
+type SupportingCandidate = NinoSupportingItem;
 
 function toSupporting(reading: NinoReading): SupportingCandidate | null {
   const situation = reading.situation;
@@ -277,6 +299,44 @@ function toSupporting(reading: NinoReading): SupportingCandidate | null {
     tone: toneForSituation(situation),
     route: diagnosisRouteForSituation(situation, reading.action),
     priority: priorityForSituation(situation),
+    subject: subjectKey(situation),
+  };
+}
+
+/**
+ * Alternativa de Spotlight a partir de uma leitura da fila canônica. Mesmo
+ * template, mesmo orçamento de conteúdo, CTA canônico da própria situação —
+ * nenhuma recomendação financeira é criada aqui.
+ */
+function spotlightFromReading(reading: NinoReading): NinoSpotlightItem | null {
+  const situation = reading.situation;
+  const narrative = composeNinoDecisionNarrative({
+    situation,
+    action: reading.action ? { title: reading.action.title, route: reading.action.route } : null,
+  });
+  if (!narrative) return null;
+  const tone = toneForSituation(situation);
+  const headline = compactSentence(narrative.compact.headline, HEADLINE_MAX) ?? narrative.compact.headline;
+  const contextText = humanizeSupportingText(
+    compactSentence(narrative.compact.context ?? narrative.compact.body, SPOTLIGHT_CONTEXT_MAX),
+  );
+  const route = diagnosisRouteForSituation(situation, reading.action);
+  const label = clean(diagnosisActionLabel(situation, reading.action));
+  return {
+    id: situation.id,
+    situationId: situation.id,
+    semanticType: situation.situation_type,
+    eyebrow: eyebrowFor(tone, false),
+    headline,
+    contextText,
+    recommendation: null,
+    supportingText: null,
+    mainValue: null,
+    mainValueSuffix: null,
+    tone,
+    priority: priorityForSituation(situation),
+    primaryAction: route && label ? { kind: "link", label, route } : null,
+    secondaryAction: null,
     subject: subjectKey(situation),
   };
 }
@@ -330,11 +390,84 @@ export function buildNinoHomeEditorialView(input: {
     chosen.push(third);
   }
 
+  // Pool de Spotlight: o item oficial lidera; as alternativas seguem o mesmo
+  // ranking canônico da fila (prioridade, severidade, relevância, frescor).
+  const alternatives = queue
+    .map(spotlightFromReading)
+    .filter((item): item is NinoSpotlightItem => Boolean(item) && Boolean(item?.primaryAction ?? item?.contextText))
+    .filter((item) => !spotlight || item.id !== spotlight.item.id)
+    .sort((a, b) => a.priority - b.priority);
+
   return {
     primary: spotlight?.item ?? null,
-    supporting: chosen.slice(0, NINO_SUPPORTING_LIMIT).map(({ subject: _subject, ...item }) => item),
+    supporting: chosen.slice(0, NINO_SUPPORTING_LIMIT),
+    primaryPool: spotlight ? [spotlight.item, ...alternatives] : alternatives,
+    supportingPool: eligible,
     totalAvailable: eligible.length + (spotlight ? 1 : 0),
     lastUpdatedAt: diagnosis?.asOf ?? context?.as_of ?? null,
   };
 }
 
+
+type RotatableItem = {
+  id: string;
+  semanticType: string;
+  subject: string;
+  priority: number;
+  headline?: string;
+  title?: string;
+};
+
+function labelOf(item: RotatableItem): string {
+  return semanticKey(item.headline ?? item.title ?? "");
+}
+
+/** Equivalência semântica: mesmo assunto/tipo ou mesma frase, sem decisão nova. */
+function isEquivalent(a: RotatableItem, b: RotatableItem): boolean {
+  if (a.id === b.id) return true;
+  if (a.subject && a.subject === b.subject) return true;
+  const left = labelOf(a);
+  const right = labelOf(b);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+/**
+ * Próximo item elegível para "Outra orientação" / "Mostrar outra".
+ *
+ * Não é aleatório: mantém o ranking canônico já calculado (prioridade da fila)
+ * e apenas evita repetir o item atual, os itens exibidos em outros slots e
+ * itens semanticamente equivalentes. Preferimos o que ainda não foi visto na
+ * sessão; quando o pool se esgota, o ciclo é liberado de novo.
+ *
+ * Retorna null quando não existe alternativa realmente relevante — a Home
+ * mostra um aviso neutro em vez de inventar uma dica.
+ */
+export function pickNextEditorialItem<T extends RotatableItem>(input: {
+  pool: T[];
+  current: T | null;
+  displayed?: RotatableItem[];
+  seenIds?: Iterable<string>;
+}): T | null {
+  const seen = new Set(input.seenIds ?? []);
+  const blocked = [
+    ...(input.current ? [input.current] : []),
+    ...(input.displayed ?? []).filter((item) => item.id !== input.current?.id),
+  ];
+  const candidates = input.pool
+    .filter((item) => !blocked.some((used) => isEquivalent(item, used)))
+    .sort((a, b) => a.priority - b.priority);
+  if (candidates.length === 0) return null;
+  const unseen = candidates.filter((item) => !seen.has(item.id));
+  return (unseen[0] ?? candidates[0]) ?? null;
+}
+
+/** Existe alternativa para este slot? Usado para esconder controles inúteis. */
+export function hasEditorialAlternative<T extends RotatableItem>(input: {
+  pool: T[];
+  current: T | null;
+  displayed?: RotatableItem[];
+  seenIds?: Iterable<string>;
+}): boolean {
+  return pickNextEditorialItem(input) !== null;
+}

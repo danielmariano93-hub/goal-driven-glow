@@ -13,6 +13,8 @@ export type NinoEditorialEvent =
   | "nino_spotlight_secondary_action"
   | "nino_supporting_insight_impression"
   | "nino_supporting_insight_open"
+  | "nino_primary_next_requested"
+  | "nino_supporting_next_requested"
   | "nino_view_all";
 
 export type NinoEditorialPayload = {
@@ -21,6 +23,10 @@ export type NinoEditorialPayload = {
   priority?: number;
   surface: string;
   action?: string;
+  /** Rotação editorial: pedir outra leitura é substituição neutra, não rejeição. */
+  current_item_id?: string;
+  replacement_item_id?: string | null;
+  position?: number;
 };
 
 type Recorded = NinoEditorialPayload & { event: NinoEditorialEvent; at: string };
