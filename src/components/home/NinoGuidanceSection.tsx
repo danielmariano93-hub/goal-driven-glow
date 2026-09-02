@@ -1,7 +1,8 @@
-// Bloco editorial do Nino na Home (nino_home_editorial.v1).
+// Bloco editorial do Nino na Home (nino_home_editorial.v3).
 // UMA orientação principal (Spotlight) + até três leituras compactas
 // (Insight Stack) + acesso à superfície completa. Sem carrossel, sem swipe,
 // sem dots: a Home apresenta a escolha, a profundidade fica na tela do Nino.
+// Cada elemento permite pedir outra leitura — substituição neutra, no lugar.
 import { useMemo, useState } from "react";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
@@ -11,6 +12,7 @@ import { NinoInsightRow } from "@/components/home/nino/NinoInsightRow";
 import { NinoSpotlightCard } from "@/components/home/nino/NinoSpotlightCard";
 import { trackNinoEditorial } from "@/lib/analytics/ninoEditorial";
 import { buildNinoHomeEditorialView } from "@/lib/nino/homeEditorial";
+import { useNinoEditorialRotation } from "@/lib/nino/editorialRotation";
 import { useNinoNextStep, useNinoNextStepDecision } from "@/lib/nino/nextStep";
 import type { HomeDiagnosisView, NinoDiagnosisContext } from "@/lib/nino/diagnosis";
 import { notifyError } from "@/lib/ui/feedback";
@@ -34,6 +36,8 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
     [context, diagnosis, nextStep.data],
   );
 
+  const rotation = useNinoEditorialRotation(view);
+
   if (loading) return <NinoEditorialSkeleton />;
 
   if (error) {
@@ -44,15 +48,32 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
     );
   }
 
-  if (!view.primary && view.supporting.length === 0) return null;
+  const primary = rotation.primary;
+  const supporting = rotation.supporting;
+
+  if (!primary && supporting.length === 0) return null;
 
   return (
     <div className="space-y-5">
-      {view.primary ? (
+      {primary ? (
         <NinoSpotlightCard
-          item={view.primary}
+          item={primary}
           accepting={decision.isPending}
           acceptedMessage={accepted}
+          canRequestNext={rotation.canReplacePrimary}
+          requestNextNotice={rotation.primaryNotice}
+          onRequestNext={() => {
+            const replacement = rotation.replacePrimary();
+            // Pedir outra leitura NÃO é dispensa: só sinal editorial neutro.
+            trackNinoEditorial("nino_primary_next_requested", {
+              surface: "home",
+              current_item_id: primary.id,
+              replacement_item_id: replacement?.id ?? null,
+              semantic_type: primary.semanticType,
+              position: 0,
+              action: "view_next_requested",
+            });
+          }}
           onAccept={() => {
             decision.mutate("accept", {
               onSuccess: (payload) => setAccepted(payload.message ?? "Combinado. Vou acompanhar esse passo com você."),
@@ -62,12 +83,28 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
         />
       ) : null}
 
-      {view.supporting.length > 0 ? (
+      {supporting.length > 0 ? (
         <section aria-label="Também vale saber">
           <h3 className="mb-2 px-1 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Também vale saber</h3>
           <div className="divide-y divide-border overflow-hidden rounded-[16px] border border-border bg-card">
-            {view.supporting.map((item) => (
-              <NinoInsightRow key={item.id} item={item} />
+            {supporting.map((item, index) => (
+              <NinoInsightRow
+                key={`${index}-${item.id}`}
+                item={item}
+                canRequestNext={rotation.canReplaceSupporting(index)}
+                notice={rotation.supportingNotice === index ? "Não encontrei outra leitura relevante agora." : null}
+                onRequestNext={() => {
+                  const replacement = rotation.replaceSupporting(index);
+                  trackNinoEditorial("nino_supporting_next_requested", {
+                    surface: "home",
+                    current_item_id: item.id,
+                    replacement_item_id: replacement?.id ?? null,
+                    semantic_type: item.semanticType,
+                    position: index,
+                    action: "view_next_requested",
+                  });
+                }}
+              />
             ))}
           </div>
         </section>
