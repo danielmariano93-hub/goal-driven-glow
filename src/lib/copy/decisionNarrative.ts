@@ -346,7 +346,12 @@ function situationOnly(
     tone,
     sameDecision: false,
     sourceRefs: ["nino_diagnosis"],
-    compact: { headline, body: context },
+    compact: {
+      headline,
+      body: context,
+      context,
+      recommendation: humanOrNull(situation.consequence_summary),
+    },
     variants: {
 
       home: lines,
