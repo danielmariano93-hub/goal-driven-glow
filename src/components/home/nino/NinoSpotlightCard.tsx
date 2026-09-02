@@ -5,7 +5,6 @@
 import { useEffect, useRef } from "react";
 import { ArrowsClockwise, ArrowRight, CheckCircle, SpinnerGap, Target, TrendUp, Warning } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/engine/facts";
 import { trackNinoEditorial, trackNinoEditorialOnce } from "@/lib/analytics/ninoEditorial";
 import type { NinoEditorialTone, NinoSpotlightItem } from "@/lib/nino/homeEditorial";
@@ -121,30 +120,39 @@ export function NinoSpotlightCard({
 
         {acceptedMessage ? (
           <p className="mt-2.5 text-[13px] font-medium leading-[18px] text-success">{acceptedMessage}</p>
-        ) : primary ? (
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            {primary.kind === "accept" ? (
-              <Button
-                type="button"
-                className="h-9 rounded-full px-4 text-[13px] font-semibold"
-                disabled={accepting}
-                aria-label={primary.label}
-                onClick={() => {
-                  trackPrimary();
-                  onAccept?.();
-                }}
-              >
-                {accepting ? <SpinnerGap className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-                {primary.label}
-              </Button>
-            ) : (
-              <Button asChild className="h-9 rounded-full px-4 text-[13px] font-semibold">
-                <Link to={primary.route ?? "/app/nino"} aria-label={primary.label} onClick={trackPrimary}>
+        ) : (
+          // Uma única linha de ações em peso de link: o card não ocupa a Home
+          // com botão cheio. A ação principal continua sendo a primeira.
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {primary ? (
+              primary.kind === "accept" ? (
+                <button
+                  type="button"
+                  disabled={accepting}
+                  aria-label={primary.label}
+                  onClick={() => {
+                    trackPrimary();
+                    onAccept?.();
+                  }}
+                  className="inline-flex min-h-[28px] items-center gap-1 text-[13px] font-semibold text-primary underline-offset-4 hover:underline disabled:opacity-60"
+                >
+                  {accepting ? <SpinnerGap className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
                   {primary.label}
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              ) : (
+                <Link
+                  to={primary.route ?? "/app/nino"}
+                  aria-label={primary.label}
+                  onClick={trackPrimary}
+                  className="inline-flex min-h-[28px] items-center gap-1 text-[13px] font-semibold text-primary underline-offset-4 hover:underline"
+                >
+                  {primary.label}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </Link>
-              </Button>
-            )}
+              )
+            ) : null}
+
             {secondary ? (
               <Link
                 to={secondary.route ?? "/app/nino"}
@@ -158,28 +166,28 @@ export function NinoSpotlightCard({
                     action: secondary.kind,
                   })
                 }
-                className="inline-flex min-h-[36px] items-center text-[13px] font-medium text-muted-foreground underline-offset-4 hover:underline"
+                className="inline-flex min-h-[28px] items-center text-[13px] font-medium text-muted-foreground underline-offset-4 hover:underline"
               >
                 {secondary.label}
               </Link>
             ) : null}
-          </div>
-        ) : null}
-      </div>
 
-      {/* Peso terciário: explorar outra leitura nunca compete com a ação. */}
-      {onRequestNext && canRequestNext ? (
-        <button
-          type="button"
-          data-testid="nino-spotlight-next"
-          aria-label="Mostrar outra orientação do Nino"
-          onClick={onRequestNext}
-          className="mt-2 -ml-0.5 inline-flex min-h-[28px] w-fit items-center gap-1 self-start rounded-full px-0.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowsClockwise size={14} weight="bold" aria-hidden="true" />
-          Outra orientação
-        </button>
-      ) : null}
+            {/* Peso terciário: explorar outra leitura nunca compete com a ação. */}
+            {onRequestNext && canRequestNext ? (
+              <button
+                type="button"
+                data-testid="nino-spotlight-next"
+                aria-label="Mostrar outra orientação do Nino"
+                onClick={onRequestNext}
+                className="inline-flex min-h-[28px] items-center gap-1 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ArrowsClockwise size={14} weight="bold" aria-hidden="true" />
+                Outra orientação
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
 
       {requestNextNotice ? (
         <p className="mt-1 text-[12px] leading-[16px] text-muted-foreground" role="status">
@@ -187,6 +195,7 @@ export function NinoSpotlightCard({
         </p>
       ) : null}
     </section>
+
   );
 }
 
