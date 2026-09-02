@@ -69,7 +69,7 @@ describe("pipeline semântico — execução e autoridade", () => {
     expect(out.topic_state.active_topic_id).toBe(out.topic_id);
   });
 
-  it("IR sem motor mapeado devolve falha honesta, nunca resposta aproximada", async () => {
+  it("IR sem motor mapeado oferece degradação canônica com falha honesta específica", async () => {
     const out = await runSemanticTurn(base, deps({
       compile: vi.fn(async () => ({
         ir: ir({ intent: "unsupported", queries: [], completeness_targets: [] }),
@@ -77,8 +77,13 @@ describe("pipeline semântico — execução e autoridade", () => {
       })),
     } as any));
     expect(out.status).toBe("unsupported");
-    expect(out.turn?.reply).toBe(FAILURE);
+    // O pipeline não escolhe o texto: entrega ao Core a opção de motor canônico
+    // e um texto honesto com o motivo verdadeiro (nunca "janela de comparação").
+    expect(out.turn).toBeNull();
+    expect(out.canonical_fallback?.allowed).toBe(true);
+    expect(out.canonical_fallback?.honest_reply).toMatch(/n[aã]o/i);
   });
+
 
   it("compilador sem IR devolve autoridade ao roteador legado", async () => {
     const out = await runSemanticTurn(base, deps({
