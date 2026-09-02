@@ -67,7 +67,9 @@ describe("adaptador do diagnóstico para a Home", () => {
       nextStep: null,
     });
     expect(view.primary?.headline).toBe("Seu ritmo subiu");
-    expect(view.primary?.supportingText).toBe("Compras recentes explicam a alta.");
+    // v3: o texto causal passa a ser o contexto conversacional do Spotlight.
+    expect(view.primary?.contextText).toBe("Compras recentes explicam a alta.");
+    expect(view.primary?.supportingText).toBeNull();
     expect(view.primary?.primaryAction?.label).toBe("Revisar gastos");
   });
 });
