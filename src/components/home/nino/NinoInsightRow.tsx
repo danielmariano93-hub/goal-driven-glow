@@ -67,7 +67,7 @@ export function NinoInsightRow({ item, surface = "home", canRequestNext, onReque
 
   return (
     <div ref={ref} className="relative">
-      <div className="grid min-h-[54px] w-full grid-cols-[auto_1fr_auto_auto] items-center gap-2 pl-3.5 pr-1">
+      <div className="grid min-h-[54px] max-h-[68px] w-full grid-cols-[auto_1fr_auto_auto] items-center gap-2 pl-3.5 pr-1">
         <tone.Icon size={17} weight="duotone" className={cn("shrink-0", tone.text)} aria-hidden="true" />
         <Link
           key={item.id}

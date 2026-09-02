@@ -155,6 +155,41 @@ export function formatSpendingForDate(result: any): string {
   return `Em ${result.date}, você gastou ${money(result.total)} em ${count} lançamento${count > 1 ? "s" : ""}.${top}${excluded}`;
 }
 
+/** Resposta estruturada do Financial Query IR sem uma segunda chamada de LLM. */
+export function formatSpendingAnalysis(result: any): string {
+  const metric = result?.metric === "income" ? "income" : "expense";
+  const total = Number(result?.total_metric ?? result?.totals?.[metric] ?? 0);
+  const from = datePt(result?.period?.from);
+  const to = datePt(result?.period?.to);
+  const count = Number(result?.transactions_count ?? 0);
+  if (count === 0 || total <= 0) {
+    return metric === "income"
+      ? `Não encontrei receitas nesse recorte entre ${from} e ${to}.`
+      : `Não encontrei gastos de consumo nesse recorte entre ${from} e ${to}.`;
+  }
+
+  const verb = metric === "income" ? "entraram" : "você gastou";
+  const base = `Entre ${from} e ${to}, ${verb} *${money(total)}*.`;
+  if (result?.view === "total") return base;
+
+  const rows: any[] = Array.isArray(result?.top) ? result.top : [];
+  if (!rows.length) return base;
+  const groupLabel = result?.group_by === "card" ? "cartões"
+    : result?.group_by === "account" ? "contas"
+    : "categorias";
+  const heading = metric === "income"
+    ? `Maiores ${groupLabel} de entrada:`
+    : `Onde mais pesou por ${groupLabel}:`;
+  return [
+    base,
+    "",
+    heading,
+    ...rows.map((row) => `• ${row.name}: ${money(row.value)}`),
+  ].join("\n");
+}
+
+
+
 const CONFIDENCE_SENTENCE: Record<string, string> = {
   high: "Tenho bastante histórico seu, então essa conta está bem firme.",
   medium: "Ainda pode variar um pouco conforme o mês avança.",
@@ -413,6 +448,7 @@ export async function executeDeterministicCapability(
   else if (capability.name === "before_spending") reply = formatBeforeSpending(execution.result);
   else if (capability.name === "recent_transactions") reply = formatRecentTransactions(execution.result as any[]);
   else if (capability.name === "weekday_literal") reply = formatSpendingForDate(execution.result);
+  else if (capability.required_tool === "analyze_spending") reply = formatSpendingAnalysis(execution.result);
   else if (capability.name === "forecast_month_close") reply = formatForecastMonthClose(execution.result);
   // Distribuição por estabelecimento e evolução financeira nunca voltam para a
   // LLM: a resposta sai formatada direto do resultado do motor.
