@@ -49,9 +49,9 @@ export function NinoGuidanceSection({ diagnosis, context, loading, error, retryi
   }
 
   const primary = rotation.primary;
-  const supporting = rotation.supporting;
 
-  if (!primary && supporting.length === 0) return null;
+  if (!primary) return null;
+
 
   return (
     <div className="space-y-3.5">
