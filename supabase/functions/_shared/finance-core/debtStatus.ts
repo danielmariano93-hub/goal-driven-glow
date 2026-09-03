@@ -24,7 +24,7 @@ import {
 } from "./engineEnvelope.ts";
 import { round2, type DebtRow } from "./facts.ts";
 
-export const DEBT_STATUS_VERSION = "debt_status.v3";
+export const DEBT_STATUS_VERSION = "debt_status.v4";
 
 export interface DebtScheduleRow extends DebtRow {
   installments_total?: number | null;
@@ -36,6 +36,7 @@ export interface DebtScheduleRow extends DebtRow {
 }
 
 export interface DebtPaymentRow {
+  id?: string | null;
   debt_id: string;
   paid_at: string;
   amount: number;
@@ -68,8 +69,31 @@ export interface DebtStatusItem {
   next_due_date: string | null;
   days_to_due: number | null;
   last_payment_at: string | null;
+  /**
+   * CONTRATO DE CICLO (`debt_obligation.v1`, espelho exato da função SQL
+   * `debt_obligation_state`). Todo consumidor — agenda, Home, Nino, alertas —
+   * lê estes campos; nenhum deles infere "pago" por comparação de datas.
+   */
+  current_cycle_due_date: string | null;
+  current_cycle_status: DebtCycleStatus;
+  current_cycle_paid_amount: number;
+  current_cycle_paid_at: string | null;
+  source_payment_id: string | null;
+  derived_schedule: boolean;
   reason: string;
 }
+
+/** Estado do ciclo corrente da obrigação. `unknown` = agenda não derivada. */
+export type DebtCycleStatus = "paid" | "partial" | "overdue" | "pending" | "unknown";
+
+interface DebtCycleInfo {
+  derived: boolean;
+  cycleDue: string | null;
+  paidAmount: number;
+  paidAt: string | null;
+  paymentId: string | null;
+}
+
 
 export interface DebtStatusFacts {
   debts_analyzed: number;
@@ -204,7 +228,45 @@ function anchorCoveredInstallments(debt: DebtScheduleRow, covered: number, payme
   return Math.max(0, covered - 1);
 }
 
+/**
+ * Ciclo corrente da obrigação — espelho exato de `debt_obligation_state`:
+ * pagamentos com `paid_at` no intervalo (vencimento anterior, hoje] que cubram
+ * parcela declarada ou ao menos 95% do valor da parcela.
+ */
+function cycleInfo(debt: DebtScheduleRow, payments: DebtPaymentRow[], today: string): DebtCycleInfo {
+  const cycleDue = cycleDueForToday(debt, today);
+  if (!cycleDue) return { derived: false, cycleDue: null, paidAmount: 0, paidAt: null, paymentId: null };
+  const previousCycleDue = dueDateOf(cycleDue, 0);
+  const installment = Math.max(0, Number(debt.installment_amount ?? 0));
+  const inCycle = payments.filter((p) => {
+    const paidAt = String(p.paid_at ?? "").slice(0, 10);
+    if (!(paidAt > previousCycleDue && paidAt <= today)) return false;
+    if (Number(p.installments_covered ?? 0) > 0) return true;
+    const applied = Number(p.amount_applied ?? p.amount ?? 0);
+    return installment > 0 && applied >= installment * 0.95;
+  });
+  const paidAmount = round2(inCycle.reduce((s, p) => s + Number(p.amount_applied ?? p.amount ?? 0), 0));
+  const ordered = [...inCycle].sort((a, b) => String(a.paid_at).localeCompare(String(b.paid_at)));
+  const latest = ordered[ordered.length - 1] ?? null;
+  return {
+    derived: true,
+    cycleDue,
+    paidAmount,
+    paidAt: latest ? String(latest.paid_at).slice(0, 10) : null,
+    paymentId: latest?.id ?? null,
+  };
+}
+
+function cycleStatusOf(info: DebtCycleInfo, installment: number, today: string): DebtCycleStatus {
+  if (!info.derived || !info.cycleDue) return "unknown";
+  if (info.paidAt && info.paidAmount >= installment * 0.95) return "paid";
+  if (info.paidAt) return "partial";
+  if (info.cycleDue < today) return "overdue";
+  return "pending";
+}
+
 function evaluateDebt(
+
   debt: DebtScheduleRow,
   payments: DebtPaymentRow[],
   today: string,
@@ -214,6 +276,8 @@ function evaluateDebt(
   const installment = debt.installment_amount == null ? null : round2(Number(debt.installment_amount));
   const total = debt.installments_total == null ? null : Number(debt.installments_total);
   const covered = effectiveCoveredInstallments(debt, payments, today);
+  const cycle = cycleInfo(debt, payments, today);
+  const cycleStatus = cycleStatusOf(cycle, Math.max(0, Number(debt.installment_amount ?? 0)), today);
   const lastPayment = payments
     .map((p) => p.paid_at?.slice(0, 10))
     .filter((d): d is string => !!d)
@@ -236,8 +300,15 @@ function evaluateDebt(
     next_due_date: null,
     days_to_due: null,
     last_payment_at: lastPayment,
+    current_cycle_due_date: cycle.cycleDue,
+    current_cycle_status: cycleStatus,
+    current_cycle_paid_amount: cycle.paidAmount,
+    current_cycle_paid_at: cycle.paidAt,
+    source_payment_id: cycle.paymentId,
+    derived_schedule: cycle.derived,
     reason: "sem agenda de parcelas cadastrada",
   };
+
 
   if (String(debt.status) !== "active" || outstanding <= 0) {
     return { ...base, situation: "quitada", reason: "dívida encerrada ou saldo zerado" };
