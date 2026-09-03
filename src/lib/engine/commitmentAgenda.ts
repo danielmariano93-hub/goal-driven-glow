@@ -244,7 +244,7 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
 
   // 5) Parcelas de dívidas ativas ------------------------------------------
   // Estado de pagamento vem da MESMA regra canônica usada pelo diagnóstico
-  // (debt_status.v3 / debt_obligation.v1) — a agenda não recalcula nada.
+  // (debt_status.v4 / debt_obligation.v1) — a agenda não recalcula nada.
   const debtRows = (input.debts ?? []) as unknown as DebtScheduleRow[];
   const debtState = new Map<string, ReturnType<typeof computeDebtStatus>["breakdown"][number]>();
   if (debtRows.length > 0) {
@@ -265,15 +265,20 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
     const candidates = [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
     for (const due of candidates) {
       if (!inHorizon(due)) continue;
-      // O ciclo corrente só é "pendente" se o motor canônico não o considerar pago.
-      const cyclePaid = canonical
-        ? Boolean(canonical.next_due_date && due < canonical.next_due_date && canonical.situation !== "em_atraso")
-        : false;
-      const status: CommitmentPaymentStatus = cyclePaid
+      // Estado do ciclo lido DO CONTRATO canônico (`debt_obligation.v1`).
+      // Nenhuma inferência por data: se o ciclo desta data está pago no motor,
+      // ele está pago em todos os consumidores.
+      const isCurrentCycle = !!canonical?.current_cycle_due_date && canonical.current_cycle_due_date === due;
+      const cycleStatus = isCurrentCycle ? canonical!.current_cycle_status : "unknown";
+      const status: CommitmentPaymentStatus = cycleStatus === "paid"
         ? "paid"
-        : canonical?.situation === "em_atraso" && due <= todayIso
-          ? "overdue"
-          : "pending";
+        : cycleStatus === "partial"
+          ? "partial"
+          : cycleStatus === "overdue"
+            ? "overdue"
+            : canonical?.situation === "em_atraso" && due <= todayIso
+              ? "overdue"
+              : "pending";
       push({
         id: `${debt.id}-${due}`,
         name: `Parcela ${debt.name}`,
@@ -284,7 +289,8 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
         estimated: true,
         dedupKey: `debt:${debt.id}:${due.slice(0, 7)}`,
         payment_status: status,
-        paid_at: cyclePaid ? canonical?.last_payment_at ?? null : null,
+        paid_at: status === "paid" || status === "partial" ? canonical?.current_cycle_paid_at ?? null : null,
+        source_payment_id: status === "paid" || status === "partial" ? canonical?.source_payment_id ?? null : null,
         next_due_date: canonical?.next_due_date ?? null,
       });
     }

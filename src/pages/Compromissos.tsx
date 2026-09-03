@@ -33,8 +33,13 @@ export default function Compromissos() {
     for (const item of items) result.set(item.date, [...(result.get(item.date) ?? []), item]);
     return [...result.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [items]);
-  const expenseTotal = expenses.reduce((sum, item) => sum + item.amount, 0);
+  // Total destacado = o que ainda é cobrança. O que já foi pago aparece
+  // separado, como histórico do período.
+  const pendingExpenses = expenses.filter((item) => item.payment_status !== "paid");
+  const expenseTotal = pendingExpenses.reduce((sum, item) => sum + item.amount, 0);
+  const paidTotal = expenses.filter((item) => item.payment_status === "paid").reduce((sum, item) => sum + item.amount, 0);
   const incomeTotal = income.reduce((sum, item) => sum + item.amount, 0);
+
 
   return (
     <div className="space-y-4 pt-2">
@@ -52,9 +57,13 @@ export default function Compromissos() {
         <>
           <section className="grid grid-cols-2 gap-2">
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Saídas já conhecidas</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Saídas ainda a pagar</p>
               <p className="mt-1 font-display text-xl font-bold tabular-nums">{formatBRL(expenseTotal)}</p>
-              <p className="text-[10px] text-muted-foreground">{expenses.length} compromisso{expenses.length === 1 ? "" : "s"}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {pendingExpenses.length} compromisso{pendingExpenses.length === 1 ? "" : "s"}
+                {paidTotal > 0 ? ` · ${formatBRL(paidTotal)} já pago` : ""}
+              </p>
+
             </div>
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-sm">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Entradas planejadas</p>

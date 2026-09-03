@@ -190,23 +190,53 @@ export interface AgentFinancialSnapshot {
   };
   /** Explicação determinística (sem LLM) de como o saldo se formou. */
   balance_explanation: { headline: string; body: string; steps: string[] };
-  /** Agenda canônica de compromissos (commitment_agenda.v2) — datas e valores já apurados. */
+  /**
+   * Agenda canônica de compromissos (commitment_agenda.v3).
+   * `items` inclui o que JÁ FOI PAGO (histórico do período); `pending_items` é
+   * o único conjunto que representa saída futura. O Nino nunca deve dizer que
+   * uma parcela "vence" a partir de `items` sem olhar `payment_status`.
+   */
   commitment_agenda: {
     horizon_start: string;
     horizon_end: string;
     total_income: number;
     total_expense: number;
     has_estimates: boolean;
-    items: Array<{
-      name: string;
-      type: "income" | "expense";
-      amount: number;
-      date: string;
-      source: string;
-      estimated: boolean;
-    }>;
+    items: CommitmentAgendaItemFact[];
+    pending_items: CommitmentAgendaItemFact[];
   };
   formula_version: string;
+}
+
+export interface CommitmentAgendaItemFact {
+  name: string;
+  type: "income" | "expense";
+  amount: number;
+  date: string;
+  source: string;
+  estimated: boolean;
+  /** Estado real da obrigação (`debt_obligation.v1`): pending/paid/partial/overdue. */
+  payment_status: string;
+  paid_at: string | null;
+  next_due_date: string | null;
+}
+
+function commitmentItemFact(item: {
+  name: string; type: "income" | "expense"; amount: number; date: string;
+  source: unknown; estimated: boolean; payment_status?: string;
+  paid_at?: string | null; next_due_date?: string | null;
+}): CommitmentAgendaItemFact {
+  return {
+    name: item.name,
+    type: item.type,
+    amount: item.amount,
+    date: item.date,
+    source: String(item.source),
+    estimated: item.estimated,
+    payment_status: item.payment_status ?? "pending",
+    paid_at: item.paid_at ?? null,
+    next_due_date: item.next_due_date ?? null,
+  };
 }
 
 function monthRangeOf(todayIso: string) {
@@ -469,14 +499,8 @@ export async function computeAgentSnapshot(
       total_income: snap.commitmentAgenda.totalIncome,
       total_expense: snap.commitmentAgenda.totalExpense,
       has_estimates: snap.commitmentAgenda.hasEstimates,
-      items: snap.commitmentAgenda.items.map((item) => ({
-        name: item.name,
-        type: item.type,
-        amount: item.amount,
-        date: item.date,
-        source: String(item.source),
-        estimated: item.estimated,
-      })),
+      items: snap.commitmentAgenda.items.map(commitmentItemFact),
+      pending_items: snap.commitmentAgenda.pendingItems.map(commitmentItemFact),
     },
     formula_version: snap.contractVersion,
   };
