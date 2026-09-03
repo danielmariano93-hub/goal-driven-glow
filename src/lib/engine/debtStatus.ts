@@ -225,7 +225,45 @@ function anchorCoveredInstallments(debt: DebtScheduleRow, covered: number, payme
   return Math.max(0, covered - 1);
 }
 
+/**
+ * Ciclo corrente da obrigação — espelho exato de `debt_obligation_state`:
+ * pagamentos com `paid_at` no intervalo (vencimento anterior, hoje] que cubram
+ * parcela declarada ou ao menos 95% do valor da parcela.
+ */
+function cycleInfo(debt: DebtScheduleRow, payments: DebtPaymentRow[], today: string): DebtCycleInfo {
+  const cycleDue = cycleDueForToday(debt, today);
+  if (!cycleDue) return { derived: false, cycleDue: null, paidAmount: 0, paidAt: null, paymentId: null };
+  const previousCycleDue = dueDateOf(cycleDue, 0);
+  const installment = Math.max(0, Number(debt.installment_amount ?? 0));
+  const inCycle = payments.filter((p) => {
+    const paidAt = String(p.paid_at ?? "").slice(0, 10);
+    if (!(paidAt > previousCycleDue && paidAt <= today)) return false;
+    if (Number(p.installments_covered ?? 0) > 0) return true;
+    const applied = Number(p.amount_applied ?? p.amount ?? 0);
+    return installment > 0 && applied >= installment * 0.95;
+  });
+  const paidAmount = round2(inCycle.reduce((s, p) => s + Number(p.amount_applied ?? p.amount ?? 0), 0));
+  const ordered = [...inCycle].sort((a, b) => String(a.paid_at).localeCompare(String(b.paid_at)));
+  const latest = ordered[ordered.length - 1] ?? null;
+  return {
+    derived: true,
+    cycleDue,
+    paidAmount,
+    paidAt: latest ? String(latest.paid_at).slice(0, 10) : null,
+    paymentId: latest?.id ?? null,
+  };
+}
+
+function cycleStatusOf(info: DebtCycleInfo, installment: number, today: string): DebtCycleStatus {
+  if (!info.derived || !info.cycleDue) return "unknown";
+  if (info.paidAt && info.paidAmount >= installment * 0.95) return "paid";
+  if (info.paidAt) return "partial";
+  if (info.cycleDue < today) return "overdue";
+  return "pending";
+}
+
 function evaluateDebt(
+
   debt: DebtScheduleRow,
   payments: DebtPaymentRow[],
   today: string,
