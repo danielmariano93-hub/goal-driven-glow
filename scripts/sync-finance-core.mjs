@@ -41,6 +41,7 @@ export const FINANCE_CORE_MODULES = [
   "dailyAverage",
   "cardExposure",
   "incomeProjection",
+  "civilDate",
   "commitmentAgenda",
   "debtStatus",
   "categoryProjection",

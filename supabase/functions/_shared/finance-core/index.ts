@@ -23,6 +23,7 @@ export * from "./spendingRhythm.ts";
 export * from "./dailyAverage.ts";
 export * from "./cardExposure.ts";
 export * from "./incomeProjection.ts";
+export * from "./civilDate.ts";
 export * from "./commitmentAgenda.ts";
 export * from "./debtStatus.ts";
 export * from "./categoryProjection.ts";

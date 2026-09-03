@@ -102,9 +102,9 @@ async function loadContext(sb: Sb, userId: string) {
     // lançamentos aponta para elas e sem isso tudo virava "Sem categoria".
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
 
-    sb.from("accounts").select("id,name,type,opening_balance,is_active").eq("user_id", userId),
+    sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId),
     sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
-    sb.from("goals").select("id,name,target_amount,status,due_date").eq("user_id", userId),
+    sb.from("goals").select("id,name,target_amount,status,target_date").eq("user_id", userId),
     sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
     // Exposição oficial de cartão: fatura registrada manda sobre o cálculo legado.
     sb.from("credit_cards").select("id,name,closing_day,due_day,active").eq("user_id", userId),
@@ -115,6 +115,18 @@ async function loadContext(sb: Sb, userId: string) {
       .select("id,credit_card_id,purchase_id,competence_month,amount,status,installment_number,installments_total")
       .eq("user_id", userId),
   ]);
+  // Falha de query NUNCA vira lista vazia: relatório com array vazio por erro
+  // de schema já produziu "nenhuma meta" para quem tinha metas.
+  const failures = [
+    ["categories", cats.error], ["accounts", accounts.error], ["accountSnapshots", snapshots.error],
+    ["goals", goals.error], ["goalContributions", contributions.error], ["creditCards", cards.error],
+    ["cardStatements", statements.error], ["cardInstallments", installments.error],
+  ].filter(([, err]) => err) as Array<[string, { message: string }]>;
+  if (failures.length > 0) {
+    const detail = failures.map(([src, err]) => `${src}:${String(err.message).slice(0, 80)}`).join("; ");
+    console.error("[financial-reports-generate] query_failed", detail);
+    throw new Error(`query_failed:${detail}`);
+  }
   const categoryNames: Record<string, string> = {};
   for (const c of (cats.data ?? []) as Array<{ id: string; name: string }>) categoryNames[c.id] = c.name;
   return {

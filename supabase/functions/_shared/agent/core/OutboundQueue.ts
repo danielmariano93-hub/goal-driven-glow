@@ -29,11 +29,23 @@ export async function enqueueReply(sb: SupabaseClient, args: EnqueueReplyArgs): 
   if (args.artifact_id) row.artifact_id = args.artifact_id;
   const { error } = await sb.from("outbound_messages").insert(row);
   if (error) {
-    // Duplicate idempotency_key is safe to ignore (retry path).
+    // Só conflito de idempotência (23505 / om_idem_uniq) é benigno: é retry.
+    const code = String((error as { code?: string }).code ?? "");
     const msg = String(error.message ?? "");
-    if (!/duplicate|unique/i.test(msg)) {
-      console.error("[core/OutboundQueue] enqueueReply failed", msg.slice(0, 200));
-      throw new Error("outbound_insert_failed");
-    }
+    if (code === "23505" || /duplicate key|om_idem_uniq/i.test(msg)) return;
+    // Diagnóstico completo: sem code/details a causa raiz ficava invisível.
+    console.error("[core/OutboundQueue] enqueueReply failed", JSON.stringify({
+      code,
+      message: msg.slice(0, 300),
+      details: String((error as { details?: string }).details ?? "").slice(0, 300),
+      hint: String((error as { hint?: string }).hint ?? "").slice(0, 200),
+      source: args.source,
+      channel: row.channel,
+      user_id: args.user_id,
+      conversation_id: args.conversation_id,
+      inbound_message_id: args.inbound_message_id,
+      has_artifact: Boolean(args.artifact_id),
+    }));
+    throw new Error(`outbound_insert_failed:${code || "unknown"}`);
   }
 }

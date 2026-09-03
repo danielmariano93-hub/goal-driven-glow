@@ -1704,7 +1704,14 @@ ${episodic}
   // período não sustenta o número deste turno. A LLM não escolhe entre leituras
   // divergentes: o runtime descarta e, se a resposta usou o valor descartado,
   // ela não sai.
-  const inheritedScope = (memory as any)?.last_analysis?.scope ?? null;
+  const inheritedScopeRaw = (memory as any)?.last_analysis?.scope ?? null;
+  // Turno GLOBAL não herda escopo: o IR executado sem nenhum filtro de
+  // entidade é a prova de que o usuário voltou a perguntar sobre o todo.
+  // Herdar o recorte anterior aqui rejeitava evidência legítima e produzia
+  // "não consegui consultar a fonte financeira".
+  const turnIsGlobal = semanticStatus === "executable" && !!semanticIRv2
+    && (semanticIRv2.queries ?? []).every((q: any) => (q?.filters ?? []).length === 0);
+  const inheritedScope = turnIsGlobal ? null : inheritedScopeRaw;
   // Com autoridade semântica, o período de verdade é o do IR executado (que já
   // pode ter herdado o recorte do tópico) — não o recorte do roteador legado.
   const semanticAuthority = semanticStatus === "executable" && !!semanticIRv2;
@@ -2038,7 +2045,9 @@ ${episodic}
       }
       : (() => {
         const carried = scopeFromToolCalls(toolCallLog as any[]);
-        if (!carried) return (memory as any)?.last_analysis ?? null;
+        // Turno global encerra o escopo anterior: nada de "essas categorias"
+        // ressuscitar depois de uma pergunta sobre o todo.
+        if (!carried) return turnIsGlobal ? null : ((memory as any)?.last_analysis ?? null);
         return {
           scope: carried,
           entity_ids: carried.entity_ids,

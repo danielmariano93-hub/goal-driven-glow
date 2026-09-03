@@ -24,7 +24,7 @@ import {
 } from "./engineEnvelope.ts";
 import { round2, type DebtRow } from "./facts.ts";
 
-export const DEBT_STATUS_VERSION = "debt_status.v1";
+export const DEBT_STATUS_VERSION = "debt_status.v3";
 
 export interface DebtScheduleRow extends DebtRow {
   installments_total?: number | null;

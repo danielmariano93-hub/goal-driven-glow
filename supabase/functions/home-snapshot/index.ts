@@ -189,7 +189,7 @@ Deno.serve(async (req) => {
       });
 
     const [
-      accounts, snapshots, investments, debts, categories, categoryGoals,
+      accounts, snapshots, investments, debts, debtPayments, categories, categoryGoals,
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
@@ -200,7 +200,9 @@ Deno.serve(async (req) => {
         .eq("user_id", userId).eq("status", "confirmed")
         .order("balance_date", { ascending: true }), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
-      q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day").eq("user_id", userId), "debts", false),
+      q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day,installments_total,installments_paid,start_date").eq("user_id", userId), "debts", false),
+      // Pagamentos registrados: sem eles a agenda cobra parcela já paga.
+      q(sb.from("debt_payments").select("id,debt_id,amount,amount_applied,installments_covered,paid_at").eq("user_id", userId), "debtPayments", false),
       // Categorias globais (`user_id IS NULL`) + do usuário — mesmo contrato do app.
       // Filtrar só por user_id deixava metas de categoria padrão sem nome.
       q(sb.from("categories").select("id,name,type").or(`user_id.eq.${userId},user_id.is.null`), "categories", false),
@@ -282,7 +284,16 @@ Deno.serve(async (req) => {
         status: d.status,
         installment_amount: d.installment_amount == null ? null : num(d.installment_amount),
         due_day: d.due_day == null ? null : num(d.due_day),
+        installments_total: d.installments_total == null ? null : num(d.installments_total),
+        installments_paid: d.installments_paid == null ? null : num(d.installments_paid),
+        start_date: d.start_date ?? null,
       })),
+      debtPayments: ((debtPayments ?? []) as Any[]).map((p) => ({
+        id: p.id, debt_id: p.debt_id, amount: num(p.amount),
+        amount_applied: p.amount_applied == null ? null : num(p.amount_applied),
+        installments_covered: p.installments_covered == null ? null : num(p.installments_covered),
+        paid_at: String(p.paid_at ?? "").slice(0, 10),
+      })) as Any,
       categoryGoals: ((categoryGoals ?? []) as Any[]).map((g) => ({
         ...g,
         reduction_pct: g.reduction_pct == null ? null : num(g.reduction_pct),
