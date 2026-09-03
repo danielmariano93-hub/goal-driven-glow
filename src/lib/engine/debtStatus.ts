@@ -22,7 +22,7 @@ import {
 } from "./engineEnvelope";
 import { round2, type DebtRow } from "./facts";
 
-export const DEBT_STATUS_VERSION = "debt_status.v3";
+export const DEBT_STATUS_VERSION = "debt_status.v4";
 
 export interface DebtScheduleRow extends DebtRow {
   installments_total?: number | null;
@@ -34,6 +34,7 @@ export interface DebtScheduleRow extends DebtRow {
 }
 
 export interface DebtPaymentRow {
+  id?: string | null;
   debt_id: string;
   paid_at: string;
   amount: number;
