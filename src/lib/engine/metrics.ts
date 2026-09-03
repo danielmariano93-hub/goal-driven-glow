@@ -58,6 +58,7 @@ import {
 } from "./cardExposure";
 import { computeCanonicalCategoryTotal } from "./canonicalFacts";
 import { computeCardSpendingComparison, daysInclusive, type DateRange } from "./dailyAverage";
+import type { DebtPaymentRow } from "./debtStatus";
 import {
   computeCommitmentAgenda,
   COMMITMENT_AGENDA_VERSION,
@@ -206,6 +207,8 @@ export interface FinancialSnapshotInput {
   snapshots: AccountBalanceSnapshotRow[];
   investments: InvestmentRow[];
   debts: DebtRow[];
+  /** Pagamentos de dívida: definem o estado real de cada parcela na agenda. */
+  debtPayments?: DebtPaymentRow[];
   categoryGoals: CategorySpendingGoalRow[];
   categoryNameById?: Record<string, string>;
   period: DateRange;
@@ -817,12 +820,14 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     installments: (input.cardInstallments ?? []) as never,
     cards: (input.cards ?? []) as never,
     debts: input.debts as never,
+    debtPayments: input.debtPayments ?? [],
     horizonDays: agendaHorizonDays,
     today,
   });
 
   // Recorte da agenda que pertence à competência corrente.
-  const agendaThisMonth = commitmentAgenda.items.filter((i) => i.date <= monthRange.end);
+  // Só o que ainda é saída futura entra na projeção: parcela paga saiu do caixa.
+  const agendaThisMonth = commitmentAgenda.pendingItems.filter((i) => i.date <= monthRange.end);
   const CARD_SOURCES = new Set(["card_statement", "card_installment"]);
   const agendaCardDue = round2(
     agendaThisMonth.filter((i) => i.type === "expense" && CARD_SOURCES.has(i.source)).reduce((s, i) => s + i.amount, 0),
