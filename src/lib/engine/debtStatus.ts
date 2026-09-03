@@ -66,8 +66,31 @@ export interface DebtStatusItem {
   next_due_date: string | null;
   days_to_due: number | null;
   last_payment_at: string | null;
+  /**
+   * CONTRATO DE CICLO (`debt_obligation.v1`, espelho exato da função SQL
+   * `debt_obligation_state`). Todo consumidor — agenda, Home, Nino, alertas —
+   * lê estes campos; nenhum deles infere "pago" por comparação de datas.
+   */
+  current_cycle_due_date: string | null;
+  current_cycle_status: DebtCycleStatus;
+  current_cycle_paid_amount: number;
+  current_cycle_paid_at: string | null;
+  source_payment_id: string | null;
+  derived_schedule: boolean;
   reason: string;
 }
+
+/** Estado do ciclo corrente da obrigação. `unknown` = agenda não derivada. */
+export type DebtCycleStatus = "paid" | "partial" | "overdue" | "pending" | "unknown";
+
+interface DebtCycleInfo {
+  derived: boolean;
+  cycleDue: string | null;
+  paidAmount: number;
+  paidAt: string | null;
+  paymentId: string | null;
+}
+
 
 export interface DebtStatusFacts {
   debts_analyzed: number;
