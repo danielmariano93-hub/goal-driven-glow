@@ -392,7 +392,9 @@ async function persistRun(
   }
 
   if (decisions.length > 0) {
-    await sb.from("proactive_decisions").insert(decisions.map((decision) => ({
+    // Log de decisão é auditoria: falha silenciosa aqui apagava o motivo real
+    // de uma mensagem ter sido enviada ou adiada.
+    const { error: decisionError } = await sb.from("proactive_decisions").insert(decisions.map((decision) => ({
       user_id: userId,
       as_of: asOf,
       fingerprint: decision.fingerprint,
@@ -406,5 +408,8 @@ async function persistRun(
       defer_until: decision.defer_until ?? null,
       formula_version: PROACTIVE_MULTIFINANCE_VERSION,
     })));
+    if (decisionError) {
+      console.error("[proactive/pipeline] decision_log_insert_failed", String(decisionError.message).slice(0, 200));
+    }
   }
 }
