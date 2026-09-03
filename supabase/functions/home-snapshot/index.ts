@@ -189,9 +189,8 @@ Deno.serve(async (req) => {
       });
 
     const [
-      accounts, snapshots, investments, debts, categories, categoryGoals,
+      accounts, snapshots, investments, debts, debtPayments, categories, categoryGoals,
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
-      debtPayments,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
       // Mesmo contrato do app (`bank_cash_truth.v1`): só snapshot CONFIRMADO
