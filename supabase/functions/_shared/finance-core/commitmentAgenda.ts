@@ -16,8 +16,10 @@
 //  - Nada aqui faz I/O: cálculo determinístico e testável.
 import { round2, todayISO, nextRecurringOccurrences, type RecurringRow, type TransactionRow } from "./facts.ts";
 import { isAuthoritativeCardStatement } from "./cardExposure.ts";
+import { civilAddDays, civilDueDateForCompetence, civilDueDateInMonthOf } from "./civilDate";
+import { computeDebtStatus, type DebtPaymentRow, type DebtScheduleRow } from "./debtStatus.ts";
 
-export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v2";
+export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v3";
 
 export type CommitmentSource =
   | "card_statement"
@@ -26,6 +28,9 @@ export type CommitmentSource =
   | "planned"
   | "debt_installment"
   | "donation_goal";
+
+/** Estado real de pagamento da obrigação (fonte: debt_obligation.v1). */
+export type CommitmentPaymentStatus = "pending" | "paid" | "partial" | "overdue";
 
 export interface CommitmentItem {
   id: string;
@@ -38,13 +43,21 @@ export interface CommitmentItem {
   estimated: boolean;
   /** identificador lógico usado na deduplicação. */
   dedupKey: string;
+  /** Estado real de pagamento. Itens `paid` NUNCA somam no total pendente. */
+  payment_status: CommitmentPaymentStatus;
+  paid_at?: string | null;
+  source_payment_id?: string | null;
+  next_due_date?: string | null;
 }
 
 export interface CommitmentAgenda {
   formulaVersion: string;
   horizonStart: string;
   horizonEnd: string;
+  /** Todos os compromissos do horizonte, inclusive os já pagos (histórico). */
   items: CommitmentItem[];
+  /** Somente o que ainda é saída futura — base da Home e das projeções. */
+  pendingItems: CommitmentItem[];
   totalIncome: number;
   totalExpense: number;
   bySource: Record<CommitmentSource, number>;
@@ -91,27 +104,19 @@ export interface AgendaDebtRow {
 const SETTLED = new Set(["paid", "settled", "closed_paid"]);
 const DEAD_INSTALLMENTS = new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
 
+// Datas civis: nunca `new Date(ano, mês, dia)` (viraria 03/09 em runtime UTC).
 function addDaysISO(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return todayISO(d);
+  return civilAddDays(iso, days);
 }
 
 /** Vencimento previsto de uma competência de cartão, a partir do dia de vencimento. */
 export function dueDateForCompetence(competenceMonth: string, dueDay?: number | null): string | null {
-  const [y, m] = competenceMonth.split("-").map(Number);
-  if (!y || !m) return null;
-  const lastDay = new Date(y, m, 0).getDate();
-  const day = Math.max(1, Math.min(lastDay, Number(dueDay) || 10));
-  return todayISO(new Date(y, m - 1, day));
+  return civilDueDateForCompetence(competenceMonth, dueDay, 10);
 }
 
 /** Vencimento da parcela de dívida no mês de referência. */
 function debtDueDate(refISO: string, dueDay?: number | null): string {
-  const ref = new Date(`${refISO}T00:00:00`);
-  const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
-  const day = Math.max(1, Math.min(lastDay, Number(dueDay) || 10));
-  return todayISO(new Date(ref.getFullYear(), ref.getMonth(), day));
+  return civilDueDateInMonthOf(refISO, dueDay, 10) ?? refISO.slice(0, 10);
 }
 
 export interface CommitmentAgendaInput {
@@ -121,6 +126,8 @@ export interface CommitmentAgendaInput {
   installments?: AgendaInstallmentRow[];
   cards?: AgendaCardRow[];
   debts?: AgendaDebtRow[];
+  /** Pagamentos registrados de dívida: definem o estado real de cada ciclo. */
+  debtPayments?: DebtPaymentRow[];
   /** Metas de doação já resolvidas em valor do mês (calculadas pelo motor). */
   donations?: { id: string; name: string; amount: number; date: string }[];
   horizonDays?: number;
@@ -137,10 +144,10 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   const cardById = new Map((input.cards ?? []).map((c) => [c.id, c]));
   const items: CommitmentItem[] = [];
   const seen = new Set<string>();
-  const push = (item: CommitmentItem) => {
+  const push = (item: Omit<CommitmentItem, "payment_status"> & { payment_status?: CommitmentPaymentStatus }) => {
     if (seen.has(item.dedupKey)) return;
     seen.add(item.dedupKey);
-    items.push(item);
+    items.push({ ...item, payment_status: item.payment_status ?? "pending" });
   };
 
   // 1) Faturas oficiais com vencimento no horizonte -------------------------
@@ -238,13 +245,37 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   }
 
   // 5) Parcelas de dívidas ativas ------------------------------------------
+  // Estado de pagamento vem da MESMA regra canônica usada pelo diagnóstico
+  // (debt_status.v3 / debt_obligation.v1) — a agenda não recalcula nada.
+  const debtRows = (input.debts ?? []) as unknown as DebtScheduleRow[];
+  const debtState = new Map<string, ReturnType<typeof computeDebtStatus>["breakdown"][number]>();
+  if (debtRows.length > 0) {
+    const status = computeDebtStatus({
+      debts: debtRows,
+      payments: input.debtPayments ?? [],
+      today: todayIso,
+    });
+    for (const item of status.breakdown) debtState.set(item.debt_id, item);
+  }
+
   for (const debt of input.debts ?? []) {
     if (String(debt.status) !== "active") continue;
     const installment = round2(Number(debt.installment_amount || 0));
     if (installment <= 0) continue;
-    const candidates = [debtDueDate(todayIso, debt.due_day), debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
+    const canonical = debtState.get(debt.id);
+    const currentCycleDue = debtDueDate(todayIso, debt.due_day);
+    const candidates = [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
     for (const due of candidates) {
       if (!inHorizon(due)) continue;
+      // O ciclo corrente só é "pendente" se o motor canônico não o considerar pago.
+      const cyclePaid = canonical
+        ? Boolean(canonical.next_due_date && due < canonical.next_due_date && canonical.situation !== "em_atraso")
+        : false;
+      const status: CommitmentPaymentStatus = cyclePaid
+        ? "paid"
+        : canonical?.situation === "em_atraso" && due <= todayIso
+          ? "overdue"
+          : "pending";
       push({
         id: `${debt.id}-${due}`,
         name: `Parcela ${debt.name}`,
@@ -254,6 +285,9 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
         source: "debt_installment",
         estimated: true,
         dedupKey: `debt:${debt.id}:${due.slice(0, 7)}`,
+        payment_status: status,
+        paid_at: cyclePaid ? canonical?.last_payment_at ?? null : null,
+        next_due_date: canonical?.next_due_date ?? null,
       });
     }
   }
@@ -287,6 +321,8 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   let totalIncome = 0;
   let totalExpense = 0;
   for (const item of items) {
+    // Compromisso já pago NÃO é saída futura: não soma em total nem por fonte.
+    if (item.payment_status === "paid") continue;
     if (item.type === "income") totalIncome += item.amount;
     else {
       totalExpense += item.amount;
@@ -294,14 +330,17 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
     }
   }
 
+  const pendingItems = items.filter((i) => i.payment_status !== "paid");
+
   return {
     formulaVersion: COMMITMENT_AGENDA_VERSION,
     horizonStart: todayIso,
     horizonEnd: horizonIso,
     items,
+    pendingItems,
     totalIncome: round2(totalIncome),
     totalExpense: round2(totalExpense),
     bySource,
-    hasEstimates: items.some((i) => i.estimated),
+    hasEstimates: pendingItems.some((i) => i.estimated),
   };
 }

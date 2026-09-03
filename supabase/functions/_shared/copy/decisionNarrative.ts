@@ -48,6 +48,21 @@ export type NinoDecisionCta =
   | { kind: "accept"; label: string; route: string | null }
   | { kind: "link"; label: string; route: string };
 
+/**
+ * `home_compact_conversational` — variante de Home: conclusão + causa curta +
+ * conselho em uma linha. Nunca usa o texto detalhado nem copy de Admin.
+ */
+export type NinoDecisionCompactCopy = {
+  /** Headline curta de Home: <= 65 caracteres, conclusão em uma linha. */
+  headline: string;
+  /** Evidência mínima: uma frase, <= 140 caracteres, sem repetir o valor destacado. */
+  body: string | null;
+  /** Contexto causal conversacional: causa + significado, <= 150 caracteres. */
+  context?: string | null;
+  /** Conselho do Nino em uma linha ("Meu conselho: comece por esse ritmo."). */
+  recommendation?: string | null;
+};
+
 export type NinoDecisionNarrative = {
   eyebrow: string;
   headline: string;
@@ -62,6 +77,8 @@ export type NinoDecisionNarrative = {
   /** true quando diagnóstico e próximo passo são a MESMA decisão (um card só). */
   sameDecision: boolean;
   sourceRefs: string[];
+  /** Variante da Home: conclusão + evidência mínima, nunca o texto detalhado. */
+  compact: NinoDecisionCompactCopy;
   variants: {
     home: string[];
     nino_detail: string[];
@@ -69,6 +86,7 @@ export type NinoDecisionNarrative = {
     proactive: string;
   };
 };
+
 
 const BANNED = [
   /capacidade sustent[áa]vel/i,
@@ -140,7 +158,17 @@ type StageCopy = {
   tone: NinoDecisionTone;
   primary: NinoDecisionCta;
   secondary: NinoDecisionCta | null;
+  compact: NinoDecisionCompactCopy;
 };
+
+/** Valor compacto de headline/evidência da Home (R$ 1.943). Nunca em recibo. */
+function brlCompact(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+}
 
 function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | null): StageCopy {
   const stage = String(step.stage ?? "");
@@ -151,11 +179,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
 
   if (stage === "fund_goal") {
     const named = goal ? `A meta “${goal}”` : "Sua meta";
-    const headline = required && amount && required > amount
+    const behind = Boolean(required && amount && required > amount);
+    const headline = behind
       ? `${named} pede um ritmo maior do que cabe hoje`
       : `Avance ${goal ? `a meta “${goal}”` : "sua meta"} no ritmo que cabe hoje`;
-    const context = required && amount && required > amount
-      ? `Para chegar no prazo atual seriam necessários ${brl(required)} por mês. Pelo seu histórico, o ritmo que cabe hoje é menor — e é dele que eu parto.`
+    const context = behind
+      ? `Para chegar no prazo atual seriam necessários ${brl(required!)} por mês. Pelo seu histórico, o ritmo que cabe hoje é menor — e é dele que eu parto.`
       : amount
         ? "Pelo seu histórico, esse é o ritmo que cabe hoje sem apertar seu mês."
         : humanOrNull(step.detail);
@@ -168,9 +197,27 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       amountCaption: "por mês",
       tone: "attention",
       primary: amount
-        ? { kind: "accept", label: "Quero seguir esse plano", route }
-        : { kind: "link", label: "Ajustar minha meta", route: route ?? "/app/metas" },
+        ? { kind: "accept", label: "Seguir esse plano", route }
+        : { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" },
       secondary: amount ? { kind: "link", label: "Ajustar meta", route: route ?? "/app/metas" } : null,
+      compact: {
+        headline: behind
+          ? "Sua meta está pedindo mais do que seu mês comporta hoje"
+          : "Sua meta cabe no seu ritmo de hoje",
+        body: behind
+          ? `O prazo atual pediria ${brlCompact(required!)} por mês.`
+          : amount
+            ? "É o ritmo que seu histórico sustenta hoje."
+            : null,
+        context: behind
+          ? `Para cumprir o prazo atual, seriam ${brlCompact(required!)}/mês. Seu histórico mostra que um ritmo menor cabe melhor hoje.`
+          : amount
+            ? "Pelo seu histórico, esse ritmo cabe sem apertar seu mês."
+            : null,
+        recommendation: amount
+          ? "Meu conselho: comece por esse ritmo."
+          : "Meu conselho: revise o prazo antes de aumentar o aporte.",
+      },
     };
   }
 
@@ -183,6 +230,12 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       tone: "risk",
       primary: { kind: "link", label: "Resolver isso", route: safeRoute(step.route) ?? "/app/alertas" },
       secondary: null,
+      compact: {
+        headline: "Tem um número que não fecha",
+        body: "Vou corrigir isso antes de recomendar corte ou aporte.",
+        context: "Há uma divergência entre seus registros e seus saldos, e ela muda qualquer conta que eu fizer agora.",
+        recommendation: "Meu conselho: vamos acertar isso primeiro.",
+      },
     };
   }
 
@@ -196,8 +249,16 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: vamos cobrir essa folga antes de acelerar qualquer outra coisa. Eu acompanho com você.",
       amountCaption: "para cobrir",
       tone: "risk",
-      primary: { kind: "accept", label: "Quero seguir esse plano", route },
+      primary: { kind: "accept", label: "Seguir esse plano", route },
       secondary: { kind: "link", label: "Ver planejamento", route: route ?? "/app/planejamento" },
+      compact: {
+        headline: "Seu mês fecha apertado se nada mudar",
+        body: shortfall ? "É o que falta para fechar sem aperto." : "Proteger o caixa vem antes de qualquer aporte.",
+        context: shortfall
+          ? "Com os compromissos já conhecidos, seu mês fecha no vermelho se nada mudar."
+          : "Seu disponível de hoje está negativo, então o caixa vem antes de qualquer aporte.",
+        recommendation: "Meu conselho: cubra essa folga antes de acelerar o resto.",
+      },
     };
   }
 
@@ -208,8 +269,14 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: vamos aliviar essa pressão antes de aumentar aportes. Eu acompanho a evolução.",
       amountCaption: "por mês em parcelas",
       tone: "attention",
-      primary: { kind: "accept", label: "Quero seguir esse plano", route },
+      primary: { kind: "accept", label: "Seguir esse plano", route },
       secondary: { kind: "link", label: "Ver dívidas", route: route ?? "/app/dividas" },
+      compact: {
+        headline: "Suas parcelas estão consumindo sua folga",
+        body: "É quase tudo o que sobra no seu mês.",
+        context: "Hoje o compromisso com parcelas ocupa quase toda a folga que sobra do seu mês.",
+        recommendation: "Meu conselho: alivie essa pressão antes de aumentar aportes.",
+      },
     };
   }
 
@@ -220,8 +287,14 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: comece com um aporte planejado nesse ritmo. Eu acompanho e te aviso se o cenário mudar.",
       amountCaption: "por mês",
       tone: "opportunity",
-      primary: { kind: "accept", label: "Quero seguir esse plano", route },
+      primary: { kind: "accept", label: "Seguir esse plano", route },
       secondary: { kind: "link", label: "Ver investimentos", route: route ?? "/app/investimentos" },
+      compact: {
+        headline: "Sua folga pode virar patrimônio",
+        body: "Sobra esse valor todo mês e hoje ele não rende nada.",
+        context: "Pelo seu histórico sobra dinheiro todos os meses, e hoje ele fica parado sem render.",
+        recommendation: "Meu conselho: comece um aporte planejado nesse ritmo.",
+      },
     };
   }
 
@@ -234,8 +307,15 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
     tone: "progress",
     primary: { kind: "link", label: "Ver meu relatório", route: safeRoute(step.route) ?? "/app/relatorios" },
     secondary: null,
+    compact: {
+      headline: fallbackHeadline,
+      body: humanOrNull(step.detail),
+      context: humanOrNull(step.detail),
+      recommendation: null,
+    },
   };
 }
+
 
 function situationOnly(
   situation: NinoDecisionSituation,
@@ -268,7 +348,15 @@ function situationOnly(
     tone,
     sameDecision: false,
     sourceRefs: ["nino_diagnosis"],
+    compact: {
+      headline,
+      body: context,
+      context,
+      // Leitura sem decisão do motor não ganha conselho inventado.
+      recommendation: null,
+    },
     variants: {
+
       home: lines,
       nino_detail: lines,
       whatsapp: lines.join(" "),
@@ -321,7 +409,9 @@ export function composeNinoDecisionNarrative(input: {
     tone: copy.tone,
     sameDecision,
     sourceRefs: sameDecision ? ["nino_diagnosis", "nino_change_recommendation"] : ["nino_change_recommendation"],
+    compact: copy.compact,
     variants: {
+
       home: homeLines,
       nino_detail: [...homeLines, ...(secondaryAmount ? [`Necessário para o prazo atual: ${brl(secondaryAmount.value)} por mês.`] : [])],
       whatsapp: whatsappLines.join("\n"),
