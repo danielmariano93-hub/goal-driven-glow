@@ -139,10 +139,10 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   const cardById = new Map((input.cards ?? []).map((c) => [c.id, c]));
   const items: CommitmentItem[] = [];
   const seen = new Set<string>();
-  const push = (item: CommitmentItem) => {
+  const push = (item: Omit<CommitmentItem, "payment_status"> & { payment_status?: CommitmentPaymentStatus }) => {
     if (seen.has(item.dedupKey)) return;
     seen.add(item.dedupKey);
-    items.push(item);
+    items.push({ ...item, payment_status: item.payment_status ?? "pending" });
   };
 
   // 1) Faturas oficiais com vencimento no horizonte -------------------------
@@ -240,13 +240,37 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   }
 
   // 5) Parcelas de dívidas ativas ------------------------------------------
+  // Estado de pagamento vem da MESMA regra canônica usada pelo diagnóstico
+  // (debt_status.v3 / debt_obligation.v1) — a agenda não recalcula nada.
+  const debtRows = (input.debts ?? []) as unknown as DebtScheduleRow[];
+  const debtState = new Map<string, ReturnType<typeof computeDebtStatus>["breakdown"][number]>();
+  if (debtRows.length > 0) {
+    const status = computeDebtStatus({
+      debts: debtRows,
+      payments: input.debtPayments ?? [],
+      today: todayIso,
+    });
+    for (const item of status.breakdown) debtState.set(item.debt_id, item);
+  }
+
   for (const debt of input.debts ?? []) {
     if (String(debt.status) !== "active") continue;
     const installment = round2(Number(debt.installment_amount || 0));
     if (installment <= 0) continue;
-    const candidates = [debtDueDate(todayIso, debt.due_day), debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
+    const canonical = debtState.get(debt.id);
+    const currentCycleDue = debtDueDate(todayIso, debt.due_day);
+    const candidates = [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
     for (const due of candidates) {
       if (!inHorizon(due)) continue;
+      // O ciclo corrente só é "pendente" se o motor canônico não o considerar pago.
+      const cyclePaid = canonical
+        ? Boolean(canonical.next_due_date && due < canonical.next_due_date && canonical.situation !== "em_atraso")
+        : false;
+      const status: CommitmentPaymentStatus = cyclePaid
+        ? "paid"
+        : canonical?.situation === "em_atraso" && due <= todayIso
+          ? "overdue"
+          : "pending";
       push({
         id: `${debt.id}-${due}`,
         name: `Parcela ${debt.name}`,
@@ -256,6 +280,9 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
         source: "debt_installment",
         estimated: true,
         dedupKey: `debt:${debt.id}:${due.slice(0, 7)}`,
+        payment_status: status,
+        paid_at: cyclePaid ? canonical?.last_payment_at ?? null : null,
+        next_due_date: canonical?.next_due_date ?? null,
       });
     }
   }
