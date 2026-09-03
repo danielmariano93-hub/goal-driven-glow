@@ -52,7 +52,10 @@ export interface CommitmentAgenda {
   formulaVersion: string;
   horizonStart: string;
   horizonEnd: string;
+  /** Todos os compromissos do horizonte, inclusive os já pagos (histórico). */
   items: CommitmentItem[];
+  /** Somente o que ainda é saída futura — base da Home e das projeções. */
+  pendingItems: CommitmentItem[];
   totalIncome: number;
   totalExpense: number;
   bySource: Record<CommitmentSource, number>;
@@ -316,6 +319,8 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   let totalIncome = 0;
   let totalExpense = 0;
   for (const item of items) {
+    // Compromisso já pago NÃO é saída futura: não soma em total nem por fonte.
+    if (item.payment_status === "paid") continue;
     if (item.type === "income") totalIncome += item.amount;
     else {
       totalExpense += item.amount;
@@ -323,14 +328,17 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
     }
   }
 
+  const pendingItems = items.filter((i) => i.payment_status !== "paid");
+
   return {
     formulaVersion: COMMITMENT_AGENDA_VERSION,
     horizonStart: todayIso,
     horizonEnd: horizonIso,
     items,
+    pendingItems,
     totalIncome: round2(totalIncome),
     totalExpense: round2(totalExpense),
     bySource,
-    hasEstimates: items.some((i) => i.estimated),
+    hasEstimates: pendingItems.some((i) => i.estimated),
   };
 }
