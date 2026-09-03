@@ -99,27 +99,19 @@ export interface AgendaDebtRow {
 const SETTLED = new Set(["paid", "settled", "closed_paid"]);
 const DEAD_INSTALLMENTS = new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
 
+// Datas civis: nunca `new Date(ano, mês, dia)` (viraria 03/09 em runtime UTC).
 function addDaysISO(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return todayISO(d);
+  return civilAddDays(iso, days);
 }
 
 /** Vencimento previsto de uma competência de cartão, a partir do dia de vencimento. */
 export function dueDateForCompetence(competenceMonth: string, dueDay?: number | null): string | null {
-  const [y, m] = competenceMonth.split("-").map(Number);
-  if (!y || !m) return null;
-  const lastDay = new Date(y, m, 0).getDate();
-  const day = Math.max(1, Math.min(lastDay, Number(dueDay) || 10));
-  return todayISO(new Date(y, m - 1, day));
+  return civilDueDateForCompetence(competenceMonth, dueDay, 10);
 }
 
 /** Vencimento da parcela de dívida no mês de referência. */
 function debtDueDate(refISO: string, dueDay?: number | null): string {
-  const ref = new Date(`${refISO}T00:00:00`);
-  const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
-  const day = Math.max(1, Math.min(lastDay, Number(dueDay) || 10));
-  return todayISO(new Date(ref.getFullYear(), ref.getMonth(), day));
+  return civilDueDateInMonthOf(refISO, dueDay, 10) ?? refISO.slice(0, 10);
 }
 
 export interface CommitmentAgendaInput {
@@ -129,6 +121,8 @@ export interface CommitmentAgendaInput {
   installments?: AgendaInstallmentRow[];
   cards?: AgendaCardRow[];
   debts?: AgendaDebtRow[];
+  /** Pagamentos registrados de dívida: definem o estado real de cada ciclo. */
+  debtPayments?: DebtPaymentRow[];
   /** Metas de doação já resolvidas em valor do mês (calculadas pelo motor). */
   donations?: { id: string; name: string; amount: number; date: string }[];
   horizonDays?: number;
