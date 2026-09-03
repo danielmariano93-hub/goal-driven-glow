@@ -27,6 +27,9 @@ export type CommitmentSource =
   | "debt_installment"
   | "donation_goal";
 
+/** Estado real de pagamento da obrigação (fonte: debt_obligation.v1). */
+export type CommitmentPaymentStatus = "pending" | "paid" | "partial" | "overdue";
+
 export interface CommitmentItem {
   id: string;
   name: string;
@@ -38,6 +41,11 @@ export interface CommitmentItem {
   estimated: boolean;
   /** identificador lógico usado na deduplicação. */
   dedupKey: string;
+  /** Estado real de pagamento. Itens `paid` NUNCA somam no total pendente. */
+  payment_status: CommitmentPaymentStatus;
+  paid_at?: string | null;
+  source_payment_id?: string | null;
+  next_due_date?: string | null;
 }
 
 export interface CommitmentAgenda {
