@@ -60,19 +60,30 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
           </p>
 
           <div className="mt-1.5 divide-y divide-border">
-            {visible.map((item) => (
-              <div key={`${item.dedupKey}`} className="flex min-h-14 items-center gap-2.5 py-2">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-secondary text-primary">{SOURCE_META[item.source].icon}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold text-foreground">{item.name}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {formatDate(item.date)} · {SOURCE_META[item.source].label}{item.estimated ? " · previsto" : " · confirmado"}
-                  </p>
+            {visible.map((item) => {
+              const isPaid = item.payment_status === "paid";
+              return (
+                <div key={`${item.dedupKey}`} className="flex min-h-14 items-center gap-2.5 py-2">
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${isPaid ? "bg-muted text-muted-foreground" : "bg-secondary text-primary"}`}>{SOURCE_META[item.source].icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`truncate text-[13px] font-semibold ${isPaid ? "text-muted-foreground" : "text-foreground"}`}>{item.name}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {formatDate(item.date)} · {SOURCE_META[item.source].label}
+                      {isPaid
+                        ? " · pago"
+                        : item.payment_status === "overdue"
+                          ? " · em atraso"
+                          : item.payment_status === "partial"
+                            ? " · parcialmente pago"
+                            : item.estimated ? " · previsto" : " · confirmado"}
+                    </p>
+                  </div>
+                  <strong className={`shrink-0 font-display text-[13px] font-bold tabular-nums ${isPaid ? "text-muted-foreground line-through" : "text-foreground"}`}>{formatBRL(item.amount)}</strong>
                 </div>
-                <strong className="shrink-0 font-display text-[13px] font-bold tabular-nums text-foreground">{formatBRL(item.amount)}</strong>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
         </>
       )}
 
