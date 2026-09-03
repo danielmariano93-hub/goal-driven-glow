@@ -25,8 +25,14 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
   loading?: boolean;
 }) {
   const expenses = commitments.filter((item) => item.type === "expense");
-  const visible = expenses.slice(0, 4);
-  const total = expenses.reduce((sum, item) => sum + item.amount, 0);
+  // O que ainda é cobrança vem primeiro; o que já foi pago continua visível
+  // como histórico do período, mas NUNCA entra no total a pagar.
+  const pending = expenses.filter((item) => item.payment_status !== "paid");
+  const paid = expenses.filter((item) => item.payment_status === "paid");
+  const visible = [...pending, ...paid].slice(0, 4);
+  const total = pending.reduce((sum, item) => sum + item.amount, 0);
+  const paidTotal = paid.reduce((sum, item) => sum + item.amount, 0);
+  const lastPending = pending[pending.length - 1];
 
   return (
     <section aria-labelledby="commitments-title" className="rounded-[18px] border border-border bg-card p-4">
@@ -48,8 +54,11 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
       ) : (
         <>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            {expenses.length} compromisso{expenses.length === 1 ? "" : "s"} · {formatBRL(total)} até {formatDate(expenses[expenses.length - 1].date)}
+            {pending.length === 0
+              ? `Nada a pagar nos próximos 30 dias · ${formatBRL(paidTotal)} já pago`
+              : `${pending.length} a pagar · ${formatBRL(total)}${lastPending ? ` até ${formatDate(lastPending.date)}` : ""}${paid.length > 0 ? ` · ${formatBRL(paidTotal)} já pago` : ""}`}
           </p>
+
           <div className="mt-1.5 divide-y divide-border">
             {visible.map((item) => (
               <div key={`${item.dedupKey}`} className="flex min-h-14 items-center gap-2.5 py-2">
