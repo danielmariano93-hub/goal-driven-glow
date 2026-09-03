@@ -33,8 +33,13 @@ export default function Compromissos() {
     for (const item of items) result.set(item.date, [...(result.get(item.date) ?? []), item]);
     return [...result.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [items]);
-  const expenseTotal = expenses.reduce((sum, item) => sum + item.amount, 0);
+  // Total destacado = o que ainda é cobrança. O que já foi pago aparece
+  // separado, como histórico do período.
+  const pendingExpenses = expenses.filter((item) => item.payment_status !== "paid");
+  const expenseTotal = pendingExpenses.reduce((sum, item) => sum + item.amount, 0);
+  const paidTotal = expenses.filter((item) => item.payment_status === "paid").reduce((sum, item) => sum + item.amount, 0);
   const incomeTotal = income.reduce((sum, item) => sum + item.amount, 0);
+
 
   return (
     <div className="space-y-4 pt-2">
