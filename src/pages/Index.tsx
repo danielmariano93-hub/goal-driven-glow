@@ -121,7 +121,8 @@ export default function Index() {
 
 
       <ProximosCompromissosCard
-        commitments={snap?.commitmentAgenda.pendingItems ?? []}
+        commitments={snap?.commitmentAgenda.items ?? []}
+
         availability={availability.projection}
         loading={loading}
       />
