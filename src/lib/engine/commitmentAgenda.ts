@@ -14,8 +14,10 @@
 //  - Nada aqui faz I/O: cálculo determinístico e testável.
 import { round2, todayISO, nextRecurringOccurrences, type RecurringRow, type TransactionRow } from "./facts";
 import { isAuthoritativeCardStatement } from "./cardExposure";
+import { civilAddDays, civilDueDateForCompetence, civilDueDateInMonthOf } from "./civilDate";
+import { computeDebtStatus, type DebtPaymentRow, type DebtScheduleRow } from "./debtStatus";
 
-export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v2";
+export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v3";
 
 export type CommitmentSource =
   | "card_statement"
