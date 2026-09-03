@@ -86,7 +86,14 @@ export default function Compromissos() {
                           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Icon size={15} /></span>
                           <span className="min-w-0 flex-1">
                             <strong className="block truncate text-[12px]">{item.name}</strong>
-                            <span className="text-[10px] text-muted-foreground">{meta.label}{item.estimated ? " · valor estimado" : " · confirmado"}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {meta.label}
+                              {item.payment_status === "paid"
+                                ? " · pago"
+                                : item.payment_status === "overdue"
+                                  ? " · em atraso"
+                                  : item.estimated ? " · valor estimado" : " · confirmado"}
+                            </span>
                           </span>
                           <strong className={item.type === "income" ? "shrink-0 text-[12px] tabular-nums text-success" : "shrink-0 text-[12px] tabular-nums"}>{item.type === "income" ? "+" : "−"}{formatBRL(item.amount)}</strong>
                         </li>
