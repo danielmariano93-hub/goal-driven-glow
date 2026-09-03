@@ -14593,6 +14593,10 @@ export type Database = {
         Args: { _created_by?: string; _user_id: string }
         Returns: number
       }
+      nino_reconcile_debt_situations: {
+        Args: { _as_of?: string; _user_id: string }
+        Returns: number
+      }
       nino_refresh_diagnosis: {
         Args: {
           _as_of?: string
