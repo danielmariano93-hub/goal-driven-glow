@@ -9958,6 +9958,7 @@ export type Database = {
           reason: string
           timing_score: number | null
           timing_trigger: string | null
+          timing_window: string | null
           user_id: string
         }
         Insert: {
@@ -9973,6 +9974,7 @@ export type Database = {
           reason: string
           timing_score?: number | null
           timing_trigger?: string | null
+          timing_window?: string | null
           user_id: string
         }
         Update: {
@@ -9988,6 +9990,7 @@ export type Database = {
           reason?: string
           timing_score?: number | null
           timing_trigger?: string | null
+          timing_window?: string | null
           user_id?: string
         }
         Relationships: []
@@ -13781,6 +13784,10 @@ export type Database = {
         Returns: undefined
       }
       challenge_sync_activity: { Args: { _user_id: string }; Returns: number }
+      civil_add_months: {
+        Args: { _anchor: string; _months: number }
+        Returns: string
+      }
       claim_category_classification_batch: {
         Args: { p_limit?: number; p_user_id?: string }
         Returns: {
@@ -14000,6 +14007,32 @@ export type Database = {
         Returns: {
           action: string
           allowed: boolean
+        }[]
+      }
+      debt_obligation_state: {
+        Args: { _as_of?: string; _due_soon_days?: number; _user_id: string }
+        Returns: {
+          creditor: string
+          current_cycle_due_date: string
+          current_cycle_paid_amount: number
+          current_cycle_paid_at: string
+          current_cycle_status: string
+          days_overdue: number
+          days_to_due: number
+          debt_id: string
+          derived_schedule: boolean
+          formula_version: string
+          installment_amount: number
+          installments_expected: number
+          installments_paid: number
+          installments_total: number
+          name: string
+          next_due_date: string
+          outstanding: number
+          overdue_amount: number
+          overdue_installments: number
+          situation: string
+          source_payment_id: string
         }[]
       }
       delete_credit_card_statement_item: {
