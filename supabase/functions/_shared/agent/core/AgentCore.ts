@@ -2045,7 +2045,9 @@ ${episodic}
       }
       : (() => {
         const carried = scopeFromToolCalls(toolCallLog as any[]);
-        if (!carried) return (memory as any)?.last_analysis ?? null;
+        // Turno global encerra o escopo anterior: nada de "essas categorias"
+        // ressuscitar depois de uma pergunta sobre o todo.
+        if (!carried) return turnIsGlobal ? null : ((memory as any)?.last_analysis ?? null);
         return {
           scope: carried,
           entity_ids: carried.entity_ids,
