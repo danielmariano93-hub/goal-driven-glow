@@ -21,6 +21,63 @@ import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligen
 import { confirmChangeFollowupDelivery } from "../changeLoop.ts";
 import { applyCommunicationInstruction, instructionFromEvidence } from "../changeMessage.ts";
 
+/**
+ * Revalidação tardia (`comm_revalidation.v1`).
+ *
+ * Uma sugestão é gerada num tick e entregue em outro. Se a obrigação já foi
+ * paga nesse intervalo, cobrar de novo é erro grave. Aqui reconferimos a
+ * evidência na FONTE CANÔNICA (`debt_obligation_state`) imediatamente antes de
+ * enfileirar/entregar — não recalculamos regra própria.
+ */
+async function revalidateBeforeSend(
+  sb: any,
+  userId: string,
+  candidate: { evidence?: Record<string, unknown> | null },
+): Promise<{ fresh: boolean; reason: string | null }> {
+  const evidence = (candidate.evidence ?? {}) as Record<string, unknown>;
+  const debtId = String(evidence.debt_id ?? (evidence as any).debtId ?? "").trim();
+  if (!debtId) return { fresh: true, reason: null };
+  try {
+    const { data, error } = await sb.rpc("debt_obligation_state", {
+      _user_id: userId,
+      _as_of: new Date().toISOString().slice(0, 10),
+      _due_soon_days: 7,
+    });
+    if (error) return { fresh: true, reason: null }; // fonte indisponível não inventa bloqueio
+    const rows = (Array.isArray(data) ? data : []) as Array<Record<string, unknown>>;
+    const row = rows.find((r) => String(r.debt_id ?? "") === debtId);
+    if (!row) return { fresh: true, reason: null };
+    const cycleStatus = String(row.current_cycle_status ?? "");
+    const situation = String(row.situation ?? "");
+    if (cycleStatus === "paid" && situation !== "em_atraso") {
+      return { fresh: false, reason: "revalidated_obligation_already_paid" };
+    }
+    return { fresh: true, reason: null };
+  } catch {
+    return { fresh: true, reason: null };
+  }
+}
+
+/**
+ * Composição final do WhatsApp: título só entra quando o corpo ainda não o
+ * repete (heading duplicado era a causa da mensagem com a mesma frase duas
+ * vezes).
+ */
+export function composeWhatsappBody(title: string, body: string): string {
+  const t = String(title ?? "").trim();
+  const b = String(body ?? "").trim();
+  if (!t) return b;
+  if (!b) return t;
+  const norm = (v: string) => v.toLowerCase().replace(/[\s\p{P}]+/gu, " ").trim();
+  const nt = norm(t);
+  const nb = norm(b);
+  if (!nt || nb.startsWith(nt)) return b;
+  const firstSentence = norm(b.split(/(?<=[.!?])\s/)[0] ?? "");
+  if (firstSentence && (firstSentence === nt || nt.startsWith(firstSentence))) return b;
+  return `${t}\n\n${b}`;
+}
+
+
 
 
 export type DispatchOutcome = {
@@ -540,6 +597,18 @@ export async function dispatchSuggestions(
         continue;
       }
 
+      const freshness = await revalidateBeforeSend(sb, userId, candidate);
+      if (!freshness.fresh) {
+        await record(sb, {
+          user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
+          status: "suppressed", reason: freshness.reason ?? "revalidated_stale",
+          dedup_key: candidate.dedup_key, evidence: candidate.evidence,
+          block_context: { policy_reason: freshness.reason ?? "revalidated_stale", target, ...policyContext },
+        });
+        results.push({ id: candidate.id, channel: target, status: "skipped", reason: freshness.reason ?? "revalidated_stale" });
+        continue;
+      }
+
       try {
         if (target === "app") {
           const logicalKey = communicationTopicKey({
@@ -604,7 +673,7 @@ export async function dispatchSuggestions(
           const { error: outboundError } = await sb.from("outbound_messages").insert({
             user_id: userId,
             to_phone: (link as any).phone_e164,
-            body: `${rendered.title}\n\n${rendered.body}`.trim(),
+            body: composeWhatsappBody(rendered.title, rendered.body),
             provider: "waha",
             status: "queued",
             kind: "proactive",
