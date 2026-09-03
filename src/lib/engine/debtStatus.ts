@@ -273,6 +273,8 @@ function evaluateDebt(
   const installment = debt.installment_amount == null ? null : round2(Number(debt.installment_amount));
   const total = debt.installments_total == null ? null : Number(debt.installments_total);
   const covered = effectiveCoveredInstallments(debt, payments, today);
+  const cycle = cycleInfo(debt, payments, today);
+  const cycleStatus = cycleStatusOf(cycle, Math.max(0, Number(debt.installment_amount ?? 0)), today);
   const lastPayment = payments
     .map((p) => p.paid_at?.slice(0, 10))
     .filter((d): d is string => !!d)
@@ -295,8 +297,15 @@ function evaluateDebt(
     next_due_date: null,
     days_to_due: null,
     last_payment_at: lastPayment,
+    current_cycle_due_date: cycle.cycleDue,
+    current_cycle_status: cycleStatus,
+    current_cycle_paid_amount: cycle.paidAmount,
+    current_cycle_paid_at: cycle.paidAt,
+    source_payment_id: cycle.paymentId,
+    derived_schedule: cycle.derived,
     reason: "sem agenda de parcelas cadastrada",
   };
+
 
   if (String(debt.status) !== "active" || outstanding <= 0) {
     return { ...base, situation: "quitada", reason: "dívida encerrada ou saldo zerado" };
