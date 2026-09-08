@@ -72,7 +72,7 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     const split = capability("Quero registrar e dividir um rolê");
     expect(split.name).toBe("split_expense");
     expect(split.allowed_tools).toEqual([
-      "list_accounts", "list_categories", "list_credit_cards", "create_split_expense_draft",
+      "list_accounts", "list_categories", "list_credit_cards", "create_split_expense_draft", "list_split_receivables",
     ]);
     expect(openAIToolDefinitions(split.allowed_tools)).toHaveLength(4);
     expect(openAIToolDefinitions(capability("Me ajude").allowed_tools).length).toBeLessThanOrEqual(16);
