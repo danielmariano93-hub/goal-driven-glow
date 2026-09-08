@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccounts, useCategories } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/split/math";
+import { buildEqualInstallments, formatCivil, todayCivilSaoPaulo } from "@/lib/split/installments";
 import { dispatchSplitReminders } from "@/lib/split/dispatch";
 import { normalizeBrPhone } from "@/lib/phone";
 import { CategorySelect } from "@/components/CategorySelect";
@@ -43,7 +44,12 @@ export default function DivisaoDoRoleNova() {
   const [categoryId, setCategoryId] = useState("");
   const [people, setPeople] = useState<Person[]>([{ name: "", phone_e164: "", amount_due: "" }]);
   const [missingFinancialSource, setMissingFinancialSource] = useState(false);
+  // Parcelamento (`split_receivables.v1`): cada pessoa recebe o MESMO número de
+  // parcelas mensais, calculadas em centavos a partir da parte dela.
+  const [payMode, setPayMode] = useState<"cash" | "installments">("cash");
+  const [installmentCount, setInstallmentCount] = useState(2);
   const totalNum = money(total || "0");
+
 
   const refreshFinance = () => {
     void invalidateFinancialQueries(queryClient);
@@ -68,7 +74,14 @@ export default function DivisaoDoRoleNova() {
       const owner = rows.find((p) => !p.phone_e164 && Number(p.amount_paid) === Number(p.amount_due));
       setIncludeOwner(Boolean(owner)); setOwnerAmount(owner ? String(owner.amount_due).replace(".", ",") : "");
       setPeople(rows.filter((p) => p !== owner).map((p) => ({ id:p.id,name:p.name,phone_e164:p.phone_e164??"",amount_due:String(p.amount_due).replace(".",","),amount_paid:Number(p.amount_paid) })));
+      const { data: existingInstallments } = await supabase
+        .from("shared_expense_installments" as never)
+        .select("total_installments").eq("shared_expense_id" as never, id as never)
+        .order("total_installments" as never, { ascending: false } as never).limit(1);
+      const existingCount = Number(((existingInstallments ?? []) as any[])[0]?.total_installments ?? 1);
+      if (existingCount > 1) { setPayMode("installments"); setInstallmentCount(existingCount); }
       setLoading(false);
+
     })();
   }, [editing, id, nav]);
 
@@ -122,6 +135,12 @@ export default function DivisaoDoRoleNova() {
         toast.error(`Telefone inválido: ${invalidPhones.join(", ")}. Use DDD + número (ex.: 11 91234-5678).`);
         return;
       }
+      const firstDue = dueDate || todayCivilSaoPaulo();
+      const parcelsFor = (amount: number) =>
+        payMode === "installments" && installmentCount > 1
+          ? buildEqualInstallments(amount, installmentCount, firstDue)
+          : null;
+
       if (editing) {
         const ownerExisting = includeOwner ? [{ id: null, name:"Você", phone_e164:null, amount_due:shares.find((s)=>s.name==="Você")?.amount ?? 0 }] : [];
         // O servidor protege pessoas já pagas; o proprietário é representado
@@ -129,24 +148,47 @@ export default function DivisaoDoRoleNova() {
         const { data: existing } = await supabase.from("shared_expense_participants" as never).select("id,name,phone_e164,amount_due,amount_paid").eq("shared_expense_id" as never,id as never);
         const owner = ((existing??[]) as any[]).find((p)=>!p.phone_e164 && Number(p.amount_paid)===Number(p.amount_due));
         if (ownerExisting.length && owner) ownerExisting[0].id=owner.id;
-        const { error } = await supabase.rpc("split_update" as never, {
+        const { error } = await supabase.rpc("split_update_v3" as never, {
           p_id:id,p_title:title.trim(),p_total:totalNum,p_occurred_at:occurredAt,p_due_date:dueDate||null,
           p_split_mode:mode,p_reminder_enabled:reminders,p_pix_key:pixKey||null,
           p_participants:[...ownerExisting,...participantPayload],p_source_account_id:source==="account"?sourceId:null,
           p_source_credit_card_id:source==="credit_card"?sourceId:null,p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
+          p_installments:null,
         } as never);
         if (error) throw error;
+        // Parcelas são aplicadas depois do update: só aqui todos os
+        // participantes (inclusive os criados agora) já têm id canônico.
+        const { data: afterRows } = await supabase.from("shared_expense_participants" as never)
+          .select("id,phone_e164,amount_due").eq("shared_expense_id" as never, id as never);
+        const map: Record<string, unknown> = {};
+        for (const row of ((afterRows ?? []) as any[])) {
+          if (!row.phone_e164) continue;
+          const parcels = parcelsFor(Number(row.amount_due ?? 0));
+          if (parcels) map[String(row.id)] = parcels;
+        }
+        const { error: installmentError } = await supabase.rpc("split_apply_installments" as never, {
+          p_expense_id: id, p_installments: map,
+        } as never);
+        if (installmentError) throw installmentError;
         refreshFinance();
         toast.success("Divisão atualizada"); nav(`/app/divisao-do-role/${id}`);
       } else {
-        const { data, error } = await supabase.rpc("split_create_v2" as never, {
+        const installmentsPayload = payMode === "installments" && installmentCount > 1
+          ? participantPayload.map((p, index) => ({
+              participant_index: index,
+              rows: buildEqualInstallments(Number(p.amount_due ?? 0), installmentCount, firstDue),
+            }))
+          : null;
+        const { data, error } = await supabase.rpc("split_create_v3" as never, {
           p_title:title.trim(),p_total:totalNum,p_occurred_at:occurredAt,p_due_date:dueDate||null,p_split_mode:mode,
           p_include_owner:includeOwner,p_reminder_enabled:reminders,p_pix_key:pixKey||null,p_participants:participantPayload,
           p_owner_amount:includeOwner?(shares.find((s)=>s.name==="Você")?.amount??null):null,
           p_source_account_id:source==="account"?sourceId:null,p_source_credit_card_id:source==="credit_card"?sourceId:null,
           p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
+          p_installments:installmentsPayload,
         } as never);
         if (error) throw error;
+
         refreshFinance();
         // O convite faz parte do resultado da criação: não esconda falhas do
         // dispatcher. O detalhe da divisão permite retomar sem duplicar jobs.
@@ -188,7 +230,26 @@ export default function DivisaoDoRoleNova() {
     {(editing||step===1)&&<section className="surface-card space-y-3 p-4">
       <Field label="Nome do rolê"><input value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Jantar com a turma" className="input"/></Field>
       <div className="grid grid-cols-2 gap-3"><Field label="Valor total"><input value={total} onChange={(e)=>setTotal(e.target.value)} inputMode="decimal" className="input"/></Field><Field label="Data"><input type="date" value={occurredAt} onChange={(e)=>setOccurredAt(e.target.value)} className="input"/></Field></div>
-      <Field label="Vencimento"><input type="date" value={dueDate} onChange={(e)=>setDueDate(e.target.value)} className="input"/></Field>
+      <Field label={payMode==="installments"?"Vencimento da 1ª parcela":"Vencimento"}><input type="date" value={dueDate} onChange={(e)=>setDueDate(e.target.value)} className="input"/></Field>
+      <div className="space-y-2 border-t pt-3">
+        <div className="flex gap-2">
+          <Choice active={payMode==="cash"} onClick={()=>setPayMode("cash")}>À vista</Choice>
+          <Choice active={payMode==="installments"} onClick={()=>setPayMode("installments")}>Parcelado</Choice>
+        </div>
+        {payMode==="installments"&&<>
+          <Field label="Em quantas vezes?">
+            <select value={installmentCount} onChange={(e)=>setInstallmentCount(Number(e.target.value))} className="input">
+              {Array.from({length:23},(_,i)=>i+2).map((n)=><option key={n} value={n}>{n}x</option>)}
+            </select>
+          </Field>
+          <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">
+            {totalNum>0
+              ? <>Cada pessoa vai receber {installmentCount} cobranças mensais, começando em {formatCivil(dueDate||todayCivilSaoPaulo())}. Ex.: uma parte de {formatBRL(sharesTotal/Math.max(1,shares.length))} fica em {installmentCount}x de cerca de {formatBRL(buildEqualInstallments(Math.max(0.01,sharesTotal/Math.max(1,shares.length)),installmentCount,dueDate||todayCivilSaoPaulo())[0]!.amount)}.</>
+              : <>Informe o valor total para ver as parcelas.</>}
+          </div>
+        </>}
+      </div>
+
     </section>}
     {(editing||step===2)&&<section className="space-y-3">
       <div className="surface-card space-y-3 p-4"><div className="flex gap-2"><Choice active={mode==="equal"} onClick={()=>setMode("equal")}>Dividir igual</Choice><Choice active={mode==="custom"} onClick={()=>setMode("custom")}>Personalizar</Choice></div><label className="flex gap-2 text-xs"><input type="checkbox" checked={includeOwner} onChange={(e)=>setIncludeOwner(e.target.checked)}/> Incluir você</label>{includeOwner&&mode==="custom"&&<Field label="Sua parte"><input value={ownerAmount} onChange={(e)=>setOwnerAmount(e.target.value)} className="input" inputMode="decimal"/></Field>}</div>

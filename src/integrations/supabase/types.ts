@@ -10765,6 +10765,7 @@ export type Database = {
           followup_of: string | null
           id: string
           idempotency_key: string | null
+          installment_id: string | null
           kind: string
           last_error: string | null
           lease_expires_at: string | null
@@ -10792,6 +10793,7 @@ export type Database = {
           followup_of?: string | null
           id?: string
           idempotency_key?: string | null
+          installment_id?: string | null
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
@@ -10819,6 +10821,7 @@ export type Database = {
           followup_of?: string | null
           id?: string
           idempotency_key?: string | null
+          installment_id?: string | null
           kind?: string
           last_error?: string | null
           lease_expires_at?: string | null
@@ -10843,6 +10846,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "reminder_jobs"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_jobs_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_installments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_jobs_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "split_receivables_v1"
+            referencedColumns: ["installment_id"]
           },
           {
             foreignKeyName: "reminder_jobs_participant_id_fkey"
@@ -10919,6 +10936,82 @@ export type Database = {
           },
           {
             foreignKeyName: "shared_expense_events_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shared_expense_installments: {
+        Row: {
+          amount: number
+          cancelled_at: string | null
+          created_at: string
+          due_date: string | null
+          id: string
+          installment_number: number
+          owner_user_id: string
+          paid_amount: number
+          paid_at: string | null
+          participant_id: string
+          payment_reference: string | null
+          shared_expense_id: string
+          status: string
+          total_installments: number
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          cancelled_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          installment_number: number
+          owner_user_id: string
+          paid_amount?: number
+          paid_at?: string | null
+          participant_id: string
+          payment_reference?: string | null
+          shared_expense_id: string
+          status?: string
+          total_installments: number
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          cancelled_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          installment_number?: number
+          owner_user_id?: string
+          paid_amount?: number
+          paid_at?: string | null
+          participant_id?: string
+          payment_reference?: string | null
+          shared_expense_id?: string
+          status?: string
+          total_installments?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expense_installments_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_installments_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expense_installments_shared_expense_id_fkey"
             columns: ["shared_expense_id"]
             isOneToOne: false
             referencedRelation: "shared_expenses"
@@ -11040,6 +11133,87 @@ export type Database = {
           },
           {
             foreignKeyName: "shared_expense_participants_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shared_expense_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          installment_id: string
+          owner_user_id: string
+          paid_at: string
+          participant_id: string
+          reference: string | null
+          reversal_reason: string | null
+          reversed_at: string | null
+          shared_expense_id: string
+          transaction_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          installment_id: string
+          owner_user_id: string
+          paid_at?: string
+          participant_id: string
+          reference?: string | null
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          shared_expense_id: string
+          transaction_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          installment_id?: string
+          owner_user_id?: string
+          paid_at?: string
+          participant_id?: string
+          reference?: string | null
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          shared_expense_id?: string
+          transaction_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expense_payments_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_installments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expense_payments_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "split_receivables_v1"
+            referencedColumns: ["installment_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_payments_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_payments_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expense_payments_shared_expense_id_fkey"
             columns: ["shared_expense_id"]
             isOneToOne: false
             referencedRelation: "shared_expenses"
@@ -12818,6 +12992,71 @@ export type Database = {
           },
         ]
       }
+      split_receivables_v1: {
+        Row: {
+          amount: number | null
+          balance_due: number | null
+          deleted_at: string | null
+          due_date: string | null
+          expected_receivable: number | null
+          installment_id: string | null
+          installment_number: number | null
+          linked_user_id: string | null
+          opt_out_at: string | null
+          owner_user_id: string | null
+          paid_amount: number | null
+          paid_at: string | null
+          participant_id: string | null
+          participant_name: string | null
+          phone_e164: string | null
+          pix_key: string | null
+          received_receivable: number | null
+          reminder_enabled: boolean | null
+          settlement_status: string | null
+          shared_expense_id: string | null
+          split_status: Database["public"]["Enums"]["split_status"] | null
+          state: string | null
+          title: string | null
+          total_installments: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_expense_installments_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "my_shared_charges"
+            referencedColumns: ["participant_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_installments_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expense_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expense_installments_shared_expense_id_fkey"
+            columns: ["shared_expense_id"]
+            isOneToOne: false
+            referencedRelation: "shared_expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shared_expense_participants_linked_user_id_fkey"
+            columns: ["linked_user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shared_expense_participants_linked_user_id_fkey"
+            columns: ["linked_user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       v_agent_cost_by_user: {
         Row: {
           day: string | null
@@ -13862,6 +14101,7 @@ export type Database = {
           followup_of: string | null
           id: string
           idempotency_key: string | null
+          installment_id: string | null
           kind: string
           last_error: string | null
           lease_expires_at: string | null
@@ -13898,6 +14138,7 @@ export type Database = {
           followup_of: string | null
           id: string
           idempotency_key: string | null
+          installment_id: string | null
           kind: string
           last_error: string | null
           lease_expires_at: string | null
@@ -14899,12 +15140,25 @@ export type Database = {
         }
         Returns: Json
       }
+      split_add_installment_payment: {
+        Args: {
+          p_amount: number
+          p_installment_id: string
+          p_paid_at?: string
+          p_reference?: string
+        }
+        Returns: Json
+      }
       split_add_payment: {
         Args: { p_amount: number; p_participant_id: string }
         Returns: undefined
       }
       split_add_payment_v2: {
         Args: { p_amount: number; p_participant_id: string }
+        Returns: undefined
+      }
+      split_apply_installments: {
+        Args: { p_expense_id: string; p_installments: Json }
         Returns: undefined
       }
       split_assert_financial_source: {
@@ -14923,6 +15177,18 @@ export type Database = {
           p_reason?: string
           p_remove_transaction?: boolean
         }
+        Returns: undefined
+      }
+      split_cancel_installment: {
+        Args: { p_installment_id: string; p_reason?: string }
+        Returns: undefined
+      }
+      split_cancel_open_installments: {
+        Args: { p_expense_id: string; p_reason?: string }
+        Returns: undefined
+      }
+      split_cancel_participant: {
+        Args: { p_participant_id: string; p_reason?: string }
         Returns: undefined
       }
       split_claim_pending: { Args: never; Returns: number }
@@ -14961,6 +15227,27 @@ export type Database = {
         }
         Returns: string
       }
+      split_create_v3: {
+        Args: {
+          p_category_id: string
+          p_due_date: string
+          p_include_owner: boolean
+          p_installments?: Json
+          p_occurred_at: string
+          p_owner_amount: number
+          p_participants: Json
+          p_pix_key: string
+          p_register_transaction: boolean
+          p_reimbursement_account_id: string
+          p_reminder_enabled: boolean
+          p_source_account_id: string
+          p_source_credit_card_id: string
+          p_split_mode: Database["public"]["Enums"]["split_mode"]
+          p_title: string
+          p_total: number
+        }
+        Returns: string
+      }
       split_delete: { Args: { p_id: string }; Returns: undefined }
       split_delivery_diagnosis: {
         Args: { p_expense_id: string }
@@ -14970,12 +15257,35 @@ export type Database = {
         Args: { p_date: string; p_hour?: number }
         Returns: string
       }
+      split_enqueue_installment_message: {
+        Args: {
+          p_expense_id: string
+          p_installment_id: string
+          p_kind: string
+          p_participant_id: string
+          p_when: string
+        }
+        Returns: string
+      }
       split_enqueue_message: {
         Args: {
           p_expense_id: string
           p_kind: string
           p_participant_id: string
           p_when?: string
+        }
+        Returns: string
+      }
+      split_installment_is_eligible: {
+        Args: { p_installment_id: string }
+        Returns: boolean
+      }
+      split_installment_state: {
+        Args: {
+          p_amount: number
+          p_due_date: string
+          p_paid: number
+          p_status: string
         }
         Returns: string
       }
@@ -15002,6 +15312,30 @@ export type Database = {
       }
       split_participant_report: {
         Args: { p_action: string; p_participant_id: string }
+        Returns: undefined
+      }
+      split_recalc_installment: {
+        Args: { p_installment_id: string }
+        Returns: undefined
+      }
+      split_receivables_agenda: {
+        Args: { p_from?: string; p_to?: string }
+        Returns: {
+          amount: number
+          balance_due: number
+          due_date: string
+          installment_id: string
+          installment_number: number
+          paid_amount: number
+          participant_name: string
+          shared_expense_id: string
+          state: string
+          title: string
+          total_installments: number
+        }[]
+      }
+      split_reverse_installment_payment: {
+        Args: { p_payment_id: string; p_reason?: string }
         Returns: undefined
       }
       split_reverse_payment: {
@@ -15039,6 +15373,26 @@ export type Database = {
           p_participants: Json
           p_pix_key: string
           p_register_transaction?: boolean
+          p_reimbursement_account_id: string
+          p_reminder_enabled: boolean
+          p_source_account_id: string
+          p_source_credit_card_id: string
+          p_split_mode: Database["public"]["Enums"]["split_mode"]
+          p_title: string
+          p_total: number
+        }
+        Returns: undefined
+      }
+      split_update_v3: {
+        Args: {
+          p_category_id: string
+          p_due_date: string
+          p_id: string
+          p_installments?: Json
+          p_occurred_at: string
+          p_participants: Json
+          p_pix_key: string
+          p_register_transaction: boolean
           p_reimbursement_account_id: string
           p_reminder_enabled: boolean
           p_source_account_id: string
