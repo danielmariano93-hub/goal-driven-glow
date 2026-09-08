@@ -102,4 +102,13 @@ describe("cobrança parcelada ponta a ponta", () => {
     expect(detail).toContain("summarizeReceivables");
     expect(detail).toContain("Próximo vencimento");
   });
+  it("o Nino lê recebíveis parcelados da fonte única", () => {
+    const tools = read("supabase/functions/_shared/agent/tools.ts");
+    const router = read("supabase/functions/_shared/agent/core/CapabilityRouter.ts");
+    const registry = read("supabase/functions/_shared/agent/core/CapabilityRegistry.ts");
+    expect(tools).toContain("list_split_receivables");
+    expect(tools).toContain('from("split_receivables_v1")');
+    expect(router).toContain("list_split_receivables");
+    expect(registry).toContain("sharing.receivables");
+  });
 });

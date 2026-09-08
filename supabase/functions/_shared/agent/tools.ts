@@ -2179,6 +2179,39 @@ export async function list_shared_goals(ctx: ToolContext): Promise<ToolResult> {
   }
 }
 
+/**
+ * Recebíveis da Divisão do Rolê (parcelas incluídas), lidos da ÚNICA fonte de
+ * verdade `split_receivables_v1`. Nunca recalcula saldo por conta própria.
+ */
+export async function list_split_receivables(
+  ctx: ToolContext,
+  args: { only_pending?: boolean; person?: string } = {},
+): Promise<ToolResult> {
+  const { data, error } = await ctx.sb
+    .from("split_receivables_v1")
+    .select("shared_expense_id, title, participant_id, participant_name, installment_number, total_installments, amount, paid_amount, balance_due, due_date, state, settlement_status, split_status")
+    .order("due_date", { ascending: true })
+    .limit(500);
+  if (error) return { ok: false, error: `split_receivables_query_failed:${error.message}` };
+  const person = String(args.person ?? "").trim().toLowerCase();
+  let rows = (data ?? []) as any[];
+  if (args.only_pending !== false) rows = rows.filter((r) => Number(r.balance_due ?? 0) > 0.004);
+  if (person) rows = rows.filter((r) => String(r.participant_name ?? "").toLowerCase().includes(person));
+  const pending = rows.reduce((s, r) => s + Number(r.balance_due ?? 0), 0);
+  const received = (data ?? []).reduce((s: number, r: any) => s + Number(r.paid_amount ?? 0), 0);
+  return {
+    ok: true,
+    result: {
+      source: "split_receivables_v1",
+      total_pending: Math.round(pending * 100) / 100,
+      total_received: Math.round(received * 100) / 100,
+      next_due_date: rows[0]?.due_date ?? null,
+      receivables: rows.slice(0, 60),
+    },
+  };
+}
+
+
 export async function get_shared_goal_progress(ctx: ToolContext, args: { goal?: string; goal_id?: string }): Promise<ToolResult> {
   let g;
   try {
@@ -2995,11 +3028,25 @@ export const AGENT_TOOLS: ToolSpec[] = [
     execute: generate_report_from_template,
   },
   {
+    name: "list_split_receivables",
+    description: "Lista o que o usuário ainda tem a receber nas divisões do rolê, parcela por parcela (fonte única: split_receivables_v1).",
+    parameters: {
+      type: "object",
+      properties: {
+        only_pending: { type: "boolean", description: "Padrão true: só parcelas com saldo em aberto." },
+        person: optionalStr,
+      },
+      additionalProperties: false,
+    },
+    execute: list_split_receivables,
+  },
+  {
     name: "list_shared_goals",
     description: "Lista as metas conjuntas visíveis ao usuário (owner ou membro).",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: list_shared_goals,
   },
+
   {
     name: "get_shared_goal_progress",
     description: "Retorna progresso agregado (total contribuído, restante, %) e ranking de contribuintes de uma meta conjunta.",

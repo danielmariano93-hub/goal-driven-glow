@@ -63,7 +63,7 @@ export type CapabilityDecision = {
 };
 
 const GROUPS = {
-  split: ["list_accounts", "list_categories", "list_credit_cards", "create_split_expense_draft"],
+  split: ["list_accounts", "list_categories", "list_credit_cards", "create_split_expense_draft", "list_split_receivables"],
   transactionEntry: [
     "list_accounts", "list_categories", "list_credit_cards", "create_transaction_draft",
     "create_transfer_draft", "pay_credit_card_bill_draft", "create_goal_draft",

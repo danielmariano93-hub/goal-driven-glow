@@ -84,6 +84,8 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   // --- Compartilhado ---
   { key: "sharing.split", label: "Dividir o rolê", domain: "sharing", tool: "create_split_expense_draft", writes: true, risk: "medium", surfaces: ["app", "whatsapp"], says: "dividir uma conta com outras pessoas" },
   { key: "sharing.goals", label: "Metas conjuntas", domain: "sharing", tool: "list_shared_goals", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "acompanhar metas conjuntas" },
+  { key: "sharing.receivables", label: "A receber do rolê", domain: "sharing", tool: "list_split_receivables", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar quanto ainda falta receber das divisões, parcela por parcela" },
+
 
   // --- Relatórios ---
   { key: "reports.chart", label: "Gráfico", domain: "reports", tool: "generate_chart_artifact", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "gerar um gráfico do período" },
