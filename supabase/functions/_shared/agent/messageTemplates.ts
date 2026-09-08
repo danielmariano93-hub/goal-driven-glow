@@ -10,19 +10,23 @@ export type MessagePersona = {
   contexts?: Record<string, { template?: string; tone_override?: string | null }>;
 };
 
+// Mensagens da Divisão do Rolê usam markdown nativo do WhatsApp (*negrito*),
+// falam SEMPRE de uma parcela específica e trazem o saldo real — nunca o valor
+// cheio quando já houve pagamento parcial.
 const DEFAULTS: Record<string, string> = {
-  invite: "Oi, {{participant_name}}! 👋 {{owner_name}} incluiu você na divisão “{{title}}”{{split_context_sentence}}. Sua parte ficou em {{amount}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
-  reminder: "Oi, {{participant_name}}! Ainda faltam {{amount}} da sua parte em “{{title}}”{{split_context_sentence}}.{{due_sentence}}{{pix_sentence}}{{link_sentence}} Se você já pagou, é só avisar quem criou o rolê 💛",
-  due_soon: "Oi, {{participant_name}}! Sua parte de {{amount}} em “{{title}}”{{split_context_sentence}} vence em breve.{{due_sentence}}{{pix_sentence}}{{link_sentence}}",
-  due_today: "Oi, {{participant_name}}! Sua parte de {{amount}} em “{{title}}”{{split_context_sentence}} vence hoje.{{pix_sentence}}{{link_sentence}} Se você já pagou, avise quem criou o rolê para atualizar por lá 💛",
-  overdue: "Oi, {{participant_name}}. Sua parte de {{amount}} em “{{title}}”{{split_context_sentence}} ainda aparece em aberto. Se você já pagou, avise quem criou o rolê para atualizar por lá 💛{{pix_sentence}}{{link_sentence}}",
-  payment_confirmation: "Tudo certo, {{participant_name}}! Seu pagamento em “{{title}}” foi registrado. Obrigado por organizar esse rolê com a gente 🙌",
-  completed: "Rolê fechado! 🎉 Todo mundo acertou a divisão “{{title}}”.",
+  invite: "👋 *{{title}} — sua parte*\n\n{{owner_name}} incluiu você na divisão “{{title}}”{{split_context_sentence}}. Sua parte é *{{participant_total}}*{{installments_sentence}}.{{first_due_sentence}}{{pix_sentence}}{{link_sentence}}",
+  reminder: "💸 *Divisão do rolê — {{participant_name}}*\n\nA *{{installment_label}}*, no valor de *{{amount}}*, está em aberto.{{due_sentence}}{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  due_soon: "💸 *Divisão do rolê — {{participant_name}}*\n\nA *{{installment_label}}*, no valor de *{{amount}}*, vence em *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  due_today: "💸 *Divisão do rolê — {{participant_name}}*\n\nA *{{installment_label}}*, no valor de *{{amount}}*, vence hoje, *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  overdue: "⚠️ *Parcela em atraso — {{participant_name}}*\n\nA parcela de *{{amount}}*, com vencimento em *{{due_date}}*, ainda consta como pendente.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  payment_confirmation: "✅ *Pagamento registrado*\n\nRecebemos a sua *{{installment_label}}* em “{{title}}”, {{participant_name}}.{{remaining_sentence}}",
+  completed: "🎉 *Rolê fechado*\n\nTodo mundo acertou a divisão “{{title}}”. Obrigado!",
   goal_invite: "Oi, {{participant_name}}! 👋 {{owner_name}} convidou você para a meta conjunta “{{title}}” (objetivo: {{amount}}).{{link_sentence}} Bora juntos?",
   goal_invite_followup: "Oi, {{participant_name}}! Só passando pra lembrar do convite da meta “{{title}}” com {{owner_name}}.{{link_sentence}} Se não quiser participar, é só ignorar 💛",
   owner_digest: "Oi! Sobre o rolê “{{title}}”: {{pending_count}} {{pending_word}} ainda em aberto, somando {{amount}}.\n{{pending_list}}{{link_sentence}}",
 
 };
+
 
 // Mapeia o kind curto para as chaves de contexts.* administráveis.
 const CONTEXT_KEYS: Record<string, string> = {

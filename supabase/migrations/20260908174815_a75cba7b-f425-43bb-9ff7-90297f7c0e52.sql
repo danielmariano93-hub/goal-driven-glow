@@ -1,0 +1,42 @@
+-- Retira o EXECUTE de PUBLIC (origem real do aviso) nas funções desta entrega
+REVOKE EXECUTE ON FUNCTION public.split_installment_state(text,date,numeric,numeric) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_recalc_installment(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_payments_recalc_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_installment_is_eligible(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_participant_is_eligible(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_enqueue_installment_message(uuid,uuid,uuid,text,timestamptz) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_enqueue_message(uuid,uuid,text,timestamptz) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.schedule_split_due_reminders(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_add_installment_payment(uuid,numeric,timestamptz,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_add_payment_v2(uuid,numeric) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_reverse_installment_payment(uuid,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_reverse_payment_v2(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_apply_installments(uuid,jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_cancel_installment(uuid,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_cancel_participant(uuid,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_cancel_open_installments(uuid,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_create_v3(text,numeric,date,date,split_mode,boolean,boolean,text,jsonb,numeric,uuid,uuid,uuid,uuid,boolean,jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_update_v3(uuid,text,numeric,date,date,split_mode,boolean,text,jsonb,uuid,uuid,uuid,uuid,boolean,jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_summary() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.split_receivables_agenda(date,date) FROM PUBLIC;
+
+-- Quem realmente precisa executar
+GRANT EXECUTE ON FUNCTION public.split_installment_state(text,date,numeric,numeric) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.split_add_installment_payment(uuid,numeric,timestamptz,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_add_payment_v2(uuid,numeric) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_reverse_installment_payment(uuid,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_reverse_payment_v2(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_cancel_installment(uuid,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_cancel_participant(uuid,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_cancel_open_installments(uuid,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_create_v3(text,numeric,date,date,split_mode,boolean,boolean,text,jsonb,numeric,uuid,uuid,uuid,uuid,boolean,jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_update_v3(uuid,text,numeric,date,date,split_mode,boolean,text,jsonb,uuid,uuid,uuid,uuid,boolean,jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_summary() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_receivables_agenda(date,date) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.split_enqueue_message(uuid,uuid,text,timestamptz) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.split_enqueue_installment_message(uuid,uuid,uuid,text,timestamptz) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.schedule_split_due_reminders(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.split_installment_is_eligible(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.split_participant_is_eligible(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.split_apply_installments(uuid,jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.split_recalc_installment(uuid) TO service_role;

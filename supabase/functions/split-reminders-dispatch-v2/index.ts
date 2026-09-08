@@ -83,6 +83,28 @@ function ownerDigestMessage(
 }
 
 
+type Receivable = {
+  installment_id: string;
+  installment_number: number;
+  total_installments: number;
+  amount: number;
+  paid_amount: number;
+  balance_due: number;
+  due_date: string | null;
+  settlement_status: string;
+  state: string;
+};
+
+function formatCivilBR(date: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date ?? ""));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+}
+
+function installmentLabel(receivable: Receivable | null): string {
+  if (!receivable || Number(receivable.total_installments) <= 1) return "parte do rolê";
+  return `${receivable.installment_number}ª parcela de ${receivable.total_installments}`;
+}
+
 function messageFor(
   kind: string,
   participant: any,
@@ -91,14 +113,26 @@ function messageFor(
   persona: MessagePersona,
   linkSentence: string,
   split: { participantsCount: number; totalAmount: number },
+  receivable: Receivable | null,
+  participantRemaining: number,
 ): string {
-  const due = expense?.due_date
-    ? new Date(`${expense.due_date}T12:00:00`).toLocaleDateString("pt-BR")
-    : null;
+  const due = receivable?.due_date
+    ? formatCivilBR(receivable.due_date)
+    : expense?.due_date
+      ? formatCivilBR(expense.due_date)
+      : null;
   const participantsCount = Math.max(1, Number(split.participantsCount || 0));
   const totalAmount = Number(split.totalAmount || 0);
   const splitContextSentence = totalAmount > 0
     ? ` (total do rolê: ${formatBRL(totalAmount)}, dividido entre ${participantsCount} ${participantsCount === 1 ? "pessoa" : "pessoas"})`
+    : "";
+  const paidOnInstallment = Number(receivable?.paid_amount ?? 0);
+  const partialSentence = paidOnInstallment > 0
+    ? `\n\n💰 *Pagamento parcial:* já foram pagos *${formatBRL(paidOnInstallment)}*. Restam *${formatBRL(remaining)}*.`
+    : "";
+  const installments = Number(receivable?.total_installments ?? 1);
+  const remainingSentence = participantRemaining > remaining
+    ? `\n\nTotal ainda a receber de você: *${formatBRL(participantRemaining)}*.`
     : "";
 
   return renderMessageTemplate(kind, persona, {
@@ -107,15 +141,22 @@ function messageFor(
     title: String(expense.title ?? "seu rolê"),
     amount: formatBRL(remaining),
     total_amount: formatBRL(totalAmount),
+    participant_total: formatBRL(Number(participant.amount_due ?? 0)),
     participants_count: String(participantsCount),
     split_context_sentence: splitContextSentence,
+    installment_label: installmentLabel(receivable),
+    installments_sentence: installments > 1 ? `, em *${installments}x*` : "",
+    first_due_sentence: due ? ` A primeira parcela vence em *${due}*.` : "",
+    partial_sentence: partialSentence,
+    remaining_sentence: remainingSentence,
     due_date: due ?? "",
-    due_sentence: due ? ` O combinado é pagar até ${due}.` : "",
+    due_sentence: due ? ` O combinado é pagar até *${due}*.` : "",
     pix_key: String(expense.pix_key ?? ""),
-    pix_sentence: expense.pix_key ? ` Pix: ${expense.pix_key}.` : "",
+    pix_sentence: expense.pix_key ? `\n\nPix: ${expense.pix_key}` : "",
     link_sentence: linkSentence,
   });
 }
+
 
 async function isRegisteredPhone(sb: any, phoneE164: string): Promise<boolean> {
   if (!phoneE164) return false;
@@ -320,7 +361,60 @@ Deno.serve(async (req) => {
       }
       expense.owner_name = ownerNames.get(expense.owner_user_id) || "A pessoa responsável pelo rolê";
 
-      const remaining = Math.max(0, Number(participant.amount_due) - Number(participant.amount_paid));
+      // ---- Late validation obrigatória (split_receivables.v1) ----
+      // A cobrança é por PARTICIPANTE + PARCELA. Antes de enviar qualquer coisa
+      // reconsultamos a parcela: se ela foi paga, cancelada ou o saldo zerou
+      // entre a criação do job e este instante, a mensagem NÃO sai.
+      let receivable: Receivable | null = null;
+      if (job.installment_id) {
+        const { data: rowData, error: rowError } = await sb.from("split_receivables_v1")
+          .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
+          .eq("installment_id", job.installment_id)
+          .maybeSingle();
+        if (rowError) throw new Error(`receivable:${rowError.message}`);
+        receivable = (rowData as Receivable | null) ?? null;
+      }
+
+      const installmentBalance = receivable
+        ? Math.max(0, Number(receivable.balance_due ?? 0))
+        : Math.max(0, Number(participant.amount_due) - Number(participant.amount_paid));
+
+      const chargeKind = ["reminder", "due_soon", "due_today", "overdue"].includes(kind);
+      if (chargeKind) {
+        let suppression: string | null = null;
+        if (job.installment_id && !receivable) suppression = "installment_missing";
+        else if (receivable && receivable.settlement_status === "cancelled") suppression = "cancelled";
+        else if (receivable && receivable.settlement_status === "paid") suppression = "already_paid";
+        else if (installmentBalance <= 0) suppression = "no_balance_due";
+        if (suppression) {
+          await sb.from("reminder_jobs").update({
+            status: "skipped",
+            cancel_reason: suppression,
+            last_error: suppression,
+            lease_expires_at: null,
+          }).eq("id", job.id);
+          await sb.from("shared_expense_events").insert({
+            shared_expense_id: job.shared_expense_id,
+            owner_user_id: expense.owner_user_id,
+            participant_id: job.participant_id,
+            event_type: "message_suppressed",
+            payload: { kind, job_id: job.id, installment_id: job.installment_id ?? null, reason: suppression, worker: "v2" },
+          });
+          skipped++;
+          continue;
+        }
+      }
+
+      const remaining = installmentBalance;
+      let participantRemaining = Math.max(0, Number(participant.amount_due) - Number(participant.amount_paid));
+      if (job.installment_id) {
+        const { data: balances } = await sb.from("split_receivables_v1")
+          .select("balance_due,settlement_status")
+          .eq("participant_id", job.participant_id);
+        participantRemaining = ((balances as Array<{ balance_due: number | null; settlement_status: string }> | null) ?? [])
+          .filter((row) => row.settlement_status !== "cancelled")
+          .reduce((sum, row) => sum + Math.max(0, Number(row.balance_due ?? 0)), 0);
+      }
       const phone = String(participant.phone_e164 ?? "");
       const registered = await isRegisteredPhone(sb, phone);
       const env = { APP_PUBLIC_URL: Deno.env.get("APP_PUBLIC_URL") ?? null };
@@ -340,7 +434,11 @@ Deno.serve(async (req) => {
         kind: "split_signup",
       });
       const linkSentence = buildLinkSentence({ isRegistered: registered, appLink, signupLink });
-      const message = messageFor(kind, participant, expense, remaining, persona, linkSentence, await splitContext(String(job.shared_expense_id)));
+      const message = messageFor(
+        kind, participant, expense, remaining, persona, linkSentence,
+        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining,
+      );
+
 
       let deliveredSomewhere = false;
       if (participant.linked_user_id) {
@@ -360,7 +458,8 @@ Deno.serve(async (req) => {
       let outboundId: string | null = null;
       const whatsappAllowed = phone && !participant.opt_out_at;
       if (whatsappAllowed) {
-        const idempotencyKey = `split:${kind}:${job.participant_id}:${job.id}`;
+        // Dedupe por participante + parcela + tipo + job.
+        const idempotencyKey = `split:${kind}:${job.participant_id}:${job.installment_id ?? "single"}:${job.id}`;
         const { data: outbound, error: outboundError } = await sb.from("outbound_messages")
           .insert({
             channel: "whatsapp",
@@ -373,7 +472,7 @@ Deno.serve(async (req) => {
             context_type: "shared_expense",
             context_id: job.shared_expense_id,
             participant_id: job.participant_id,
-            metadata: { job_id: job.id, origin: "split_reminder_v2", template: kind },
+            metadata: { job_id: job.id, origin: "split_reminder_v2", template: kind, installment_id: job.installment_id ?? null },
             surface: "whatsapp",
             feature: "split_reminder",
           })
