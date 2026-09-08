@@ -32,11 +32,14 @@ describe("correções definitivas do assessor e mensageria", () => {
 
   it("renderiza template sem forçar nome", () => {
     const value = renderMessageTemplate("invite", { name: "" }, {
-      participant_name: "Ana", owner_name: "Daniel", title: "Jantar", amount: "R$ 25,00",
+      participant_name: "Ana", owner_name: "Daniel", title: "Jantar",
+      amount: "R$ 25,00", participant_total: "R$ 25,00",
       due_sentence: "", pix_sentence: "", due_date: "", pix_key: "",
     });
-    expect(value).toContain("Ana");
+    expect(value).toContain("R$ 25,00");
+    expect(value).toContain("Daniel");
     expect(value).toContain("Jantar");
     expect(value).not.toContain("Lucas");
   });
+
 });
