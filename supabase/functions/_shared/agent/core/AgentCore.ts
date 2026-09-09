@@ -63,6 +63,7 @@ import { groundReply } from "./GroundingGateV3.ts";
 import { buildClarification } from "./ClarificationResponse.ts";
 import { recordAiStage } from "./AiStageMetrics.ts";
 import { runTool } from "./ToolRuntime.ts";
+import { createTurnEvidenceCache } from "./TurnEvidenceCache.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
 import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
@@ -815,6 +816,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   let semanticEngines: string[] = [];
   let semanticRequiredTool: string | null = null;
   let semanticDeterministicText: string | null = null;
+  // `nino_turn_cache.v1` — evidência do turno. Uma ferramenta canônica executa
+  // uma única vez por turno, mesmo quando pipeline semântico, resgate de
+  // capability e planner legado pedem a mesma coisa. WRITE nunca repete.
+  const evidenceCache = createTurnEvidenceCache();
 
   const dialogueState = classifyDialogueState(input.text, routed.intent);
   const semanticV3 = await isEnabled("semantic_ir_v3", input.user_id);
@@ -864,7 +869,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         }),
         runEngine: async (tool, args) => {
           const exec = await runTool(
-            { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: turnPlan.effective_text },
+            {
+              sb, user_id: input.user_id, conversation_id: input.conversation_id,
+              user_text: turnPlan.effective_text, evidenceCache,
+            } as any,
             tool, args, { timeoutMs: 12_000, maxRetries: 1 },
           );
           return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
@@ -979,7 +987,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       semanticStatus = "compiler_failed";
       semanticIRTelemetry = { version: "nino_semantic_ir.v3", semantic_status: "compiler_failed", executed_by: "legacy_router" };
     }
-  } else if (!rawDeterministic
+  } else if (!semanticV3
+    // v1 é DEPRECADO: só entra quando o v3 não é a autoridade do turno.
+    // Nunca roda em paralelo/duplicado com o pipeline semântico v3.
+    && !rawDeterministic
     && !capability.clarification
     && await isEnabled("semantic_ir_v1", input.user_id)) {
 
@@ -1427,7 +1438,7 @@ ${episodic}
     user_id: input.user_id, conversation_id: input.conversation_id,
     user_text: turnPlan.followup ? turnPlan.effective_text : input.text, hasPrompt: !!prompt,
     // Resolução de continuidade continua com o histórico completo do turno.
-    history, capability,
+    history, capability, evidenceCache,
   }, {
     model: prompt?.model ?? "google/gemini-2.5-flash",
     maxSteps: prompt?.max_steps ?? 6,
@@ -1925,6 +1936,13 @@ ${episodic}
           // Telemetria do caminho analítico: o diagnóstico deixa de ser
           // investigação e passa a ser consulta.
           semantic_ir: semanticIRTelemetry,
+          // `nino_turn_cache.v1` — execuções reais vs. reaproveitadas no turno.
+          turn_cache: {
+            version: "nino_turn_cache.v1",
+            ...evidenceCache.stats(),
+            semantic_authority: semanticV3 && semanticEligible,
+            legacy_ir_used: (semanticIRTelemetry as any)?.version === "nino_semantic_ir.v2",
+          },
           dialogue_act: {
             repair: dialogueAct.repair,
             kind: (dialogueAct as any).kind ?? null,

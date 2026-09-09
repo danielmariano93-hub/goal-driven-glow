@@ -10,6 +10,7 @@ import { runAgentTurn, type LLMTurn } from "../llm.ts";
 import { toolByName, type ToolContext, type ToolResult } from "../tools.ts";
 import type { HistoryTurn } from "./ConversationHistory.ts";
 import { isRetryable } from "./ErrorRecovery.ts";
+import type { TurnEvidenceCache } from "./TurnEvidenceCache.ts";
 
 export type ToolRuntimeOptions = {
   model: string;
@@ -65,6 +66,22 @@ export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 export async function runTool(
+  ctx: ToolContext,
+  tool_name: string,
+  args: any,
+  opts: RunToolOptions = {},
+): Promise<ToolExecution> {
+  // `nino_turn_cache.v1`: uma ferramenta executa UMA vez por turno. O cache vive
+  // no ToolContext do turno; WRITE nunca é reexecutada.
+  const cache = (ctx as any)?.evidenceCache as TurnEvidenceCache | undefined;
+  if (cache) {
+    const out = await cache.run(tool_name, args, () => runToolUncached(ctx, tool_name, args, opts));
+    return out as ToolExecution;
+  }
+  return await runToolUncached(ctx, tool_name, args, opts);
+}
+
+async function runToolUncached(
   ctx: ToolContext,
   tool_name: string,
   args: any,

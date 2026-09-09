@@ -16,6 +16,7 @@ import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { expandedToolsFor, type CapabilityDecision } from "./CapabilityRouter.ts";
 import { getAiBlock, pauseAiCircuit } from "../../aiCircuit.ts";
 import { runTool } from "./ToolRuntime.ts";
+import type { TurnEvidenceCache } from "./TurnEvidenceCache.ts";
 import { flagSnapshot } from "./FeatureFlags.ts";
 import { resolveReadIntent } from "./IntentResolver.ts";
 
@@ -61,6 +62,8 @@ export async function plan(
     hasPrompt: boolean;
     history?: Array<{ role: string; content: string }>;
     capability: CapabilityDecision;
+    /** `nino_turn_cache.v1` — evidência já executada neste turno. */
+    evidenceCache?: TurnEvidenceCache;
   },
   opts: ToolRuntimeOptions,
 ): Promise<PlannerResult> {
@@ -210,7 +213,10 @@ export async function plan(
   let preExecuted: ToolRuntimeOptions["preExecuted"];
   if (requiredTool && (toolArgs || PREEXECUTABLE_READS.has(requiredTool))) {
     const exec = await runTool(
-      { sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text } as any,
+      {
+        sb, user_id: args.user_id, conversation_id: args.conversation_id,
+        user_text: args.user_text, evidenceCache: args.evidenceCache,
+      } as any,
       requiredTool,
       toolArgs ?? {},
       { timeoutMs: Math.min(10_000, route.max_latency_ms), maxRetries: 1 },

@@ -15,10 +15,10 @@ export type MessagePersona = {
 // cheio quando já houve pagamento parcial.
 const DEFAULTS: Record<string, string> = {
   invite: "👋 *{{title}} — sua parte*\n\n{{owner_name}} incluiu você na divisão “{{title}}”{{split_context_sentence}}. Sua parte é *{{participant_total}}*{{installments_sentence}}.{{first_due_sentence}}{{pix_sentence}}{{link_sentence}}",
-  reminder: "💸 *Divisão do rolê — {{participant_name}}*\n\nA *{{installment_label}}*, no valor de *{{amount}}*, está em aberto.{{due_sentence}}{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
-  due_soon: "💸 *Divisão do rolê — {{participant_name}}*\n\nA *{{installment_label}}*, no valor de *{{amount}}*, vence em *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
-  due_today: "💸 *Divisão do rolê — {{participant_name}}*\n\nA *{{installment_label}}*, no valor de *{{amount}}*, vence hoje, *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
-  overdue: "⚠️ *Parcela em atraso — {{participant_name}}*\n\nA parcela de *{{amount}}*, com vencimento em *{{due_date}}*, ainda consta como pendente.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  reminder: "💸 *{{title}} — sua parte*\n\nOi, {{participant_name}}! Sobre a divisão “{{title}}” com {{owner_name}}: a *{{installment_label}}*, no valor de *{{amount}}*, está em aberto.{{due_sentence}}{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  due_soon: "💸 *{{title}} — vence amanhã*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, vence em *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  due_today: "💸 *{{title}} — vence hoje*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, vence hoje, *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
+  overdue: "⚠️ *{{title}} — parcela em atraso*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, com vencimento em *{{due_date}}*, ainda consta como pendente.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
   payment_confirmation: "✅ *Pagamento registrado*\n\nRecebemos a sua *{{installment_label}}* em “{{title}}”, {{participant_name}}.{{remaining_sentence}}",
   completed: "🎉 *Rolê fechado*\n\nTodo mundo acertou a divisão “{{title}}”. Obrigado!",
   goal_invite: "Oi, {{participant_name}}! 👋 {{owner_name}} convidou você para a meta conjunta “{{title}}” (objetivo: {{amount}}).{{link_sentence}} Bora juntos?",
