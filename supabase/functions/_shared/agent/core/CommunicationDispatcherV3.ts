@@ -20,6 +20,12 @@ import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligenc
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
 import { confirmChangeFollowupDelivery } from "../changeLoop.ts";
 import { applyCommunicationInstruction, instructionFromEvidence } from "../changeMessage.ts";
+import { isEnabled } from "./FeatureFlags.ts";
+import { buildNarrativeEvidencePack, NARRATIVE_EVIDENCE_PACK_VERSION } from "../narrative/NarrativeEvidencePack.ts";
+import { narrativeEligibility } from "../narrative/TonePolicy.ts";
+import { composeNarrative, formatNarrativeForWhatsapp, type NarrativeResult } from "../narrative/NarrativeComposer.ts";
+import { loadNarrativeContext } from "../narrative/NarrativeMemory.ts";
+import { subjectKeyOf } from "../narrative/SignalGrouping.ts";
 
 /**
  * Revalidação tardia (`comm_revalidation.v1`).
@@ -284,6 +290,20 @@ async function loadCommunicationPolicy(sb: SupabaseClient): Promise<Communicatio
 }
 
 
+/** Termos proibidos por tipo, do catálogo de narrativa (editável no admin). */
+async function loadNarrativeForbiddenTerms(sb: SupabaseClient): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  try {
+    const { data } = await sb.from("nino_narrative_catalog")
+      .select("kind,forbidden_terms").eq("active", true);
+    for (const row of ((data as any[] | null) ?? [])) {
+      const terms = Array.isArray(row.forbidden_terms) ? row.forbidden_terms.map(String) : [];
+      map.set(String(row.kind), [...(map.get(String(row.kind)) ?? []), ...terms]);
+    }
+  } catch { /* catálogo indisponível não bloqueia entrega */ }
+  return map;
+}
+
 async function history(sb: SupabaseClient, userId: string): Promise<DeliveryHistory[]> {
   const { data, error } = await sb.from("communication_deliveries")
     .select("created_at,kind,channel,status,dedup_key")
@@ -304,8 +324,17 @@ async function record(sb: SupabaseClient, args: {
   dedup_key?: string;
   evidence?: unknown;
   block_context?: Record<string, unknown>;
+  narrative?: NarrativeResult | null;
 }) {
+  const narrative = args.narrative ?? null;
   const { error } = await sb.from("communication_deliveries").upsert({
+    narrative_mode: narrative?.mode ?? null,
+    narrative_model: narrative?.model ?? null,
+    narrative_body: narrative?.narrative_body ?? null,
+    guard_status: narrative ? (narrative.guard ? (narrative.guard.ok ? "passed" : "blocked") : "not_run") : null,
+    fallback_reason: narrative?.fallback_reason ?? null,
+    narrative_latency_ms: narrative?.latency_ms ?? null,
+    evidence_pack_version: narrative ? NARRATIVE_EVIDENCE_PACK_VERSION : null,
     user_id: args.user_id,
     suggestion_id: args.suggestion_id,
     kind: args.kind,
@@ -418,6 +447,11 @@ export async function dispatchSuggestions(
   const commPolicy = policyForUser(globalCommPolicy, userId);
 
   const dryRunEarly = opts.dryRun === true;
+  // `nino_narrative.v1` — camada de linguagem sobre evidência canônica.
+  const narrativeEnabled = !dryRunEarly && await isEnabled("narrative_layer_v1", userId).catch(() => false);
+  const [narrativeContext, narrativeForbidden] = narrativeEnabled
+    ? await Promise.all([loadNarrativeContext(sb, userId), loadNarrativeForbiddenTerms(sb)])
+    : [[] as Awaited<ReturnType<typeof loadNarrativeContext>>, new Map<string, string[]>()];
   const results: DispatchOutcome[] = [];
   const ranked = rankInsights(pool, (row) => {
     const evidence = (row.evidence ?? {}) as Record<string, unknown>;
@@ -585,6 +619,40 @@ export async function dispatchSuggestions(
       });
       const rendered = { title: renderedRaw.title, body: behavioral.body };
 
+      // Narrativa: o texto determinístico do motor é reescrito como leitura de
+      // assessor. Guarda reprovada, IA indisponível ou tipo operacional →
+      // segue exatamente o corpo determinístico.
+      let narrative: NarrativeResult | null = null;
+      const eligibility = narrativeEligibility(candidate.kind);
+      if (narrativeEnabled && eligibility.eligible) {
+        const subjectKey = subjectKeyOf(candidate as any);
+        const pack = buildNarrativeEvidencePack({
+          kind: candidate.kind,
+          severity: candidate.severity,
+          title: rendered.title,
+          body: rendered.body,
+          evidence: {
+            ...((candidate.evidence ?? {}) as Record<string, unknown>),
+            deterministic_body: rendered.body,
+          },
+        }, {
+          userContext: narrativeContext
+            .filter((c) => c.subject_key === "global" || c.subject_key === subjectKey)
+            .map((c) => c.statement),
+        });
+        const recentSameSubject = recent.filter((h) => h.kind === candidate.kind).length;
+        narrative = await composeNarrative({
+          sb, userId, pack, rules: eligibility.rules,
+          channel: target === "whatsapp" ? "whatsapp" : "app",
+          subjectKey, recentSameSubject,
+          forbiddenTerms: narrativeForbidden.get(candidate.kind) ?? [],
+          functionName: "communication-dispatcher-v3",
+        }).catch(() => null);
+        if (narrative?.mode === "narrative" && narrative.body.trim()) {
+          rendered.body = narrative.body.trim();
+        }
+      }
+
       if (dryRun) {
         results.push({
           id: candidate.id,
@@ -646,7 +714,7 @@ export async function dispatchSuggestions(
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "delivered", reason: template ? `in_app_template_v${template.version}` : "in_app_notification_created",
             dedup_key: candidate.dedup_key, evidence: candidate.evidence,
-            block_context: policyContext,
+            block_context: policyContext, narrative,
           });
           // Verdade de entrega: só aqui o follow-up de mudança vira check-in.
           await confirmChangeFollowupDelivery(sb, userId, {
@@ -673,7 +741,9 @@ export async function dispatchSuggestions(
           const { error: outboundError } = await sb.from("outbound_messages").insert({
             user_id: userId,
             to_phone: (link as any).phone_e164,
-            body: composeWhatsappBody(rendered.title, rendered.body),
+            body: narrative?.mode === "narrative"
+              ? formatNarrativeForWhatsapp(rendered.title, rendered.body)
+              : composeWhatsappBody(rendered.title, rendered.body),
             provider: "waha",
             status: "queued",
             kind: "proactive",
@@ -714,7 +784,7 @@ export async function dispatchSuggestions(
             user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
             status: "queued", reason: template ? `whatsapp_template_v${template.version}` : "whatsapp_queued",
             dedup_key: candidate.dedup_key, evidence: candidate.evidence,
-            block_context: policyContext,
+            block_context: policyContext, narrative,
           });
           anyQueued = true;
           results.push({ id: candidate.id, channel: target, status: "queued", title: rendered.title, body: rendered.body });

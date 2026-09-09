@@ -3288,11 +3288,18 @@ export type Database = {
           dedup_key: string | null
           delivered_at: string | null
           evidence: Json
+          evidence_pack_version: string | null
+          fallback_reason: string | null
           false_positive: boolean | null
+          guard_status: string | null
           id: string
           interacted_at: string | null
           kind: string
           logical_dedup_key: string | null
+          narrative_body: string | null
+          narrative_latency_ms: number | null
+          narrative_mode: string | null
+          narrative_model: string | null
           reason: string | null
           status: string
           suggestion_id: string | null
@@ -3309,11 +3316,18 @@ export type Database = {
           dedup_key?: string | null
           delivered_at?: string | null
           evidence?: Json
+          evidence_pack_version?: string | null
+          fallback_reason?: string | null
           false_positive?: boolean | null
+          guard_status?: string | null
           id?: string
           interacted_at?: string | null
           kind: string
           logical_dedup_key?: string | null
+          narrative_body?: string | null
+          narrative_latency_ms?: number | null
+          narrative_mode?: string | null
+          narrative_model?: string | null
           reason?: string | null
           status: string
           suggestion_id?: string | null
@@ -3330,11 +3344,18 @@ export type Database = {
           dedup_key?: string | null
           delivered_at?: string | null
           evidence?: Json
+          evidence_pack_version?: string | null
+          fallback_reason?: string | null
           false_positive?: boolean | null
+          guard_status?: string | null
           id?: string
           interacted_at?: string | null
           kind?: string
           logical_dedup_key?: string | null
+          narrative_body?: string | null
+          narrative_latency_ms?: number | null
+          narrative_mode?: string | null
+          narrative_model?: string | null
           reason?: string | null
           status?: string
           suggestion_id?: string | null
