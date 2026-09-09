@@ -58,6 +58,9 @@ export const NARRATIVE_TONES: Record<string, NarrativeTone> = {
   underused_subscription: "opportunity",
   recurring_pattern: "behavior",
   engagement_drop: "behavior",
+  anticipation: "risk",
+  cash_protection_action: "risk",
+  wealth_building_action: "opportunity",
   advisor_review_weekly: "report",
   advisor_review_monthly: "report",
 };
