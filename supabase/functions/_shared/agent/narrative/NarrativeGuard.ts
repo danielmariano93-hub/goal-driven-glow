@@ -9,6 +9,7 @@ import type { ToneRules } from "./TonePolicy.ts";
 
 export type GuardViolation =
   | "empty_text"
+  | "truncated_text"
   | "too_long"
   | "too_many_sentences"
   | "too_many_numbers"
@@ -111,6 +112,10 @@ export function guardNarrative(args: {
 
   if (!text) return { ok: false, violations: ["empty_text"], detail: ["texto vazio"] };
   if (text.length > 900) push("too_long", `${text.length} caracteres`);
+  // Texto cortado no meio (limite de tokens do modelo) nunca vai ao usuário.
+  if (!/[.!?*)\]"'\u201d]$/.test(text) && !/[.!?]\s*[\p{Extended_Pictographic}\uFE0F]+$/u.test(text)) {
+    push("truncated_text", "texto sem fecho de frase");
+  }
 
   const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
   if (sentences.length > args.rules.maxSentences) {

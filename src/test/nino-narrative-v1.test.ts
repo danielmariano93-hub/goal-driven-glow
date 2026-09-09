@@ -287,3 +287,23 @@ describe("composição e canais", () => {
     expect(text).toContain("*Isso foi planejado?*");
   });
 });
+
+describe("guarda contra texto cortado", () => {
+  it("rejeita narrativa interrompida no meio da frase", () => {
+    const result = guardNarrative({
+      text: "Seu caixa pode ficar negativo e os compromissos já conhecidos, o",
+      pack: pack(),
+      rules: toneRulesFor("attention"),
+    });
+    expect(result.violations).toContain("truncated_text");
+  });
+
+  it("aceita fecho com emoji depois da pontuação", () => {
+    const result = guardNarrative({
+      text: "Você está R$ 1.240,50 acima do padrão. Isso foi planejado? 👀",
+      pack: pack(),
+      rules: toneRulesFor("attention"),
+    });
+    expect(result.ok).toBe(true);
+  });
+});
