@@ -87,9 +87,12 @@ function strList(value: unknown): string[] {
 /** Números já escritos no corpo determinístico também são canônicos. */
 export function numbersInText(text: string): number[] {
   const out: number[] = [];
-  const money = String(text ?? "").matchAll(/R\$\s?([\d.]+(?:,\d{1,2})?)/g);
+  const money = String(text ?? "").matchAll(/R\$\s?([\d.,]+)/g);
   for (const m of money) {
-    const n = Number(m[1].replace(/\./g, "").replace(",", "."));
+    const raw = m[1].replace(/[.,]$/, "");
+    // Aceita padrão pt-BR (1.234,56) e também texto de motor em padrão en (1,234.56).
+    const ptBr = /,\d{1,2}$/.test(raw) || (!raw.includes(",") && !/\.\d{1,2}$/.test(raw));
+    const n = Number(ptBr ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/,/g, ""));
     if (Number.isFinite(n)) out.push(n);
   }
   const percents = String(text ?? "").matchAll(/(\d+(?:[.,]\d+)?)\s?%/g);

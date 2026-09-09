@@ -157,7 +157,7 @@ export async function composeNarrative(args: {
       body: JSON.stringify({
         model: NARRATIVE_MODEL,
         temperature: 0.5,
-        max_tokens: 700,
+        max_tokens: 1400,
         messages: [
           { role: "system", content: prompt.system },
           { role: "user", content: prompt.user },
