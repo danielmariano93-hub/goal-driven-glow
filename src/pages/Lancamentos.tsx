@@ -203,6 +203,19 @@ export default function Lancamentos() {
 
   const runBulkCategory = async () => {
     if (selected.size === 0) return;
+    // Guarda amigável: categoria de despesa não pode ir para receita (e vice-versa).
+    if (bulkCategoryId) {
+      const target = categories?.find((c) => c.id === bulkCategoryId);
+      const selectedTxs = (txs ?? []).filter((t) => selected.has(t.id));
+      const mismatch = selectedTxs.some((t) => target?.type && t.type !== target.type);
+      if (mismatch) {
+        notifyError(
+          "Seleção com tipos diferentes",
+          "Essa categoria vale só para um tipo (entrada ou saída). Separe a seleção e aplique de novo.",
+        );
+        return;
+      }
+    }
     setBulkRunning(true);
     try {
       const ids = Array.from(selected);
@@ -213,6 +226,7 @@ export default function Lancamentos() {
         category_reason: bulkCategoryId ? "escolha explícita em lote" : null,
       }).in("id", ids);
       if (error) throw error;
+
       notifySuccess(
         `${ids.length} lançamento${ids.length === 1 ? "" : "s"} atualizado${ids.length === 1 ? "" : "s"}`,
         bulkCategoryId ? "Categoria aplicada em lote." : "Categoria removida em lote.",
