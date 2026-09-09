@@ -40,7 +40,9 @@ export type FlagName =
   | "semantic_allowed_claims_v1"
   | "semantic_topic_state_v1"
   | "semantic_investigation_loop_v1"
-  | "semantic_capability_rescue_v1";
+  | "semantic_capability_rescue_v1"
+  // `nino_narrative.v1` — camada de narrativa do assessor. Nasce desligada.
+  | "narrative_layer_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -64,6 +66,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   semantic_topic_state_v1: false,
   semantic_investigation_loop_v1: false,
   semantic_capability_rescue_v1: false,
+  narrative_layer_v1: false,
 };
 
 /**
@@ -78,6 +81,7 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "semantic_allowed_claims_v1",
   "semantic_topic_state_v1",
   "semantic_investigation_loop_v1",
+  "narrative_layer_v1",
   "semantic_capability_rescue_v1",
 ]);
 
