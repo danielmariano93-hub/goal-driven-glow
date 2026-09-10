@@ -34,7 +34,7 @@ Ou seja: existia estado suficiente para salvar; o Nino tratou uma palavra de con
 
 **Semantic IR** — em `isSemanticReadEligible`, `pending_confirmation + ato de confirmação/cancelamento` → inelegível (fail-closed).
 
-**Fast path de comprovante** — `core/BankNotificationParser.ts` (Pix enviado/recebido, compra aprovada, transferência) extrai tipo, valor, contraparte, data, meio de pagamento e conta quando inequívoca; com confiança alta chama `create_transaction_draft` direto, sem ActionPlanner.
+**Fast path de comprovante (fail-closed)** — `core/BankNotificationParser.ts` classifica o evento antes de qualquer coisa: `completed_outflow`, `completed_inflow`, `scheduled`, `processing`, `declined`, `cancelled`, `refund`, `reversal`, `card_payment`, `internal_transfer`, `unknown`. Só `completed_outflow` e `completed_inflow` inequívocos geram rascunho automático. Agendado, em processamento, recusado, cancelado, devolvido, estornado, pagamento de fatura, transferência entre contas próprias ou qualquer ambiguidade caem no pipeline normal — nunca viram despesa comum. `account_id` só é preenchido com evidência explícita (nome/banco identificável e conta única compatível); na dúvida fica vazio. Fixtures positivas e negativas para cada classe.
 
 **Orçamento por rota** — `core/TurnBudget.ts` define teto por capability: confirmação/cancelamento = 0 chamadas de IA e prompt zero; entrada estruturada = 0–1; entrada simples = 1; análise = pipeline completo. Diagnóstico (`nino_diagnosis_context_for_user`), snapshot financeiro, contexto de assessor e comparação de período deixam de ser carregados em confirmação, cancelamento e rascunho determinístico. Auditoria do prompt de 25,8k chars com registro de qual bloco consome o quê.
 
