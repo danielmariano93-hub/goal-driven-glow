@@ -135,10 +135,17 @@ function messageFor(
   const partialSentence = paidOnInstallment > 0
     ? `\n\n💰 *Pagamento parcial:* já foram pagos *${formatBRL(paidOnInstallment)}*. Restam *${formatBRL(remaining)}*.`
     : "";
-  const installments = Number(receivable?.total_installments ?? 1);
+  const installments = Number(
+    receivable?.total_installments ?? scheduleFirst?.total_installments ?? activeSchedule.length ?? 1,
+  );
   const remainingSentence = participantRemaining > remaining
     ? `\n\nTotal ainda a receber de você: *${formatBRL(participantRemaining)}*.`
     : "";
+  // Agenda completa só no convite: os lembretes falam de UMA parcela.
+  const scheduleLines = kind === "invite"
+    ? buildInstallmentSchedule(activeSchedule as any)
+    : "";
+
 
   return renderMessageTemplate(kind, persona, {
     participant_name: String(participant.name ?? "").trim() || "tudo bem",
